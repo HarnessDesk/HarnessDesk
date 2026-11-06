@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { initialLeadState, reduceLeadBudget, summarizeLeadArguments, type LeadState, type LeadPermissionContext } from '@harnessdesk/lead'
 import { leadMessageEnvelope, leadMessageKey, type UserContent, runtimeId, sessionId, type SessionSummary } from '@harnessdesk/protocol'
-import { LEAD_CHAT_HELD } from '../src/lead/chats.js'
+import { LEAD_CHAT_HELD, type LeadChatsPorts } from '../src/lead/chats.js'
 import { SessionIndex } from '../src/session-index.js'
 
 const modulePath = '../src/lead/chats.js'
@@ -29,34 +29,36 @@ const rig = async (t: TestContext) => {
     const summary: SessionSummary = { runtime, id: sessionId(id), title: `Chat ${id}`, cwd, updatedAt, createdAt: 1, status: { type: 'idle' }, ...extra }
     index.upsert(summary); return summary
   }
-  const authorize = (method: string, params: unknown) => {
+  const authorize = (method: string, params: unknown, keepPrevious = false) => {
     const id = `attempt-${++count}`
     const attempts = new Map(state.attempts)
-    for (const [key, value] of attempts) attempts.set(key, { ...value, phase: 'finished', outcome: 'succeeded' })
+    if (!keepPrevious) for (const [key, value] of attempts) attempts.set(key, { ...value, phase: 'finished', outcome: 'succeeded' })
     attempts.set(id, { id, correlationId: id, method, arguments: summarizeLeadArguments(params), action: null, kind: 'mutation', stepId: null,
       phase: 'started', dispatched: true, effect: 'allow', outcome: null, recoveryReported: false, evidence: null, evidenceSeq: null, resolutionPending: false, contested: false })
     state = { ...state, attempts }
 
     return id
   }
+  let onSend: ((effect: () => void) => Promise<void>) | undefined
   const sentInput: (readonly UserContent[] | undefined)[] = []
   const holders = new Map<string, 'lead' | 'person'>(), sentKeys: { id: string; key: string }[] = []
   const control = {
     holder: async (_project: string, id: string) => holders.get(id) ?? null,
     noteSent: async (_project: string, id: string, key: string) => { sentKeys.push({ id, key }); onRecord?.(); if (!holders.has(id)) holders.set(id, 'lead') },
   }
-  const service = new LeadChats({ noteDispatchNotStarted: () => {}, control, project, state: () => state, member: async () => member, now: () => 100,
+  const ports: LeadChatsPorts = { noteDispatchNotStarted: () => {}, control, project, state: () => state, member: async () => member, now: () => 100,
     context: async (): Promise<LeadPermissionContext> => { onContext?.(); return { desk: state.policy!, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } },
     index, cwd: async (runtime: any, id: any) => { await cwdRead?.(); return index.get(runtime, id)?.cwd ?? null },
     live: () => live, publish: (event: any) => { published.push(event) },
     work: {
       threadRead: async (params: any) => { calls.push({ method: 'read', params }); return { id: params.id, title: 'Project chat', agent: { name: 'Agent' }, status: 'done', turns: [] } },
       startInProject: async (params: any, root: string, admit: (id?: string) => Promise<void>, _effect: unknown, _scope: unknown, input?: readonly UserContent[]) => { await admit(); row('created'); await admit('fixture:created'); sentInput.push(input); calls.push({ method: 'start', params: { ...params, root } }); return { id: 'fixture:created' } },
-      sessionSend: async (params: any, admit: () => Promise<void>, _effect: unknown, scope: (cwd: string) => Promise<void>, input?: readonly UserContent[]) => { await admit(); sentInput.push(input); queuedScope = scope; calls.push({ method: 'send', params }); return { queued: true } },
+      sessionSend: async (params: any, admit: () => Promise<void>, _effect: unknown, scope: (cwd: string) => Promise<void>, input?: readonly UserContent[]) => { await admit(); sentInput.push(input); queuedScope = scope; calls.push({ method: 'send', params }); await onSend?.(_effect as () => void); return { queued: true } },
       stop: async (params: any, admit: () => Promise<void>) => { await admit(); calls.push({ method: 'stop', params }); return {} },
     },
-  })
-  return { service, onContext: (callback: () => void) => { onContext = callback }, onRecord: (callback: () => void) => { onRecord = callback }, sentInput, holders, sentKeys, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
+  }
+  const service = new LeadChats(ports)
+  return { service, onSend: (callback: (effect: () => void) => Promise<void>) => { onSend = callback }, restart: () => new LeadChats(ports), onContext: (callback: () => void) => { onContext = callback }, onRecord: (callback: () => void) => { onRecord = callback }, sentInput, holders, sentKeys, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
     withdraw: () => { member = false }, onCwd: (callback: () => Promise<void>) => { cwdRead = callback } }
 }
 
@@ -300,4 +302,88 @@ test('only a durably accepted chat call is queued until dispatch or refusal', as
   release()
   await accepted
   assert.equal(r.service.effectsQueued, false)
+})
+
+test('identical sends retain independent effect ids until each dispatches', async t => {
+  const r = await rig(t); r.row('own')
+  const params = { id: 'fixture:own', text: 'Continue' }
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  r.onCwd(() => held)
+  const firstId = r.authorize('lead/chat/send', params)
+  const first = r.service.send({ ...params, effectId: firstId })
+  const secondId = r.authorize('lead/chat/send', params, true)
+  const second = r.service.send({ ...params, effectId: secondId })
+  const queuedAfterDispatch: boolean[] = []
+  r.onSend(async effect => {
+    effect()
+    queuedAfterDispatch.push(r.service.effectsQueued)
+    // The parent's result receipt settles this effect before the next dispatch.
+    const id = queuedAfterDispatch.length === 1 ? firstId : secondId
+    const attempts = new Map(r.state().attempts), attempt = attempts.get(id)!
+    attempts.set(id, { ...attempt, phase: 'finished', outcome: 'succeeded' })
+    r.setState({ attempts })
+  })
+  try {
+    assert.equal(r.service.effectsQueued, true)
+    release(); await Promise.all([first, second])
+    assert.deepEqual(queuedAfterDispatch, [true, false], 'the second identical effect stays queued after the first dispatch')
+    assert.equal(r.calls.filter(call => call.method === 'send').length, 2)
+    assert.equal(r.service.effectsQueued, false)
+  } finally { release(); await Promise.allSettled([first, second]) }
+})
+
+test('finished, recovered, stopped and restarted effects cannot remain queued', async t => {
+  const r = await rig(t); r.row('own')
+  const params = { id: 'fixture:own', text: 'Continue' }
+  for (const mode of ['finished', 'recovered', 'stopped'] as const) {
+    const id = r.authorize('lead/chat/send', params)
+    let release!: () => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    r.onCwd(() => held)
+    const pending = r.service.send(params)
+    try {
+      assert.equal(r.service.effectsQueued, true)
+      assert.equal(r.restart().effectsQueued, false, 'restart does not replay queue liveness from the journal')
+      if (mode === 'stopped') r.setState({ phase: 'stopped' })
+      else {
+        const attempts = new Map(r.state().attempts), attempt = attempts.get(id)!
+        attempts.set(id, { ...attempt, ...(mode === 'finished' ? { phase: 'finished', outcome: 'succeeded' } : { recoveryReported: true }) } as typeof attempt)
+        r.setState({ attempts })
+      }
+      assert.equal(r.service.effectsQueued, false, mode)
+    } finally { release(); await pending.catch(() => {}); r.setState({ phase: 'planning' }); r.onCwd(async () => {}) }
+  }
+})
+
+test('clearing local effects fences pending and accepted session sends across restart', async t => {
+  const r = await rig(t); r.row('own')
+  const params = { id: 'fixture:own', text: 'Continue' }
+  r.authorize('lead/chat/send', params); await r.service.send(params)
+  const oldScope = r.queuedScope()
+  let entered!: () => void, release!: () => void
+  const started = new Promise<void>(resolve => { entered = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  r.onCwd(async () => { entered(); await held })
+  const id = r.authorize('lead/chat/send', params)
+  const pending = r.service.send({ ...params, effectId: id })
+  try {
+    await Promise.race([started, pending.then(() => assert.fail('scope read must be held'))])
+    assert.equal(r.service.effectsQueued, true)
+    r.service.clearEffects()
+    assert.equal(r.service.effectsQueued, false)
+    release()
+    await assert.rejects(pending, /stopped|attempt|admission/)
+    await assert.rejects(oldScope(r.root), /stopped/)
+  } finally { release(); await pending.catch(() => {}) }
+})
+
+test('reading queue stage does not revoke a narrowing stop on an already stopped Lead', async t => {
+  const r = await rig(t); r.row('own')
+  r.setState({ phase: 'stopped' })
+  const params = { id: 'fixture:own' }
+  r.authorize('lead/chat/stop', params)
+  r.onContext(() => { assert.equal(r.service.effectsQueued, false) })
+  await r.service.stop(params)
+  assert.equal(r.calls.filter(call => call.method === 'stop').length, 1)
 })

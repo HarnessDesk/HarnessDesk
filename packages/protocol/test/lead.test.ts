@@ -565,3 +565,11 @@ test('Lead contracts preserve explicit no-publication pins without adding an abs
     assert.deepEqual(protocol.parseLeadAcceptanceContract(value), value)
   }
 })
+
+test('an older host window projection without stage fields remains readable', () => {
+  const old = { version: 1, revision: 2, thread, settings, requestInFlight: false, wayOut: 'resume', waitReason: null, planConsentExpiresAt: null }
+  const result = protocol.parseLeadWindowProjection(old)
+  assert.equal(result.stage, undefined)
+  assert.equal(result.stageReason, undefined)
+  assert.equal(result.wayOut, 'resume')
+})

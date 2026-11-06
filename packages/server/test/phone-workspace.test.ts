@@ -532,3 +532,21 @@ test('queued, failed and paused live sessions keep legacy words while stage name
     assert.equal(one.stage, 'queued', 'the authoritative host stage wins over an older run used by legacy phone words')
   } finally { await f.done() }
 })
+
+test('ready Teams, stopped Teams and failed sessions now count as needing you', async () => {
+  const f = await fixture()
+  try {
+    f.index.upsert(summary('failed'))
+    f.live = [{ runtime: agent, id: sessionId('failed'), running: false, waiting: false, failed: true, cost: null }]
+    f.teams = [team('ready', { activity: 'ready-to-wrap' }), team('stopped', { run: 'stopped' })]
+    const items = await f.workspace.workItems()
+    assert.deepEqual(Object.fromEntries(items.map(item => [item.id, item.stage])), {
+      'fake-agent:failed': 'you-blocked', ready: 'you-review', stopped: 'you-blocked',
+    })
+    assert.equal((await f.workspace.dashboardRead({})).counts.needsYou, 3)
+    assert.equal(f.workspace.sessionsList({}).counts.needsYou, 1)
+    assert.equal(items.find(item => item.kind === 'session')!.phase, 'done')
+    assert.equal(items.find(item => item.kind === 'session')!.line, 'Done')
+    assert.ok(items.filter(item => item.kind === 'team').every(item => item.phase === 'needsYou'))
+  } finally { await f.done() }
+})

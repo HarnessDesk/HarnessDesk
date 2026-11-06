@@ -19,6 +19,9 @@ The phone never gets `lead/settings/update`, which also carries permissions and 
 Only the three `you-*` stages wait on the person. `stageReason` is a stable
 host slug, never model-written text.
 
+A Team ready to accept, a stopped Team and a failed session now count as
+needing you. This is the intended change from the older counts.
+
 Phones must count and sort work by `stage`, using the three person stages
 before working, queued and idle items; they must not re-derive attention from
 cards, state or prose. Older desks omit these fields, so phones fall back to

@@ -121,3 +121,12 @@ test('a second look consumes its Team stage but preserves unrelated Team and cha
   assert.equal(gate.look({ ...stopped, teams: [stopped.teams[0], { goal: { id: 'team-2' }, stage: 'you-answer' }] }, own, [], 100).wake, true)
   assert.equal(gate.look(stopped, own, [], 100, [{ id: 'chat', stage: 'you-answer' }]).wake, true)
 })
+
+test('quiet chat fingerprint updates preserve unrelated changed desk facts', () => {
+  const gate = lead.createLeadWakeGate(), snapshot = desk([run()])
+  gate.shown(gate.look(snapshot, owned, [], 0, [{ id: 'chat', stage: 'working' }]).fingerprint)
+  gate.quietChat('chat', 'queued')
+  assert.equal(gate.look(snapshot, owned, [], 100, [{ id: 'chat', stage: 'queued' }]).wake, false)
+  gate.quietChat('chat', 'working')
+  assert.equal(gate.look(desk([run({ state: 'settled' })]), owned, [], 200, [{ id: 'chat', stage: 'working' }]).wake, true)
+})

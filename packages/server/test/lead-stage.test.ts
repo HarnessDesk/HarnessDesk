@@ -27,3 +27,10 @@ test('a reserved Team is queued only before its execution exists', () => {
   assert.equal(teamLeadStage(view, { state: 'running' }).stage, 'working')
   assert.equal(teamLeadStage({ ...view, activity: 'needs-you' }, null).stage, 'you-answer')
 })
+
+test('abandoned journal decisions cannot make a thread queued after restart', () => {
+  const state = initialLeadState()
+  const attempt = { id: 'abandoned', method: 'lead/chat/send', phase: 'decided', effect: 'allow', dispatched: false } as const
+  const recovered = { ...state, attempts: new Map([[attempt.id, attempt]]) } as unknown as typeof state
+  assert.equal(leadThreadStage(recovered, { cards: [] }, [], null, false).stage, 'idle')
+})

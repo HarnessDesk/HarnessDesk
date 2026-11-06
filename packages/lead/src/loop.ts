@@ -1,4 +1,4 @@
-import type { LeadStage } from '@harnessdesk/protocol'
+import { isWaitingOnYou, type LeadStage } from '@harnessdesk/protocol'
 import type { LeadJournalPort } from './child-ipc.js'
 import { leadProactiveReport, type LeadWakeRecord, clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
@@ -101,6 +101,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   const movedResults = new Set<string>()
   let noProgressTurns = 0, waitingForResume = false
   const chatStates = new Map<string, LeadStage>(), changedChats = new Map<string, { state: string; stage: LeadStage }>()
+  const teamStages = new Map<string, LeadStage | undefined>()
   const observedChats = () => [...chatStates].map(([id, stage]) => ({ id, stage }))
   const gate = createLeadWakeGate(options.stuckMs)
   let deskOwed = false, deskReadAt = 0, latestDeskReadAt = 0, latestDeskReadSucceeded = false
@@ -170,6 +171,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const next = structuredClone(desk.snapshot())
       // Whole replacement, including cleared waiting/approval/review collections.
       if (generation !== expected || closed) return
+      for (const team of next.teams) teamStages.set(team.goal.id, team.stage)
       snapshot = next; deskReadAt = latestDeskReadAt = clock.now(); latestDeskReadSucceeded = true
       await tools.settleStarts()
       await writeOffUncertain()
@@ -499,16 +501,29 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         if (event.type === 'chat.changed') {
           // The host emits only tracked ordinary chats, and the client door
           // independently confines these metadata-only events to this project.
-          if (event.project !== project.path || chatStates.get(event.id) === event.stage) continue
-          chatStates.delete(event.id); chatStates.set(event.id, event.stage)
-          if (chatStates.size > 64) chatStates.delete(chatStates.keys().next().value!)
-          changedChats.set(event.id, { state: event.state, stage: event.stage })
+          if (event.project !== project.path) continue
+          // Older desks have only the legacy state vocabulary.
+          const stage = event.stage ?? ({ running: 'working', waiting: 'you-answer', idle: 'idle' } as const)[event.state]
+          const previous = chatStates.get(event.id)
+          if (previous === stage) continue
+          chatStates.delete(event.id); chatStates.set(event.id, stage)
+          const forgotten = chatStates.size > 64 ? chatStates.keys().next().value : undefined
+          if (forgotten !== undefined) chatStates.delete(forgotten)
+          const personChanged = isWaitingOnYou(stage) || previous !== undefined && isWaitingOnYou(previous)
+          const finished = stage === 'idle' && previous === 'working'
+          if (!personChanged && !finished) {
+            // Keep an already owed completion/person wake, with the latest facts.
+            if (changedChats.has(event.id)) changedChats.set(event.id, { state: event.state, stage })
+            gate.quietChat(event.id, stage, forgotten)
+            continue
+          }
+          changedChats.set(event.id, { state: event.state, stage })
           if (changedChats.size > 64) changedChats.delete(changedChats.keys().next().value!)
           schedule(true)
           continue
         }
         if (event.type === 'gap' || event.type === 'end') {
-          chatStates.clear(); changedChats.clear()
+          chatStates.clear(); changedChats.clear(); teamStages.clear()
           synchronized = false; generation++; snapshot = null; relays = []; personActions = []
           cancelBatch?.(); cancelBatch = null; reportActivity()
           // Fence immediately, then invalidate durable cards through the writer.
@@ -519,6 +534,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           const state = journal.state
           if ('run' in event && !state.runs.some(run => run.runId === event.run)) continue
           if ('team' in event && event.team !== null && !state.teams.includes(event.team)) continue
+          const teamStageChanged = event.type === 'team.changed' && event.stage !== undefined && teamStages.get(event.team) !== event.stage
+          if (event.type === 'team.changed') teamStages.set(event.team, event.stage)
           refreshPending = true
           // Notices carry prose, not changed evidence. Refresh them in the batch
           // without consuming another decision revision for identical facts.
@@ -527,7 +544,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
             // A person can click while observations coalesce: invalidate first.
             await invalidate()
           }
-          const wakesModel = (['run.changed', 'card.changed', 'review.changed', 'waiting'].includes(event.type) || event.type === 'team.changed' && event.stage !== undefined) &&
+          const wakesModel = (['run.changed', 'card.changed', 'review.changed', 'waiting'].includes(event.type) || teamStageChanged) &&
             (('run' in event && state.runs.some(run => run.runId === event.run)) || ('team' in event && event.team !== null && state.teams.includes(event.team)))
           schedule(wakesModel)
         }

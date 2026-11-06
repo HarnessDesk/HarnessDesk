@@ -3748,6 +3748,10 @@ export class Host {
     this.#leadChatCancellation = async (id, count) => { await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${id}.`) }
     this.#leadChats = new LeadChats({ project, state: () => journal.state, now: () => Date.now(),
       managementAvailable: () => this.#leadService?.managementAvailable === true,
+      queuedSends: () => this.registry.all().some(record => record.queue.messages.some(message => {
+        const admission = this.registry.queuedAdmission(record, message.id)
+        return message.state === 'queued' && admission !== undefined && this.#leadChatAdmissions.has(admission)
+      })),
       noteDispatchNotStarted: id => journal.noteDispatchNotStarted(id),
       member: () => this.#leadBudgets.port.member(project),
       context: async call => {
@@ -3782,6 +3786,7 @@ export class Host {
       if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
     }))
     const stopOwned = async (reason: string) => {
+      this.#clearLeadChatEffects()
       const stopReason = reason === 'lead-budget-stopped' || reason === 'lead-request-cancelled'
         ? journal.state.budget?.stop?.reason ?? reason : reason
       if (reason === 'lead-host-shutdown' && journal.state.handbacks.some(op => op.stage === 'prepared' || op.stage === 'running' || op.stage === 'awaiting-ci')) return
@@ -3915,9 +3920,9 @@ export class Host {
       childStarted: () => {
         const end = this.#leadBudgets.childStarted(journal)
         childLive = true; trackOwned()
-        return () => { childLive = false; owned.clear(); end() }
+        return () => { this.#clearLeadChatEffects(); childLive = false; owned.clear(); end() }
       },
-      recover: () => this.#leadBudgets.recover(),
+      recover: () => { this.#clearLeadChatEffects(); return this.#leadBudgets.recover() },
       openDoor: async admission => openLeadClientDoor({ host: this, logger: this.#logger, home: this.#state.directory,
         hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission, readChatTarget: id => this.#leadChats!.canRead(id) }) }),
       stopOwned,
@@ -4052,10 +4057,7 @@ export class Host {
         Object.assign(project, leadProjectOf(root))
       },
       readRequestInFlight: () => this.#leadService?.requestInFlight ?? false,
-      readChatEffectQueued: () => this.#leadChats?.effectsQueued === true || this.registry.all().some(record => record.queue.messages.some(message => {
-        const admission = this.registry.queuedAdmission(record, message.id)
-        return message.state === 'queued' && admission !== undefined && this.#leadChatAdmissions.has(admission)
-      })),
+      readChatEffectQueued: () => this.#leadChats?.effectsQueued ?? false,
       service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
       publishResult: (card, decision, contract) => follow.accept(card, decision, contract),
@@ -10009,7 +10011,12 @@ export class Host {
     return this.#leadChats
   }
 
-  readonly #leadChatAdmissions = new WeakSet<DispatchAdmission<AgentSession>>()
+  #leadChatAdmissions = new WeakSet<DispatchAdmission<AgentSession>>()
+
+  #clearLeadChatEffects(): void {
+    this.#leadChats?.clearEffects()
+    this.#leadChatAdmissions = new WeakSet()
+  }
 
   #scopedLiveAdmission(params: { runtime: RuntimeId; sessionId: SessionId }, admitCwd?: DispatchAdmission<string>): (DispatchAdmission<AgentSession>) | undefined {
     if (!admitCwd) return undefined

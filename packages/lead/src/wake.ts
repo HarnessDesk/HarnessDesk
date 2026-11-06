@@ -76,6 +76,13 @@ export const createLeadWakeGate = (stuckMs = LEAD_STUCK_MS) => {
     get lastMoved(): ReadonlyMap<string, number> { return moved },
     /** Record what the model has now been shown; the counts start again from here. */
     shown(fingerprint: string) { seen = fingerprint; counts = { checked: 0, quiet: 0, lastCheckedAt: counts.lastCheckedAt } },
+    /** Background chat activity updates its fingerprint without consuming other desk facts. */
+    quietChat(id: string, stage: LeadStage, forgotten?: string) {
+      if (!seen || seen === 'unsynchronized') return
+      const previous = JSON.parse(seen) as { chats: LeadObservedStage[] }
+      previous.chats = [...previous.chats.filter(chat => chat.id !== id && chat.id !== forgotten), { id, stage }].sort((a, b) => a.id.localeCompare(b.id))
+      seen = JSON.stringify(previous)
+    },
     /** Consume one host-journaled intervention without waking for that stop.
      * Only this fingerprint is consumed: another round or changed evidence wakes. */
     handledStop(key: string, runId: string, snapshot: ClientSnapshot | null, owned: Owned, actions: readonly LeadAction[]) {

@@ -51,7 +51,6 @@ export const leadThreadStage = (state: LeadState, thread: Pick<LeadThread, 'card
     resultReady: thread.cards.some(card => card.type === 'result' && card.outcome === 'reviewed'),
     workerApproval: personActions.some(action => action.kind === 'worker-approval') || thread.cards.some(card => card.type === 'waiting' && card.kind === 'worker-approval'),
     checkToRun: personActions.some(action => action.kind === 'check'), waitReason, requestInFlight,
-    chatEffectQueued: chatEffectQueued || [...state.attempts.values()].some(attempt => ['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'].includes(attempt.method) &&
-      attempt.effect === 'allow' && attempt.phase === 'decided' && !attempt.dispatched),
+    chatEffectQueued,
   })
 }

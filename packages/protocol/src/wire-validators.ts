@@ -1041,14 +1041,14 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     return limit
   }) }),
   'lead/chat/read': phoneShape({ id: phoneText(300) }),
-  'lead/chat/start': phoneShape({ text: phoneText(16_384) }),
-  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384) }),
+  'lead/chat/start': phoneShape({ text: phoneText(16_384), effectId: optional(phoneText(256)) }),
+  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384), effectId: optional(phoneText(256)) }),
   'lead/chats/resetControl': parseLeadEmpty,
   'lead/chats/control': parseLeadEmpty,
   'lead/chat/takeOver': phoneShape({ id: phoneText(300) }),
   'lead/chat/handBack': phoneShape({ id: phoneText(300) }),
 
-  'lead/chat/stop': phoneShape({ id: phoneText(300) }),
+  'lead/chat/stop': phoneShape({ id: phoneText(300), effectId: optional(phoneText(256)) }),
   'lead/thread/read': parseLeadEmpty,
   'lead/thread/send': parseLeadThreadSend,
   'lead/card/decide': parseLeadCardDecision,
@@ -1693,7 +1693,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]
 
 const leadChatChangedParamsValidator: Validator<Extract<WireNotification, { method: 'lead/chat/changed' }>['params']> =
-  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), stage: literalUnion(...LEAD_STAGES) })
+  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), stage: optional(literalUnion(...LEAD_STAGES)) })
 
 /** State-only wake signal; never accepts transcript content as an event. */
 export const parseLeadChatChangedParams = (

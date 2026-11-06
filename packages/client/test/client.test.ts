@@ -626,3 +626,19 @@ test('a Team stage-only transition emits once and carries the host stage', async
   for (;;) { const event = await events.next(); if (event.done) break; if (event.value.type === 'team.changed') actual.push(event.value) }
   assert.deepEqual(actual.map(event => (event as any).stage), ['queued', 'working'])
 })
+
+test('chat events retain legacy state transitions when stage is unchanged or absent', async () => {
+  for (const stage of ['you-blocked', undefined] as const) {
+    const transport = new ScriptedTransport()
+    const client = await connect({ transport: async () => transport, client: clientInfo,
+      subscribe: { topics: ['chats'], scope: { project: '/workspace/demo' } } })
+    const events = client.events()[Symbol.asyncIterator]()
+    await next(events)
+    for (const state of ['waiting', 'idle', 'idle'] as const) transport.emit({ method: 'lead/chat/changed',
+      params: { id: 'fixture:chat', project: '/workspace/demo', state, ...(stage === undefined ? {} : { stage }) } } as WireNotification)
+    client.close()
+    const states = []
+    for (;;) { const event = await events.next(); if (event.done) break; if (event.value.type === 'chat.changed') states.push(event.value.state) }
+    assert.deepEqual(states, ['waiting', 'idle'])
+  }
+})

@@ -14,7 +14,7 @@ export interface LeadState {
   readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions: readonly LeadAction[]
   readonly stage: LeadWindowProjection['stage']
-  readonly stageReason: string
+  readonly stageReason: LeadWindowProjection['stageReason']
   readonly revision: number
   readonly thread: LeadThread | null
   readonly settings: LeadSettingsProjection | null
