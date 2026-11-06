@@ -1,4 +1,4 @@
-import { leadRoundId, leadRepairInput, leadRepairDetail, leadAcceptanceObservation, LEAD_REPAIR_INSTRUCTIONS, type LeadAcceptanceResult } from '@harnessdesk/lead'
+import { leadRoundId, leadRepairInput, leadRepairDetail, LEAD_REPAIR_INSTRUCTIONS, type LeadAcceptanceResult } from '@harnessdesk/lead'
 export { leadRoundId } from '@harnessdesk/lead'
 /** Durable host decision to wait for checks before revisiting this review. */
 export const leadCheckWaitKey = (round: number): string => `lead-check-wait:${round}`
@@ -182,6 +182,7 @@ export interface FlowLeadBinding {
 }
 export interface FlowLeadGuard {
   acceptance?(run: StoredFlowExecution): Promise<LeadAcceptanceResult | null>
+  canRerunChecks?(run: StoredFlowExecution): Promise<boolean>
   /** Host second-look authority and atomic admission, including terminal spend reopening. */
   prepareSecondLook?(run: StoredFlowExecution, key: string, round: number): Promise<void>
   prepareRepair?(run: StoredFlowExecution, key: string, round: number): Promise<void>
@@ -2902,9 +2903,10 @@ export class FlowExecutions {
       const fromReview = dependsOn.length > 0 ? run.rounds.find(round => round.role === 'review' && dependsOn.every(card => round.cards.includes(card))) : undefined
       if (run.lead && then.role === 'implement' && fromReview && !run.rounds.some(round => round.cause === cause.key)) {
         const acceptance = await this.#readLeadAcceptance(run)
+        const canRerun = acceptance?.checksCouldNotRun && await this.#canRerunLeadChecks(run)
         if (this.#stopRequests.has(id) || this.#get(id).state !== 'running') return
-        if (acceptance?.checksCouldNotRun) {
-          await this.#put(this.#operation({ ...this.#get(id), reason: leadAcceptanceObservation(acceptance) }, leadCheckWaitKey(fromReview.n),
+        if (canRerun) {
+          await this.#put(this.#operation({ ...this.#get(id), reason: 'Waiting for the required checks to run again.' }, leadCheckWaitKey(fromReview.n),
             { kind: 'round', state: 'finished', card: null, seat: null }))
           return
         }
@@ -2936,6 +2938,13 @@ export class FlowExecutions {
     catch (error) {
       this.#port.log('Lead acceptance evidence could not be read; keeping the Flow transition', { run: run.id, error: String(error) })
       return null
+    }
+  }
+  async #canRerunLeadChecks(run: StoredFlowExecution): Promise<boolean> {
+    try { return await this.#lead?.canRerunChecks?.(run) ?? false }
+    catch (error) {
+      this.#port.log('Lead check actions could not be read; keeping the repair transition', { run: run.id, error: String(error) })
+      return false
     }
   }
 

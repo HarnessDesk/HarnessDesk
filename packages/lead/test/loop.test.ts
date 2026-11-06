@@ -51,6 +51,7 @@ test('activity observations name each open worker request and each missing requi
     const text = body.messages.at(-1).content.map((block: any) => block.text ?? '').join('\n')
     assert.match(text, /code reviewer/); assert.match(text, /read the git log/); assert.match(text, /verify/)
     assert.match(text, /on their cards, never by a chat reply/)
+    assert.match(text, /Assertion verdicts/, 'the Lead receives internal acceptance observations independently of the person-facing run reason')
   } finally { await loop.close() }
 })
 

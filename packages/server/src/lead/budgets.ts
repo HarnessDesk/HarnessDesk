@@ -16,6 +16,7 @@ export interface LeadBudgetPort {
   /** Returns a cancellation function; tests advance the host scheduler explicitly. */
   schedule?(callback: () => void, delayMs: number): () => void
   acceptance?(run: StoredFlowExecution, journal: LeadJournal): Promise<LeadAcceptanceResult>
+  canRerunChecks?(run: StoredFlowExecution, journal: LeadJournal): Promise<boolean>
   now(): number
   runs(): readonly StoredFlowExecution[]
   /** Re-check the canonical project is still admitted, before every effect. */
@@ -127,6 +128,9 @@ export class LeadBudgets implements FlowLeadGuard {
   }
   acceptance(run: StoredFlowExecution): Promise<LeadAcceptanceResult | null> {
     return this.port.acceptance?.(run, this.#journal(run)) ?? Promise.resolve(null)
+  }
+  canRerunChecks(run: StoredFlowExecution): Promise<boolean> {
+    return this.port.canRerunChecks?.(run, this.#journal(run)) ?? Promise.resolve(false)
   }
   async prepareRepair(run: StoredFlowExecution, key: string, round: number): Promise<void> {
     const journal = this.#journal(run), state = journal.state, op = state.handbacks.at(-1)

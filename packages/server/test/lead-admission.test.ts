@@ -186,11 +186,11 @@ test('a stored recipe-1 plan starts and keeps its host guard after recovery', as
 })
 
 
-const reviewedRun = async (t: TestContext, acceptance: () => Promise<LeadAcceptanceResult>, head = 'a'.repeat(40), owned = true) => {
+const reviewedRun = async (t: TestContext, acceptance: () => Promise<LeadAcceptanceResult>, head = 'a'.repeat(40), owned = true, canRerunChecks = async () => false) => {
   const { agent, goalRig } = await import('./fixtures/flow-goal-rig.js')
   const rig = await goalRig(t, { executionOptions: { lead: {
     bind: async () => {}, round: async () => {}, gate: async () => ({ ok: true as const }),
-    acceptance,
+    acceptance, canRerunChecks,
   } } })
   rig.providers.set('alpha', 'writer-vendor'); rig.providers.set('beta', 'review-vendor')
   const reviewer = agent('code-reviewer', ['approve', 'request-changes'], 'beta')
@@ -341,14 +341,15 @@ test('a completed review that only lacks runnable checks holds for the existing 
     reviews: [{ id: 'request', assertionId: 'review', revision: 'a'.repeat(40), observedAt: 100, complete: true,
       verdict: 'request-changes', text: 'The required check timed out, so I could not verify it.' }],
   }, { now: 100, freshnessMs: 50, revision: 1 })
-  const { rig, run, review } = await reviewedRun(t, async () => acceptance())
+  const { rig, run, review } = await reviewedRun(t, async () => acceptance(), 'a'.repeat(40), true, async () => true)
   await rig.team.complete(review.cards[0]!, { outcome: 'request-changes' }, rig.sessionOf(review.seats[0]!))
   await rig.flows.flush()
   const after = rig.flows.executionOf(run.id)!
   assert.equal(after.state, 'running')
   assert.equal(after.rounds.length, 2)
   assert.equal(rig.board(run.goal).intents.length, 2)
-  assert.match(after.reason!, /Re-run these checks; they did not fail, they could not run/)
+  assert.equal(after.reason, 'Waiting for the required checks to run again.')
+  assert.doesNotMatch(after.reason!, /Assertion verdicts|[{}]/)
   exit = 0
   rig.files.dieWhen = saved => saved.rounds.at(-1)?.n === 3 && saved.rounds.at(-1)?.state === 'opening' && saved.rounds.at(-1)!.cards.length > 0
   await rig.flows.wakeEvidence(run.goal)
@@ -375,4 +376,62 @@ test('ordinary Flow repairs retain their own brief without Lead instructions', a
   assert.equal(last.role, 'implement')
   assert.doesNotMatch(card.detail!, /After a new commit, run all declared required checks again/)
   assert.equal([...card.detail!.matchAll(/Fix only the failed assertions listed/g)].length, 1)
+})
+
+
+for (const scenario of ['missing file', 'withheld commands', 'errored check'] as const) test(`runner-trouble routing uses offered checks: ${scenario}`, async t => {
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  const { join } = await import('node:path')
+  const { makeRepo } = await import('./fixtures/evidence-desk.js')
+  const { readChecks } = await import('../src/evidence/checks-file.js')
+  const { readLeadEvidence } = await import('../src/lead/assembly.js')
+  const { LeadPersonActions } = await import('../src/lead/person-actions.js')
+  const repo = await makeRepo('lead-actionable-hold-')
+  const command = scenario === 'withheld commands' ? 'printf "Authorization: Bearer demo-value"' : 'node unit.mjs'
+  if (scenario !== 'missing file') {
+    await mkdir(join(repo.dir, '.harnessdesk'))
+    await writeFile(join(repo.dir, '.harnessdesk/checks.yml'), `unit: { run: ${JSON.stringify(command)} }\n`)
+    await repo.git('add', '.harnessdesk'); await repo.git('commit', '-qm', 'Declare fixture check')
+  }
+  const head = await repo.git('rev-parse', 'HEAD'), file = await readChecks(repo.dir), owner = await leadRig(t)
+  const contract = { ...owner.contract, project: { ...owner.project, path: repo.dir }, assertions: [...owner.contract.assertions,
+    { id: 'checks', kind: 'check' as const, description: 'Required checks' }, { id: 'blockers', kind: 'blocking-findings' as const, description: 'No blockers' }] }
+  const { rig, run, review } = await reviewedRun(t, async () => {
+    const evidence = await readLeadEvidence(journal, run.id, call => host.call(call.method, call.params), () => 100)
+    const acceptance = evaluateLeadAcceptance(contract, evidence, { now: 100, freshnessMs: 1000, revision: 1 })
+    assert.equal(acceptance.checksCouldNotRun, true)
+    return acceptance
+  }, head, true, async () => actions.canRerunChecks(run.id))
+  const journal = { state: { ...owner.journal.state, contract,
+    runs: [{ runId: run.id, teamId: run.goal, correlationId: 'start' }], steps: [{ state: 'started', attemptId: 'start' }] } } as any
+  const host = {
+    registry: { all: () => [] }, flowsPlane: rig.flows, teamPlane: rig.team,
+    call: async (method: string, _params: unknown): Promise<any> => {
+      if (method === 'flow/execution') return rig.flows.executionOf(run.id)
+      if (method === 'goal/read') return { board: rig.board(run.goal) }
+      if (method === 'finding/run') return { embargoed: false, blocking: false }
+      assert.equal(method, 'evidence/board')
+      return { cards: rig.board(run.goal).intents.map(card => ({ card: card.id, running: [], facts: [
+        ...(rig.facts.get(run.goal) ?? []).filter(record => record.card?.id === card.id).map(record => ({ record, freshness: { state: 'fresh' } })),
+        ...(card.role === 'implement' && file.digest ? [{ record: { id: 'errored', fact: { kind: 'check', at: head, name: 'unit', run: command,
+          digest: file.digest, counted: true, exit: null, timedOut: true } }, freshness: { state: 'fresh' } }] : []),
+      ] })) }
+    },
+  }
+  const actions = new LeadPersonActions(journal, host as never, { seats: { all: () => [] } } as never, async () => {})
+  const scope = rig.sessionOf(review.seats[0]!), candidates = await rig.review.candidates(review.cards[0]!, scope)
+  await rig.review.record({ intent: review.cards[0]!, candidate: candidates[0]!.id, verdict: 'request-changes' }, scope)
+  await rig.team.complete(review.cards[0]!, { outcome: 'request-changes', note: 'Could not verify the required checks.' }, scope)
+  await rig.flows.flush()
+  const after = rig.flows.executionOf(run.id)!, offered = await actions.read()
+  if (scenario === 'errored check') {
+    assert.equal(after.rounds.length, 2)
+    assert.equal(after.reason, 'Waiting for the required checks to run again.')
+    assert.deepEqual(offered.map(action => action.kind === 'check' ? action.name : action.kind), ['unit'])
+  } else {
+    assert.equal(after.rounds.length, 3, 'the repair can fix a missing or unusable checks file')
+    assert.equal(after.rounds.at(-1)!.role, 'implement')
+    assert.equal(offered.length, 0)
+    assert.equal(after.operations.some(op => op.key.startsWith('lead-check-wait:')), false)
+  }
 })

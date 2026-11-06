@@ -50,7 +50,7 @@ export class LeadPersonActions {
   constructor(private readonly journal: LeadJournal, private readonly host: Pick<Host, 'registry' | 'teamPlane' | 'flowsPlane' | 'call'>,
     private readonly evidence: EvidencePlane, private readonly assertPublic: (value: unknown) => Promise<void>) {}
 
-  async #targets(): Promise<Target[]> {
+  async #targets(checkRejectionRun?: string): Promise<Target[]> {
     const state = this.journal.state, contract = state.contract
     if (!contract || ['accepted', 'declined', 'stopped', 'following'].includes(state.phase)) return []
     const targets: Target[] = []
@@ -111,7 +111,7 @@ export class LeadPersonActions {
       const review = facts.filter(one => one.record.fact.kind === 'review' && one.freshness.state === 'fresh').at(-1)?.record.fact
       const last = execution.rounds.at(-1)
       const heldForChecks = last?.role === 'review' && execution.operations?.some(operation => operation.key === leadCheckWaitKey(last.n))
-      if (review?.kind !== 'review' || review.verdict !== 'approve' && !(review.verdict === 'request-changes' && heldForChecks)) continue
+      if (review?.kind !== 'review' || review.verdict !== 'approve' && !(review.verdict === 'request-changes' && (heldForChecks || owned.runId === checkRejectionRun))) continue
       const file = await readChecksAt(contract.project.path, review.at as Sha)
       if (!file.digest) continue
       for (const check of file.checks) {
@@ -132,6 +132,11 @@ export class LeadPersonActions {
     return targets
   }
   async read(): Promise<readonly LeadAction[]> { return (await this.#targets()).map(target => target.action) }
+  /** Host-only preview before deciding to hold a rejecting review for checks.
+   * Uses the exact same revision, running-check and secret filters as read(). */
+  async canRerunChecks(runId: string): Promise<boolean> {
+    return (await this.#targets(runId)).some(target => target.action.kind === 'check' && target.action.runId === runId)
+  }
   async revoke(input: { readonly id: string; readonly contractDigest: string }): Promise<void> {
     await this.journal.revokeWorkerApproval(input.id, input.contractDigest)
   }

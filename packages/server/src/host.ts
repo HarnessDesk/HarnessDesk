@@ -847,6 +847,7 @@ export class Host {
   #leadService: LeadService | null = null
   #leadHasWorkerRules: (() => boolean) | null = null
   #leadAutoApproval: ((runtime: string, sessionId: string, approvalId: string) => Promise<boolean>) | null = null
+  #leadCanRerunChecks: ((runId: string) => Promise<boolean>) | null = null
   #leadControls: LeadControls | null = null
   #leadChatControl: LeadChatControlStore | null = null
   #leadChatProject: LeadProject | null = null
@@ -980,6 +981,7 @@ export class Host {
       const evidence = await readLeadEvidence(journal, run.id, call => this.call(call.method, call.params), () => Date.now())
       return evaluateLeadAcceptance(journal.state.contract!, evidence, { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
     },
+    canRerunChecks: (run, journal) => this.#leadJournal === journal ? this.#leadCanRerunChecks?.(run.id) ?? Promise.resolve(false) : Promise.resolve(false),
     interruptChecks: goal => this.#flows.interruptChecks(goal),
     stop: (run, reason) => this.#flows.stopRun(run, reason, 'desk'),
   })
@@ -3780,7 +3782,7 @@ export class Host {
       publish: params => this.#push({ method: 'lead/chat/changed', params }),
     })
     let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
-    this.onDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null; this.#leadJournal = null; this.#leadChatCancellation = null })
+    this.onDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null; this.#leadJournal = null; this.#leadChatCancellation = null; this.#leadCanRerunChecks = null })
     this.onDispose(journal.onChange(() => {
       const id = journal.state.budget!.logicalGoalId
       if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
@@ -3811,6 +3813,7 @@ export class Host {
     const detach = journal.onChange(trackOwned)
     this.onDispose(detach)
     const personActions = new LeadPersonActions(journal, this, this.#evidence, async value => { await this.#leadService!.assertPublic(value) })
+    this.#leadCanRerunChecks = runId => personActions.canRerunChecks(runId)
     this.#leadHasWorkerRules = () => journal.state.workerApprovals.length > 0
     this.#leadAutoApproval = (runtime, sessionId, approvalId) => personActions.autoAnswer(runtime, sessionId, approvalId)
     const secondLooks = new Map<string, Promise<void>>()
@@ -4046,9 +4049,12 @@ export class Host {
         if (!await this.#leadBudgets.port.member(contract.project)) return 'The project is no longer admitted'
         if (contract.project.id !== project.id || !samePath(contract.project.path, project.path)) return 'The selected project changed'
         if (contract.policyRevision !== journal.state.policy?.revision) return 'The permissions changed'
+        const approvedRepeat = contract.steps.some(step => step.sourceRevision !== LEAD_REVIEWED_RESULT.revision) &&
+          (await this.#leadPlanner().readSchedule()).tasks.some(task => task.approved?.contractDigest === contract.digest &&
+            task.approved.contract.digest === contract.digest && leadContractDigest(task.approved.contract) === contract.digest)
         for (const step of contract.steps) {
           if (step.flow !== 'lead-reviewed-result' || !leadReviewedResultSourceFor(step.sourceRevision) ||
-            step.sourceRevision !== LEAD_REVIEWED_RESULT.revision && (journal.state.contract?.digest !== contract.digest ||
+            step.sourceRevision !== LEAD_REVIEWED_RESULT.revision && !approvedRepeat && (journal.state.contract?.digest !== contract.digest ||
               !journal.state.contract.steps.some(stored => JSON.stringify(stored) === JSON.stringify(step)))) return 'The Flow source changed'
           const preview = await this.#flowPreviews.preview(project.path, leadReviewedResultSourceFor(step.sourceRevision)!, step.variables, undefined, undefined, {
             seats: Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]])), attended: step.attendance === 'attended', requireHeld: true }).catch(() => null)
