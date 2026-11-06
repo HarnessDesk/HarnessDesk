@@ -119,7 +119,8 @@ export const createLeadTools = (options: LeadToolsOptions) => {
     await resolve(call)
     if (signal?.aborted) fail()
     if (clientTierFor(call.method, call.params) === 'run' && !synchronized()) throw new LeadToolFencedError()
-    const value = await desk.call(call.method, call.params as never)
+    const params = ['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'].includes(call.method) ? { ...call.params, effectId: correlationId } : call.params
+    const value = await desk.call(call.method, params as never)
     if (call.method !== 'flow/start-goal') return { value, identity: null }
     const run = value as { id: string; goal: string; rounds: readonly { n: number }[] }
     if (!run || typeof run.id !== 'string' || typeof run.goal !== 'string' || !Number.isSafeInteger(run.rounds?.[0]?.n)) fail()

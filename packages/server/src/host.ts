@@ -3754,6 +3754,10 @@ export class Host {
     this.#leadChatCancellation = async (id, count) => { await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${id}.`) }
     this.#leadChats = new LeadChats({ project, state: () => journal.state, now: () => Date.now(),
       managementAvailable: () => this.#leadService?.managementAvailable === true,
+      queuedSends: () => this.registry.all().some(record => record.queue.messages.some(message => {
+        const admission = this.registry.queuedAdmission(record, message.id)
+        return message.state === 'queued' && admission !== undefined && this.#leadChatAdmissions.has(admission)
+      })),
       noteDispatchNotStarted: id => journal.noteDispatchNotStarted(id),
       member: () => this.#leadBudgets.port.member(project),
       context: async call => {
@@ -3766,7 +3770,7 @@ export class Host {
       cwd: async (runtime, id) => this.registry.get(runtime, id)?.session.cwd ?? this.#sessionIndex.get(runtime, id)?.cwd ?? null,
       live: (runtime, id) => {
         const held = this.registry.get(runtime, id)
-        return { running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0 }
+        return { approvalWaiting: (held?.approvals.size ?? 0) > 0, failed: held?.session.status.type === 'error', queuePaused: held?.queue.status === 'paused' && held.queue.messages.length > 0, queued: (held?.queue.messages.length ?? 0) > 0, running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0 }
       },
       work: this.#phoneWorkView(),
       control: {
@@ -3788,6 +3792,7 @@ export class Host {
       if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
     }))
     const stopOwned = async (reason: string) => {
+      this.#clearLeadChatEffects()
       const stopReason = reason === 'lead-budget-stopped' || reason === 'lead-request-cancelled'
         ? journal.state.budget?.stop?.reason ?? reason : reason
       if (reason === 'lead-host-shutdown' && journal.state.handbacks.some(op => op.stage === 'prepared' || op.stage === 'running' || op.stage === 'awaiting-ci')) return
@@ -3922,9 +3927,9 @@ export class Host {
       childStarted: () => {
         const end = this.#leadBudgets.childStarted(journal)
         childLive = true; trackOwned()
-        return () => { childLive = false; owned.clear(); end() }
+        return () => { this.#clearLeadChatEffects(); childLive = false; owned.clear(); end() }
       },
-      recover: () => this.#leadBudgets.recover(),
+      recover: () => { this.#clearLeadChatEffects(); return this.#leadBudgets.recover() },
       openDoor: async admission => openLeadClientDoor({ host: this, logger: this.#logger, home: this.#state.directory,
         hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission, readChatTarget: id => this.#leadChats!.canRead(id) }) }),
       stopOwned,
@@ -4074,6 +4079,7 @@ export class Host {
         Object.assign(project, leadProjectOf(root))
       },
       readRequestInFlight: () => this.#leadService?.requestInFlight ?? false,
+      readChatEffectQueued: () => this.#leadChats?.effectsQueued ?? false,
       service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
       publishResult: (card, decision, contract) => follow.accept(card, decision, contract),
@@ -9977,7 +9983,7 @@ export class Host {
         const id = record.session.id
         if (!this.#sessionIndex.isOwn(record.runtime, id)) return []
         const cost = record.session.usage?.cost
-        return [{ runtime: record.runtime, id, running: record.running.size > 0, waiting: record.approvals.size > 0,
+        return [{ runtime: record.runtime, id, failed: record.session.status.type === 'error', queuePaused: record.queue.status === 'paused' && record.queue.messages.length > 0, queued: record.queue.messages.length > 0, running: record.running.size > 0, waiting: record.approvals.size > 0,
           cost: cost && cost.currency === 'USD' ? cost.amount : null,
           preview: record.session.preview || firstAsk(record.session) }]
       }),
@@ -10028,9 +10034,16 @@ export class Host {
     return this.#leadChats
   }
 
+  #leadChatAdmissions = new WeakSet<DispatchAdmission<AgentSession>>()
+
+  #clearLeadChatEffects(): void {
+    this.#leadChats?.clearEffects()
+    this.#leadChatAdmissions = new WeakSet()
+  }
+
   #scopedLiveAdmission(params: { runtime: RuntimeId; sessionId: SessionId }, admitCwd?: DispatchAdmission<string>): (DispatchAdmission<AgentSession>) | undefined {
     if (!admitCwd) return undefined
-    return Object.assign(async (live: AgentSession) => {
+    const admission = Object.assign(async (live: AgentSession) => {
       const cwd = live.settings().cwd
       await admitCwd(cwd)
       // A changed handle/location during asynchronous scope checks must not
@@ -10038,6 +10051,8 @@ export class Host {
       if (this.registry.get(params.runtime, params.sessionId)?.live !== live || !samePath(live.settings().cwd, cwd) ||
         !this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('The chat project scope changed before dispatch.')
     }, { assertDispatch: admitCwd.assertDispatch })
+    this.#leadChatAdmissions.add(admission)
+    return admission
   }
 
   #chatControlStore(): LeadChatControlStore {
@@ -10268,6 +10283,7 @@ export class Host {
       if (['turn/started', 'turn/completed', 'approval/requested', 'approval/resolved', 'session/status', 'session/queue', 'session/closed', 'session/detached'].includes(event.type)) {
         const id = event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : null
         if (id) void this.#leadChats.changed(runtime, id).catch(() => {})
+        if (event.type === 'session/queue') void this.#leadControls?.workerApprovalsChanged().catch(() => { this.#logger.warn('Lead queue projection is unavailable') })
       }
     }
     // What a trigger Goal's waits are made of: named again once the current pass ends.

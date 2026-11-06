@@ -478,7 +478,7 @@ test('decided history cannot crowd live decisions or messages out of the window 
 
 test('a window projection says where a running goal stands, and refuses a reading that cannot be true', () => {
   const parse = validator('parseLeadWindowProjection')
-  const projection = { version: 1, revision: 2, thread: { ...thread, state: 'running' }, settings, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null }
+  const projection = { version: 1, stage: 'working', stageReason: 'running', revision: 2, thread: { ...thread, state: 'running' }, settings, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null }
   const progressOf = (value: unknown) => (parse(value) as { progress?: unknown }).progress
   for (const progress of [{ step: 2, steps: 3, runs: 1 }, { step: 1, steps: 1, runs: 0 }, { step: 64, steps: 64, runs: 64 }])
     assert.deepEqual(progressOf({ ...projection, progress }), { ...progress, since: undefined })
@@ -574,6 +574,14 @@ test('stored assertion results accept old and new statuses without changing thei
     assert.deepEqual(protocol.parseLeadCard({ ...cards[3], assertions: [stored] }).type, 'result')
   }
   assert.throws(() => protocol.parseLeadAssertionResult({ ...result, status: 'maybe' }))
+})
+
+test('an older host window projection without stage fields remains readable', () => {
+  const old = { version: 1, revision: 2, thread, settings, requestInFlight: false, wayOut: 'resume', waitReason: null, planConsentExpiresAt: null }
+  const result = protocol.parseLeadWindowProjection(old)
+  assert.equal(result.stage, undefined)
+  assert.equal(result.stageReason, undefined)
+  assert.equal(result.wayOut, 'resume')
 })
 
 test('strict asks and new proactive output require bounded unique options and a recommendation; stored legacy reports survive', () => {

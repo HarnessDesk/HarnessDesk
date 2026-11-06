@@ -8,6 +8,7 @@ move is real work and is not news to a person weighing an upgrade.
 ## Unreleased
 
 - **Lead calls work done only with evidence.** Reviews that say “should work” no longer pass, and checks that could not run ask for another check instead of a pointless repair round. Repairs focus on what failed.
+- **One answer to what needs you.** Lead and phone work lists share the desk’s stages for answers, reviews, blockers, working and queued items. A Team ready to accept, a stopped Team and a failed session now count as needing you.
 
 - **Answer the Lead with a tap.** Questions offer short choices with a recommended pick, while you can still type your own answer. Chats the Lead starts include your original words below its brief.
 

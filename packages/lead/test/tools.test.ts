@@ -167,3 +167,14 @@ test('a stored recipe-1 attended step previews with attendance omitted', async (
   assert.equal(s.calls.at(-1)?.method, 'flow/preview')
   assert.equal(s.calls.at(-1)?.params.source, source)
 })
+
+test('chat dispatch carries each journal effect id outside model arguments', async () => {
+  const s = await fixture(), tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  for (const method of ['lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
+    const params = { ...(method === 'lead/chat/start' ? {} : { id: 'fixture:chat' }), ...(method === 'lead/chat/stop' ? {} : { text: 'Continue' }) }
+    const effectId = `effect-${s.calls.length}`
+    await tools.dispatch({ method, params }, effectId)
+    assert.equal(s.calls.at(-1).params.effectId, effectId)
+    assert.equal('effectId' in params, false)
+  }
+})

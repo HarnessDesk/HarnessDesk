@@ -889,7 +889,7 @@ projects verified words in the `you` turn's `text`, with `lead: { name: string }
 for its historical sender, and optional thread `leadChatHolder: 'lead' | 'person'`.
 An absent holder means the host has no Lead-managed chat record. Window control lists distinguish `problem: { kind: 'invalid' | 'transient' | 'unavailable', message: string, retryable?: boolean }`: corrupt data or permanent record-access failures need explicit reset; repeated retryable failures set `retryable: true`, offer Try again before Reset, and keep probing and healing on a successful read; transient failures permit retry; an unavailable selected project requires restoring its folder or access permissions. This does not change the phone wire.
 
-The host stores at most 64 tracked chat ids in the Lead state folder’s `chats.json` watch file. Only meaningful running/waiting/idle transitions produce a metadata-only `lead/chat/changed` notification. The private client door rechecks project scope and current read authority, and supplies a bounded tracked-state baseline on subscription so a disconnected completion is observable. The Lead loop coalesces those changes, reads relevant conversations as untrusted observations, and reports only meaningful results or decisions. Ordinary sessions retain ordinary spend; they do not become approved Flow runs or consume its round accounting.
+The host stores at most 64 tracked chat ids in the Lead state folder’s `chats.json` watch file. Only meaningful host-stage transitions produce a metadata-only `lead/chat/changed` notification. The private client door rechecks project scope and current read authority, and supplies a bounded tracked-state baseline on subscription so a disconnected completion is observable. The Lead loop coalesces those changes, reads relevant conversations as untrusted observations, and reports only meaningful results or decisions. Ordinary sessions retain ordinary spend; they do not become approved Flow runs or consume its round accounting.
 
 The optional Lead child runs with `--permission --no-allow-net --no-addons
 --preserve-symlinks` and read grants for its own packages. Which binary runs it
@@ -957,7 +957,12 @@ refused at once; its account link is removed when the account can be reached
 (`relay-unlinks.json`, saved before the phone is removed).
 
 The phone's `workspace/read` snapshot carries capabilities, Teams and recent
-sessions, and its usage. Each signed-in account is one allowance row with the
+sessions, and its usage. Every `PhoneWorkItem` carries the host's `stage` and
+`stageReason`: `you-answer`, `you-review`, `you-blocked`, `working`, `queued`
+or `idle`. Phones must count and sort by stage, with the three `you-*` stages
+waiting on the person; they must not re-derive attention. Older desks omit
+stage, so phones fall back to the unchanged `phase` field. See the
+[phone Lead contract](../packages/phone-link/lead.md). Each signed-in account is one allowance row with the
 standing the desk's own screens show (`usageStandingOf`), its windows as "left"
 fractions, and reset, back and run-out times as epoch milliseconds the phone
 counts down to; a source's error is scrubbed and the account is never sent.

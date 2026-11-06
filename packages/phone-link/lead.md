@@ -11,6 +11,25 @@ These are the inner method/params values carried by the existing encrypted phone
 
 The phone never gets `lead/settings/update`, which also carries permissions and the provider key; the spending limit is the one setting it can change.
 
+## Who work waits on
+
+`LeadWindowProjection` and `PhoneWorkItem` carry `stage` and `stageReason`;
+`lead/chat/list` items and tracked chat notifications carry `stage`. Stages are
+`you-answer`, `you-review`, `you-blocked`, `working`, `queued` and `idle`.
+Only the three `you-*` stages wait on the person. `stageReason` is a stable
+host slug, never model-written text.
+
+A Team ready to accept, a stopped Team and a failed session now count as
+needing you. This is the intended change from the older counts.
+
+`running` counts only `working` items. The session `done` count excludes
+`queued` sessions too.
+
+Phones must count and sort work by `stage`, using the three person stages
+before working, queued and idle items; they must not re-derive attention from
+cards, state or prose. Older desks omit these fields, so phones fall back to
+`phase` (`needsYou` means waiting). Existing `phase` and `line` are unchanged.
+
 ## Read schedule and run history
 
 Request:

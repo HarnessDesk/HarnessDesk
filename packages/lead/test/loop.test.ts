@@ -1031,13 +1031,16 @@ test('ordinary chat work returns completion to the same Lead conversation withou
   assert.equal(s.journal.state.cards.length, 0)
   assert.notEqual(s.journal.state.phase, 'waiting-for-user')
   assert.equal(s.fake.requests.length, 2)
-  s.emit({ type: 'chat.changed', id: 'fixture:capture', project: contract.project.path, state: 'idle' })
+  s.emit({ type: 'chat.changed', id: 'fixture:capture', project: contract.project.path, state: 'running', stage: 'working' })
+  await s.drain(); await s.tick(); await loop.idle()
+  assert.equal(s.fake.requests.length, 2, 'starting work stays quiet')
+  s.emit({ type: 'chat.changed', id: 'fixture:capture', project: contract.project.path, state: 'idle', stage: 'idle' })
   await s.drain(); await s.tick(); await loop.idle()
   assert.equal(s.fake.requests.length, 3, 'completion gets one automatic turn')
   assert.match(s.fake.requests.at(-1).body, /fixture:capture/)
   assert.match(s.journal.state.messages.at(-1)!.text, /screenshot is saved/)
-  for (let i = 0; i < 8; i++) s.emit({ type: 'chat.changed', id: 'fixture:capture', project: contract.project.path, state: 'idle' })
-  s.emit({ type: 'chat.changed', id: 'other:chat', project: '/workspace/foreign', state: 'waiting' })
+  for (let i = 0; i < 8; i++) s.emit({ type: 'chat.changed', id: 'fixture:capture', project: contract.project.path, state: 'idle', stage: 'idle' })
+  s.emit({ type: 'chat.changed', id: 'other:chat', project: '/workspace/foreign', state: 'waiting', stage: 'you-answer' })
   await s.drain(); await s.tick(); await loop.idle()
   assert.equal(s.fake.requests.length, 3, 'unchanged or foreign work stays quiet')
   await loop.close()
@@ -2050,6 +2053,267 @@ for (const variant of ['proposal', 'frozen contract']) test(`a new recipe-1 ${va
     assert.equal(loop.state.reason, 'lead-plan-refused')
     assert.equal(freezes, variant === 'proposal' ? 0 : 1)
     assert.equal(s.calls.some(call => call.method === 'flow/start-goal'), false)
+  } finally { await loop.close() }
+})
+
+test('a Team stage-only change reaches a wake observation and an unchanged stage stays quiet', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message(), message()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request(input)
+    const stage = (value: string) => {
+      s.setSnapshot({ teams: [{ goal: { id: 'team-1' }, stage: value }], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] })
+      s.emit({ type: 'team.changed', team: 'team-1', activity: 'working', sentence: 'Work', stage: value })
+    }
+    const requests = s.fake.requests.length
+    stage('you-answer'); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
+    assert.match(s.fake.requests.at(-1).body, /Team stages:.*you-answer/)
+    stage('you-answer'); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
+  } finally { await loop.close() }
+})
+
+test('ordinary chat working and queued transitions stay quiet, while person waits and completion wake', async () => {
+  const s = await fixture(Array.from({ length: 8 }, () => message([{ type: 'text', text: 'Acknowledged.' }])))
+  const activity: boolean[] = []
+  s.options.onActivity = (busy: boolean) => activity.push(busy)
+  const loop = exported('createLeadLoop')(s.options)
+  const change = async (stage: string) => {
+    s.emit({ type: 'chat.changed', id: 'fixture:chat', project: contract.project.path,
+      state: stage.startsWith('you-') ? 'waiting' : stage === 'working' ? 'running' : 'idle', stage })
+    await s.drain(); await s.tick(); await loop.idle()
+  }
+  try {
+    await loop.request({ ...input, conversation: true })
+    const initial = s.fake.requests.length
+    activity.length = 0
+    for (const stage of ['working', 'queued', 'working']) await change(stage)
+    assert.equal(s.fake.requests.length, initial, 'background activity never pays for a model turn')
+    assert.ok(!activity.includes(true), 'background stages do not schedule a model wake')
+    await change('idle')
+    assert.equal(s.fake.requests.length, initial + 1, 'finishing work wakes once')
+    await change('you-answer')
+    assert.equal(s.fake.requests.length, initial + 2, 'a new person wait wakes')
+    await change('working')
+    assert.equal(s.fake.requests.length, initial + 2, 'returning to work stays quiet')
+    await change('queued'); await change('working')
+    assert.equal(s.fake.requests.length, initial + 2)
+    loop.poke(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, initial + 2, 'quiet stage changes do not become delayed fingerprint wakes')
+  } finally { await loop.close() }
+})
+
+test('a repeated Team stage refreshes observations without scheduling a model wake', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message(), message()])
+  const activity: boolean[] = []
+  s.options.onActivity = (busy: boolean) => activity.push(busy)
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request(input)
+    s.setSnapshot({ teams: [{ goal: { id: 'team-1' }, stage: 'you-answer' }], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] })
+    s.emit({ type: 'team.changed', team: 'team-1', stage: 'you-answer', activity: 'needs-you', sentence: 'Work' })
+    await s.drain(); await s.tick(); await loop.idle()
+    const requests = s.fake.requests.length
+    activity.length = 0
+    const checked = loop.state.wakes.checked
+    s.emit({ type: 'team.changed', team: 'team-1', stage: 'you-answer', activity: 'needs-you', sentence: 'Renamed work' })
+    await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(loop.state.wakes.checked, checked, 'same-stage metadata never enters the model wake gate')
+    assert.ok(!activity.includes(true), 'same-stage metadata is a refresh, not a model wake')
+    assert.equal(s.fake.requests.length, requests)
+  } finally { await loop.close() }
+})
+
+test('quiet chat cache eviction does not become a delayed wake', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), ...Array.from({ length: 4 }, () => message())])
+  const loop = exported('createLeadLoop')(s.options)
+  const change = async (id: string, stage: string) => {
+    s.emit({ type: 'chat.changed', id, project: contract.project.path, state: stage.startsWith('you-') ? 'waiting' : 'running', stage })
+    await s.drain()
+  }
+  try {
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request(input)
+    await change('first', 'you-answer'); await s.tick(); await loop.idle()
+    await change('first', 'working'); await s.tick(); await loop.idle()
+    const requests = s.fake.requests.length
+    for (let i = 0; i < 64; i++) await change(`quiet-${i}`, 'working')
+    loop.poke(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(loop.state.phase, 'running', 'the clock poke exercises the active wake gate')
+    assert.equal(s.fake.requests.length, requests, 'evicting a quiet chat stays quiet on the next check')
+  } finally { await loop.close() }
+})
+
+for (const stage of ['working', 'queued']) test(`returning to ${stage} cancels a pending chat person wake`, async () => {
+  const s = await fixture([message(), message(), message()])
+  const loop = exported('createLeadLoop')(s.options)
+  const change = async (value: string) => {
+    s.emit({ type: 'chat.changed', id: 'fixture:chat', project: contract.project.path,
+      state: value.startsWith('you-') ? 'waiting' : value === 'working' ? 'running' : 'idle', stage: value })
+    await s.drain()
+  }
+  try {
+    await loop.request({ ...input, conversation: true })
+    // Establish a shown baseline before the coalesced person/work transitions.
+    await change('working'); await change('idle'); await s.tick(); await loop.idle()
+    const requests = s.fake.requests.length
+    await change('you-answer'); await change(stage)
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests, 'attention that cleared before its batch costs no model turn')
+  } finally { await loop.close() }
+})
+
+for (const afterGap of [false, true]) test(`a first idle chat event wakes the Lead${afterGap ? ' after a gap' : ''}`, async () => {
+  const s = await fixture([message(), message()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request({ ...input, conversation: true })
+    if (afterGap) {
+      s.emit({ type: 'chat.changed', id: 'fixture:chat', project: contract.project.path, state: 'running', stage: 'working' })
+      await s.drain()
+      s.emit({ type: 'gap', reason: 'lost baseline' }); await s.drain(); await loop.refresh()
+      assert.equal(loop.state.synchronized, true)
+    }
+    const requests = s.fake.requests.length
+    s.emit({ type: 'chat.changed', id: 'fixture:chat', project: contract.project.path, state: 'idle', stage: 'idle' })
+    await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1, 'the host publishes a real completion even without a remembered working event')
+    assert.match(s.fake.requests.at(-1).body, /Ordinary chat states changed:.*idle/)
+  } finally { await loop.close() }
+})
+
+test('Team working and queued churn stays quiet, person waits and completion wake', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), ...Array.from({ length: 6 }, () => message())])
+  const loop = exported('createLeadLoop')(s.options)
+  const stage = async (value: string) => {
+    s.setSnapshot({ teams: [{ goal: { id: 'team-1' }, stage: value }], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] })
+    s.emit({ type: 'team.changed', team: 'team-1', activity: 'working', sentence: 'Work', stage: value })
+    await s.drain(); await s.tick(); await loop.idle()
+  }
+  try {
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request(input)
+    await stage('you-answer'); await stage('working')
+    const requests = s.fake.requests.length
+    const checked = loop.state.wakes.checked
+    await stage('queued'); await stage('working')
+    assert.equal(loop.state.wakes.checked, checked, 'background Team churn never schedules a wake check')
+    loop.poke(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests, 'background Team churn cannot become a delayed fingerprint wake')
+    await stage('idle')
+    assert.equal(s.fake.requests.length, requests + 1, 'working to idle reports completion')
+    await stage('working')
+    loop.poke(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1, 'idle to working stays quiet')
+    await stage('queued'); await stage('idle')
+    assert.equal(s.fake.requests.length, requests + 2, 'queued to idle reports completion')
+    await stage('you-answer')
+    assert.equal(s.fake.requests.length, requests + 3, 'new person attention wakes')
+    await stage('you-review')
+    loop.poke(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 3, 'the person predicate staying true is not a new wake')
+  } finally { await loop.close() }
+})
+
+test('an initial baseline of idle chats seeds observations without a model wake', async () => {
+  const s = await fixture([message(), message()])
+  const original = s.options.desk.call
+  s.options.desk.call = async (method: string, params: unknown) => {
+    const result = await original(method, params)
+    if (method === 'client/subscribe') for (const id of ['first', 'second', 'third'])
+      s.emit({ type: 'chat.changed', id, project: contract.project.path, state: 'idle', stage: 'idle', baseline: true })
+    return result
+  }
+  const loop = lead.createLeadLoop(s.options)
+  try {
+    await loop.request({ ...input, conversation: true })
+    await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 1, 'only the explicit person request uses the model')
+  } finally { await loop.close() }
+})
+
+test('a reconnect baseline of unchanged idle chats stays quiet', async () => {
+  const s = await fixture([message(), message(), message()]), loop = lead.createLeadLoop(s.options)
+  const replay = async () => {
+    for (const id of ['first', 'second', 'third'])
+      s.emit({ type: 'chat.changed', id, project: contract.project.path, state: 'idle', stage: 'idle', baseline: true })
+    await s.drain(); await s.tick(); await loop.idle()
+  }
+  try {
+    await loop.request({ ...input, conversation: true }); await replay()
+    const requests = s.fake.requests.length
+    s.emit({ type: 'gap', reason: 'disconnected' }); await s.drain(); await loop.refresh()
+    await replay()
+    assert.equal(s.fake.requests.length, requests)
+  } finally { await loop.close() }
+})
+
+test('a chat working before a gap and idle in the replay wakes once', async () => {
+  const s = await fixture([message(), message(), message()]), loop = lead.createLeadLoop(s.options)
+  const chat = (stage: 'working' | 'idle') => s.emit({ type: 'chat.changed', id: 'fixture:chat',
+    project: contract.project.path, state: stage === 'working' ? 'running' : 'idle', stage, baseline: true })
+  try {
+    await loop.request({ ...input, conversation: true })
+    chat('working'); await s.drain(); await s.tick(); await loop.idle()
+    const requests = s.fake.requests.length
+    s.emit({ type: 'gap', reason: 'disconnected' }); await s.drain(); await loop.refresh()
+    chat('idle'); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
+    chat('idle'); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1, 'the replayed completion is said once')
+  } finally { await loop.close() }
+})
+
+test('a new idle chat after the baseline still wakes once', async () => {
+  const s = await fixture([message(), message(), message()]), loop = lead.createLeadLoop(s.options)
+  try {
+    await loop.request({ ...input, conversation: true })
+    s.emit({ type: 'chat.changed', id: 'baseline', project: contract.project.path, state: 'idle', stage: 'idle', baseline: true })
+    await s.drain(); await s.tick(); await loop.idle()
+    const requests = s.fake.requests.length
+    const completed = { type: 'chat.changed', id: 'new', project: contract.project.path, state: 'idle', stage: 'idle' }
+    s.emit(completed); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
+    s.emit(completed); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
+  } finally { await loop.close() }
+})
+
+test('a baseline chat waiting on the person wakes the Lead', async () => {
+  const s = await fixture([message(), message()])
+  const original = s.options.desk.call
+  s.options.desk.call = async (method: string, params: unknown) => {
+    const result = await original(method, params)
+    if (method === 'client/subscribe') s.emit({ type: 'chat.changed', id: 'waiting', project: contract.project.path,
+      state: 'waiting', stage: 'you-answer', baseline: true })
+    return result
+  }
+  const loop = lead.createLeadLoop(s.options)
+  try {
+    await loop.request({ ...input, conversation: true })
+    await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2)
+    assert.match(s.fake.requests.at(-1)!.body, /Ordinary chat states changed:.*you-answer/)
+  } finally { await loop.close() }
+})
+
+test('a full reconnect baseline preserves working stages while admitting new chats', async () => {
+  const s = await fixture([message(), message()]), loop = lead.createLeadLoop(s.options)
+  const replay = async (id: string, stage: 'working' | 'idle') => {
+    s.emit({ type: 'chat.changed', id, project: contract.project.path, state: stage === 'working' ? 'running' : 'idle', stage, baseline: true })
+    await s.drain()
+  }
+  try {
+    await loop.request({ ...input, conversation: true })
+    for (let i = 0; i < 64; i++) await replay(`old-${i}`, i === 0 ? 'working' : 'idle')
+    await s.tick(); await loop.idle()
+    const requests = s.fake.requests.length
+    s.emit({ type: 'gap', reason: 'disconnected' }); await s.drain(); await loop.refresh()
+    // A new snapshot entry can evict the oldest cached chat before its replay.
+    await replay('new', 'idle')
+    for (let i = 0; i < 63; i++) await replay(`old-${i}`, 'idle')
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
+    assert.match(s.fake.requests.at(-1)!.body, /old-0/)
   } finally { await loop.close() }
 })
 

@@ -1,3 +1,4 @@
+import type { LeadStage } from './lead-stage.js'
 import type { CeilingLevel, EvidenceRecord, SeatId, SeatRecord, Sha } from './evidence.js'
 import type { FindingReceipt } from './findings.js'
 import type { FlowPermission, FlowSeat } from './flow.js'
@@ -161,6 +162,9 @@ export interface GoalBoard {
 }
 
 export interface GoalView {
+  /** Host attention stage; absent on older desks. */
+  readonly stage?: LeadStage
+  readonly stageReason?: string
   /** Host-owned read mark; absent on older desks means never opened. */
   readonly lastSeenAt?: number
   /** When this Team became ready to wrap; reading it never advances this time. */
