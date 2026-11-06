@@ -158,10 +158,10 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { leadContractDigest, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
+import { leadContractDigest, readLeadEvidence, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
 import type { LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
@@ -847,6 +847,7 @@ export class Host {
   #leadService: LeadService | null = null
   #leadHasWorkerRules: (() => boolean) | null = null
   #leadAutoApproval: ((runtime: string, sessionId: string, approvalId: string) => Promise<boolean>) | null = null
+  #leadCanRerunChecks: ((runId: string) => Promise<boolean>) | null = null
   #leadControls: LeadControls | null = null
   #leadChatControl: LeadChatControlStore | null = null
   #leadChatProject: LeadProject | null = null
@@ -976,6 +977,11 @@ export class Host {
     delegation: seat => this.#delegationUncertainRuntimes.has(seat.session.runtime) ? 'unknown' : 'none',
     runs: () => this.#flows.leadRuns(),
     member: async project => { try { await this.#confineRoom(project.path); return true } catch { return false } },
+    acceptance: async (run, journal) => {
+      const evidence = await readLeadEvidence(journal, run.id, call => this.call(call.method, call.params), () => Date.now())
+      return evaluateLeadAcceptance(journal.state.contract!, evidence, { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
+    },
+    canRerunChecks: (run, journal) => this.#leadJournal === journal ? this.#leadCanRerunChecks?.(run.id) ?? Promise.resolve(false) : Promise.resolve(false),
     interruptChecks: goal => this.#flows.interruptChecks(goal),
     stop: (run, reason) => this.#flows.stopRun(run, reason, 'desk'),
   })
@@ -3780,7 +3786,7 @@ export class Host {
       publish: params => this.#push({ method: 'lead/chat/changed', params }),
     })
     let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
-    this.onDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null; this.#leadJournal = null; this.#leadChatCancellation = null })
+    this.onDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null; this.#leadJournal = null; this.#leadChatCancellation = null; this.#leadCanRerunChecks = null })
     this.onDispose(journal.onChange(() => {
       const id = journal.state.budget!.logicalGoalId
       if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
@@ -3812,6 +3818,7 @@ export class Host {
     const detach = journal.onChange(trackOwned)
     this.onDispose(detach)
     const personActions = new LeadPersonActions(journal, this, this.#evidence, async value => { await this.#leadService!.assertPublic(value) })
+    this.#leadCanRerunChecks = runId => personActions.canRerunChecks(runId)
     this.#leadHasWorkerRules = () => journal.state.workerApprovals.length > 0
     this.#leadAutoApproval = (runtime, sessionId, approvalId) => personActions.autoAnswer(runtime, sessionId, approvalId)
     const secondLooks = new Map<string, Promise<void>>()
@@ -3933,7 +3940,7 @@ export class Host {
     }
     this.#leadOwnsWorker = (runtime, sessionId, includeClosed) => !!ownedWorker(runtime, sessionId, includeClosed)
     const decisionEvidence = (runId: string) => options.readEvidence(runId, call => {
-      if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
+      if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal', 'goal/read'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
       return this.call(call.method, call.params)
     })
     const validateResult: LeadPrFollowOptions['validate'] =
@@ -3971,7 +3978,17 @@ export class Host {
           !await this.#leadBudgets.port.member(project) ? 'lead-project-withdrawn' : null
       },
       round: id => (this.#flows.leadRuns().find(run => run.id === id)?.rounds.length ?? 0) + 1,
-      open: async op => (await this.#flows.prepareLeadRepair(op)).n,
+      open: async op => {
+        let detail = op.detail ?? 'Repair the observed pull request failure.'
+        try {
+          const result = evaluateLeadAcceptance(journal.state.contract!, await decisionEvidence(op.runId),
+            { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
+          detail += `\n\nAddress the observed pull request failure above and these failed local assertions.\n${leadRepairDetail(result)}`
+        } catch (error) {
+          this.#logger.warn('Lead repair acceptance evidence could not be read; keeping the repair', { run: op.runId, error: String(error) })
+        }
+        return (await this.#flows.prepareLeadRepair({ ...op, detail })).n
+      },
       release: op => this.#flows.releaseLeadRepair(op),
       ciPassed: (op, head) => this.#evidence.observeLeadCi(project.path, op.teamId, `lead-ci-${head}`, head),
       reviewed: async op => (await repairResult(op))?.source ?? null,
@@ -4037,9 +4054,14 @@ export class Host {
         if (!await this.#leadBudgets.port.member(contract.project)) return 'The project is no longer admitted'
         if (contract.project.id !== project.id || !samePath(contract.project.path, project.path)) return 'The selected project changed'
         if (contract.policyRevision !== journal.state.policy?.revision) return 'The permissions changed'
+        const approvedRepeat = contract.steps.some(step => step.sourceRevision !== LEAD_REVIEWED_RESULT.revision) &&
+          (await this.#leadPlanner().readSchedule()).tasks.some(task => task.approved?.contractDigest === contract.digest &&
+            task.approved.contract.digest === contract.digest && leadContractDigest(task.approved.contract) === contract.digest)
         for (const step of contract.steps) {
-          if (step.flow !== 'lead-reviewed-result' || step.sourceRevision !== 'recipe-1') return 'The Flow source changed'
-          const preview = await this.#flowPreviews.preview(project.path, leadReviewedResultSource, step.variables, undefined, undefined, {
+          if (step.flow !== 'lead-reviewed-result' || !leadReviewedResultSourceFor(step.sourceRevision) ||
+            step.sourceRevision !== LEAD_REVIEWED_RESULT.revision && !approvedRepeat && (journal.state.contract?.digest !== contract.digest ||
+              !journal.state.contract.steps.some(stored => JSON.stringify(stored) === JSON.stringify(step)))) return 'The Flow source changed'
+          const preview = await this.#flowPreviews.preview(project.path, leadReviewedResultSourceFor(step.sourceRevision)!, step.variables, undefined, undefined, {
             seats: Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]])), attended: step.attendance === 'attended', requireHeld: true }).catch(() => null)
           if (leadPreviewUnfit(preview)) return 'The agents can no longer hold the approved seats'
           const [writer, reviewer] = await Promise.all(['implement', 'review'].map(role => {
@@ -4080,7 +4102,7 @@ export class Host {
       revokeApproval: input => personActions.revoke(input),
       decidePerson: (card, decision, contract) => answerLeadPersonGate({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team,
         readEvidence: runId => options.readEvidence(runId, call => {
-          if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
+          if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal', 'goal/read'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
           return this.call(call.method, call.params)
         }) }, card, decision, contract),
       decideResult: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract),
@@ -4131,7 +4153,8 @@ export class Host {
       heldPreview: token => this.#flowPreviews.leadHeld(token),
       seatsHold: async (root, step) => {
         // A preview that cannot even be taken is a plan that cannot start: the same answer, never a broken Lead.
-        const preview = await this.#flowPreviews.preview(root, leadReviewedResultSource, step.variables, undefined, undefined, {
+        const source = leadReviewedResultSourceFor(step.sourceRevision)
+        const preview = source === null ? null : await this.#flowPreviews.preview(root, source, step.variables, undefined, undefined, {
           seats: Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]])),
           attended: step.attendance === 'attended', requireHeld: true }).catch(() => null)
         const unfit = leadPreviewUnfit(preview)

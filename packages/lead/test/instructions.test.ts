@@ -124,3 +124,12 @@ test('instructions and continuation permit a fresh plan after settled runs leave
     assert.match(text, /approv/)
   }
 })
+
+
+test('reports verify from evidence and learn at most one sourced lesson from failures only', () => {
+  const text = leadInstructions({ name: 'Dex', project, policyRevision: 1, caps: { usdMicros: 1, rounds: 1 } })
+  assert.match(text, /at most one Remember: line/)
+  assert.match(text, /name its source in brackets/)
+  assert.match(text, /Never learn a lesson from an errored check/)
+  assert.match(text, /how to verify line drawn from the passed assertions and their recorded evidence/)
+})

@@ -566,6 +566,16 @@ test('Lead contracts preserve explicit no-publication pins without adding an abs
   }
 })
 
+
+test('stored assertion results accept old and new statuses without changing their shape', () => {
+  for (const status of ['pending', 'passed', 'failed', 'unknown', 'no-evidence', 'errored']) {
+    const stored = { ...result, status }
+    assert.deepEqual(protocol.parseLeadAssertionResult(stored), stored)
+    assert.deepEqual(protocol.parseLeadCard({ ...cards[3], assertions: [stored] }).type, 'result')
+  }
+  assert.throws(() => protocol.parseLeadAssertionResult({ ...result, status: 'maybe' }))
+})
+
 test('an older host window projection without stage fields remains readable', () => {
   const old = { version: 1, revision: 2, thread, settings, requestInFlight: false, wayOut: 'resume', waitReason: null, planConsentExpiresAt: null }
   const result = protocol.parseLeadWindowProjection(old)

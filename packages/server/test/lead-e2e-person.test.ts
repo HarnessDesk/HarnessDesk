@@ -83,6 +83,11 @@ for (const surface of ['window', 'phone']) test(`person runs missing required ch
   }, 'missing required check action')
   assert.equal(action.name, 'verify'); assert.ok(action.command)
   assert.equal(rig.pending('result'), undefined)
+  const first = rig.journal.state.runs[0]!
+  const before = await rig.host.call('evidence/board', { room: first.teamId })
+  const rejected = before.cards.flatMap(card => card.facts).find(one => one.record.fact.kind === 'review')!.record
+  assert.ok(rejected.fact.kind === 'review')
+  assert.equal(rejected.fact.verdict, 'request-changes')
   const completed = new Set<string>()
   await rig.waitFor(async () => {
     const projection = await rig.host.call('lead/thread/read', {}) as any
@@ -90,8 +95,12 @@ for (const surface of ['window', 'phone']) test(`person runs missing required ch
       completed.add(check.id)
       await perform({ id: check.id, contractDigest: rig.journal.state.contract!.digest, choice: 'run' })
     }
-    return !!rig.pending('result')
-  }, 'reviewed result after person checks')
+    return rig.latestEvidence?.reviews.some(review => review.verdict === 'approve') === true
+  }, 're-review after person checks')
+  assert.equal(rig.latestEvidence!.revision, rejected.fact.at, 'person checks trigger review again at the same commit')
+  assert.deepEqual(rig.latestEvidence!.reviews.map(review => review.verdict), ['approve'], 'the new review round supersedes the earlier rejection')
+  await rig.waitFor(() => !!rig.pending('result') && rig.host.flowsPlane.executionOf(first.runId)!.rounds.at(-1)?.role === 'accept', 'reviewed result after person checks')
+  assert.deepEqual(rig.host.flowsPlane.executionOf(first.runId)!.rounds.map(round => round.role), ['implement', 'review', 'review', 'accept'], 'runner trouble never opens a code repair')
   for (const run of rig.journal.state.runs) {
     const evidence = await rig.host.call('evidence/board', { room: run.teamId })
     assert.ok(evidence.cards.flatMap(card => card.facts).some(one => one.record.fact.kind === 'check' && one.record.fact.counted === true))

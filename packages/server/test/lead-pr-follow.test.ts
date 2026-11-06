@@ -414,7 +414,7 @@ test('fork pull requests with the same branch name do not block same-repository 
 test('plan freezing pins the repository before a worker can change its remote', async () => {
   const { freezeLeadPlan } = await import('../src/lead/assembly.js'), s = await prepare(), source = repository()
   git(source.cwd, 'remote', 'set-url', 'origin', 'https://github.com/acme/widgets.git')
-  const frozen = await freezeLeadPlan({ ...s.contract, project: { ...s.contract.project, path: source.cwd } })
+  const frozen = await freezeLeadPlan({ ...s.contract, steps: s.contract.steps.map(step => ({ ...step, sourceRevision: 'recipe-2' })), project: { ...s.contract.project, path: source.cwd } })
   assert.equal((frozen as any).publicationRepository, 'acme/widgets')
   git(source.cwd, 'remote', 'set-url', 'origin', 'https://github.com/acme/other.git')
   assert.equal((frozen as any).publicationRepository, 'acme/widgets')

@@ -78,7 +78,12 @@ export interface LeadEvidenceReference {
 }
 export interface LeadAssertionResult {
   readonly assertionId: string
-  readonly status: 'pending' | 'passed' | 'failed' | 'unknown'
+  /** no-evidence: no fact was recorded for this assertion at all.
+   * unknown: facts exist but are stale, from another revision or contract, or incomplete.
+   * errored: a check timed out, had a null exit or was interrupted; not the code's fault.
+   * failed: it ran and said no. passed: it ran and said yes, without hedging.
+   * pending: retained for stored journals written before evaluation. */
+  readonly status: 'pending' | 'passed' | 'failed' | 'unknown' | 'no-evidence' | 'errored'
   readonly revision: LeadRevision
   readonly contractRevision: LeadRevision
   readonly evidence: readonly LeadEvidenceReference[]
@@ -554,7 +559,7 @@ export const parseLeadAcceptanceContract: Validator<LeadAcceptanceContract> = (v
 }
 const evidence: Validator<LeadEvidenceReference> = object({ kind: literalUnion('check', 'review', 'finding', 'diff', 'spend'), id, revision: opaque })
 export const parseLeadAssertionResult: Validator<LeadAssertionResult> = object({
-  assertionId: id, status: literalUnion('pending', 'passed', 'failed', 'unknown'), revision,
+  assertionId: id, status: literalUnion('pending', 'passed', 'failed', 'unknown', 'no-evidence', 'errored'), revision,
   contractRevision: revision, evidence: list(evidence, LEAD_LIMITS.evidence), reason: nullable(prose),
 })
 const method: Validator<ClientMethodName> = (value, path = '') =>

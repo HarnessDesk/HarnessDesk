@@ -51,6 +51,7 @@ test('activity observations name each open worker request and each missing requi
     const text = body.messages.at(-1).content.map((block: any) => block.text ?? '').join('\n')
     assert.match(text, /code reviewer/); assert.match(text, /read the git log/); assert.match(text, /verify/)
     assert.match(text, /on their cards, never by a chat reply/)
+    assert.match(text, /Assertion verdicts/, 'the Lead receives internal acceptance observations independently of the person-facing run reason')
   } finally { await loop.close() }
 })
 
@@ -2038,6 +2039,20 @@ for (const name of ['chat_start', 'chat_send'] as const) test(`loop tools-refuse
     await s.tick(); await loop.idle()
     assert.equal(effects, 1)
     assert.equal(s.fake.requests.length, 1)
+  } finally { await loop.close() }
+})
+
+for (const variant of ['proposal', 'frozen contract']) test(`a new recipe-1 ${variant} is refused before a plan card`, async () => {
+  const legacy = { ...contract, steps: contract.steps.map(step => ({ ...step, sourceRevision: 'recipe-1' })) }
+  const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', plan: variant === 'proposal' ? legacy : contract }) }])])
+  let freezes = 0
+  const loop = exported('createLeadLoop')({ ...s.options, freezePlan: async () => { freezes++; return legacy } })
+  try {
+    await loop.request(input)
+    assert.equal(s.journal.state.cards.some(card => card.type === 'plan'), false)
+    assert.equal(loop.state.reason, 'lead-plan-refused')
+    assert.equal(freezes, variant === 'proposal' ? 0 : 1)
+    assert.equal(s.calls.some(call => call.method === 'flow/start-goal'), false)
   } finally { await loop.close() }
 })
 
