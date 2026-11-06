@@ -1944,6 +1944,12 @@ minute-by-minute countdowns cannot leave the card holding an older fact.
 
 Works outside a group too; only grouped readings contribute to its card.
 
+### `LeadAskOptions`
+
+`packages/ui/src/design/patterns/LeadAskOptions.tsx`
+
+The composer is the free-text answer; settled choices remain readable without controls.
+
 ### `LeadAvatar`
 
 `packages/ui/src/design/patterns/LeadAvatar.tsx`

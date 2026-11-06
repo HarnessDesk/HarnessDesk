@@ -1,6 +1,6 @@
 import { leadToolDefinitions, parseLeadToolCall, LeadToolFencedError, LeadToolRefusedError } from './tools.js'
 import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
-  type LeadProactive, parseLeadProactive, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
+  type LeadAsk, type LeadProactive, parseLeadAsk, parseLeadProactiveOutput, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
   MessagesRedactedThinking, MessagesText, MessagesThinking, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
@@ -148,11 +148,18 @@ export const LEAD_HISTORY_BYTES = LIMIT.bytes / 2
  * holds, in turns or in bytes, are both ordinary, and either one, sent as it stands, is refused before every request
  * that follows.
  */
-export const leadHistory = (messages: readonly { readonly role: string; readonly text: string }[]): MessagesTurn[] => {
+export const leadHistory = (messages: readonly { readonly id?: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly proactive?: LeadProactive }[]): MessagesTurn[] => {
   const spoken = messages.filter(message => message.role === 'user' || message.role === 'assistant')
-  const turns: MessagesTurn[] = spoken.slice(-LEAD_HISTORY_TURNS).map(message => ({
-    role: message.role as 'user' | 'assistant', content: [{ type: 'text' as const, text: message.text }],
-  }))
+  const turns: MessagesTurn[] = spoken.slice(-LEAD_HISTORY_TURNS).map(message => {
+    const ask = message.ask ?? (message.proactive?.options && message.proactive.recommended ? {
+      question: message.proactive.ask, options: message.proactive.options, recommended: message.proactive.recommended,
+    } : undefined)
+    return { role: message.role as 'user' | 'assistant', content: [
+      ...(ask && !message.text.trim() ? [] : [{ type: 'text' as const, text: message.text }]),
+      ...(message.role === 'user' && message.id ? [{ type: 'text' as const, text: `Desk reference for the preceding person message: ${message.id}` }] : []),
+      ...(message.role === 'assistant' && ask ? [{ type: 'text' as const, text: `Decision offered in this reply: ${JSON.stringify(parseLeadAsk(ask))}` }] : []),
+    ] }
+  })
   let bytes = new TextEncoder().encode(JSON.stringify(turns)).length
   while (turns.length > 1 && bytes > LEAD_HISTORY_BYTES) bytes -= new TextEncoder().encode(JSON.stringify(turns.shift())).length + 1
   if (turns[0]?.role === 'assistant') turns.unshift({ role: 'user', content: [{ type: 'text', text: turns.length < spoken.length ?
@@ -205,19 +212,19 @@ const usage = (value: unknown): MessagesUsage => {
  * envelope must then be valid. Whatever the text decodes to is returned as `decoded`
  * so the caller's credential scan sees escaped strings too. Proposals are data only;
  * their validators confer no authority to execute them. */
-const proposals = (text: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[]; proactive?: LeadProactive; decoded: unknown } => {
+const proposals = (text: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[]; proactive?: LeadProactive; ask?: LeadAsk; decoded: unknown } => {
   let decoded: unknown = null
   try { decoded = JSON.parse(text) } catch { /* prose */ }
   if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || (decoded as Record<string, unknown>).type !== 'lead-output')
     return { text, plan: null, cards: [], decoded }
   const candidate = decoded
-  const source = object(candidate, ['version', 'type', 'text', 'proactive', 'plan', 'cards'])
-  if (source.version !== 1) return fail()
+  const source = object(candidate, ['version', 'type', 'text', 'ask', 'proactive', 'plan', 'cards'])
+  if (source.version !== 1 || source.ask !== undefined && source.proactive !== undefined) return fail()
   if (source.cards !== undefined && (!Array.isArray(source.cards) || source.cards.length > LIMIT.blocks)) return fail()
   const cards = source.cards === undefined ? [] : (source.cards as unknown[]).map(value => parseLeadCard(value))
   if (new Set(cards.map(card => card.id)).size !== cards.length) fail()
   return { text: source.text === undefined ? '' : string(source.text),
-    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards, ...(source.proactive === undefined ? {} : { proactive: parseLeadProactive(source.proactive) }), decoded }
+    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards, ...(source.proactive === undefined ? {} : { proactive: parseLeadProactiveOutput(source.proactive) }), ...(source.ask === undefined ? {} : { ask: parseLeadAsk(source.ask) }), decoded }
 }
 /** Cancellation also wins when a broken injected operation ignores its signal. */
 const cancellable = async <T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> => {
@@ -405,6 +412,11 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
           if (
             dispatchError instanceof LeadToolFencedError || executed.outcome === 'failed' &&
             clientTierFor(call.method, call.params) === 'read' && !(dispatchError instanceof LeadToolRefusedError)) transientTools.push(use.id)
+          if (executed.outcome === 'failed' && call.method === 'lead/chat/start' && executed.value !== undefined) {
+            const result = { ...results[position]!, content: safeJson(executed.value, LIMIT.text), is_error: true }
+            const extra = bytes(json(result)) - bytes(json(results[position]))
+            if (extra <= available) { results[position] = result; available -= extra }
+          }
           if (executed.outcome === 'succeeded') {
             const result = { ...results[position]!, content: safeJson(executed.value ?? null, LIMIT.text), is_error: false }
             const extra = bytes(json(result)) - bytes(json(results[position]))
@@ -419,6 +431,6 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     }
     return { status: parsed.stop_reason === 'max_tokens' ? 'max-tokens' : signal.aborted ? 'cancelled' : 'completed', usage: used,
       ...(predecessorReason ? { reason: predecessorReason } : {}),
-      text: output.text, ...(output.proactive ? { proactive: output.proactive } : {}), proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, messages: continuation }
+      text: output.text, ...(output.ask ? { ask: output.ask } : {}), ...(output.proactive ? { proactive: output.proactive } : {}), proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, messages: continuation }
   } }
 }

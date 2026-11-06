@@ -1,6 +1,6 @@
 import { parseLeadApprovalAudit, parseLeadWorkerApprovalRule, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import {
-  parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
+  parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_LIMITS, LEAD_MANAGEMENT_REASONS, leadNoSpendLimit, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy, type LeadBudgetEvent, type LeadBudgetState, type LeadCaps,
 } from '@harnessdesk/protocol'
@@ -514,10 +514,10 @@ export class LeadJournal {
     }
     return true
   }) }
-  appendReply(text: string, proactive?: LeadProactive): Promise<void> { return this.#queue(() => {
+  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk): Promise<void> { return this.#queue(() => {
     const revision = this.#state.seq + 1
     return this.#append({ type: 'message', idempotencyKey: null,
-      message: { version: 1, id: `message-${revision}`, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}) } })
+      message: parseLeadMessage({ version: 1, id: `message-${revision}`, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}) }) })
   }) }
   #policyChange(state: LeadState, policy: LeadPermissionPolicy, id: string): LeadJournalEvent | null {
     if (!state.policy) throw new Error('lead-policy-unavailable')
@@ -819,7 +819,11 @@ export class LeadJournal {
         })
         return { decision, outcome }
       }
-      this.#dispatchNotStarted.delete(id)
+      const noEffect = this.#dispatchNotStarted.delete(id)
+      if (method === 'lead/chat/start' && noEffect) {
+        await this.#queue(() => this.#append({ type: 'result', id, outcome: 'failed', identity: null }))
+        return { decision, outcome: 'failed', value: result.value }
+      }
       if (method === 'flow/start-goal' && result?.created === false && result.identity === null) {
         await this.#queue(() => this.#append({ type: 'result', id, outcome: 'failed', identity: null }))
         return { decision, outcome: 'failed', value: result.value }

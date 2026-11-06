@@ -23,7 +23,7 @@ export interface LeadMessagesRequest {
   readonly wakeSource?: import('@harnessdesk/protocol').LeadWakeRecord['source']
   readonly messages: readonly MessagesTurn[]
   /** The owner may request structured text using
-   * { version: 1, type: 'lead-output', text?, proactive?, plan?, cards? }.
+   * { version: 1, type: 'lead-output', text?, ask?, proactive?, plan?, cards? }.
    * Those proposals are validated and returned without offering or executing them. */
   readonly system?: string
   readonly maxTokens: number
@@ -93,6 +93,7 @@ export interface LeadMessagesOptions {
 }
 export type LeadMessagesStatus = 'completed' | 'max-tokens' | 'refused' | 'cancelled' | 'uncertain' | 'rate-limited' | 'failed' | 'invalid-response'
 export interface LeadMessagesResult {
+  readonly ask?: import('@harnessdesk/protocol').LeadAsk
   readonly proactive?: import('@harnessdesk/protocol').LeadProactive
   readonly status: LeadMessagesStatus
   /** Static code only. Raw transport errors, provider bodies and abort reasons never escape. */

@@ -2,7 +2,7 @@ import { OutsideHeadBanner } from './GitRecord'
 import { useRef, useState, type MutableRefObject } from 'react'
 import type { LeadSavedApproval, LeadProactive, LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage, LeadPullRequest } from '@harnessdesk/protocol'
 import { LEAD_LIMITS, leadNoSpendLimit, type LeadCaps } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, CodeText, Dialog, FormStack, Input, Row, Rows, LeadContract, LeadPlanFlow, Text } from '../design'
+import { Banner, Button, Chip, CodeText, Dialog, FormStack, Input, Row, Rows, LeadAskOptions, LeadContract, LeadPlanFlow, Text } from '../design'
 import { leadRepeatWords } from '../lib/lead-repeat'
 import { folderName } from '../lib/projects'
 import { LeadDecision } from './LeadDecision'
@@ -208,10 +208,12 @@ const LeadAllowanceWarning = ({ card, currentCaps, onRaise }: {
 }
 
 /** A single host-shaped finding, qualification and next step; navigation never answers a decision. */
-export const LeadProactiveCard = ({ report, onAction }: { readonly report: LeadProactive; readonly onAction?: (action: NonNullable<LeadProactive['action']>) => void }) => <LeadContract>
+export const LeadProactiveCard = ({ report, onAction, onAnswer, disabled, picked }: { readonly onAnswer?: (label: string) => void; readonly disabled?: boolean; readonly picked?: string; readonly report: LeadProactive; readonly onAction?: (action: NonNullable<LeadProactive['action']>) => void }) => <LeadContract>
   <Text as="p" role="prose" data-proactive-part="finding">{sanitizeText(report.finding)}</Text>
   <Text as="p" role="muted" data-proactive-part="caveat">{sanitizeText(report.caveat)}</Text>
-  <div data-proactive-part="ask">{report.action && onAction
+  <div data-proactive-part="ask">{report.options && report.recommended
+    ? <LeadAskOptions ask={{ question: report.ask, options: report.options, recommended: report.recommended }} onAnswer={onAnswer} disabled={disabled} picked={picked} />
+    : report.action && onAction
     ? <Button variant="outline" onClick={() => onAction(report.action!)}>{sanitizeText(report.ask)}</Button>
     : <Text as="p" role="prose">{sanitizeText(report.ask)}</Text>}</div>
 </LeadContract>

@@ -304,14 +304,14 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       // A proposed card is not: model cards are summaries the host may never offer. The answer keeps the cards the
       // first reply proposed (a push it asked for is still checked), and an answer that fails goes to the person
       // through the same wait as any failed request, never back to silence.
-      if (!input.proactive && result.status === 'completed' && !result.toolResults?.length && !result.proposals?.plan &&
+      if (!input.proactive && !result.ask && result.status === 'completed' && !result.toolResults?.length && !result.proposals?.plan &&
         (!result.text?.trim() || isLeadQuiet(result.text)) && result.messages && personOwed() && !active.signal.aborted && !blocked()) {
         const first = result, again = await messages.request({ ...request, messages: withObservation(first.messages!, LEAD_PERSON_OWED), system }, active.signal)
         const cards = [...first.proposals?.cards ?? [], ...again.proposals?.cards ?? []]
         result = { ...again, messages: again.messages ?? first.messages, usage: again.usage ?? first.usage,
           ...(cards.length || again.proposals ? { proposals: { plan: again.proposals?.plan ?? null, cards } } : {}) }
         // Quiet twice is not an answer either. It waits for the person as a failed request, never as silence.
-        if (result.status === 'completed' && !result.toolResults?.length && !result.proposals?.plan && !result.proposals?.cards.length && (!result.text?.trim() || isLeadQuiet(result.text)))
+        if (result.status === 'completed' && !result.ask && !result.toolResults?.length && !result.proposals?.plan && !result.proposals?.cards.length && (!result.text?.trim() || isLeadQuiet(result.text)))
           result = { ...result, status: 'failed', reason: 'lead-messages-failed' }
       }
     }
@@ -340,13 +340,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         const { proactive: _kept, ...delivered } = result
         result = delivered
       }
-    } else if (result.text && !terminal(journal.state.phase)) {
+    } else if ((result.text || result.ask) && !terminal(journal.state.phase)) {
       const last = journal.state.messages.at(-1), words = (text: string) => text.replace(/\s+/g, ' ').trim()
-      if (!(last?.role === 'assistant' && words(last.text) === words(result.text))) {
-        try { await journal.appendReply(result.text) }
+      if (!(last?.role === 'assistant' && words(last.text) === words(result.text ?? '') && JSON.stringify(last.ask) === JSON.stringify(result.ask))) {
+        try { await journal.appendReply(result.text ?? '', undefined, result.ask) }
         catch { await waitForUser('lead-request-failed'); return result }
       }
-      const { text: _kept, ...delivered } = result
+      const { text: _kept, ask: _ask, ...delivered } = result
       result = delivered
     }
     if (!['completed'].includes(result.status)) {
@@ -427,7 +427,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     try { if (blocked()) return null; result = await performStep(input, signal); return result }
     finally {
       const state = journal.state, said = state.messages.filter(message => message.role === 'assistant' && message.revision > before.seq)
-      const asked = said.some(message => !!message.proactive || /\?/.test(message.text)) || state.cards.some(card => (state.cardPositions[card.id] ?? 0) > before.seq)
+      const asked = said.some(message => !!message.proactive || !!message.ask || /\?/.test(message.text)) || state.cards.some(card => (state.cardPositions[card.id] ?? 0) > before.seq)
       const known = !!result?.usage && !state.budget?.requests.some(request => request.uncertain)
       await journal.recordWake({ ...wake, modelTurn: !!result && !['refused', 'cancelled'].includes(result.status), decision: asked ? 'asked' : said.length ? 'spoke' : 'silent',
         usdMicros: known ? Math.max(0, (state.budget?.leadUsdMicros ?? 0) - (before.budget?.leadUsdMicros ?? 0)) : null })

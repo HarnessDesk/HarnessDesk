@@ -5241,3 +5241,19 @@ report gets its how to verify line from passed assertions' recorded evidence,
 never the model's confidence. Internal failure reasons are not rendered as
 person-facing prose. A failed result may offer at most one general, sourced
 Remember: lesson; an errored check teaches no lesson about the code.
+
+
+## Lead questions offer choices; delegation keeps the person's words — 2026-11-05
+
+A decision carries two to four short options and a recommended pick so it is
+answerable with a tap on the desk or phone. The composer remains available for
+another answer. Only the latest unanswered ask is live; older choices are a
+record. A confident, already authorized action needs no question. Work the
+Lead notices outside the person's request is offered with a recommended start
+option and waits for the person; there is no backlog.
+
+The host appends the person's original messages below a delegated chat's brief.
+The model selects message ids, never re-types their words. This keeps wording
+and scope intact, rejects references outside the current journal window, and
+refuses an oversized brief plus quotes instead of silently losing context.
+Stored proactive reports without options remain readable.

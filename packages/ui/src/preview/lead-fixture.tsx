@@ -36,7 +36,7 @@ export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', 
 export const leadMemory: LeadMemory = { version: 1, items: [
   { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
   { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
-export const LEAD_SCENES = ['repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'evidence-failed', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder'] as const
+export const LEAD_SCENES = ['ask-options', 'repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -78,6 +78,15 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
       ...(scene === 'running-message' && { steers: [{ id: 'steer-1', text: 'Keep the public API unchanged.', at: Date.now() - 60_000, state: 'acknowledged' as const }] }) }) }
     thread.messages = [...thread.messages, { version: 1, id: 'reply', revision: 2, role: 'assistant', text: 'The approved Flow is running. I will read its checks and review before asking you to accept.' }]
   }
+  if (scene === 'ask-options') thread.messages = [
+    { version: 1, id: 'person-request', revision: 1, role: 'user', text: 'Help me choose the scope for the keyboard fix.' },
+    { version: 1, id: 'ordinary-ask', revision: 2, role: 'assistant', text: 'I recommend keeping this change small.',
+      ask: { question: 'How much should this change cover?', options: [{ id: 'focus', label: 'Fix focus only' }, { id: 'all', label: 'Include the whole form' }], recommended: 'focus' } },
+    { version: 1, id: 'picked', revision: 3, role: 'user', text: 'Fix focus only' },
+    { version: 1, id: 'live-ask', revision: 4, role: 'assistant', text: 'A nearby label has no accessible name. I have not changed it. Start a separate fix?',
+      proactive: { finding: 'A nearby label has no accessible name.', caveat: 'I have not changed it.', ask: 'Start a separate fix?',
+        options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' } },
+  ]
   if (scene === 'proactive' || scene === 'away-digest') thread.messages = [{ version: 1, id: 'proactive', revision: 2, role: 'assistant', text: 'The review is ready.\nChecks still need you.\nOpen changes', proactive: { finding: 'The review is ready.', caveat: 'Checks still need you.', ask: 'Open changes', action: 'changes' } }]
   if (scene === 'runtime-unavailable') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, unavailable: 'runtime', unavailableReason: "this app's runtime (Node 24.19.0) rejected the Lead flags (exit 9)" } } }
   if (scene === 'first-name') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, nameChosen: false } } }

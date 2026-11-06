@@ -165,6 +165,13 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const contract = state.thread?.contract ?? cards.find(card => card.type === 'plan')?.contract
   const renewal = state.planConsentExpiresAt !== null && cards.some(card => card.type === 'plan' && card.contractDigest === state.thread?.contract?.digest && JSON.stringify(card.contract) === JSON.stringify(state.thread?.contract))
   const requestPending = sending || state.requestInFlight
+  const sendDisabled = unavailable || requestPending || !!state.error || state.revision < 0
+  const messages = state.thread?.messages ?? []
+  const latestAsk = [...messages].reverse().find(message => message.role === 'assistant' && (message.ask || message.proactive?.options))
+  const answers = new Map(messages.flatMap((message, index) => {
+    const answer = messages.slice(index + 1).find(next => next.role === 'user')
+    return answer ? [[message.id, answer.text] as const] : []
+  }))
   // What the Lead is doing this second, as one quiet line at the end of the thread. A window that cannot trust its
   // projection says nothing; a plan on the table or a wait for the person is not work, and a stopped card speaks for itself.
   const phase = state.thread?.state, progress = state.progress, pr = state.thread?.pr, origin = state.thread?.origin, handback = state.thread?.handback
@@ -243,7 +250,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {origin && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{leadOriginText(origin)}</Button> : leadOriginText(origin)}</Text>}
         {entries.map(entry => entry.kind === 'message'
           ? entry.message.role === 'notice' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
-            proactive={entry.message.proactive} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
+            ask={entry.message.ask} proactive={entry.message.proactive} disabled={sendDisabled} picked={answers.get(entry.message.id)}
+            onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) ? label => { if (!sendDisabled) void send(label) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
           : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
             note={<Chip variant="quiet" tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
@@ -297,7 +305,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
                 <ComposerGap /><ComposerTrack name="send">
                   {state.requestInFlight && !goalActive
                     ? <ComposerSend type="button" disabled={stopping} aria-label="Stop reply" title="Stop this reply" onClick={() => void stop()}><StopIcon size={12} /></ComposerSend>
-                    : <ComposerSend type="submit" disabled={unavailable || requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : goalActive ? 'Send to the running goal' : 'Send'} title={requestPending ? 'Sending…' : state.projectMissing ? 'Open a folder first' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>}
+                    : <ComposerSend type="submit" disabled={sendDisabled || !goal.trim()} aria-label={requestPending ? 'Sending…' : goalActive ? 'Send to the running goal' : 'Send'} title={requestPending ? 'Sending…' : state.projectMissing ? 'Open a folder first' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>}
                 </ComposerTrack>
               </ComposerTools>
       </ConversationComposerFrame>

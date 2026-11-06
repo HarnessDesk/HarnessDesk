@@ -300,3 +300,5 @@ export { LeadPlanFlow, leadRoleWord } from './patterns/LeadPlanFlow'
 
 export { ConversationShell, ConversationThread, ConversationDock, ConversationComposerFrame, TranscriptAssistantMessage } from './patterns/ConversationShell'
 export { LeadAvatar, LeadGreeting, LeadIdentity, LeadLineNote, LeadNameChoice, LeadSlot, LeadTurn } from './patterns/LeadAvatar'
+
+export { LeadAskOptions } from './patterns/LeadAskOptions'

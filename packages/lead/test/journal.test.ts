@@ -2119,3 +2119,12 @@ test('chat recovery ignores incidental step metadata but retains every actual Fl
     [bound, { ...attempt, stepId: null }],
   ] as const) assert.equal(canReportLeadChatEffect(blocked, candidate), false)
 })
+
+test('ordinary asks survive append and journal replay and reject mixed decisions', async () => {
+  const storage = memory(), journal = await open(storage)
+  const ask = { question: 'Start?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  await journal.appendReply('A choice.', undefined, ask)
+  assert.deepEqual(journal.state.messages.at(-1).ask, ask)
+  assert.deepEqual((await open(storage)).state.messages.at(-1).ask, ask)
+  await assert.rejects(journal.appendReply('Mixed.', { finding: 'Found.', caveat: 'No work.', ask: 'Start?' }, ask))
+})

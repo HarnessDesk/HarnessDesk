@@ -15,7 +15,7 @@ import { Settings } from '../components/Settings'
 import { LeadDecision } from '../components/LeadDecision'
 import { LeadCards } from '../components/LeadCards'
 import { LeadPage } from '../components/LeadPage'
-import { LeadAvatar, LeadNameChoice, LeadPlanFlow } from '../design'
+import { LeadAskOptions, LeadAvatar, LeadNameChoice, LeadPlanFlow } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
 import { LEAD_SCENES, leadWakeFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
@@ -149,6 +149,8 @@ const LEAD_CONTRACT_CATALOG_STATES = ['default', 'loading'] as const
 /** The catalog renders the real pattern, including narrow action wrapping. */
 export const LeadContractSpecimen = () => { const own = useMemo(() => createLeadFixtureStore('pending-plan'), []); return <StoreProvider store={own}><div className="flex flex-col gap-6">{LEAD_CONTRACT_CATALOG_STATES.map(state => <div key={state} data-variant={LEAD_CONTRACT_CATALOG_VARIANTS[0]} data-size={LEAD_CONTRACT_CATALOG_SIZES[0]} data-state={state}>
   <LeadCards cards={leadSceneProjection('pending-plan').thread.cards} onDecide={async () => {}} onChanges={() => {}} onApprovals={() => {}} placement="thread" />
+  <LeadAskOptions ask={{ question: 'Start a separate fix?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }} disabled={state === 'loading'} onAnswer={() => {}} />
+  <LeadAskOptions ask={{ question: 'Which scope?', options: [{ id: 'focus', label: 'Fix focus only' }, { id: 'all', label: 'Include the whole form' }], recommended: 'focus' }} picked="Fix focus only" />
   <LeadDecision id="specimen" title="Approve this plan?" pending={state === 'loading'} onApprove={() => {}} onDecline={() => {}} />
 </div>)}</div></StoreProvider> }
 const LEAD_AVATAR_CATALOG_SIZES = ['navigation', 'turn', 'header', 'popover', 'picker'] as const
