@@ -185,25 +185,28 @@ export class LeadChats {
     // Capture while the host is handling this event. A fast turn may complete
     // before asynchronous file/scope checks return; its two transitions still matter.
     const id = `${runtime}:${session}`, state = this.#stateOf(id)
+    const incidents = this.incidents, ready = this.#ready, root = this.ports.project.path
     const terminal = turn?.status === 'interrupted' || turn && turn.status !== 'inProgress' && !turn.error
     const stage = this.#stageOf(id, !terminal)
-    if (turn?.status === 'interrupted' || turn?.status === 'completed' && !turn.error) this.incidents?.invalidateRetry(id)
+    if (turn?.status === 'interrupted' || turn?.status === 'completed' && !turn.error) incidents?.invalidateRetry(id)
     const changed = this.#changes.then(async () => {
       try {
-        await this.#ready
+        await ready
+        if (this.ports.project.path !== root) return
         const tracked = this.ports.watches ? await this.ports.watches.read(this.ports.project.path) : [...this.#watched]
         if (!tracked.includes(id)) return
         if (await this.#personHolds(id)) return
         await this.#target(id, false); await this.#gate({ method: 'lead/chat/read', params: { id } })
-        if (turn && this.incidents) {
+        if (this.ports.project.path !== root) return
+        if (turn && incidents) {
           const raw = turn.error
           const code = ['auth', 'credits', 'rateLimit', 'versionGate', 'sandboxDenied', 'network', 'interrupted', 'runtimeUnavailable', 'protocol', 'unknown'].includes(raw?.code ?? '') ? raw!.code as AgentError['code'] : 'unknown'
           const error = raw ? { ...raw, code } : (turn.status === 'failed' ? { code: 'unknown' as const, message: 'The turn failed.' } : null)
-          if (turn.status === 'interrupted') await this.incidents.stop(id)
-          else if (error || turn.status !== 'inProgress') await this.incidents.ended(id, String(turn.id), error,
+          if (turn.status === 'interrupted') await incidents.stop(id)
+          else if (error || turn.status !== 'inProgress') await incidents.ended(id, String(turn.id), error,
             error?.code === 'rateLimit' ? await this.ports.recovery!.limits(id) : null)
         }
-        if (state !== 'waiting' && (this.incidents?.waiting(id) || this.incidents?.get(id)?.state === 'asked')) return
+        if (state !== 'waiting' && (incidents?.waiting(id) || incidents?.get(id)?.state === 'asked')) return
         if (await this.#personHolds(id)) return
         this.ports.control?.assertDispatch?.(this.ports.project.path, id)
         if (this.#states.get(id) === stage) return
@@ -211,6 +214,11 @@ export class LeadChats {
         while (this.#states.size > 64) this.#states.delete(this.#states.keys().next().value!)
         this.ports.publish?.({ id, project: this.ports.project.path, state, stage })
       } catch { this.#states.delete(id) }
+      finally {
+        // Capturing a terminal turn revoked its timer/claim before any await.
+        // A withdrawn observation must also retire the durable waiting record.
+        if (terminal && incidents?.waiting(id)) await incidents.stop(id)
+      }
     })
     this.#changes = changed.catch(() => {})
     return changed
@@ -448,7 +456,7 @@ export class LeadChats {
         }, () => { creationStarted = true; effectStarted() }, scope, [deskContextContent(envelope)], () => { firstMessageStarted = true })
         if (params.moveFrom && result.problem && !firstMessageStarted) {
           if (moveClaimed) await this.incidents!.releaseMove(params.moveFrom)
-          return { id: '', problem: 'The move did not start. The original chat is unchanged; ask the person before trying again.' }
+          return { id: '', problem: `The move did not start.${result.id ? ' An empty chat was kept on the desk.' : ''} The original chat is unchanged; ask the person before trying again.` }
         }
         if (params.moveFrom && result.id) {
           // Creation is already an effect: always hand its identity back, even if persistence is temporarily unavailable.
@@ -473,21 +481,36 @@ export class LeadChats {
       if (params.retryAt === 'reset') {
         await admit(); await this.#notHeld(params.id)
         if (!this.incidents) refuse('Chat recovery is unavailable.')
-        if (await this.incidents!.beginRetry(params.id, true)) { effectStarted(); return { queued: true } }
+        if (!await this.incidents!.beginRetry(params.id, true)) refuse('A reset retry needs the person’s answer first.')
+        effectStarted(); return { queued: true }
       }
-      let beganRetry = false, started = false
-      const renewal: { rollback: (() => Promise<void>) | null } = { rollback: null }
+      let beganRetry = false, started = false, dispatched = false
+      const renewal: { lease: Awaited<ReturnType<LeadChatIncidents['beginRetry']>> } = { lease: null }
+      const settle = async () => {
+        if (dispatched) return
+        if (renewal.lease) { if (started) await renewal.lease.stop(); else await renewal.lease.rollback() }
+        else if (currentRetry && started && currentRetry()) await this.incidents?.stop(params.id)
+      }
+      const discard = () => { void settle().catch(() => this.ports.recovery?.problem?.('The dropped chat retry could not be settled.')) }
       if (currentRetry && !currentRetry()) refuse('That recovery retry was cancelled.')
       if (currentRetry && this.ports.recovery?.busy?.(params.id)) { retryBusy?.(); throw new LeadChatBusyError() }
-      const scope = this.#liveScope(call, attemptId, () => params.id, currentRetry)
+      const admission = this.#liveScope(call, attemptId, () => params.id, currentRetry)
+      const scope: DispatchAdmission<string> = Object.assign(async (cwd: string) => {
+        try { await admission(cwd) } catch (error) { await settle(); throw error }
+      }, {
+        assertDispatch: () => { try { admission.assertDispatch?.() } catch (error) { discard(); throw error } },
+        dispatchStarted: () => { dispatched = true },
+        queueRemoved: discard,
+        dispatchRefused: discard,
+      })
       try {
         return await this.ports.work.sessionSend(params, async () => {
           await admit(); await this.#notHeld(params.id); await this.#watch(params.id); await this.#record(params.id, envelope); await admit(); await this.#notHeld(params.id)
           if (currentRetry && !currentRetry()) refuse('That recovery retry was cancelled.')
           if (currentRetry && this.ports.recovery?.busy?.(params.id)) { retryBusy?.(); throw new LeadChatBusyError() }
-          if (!currentRetry && !beganRetry) { renewal.rollback = await this.incidents?.beginRetry(params.id) ?? null; beganRetry = true }
+          if (!currentRetry && !beganRetry) { renewal.lease = await this.incidents?.beginRetry(params.id) ?? null; beganRetry = true }
         }, () => { started = true; effectStarted(); retryStarted?.() }, scope, [deskContextContent(envelope)])
-      } catch (error) { if (!started) await renewal.rollback?.(); throw error }
+      } catch (error) { await settle(); throw error }
     })
   }
   stop(input: HostParams<'lead/chat/stop'>): Promise<HostResult<'lead/chat/stop'>> {

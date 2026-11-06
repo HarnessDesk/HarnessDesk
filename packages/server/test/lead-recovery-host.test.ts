@@ -27,7 +27,7 @@ const rig = async (t: TestContext, previous?: Awaited<ReturnType<typeof evidence
   if (!previous?.journal) {
   await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
   await journal.updateBudget({ version: 1, type: 'initialize', logicalGoalId: 'recovery-fixture', now: now(), caps: { usdMicros: 100000, rounds: 3 }, freshnessMs: 60000 })
-  await journal.appendMessage('request', 'Keep  these exact words.\nAnd this line.')
+  await journal.appendMessage('request', 'Keep  these exact words.\nAnd this line.', 'person')
   }
   const context = (): LeadPermissionContext => ({ desk: journal.state.policy!, projectPolicy: null, project, approved: null, budget: null, now: now(), policyInterpretation: 'idle' })
   let modelRequests = 0, attempt = journal.state.seq
@@ -119,7 +119,7 @@ test('credits asks immediately with eligible presentation candidates, then moves
   assert.deepEqual(notice.params.incident?.candidates.map(one => one.name), ['Agent Two'])
   assert.doesNotMatch(JSON.stringify(notice.params.incident), /second-private-backend/)
   await r.journal.appendReply('Move this work?', undefined, { question: 'Move the helper work?', options: [{ id: 'move', label: 'Move to Agent Two' }, { id: 'stop', label: 'Stop' }], recommended: 'move' })
-  await r.journal.appendMessage('move-answer', 'Move to Agent Two')
+  await r.journal.appendMessage('move-answer', 'Move to Agent Two', 'person')
   const policy = JSON.stringify([r.journal.state.policy, r.journal.state.budget?.caps, r.journal.state.workerApprovals])
   const moved = await r.execute({ method: 'lead/chat/start', params: { text: 'Finish the helper\n\nRun the remaining tests.', agent: 'Agent Two', moveFrom: created.id } })
   assert.match(moved.id, /^second-private-backend:/)
@@ -254,7 +254,7 @@ test('a person-chosen reset retry uses the deterministic host continue and a new
   r.fail(created.id, 'credits')
   await after(r, () => r.incident().length === 1 ? true : null, 'initial ask')
   // First retry now makes a new failed turn, even for an identical error.
-  await r.journal.appendMessage('retry-now', 'Retry this chat')
+  await r.journal.appendMessage('retry-now', 'Retry this chat', 'person')
   await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Retry now' } })
   r.fail(created.id, 'credits')
   await after(r, () => r.incident().length === 2 ? true : null, 'retry failure wakes again')
@@ -264,7 +264,7 @@ test('a person-chosen reset retry uses the deterministic host continue and a new
   const disk = await r.stored(); disk.records[0].kind = 'quota'; disk.records[0].resetsAt = r.now() + 2000
   await writeFile(file, JSON.stringify(disk))
   const next = await rig(t, r), budget = JSON.stringify(next.journal.state.budget)
-  await next.journal.appendMessage('retry-reset', 'Retry when it resets')
+  await next.journal.appendMessage('retry-reset', 'Retry when it resets', 'person')
   await next.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'This text is not the continue', retryAt: 'reset' } })
   assert.equal(next.prompts.length, 0)
   assert.equal(JSON.stringify(next.journal.state.budget), budget)
@@ -341,4 +341,53 @@ test('a desk interrupt settles an automatic retry through its terminal turn even
   await r.idle()
   assert.equal((await r.stored()).records[0].state, 'stopped')
   const count = r.prompts.length; await r.advance(600_000); assert.equal(r.prompts.length, count)
+})
+
+
+for (const removal of ['cancel', 'clear', 'delete'] as const) test(`a queued renewal removed before dispatch settles recovery: ${removal}`, async t => {
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits'); await r.idle()
+  await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
+  await r.host.call('workspace/session/send', { id: created.id, text: 'Person turn still running' })
+  await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Continue after this turn' } })
+  assert.equal((await r.stored()).records[0].state, 'retrying')
+  const target = { runtime: r.runtime.info.id, sessionId: sessionId(created.id.slice(created.id.indexOf(':') + 1)) }
+  const record = r.host.registry.get(target.runtime, target.sessionId)!
+  assert.equal(record.queue.messages.length, 1)
+  if (removal === 'delete') r.host.registry.delete(target.runtime, target.sessionId)
+  else if (removal === 'clear') await r.host.call('turn/queue/clear', target)
+  else await r.host.call('turn/queue/cancel', { ...target, id: record.queue.messages[0]!.id })
+  await r.idle()
+  assert.equal((await r.stored()).records[0].state, 'stopped')
+  assert.equal(r.prompts.length, 2, 'the renewal never reaches the worker')
+})
+
+
+test('a queued renewal rejected by the outer host admission settles before its terminal observation resumes', async t => {
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits'); await r.idle()
+  await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
+  await r.host.call('workspace/session/send', { id: created.id, text: 'Person turn still running' })
+  await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Continue after this turn' } })
+  const target = { runtime: r.runtime.info.id, sessionId: sessionId(created.id.slice(created.id.indexOf(':') + 1)) }
+  const session = r.runtime.sessions.get(String(target.sessionId))!, settings = session.settings()
+  const readEntered = deferred(), releaseRead = deferred(), paused = deferred()
+  let changeSettings = true
+  r.onResolve(async call => {
+    if (call.method === 'lead/chat/read') { readEntered.resolve(); await releaseRead.promise }
+    if (call.method === 'lead/chat/send' && changeSettings) {
+      changeSettings = false
+      t.mock.method(session, 'settings', () => ({ ...settings, cwd: join(r.repo.dir, 'changed-folder') }))
+    }
+  })
+  const pause = r.host.registry.pauseQueue.bind(r.host.registry)
+  t.mock.method(r.host.registry, 'pauseQueue', (record: Parameters<typeof pause>[0], reason: string) => { pause(record, reason); paused.resolve() })
+  session.finish('The earlier turn finished')
+  try {
+    await readEntered.promise; await paused.promise
+    await (r.host.leadChats as import('../src/lead/chats.js').LeadChats).incidents!.idle()
+    assert.match(r.host.registry.get(target.runtime, target.sessionId)!.queue.reason!, /scope changed before dispatch/)
+    assert.equal((await r.stored()).records[0].state, 'stopped')
+    assert.equal(r.prompts.length, 2)
+  } finally { releaseRead.resolve(); await r.idle() }
 })

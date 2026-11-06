@@ -5290,9 +5290,12 @@ answer still has a strict order. Asked incidents expire with the goal. A chosen
 reset retry re-arms the host timer through chat_send's retryAt reset selector;
 it never sends immediately into the limit. A fresh automatic generation, for
 either a plain send or a reset wait, needs a newer answer: consent counts only
-the person's own messages. Without one, the send remains an ordinary send and a failure asks again directly. Every
+the person's own messages. Without one, an explicit reset retry is refused;
+a plain send remains ordinary and a failure asks again directly. Every
 new failed turn can wake again. Interrupts settle recovery as stopped, and
-a refused admission rolls an unstarted renewal back. Live worker approvals
+a refused admission rolls an unstarted renewal back. A skipped terminal
+observation retires its cancelled wait, and a queued renewal discarded before
+sending is stopped. Message source is required at append time. Live worker approvals
 remain visible during waits and retries.
 The host validates the live workspace start roster, reserves one move, and
 builds the new first message from the brief, the original first message (including the person's verbatim words), and
@@ -5301,6 +5304,10 @@ verbatim quotes as well. A creation refused before any chat exists releases
 the move claim and requires a fresh answer before another move: consent
 counts only the person's own messages. Candidate admission runs before
 creation; a first message refused before dispatch is reported as not started.
+The empty new chat stays available on the desk and is never returned as the
+moved chat. The existing ordinary removal paths cannot prove that nobody
+has begun using it across their asynchronous cleanup; guarded discard only
+covers the host's separate Seat allocations, so recovery does not reuse it.
 Once the first message starts, its id is returned even if saving the receipt
 fails, and the durable claim still prevents a duplicate move. It leaves the
 old chat intact. Agent configuration and credentials remain in the agents'

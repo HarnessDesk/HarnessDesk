@@ -691,7 +691,14 @@ test("consent counts only the person's own messages after the current goal start
 for (const retryAt of [undefined, 'reset'] as const) test(`consent counts only the person's own messages for retry renewal: ${retryAt ?? 'send'}`, async t => {
   const r = await stuck(t)
   const params = { id: 'fixture:own', text: 'Continue', ...(retryAt ? { retryAt } : {}) }
-  r.authorize('lead/chat/send', params); await r.service.send(params)
+  r.authorize('lead/chat/send', params)
+  if (retryAt) {
+    await assert.rejects(r.service.send(params), /person.*answer/)
+    assert.equal(r.calls.filter(call => call.method === 'send').length, 0, 'a reset retry never becomes an immediate send')
+    assert.equal(r.service.incidents.get(params.id)?.state, 'asked'); assert.equal(r.scheduled.size, 0)
+    return
+  }
+  await r.service.send(params)
   assert.equal(r.calls.filter(call => call.method === 'send').length, 1, 'an ordinary send is still allowed')
   await r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'two', status: 'failed', items: [], error: { code: 'network', message: 'Offline' } } as any)
   assert.equal(r.service.incidents.get(params.id)?.state, 'asked')
@@ -732,7 +739,9 @@ test('a known refusal before the first move message releases the move and report
   const r = await stuck(t); r.answer(); r.refuseFirst()
   const params = { text: 'Brief', agent: 'Agent Two', moveFrom: 'fixture:own' }; r.authorize('lead/chat/start', params)
   const result = await r.service.start(params)
-  assert.equal(result.id, ''); assert.match(result.problem!, /not start/)
+  assert.equal(result.id, ''); assert.match(result.problem!, /not start/); assert.match(result.problem!, /empty chat.*kept.*desk/i)
+  assert.ok(r.index.get(runtimeId('fixture'), sessionId('created')), 'the unstarted chat remains available on the desk')
+  assert.equal(r.service.incidents.get(params.moveFrom)?.movedTo, undefined)
   assert.equal(r.service.incidents.get(params.moveFrom)?.state, 'asked')
 })
 
@@ -788,4 +797,75 @@ test('an interrupted wait cancels its timer before a delayed observation can adm
     assert.equal(retry.mock.callCount(), 0)
   } finally { release(); await changing }
   assert.equal(r.service.incidents.get('fixture:own')?.state, 'stopped')
+})
+
+for (const skip of ['person', 'scope', 'policy', 'allowed'] as const) test(`a terminal observation settles its cancelled reset wait when ${skip} skips follow-up`, async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.incidents.ended('fixture:own', 'one', { code: 'network', message: 'Offline' })
+  if (skip === 'person') r.holders.set('fixture:own', 'person')
+  if (skip === 'scope') r.withdraw()
+  if (skip === 'policy') r.setState({ policy: { version: 1, revision: 2, mode: 'read', rules: [{ id: 'deny', effect: 'deny', method: 'lead/chat/read' }] } as any })
+  if (skip === 'allowed') r.onContext(() => { r.holders.set('fixture:own', 'person') })
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'two', status: 'completed', items: [] } as any)
+  assert.equal(r.service.incidents.get('fixture:own')?.state, 'stopped')
+  assert.equal(r.scheduled.size, 0)
+  const notices = r.published.length; await r.advance(600_000)
+  assert.equal(r.published.length, notices, 'no wake or send after the observation is withdrawn')
+})
+
+test('a queued renewal refused at later dispatch settles instead of remaining retrying', async t => {
+  const r = await stuck(t); r.answer(); r.onSend(async effect => { effect() })
+  const params = { id: 'fixture:own', text: 'Continue' }; r.authorize('lead/chat/send', params); await r.service.send(params)
+  assert.equal(r.service.incidents.get(params.id)?.state, 'retrying')
+  await assert.rejects(r.queuedScope()(r.foreign), /scope|project/)
+  await r.service.incidents.idle()
+  assert.equal(r.service.incidents.get(params.id)?.state, 'stopped')
+  assert.equal(r.scheduled.size, 0)
+})
+
+test('a reset retry during the existing quota wait needs a fresh answer and sends nothing', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.incidents.ended('fixture:own', 'one', { code: 'rateLimit', message: 'Quota' }, { reached: 'Daily', windows: [{ label: 'Daily', resetsAt: 10_000 }] })
+  const params = { id: 'fixture:own', text: 'Continue', retryAt: 'reset' as const }; r.authorize('lead/chat/send', params)
+  await assert.rejects(r.service.send(params), /person.*answer/)
+  assert.equal(r.calls.filter(call => call.method === 'send').length, 0)
+  assert.equal(r.service.incidents.get(params.id)?.state, 'waiting-reset'); assert.equal(r.scheduled.size, 1)
+})
+
+
+test('queue removal after dispatch leaves the running renewal incident alone', async t => {
+  const r = await stuck(t); r.answer(); r.onSend(async effect => { effect() })
+  const params = { id: 'fixture:own', text: 'Continue' }; r.authorize('lead/chat/send', params); await r.service.send(params)
+  const scope = r.queuedScope() as import('../src/dispatch-admission.js').DispatchAdmission<string>
+  scope.dispatchStarted?.(); scope.queueRemoved?.(); await r.service.incidents.idle()
+  assert.equal(r.service.incidents.get(params.id)?.state, 'retrying')
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'two', status: 'completed', items: [] } as any)
+  assert.equal(r.service.incidents.get(params.id)?.state, 'cleared')
+})
+
+test('a move refused before allocation reports no empty chat was kept', async t => {
+  const r = await stuck(t); r.answer(); r.failStart('return')
+  const params = { text: 'Brief', agent: 'Agent Two', moveFrom: 'fixture:own' }; r.authorize('lead/chat/start', params)
+  const result = await r.service.start(params)
+  assert.equal(result.id, ''); assert.doesNotMatch(result.problem!, /empty chat.*kept/)
+  assert.equal(r.index.get(runtimeId('fixture'), sessionId('created')), null)
+})
+
+
+test('a withdrawn terminal observation cannot stop a replacement project incident', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.incidents.ended('fixture:own', 'one', { code: 'network', message: 'Offline' })
+  let release!: () => void, entered!: () => void, hold = true
+  const held = new Promise<void>(resolve => { release = resolve }), entering = new Promise<void>(resolve => { entered = resolve })
+  r.onCwd(async () => { if (hold) { entered(); await held } })
+  const changing = r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'two', status: 'completed', items: [] } as any)
+  try {
+    await entering; hold = false
+    r.project.path = r.foreign; await r.service.projectChanged(); r.row('own', r.foreign)
+    await r.service.read({ id: 'fixture:own' })
+    await r.service.incidents.ended('fixture:own', 'new-project', { code: 'network', message: 'Offline in the new project' })
+    release(); await changing
+    assert.equal(r.service.incidents.get('fixture:own')?.state, 'waiting-reset')
+    assert.equal(r.scheduled.size, 1)
+  } finally { release(); await changing }
 })

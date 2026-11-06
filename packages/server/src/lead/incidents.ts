@@ -206,7 +206,7 @@ export class LeadChatIncidents {
     const record = this.#records.get(id)
     return record?.personRevision !== undefined && (this.ports.personRevision?.() ?? 0) > Math.max(record.personRevision, this.ports.goalStartedSeq?.() ?? 0)
   }
-  beginRetry(id: string, atReset = false): Promise<(() => Promise<void>) | null> {
+  beginRetry(id: string, atReset = false): Promise<{ rollback(): Promise<void>; stop(): Promise<void> } | null> {
     return this.#queue(async () => {
       await this.#load(); const record = this.#records.get(id)
       if (!record || record.state !== 'asked' || !this.hasPersonAnswer(id)) return null
@@ -215,7 +215,12 @@ export class LeadChatIncidents {
         state: atReset ? 'waiting-reset' : 'retrying', nextAt: atReset ? record.resetsAt !== null && record.resetsAt > now
           ? record.resetsAt + randomInt(RESET_JITTER_MIN_MS, RESET_JITTER_MAX_MS + 1) : now + BACKOFF_MS[0] : null }
       await this.#save(next); this.#arm(next)
-      return () => this.#queue(async () => { if (this.#records.get(id) === next) { this.#timers.get(id)?.(); this.#timers.delete(id); await this.#save(record) } })
+      const settle = (stopped: boolean) => this.#queue(async () => {
+        if (this.#records.get(id) !== next) return
+        this.invalidateRetry(id)
+        await this.#save(stopped ? { ...next, state: 'stopped', nextAt: null } : record)
+      })
+      return { rollback: () => settle(false), stop: () => settle(true) }
     })
   }
   releaseMove(id: string): Promise<void> {

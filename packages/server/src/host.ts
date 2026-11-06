@@ -7812,6 +7812,7 @@ export class Host {
         if (admitLive) await admitLive(live)
         admitLive?.assertDispatch?.()
         effectStarted?.()
+        admitLive?.dispatchStarted?.()
         return this.#sendWithPersonMarker(record, live, input, personSeat)
       }
       return await (held ? send(held) : this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, send))
@@ -7885,6 +7886,7 @@ export class Host {
           if (!record.queue.messages.some(message => message.id === sending.id)) { cancelled = true; return }
           admit?.assertDispatch?.()
           sendStarted = true
+          admit?.dispatchStarted?.()
           return this.#sendWithPersonMarker(record, current, sending.input, this.registry.queuedPersonSeat(record, sending.id) ?? null)
         })
         this.registry.cancelQueued(record, sending.id)
@@ -10088,7 +10090,7 @@ export class Host {
       // inherit the admission of the handle that was actually inspected.
       if (this.registry.get(params.runtime, params.sessionId)?.live !== live || !samePath(live.settings().cwd, cwd) ||
         !this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('The chat project scope changed before dispatch.')
-    }, { assertDispatch: admitCwd.assertDispatch })
+    }, { assertDispatch: admitCwd.assertDispatch, dispatchStarted: admitCwd.dispatchStarted, queueRemoved: admitCwd.queueRemoved, dispatchRefused: admitCwd.dispatchRefused })
     this.#leadChatAdmissions.add(admission)
     return admission
   }

@@ -374,6 +374,8 @@ export class SessionRegistry {
   }
 
   delete(runtime: RuntimeId, id: SessionId): void {
+    const record = this.#records.get(sessionKey(runtime, id)) ?? this.#removed.get(sessionKey(runtime, id))?.record
+    if (record) this.clearQueue(record)
     this.#pendingNotices.delete(runtime, id)
     this.#records.delete(sessionKey(runtime, id))
     this.#removed.delete(sessionKey(runtime, id))
@@ -491,12 +493,14 @@ export class SessionRegistry {
 
   /** Removes one message. An id that is already gone is not an error — it left. */
   cancelQueued(record: SessionRecord, id: string): void {
+    const admission = this.#queuedAdmissions.get(record)?.get(id)
     this.#queuedAdmissions.get(record)?.delete(id)
     this.#queuedPersonSeats.get(record)?.delete(id)
     const messages = record.queue.messages.filter((message) => message.id !== id)
     // Emptying a paused queue resolves the pause: there is nothing left to hold.
     record.queue =
       messages.length === 0 ? emptyQueue() : { ...record.queue, messages }
+    admission?.queueRemoved?.()
   }
 
   /** Replaces one waiting message's complete input without changing its identity or place. */
@@ -528,9 +532,11 @@ export class SessionRegistry {
   }
 
   clearQueue(record: SessionRecord): void {
+    const admissions = [...this.#queuedAdmissions.get(record)?.values() ?? []]
     this.#queuedAdmissions.delete(record)
     this.#queuedPersonSeats.delete(record)
     record.queue = emptyQueue()
+    for (const admission of admissions) admission.queueRemoved?.()
   }
 
   /**
@@ -541,6 +547,7 @@ export class SessionRegistry {
   pauseQueue(record: SessionRecord, reason: string): void {
     if (record.queue.messages.length === 0) return
     record.queue = { ...record.queue, status: 'paused', reason }
+    for (const admission of this.#queuedAdmissions.get(record)?.values() ?? []) admission.dispatchRefused?.()
   }
 
   resumeQueue(record: SessionRecord): void {
