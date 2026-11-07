@@ -108,10 +108,14 @@ test('bundle ids beginning with a dash are refused before simctl runs', async ()
   assert.deepEqual(calls, [])
 })
 
-test('tap refuses multiple booted simulators even with an explicit target', async () => {
-  const { service, calls } = fixture()
-  for (const udid of ['B', undefined]) {
-    await assert.rejects(service.tap(0, 0, udid), /more than one.*booted.*shut down/i)
-  }
-  assert.ok(calls.every((call) => call[2] === 'list'), 'no screenshot, window access or click follows the refusal')
+test('headless tap uses its explicit target with multiple simulators booted', async () => {
+  let tapped = ''
+  const service = iosService({ run: async (_binary, args) => {
+    if (args[1] === 'list') return { stdout: JSON.stringify({ devices: { iOS: ['A','B'].map(udid => ({ udid, name: 'Fixture', state: 'Booted' })) } }), stderr: '' }
+    if (args[1] === 'io') writeFileSync(args[4]!, PNG)
+    return { stdout: '', stderr: '' }
+  }, input: { request: async (udid) => { tapped = udid; return {} } } })
+  await service.tap(0, 0, 'B')
+  assert.equal(tapped, 'B')
+  await assert.rejects(service.tap(0, 0), /more than one.*booted/i)
 })

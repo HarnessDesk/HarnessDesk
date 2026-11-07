@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline'
 
 import {
   ExtensionKernel,
+  currentIosInvocation, withIosInvocation, type IosCapability,
   setBrowserEngine,
   setBrowserSettings,
   setEditorEngine,
@@ -41,7 +42,24 @@ const log = (level: string, message: string, details?: unknown): void => {
   )
 }
 
+const remoteIos: IosCapability = {
+  devices: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'devices', args } }) as ReturnType<IosCapability['devices']>,
+  diagnose: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'diagnose', args } }) as ReturnType<IosCapability['diagnose']>,
+  frame: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'frame', args } }) as ReturnType<IosCapability['frame']>,
+  getAppearance: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'getAppearance', args } }) as ReturnType<IosCapability['getAppearance']>,
+  setAppearance: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'setAppearance', args } }) as ReturnType<IosCapability['setAppearance']>,
+  booted: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'booted', args } }) as ReturnType<IosCapability['booted']>,
+  boot: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'boot', args } }) as ReturnType<IosCapability['boot']>,
+  install: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'install', args } }) as ReturnType<IosCapability['install']>,
+  launch: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'launch', args } }) as ReturnType<IosCapability['launch']>,
+  terminate: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'terminate', args } }) as ReturnType<IosCapability['terminate']>,
+  openUrl: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'openUrl', args } }) as ReturnType<IosCapability['openUrl']>,
+  screenshot: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'screenshot', args } }) as ReturnType<IosCapability['screenshot']>,
+  tap: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'tap', args } }) as ReturnType<IosCapability['tap']>,
+  interact: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'interact', args } }) as ReturnType<IosCapability['interact']>,
+}
 const kernel = new ExtensionKernel({
+  iosEngine: remoteIos,
   logger: {
     debug: (message, details) => log('debug', message, details),
     info: (message, details) => log('info', message, details),
@@ -253,7 +271,7 @@ const handlers: Handlers = {
     handled: await kernel.runCommand(params.name, params.argument, params.scope),
   }),
   'tool/invoke': (params) =>
-    kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null),
+    withIosInvocation(params.iosInvocation, () => kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null)),
   'hooks/run': (params) => kernel.runHooks(params.invocation),
   'context/resolve': (params) => kernel.resolveContext(params.query),
   'context/resolveOne': (params) => kernel.resolveOne(params.id as never, params.ref, params.scope),

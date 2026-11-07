@@ -1,0 +1,1 @@
+{"id":"iosish","name":"Synthetic simulator plugin","version":"1.0.0","main":"./index.js","permissions":{"ios":true}}

@@ -1,3 +1,4 @@
+import type { IosCapability } from '@harnessdesk/protocol'
 import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult } from '@harnessdesk/protocol'
 import type {
   CapabilityContribution,
@@ -72,7 +73,8 @@ import type {
 // to the inbox or that conversation's composer under the person's setting.
 // 10 adds the host-executed forge write verbs and Git record reads.
 // 12 adds the invocation-bound associated pull request read.
-export const EXTENSION_PROTOCOL_VERSION = 12
+// 13 adds host-owned, invocation-bound simulator capability requests.
+export const EXTENSION_PROTOCOL_VERSION = 13
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -152,6 +154,7 @@ export interface PluginHostMethods {
   }
   'tool/invoke': {
     params: {
+      readonly iosInvocation?: string
       readonly id: string
       readonly args: unknown
       readonly scope: ScopeQuery
@@ -216,7 +219,9 @@ export interface CdpEventWire {
  * child that pays for events no plugin ever reads. Draining on demand keeps
  * one direction and one buffer, and a turn that never asks costs nothing.
  */
+export type IosCall = { [M in keyof IosCapability]: { readonly method: M; readonly args: Parameters<IosCapability[M]> } }[keyof IosCapability]
 export interface ChildToHostMethods {
+  'ios/call': { params: { readonly invocation: string; readonly call: IosCall }; result: unknown }
   'browser/ensure': { params: { readonly invocation: string }; result: null }
   'browser/send': {
     params: {

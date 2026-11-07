@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+import { answerIosCall } from './ios.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
@@ -5,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   BrowserInvocations,
+  type IosCapability,
   canonicalScopeQuery,
   setEditorEngine,
   setForgeEngine,
@@ -27,6 +30,7 @@ import {
   isChildMessage,
   type BrowserSettingsWire,
   type ChildToHostRequest,
+  type ChildToHostMethods,
   type HostToChildResponse,
   type InspectedPlugin,
   type PluginHostMethodName,
@@ -100,6 +104,7 @@ export interface PluginHostOptions {
    * pane. A child `ctx.browser` is then served from here; without it, the
    * child starts its own Chrome.
    */
+  readonly iosEngine?: IosCapability
   readonly browserEngine?: BrowserEngine | null
   /**
    * The editor plane. Always the parent's, because the plane is host-owned:
@@ -121,6 +126,7 @@ export interface PluginHostOptions {
 }
 
 export class PluginHostProcess {
+  readonly #iosInvocations = new Map<string, string>()
   #child: ChildProcess | null = null
   #nextId = 0
   readonly #pending = new Map<number, Pending>()
@@ -356,6 +362,14 @@ export class PluginHostProcess {
       reply({ response: request.request, error: { message } })
     }
     try {
+      if (request.method === 'ios/call') {
+        const params = request.params as ChildToHostMethods['ios/call']['params']
+        const owner = this.#iosInvocations.get(params?.invocation)
+        const plugin = this.#plugins.find(p => String(p.instanceId) === owner)
+        if (!plugin?.enabled || plugin.permissions.ios !== true || !this.#options.iosEngine) throw new Error('This simulator request has no live invocation with an iOS permission grant.')
+        const result = await answerIosCall(this.#options.iosEngine, params.call)
+        reply({ response: request.request, result }); return
+      }
       if (request.method.startsWith('editor/')) {
         const plane = this.#options.editorEngine
         if (!plane) {
@@ -801,12 +815,19 @@ export class PluginHostProcess {
   ): Promise<PluginHostMethods[M]['result']> {
     await this.ensure()
     let browserInvocation: string | undefined
+    let iosInvocation: string | undefined
     if (method === 'tool/invoke') {
       const input = params as PluginHostMethods['tool/invoke']['params']
       const namespaced = childContributionId(input.id as ContributionId)
       const owner = this.#plugins.find((plugin) =>
         plugin.contributions.some((entry) => entry.id === namespaced),
       )
+      if (owner?.enabled && owner.permissions.ios && owner.contributions.some(entry => entry.id === namespaced && scopeApplies(entry.scope, input.scope))) {
+        iosInvocation = randomUUID()
+        this.#iosInvocations.set(iosInvocation, String(owner.instanceId))
+      }
+      const { iosInvocation: _untrustedIos, ...withoutIos } = input
+      params = { ...withoutIos, ...(iosInvocation ? { iosInvocation } : {}) } as PluginHostMethods[M]['params']
       if (
         input.browser &&
         owner?.enabled &&
@@ -816,9 +837,9 @@ export class PluginHostProcess {
       ) {
         const identity = this.#browserInvocations.begin(input.browser.profile, String(owner.instanceId))
         browserInvocation = identity.invocation
-        params = { ...input, browser: identity } as PluginHostMethods[M]['params']
+        params = { ...params, browser: identity } as PluginHostMethods[M]['params']
       } else if (input.browser) {
-        const { browser: _browser, ...plain } = input
+        const { browser: _browser, ...plain } = params as PluginHostMethods['tool/invoke']['params']
         params = plain as PluginHostMethods[M]['params']
       }
     }
@@ -835,6 +856,7 @@ export class PluginHostProcess {
     try {
       return await this.#dispatch(method, params, lifetime)
     } finally {
+      if (iosInvocation) this.#iosInvocations.delete(iosInvocation)
       if (browserInvocation) this.#browserInvocations.end(browserInvocation)
       controller.abort()
       for (const key of armKeys) {
@@ -1012,6 +1034,7 @@ export interface SupervisedExtensionHostOptions {
   readonly invokeTimeoutMs?: number
   readonly env?: Readonly<Record<string, string>>
   /** The parent's own browser page for child plugins' `ctx.browser`; see `PluginHostOptions`. */
+  readonly iosEngine?: IosCapability
   readonly browserEngine?: BrowserEngine | null
   /** The editor plane for child plugins' `ctx.editor`; see `PluginHostOptions`. */
   readonly editorEngine?: EditorEngine | null
@@ -1059,6 +1082,7 @@ export class SupervisedExtensionHost {
       ...(options.logger ? { logger: options.logger } : {}),
       ...(options.invokeTimeoutMs ? { invokeTimeoutMs: options.invokeTimeoutMs } : {}),
       ...(options.env ? { env: options.env } : {}),
+      ...(options.iosEngine ? { iosEngine: options.iosEngine } : {}),
       ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),
       ...(options.editorEngine ? { editorEngine: options.editorEngine } : {}),
       ...(options.teamEngine ? { teamEngine: options.teamEngine } : {}),
