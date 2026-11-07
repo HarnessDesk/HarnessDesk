@@ -4,6 +4,8 @@ export type DispatchAdmission<T> = ((value: T) => Promise<void>) & {
   readonly assertDispatch?: () => void
   /** Host receipts distinguish queue admission from the actual send. */
   readonly dispatchStarted?: () => void
+  /** A send crossed the effect boundary but its outcome could not be confirmed. */
+  readonly dispatchUnconfirmed?: () => Promise<void>
   readonly queueRemoved?: () => void
   readonly dispatchRefused?: () => void
 }

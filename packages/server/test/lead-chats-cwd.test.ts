@@ -366,7 +366,7 @@ test('cancelling a queued item after runtime send begins retains a later rejecti
   assert.equal(record.queue.status, 'paused')
   assert.match(record.queue.reason ?? '', /Synthetic runtime receipt lost after send began/)
   assert.equal(warnings.length, 1)
-  assert.match(warnings[0]!, /The queued message was not sent:.*Synthetic runtime receipt lost after send began/)
+  assert.match(warnings[0]!, /queued message could not be confirmed.*Check the conversation before retrying/i)
   live.finish()
   r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'idle' } })
   assert.deepEqual(sent, ['Person message', leadMessageEnvelope('Dex', 'Scoped follow-up')], 'idle must not bypass the uncertain runtime effect fence')
