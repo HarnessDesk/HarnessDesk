@@ -594,7 +594,6 @@ export class SessionRegistry {
   pauseQueue(record: SessionRecord, reason: string): void {
     if (record.queue.messages.length === 0) return
     record.queue = { ...record.queue, status: 'paused', reason }
-    for (const admission of this.#queuedAdmissions.get(record)?.values() ?? []) admission.dispatchRefused?.()
   }
 
   resumeQueue(record: SessionRecord): void {

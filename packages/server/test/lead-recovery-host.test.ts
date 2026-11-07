@@ -465,6 +465,34 @@ test('a desk interrupt settles an automatic retry through its terminal turn even
 })
 
 
+test('a detached agent pauses a queued renewal without retiring it before resume', async t => {
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits'); await r.idle()
+  await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
+  await r.host.call('workspace/session/send', { id: created.id, text: 'Person turn still running' })
+  await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Continue after this turn' } })
+  const target = { runtime: r.runtime.info.id, sessionId: sessionId(created.id.slice(created.id.indexOf(':') + 1)) }
+  const record = r.host.registry.get(target.runtime, target.sessionId)!
+  const settings = r.runtime.sessions.get(String(target.sessionId))!.settings()
+  assert.equal(record.queue.messages.length, 1)
+  assert.equal((await r.stored()).records[0].state, 'retrying')
+
+  r.runtime.emit({ type: 'session/detached', sessionId: target.sessionId })
+  await r.idle()
+  assert.equal(record.queue.status, 'paused')
+  assert.equal(record.queue.messages.length, 1)
+  assert.equal((await r.stored()).records[0].state, 'retrying', 'a held message still owns its recovery')
+
+  r.runtime.sessions.set(String(target.sessionId), new FakeSession(r.runtime, target.sessionId, settings, { model: 'fake-1', tone: 'plain', uppercase: false }))
+  await r.host.call('turn/queue/flush', target)
+  await r.idle()
+  assert.equal(r.prompts.length, 3, 'the retained renewal sends once')
+  assert.equal(record.queue.messages.length, 0)
+  assert.equal((await r.stored()).records[0].state, 'retrying')
+  await r.host.call('turn/queue/flush', target)
+  assert.equal(r.prompts.length, 3, 'another flush cannot send the renewal twice')
+})
+
 for (const removal of ['cancel', 'clear', 'delete'] as const) test(`a queued renewal removed before dispatch settles recovery: ${removal}`, async t => {
   let transcripts: TranscriptStore | undefined
   if (removal === 'delete') {
@@ -483,6 +511,9 @@ for (const removal of ['cancel', 'clear', 'delete'] as const) test(`a queued ren
   const target = { runtime: r.runtime.info.id, sessionId: sessionId(created.id.slice(created.id.indexOf(':') + 1)) }
   const record = r.host.registry.get(target.runtime, target.sessionId)!
   assert.equal(record.queue.messages.length, 1)
+  r.host.registry.pauseQueue(record, 'The agent stopped')
+  await r.idle()
+  assert.equal((await r.stored()).records[0].state, 'retrying', 'pause retains the renewal before removal')
   if (removal === 'delete') {
     // A bare registry delete does not perform the Host's transcript cleanup.
     // Settle this active owner's exact body first so deletion cannot strand a
