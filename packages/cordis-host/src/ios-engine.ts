@@ -1,15 +1,14 @@
-import { createHash, randomUUID } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { createHmac, randomUUID } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { IosHelper, type IosInputTransport } from './ios-helper.js'
+import { IosHelper, IosInputUnavailableError, type IosInputTransport } from './ios-helper.js'
 import { currentIosInputSignal } from './ios-invocation.js'
 import { validateIosAction } from './ios-validation.js'
 
-import type { HostRuntime } from './runtime.js'
 import { diagnoseIosEnvironment, type IosEnvironmentDependencies } from './ios-environment.js'
-import type { IosAction, IosAppearance, IosFrame, IosSetup } from './ios-types.js'
+import type { IosAction, IosAppearance, IosFrame, IosSetup, SimDevice } from './ios-types.js'
 import { isPng, runDevice } from './device-exec.js'
 
 const SIMCTL_BIN = 'xcrun'
@@ -19,24 +18,22 @@ const assertBundleId = (bundleId: string): void => {
   if (bundleId.startsWith('-')) throw new Error('An app bundle id cannot begin with -.')
 }
 
-export interface SimDevice {
-  readonly udid: string
-  readonly name: string
-  readonly state: string
-  readonly runtime: string
-}
-
 export interface IosEngineDependencies {
   run?: typeof runDevice
   environment?: Partial<IosEnvironmentDependencies>
   input?: IosInputTransport
+  exists?: typeof existsSync
   helperPath?: string
 }
 export class IosEngine {
   private readonly input: IosInputTransport
   private inputQueue: Promise<unknown> = Promise.resolve()
   private readonly queues = new Map<string, Promise<unknown>>()
-  private readonly frames = new Map<string, { frame: IosFrame; generation: string }>()
+  private readonly frameKey = randomUUID()
+  private readonly geometries = new Map<string, { width: number; height: number; rotation?: number; generation: string; epoch: string }>()
+  private frameId(epoch: string, nonce: string = randomUUID()): string {
+    return `${createHmac('sha256', this.frameKey).update(epoch).update(nonce).digest('hex')}.${nonce}`
+  }
   constructor(private readonly dependencies: IosEngineDependencies = {}) {
     this.input = dependencies.input ?? new IosHelper(dependencies.helperPath ? { executable: dependencies.helperPath } : {})
   }
@@ -165,12 +162,12 @@ export class IosEngine {
       const width = png.readUInt32BE(16)
       const height = png.readUInt32BE(20)
       if (width === 0 || height === 0 || width > 0x7fffffff || height > 0x7fffffff) throw new Error('Could not read the screenshot dimensions.')
-      // The digest binds the full currently oriented image, including rotations
-      // that have the same dimensions. A nonce prevents reuse after an unobserved
-      // restart; the generation also changes on observed boots.
-      const frameId = createHash('sha256').update(device.udid).update(generation).update(randomUUID()).update(String(rotation)).update(png).digest('hex')
-      const frame: IosFrame = { udid: device.udid, frameId, width, height, mimeType: 'image/png', url: `data:image/png;base64,${png.toString('base64')}`, ...(rotation === undefined ? {} : { rotation }) }
-      this.frames.set(device.udid, { frame, generation })
+      // Captures from other callers preserve the geometry epoch. Any observed
+      // geometry/rotation/boot change revokes every earlier frame, even if it later returns.
+      const previous = this.geometries.get(device.udid)
+      const epoch = previous && previous.generation === generation && previous.width === width && previous.height === height && previous.rotation === rotation ? previous.epoch : randomUUID()
+      this.geometries.set(device.udid, { width, height, ...(rotation === undefined ? {} : { rotation }), generation, epoch })
+      const frame: IosFrame = { udid: device.udid, frameId: this.frameId(epoch), width, height, mimeType: 'image/png', url: `data:image/png;base64,${png.toString('base64')}`, ...(rotation === undefined ? {} : { rotation }) }
       return frame
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -226,17 +223,40 @@ export class IosEngine {
     const signal = currentIosInputSignal()
     return this.exclusive(device.udid, () => this.inputTurn(async () => {
       signal?.throwIfAborted()
-      const remembered = this.frames.get(device.udid)
       const before = await this.captureFrame(device.udid)
       validateIosAction(action, before)
-      if ('frameId' in action && action.frameId !== undefined &&
-          (!remembered || remembered.frame.frameId !== action.frameId || remembered.generation !== this.generations.get(device.udid)?.generation || remembered.frame.width !== before.width || remembered.frame.height !== before.height || remembered.frame.rotation !== before.rotation)) {
-        throw new Error('The simulator screenshot is stale; capture a fresh frame before sending input.')
+      if ('frameId' in action && action.frameId !== undefined) {
+        const nonce = action.frameId.split('.')[1]
+        const epoch = this.geometries.get(device.udid)!.epoch
+        if (!nonce || this.frameId(epoch, nonce) !== action.frameId) throw new Error('The simulator screenshot is stale; capture a fresh frame before sending input.')
       }
-      const result = await this.input.request(device.udid, action, before, signal)
+      let result: Record<string, unknown>
+      try { result = await this.input.request(device.udid, action, before, signal) }
+      catch (error) {
+        if (!(error instanceof IosInputUnavailableError) || action.kind !== 'tap') throw error
+        signal?.throwIfAborted()
+        await this.legacyTap(action.x, action.y, before)
+        result = { method: 'legacy-window' }
+      }
       const after = await this.captureFrame(device.udid)
       return typeof result['method'] === 'string' ? { ...after, inputMethod: result['method'] } : after
     }))
+  }
+  /** PR 1 compatibility only: requires exactly one booted device and moves the desktop pointer. */
+  private async legacyTap(x: number, y: number, frame: IosFrame): Promise<void> {
+    const booted = (await this.devices()).filter(device => device.state === 'Booted')
+    if (booted.length > 1) throw new Error(`More than one simulator is booted (${booted.map(device => device.udid).join(', ')}). Tapping uses the Simulator window; shut down the other simulators before tapping.`)
+    if (booted.length !== 1 || booted[0]!.udid !== frame.udid) throw new Error('The target simulator is no longer booted.')
+    const cliclick = ['/opt/homebrew/bin/cliclick', '/usr/local/bin/cliclick'].find(path => (this.dependencies.exists ?? existsSync)(path))
+    if (!cliclick) throw new Error('Tapping needs cliclick (brew install cliclick). Screenshots and launches work without it.')
+    await this.run('open', ['-a', 'Simulator'], { what: 'Fronting Simulator' }).catch(() => {})
+    const { stdout } = await this.run('osascript', ['-e', 'tell application "System Events" to tell process "Simulator" to get {position, size} of front window'], { what: 'Locating the Simulator window' })
+    const numbers = stdout.match(/-?\d+/g)?.map(Number) ?? []
+    if (numbers.length < 4) throw new Error('Could not read the Simulator window frame. Is the Simulator app open and frontmost on this desktop?')
+    const [left, top, width, height] = numbers as [number, number, number, number]
+    const screenX = Math.round(left + (x / frame.width) * width)
+    const screenY = Math.round(top + 28 + (y / frame.height) * (height - 28))
+    await this.run(cliclick, [`c:${screenX},${screenY}`], { what: `Tapping (${x}, ${y})` })
   }
   async tap(x: number, y: number, udid?: string): Promise<void> { await this.interact({ kind: 'tap', x, y }, udid) }
 }

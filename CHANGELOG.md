@@ -7,7 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **Control a simulator without owning the mouse.** On Xcode 27, simulator tools use a bundled native helper for taps, long presses, swipes, timed drags, pinch and rotation gestures, US-layout text, keys and physical buttons. Input and its screenshot stay on the chosen device. Software-keyboard show/hide, device rotation and deterministic lock report that they are not yet verified.
+- **Control a simulator without owning the mouse.** On Xcode 27, simulator tools use a bundled native helper for taps, long presses, swipes, timed drags, pinch and rotation gestures, US-layout text, keys and physical buttons. Input and its screenshot stay on the chosen device. When native input is unavailable, taps alone retain the previous Simulator-window `cliclick` path; newer input tools refuse. Software-keyboard show/hide, device rotation and deterministic lock report that they are not yet verified.
 
 - **The iOS Simulator tells you what setup needs.** Check Xcode selection, its license, iOS support and simulator runtimes without changing them. Simulator tools can name a device when several are booted, boot without opening a window, and read or change light and dark appearance; screenshots identify the device and original pixel dimensions. Appearance changes say whether they applied.
 - **Claude Code conversations can branch, take direction mid-turn, and keep a goal.** The bundled bridge is updated, with the source conversation’s read ceiling preserved when branching.

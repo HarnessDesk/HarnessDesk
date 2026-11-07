@@ -3,7 +3,7 @@ import type { HostRuntime } from './runtime.js'
 import type { IosCapability } from './ios-types.js'
 import { withIosCaller } from './ios-invocation.js'
 import { IosEngine, type IosEngineDependencies } from './ios-engine.js'
-export type { SimDevice } from './ios-engine.js'
+export type { SimDevice } from './ios-types.js'
 
 /** Permission is checked before touching the shared host engine or parent IPC. */
 export class IosService extends Service {

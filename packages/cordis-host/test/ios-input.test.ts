@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
+import { validateIosAction } from '../src/ios-validation.js'
 import { IosEngine } from '../src/ios-engine.js'
 import { iosService, PNG } from './fixtures/ios.js'
 const target='11111111-1111-1111-1111-111111111111'
@@ -45,4 +46,53 @@ test('an expired invocation cannot deliver queued input', async () => {
   await assert.rejects(expired,/abort/i)
   await first
   assert.equal(delivered,1)
+})
+
+test('another caller capturing frames preserves a frame until geometry or rotation changes', async () => {
+  let rotation='Portrait', width=1, calls=0
+  const engine=new IosEngine({run:async(_bin,args)=>{
+    if(args[1]==='list')return {stdout:JSON.stringify({devices:{iOS:[{udid:target,state:'Booted'}]}}),stderr:''}
+    if(args[3]==='enumerate')return {stdout:`Screen Type: Integrated\nUI Orientation: ${rotation}\n`,stderr:''}
+    if(args[3]==='screenshot') {const png=Buffer.from(PNG);png.writeUInt32BE(width,16);writeFileSync(args[4]!,png)}
+    return {stdout:'',stderr:''}
+  },input:{request:async()=>{calls++;return {}}}})
+  const callerA=await engine.frame(target)
+  const callerB=await engine.frame(target)
+  await engine.interact({kind:'tap',x:0,y:0,frameId:callerA.frameId},target)
+  await engine.interact({kind:'tap',x:0,y:0,frameId:callerB.frameId},target)
+  rotation='Portrait Upside Down'
+  await assert.rejects(engine.interact({kind:'tap',x:0,y:0,frameId:callerA.frameId},target),/stale/)
+  rotation='Portrait'; width=2
+  await assert.rejects(engine.interact({kind:'tap',x:0,y:0,frameId:callerB.frameId},target),/stale/)
+  assert.equal(calls,2)
+})
+test('text length boundary stays bounded', async () => {
+  validateIosAction({kind:'text',text:'A'.repeat(16384)},{width:1,height:1})
+  assert.throws(()=>validateIosAction({kind:'text',text:'A'.repeat(16385)},{width:1,height:1}),/16384/)
+})
+
+test('only a tap falls back to the measured Simulator window when no native helper was built', async () => {
+  const calls: [string, readonly string[]][]=[]
+  const engine=new IosEngine({helperPath:'/missing/native/helper', exists:(path: string)=>path==='/opt/homebrew/bin/cliclick',run:async(bin,args)=>{
+    calls.push([bin,args])
+    if(args[1]==='list')return {stdout:JSON.stringify({devices:{iOS:[{udid:target,state:'Booted'}]}}),stderr:''}
+    if(args[3]==='screenshot')writeFileSync(args[4]!,PNG)
+    return {stdout:bin==='osascript'?'100, 200, 400, 828':'',stderr:''}
+  }} as ConstructorParameters<typeof IosEngine>[0])
+  await engine.interact({kind:'tap',x:0,y:0},target)
+  assert.ok(calls.some(([bin,args])=>bin==='/opt/homebrew/bin/cliclick'&&args[0]==='c:100,228'))
+  calls.length=0
+  await assert.rejects(engine.interact({kind:'key',key:'return',count:1},target),/Xcode/)
+  assert.equal(calls.some(([bin])=>bin==='osascript'||bin.includes('cliclick')),false)
+})
+test('legacy tapping still refuses more than one booted simulator', async () => {
+  const calls:string[]=[]
+  const engine=new IosEngine({helperPath:'/missing/native/helper',exists:()=>true,run:async(bin,args)=>{
+    calls.push(bin)
+    if(args[1]==='list')return {stdout:JSON.stringify({devices:{iOS:[{udid:target,state:'Booted'},{udid:'22222222-2222-2222-2222-222222222222',state:'Booted'}]}}),stderr:''}
+    if(args[3]==='screenshot')writeFileSync(args[4]!,PNG)
+    return {stdout:'',stderr:''}
+  }} as ConstructorParameters<typeof IosEngine>[0])
+  await assert.rejects(engine.interact({kind:'tap',x:0,y:0},target),/More than one/)
+  assert.equal(calls.includes('osascript'),false)
 })

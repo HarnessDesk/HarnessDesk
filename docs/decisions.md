@@ -5340,16 +5340,23 @@ own worlds.
 
 Simulator input uses a source-built Swift/Objective-C helper and Xcode 27 DTUHID,
 confirmed by a liveness round trip before any action. A port lookup alone can
-succeed while the guest discards events. There is no legacy fallback after a
-failed connection or gesture. The helper dynamically loads the installed Apple
-frameworks, which are never redistributed. Older toolchains remain unavailable
-until separately verified.
+succeed while the guest discards events. The helper dynamically loads the installed
+Apple frameworks, which are never redistributed. When DTUHID is unavailable
+(including Xcode below 27 or a source build without the helper), taps alone retain
+the previous measured-window `cliclick` path. That path fronts Simulator, moves
+the desktop pointer and refuses multiple booted devices. New input tools refuse
+there. An interrupted gesture or helper crash never falls back or replays queued
+input through another transport.
 
 One host engine serializes input and capture per device. Installed plugins use
 invocation-bound, manifest-checked parent requests, rather than spawning their
 own native process. Screenshot pixels are transformed through measured display
 orientation; missing/stale geometry and out-of-bounds contacts are refused.
-Native interruption ends the current gesture and releases contacts and modifiers.
+Native interruption ends the current gesture and releases contacts and modifiers
+without waiting for guest acknowledgement. Each connection first clears both
+contacts. Frame identities authenticate a geometry epoch: another caller's
+capture does not invalidate them, but an observed size, rotation or boot change
+does. Text and gesture deadlines scale with their bounded work.
 
 Keyboard show/hide, device rotation and deterministic lock are explicit refusals
 until the requested guest state can be observed and verified. A physical power
