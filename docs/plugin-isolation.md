@@ -410,6 +410,9 @@ request.
 knows every hook's event, tool match and priority from the snapshots. It
 runs the matching hooks one at a time, in priority order, each in its own
 plugin's process. The first `deny` or `ask` decides.
+Built-in plugins' hooks run first, in their own priority order, and the
+installed plugins' hooks follow; a built-in `deny` or `ask` therefore
+decides before any installed plugin is asked.
 
 **A hook that cannot run:**
 - A hook that throws, or overruns its own timeout (5 s unless it asks for

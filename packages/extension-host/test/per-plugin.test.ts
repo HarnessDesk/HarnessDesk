@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 import type { ContributionId, ExtensionEvent, SessionId } from '@harnessdesk/protocol'
 
-import type { SupervisedExtensionHost, SupervisedExtensionHostOptions } from '../src/index.js'
+import { mergePermissions } from '@harnessdesk/cordis-host'
+
+import { PluginHostProcess, type SupervisedExtensionHost, type SupervisedExtensionHostOptions } from '../src/index.js'
 import { childrenGone, childrenUp, Hosts } from './hosts.js'
 
 /**
@@ -378,4 +380,27 @@ test('a plugin that rewrites its manifest and restarts does not come back', asyn
   } finally {
     await cleanup(harness)
   }
+})
+
+test('a process stopped while its start is checking the record never spawns', async () => {
+  await childrenGone(5000)
+  let entered = (): void => {}, release = (): void => {}
+  const checking = new Promise<void>((resolve) => { entered = resolve })
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const proc = new PluginHostProcess({
+    plugin: {
+      id: 'envspy',
+      directory: join(FIXTURES, 'plugin-envspy'),
+      identity: { id: 'envspy', name: 'Env spy', source: { kind: 'local', path: join(FIXTURES, 'plugin-envspy') } },
+      permissions: mergePermissions({}),
+    },
+    beforeStart: async () => { entered(); await gate },
+  })
+  const starting = proc.ensure()
+  await checking
+  await proc.dispose()
+  release()
+  await assert.rejects(starting, /disposed/)
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  assert.equal(childrenUp(), 0, 'the stopped start spawned a process')
 })

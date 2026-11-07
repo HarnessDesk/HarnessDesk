@@ -1,7 +1,7 @@
 import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { cp, mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ExtensionKernel, type IosCapability } from '@harnessdesk/cordis-host'
 import { SupervisedExtensionHost } from '../src/index.js'
@@ -19,7 +19,8 @@ async function setup(t: TestContext, granted: boolean, options: { disableBeforeL
   await cp(join(FIXTURES, 'plugin-ios-resident'), join(store, 'resident'), { recursive: true })
   const source = join(store, 'iosish', 'index.js')
   await writeFile(source, (await readFile(source, 'utf8')).replace('apply(ctx) {', `apply(ctx) {
-    ctx.tools.register({name:'ios_owner',description:'Synthetic live invocation.',inputSchema:{type:'object',properties:{}},execute:async()=>JSON.stringify(await ctx.ios.devices())})`))
+    ctx.tools.register({name:'ios_owner',description:'Synthetic live invocation.',inputSchema:{type:'object',properties:{}},execute:async()=>JSON.stringify(await ctx.ios.devices())})
+    ctx.tools.register({name:'ios_twice',description:'Two simulator requests in one invocation.',inputSchema:{type:'object',properties:{}},execute:async()=>{await ctx.ios.devices();return JSON.stringify(await ctx.ios.devices())}})`))
   const manifestPath = join(store, 'resident', 'harnessdesk.plugin.json')
   const grant = async (value: boolean) => {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
@@ -53,7 +54,7 @@ async function setup(t: TestContext, granted: boolean, options: { disableBeforeL
     }
     throw new Error('The synthetic resident did not receive a simulator reply.')
   }
-  return { host, store, grant, invoke, probe, calls: () => calls, hold: () => { pause = true; return invoke('ios_owner', { iosOwner: true }) }, started, release: () => release() }
+  return { host, store, grant, invoke, probe, calls: () => calls, hold: (name = 'ios_owner') => { pause = true; return invoke(name, { iosOwner: true }) }, started, release: () => release() }
 }
 
 function toolText(result: ToolResult): string {
@@ -136,4 +137,35 @@ test('built-in simulator calls and a granted installed plugin both work beside a
   assert.equal((await f.invoke('builtin_ios')).ok, true)
   assert.equal((await f.invoke('ios_owner', { iosOwner: true })).ok, true)
   assert.equal(f.calls(), 2)
+})
+
+test('a granted plugin whose manifest changes while it runs loses simulator access at once', async t => {
+  const f = await setup(t, false)
+  assert.equal((await f.invoke('ios_owner', { iosOwner: true })).ok, true)
+  const path = join(f.store, 'iosish', 'harnessdesk.plugin.json')
+  const manifest = JSON.parse(await readFile(path, 'utf8'))
+  await writeFile(path, JSON.stringify({ ...manifest, version: '9.9.9' }))
+  assert.deepEqual(await f.invoke('ios_owner', { iosOwner: true }), { ok: false, error: REFUSAL })
+  assert.equal(f.calls(), 1)
+})
+
+test('a granted plugin with no consent record on file is given no simulator access', async t => {
+  const f = await setup(t, false)
+  assert.equal((await f.invoke('ios_owner', { iosOwner: true })).ok, true)
+  await writeFile(join(dirname(f.store), 'plugin-consent.json'), '{}')
+  assert.deepEqual(await f.invoke('ios_owner', { iosOwner: true }), { ok: false, error: REFUSAL })
+  assert.equal(f.calls(), 1)
+})
+
+test('a changed manifest refuses the next simulator request inside a live invocation', async t => {
+  const f = await setup(t, false)
+  const running = f.hold('ios_twice')
+  try {
+    await f.started
+    const path = join(f.store, 'iosish', 'harnessdesk.plugin.json')
+    const manifest = JSON.parse(await readFile(path, 'utf8'))
+    await writeFile(path, JSON.stringify({ ...manifest, version: '9.9.9' }))
+  } finally { f.release() }
+  assert.deepEqual(await running, { ok: false, error: REFUSAL })
+  assert.equal(f.calls(), 1, 'the second request never reached the engine')
 })

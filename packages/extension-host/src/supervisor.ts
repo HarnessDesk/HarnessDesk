@@ -143,7 +143,8 @@ export interface PluginHostOptions {
    * Whether the plugin's manifest is still the one the person agreed to,
    * asked each time simulator authority is handed out. A manifest changed
    * while the plugin runs withdraws that authority at once, not only at the
-   * next start. Any failure to answer reads as no.
+   * next start. Any failure to answer reads as no, and a process built
+   * without it is given no simulator access at all.
    */
   readonly stillConsented?: () => Promise<boolean>
   /**
@@ -353,6 +354,11 @@ export class PluginHostProcess {
         throw error
       }
     }
+    // A stop or uninstall that landed while the check above was reading must
+    // not be followed by a spawn: the plugin's code would load and run, and
+    // its files may already be on their way out. Nothing awaits between here
+    // and the spawn, so a later dispose() finds the child and ends it.
+    if (this.#disposed) throw new Error('The plugin host has been disposed.')
     // ELECTRON_RUN_AS_NODE makes the same spawn work when the parent is the
     // Electron main process: the child must be plain Node, never a second app.
     const child = spawn(process.execPath, [CHILD_ENTRY], {
@@ -1168,8 +1174,11 @@ export class PluginHostProcess {
    * manifest the person consented to, never what the process reports.
    */
   async #iosGranted(): Promise<boolean> {
-    if (this.#child === null || this.#options.plugin?.permissions?.ios !== true) return false
-    try { return (await this.#options.stillConsented?.()) ?? true } catch { return false }
+    const consented = this.#options.stillConsented
+    // No way to ask is no grant: a process built without the check never
+    // reaches the simulator, rather than reaching it unchecked.
+    if (this.#child === null || this.#options.plugin?.permissions?.ios !== true || !consented) return false
+    try { return await consented() } catch { return false }
   }
   #iosOwnersFor(method: PluginHostMethodName, value: unknown): readonly PluginInstance[] {
     const params = value as Record<string, unknown>
