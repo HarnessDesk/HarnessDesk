@@ -6,14 +6,14 @@ import { iosService, type ProbeResult } from './fixtures/ios.js'
 
 const ok = (stdout = ''): ProbeResult => ({ exitCode: 0, stdout, stderr: '' })
 const fail = (stderr: string): ProbeResult => ({ exitCode: 1, stdout: '', stderr })
-const fixture = (options: { selected?: string; explicit?: string; installed?: boolean; sdk?: string; runtimes?: ProbeResult; launch?: ProbeResult; find?: ProbeResult; platform?: string } = {}) => {
+const fixture = (options: { selected?: string; selection?: ProbeResult; explicit?: string; installed?: boolean; sdk?: string; runtimes?: ProbeResult; launch?: ProbeResult; find?: ProbeResult; platform?: string } = {}) => {
   const calls: { binary: string; args: readonly string[]; env?: NodeJS.ProcessEnv; timeoutMs: number }[] = []
   const service = iosService({ environment: {
     platform: options.platform ?? 'darwin', developerDirectory: options.explicit,
     exists: (path: string) => options.installed !== false && path === '/Applications/Xcode.app',
     execute: async (binary: string, args: readonly string[], limits: { env?: NodeJS.ProcessEnv; timeoutMs: number }) => {
       calls.push({ binary, args, ...limits })
-      if (binary === 'xcode-select') return ok(options.selected ?? '/Applications/Xcode.app/Contents/Developer')
+      if (binary === 'xcode-select') return options.selection ?? ok(options.selected ?? '/Applications/Xcode.app/Contents/Developer')
       if (args[0] === '--find') return options.find ?? ok('/Applications/Xcode.app/Contents/Developer/usr/bin/simctl')
       if (args[0] === '-checkFirstLaunchStatus') return options.launch ?? ok()
       if (args[0] === '-showsdks') return ok(options.sdk ?? 'iOS Simulator -sdk iphonesimulator27.0')
@@ -161,4 +161,45 @@ test('the execFile probe receives an AbortSignal in its options', async (t) => {
   assert.equal(captured.length, 1)
   assert.ok(captured[0]!.signal instanceof AbortSignal)
   assert.equal(captured[0]!.signal!.aborted, false)
+})
+
+test('an unselected developer directory diagnoses installed and absent Xcode', async () => {
+  const stderr = 'xcode-select: error: unable to get active developer directory, use `sudo xcode-select --switch path/to/Xcode.app` to set one (or see `man xcode-select`)'
+  for (const installed of [true, false]) {
+    const { service, calls } = fixture({ selection: fail(stderr), installed })
+    assert.equal((await service.diagnose()).code, installed ? 'developerDirectory' : 'xcodeMissing')
+    assert.deepEqual(calls.map(({ binary, args }) => [binary, ...args]), [['xcode-select', '-p']])
+  }
+  for (const stderr of ['UNABLE TO GET ACTIVE DEVELOPER DIRECTORY', 'Use XCODE-SELECT --SWITCH path', 'Use --INSTALL', 'NO DEVELOPER TOOLS']) {
+    assert.equal((await fixture({ selection: fail(stderr) }).service.diagnose()).code, 'developerDirectory')
+  }
+})
+
+test('selector EACCES preserves stderr or errorMessage as a service failure', async () => {
+  for (const detail of [{ stderr: 'Permission denied' }, { stderr: '', errorMessage: 'spawn xcode-select EACCES' }]) {
+    const { service, calls } = fixture({ selection: { ...fail(''), ...detail, exitCode: 'EACCES' } })
+    const setup = await service.diagnose()
+    assert.equal(setup.code, 'serviceUnavailable')
+    assert.ok(setup.message.includes(detail.stderr || detail.errorMessage!))
+    assert.deepEqual(calls.map(({ binary }) => binary), ['xcode-select'])
+  }
+})
+
+test('a selector terminated by a signal remains a service failure', async () => {
+  const setup = await fixture({ selection: { ...fail('terminated by SIGTERM'), exitCode: null } }).service.diagnose()
+  assert.equal(setup.code, 'serviceUnavailable')
+  assert.match(setup.message, /terminated by SIGTERM/)
+})
+
+test('an unrelated numeric selector failure retains its diagnostic', async () => {
+  const setup = await fixture({ selection: fail('internal error') }).service.diagnose()
+  assert.equal(setup.code, 'serviceUnavailable')
+  assert.match(setup.message, /internal error/)
+})
+
+test('a missing selector binary diagnoses absent Xcode unless Xcode is installed', async () => {
+  for (const installed of [false, true]) {
+    const setup = await fixture({ selection: { ...fail(''), exitCode: 'ENOENT', errorMessage: 'spawn xcode-select ENOENT' }, installed }).service.diagnose()
+    assert.equal(setup.code, installed ? 'developerDirectory' : 'xcodeMissing')
+  }
 })

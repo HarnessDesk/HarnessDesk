@@ -57,6 +57,8 @@ export const diagnoseIosEnvironment = async (overrides: Partial<IosEnvironmentDe
     const selected = await probe('xcode-select', ['-p'])
     if (selected.exitCode !== 0) {
       if (selected.timedOut) return failed(selected)
+      const unselected = typeof selected.exitCode === 'number' && /unable to get active developer directory|xcode-select\s+--switch|--install|no developer tools/i.test(selected.stderr)
+      if (selected.exitCode !== 'ENOENT' && !unselected) return failed(selected)
       return answer(deps.exists('/Applications/Xcode.app') ? 'developerDirectory' : 'xcodeMissing')
     }
     const directory = selected.stdout.trim()
