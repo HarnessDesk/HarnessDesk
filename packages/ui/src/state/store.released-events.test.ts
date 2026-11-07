@@ -548,3 +548,80 @@ it.each(['item-start', 'item-complete', 'turn-complete', 'session-replay'] as co
   await store.restoreTranscript(runtime, first); expect(await store.restoreTranscript(runtime, first)).toBe(false)
   expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(false)
 })
+
+it.each(['notice', 'preview', 'both'] as const)('restores a released replay with a covered %s change', async kind => {
+  const notice = { id: itemId('notice'), type: 'notice' as const, kind: 'conversation:warning' as const, text: 'Synthetic warning', count: 1 }
+  const oldCommand = { id: itemId('command'), type: 'command' as const, command: 'synthetic', cwd: '/example', origin: 'agent' as const, status: 'completed' as const, actions: [], output: 'old output' }
+  const old = { id: turnId('old'), status: 'completed' as const, items: kind !== 'preview' ? [notice, oldCommand] : [oldCommand] }
+  const settings = { cwd: '/example', model: 'synthetic' }, options: NonNullable<Session['options']> = []
+  const original: Session = { ...body(first), preview: null, settings, options, turns: [old] }
+  const command = { id: itemId('command'), type: 'command' as const, command: 'synthetic', cwd: '/example', origin: 'agent' as const, status: 'completed' as const, actions: [], output: 'done', startedAt: 10 }
+  const started = { id: turnId('new'), status: 'inProgress' as const, items: [] }
+  const completed = { ...started, status: 'completed' as const }
+  const updated: Session = { ...original, preview: kind !== 'notice' ? 'Synthetic opening' : null, turns: [old, { ...completed, items: [command] }] }
+  const key = sessionKey(runtime, first), store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  let resolve!: (value: unknown) => void, count = 0
+  const deferred = new Promise(r => { resolve = r })
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/prepare-eviction' ? { ...fence, identity: digest(original) } : method === 'session/cache-snapshot' ? ++count === 1 ? { session: original, watermark: fence, identity: digest(original) } : deferred : null) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onEvent(runtime, { type: 'session/started', session: original })
+  expect(await store.unloadTranscript(runtime, first)).toBe(true)
+  const emit = (event: Parameters<typeof handlers.onEvent>[1], n: number) => handlers.onEvent(runtime, event, { ...fence, sequence: n, revision: n })
+  const invalidate = (n: number) => handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: first, watermark: { ...fence, sequence: n, revision: n } } })
+  invalidate(2)
+  emit({ type: 'session/started', session: original }, 3)
+  invalidate(4)
+  emit({ type: 'session/settings', sessionId: first, settings }, 5)
+  emit({ type: 'session/options', sessionId: first, options }, 6)
+  emit({ type: 'turn/started', sessionId: first, turn: started }, 7)
+  emit({ type: 'session/status', sessionId: first, status: { type: 'active' } }, 8)
+  emit({ type: 'item/started', sessionId: first, turnId: started.id, item: { ...command, status: 'inProgress', output: '' } }, 9)
+  const { startedAt: _startedAt, ...completedCommand } = command
+  emit({ type: 'item/completed', sessionId: first, turnId: started.id, item: completedCommand }, 10)
+  emit({ type: 'turn/completed', sessionId: first, turn: completed }, 11)
+  emit({ type: 'session/status', sessionId: first, status: { type: 'idle' } }, 12)
+  invalidate(13)
+  resolve({ session: updated, watermark: { ...fence, sequence: 13, revision: 13 }, identity: digest(updated) })
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(key)).toEqual(updated))
+})
+
+it('keeps a changed preview protected when no new turn was observed', async () => {
+  const original: Session = { ...body(first), preview: null, turns: [{ id: turnId('old'), status: 'completed', items: [] }] }
+  const updated = { ...original, preview: 'Unproven opening' }, key = sessionKey(runtime, first)
+  const store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  let resolve!: (value: unknown) => void, count = 0
+  const deferred = new Promise(r => { resolve = r })
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/prepare-eviction' ? { ...fence, identity: digest(original) } : method === 'session/cache-snapshot' ? ++count === 1 ? { session: original, watermark: fence, identity: digest(original) } : deferred : null) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onEvent(runtime, { type: 'session/started', session: original })
+  expect(await store.unloadTranscript(runtime, first)).toBe(true)
+  handlers.onEvent(runtime, { type: 'session/started', session: original }, { ...fence, sequence: 2, revision: 2 })
+  resolve({ session: updated, watermark: { ...fence, sequence: 2, revision: 2 }, identity: digest(updated) })
+  expect(await store.restoreTranscript(runtime, first)).toBe(false)
+  expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(false)
+})
+
+it.each(['notice', 'existing preview'] as const)('keeps unrepresented %s protected even with a new turn', async mismatch => {
+  const notice = { id: itemId('notice'), type: 'notice' as const, kind: 'conversation:warning' as const, text: 'Original warning', count: 1 }
+  const old = { id: turnId('old'), status: 'completed' as const, items: [notice] }
+  const original: Session = { ...body(first), preview: 'Original opening', turns: [old] }
+  const added = { id: turnId('new'), status: 'completed' as const, items: [] }
+  const updated: Session = { ...original, preview: mismatch === 'existing preview' ? 'Other opening' : original.preview,
+    turns: [{ ...old, items: [{ ...notice, text: mismatch === 'notice' ? 'Other warning' : notice.text }] }, added] }
+  const store = new AppStore('ws://localhost:0/'), key = sessionKey(runtime, first)
+  await store.disableTranscriptCache()
+  let resolve!: (value: unknown) => void, count = 0
+  const deferred = new Promise(r => { resolve = r })
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/prepare-eviction' ? { ...fence, identity: digest(original) } : method === 'session/cache-snapshot' ? ++count === 1 ? { session: original, watermark: fence, identity: digest(original) } : deferred : null) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onEvent(runtime, { type: 'session/started', session: original })
+  expect(await store.unloadTranscript(runtime, first)).toBe(true)
+  handlers.onEvent(runtime, { type: 'session/started', session: original }, { ...fence, sequence: 2, revision: 2 })
+  handlers.onEvent(runtime, { type: 'turn/started', sessionId: first, turn: { ...added, status: 'inProgress' } }, { ...fence, sequence: 3, revision: 3 })
+  handlers.onEvent(runtime, { type: 'turn/completed', sessionId: first, turn: added }, { ...fence, sequence: 4, revision: 4 })
+  resolve({ session: updated, watermark: { ...fence, sequence: 4, revision: 4 }, identity: digest(updated) })
+  expect(await store.restoreTranscript(runtime, first)).toBe(false)
+  expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(false)
+})

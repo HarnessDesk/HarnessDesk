@@ -1042,6 +1042,11 @@ export class AppStore {
             // Later observed typed field replacements supersede this replay.
             if (Object.hasOwn(captured.sessionFields, field)) continue
             const actual = snapshot.session[field as keyof Session]
+            // A runtime may fill a previously absent sidebar preview from its
+            // stored opening while a newly observed turn is being recorded.
+            // The checks below still prove the old body and every new turn.
+            if (field === 'preview' && value == null && typeof actual === 'string' && actual.length > 0 &&
+                snapshot.session.turns.slice(descriptor.turnCount).some(turn => captured.turns.some(observed => observed.id === turn.id))) continue
             if (field === 'updatedAt' && typeof value === 'number' && typeof actual === 'number') {
               if (actual < value) return false
             } else if (!wireEqual(actual, value)) return false
@@ -1238,8 +1243,9 @@ export class AppStore {
       const invalidation = released.invalidation ?? released.watermark
       const floor = released.observed && released.observed.sequence > invalidation.sequence ? released.observed : invalidation
       // These families have no additional event owner and their captured
-      // material can be checked in the body. Others stay protected.
-      const supportedItem = (item: AgentItem) => item.type === 'userMessage' || item.type === 'assistantMessage' || item.type === 'command' || item.type === 'reasoning' || item.type === 'fileChange' || item.type === 'plan' || item.type === 'toolCall' || item.type === 'publication'
+      // material can be checked in the body. Notice items require exact wire
+      // equality during restoration; notice events remain protected.
+      const supportedItem = (item: AgentItem) => item.type === 'userMessage' || item.type === 'assistantMessage' || item.type === 'command' || item.type === 'reasoning' || item.type === 'fileChange' || item.type === 'plan' || item.type === 'toolCall' || item.type === 'publication' || item.type === 'notice'
       const represented = (event.type === 'session/started' && event.session.itemsLoaded && !event.session.partialHistory &&
           event.session.turns.every(turn => turn.items.every(supportedItem) && new Set(turn.items.map(item => item.id)).size === turn.items.length) &&
           new Set(event.session.turns.map(turn => turn.id)).size === event.session.turns.length) ||
