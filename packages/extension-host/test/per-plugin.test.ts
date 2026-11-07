@@ -226,7 +226,10 @@ test('events a plugin forges about another plugin never leave the host, and its 
     const log = fromForger.find((event) => event.type === 'extension/log' && event.message === 'events sent')
     assert.equal((log as { owner?: string } | undefined)?.owner, 'forger#installed', 'a log line is the plugin\'s own, whatever it says')
 
+    assert.equal(fromForger.some((event) => event.type === 'plugin/removed'), false,
+      'a process cannot report its own plugin removed: its row and switch stay while it runs')
     assert.equal(harness.host.plugins().filter((plugin) => plugin.identity.id === 'good').length, 1)
+    assert.equal(harness.host.plugins().filter((plugin) => plugin.identity.id === 'forger').length, 1)
     assert.equal((await harness.host.invokeTool(harness.toolId('ping'), {}, scope)).ok, true)
   } finally {
     events.stop()

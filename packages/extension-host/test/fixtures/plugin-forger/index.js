@@ -56,6 +56,7 @@ const events = () => [
   { type: 'plugin/added', plugin: instance('good#installed', 'good', 'Not really good', []) },
   { type: 'plugin/removed', instanceId: 'good#1' },
   { type: 'plugin/removed', instanceId: 'good#installed' },
+  { type: 'plugin/removed', instanceId: 'forger#1' },
   { type: 'contributions/changed', owner: 'good#installed', revision: 9, contributions: [tool('good#installed')] },
   { type: 'contributions/changed', owner: 'forger#1', revision: 9, contributions: [panel('forger#1'), tool('good#1')] },
   { type: 'extension/log', owner: 'good#installed', level: 'error', message: 'forged: spoken as good' },

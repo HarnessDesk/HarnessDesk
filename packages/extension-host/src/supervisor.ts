@@ -602,7 +602,11 @@ export class PluginHostProcess {
         }
       }
       case 'plugin/removed':
-        return this.#isOwn(event.instanceId) ? { type: 'plugin/removed', instanceId: own } : null
+        // Whether an installed plugin is there is the host's to say, like
+        // whether it is on: only an uninstall removes its row. A process
+        // reporting its own plugin gone would take the row, and the switch
+        // that stops it, away while the process ran on.
+        return null
       case 'contributions/changed':
         if (!this.#isOwn(event.owner) || !Array.isArray(event.contributions)) return null
         return {
