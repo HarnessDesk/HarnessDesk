@@ -51,9 +51,11 @@ for (const theme of ['light', 'dark'] as const) {
         const card = decision.getBoundingClientRect()
         const box = shell.getBoundingClientRect()
         const probe = document.createElement('div')
-        probe.style.backgroundColor = 'var(--hd-card)'
+        probe.style.backgroundColor = 'var(--hd-background)'
         dock.append(probe)
-        const surface = getComputedStyle(probe).backgroundColor
+        const decisionGround = getComputedStyle(probe).backgroundColor
+        probe.style.backgroundColor = 'var(--hd-card)'
+        const composerGround = getComputedStyle(probe).backgroundColor
         probe.remove()
         const through = (x: number, y: number) => {
           const hit = document.elementFromPoint(x, y)
@@ -64,9 +66,9 @@ for (const theme of ['light', 'dark'] as const) {
           return element.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2))
         }
         return {
-          decisionSurface: getComputedStyle(decision).backgroundColor === surface,
-          composerSurface: getComputedStyle(shell).backgroundColor === surface,
-          opaque: surface !== 'rgba(0, 0, 0, 0)',
+          decisionSurface: getComputedStyle(decision).backgroundColor === decisionGround,
+          composerSurface: getComputedStyle(shell).backgroundColor === composerGround,
+          opaque: decisionGround !== 'rgba(0, 0, 0, 0)' && composerGround !== 'rgba(0, 0, 0, 0)',
           besideBrowser: through(grid.left + 10, box.top + box.height / 2),
           besideTranscript: through(grid.right - 10, box.top + box.height / 2),
           gap: box.top > card.bottom && through(card.left + card.width / 2, (card.bottom + box.top) / 2),

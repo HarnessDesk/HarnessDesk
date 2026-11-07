@@ -85,7 +85,7 @@ for (const height of [900, 520]) {
     await expect(popup).toBeVisible()
     const compact = await popup.boundingBox()
     expect(compact).not.toBeNull()
-    await expect(popup.getByRole('menuitem')).toHaveCount(5)
+    await expect(popup.getByRole('menuitem')).toHaveCount(4)
     await theme.selectOption('dark')
     await expect(popup).toBeVisible()
     await theme.selectOption('light')
@@ -108,7 +108,7 @@ for (const height of [900, 520]) {
     })
     await testInfo.attach('account-flyout-layout', { body: JSON.stringify({ compact, expanded }, null, 2), contentType: 'application/json' })
     // Account growth belongs to a scrollable flyout; the primary actions
-    // stay at the same position and height in the five-row root menu.
+    // stay at the same position and height in the four-row root menu.
     const rootAfter = (await popup.boundingBox())!
     expect(rootAfter.height).toBe(compact!.height)
     expect(rootAfter.y).toBe(compact!.y)

@@ -23,8 +23,10 @@
 }
 
 @container hd-header (max-width: 400px) {
-  /* Header readings remain present while their optional track yields room. */
+  /* The anchor keeps its reading while its optional track yields room. */
   .group [data-plan-popup='anchor'] [data-slot='progress'] { display: none; }
+  /* The roster already includes every promoted agent, including its details. */
+  .group button:has([data-plan-popup='promoted']) { display: none; }
   .group [data-anchored] > *:first-child { margin-right: 0; }
   .group [data-anchored] { gap: var(--hd-space-1); }
   .chip[data-slot='chip'] {

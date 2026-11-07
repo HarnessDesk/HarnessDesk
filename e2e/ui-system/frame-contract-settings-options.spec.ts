@@ -77,7 +77,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
     await measureDestination(page, `frame-wall=settings&frame-detail=${child}`, 'reading', theme, width, { more: 'absent' })
     const bar = page.locator('[data-slot="top-bar"]:visible')
     await expect(bar.locator('[data-topbar="place"] button')).toHaveCount(0)
-    const heading = child === 'runtime' || child === 'account' ? 'Runtimes' : child === 'project' ? 'Workspaces' : 'Skills'
+    const heading = child === 'runtime' || child === 'account' ? 'Alpha' : child === 'project' ? 'Workspaces' : 'Skills'
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
   })
   test(`E2 Add runtime ${width} ${theme}`, async ({ page }) => {

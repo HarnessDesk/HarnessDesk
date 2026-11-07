@@ -82,6 +82,16 @@ test('a phone header keeps room for slightly wider text metrics', async ({ page 
   // CI's text metrics used five more pixels than this Mac. Keep that margin.
   await bar.getByRole('group', { name: 'Conversation status', exact: true }).evaluate((node) => { (node as HTMLElement).style.paddingRight = '5px' })
   expect(await bar.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(0)
+  const promoted = bar.locator('button:has([data-plan-popup="promoted"])')
+  await expect(promoted).toHaveCount(2)
+  await expect(promoted.nth(0)).toBeHidden()
+  await expect(promoted.nth(1)).toBeHidden()
+  await expect(bar.locator('button:has([data-plan-popup="anchor"])')).toBeVisible()
+  const roster = bar.locator('button:has([data-plan-popup="rest"])')
+  await expect(roster).toBeVisible()
+  await roster.click()
+  await expect(page.getByRole('menuitem', { name: /Beta/ }).first()).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /Gamma/ }).first()).toBeVisible()
 })
 
 test('a phone header keeps the same margin with wider font metrics', async ({ page }) => {
