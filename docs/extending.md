@@ -280,7 +280,7 @@ use a window. Xcode selection is read, never changed. If DTUHID is unavailable
 or no helper was built, taps alone retain the previous `cliclick` window path:
 it moves the pointer, requires Simulator's window and refuses multiple booted
 devices. Other input tools remain unavailable there. Installed plugins forward typed requests over extension protocol
-14; the parent verifies its invocation ID and current manifest grant before
+15; the parent verifies its invocation ID and current manifest grant before
 calling the same engine. Plugins cannot choose a native executable, symbol or
 service name.
 

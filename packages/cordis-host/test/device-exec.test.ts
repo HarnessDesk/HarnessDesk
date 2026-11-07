@@ -1,9 +1,24 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import childProcess from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
 
-import { isPng, runDeviceForPng } from '../src/device-exec.js'
+import { isPng, runDevice, runDeviceForPng } from '../src/device-exec.js'
 
 const PNG_BUFFER = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+
+test('device subprocess execution receives the simulator cancellation signal', async t => {
+  const controller = new AbortController(), captured: { signal?: AbortSignal }[] = []
+  t.mock.method(childProcess, 'execFile', ((_binary: string, _args: string[], options: { signal?: AbortSignal }, callback: (error: Error | null, stdout: Buffer, stderr: Buffer) => void) => {
+    captured.push(options)
+    callback(null, Buffer.from(''), Buffer.from(''))
+  }) as unknown as typeof childProcess.execFile)
+  syncBuiltinESMExports()
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports() })
+  const options = { what: 'Synthetic simulator operation', signal: controller.signal }
+  await runDevice('synthetic-simctl', [], options)
+  assert.equal(captured[0]!.signal, controller.signal)
+})
 
 test('isPng recognizes valid 8-byte PNG header and rejects others', () => {
   assert.equal(isPng(PNG_BUFFER), true)

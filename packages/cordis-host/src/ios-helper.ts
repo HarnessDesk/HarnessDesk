@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import { iosActionWorkMs } from './ios-validation.js'
+import { IOS_COMMAND_TIMEOUTS } from './ios-timeouts.js'
 import type { IosAction, IosFrame } from './ios-types.js'
 
 export interface IosInputTransport {
@@ -86,7 +87,7 @@ export class IosHelper implements IosInputTransport {
     const cancel = () => this.#stop(child, new Error('The simulator invocation ended; the gesture was stopped.'))
     signal?.addEventListener('abort', cancel, { once: true })
     try { return await new Promise<Record<string, unknown>>((resolve, reject) => {
-      const timer = setTimeout(() => this.#stop(child, new Error('The simulator input helper timed out; the gesture was stopped.')), (this.options.timeoutMs ?? 20_000) + iosActionWorkMs(action))
+      const timer = setTimeout(() => this.#stop(child, new Error('The simulator input helper timed out; the gesture was stopped.')), (this.options.timeoutMs ?? IOS_COMMAND_TIMEOUTS.input) + iosActionWorkMs(action))
       this.#pending.set(id, { resolve, reject, timer })
       child.stdin.write(`${JSON.stringify({ protocolVersion: 1, id, udid, operation: 'interact', action, ...(frame ? { geometry: { width: frame.width, height: frame.height, rotation: frame.rotation } } : {}) })}\n`, (error) => { if (error) this.#stop(child, new Error('The simulator input helper connection closed.')) })
     }) } finally { signal?.removeEventListener('abort', cancel) }

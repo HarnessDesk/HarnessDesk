@@ -2,7 +2,7 @@ import { createInterface } from 'node:readline'
 
 import {
   ExtensionKernel,
-  iosInteractionTimeoutMs, currentIosInvocation, withIosInvocation, type IosCapability,
+  iosReplyTimeoutMs, currentIosInvocation, withIosInvocation, type IosCapability,
   setBrowserEngine,
   setBrowserSettings,
   setEditorEngine,
@@ -86,6 +86,7 @@ const notify = (notification: PluginHostNotification): void => {
 const hostPending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
 let nextHostRequest = 0
 const HOST_REQUEST_TIMEOUT_MS = 30_000
+let requestTimeoutScale = 1
 
 const askHost = <M extends keyof ChildToHostMethods>(
   method: M,
@@ -94,7 +95,7 @@ const askHost = <M extends keyof ChildToHostMethods>(
   new Promise((resolve, reject) => {
     const id = ++nextHostRequest
     const ios = method === 'ios/call' ? params as ChildToHostMethods['ios/call']['params'] : undefined
-    const timeoutMs = ios?.call.method === 'interact' ? iosInteractionTimeoutMs(ios.call.args[0]) + 5_000 : HOST_REQUEST_TIMEOUT_MS
+    const timeoutMs = (ios ? iosReplyTimeoutMs(ios.call) : HOST_REQUEST_TIMEOUT_MS) * requestTimeoutScale
     const timer = setTimeout(() => {
       hostPending.delete(id)
       reject(new Error(`The host did not answer ${method} in time.`))
@@ -247,6 +248,7 @@ const handlers: Handlers = {
       )
     }
     if (params.inlineBrowser) setBrowserEngine(remoteBrowserEngine)
+    requestTimeoutScale = params.requestTimeoutScale ?? 1
     // A restarted child is told again, because it starts on the defaults.
     if (params.browser) setBrowserSettings(params.browser)
     return { protocolVersion: EXTENSION_PROTOCOL_VERSION, pid: process.pid }

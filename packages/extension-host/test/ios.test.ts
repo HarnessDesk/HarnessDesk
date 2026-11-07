@@ -87,7 +87,7 @@ test('installed maximum-length text outlives both generic IPC deadlines', {timeo
 test('only bounded validated input can extend the installed operation deadline', async()=> {
   const {iosInteractionTimeoutMs}=await import('@harnessdesk/cordis-host')
   const maximum=iosInteractionTimeoutMs({kind:'text',text:'A'.repeat(16384)})
-  assert.ok(maximum>30000 && maximum<900000)
+  assert.ok(Number.isSafeInteger(maximum) && maximum>30000 && maximum<=2**31-1)
   assert.throws(()=>iosInteractionTimeoutMs({kind:'text',text:'A'.repeat(16385)}),/16384/)
   assert.throws(()=>iosInteractionTimeoutMs({kind:'longPress',x:0,y:0,durationMs:10001}),/duration/)
 })

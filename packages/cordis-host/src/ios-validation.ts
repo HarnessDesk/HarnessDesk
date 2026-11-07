@@ -1,4 +1,5 @@
 import type { IosAction, IosFrame } from './ios-types.js'
+import { IOS_ENGINE_BOUNDS_MS } from './ios-timeouts.js'
 const record = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('A simulator input action must be an object.')
   return value as Record<string, unknown>
@@ -59,5 +60,5 @@ export function iosActionWorkMs(action: IosAction): number {
 /** Installed calls also allow captures around input; only validated actions extend IPC deadlines. */
 export function iosInteractionTimeoutMs(action: unknown): number {
   validateIosAction(action, { width: Number.MAX_VALUE, height: Number.MAX_VALUE })
-  return 60_000 + iosActionWorkMs(action)
+  return IOS_ENGINE_BOUNDS_MS.interact + iosActionWorkMs(action)
 }

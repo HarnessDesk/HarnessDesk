@@ -5382,3 +5382,10 @@ Per-plugin process isolation would lift this shared-consent requirement.
 Missing shared consent withholds simulator authority rather than the invocation:
 tools, commands, hooks and context providers still run, and a non-secret per-owner
 refusal marker makes `ctx.ios` explain the constraint without exposing a bearer.
+
+Every forwarded simulator method uses a deadline derived from the engine's
+subprocess limits and sequential steps, with delivery margin for IPC. The parent
+holds the invocation while any such call is active and aborts its engine signal
+on expiry. Simulator subprocesses and diagnostic probes consume that signal;
+queued mutations check it before starting, so an expired invocation cannot begin
+another mutation after its predecessor finishes.

@@ -82,4 +82,5 @@ export { AndroidService, type AndroidDevice } from './android.js'
 
 export { IosEngine } from './ios-engine.js'
 export { validateIosAction, iosActionWorkMs, iosInteractionTimeoutMs } from './ios-validation.js'
+export { iosCallTimeoutMs, iosReplyTimeoutMs } from './ios-deadlines.js'
 export { currentIosInvocation, withIosInvocation, withIosInputSignal } from './ios-invocation.js'

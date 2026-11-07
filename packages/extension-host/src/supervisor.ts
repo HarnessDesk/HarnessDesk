@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import {
   BrowserInvocations,
   pluginsRoot,
-  withIosInputSignal, iosInteractionTimeoutMs,
+  withIosInputSignal, iosCallTimeoutMs,
   type IosCapability,
   canonicalScopeQuery,
   setEditorEngine,
@@ -99,6 +99,8 @@ interface Pending {
 export interface PluginHostOptions {
   /** How long a single request may take. A wedged child is killed and restarted. */
   readonly invokeTimeoutMs?: number
+  /** Scale request clocks in deadline tests; production uses one. */
+  readonly requestTimeoutScale?: number
   readonly logger?: KernelLogger
   /** Extra environment for the child, e.g. HARNESSDESK_HOME in tests. */
   readonly env?: Readonly<Record<string, string>>
@@ -167,6 +169,8 @@ export class PluginHostProcess {
   readonly #logger: KernelLogger
 
   constructor(options: PluginHostOptions = {}) {
+    const scale = options.requestTimeoutScale ?? 1
+    if (!Number.isFinite(scale) || scale <= 0 || scale > 1) throw new Error('Request timeout scale must be greater than zero and at most one.')
     this.#options = options
     this.#logger = options.logger ?? {}
   }
@@ -298,6 +302,7 @@ export class PluginHostProcess {
     this.#startedAt = Date.now()
     const hello = await this.call('host/hello', {
       protocolVersion: EXTENSION_PROTOCOL_VERSION,
+      ...(this.#options.requestTimeoutScale !== undefined ? { requestTimeoutScale: this.#options.requestTimeoutScale } : {}),
       inlineBrowser: Boolean(this.#options.browserEngine),
       // A restarted child starts on the defaults, so where pages open goes
       // in the greeting rather than being sent once and forgotten.
@@ -390,21 +395,20 @@ export class PluginHostProcess {
         // The shared guard just re-read every resident's stored grant, including this owner.
         if (!plugin?.enabled || plugin.permissions.ios !== true || !lease || lease.signal.aborted || !this.#options.iosEngine) throw new Error('This simulator request has no live invocation with an iOS permission grant.')
         if (this.#child !== child || this.#iosInvocations.get(params.invocation) !== lease) throw new Error('This simulator invocation has ended.')
-        if (params.call?.method === 'interact') {
-          const timeoutMs = iosInteractionTimeoutMs(params.call.args?.[0])
-          const release = lease.hold()
-          let timer: ReturnType<typeof setTimeout> | undefined
-          try {
-            const expired = new Promise<never>((_, reject) => {
-              timer = setTimeout(() => { lease.abort(); reject(new Error('The simulator operation exceeded its bounded work deadline.')) }, timeoutMs)
-              timer.unref?.()
-            })
-            const result = await Promise.race([withIosInputSignal(lease.signal, () => answerIosCall(this.#options.iosEngine!, params.call)), expired])
-            reply({ response: request.request, result }); return
-          } finally { clearTimeout(timer); release() }
-        }
-        const result = await withIosInputSignal(lease.signal, () => answerIosCall(this.#options.iosEngine!, params.call))
-        reply({ response: request.request, result }); return
+        const timeoutMs = iosCallTimeoutMs(params.call) * (this.#options.requestTimeoutScale ?? 1)
+        const release = lease.hold()
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          const expired = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              reject(new Error('The simulator operation exceeded its bounded work deadline.'))
+              lease.abort()
+            }, timeoutMs)
+            timer.unref?.()
+          })
+          const result = await Promise.race([withIosInputSignal(lease.signal, () => answerIosCall(this.#options.iosEngine!, params.call)), expired])
+          reply({ response: request.request, result: result === undefined ? null : result }); return
+        } finally { clearTimeout(timer); release() }
       }
       if (request.method.startsWith('editor/')) {
         const plane = this.#options.editorEngine
@@ -1137,6 +1141,7 @@ export class PluginHostProcess {
 export interface SupervisedExtensionHostOptions {
   readonly logger?: KernelLogger
   readonly invokeTimeoutMs?: number
+  readonly requestTimeoutScale?: number
   readonly env?: Readonly<Record<string, string>>
   /** The parent's own browser page for child plugins' `ctx.browser`; see `PluginHostOptions`. */
   readonly iosEngine?: IosCapability
@@ -1186,6 +1191,7 @@ export class SupervisedExtensionHost {
     this.#child = new PluginHostProcess({
       ...(options.logger ? { logger: options.logger } : {}),
       ...(options.invokeTimeoutMs ? { invokeTimeoutMs: options.invokeTimeoutMs } : {}),
+      ...(options.requestTimeoutScale !== undefined ? { requestTimeoutScale: options.requestTimeoutScale } : {}),
       ...(options.env ? { env: options.env } : {}),
       ...(options.iosEngine ? { iosEngine: options.iosEngine } : {}),
       ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),

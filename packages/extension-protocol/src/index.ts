@@ -75,7 +75,8 @@ import type {
 // 12 adds the invocation-bound associated pull request read.
 // 13 adds host-owned, invocation-bound simulator capability requests.
 // 14 allows a non-secret per-owner refusal marker instead of an iOS bearer.
-export const EXTENSION_PROTOCOL_VERSION = 14
+// 15 carries the injected request-clock scale used by deadline tests.
+export const EXTENSION_PROTOCOL_VERSION = 15
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -119,6 +120,7 @@ export interface PluginHostMethods {
   'host/hello': {
     params: {
       readonly protocolVersion: number
+      readonly requestTimeoutScale?: number
       /**
        * True when the parent has a browser page of its own to drive — the
        * desktop shell's pane. The child's `ctx.browser` then forwards to it

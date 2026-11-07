@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { IosHelper, IosInputUnavailableError, type IosInputTransport } from './ios-helper.js'
 import { currentIosInputSignal } from './ios-invocation.js'
 import { validateIosAction } from './ios-validation.js'
+import { IOS_COMMAND_TIMEOUTS } from './ios-timeouts.js'
 
 import { diagnoseIosEnvironment, type IosEnvironmentDependencies } from './ios-environment.js'
 import type { IosAction, IosAppearance, IosFrame, IosSetup, SimDevice } from './ios-types.js'
@@ -45,7 +46,13 @@ export class IosEngine {
     return diagnoseIosEnvironment(this.dependencies.environment)
   }
 
-  private get run(): typeof runDevice { return this.dependencies.run ?? runDevice }
+  private get run(): typeof runDevice {
+    return (binary, args, options) => {
+      const signal = currentIosInputSignal()
+      signal?.throwIfAborted()
+      return (this.dependencies.run ?? runDevice)(binary, args, { ...options, ...(signal ? { signal } : {}) })
+    }
+  }
 
   /** Devices from `simctl list -j`, flattened with their runtime names. */
   async devices(): Promise<readonly SimDevice[]> {
@@ -92,7 +99,7 @@ export class IosEngine {
   async boot(udid: string, options: { openWindow?: boolean } = {}): Promise<void> {
     const device = (await this.devices()).find((device) => device.udid === udid)
     if (!device) throw new Error('Choose an exact device udid from ios_devices before booting a simulator.')
-    await this.run(SIMCTL_BIN, ['simctl', 'boot', device.udid], { what: 'Booting the simulator', timeoutMs: 60_000 })
+    await this.run(SIMCTL_BIN, ['simctl', 'boot', device.udid], { what: 'Booting the simulator', timeoutMs: IOS_COMMAND_TIMEOUTS.boot })
     this.generations.set(device.udid, { state: 'Booted', generation: randomUUID() })
     // Open the Simulator app so the person can watch — same headed principle
     // as the browser engine.
@@ -103,7 +110,7 @@ export class IosEngine {
     const device = await this.booted(udid)
     await this.exclusive(device.udid, () => this.run(SIMCTL_BIN, ['simctl', 'install', device.udid, appPath], {
       what: `Installing ${appPath}`,
-      timeoutMs: 120_000,
+      timeoutMs: IOS_COMMAND_TIMEOUTS.install,
     }))
   }
 
@@ -112,7 +119,7 @@ export class IosEngine {
     const device = await this.booted(udid)
     await this.exclusive(device.udid, () => this.run(SIMCTL_BIN, ['simctl', 'launch', device.udid, bundleId], {
       what: `Launching ${bundleId}`,
-      timeoutMs: 60_000,
+      timeoutMs: IOS_COMMAND_TIMEOUTS.launch,
     }))
   }
 
