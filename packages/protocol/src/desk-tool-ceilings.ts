@@ -26,6 +26,7 @@ export const DESK_TOOL_CEILINGS: Readonly<Record<string, Readonly<Record<string,
     browser_console: 'read', browser_network: 'read', browser_evaluate: 'edit', browser_cdp: 'edit', browser_close: 'edit',
   },
   simulator: {
+    ios_diagnose: 'read', ios_get_appearance: 'read', ios_set_appearance: 'edit',
     ios_devices: 'read', ios_boot: 'edit', ios_install: 'edit', ios_launch: 'edit', ios_screenshot: 'read',
     ios_tap: 'edit', ios_open_url: 'edit', ios_terminate: 'edit',
   },

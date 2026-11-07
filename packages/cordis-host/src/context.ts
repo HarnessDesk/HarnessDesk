@@ -1,3 +1,4 @@
+import type { IosAppearance, IosFrame, IosSetup } from './ios-types.js'
 import type {
   CommandSpec,
   ContextSpec,
@@ -267,14 +268,18 @@ export interface HarnessContext {
   /** The iOS Simulator, via simctl. Requires the `ios` permission. */
   readonly ios: {
     devices(): Promise<readonly { udid: string; name: string; state: string; runtime: string }[]>
-    booted(): Promise<{ udid: string; name: string; state: string; runtime: string }>
-    boot(udid: string): Promise<void>
-    install(appPath: string): Promise<void>
-    launch(bundleId: string): Promise<void>
-    terminate(bundleId: string): Promise<void>
-    openUrl(url: string): Promise<void>
-    screenshot(): Promise<string>
-    tap(x: number, y: number): Promise<void>
+    diagnose(): Promise<IosSetup>
+    frame(udid?: string): Promise<IosFrame>
+    getAppearance(udid?: string): Promise<IosAppearance>
+    setAppearance(value: 'light' | 'dark', udid?: string): Promise<IosAppearance>
+    booted(udid?: string): Promise<{ udid: string; name: string; state: string; runtime: string }>
+    boot(udid: string, options?: { openWindow?: boolean }): Promise<void>
+    install(appPath: string, udid?: string): Promise<void>
+    launch(bundleId: string, udid?: string): Promise<void>
+    terminate(bundleId: string, udid?: string): Promise<void>
+    openUrl(url: string, udid?: string): Promise<void>
+    screenshot(udid?: string): Promise<string>
+    tap(x: number, y: number, udid?: string): Promise<void>
   }
   /**
    * Android devices and emulators, via adb. Requires the `android` permission.

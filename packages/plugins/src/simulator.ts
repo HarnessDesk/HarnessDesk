@@ -22,14 +22,46 @@ export const simulatorPlugin: HarnessPlugin = {
     name: 'simulator',
     inject: ['tools', 'ios'],
     apply(ctx: HarnessContext) {
-      const look = async (note: string) => {
-        const shot = await ctx.ios.screenshot()
-        const device = await ctx.ios.booted()
+      const udidSchema = { type: 'string', minLength: 1, description: 'The device udid. Required when more than one simulator is booted.' }
+      const target = async (udid?: string) => (await ctx.ios.booted(udid)).udid
+      const look = async (note: string, udid?: string) => {
+        const frame = await ctx.ios.frame(udid)
         return [
-          { type: 'text' as const, text: `${note ? `${note} — ` : ''}${device.name} (${device.runtime})` },
-          { type: 'image' as const, url: shot, mimeType: 'image/png' },
+          { type: 'text' as const, text: `${note ? `${note} — ` : ''}${frame.udid} · ${frame.width} × ${frame.height} pixels · ${frame.frameId}` },
+          { type: 'image' as const, url: frame.url, mimeType: frame.mimeType },
         ]
       }
+
+      ctx.tools.register({
+        name: 'ios_diagnose',
+        title: 'Check iOS Simulator setup',
+        description: 'Check Xcode selection, license, iOS support and simulator runtimes without changing setup.',
+        inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+        execute: async () => JSON.stringify(await ctx.ios.diagnose()),
+      })
+
+      ctx.tools.register({
+        name: 'ios_get_appearance',
+        title: 'Read simulator appearance',
+        description: 'Read the simulator appearance: light, dark, unsupported or unknown.',
+        inputSchema: { type: 'object', properties: { udid: udidSchema }, additionalProperties: false },
+        execute: async (args: { udid?: string }) => ctx.ios.getAppearance(await target(args.udid)),
+      })
+
+      ctx.tools.register({
+        name: 'ios_set_appearance',
+        title: 'Set simulator appearance',
+        description: 'Set light or dark appearance and report the state read back from the simulator.',
+        inputSchema: {
+          type: 'object',
+          properties: { udid: udidSchema, appearance: { type: 'string', enum: ['light', 'dark'] } },
+          required: ['appearance'], additionalProperties: false,
+        },
+        execute: async (args: { udid?: string; appearance: 'light' | 'dark' }) => {
+          if (args.appearance !== 'light' && args.appearance !== 'dark') throw new Error('Appearance must be light or dark.')
+          return ctx.ios.setAppearance(args.appearance, await target(args.udid))
+        },
+      })
 
       ctx.tools.register({
         name: 'ios_devices',
@@ -47,15 +79,15 @@ export const simulatorPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'ios_boot',
         title: 'Boot an iOS simulator',
-        description: 'Boot a simulator by udid — the list of devices reports them — and open the Simulator window.',
+        description: 'Boot a simulator by udid. Opens the Simulator window unless openWindow is false.',
         inputSchema: {
           type: 'object',
-          properties: { udid: { type: 'string', description: 'The device udid.' } },
-          required: ['udid'],
+          properties: { udid: udidSchema, openWindow: { type: 'boolean', description: 'Open the Simulator window (default true).' } },
+          required: ['udid'], additionalProperties: false,
         },
-        execute: async (args: { udid: string }) => {
-          await ctx.ios.boot(String(args.udid))
-          return look('Booted')
+        execute: async (args: { udid: string; openWindow?: boolean }) => {
+          await ctx.ios.boot(String(args.udid), { openWindow: args.openWindow })
+          return look('Booted', args.udid)
         },
       })
 
@@ -65,11 +97,11 @@ export const simulatorPlugin: HarnessPlugin = {
         description: 'Install a built .app bundle onto the booted simulator.',
         inputSchema: {
           type: 'object',
-          properties: { path: { type: 'string', description: 'Path to the .app bundle.' } },
-          required: ['path'],
+          properties: { path: { type: 'string', description: 'Path to the .app bundle.' }, udid: udidSchema },
+          required: ['path'], additionalProperties: false,
         },
-        execute: async (args: { path: string }) => {
-          await ctx.ios.install(String(args.path))
+        execute: async (args: { path: string; udid?: string }) => {
+          await ctx.ios.install(String(args.path), await target(args.udid))
           return `Installed ${String(args.path)}.`
         },
       })
@@ -80,13 +112,14 @@ export const simulatorPlugin: HarnessPlugin = {
         description: 'Launch an app by bundle id on the booted simulator, then screenshot it.',
         inputSchema: {
           type: 'object',
-          properties: { bundleId: { type: 'string', description: 'e.g. com.example.MyApp' } },
-          required: ['bundleId'],
+          properties: { bundleId: { type: 'string', description: 'e.g. com.example.MyApp' }, udid: udidSchema },
+          required: ['bundleId'], additionalProperties: false,
         },
-        execute: async (args: { bundleId: string }) => {
-          await ctx.ios.launch(String(args.bundleId))
+        execute: async (args: { bundleId: string; udid?: string }) => {
+          const udid = await target(args.udid)
+          await ctx.ios.launch(String(args.bundleId), udid)
           await new Promise((resolve) => setTimeout(resolve, 1_200))
-          return look(`Launched ${String(args.bundleId)}`)
+          return look(`Launched ${String(args.bundleId)}`, udid)
         },
       })
 
@@ -94,8 +127,8 @@ export const simulatorPlugin: HarnessPlugin = {
         name: 'ios_screenshot',
         title: 'Screenshot the iOS simulator',
         description: 'Screenshot the booted simulator. Tap coordinates use these exact pixels.',
-        inputSchema: { type: 'object', properties: {} },
-        execute: () => look(''),
+        inputSchema: { type: 'object', properties: { udid: udidSchema }, additionalProperties: false },
+        execute: (args: { udid?: string }) => look('', args.udid),
       })
 
       ctx.tools.register({
@@ -106,15 +139,17 @@ export const simulatorPlugin: HarnessPlugin = {
         inputSchema: {
           type: 'object',
           properties: {
+            udid: udidSchema,
             x: { type: 'number', description: 'Pixels from the left of the screenshot.' },
             y: { type: 'number', description: 'Pixels from the top of the screenshot.' },
           },
-          required: ['x', 'y'],
+          required: ['x', 'y'], additionalProperties: false,
         },
-        execute: async (args: { x: number; y: number }) => {
-          await ctx.ios.tap(Number(args.x), Number(args.y))
+        execute: async (args: { x: number; y: number; udid?: string }) => {
+          const udid = await target(args.udid)
+          await ctx.ios.tap(Number(args.x), Number(args.y), udid)
           await new Promise((resolve) => setTimeout(resolve, 600))
-          return look(`Tapped (${Number(args.x)}, ${Number(args.y)})`)
+          return look(`Tapped (${Number(args.x)}, ${Number(args.y)})`, udid)
         },
       })
 
@@ -124,13 +159,14 @@ export const simulatorPlugin: HarnessPlugin = {
         description: 'Open a URL (https:// or a deep link) on the booted simulator.',
         inputSchema: {
           type: 'object',
-          properties: { url: { type: 'string' } },
-          required: ['url'],
+          properties: { url: { type: 'string' }, udid: udidSchema },
+          required: ['url'], additionalProperties: false,
         },
-        execute: async (args: { url: string }) => {
-          await ctx.ios.openUrl(String(args.url))
+        execute: async (args: { url: string; udid?: string }) => {
+          const udid = await target(args.udid)
+          await ctx.ios.openUrl(String(args.url), udid)
           await new Promise((resolve) => setTimeout(resolve, 1_200))
-          return look(`Opened ${String(args.url)}`)
+          return look(`Opened ${String(args.url)}`, udid)
         },
       })
 
@@ -140,11 +176,11 @@ export const simulatorPlugin: HarnessPlugin = {
         description: 'Terminate an app by bundle id on the booted simulator.',
         inputSchema: {
           type: 'object',
-          properties: { bundleId: { type: 'string' } },
-          required: ['bundleId'],
+          properties: { bundleId: { type: 'string' }, udid: udidSchema },
+          required: ['bundleId'], additionalProperties: false,
         },
-        execute: async (args: { bundleId: string }) => {
-          await ctx.ios.terminate(String(args.bundleId))
+        execute: async (args: { bundleId: string; udid?: string }) => {
+          await ctx.ios.terminate(String(args.bundleId), await target(args.udid))
           return `Terminated ${String(args.bundleId)}.`
         },
       })

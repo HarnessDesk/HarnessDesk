@@ -245,6 +245,30 @@ Simulator on this machine"). They share one discipline in
 PNG-to-data-URL screenshots — a hung device must never hang a turn, and every
 screenshot rides the already-proven image-result pipeline.
 
+The iOS capability's `diagnose()` (`ios_diagnose`) checks the selected Xcode,
+license, iOS SDK and simulator runtimes with read-only, bounded probes. It
+respects `DEVELOPER_DIR` and never switches Xcode, accepts a license or installs
+components. A failed service query stays a service failure, rather than being
+reported as a missing runtime.
+
+Device operations take an optional `udid`. Without it, exactly one device must
+be booted; with several, the refusal lists their identifiers. Each tool keeps
+its chosen device for the action and the screenshot that follows.
+`boot(udid, { openWindow: false })` boots without opening the Simulator window;
+the default still opens it. `screenshot(udid?)` remains a PNG data URL, while
+`frame(udid?)` returns `{ udid, frameId, width, height, mimeType, url }`. Dimensions
+are the original PNG's pixels in its captured orientation, with the origin at
+the top left. `frameId` is an opaque capture identity bound to that device,
+boot generation and image geometry. Screenshot tools put those facts beside
+the image. Tapping still uses `cliclick` and the visible Simulator window.
+
+`getAppearance(udid?)` and `setAppearance('light' | 'dark', udid?)` use
+`simctl ui` and read back after setting; `unsupported` and `unknown` stay
+visible instead of claiming the requested appearance was applied. Their tools
+are `ios_get_appearance` and `ios_set_appearance`. Diagnosis and appearance
+reads have the read ceiling; appearance writes have edit. All these methods
+require only the existing `ios: true` manifest permission.
+
 ### Context and composer chips
 
 *The textarea carries intent. Chips carry context and capability.*
@@ -831,7 +855,7 @@ privileged path:
 | guardrails | hooks | repeated-identical-call escalation, destructive-command checks |
 | web | `ctx.http` | fetch a page as text |
 | browser | `ctx.browser` (CDP) | open, look, click, type, read the page as refs, console, network, and any DevTools method |
-| iOS simulator | `ctx.ios` (simctl) | devices, boot, install, launch, screenshot, tap, open URL |
+| iOS simulator | `ctx.ios` (simctl) | setup diagnosis, devices, boot, install, launch, terminate, screenshot, tap, open URL, appearance |
 | Android | `ctx.android` (adb) | devices, install, launch, screenshot, tap, key, text, logcat |
 | tests | `ctx.shell` | `run_tests` with the framework detected, structured pass/fail; the `/test` command |
 
