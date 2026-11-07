@@ -649,6 +649,7 @@ const start = async () => {
     stateDir,
     version: app.getVersion(),
     browserEngine,
+    ...(app.isPackaged ? { iosHelperPath: join(process.resourcesPath, 'native/ios/hd-ios-control') } : {}),
     // The host pins the service origin and sign-in path before calling this.
     // Cloud sign-in always leaves the embedded pane for the system browser.
     accountOpenExternal: url => shell.openExternal(url),

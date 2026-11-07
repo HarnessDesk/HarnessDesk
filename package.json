@@ -42,7 +42,7 @@
   },
   "scripts": {
     "build": "pnpm run build:node && pnpm --filter @harnessdesk/ui run build",
-    "build:node": "tsc -b && node script/copy-fixtures.mjs && node script/prune-dist.mjs",
+    "build:node": "tsc -b && node script/copy-fixtures.mjs && node script/prune-dist.mjs && node script/build-ios-control.mjs",
     "build:e2e": "pnpm --filter @harnessdesk/ui run build:e2e",
     "clean": "rm -rf packages/*/dist",
     "typecheck": "tsc -b --noEmit && pnpm --filter @harnessdesk/ui run typecheck",

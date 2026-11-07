@@ -46,7 +46,7 @@
     "directories": {
       "output": "release"
     },
-    "beforePack": "./script/fetch-lead-node.mjs",
+    "beforePack": "./script/before-pack.mjs",
     "files": [
       "electron/**/*.mjs",
       "electron/**/*.cjs",
@@ -54,6 +54,8 @@
       "!electron/**/*.test.mjs",
       "package.json",
       "!**/node_modules/@harnessdesk/*/dist/**/*.map",
+      "!**/node_modules/@harnessdesk/*/dist/native/**",
+      "!**/node_modules/@harnessdesk/cordis-host/native/**",
       "!**/node_modules/@harnessdesk/*/dist/**/*.d.ts",
       "!**/node_modules/@harnessdesk/*/dist/.tsbuildinfo",
       "!**/node_modules/@harnessdesk/*/dist/test/**",
@@ -78,6 +80,13 @@
         "filter": [
           "bin/node",
           "LICENSE"
+        ]
+      },
+      {
+        "from": "../cordis-host/dist/native/darwin-${arch}",
+        "to": "native/ios",
+        "filter": [
+          "hd-ios-control"
         ]
       }
     ],
@@ -107,7 +116,8 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "binaries": [
-        "Contents/Resources/lead-node/bin/node"
+        "Contents/Resources/lead-node/bin/node",
+        "Contents/Resources/native/ios/hd-ios-control"
       ],
       "notarize": false,
       "gatekeeperAssess": false,

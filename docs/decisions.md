@@ -5334,3 +5334,58 @@ Once the first message starts, its id is returned even if saving the receipt
 fails, and the durable claim still prevents a duplicate move. It leaves the
 old chat intact. Agent configuration and credentials remain in the agents'
 own worlds.
+
+
+## 2026-11-07 — Simulator input belongs to the host
+
+Simulator input uses a source-built Swift/Objective-C helper and Xcode 27 DTUHID,
+confirmed by a liveness round trip before any action. A port lookup alone can
+succeed while the guest discards events. The helper dynamically loads the installed
+Apple frameworks, which are never redistributed. When DTUHID is unavailable
+(including Xcode below 27 or a source build without the helper), taps alone retain
+the previous measured-window `cliclick` path. That path fronts Simulator, moves
+the desktop pointer and refuses multiple booted devices. New input tools refuse
+there. An interrupted gesture or helper crash never falls back or replays queued
+input through another transport.
+
+One host engine serializes input and capture per device. Installed plugins use
+invocation-bound, manifest-checked parent requests, rather than spawning their
+own native process. Screenshot pixels are transformed through measured display
+orientation; missing/stale geometry and out-of-bounds contacts are refused.
+Native interruption ends the current gesture and releases contacts and modifiers
+without waiting for guest acknowledgement. Each connection first clears both
+contacts. Frame identities authenticate a geometry epoch: another caller's
+capture does not invalidate them, but an observed size, rotation or boot change
+does. Native and installed-plugin IPC deadlines scale with validated bounded work; the parent holds the invocation only while the bounded native call is active.
+
+Keyboard show/hide, device rotation and deterministic lock are explicit refusals
+until the requested guest state can be observed and verified. A physical power
+button is not a deterministic lock setter. Text currently reports US-layout HID
+insertion and refuses characters requiring an unverified Unicode method.
+
+The desktop's beforePack hook preserves preparation of the pinned Lead Node and
+requires a helper for the target architecture. The helper is copied as an extra
+resource and listed in mac.binaries for nested signing. Source builds without
+Xcode stay usable; input reports the missing prerequisite. Release signing and
+notarization remain the release machine's separate gate.
+
+## 2026-11-07 — Installed simulator authority requires shared consent
+
+Installed plugins share one child process, which cannot attribute a simulator
+request to an individual resident. The parent offers invocation tokens and
+forwards simulator calls only when every enabled resident declares `ios: true`
+and still holds its stored grant. It keeps a conservative installed-plugin census,
+accepts disabling only through parent-issued operations, and blocks forwarding
+during resident changes; a child snapshot alone cannot establish shared consent.
+Built-in plugins run in the parent kernel and retain their own capability gates.
+Per-plugin process isolation would lift this shared-consent requirement.
+Missing shared consent withholds simulator authority rather than the invocation:
+tools, commands, hooks and context providers still run, and a non-secret per-owner
+refusal marker makes `ctx.ios` explain the constraint without exposing a bearer.
+
+Every forwarded simulator method uses a deadline derived from the engine's
+subprocess limits and sequential steps, with delivery margin for IPC. The parent
+holds the invocation while any such call is active and aborts its engine signal
+on expiry. Simulator subprocesses and diagnostic probes consume that signal;
+queued mutations check it before starting, so an expired invocation cannot begin
+another mutation after its predecessor finishes.

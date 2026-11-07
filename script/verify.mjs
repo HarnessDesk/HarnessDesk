@@ -89,6 +89,7 @@ step('lead e2e tests', () => run('node', ['script/node-tests.mjs', '--group', 'l
 step('gate tests', () => run('node', ['--test', 'script/*.test.mjs']))
 step('ui typecheck', () => run('pnpm', ['--filter', '@harnessdesk/ui', 'run', 'typecheck']))
 step('ui tests', () => run('pnpm', ['--filter', '@harnessdesk/ui', 'run', 'test']))
+step('ios native tests', () => run('node', ['script/test-ios-control.mjs']))
 step('desktop tests', () => run('pnpm', ['--filter', '@harnessdesk/desktop', 'run', 'test']))
 
 step('layering rule', () => run('node', ['script/check-layering.mjs']))

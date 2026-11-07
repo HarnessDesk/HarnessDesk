@@ -234,16 +234,17 @@ test('Node tests run as the manifest deals them, each on its group’s runtime, 
   for (const gone of ['node-e2e', 'lead-e2e']) assert.throws(() => job(gone), undefined, `${gone} is dealt by the manifest now`)
 })
 
-const GATE_PARTS = [['node-tests', 'NODE_TESTS_RESULT'], ['ui-tests', 'UI_TESTS_RESULT'], ['gates', 'GATES_RESULT']]
+const GATE_PARTS = [['node-tests', 'NODE_TESTS_RESULT'], ['ui-tests', 'UI_TESTS_RESULT'], ['gates', 'GATES_RESULT'], ['ios-native-tests', 'IOS_NATIVE_RESULT']]
 
 test('the gate check waits for every part of the gate and packaging waits for it', () => {
   const gate = job('verify')
   assert.match(gate, /^    name: Build, typecheck, test$/m)
-  assert.match(gate, /^    needs: \[node-tests, ui-tests, gates\]$/m)
+  assert.match(gate, /^    needs: \[node-tests, ui-tests, gates, ios-native-tests\]$/m)
   assert.match(gate, /^    runs-on: ubuntu-latest$/m)
   for (const [part, key] of GATE_PARTS) {
     assert.ok(gate.includes(`${key}: \${{ needs.${part}.result }}`), key)
     // Each part builds what it runs against: none of them borrows another's checkout.
+    if (part === 'ios-native-tests') { assert.match(job(part), /runs-on: macos-15/); assert.match(job(part), /run: node script\/test-ios-control\.mjs/); continue }
     if (part !== 'ui-tests') assert.match(job(part), /^      - name: Build\n        run: pnpm run build$/m, `${part} builds`)
     else assert.match(job(part), /^    needs: \[changes, ui-typecheck, ui-unit-tests\]$/m, 'UI tests aggregates jobs that build their own inputs')
   }

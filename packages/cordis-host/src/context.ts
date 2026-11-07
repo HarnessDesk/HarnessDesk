@@ -1,4 +1,4 @@
-import type { IosAppearance, IosFrame, IosSetup } from './ios-types.js'
+import type { IosCapability } from './ios-types.js'
 import type {
   CommandSpec,
   ContextSpec,
@@ -266,21 +266,8 @@ export interface HarnessContext {
     listFindings(input: FindingReadInput, scope?: ScopeQuery): Promise<readonly FindingSeatRow[]>
   }
   /** The iOS Simulator, via simctl. Requires the `ios` permission. */
-  readonly ios: {
-    devices(): Promise<readonly { udid: string; name: string; state: string; runtime: string }[]>
-    diagnose(): Promise<IosSetup>
-    frame(udid?: string): Promise<IosFrame>
-    getAppearance(udid?: string): Promise<IosAppearance>
-    setAppearance(value: 'light' | 'dark', udid?: string): Promise<IosAppearance>
-    booted(udid?: string): Promise<{ udid: string; name: string; state: string; runtime: string }>
-    boot(udid: string, options?: { openWindow?: boolean }): Promise<void>
-    install(appPath: string, udid?: string): Promise<void>
-    launch(bundleId: string, udid?: string): Promise<void>
-    terminate(bundleId: string, udid?: string): Promise<void>
-    openUrl(url: string, udid?: string): Promise<void>
-    screenshot(udid?: string): Promise<string>
-    tap(x: number, y: number, udid?: string): Promise<void>
-  }
+  readonly ios: IosCapability
+
   /**
    * Android devices and emulators, via adb. Requires the `android` permission.
    * Every call that touches a device takes an optional `serial` — one of the

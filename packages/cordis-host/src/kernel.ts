@@ -36,6 +36,7 @@ import { EditorService } from './editor.js'
 import { TeamService } from './team.js'
 import { ForgeService } from './forge.js'
 import { IosService } from './ios.js'
+import type { IosCapability } from './ios-types.js'
 import { AndroidService } from './android.js'
 import { install, inspect, listInstalled, loadInstalled, uninstall } from './installer.js'
 import { describePermissions } from './manifest.js'
@@ -98,6 +99,7 @@ export interface KernelLogger {
 }
 
 export interface KernelOptions {
+  readonly iosEngine?: IosCapability
   readonly logger?: KernelLogger
   /** Plugins listed here run fully trusted. Reserved for HarnessDesk's own features. */
   readonly trusted?: readonly string[]
@@ -222,7 +224,7 @@ export class ExtensionKernel implements CapabilityRegistry {
     })
     this.#install(class extends IosService {
       constructor(ctx: Context) {
-        super(ctx, runtime)
+        super(ctx, runtime, options.iosEngine ? { engine: options.iosEngine } : {})
       }
     })
     this.#install(class extends AndroidService {

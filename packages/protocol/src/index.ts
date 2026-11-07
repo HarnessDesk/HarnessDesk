@@ -78,3 +78,5 @@ export * from './goal-worker-approval.js'
 export * from './digest.js'
 
 export * from './lead-stage.js'
+
+export type * from './ios.js'
