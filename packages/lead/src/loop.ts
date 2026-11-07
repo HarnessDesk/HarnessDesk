@@ -8,7 +8,7 @@ import { classifyLeadRuns, createLeadWakeGate, leadChatFingerprint, type LeadRun
 import { createLeadMessages } from './messages.js'
 import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesTurn } from './messages-types.js'
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
-import { leadAcceptanceObservation, evaluateLeadAcceptance, leadPublicationEvidenceRevision, type LeadAcceptanceEvidence, type LeadAcceptanceResult } from './acceptance.js'
+import { leadAcceptanceObservation, evaluateLeadAcceptance, leadResultSummary, leadPublicationEvidenceRevision, type LeadAcceptanceEvidence, type LeadAcceptanceResult } from './acceptance.js'
 import { leadBudgetProjection } from './budget.js'
 import { leadRepairResultReady, leadPlanRuns } from './state.js'
 import type { LeadDeskPort } from './ports.js'
@@ -239,7 +239,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           // event then queues invalidation after this offer and before a click.
           lastResultSignature = signature
           try { await journal.offerCard({ version: 1, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1,
-            type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Fresh checks and review are ready for your decision.', assertions, budget: budget! }) }
+            type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: leadResultSummary('Fresh checks and review are ready for your decision.', assertions), assertions, budget: budget! }) }
           catch (error) {
             lastResultSignature = null
             if ((error as { wireCode?: unknown })?.wireCode === 'lead-card-stale') return
@@ -399,7 +399,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           return { ...rows[0]!, evidence: rows.flatMap(row => row.evidence) }
         })
         await journal.offerCard({ version: 1, id: nextId(), revision: 1, type: 'result', publication: 'push', publicationSource: publicationSources[0]!, outcome: 'reviewed',
-          contractDigest: contract.digest, summary: 'Push the reviewed branch and open its pull request.', assertions, budget })
+          contractDigest: contract.digest, summary: leadResultSummary('Push the reviewed branch and open its pull request.', assertions), assertions, budget })
       }
     }
     if (result.reason === 'lead-predecessor-unavailable' || result.reason === 'lead-predecessor-unverifiable') { await waitForUser(result.reason); return result }

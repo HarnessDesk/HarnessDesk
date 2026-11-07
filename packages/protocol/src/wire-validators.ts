@@ -1034,6 +1034,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'workspace/session/send': phoneShape({ id: phoneText(300), text: phoneText(32_000) }),
   'workspace/stop': phoneShape({ id: phoneText(300) }),
   'workspace/thread/read': shape({ id: isString }),
+  'workspace/team/wrap': phoneShape({ team: phoneText(300) }),
   'workspace/approval/decide': shape({ id: isString, session: isString, allow: isBoolean, scope: optional(literalUnion('once', 'session')) }),
   'lead/chat/list': phoneShape({ cursor: optional(phoneText(2048)), limit: optional((value, path = '') => {
     const limit = isNumber(value, path)

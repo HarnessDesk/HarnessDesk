@@ -866,6 +866,12 @@ export class Publications implements FindingPublisher {
    * Goal queue is held while it runs, and a run holding its own queue may be
    * waiting for that Goal queue to seat a card.
    */
+  /** Whether `gaps` would list anything: the same snapshot read, without the sentences. */
+  unsettled(goal: string): boolean {
+    return this.#port.runs().some((one) => one.goal === goal &&
+      Object.values(this.#port.snapshot(one.run)?.ops ?? {}).some((entry) => UNSETTLED.has(entry.state)))
+  }
+
   async gaps(goal: string): Promise<readonly string[]> {
     const out: string[] = []
     for (const { run } of this.#port.runs().filter((one) => one.goal === goal)) {

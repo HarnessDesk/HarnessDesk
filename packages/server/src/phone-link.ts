@@ -48,6 +48,9 @@ export const PHONE_POLICY: PhonePolicy = {
     'workspace/stop': 'run',
     'workspace/thread/read': 'read',
     'workspace/approval/decide': 'answer',
+    // Only a Team whose Lead result the person accepted, and only when nothing on it needs a choice. Run, as stop is:
+    // wrapping closes seats, archives the Team's conversations and removes its clean worktrees.
+    'workspace/team/wrap': 'run',
     'lead/thread/send': 'run',
     'lead/stop': 'run',
     'lead/resume': 'run',
@@ -130,7 +133,9 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     onError: error => log.info('workspace snapshot failed', { error: error instanceof Error ? error.name : 'error' }),
   })
   const detach = host.addBroadcaster((notification: WireNotification) => {
-    if (notification.method === 'lead/changed') service.publish('lead', notification.params)
+    // A Lead change can move a Team row too (its step, `canWrap`, `relayed`, who started it) without any Team event,
+    // so the workspace is rebuilt as well; the feed publishes only when the snapshot differs.
+    if (notification.method === 'lead/changed') { service.publish('lead', notification.params); feed.poke() }
     // Session pages extend beyond the metadata snapshot's bounded session portion. Every index change invalidates
     // them, even when that snapshot is byte-for-byte identical.
     else if (notification.method === 'session/indexChanged' || notification.method === 'lead/chats/controlChanged') feed.poke(true)

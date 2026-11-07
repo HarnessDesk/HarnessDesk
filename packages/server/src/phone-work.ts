@@ -52,6 +52,8 @@ export interface PhoneWorkPorts {
   /** Whether a piece of text could hold a secret. */
   readonly hasSecret: (text: string) => boolean
   readonly now: () => number
+  /** Wraps a Team the Lead started once its result is accepted; throws, in words, what keeps it on the desk. */
+  readonly wrapTeam?: (team: string) => Promise<void>
 }
 
 /** The controls the desk honours for a phone so far. The rest are left false, and the phone leaves them out. */
@@ -387,6 +389,14 @@ export class PhoneWork {
 
     await guarded(() => this.#ports.respond({ runtime, sessionId: session, approvalId: approval.id, decision: { type: 'option', optionId: option.id } }))
     this.#remember(key, { ...assessed.turn, state })
+    return {}
+  }
+
+  /** Wraps a Team the person accepted through the Lead. Answers `{}`; the wrapped Team arrives on the `workspace` topic. */
+  async teamWrap(params: { team: string }): Promise<Record<string, never>> {
+    const wrap = this.#ports.wrapTeam
+    if (!wrap) return refuse('Wrap this Team on the desk.')
+    await guarded(() => wrap(params.team))
     return {}
   }
 

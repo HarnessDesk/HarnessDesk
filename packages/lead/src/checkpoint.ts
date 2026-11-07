@@ -1,7 +1,7 @@
 import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, LEAD_APPROVAL_HISTORY_BYTES, LEAD_LIMITS, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import { parseLeadDecisionMessage, parseLeadWakeLog, parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy, parseLeadCaps } from '@harnessdesk/protocol'
 import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
-import { initialLeadState, removedWorkerApprovalNotice, retireLeadWorkerApprovals, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
+import { LEAD_ACCEPTED_TEAMS, initialLeadState, removedWorkerApprovalNotice, retireLeadWorkerApprovals, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
 
 export interface LeadJournalCheckpoint {
@@ -28,8 +28,10 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const namedSource = threadSource && { ...threadSource, completedBudgets: Object.hasOwn(threadSource, 'completedBudgets') ? threadSource.completedBudgets : [], decisionRevision: threadSource.decisionRevision ?? threadSource.seq, wakes: threadSource.wakes ?? [], nameChosen: threadSource.nameChosen ?? (threadSource.messages.length > 0 || threadSource.olderMessages > 0), name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
   const followSource = namedSource && { ...namedSource, follow: Object.hasOwn(namedSource, 'follow') ? namedSource.follow : { checks: true, reviews: true }, pr: Object.hasOwn(namedSource, 'pr') ? namedSource.pr : null, publication: Object.hasOwn(namedSource, 'publication') ? namedSource.publication : null, ownedPush: Object.hasOwn(namedSource, 'ownedPush') ? namedSource.ownedPush : null }
   const repairSource = followSource && { ...followSource, workerAuditWait: Object.hasOwn(followSource, 'workerAuditWait') ? followSource.workerAuditWait : false, orphanedWorkerDispatch: followSource.orphanedWorkerDispatch ?? null, workerApprovals: Object.hasOwn(followSource, 'workerApprovals') ? followSource.workerApprovals : [], goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, chatEffectsSinceReply: followSource.chatEffectsSinceReply ?? { started: 0, sent: 0, stopped: 0 }, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, retryResult: followSource.retryResult ?? null, chatEffectsAcknowledged: followSource.chatEffectsAcknowledged ?? false, secondLooks: followSource.secondLooks ?? [], raisedFrom: followSource.raisedFrom ?? null, spendLimit: followSource.spendLimit ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
-  const source = repairSource && !Object.hasOwn(repairSource, 'cardPositions')
+  const positioned = repairSource && !Object.hasOwn(repairSource, 'cardPositions')
     ? { ...repairSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : repairSource
+  // Checkpoints before accepted Teams were kept across goals carry none.
+  const source = positioned && { ...positioned, acceptedTeams: Object.hasOwn(positioned, 'acceptedTeams') ? positioned.acceptedTeams : [] }
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
   assert(Number.isSafeInteger(source.decisionRevision) && source.decisionRevision >= 0 && source.decisionRevision <= source.seq)
   assert(Number.isSafeInteger(source.goalStartedSeq) && source.goalStartedSeq >= 0 && source.goalStartedSeq <= source.seq)
@@ -151,6 +153,10 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     return { ...step, contractDigest: step.contractDigest ?? null }
   })
   assert(Array.isArray(source.teams) && source.teams.length <= 4096 && source.teams.every(id => typeof id === 'string' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(id)))
+  assert(Array.isArray(source.acceptedTeams) && source.acceptedTeams.length <= LEAD_ACCEPTED_TEAMS && source.acceptedTeams.every(one =>
+    one && typeof one === 'object' && Object.keys(one).sort().join() === 'step,team' && typeof one.team === 'string' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(one.team) &&
+    (one.step === null || typeof one.step === 'string' && one.step.length <= 4096)))
+  assert(new Set(source.acceptedTeams.map(one => one.team)).size === source.acceptedTeams.length)
   assert(Array.isArray(source.runs) && source.runs.length <= 64)
   const runs = source.runs.map(parseLeadRunIdentity)
   assert(Array.isArray(source.attempts) && source.attempts.length <= 4096)

@@ -40,7 +40,7 @@ interface Fixture {
   teams: PhoneTeamInput[]
   reports: UsageReport[]
   ledger: (query: LedgerQuery) => LedgerReport
-  lead: { name: string; ids: Set<string> } | null
+  lead: { name: string; ids: Set<string>; teams?: Map<string, { step: string | null; accepted: boolean }>; wrapsOnDesk?: (team: string) => boolean } | null
   knowsStart: boolean
   readonly done: () => Promise<void>
 }
@@ -551,6 +551,20 @@ test('ready Teams, stopped Teams and failed sessions now count as needing you', 
   } finally { await f.done() }
 })
 
+test('a Lead Team offers Wrap once accepted and ready, and not while a posting waits on the desk', async () => {
+  const f = await fixture()
+  try {
+    const unsettled = new Set<string>()
+    f.lead = { name: 'Dex', ids: new Set(), wrapsOnDesk: team => unsettled.has(team),
+      teams: new Map([['ready', { step: 'Fix the bug', accepted: true }], ['open', { step: null, accepted: false }], ['posting', { step: null, accepted: true }]]) }
+    unsettled.add('posting')
+    f.teams = [team('ready', { activity: 'ready-to-wrap' }), team('open', { activity: 'ready-to-wrap' }), team('posting', { activity: 'ready-to-wrap' })]
+    const wraps = async () => Object.fromEntries((await f.workspace.workItems()).map(item => [item.id, item.team?.canWrap ?? false]))
+    assert.deepEqual(await wraps(), { ready: true, open: false, posting: false })
+    unsettled.delete('posting')
+    assert.deepEqual(await wraps(), { ready: true, open: false, posting: true })
+  } finally { await f.done() }
+})
 
 test('phone running, needsYou and done counts partition work by host stage', async () => {
   const f = await fixture()

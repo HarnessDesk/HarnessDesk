@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import { canBeginLeadGoal } from '@harnessdesk/lead'
 import test, { type TestContext } from 'node:test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { PhoneSim } from '@harnessdesk/phone-link/sim'
 import { startPhoneLink } from '../src/phone-link.js'
 import { createLeadRig } from './fixtures/lead-rig.js'
@@ -53,6 +55,9 @@ for (const { surface, hidden } of [{ surface: 'window', hidden: false }, { surfa
   const projection = await rig.host.call('lead/thread/read', {}) as any
   const action = projection.personActions.find((one: any) => one.kind === 'worker-approval')
   assert.ok(action, 'person can answer the real worker approval')
+  // The phone lists that wait once, in the Lead's thread: the Team says the Lead relays it.
+  const relayedTeams = async () => (await rig.host.call('workspace/read', {})).items.filter(item => item.kind === 'team' && item.team?.relayed).map(item => item.id)
+  assert.deepEqual(await relayedTeams(), [rig.journal.state.runs.find(run => run.runId === action.runId)!.teamId])
   const perform = await personSurface(rig, surface, t)
   // Commands never offer a goal rule. A hidden request can only be refused here.
   assert.deepEqual(action.choices, hidden ? ['no'] : ['yes-once', 'no'])
@@ -67,6 +72,7 @@ for (const { surface, hidden } of [{ surface: 'window', hidden: false }, { surfa
   await rig.waitFor(async () => (await rig.workerCalls()).some(one => one.method === 'worker-approval-answer'), 'person answer reaches worker')
   const answer = (await rig.workerCalls()).find(one => one.method === 'worker-approval-answer')!
   assert.deepEqual(answer.result, { decision: hidden ? 'decline' : 'accept' })
+  await rig.waitFor(async () => (await relayedTeams()).length === 0, 'nothing left for the Lead to relay')
   await rig.assertNoForbiddenEffects()
 })
 
@@ -178,4 +184,40 @@ test('Stop goal stops only its owned live Flow and leaves worktrees and commits 
   assert.deepEqual(await rig.worktrees(), paths)
   assert.deepEqual(await Promise.all(paths.map(path => readFile(join(path, '.git'), 'utf8'))), before)
   await rig.assertNoForbiddenEffects()
+})
+
+test('the phone names each Lead Team by its step, refuses a wrap before acceptance, and wraps both once the person accepts', async t => {
+  const rig = await createLeadRig(); t.after(() => rig.dispose())
+  await rig.reviewed()
+  const teams = [...new Set(rig.journal.state.runs.map(run => run.teamId))]
+  assert.equal(teams.length, 2)
+  const teamItems = async () => (await rig.host.call('workspace/read', {})).items.filter(item => item.kind === 'team' && teams.includes(item.id))
+  const before = await teamItems()
+  assert.deepEqual(before.map(item => item.team?.step).sort(), ['Review first repair', 'Review second repair'])
+  assert.ok(before.every(item => item.by === 'Dex' && item.team?.canWrap === undefined), JSON.stringify(before))
+  await assert.rejects(rig.host.call('workspace/team/wrap', { team: teams[0]! }), /Accept the result before wrapping/)
+  // The result says how to check it: the commits the checks and the review read.
+  const result = rig.pending('result')!
+  assert.match(result.type === 'result' ? result.summary : '', /\nHow to verify: run the project's required checks at commits [0-9a-f]{7} and [0-9a-f]{7}\. The review read the same commits\.$/)
+  await rig.decide(result, 'accept')
+  assert.equal(rig.journal.state.phase, 'accepted')
+  await rig.waitFor(async () => (await teamItems()).filter(item => item.team?.canWrap === true).length === 2, 'both Teams wrappable')
+  // The next goal starts before the person wraps: the accepted Teams stay the Lead's, named and wrappable.
+  await rig.waitFor(() => canBeginLeadGoal(rig.journal.state), 'the accepted goal settled')
+  await rig.journal.beginGoal('next-goal', Date.now())
+  assert.deepEqual(rig.journal.state.teams, [])
+  const after = await teamItems()
+  assert.deepEqual(after.map(item => item.team?.step).sort(), ['Review first repair', 'Review second repair'])
+  assert.ok(after.every(item => item.by === 'Dex' && item.team?.canWrap === true), JSON.stringify(after))
+  // Nothing irreversible happened before the person wrapped. Wrapping then removes clean checkouts, as on the desk,
+  // and never a branch: every reviewed commit stays reachable.
+  await rig.assertNoForbiddenEffects()
+  const branches = () => execFileSync('git', ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads'], { cwd: rig.project.path, encoding: 'utf8' })
+  const kept = branches()
+  for (const team of teams) assert.deepEqual(await rig.host.call('workspace/team/wrap', { team }), {})
+  for (const team of teams) assert.equal((await rig.host.call('goal/read', { goal: team })).goal.state, 'wrapped')
+  assert.deepEqual((await teamItems()).filter(item => item.team?.canWrap), [])
+  await assert.rejects(rig.host.call('workspace/team/wrap', { team: teams[0]! }), /not ready to wrap/)
+  await assert.rejects(rig.host.call('workspace/team/wrap', { team: 'not-a-lead-team' }), /Wrap this Team on the desk/)
+  assert.equal(branches(), kept)
 })

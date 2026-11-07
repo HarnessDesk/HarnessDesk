@@ -79,9 +79,14 @@ export interface LeadState {
   readonly cardRevisions: Readonly<Record<string, number>>
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
+  /**
+   * Teams of earlier goals the person accepted, with the plan step each was started for. A new goal resets `teams` and
+   * `runs`; these stay so the person can still wrap them. Wrapping is the desk's; this is only who owns what.
+   */
+  readonly acceptedTeams: readonly LeadAcceptedTeam[]
 }
 export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 }, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, spendLimit: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
-  cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
+  cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [], acceptedTeams: [] })
 /** A figure the Lead drafted, before the person sees it: Off drafts at the portable ceiling (which still trips the
  * overflow stop) so the card never shows a cap the person turned off; a set limit caps it. Rounds are untouched. */
 export const leadDraftCaps = (limit: LeadState['spendLimit'], caps: LeadCaps): LeadCaps => limit === null ? caps
@@ -127,6 +132,37 @@ export const canOfferAutomaticLeadGoal = (state: LeadState, key: string): boolea
 /** Earlier runs stay owned for accounting and recovery, but judge only this plan. */
 export const leadPlanRuns = (state: LeadState): readonly LeadRunIdentity[] => state.runs.filter(run =>
   state.steps.some(step => step.state === 'started' && step.attemptId === run.correlationId))
+
+/** A Team of an earlier, accepted goal that has not been forgotten yet. */
+export interface LeadAcceptedTeam { readonly team: string; readonly step: string | null }
+/** How many accepted Teams are kept across goals; the oldest is forgotten first. */
+export const LEAD_ACCEPTED_TEAMS = 64
+
+/**
+ * The current goal's Teams, each with the plan step it was started for. A Team's step comes from the start attempt its
+ * run was bound to; a Team bound without a recorded step keeps no step rather than a guessed one.
+ */
+export const leadGoalTeams = (state: Pick<LeadState, 'teams' | 'runs' | 'attempts' | 'contract'>): LeadAcceptedTeam[] => {
+  const titles = new Map((state.contract?.steps ?? []).map(step => [step.id, step.title]))
+  const stepOf = new Map<string, string>()
+  for (const attempt of state.attempts.values()) if (attempt.stepId !== null) stepOf.set(attempt.correlationId, attempt.stepId)
+  const owned = new Map<string, string | null>(state.teams.map(team => [team, null]))
+  for (const run of state.runs) {
+    const id = stepOf.get(run.correlationId)
+    owned.set(run.teamId, (id === undefined ? null : titles.get(id)) ?? owned.get(run.teamId) ?? null)
+  }
+  return [...owned].map(([team, step]) => ({ team, step }))
+}
+
+/** A Team the Lead owns: the plan step it was started for, and whether the person accepted the result. */
+export interface LeadOwnedTeam { readonly step: string | null; readonly accepted: boolean }
+
+/** The Teams the Lead owns, keyed by Team id: the current goal's, then those of earlier accepted goals. */
+export const leadOwnedTeams = (state: Pick<LeadState, 'teams' | 'runs' | 'attempts' | 'contract' | 'phase' | 'acceptedTeams'>): ReadonlyMap<string, LeadOwnedTeam> => {
+  const owned = new Map<string, LeadOwnedTeam>(state.acceptedTeams.map(one => [one.team, { step: one.step, accepted: true }]))
+  for (const one of leadGoalTeams(state)) owned.set(one.team, { step: one.step, accepted: state.phase === 'accepted' })
+  return owned
+}
 
 /** A fresh person request can replace exhausted work, never resume a spent step. */
 export const canReplaceLeadPlan = (state: LeadState): boolean => {
@@ -363,7 +399,9 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const decisionMessages = [...state.decisionMessages, ...state.cards.filter(card => card.type === 'second-look' || card.type === 'allowance-warning')
         .map(card => ({ card, position: state.cardPositions[card.id]! }))].sort((a, b) => a.position - b.position).slice(-64)
       while (new TextEncoder().encode(JSON.stringify(decisionMessages)).byteLength > 131072) decisionMessages.shift()
-      state = { ...initialLeadState(), seq: event.seq, goalStartedSeq: event.seq, name: state.name, nameChosen: state.nameChosen, wakes: state.wakes, follow: state.follow, policy: state.policy, spendLimit: state.spendLimit, budget,
+      const acceptedTeams = state.phase === 'accepted' ? [...state.acceptedTeams, ...leadGoalTeams(state)] : state.acceptedTeams
+      state = { ...initialLeadState(), acceptedTeams: acceptedTeams.filter((one, index) => acceptedTeams.findLastIndex(other => other.team === one.team) === index).slice(-LEAD_ACCEPTED_TEAMS),
+        seq: event.seq, goalStartedSeq: event.seq, name: state.name, nameChosen: state.nameChosen, wakes: state.wakes, follow: state.follow, policy: state.policy, spendLimit: state.spendLimit, budget,
         completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends,
         decisionMessages }
       break

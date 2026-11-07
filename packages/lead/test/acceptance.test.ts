@@ -167,3 +167,23 @@ test('review hedges distinguish running checks from running into issues and igno
     'An earlier draft probably raced. This should work.', '~~~incomplete\nshould work'])
     assert.equal(evaluate({ reviews: [{ ...evidence().reviews[0], text }] }).assertions[1].reason, 'hedged-approval', text)
 })
+
+test('a result says how to verify it from the commits its checks and review read, and says nothing without one', () => {
+  const leadVerifyLine = exported('leadVerifyLine'), leadResultSummary = exported('leadResultSummary')
+  const result = (status: 'passed' | 'failed', evidence: { kind: 'check' | 'review' | 'spend'; id: string; revision: string }[]) =>
+    ({ assertionId: `a-${evidence[0]?.id ?? 'none'}`, status, revision: 1, contractRevision: 1, evidence, reason: null })
+  const head = 'abcdef0123456789abcdef0123456789abcdef01'
+  assert.equal(leadVerifyLine([result('passed', [{ kind: 'check', id: 'c1', revision: head }]), result('passed', [{ kind: 'review', id: 'r1', revision: head }])]),
+    "How to verify: run the project's required checks at commit abcdef0. The review read the same commit.")
+  // Checks alone say nothing about a review, and a review of another commit is named, never called the same.
+  assert.equal(leadVerifyLine([result('passed', [{ kind: 'check', id: 'c1', revision: head }, { kind: 'check', id: 'c2', revision: '1234567890' }])]),
+    "How to verify: run the project's required checks at commits abcdef0 and 1234567.")
+  assert.equal(leadVerifyLine([result('passed', [{ kind: 'check', id: 'c1', revision: head }]), result('passed', [{ kind: 'review', id: 'r1', revision: '1234567890' }])]),
+    "How to verify: run the project's required checks at commit abcdef0. The review read commit 1234567.")
+  assert.equal(leadVerifyLine([result('passed', [{ kind: 'review', id: 'r1', revision: head }])]), 'How to verify: the review read commit abcdef0.')
+  // Spend and opaque revisions name no commit.
+  assert.equal(leadVerifyLine([result('passed', [{ kind: 'spend', id: 's', revision: head }, { kind: 'check', id: 'c', revision: 'r-7' }])]), null)
+  assert.equal(leadResultSummary('Ready.', []), 'Ready.')
+  assert.equal(leadResultSummary('Ready.', [result('passed', [{ kind: 'check', id: 'c1', revision: head }])]),
+    "Ready.\nHow to verify: run the project's required checks at commit abcdef0.")
+})
