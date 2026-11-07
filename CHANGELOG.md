@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Claude Code conversations can branch, take direction mid-turn, and keep a goal.** The bundled bridge is updated, with the source conversation’s read ceiling preserved when branching.
+
 - **Wrap a Lead's Teams from your phone.** Once you accept the Lead's result, each of its Teams offers Wrap up: the desk closes it with its own receipt and keeps every branch. Two Teams of one goal are named by their plan step, a worker's question the Lead already asks you is listed once, and the result card says which commits to check and which the review read.
 
 - **The Lead waits, then asks when a delegated chat gets stuck.** It retries on the provider’s reset clock at most twice, then offers retry, move to another available agent with the original request and progress, or stop.
