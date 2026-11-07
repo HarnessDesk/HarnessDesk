@@ -7,6 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The iOS Simulator tells you what setup needs.** Check Xcode selection, its license, iOS support and simulator runtimes without changing them. Simulator tools can name a device when several are booted, boot without opening a window, and read or change light and dark appearance; screenshots identify the device and original pixel dimensions. Tapping refuses when several devices are booted, and appearance changes say whether they applied.
 - **Claude Code conversations can branch, take direction mid-turn, and keep a goal.** The bundled bridge is updated, with the source conversation’s read ceiling preserved when branching.
 
 - **Wrap a Lead's Teams from your phone.** Once you accept the Lead's result, each of its Teams offers Wrap up: the desk closes it with its own receipt and keeps every branch. Two Teams of one goal are named by their plan step, a worker's question the Lead already asks you is listed once, and the result card says which commits to check and which the review read.
