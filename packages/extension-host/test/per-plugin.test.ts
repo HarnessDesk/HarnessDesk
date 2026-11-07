@@ -461,6 +461,31 @@ test('a consent entry that is there but unreadable stops the plugin rather than 
   }
 })
 
+test('a restart that cannot load the plugin again withdraws its tools, shows it failed and leaves no process', async () => {
+  const harness = await start(['exit'])
+  const events = listen(harness.host)
+  try {
+    const die = harness.toolId('die')
+    // Its code changes under an unchanged manifest, so the record lets the
+    // restart through and the new process cannot import it.
+    await writeFile(join(harness.store, 'exit', 'index.js'), "throw new Error('this version does not load')\n")
+    await harness.host.invokeTool(die, {}, scope)
+
+    await until(() => events.heard.some((event) => event.type === 'plugin/updated' && event.plugin.identity.id === 'exit' && event.plugin.state.type === 'failed'))
+    assert.ok(events.heard.some((event) =>
+      event.type === 'contributions/changed' && event.owner === 'exit#installed' && event.contributions.length === 0),
+    'the renderer is told its tools are gone')
+    assert.equal(harness.host.list('tool').some((entry) => entry.name === 'die'), false, 'and the host no longer offers them')
+    assert.equal(harness.host.plugins().find((plugin) => plugin.identity.id === 'exit')?.state.type, 'failed')
+    const processes = (await harness.host.stats()).processes ?? []
+    assert.equal(processes.filter((entry) => entry.plugin === 'exit').length, 0,
+      'no process is left answering for a plugin it does not hold')
+  } finally {
+    events.stop()
+    await cleanup(harness)
+  }
+})
+
 test('a restart the record refuses withdraws the plugin\'s tools and shows it failed', async () => {
   const harness = await start(['exit'])
   const events = listen(harness.host)

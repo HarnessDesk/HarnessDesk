@@ -357,12 +357,7 @@ export class PluginHostProcess {
         await this.#options.beforeStart()
         this.#problem = null
       } catch (error) {
-        this.#problem = error instanceof Error ? error.message : String(error)
-        // The snapshot was kept so a restart would not flicker; a refused
-        // restart is not one, and tools it still advertised would fail.
-        this.#plugins = []
-        this.#contributions = []
-        this.#options.onRefused?.()
+        this.#refuse(error)
         throw error
       }
     }
@@ -459,11 +454,40 @@ export class PluginHostProcess {
     // fresh, empty child answering hook or tool calls would silently allow
     // what a loaded plugin might have denied. That includes its settings.
     if (this.#wantInstalled) {
-      await this.call('plugins/loadInstalled', {})
-      if (this.#config && this.#options.plugin) {
-        await this.call('plugin/reconfigure', { pluginId: this.#options.plugin.id, config: this.#config })
+      try {
+        await this.call('plugins/loadInstalled', {})
+        if (this.#config && this.#options.plugin) {
+          await this.call('plugin/reconfigure', { pluginId: this.#options.plugin.id, config: this.#config })
+        }
+      } catch (error) {
+        // A child that could not take the plugin back is not that plugin: it
+        // would answer the hooks and tools the snapshot still names with an
+        // empty kernel. It is ended, without a restart, and the plugin is
+        // shown as failed until someone starts it again.
+        if (this.#child === child) {
+          this.#child = null
+          child.kill('SIGKILL')
+          const reason = error instanceof Error ? error : new Error(String(error))
+          for (const pending of this.#pending.values()) {
+            if (pending.timer) clearTimeout(pending.timer)
+            pending.reject(reason)
+          }
+          this.#pending.clear()
+        }
+        this.#refuse(error)
+        throw error
       }
     }
+  }
+
+  /** A start that did not bring the plugin back: nothing it advertised stays, and the reason is shown. */
+  #refuse(error: unknown): void {
+    this.#problem = error instanceof Error ? error.message : String(error)
+    // The snapshot was kept so a restart would not flicker; a refused
+    // restart is not one, and tools it still advertised would fail.
+    this.#plugins = []
+    this.#contributions = []
+    this.#options.onRefused?.()
   }
 
   #onLine(line: string): void {

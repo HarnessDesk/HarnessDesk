@@ -320,7 +320,15 @@ const handlers: Handlers = {
   'tool/invoke': (params) =>
     withIosInvocation(params.iosInvocations, () => kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null)),
   'hooks/run': (params) => withIosInvocation(params.iosInvocations, () => kernel.runHooks(params.invocation)),
-  'hooks/runOne': (params) => withIosInvocation(params.iosInvocations, () => kernel.runHook(params.id as never, params.invocation)),
+  'hooks/runOne': (params) => {
+    // The host routes only hooks this process announced. One it no longer
+    // has was lost with a reload, and the kernel would read it as `allow`:
+    // refused here, the host fails the check closed instead.
+    const known = kernel.plugins().some((plugin) =>
+      plugin.contributions.some((entry) => entry.kind === 'hook' && entry.id === params.id))
+    if (!known) throw new Error('This plugin no longer has that hook.')
+    return withIosInvocation(params.iosInvocations, () => kernel.runHook(params.id as never, params.invocation))
+  },
   'context/resolve': (params) => withIosInvocation(params.iosInvocations, () => kernel.resolveContext(params.query)),
   'context/resolveOne': (params) => withIosInvocation(params.iosInvocations, () => kernel.resolveOne(params.id as never, params.ref, params.scope)),
   'workspace/set': (params) => {
