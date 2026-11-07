@@ -472,6 +472,24 @@ it('keeps a conversation row unselected while another destination is current', (
 })
 
 
+it('loads older history only near the bottom when a cursor is ready', () => {
+  const scroll = (overrides: Partial<AppSnapshot>, top: number) => {
+    mount(overrides)
+    const element = container.querySelector<HTMLElement>('[data-region="sidebar-content"]')!
+    Object.defineProperties(element, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 200 } })
+    element.scrollTop = top
+    act(() => element.dispatchEvent(new Event('scroll', { bubbles: true })))
+  }
+  scroll({ historyCursor: 'older' }, 400)
+  expect(loadHistory).not.toHaveBeenCalled()
+  scroll({ historyCursor: null }, 700)
+  expect(loadHistory).not.toHaveBeenCalled()
+  scroll({ historyCursor: 'older', historyLoading: true }, 700)
+  expect(loadHistory).not.toHaveBeenCalled()
+  scroll({ historyCursor: 'older', historyLoading: false }, 700)
+  expect(loadHistory).toHaveBeenCalledOnce()
+})
+
 it('offers paging when a short filtered list cannot produce a scroll event', () => {
   mount({ historyCursor: 'older-filtered', listPrefs: { ...emptySnapshot().listPrefs, agent: CLAUDE } })
   const more = [...container.querySelectorAll('button')].find(button => button.textContent === 'Load more conversations')

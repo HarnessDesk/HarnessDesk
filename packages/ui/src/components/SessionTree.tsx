@@ -1080,6 +1080,17 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
 export const useProjectGroups = (options: { searching?: boolean } = {}): ProjectGroup[] =>
   useProjectList(options).groups
 
+// Project folders are enough to resolve aliases; session summaries must not
+// be retained by a long-lived action.
+const projectToggleAction = (store: Pick<AppStore, 'getSnapshot' | 'setListPrefs' | 'toggleCollapsed'>, projects: readonly { root: string; folders: readonly string[] }[]): ((key: string) => void) => key => {
+  const project = projects.find(one => one.root === key)
+  const stored = store.getSnapshot().listPrefs.collapsed
+  // Resolve aliases even when filtering or pending history prevents migration.
+  if (project && stored.some(root => root !== key && project.folders.includes(root))) {
+    store.setListPrefs({ collapsed: stored.filter(root => !project.folders.includes(root)) })
+  } else store.toggleCollapsed(key)
+}
+
 /** A bound action carries only the store and folder names, not a render's snapshot. */
 const foldProjects = (store: Pick<AppStore, 'setProjectsCollapsed'>, roots: readonly string[], collapsed: boolean): void =>
   store.setProjectsCollapsed(roots, collapsed)
@@ -1140,15 +1151,10 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
     store.setListPrefs({ pinned: [...pinned], collapsed: [...folded] })
   }, [groups, listIsWhole, snapshot.listPrefs.collapsed, snapshot.listPrefs.pinned, store])
 
-  const toggle = useCallback((key: string) => {
-    const group = groups.find(one => one.root === key)
-    const stored = store.getSnapshot().listPrefs.collapsed
-    // An explicit action can resolve this project's aliases even while the
-    // whole-list migration is waiting for history or a filter to clear.
-    if (group && stored.some(root => root !== key && group.folders.includes(root))) {
-      store.setListPrefs({ collapsed: stored.filter(root => !group.folders.includes(root)) })
-    } else store.toggleCollapsed(key)
-  }, [groups, store])
+  const toggle = useMemo(
+    () => projectToggleAction(store, groups.map(({ root, folders }) => ({ root, folders: [...folders] }))),
+    [groups, store],
+  )
 
   const teamKeys = useMemo(() => new Set([...snapshot.teams.values()].flatMap(team =>
     teamSeats(snapshot.goals.get(team.id), team, goalRunOf(team.id, snapshot.goals.get(team.id), snapshot.flowExecutions))
