@@ -422,7 +422,6 @@ export class SessionRegistry {
     const record = this.#records.get(sessionKey(runtime, id)) ?? this.#removed.get(sessionKey(runtime, id))?.record
     if (record) this.clearQueue(record)
     this.#pendingNotices.delete(runtime, id)
-    const record = this.#records.get(sessionKey(runtime, id))
     if (record) this.#deleted?.(record)
     this.#records.delete(sessionKey(runtime, id))
     this.#removed.delete(sessionKey(runtime, id))
