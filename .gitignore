@@ -38,3 +38,7 @@ output/
 # Local synthetic account rig state and visual evidence.
 /scratch/desktop-sign-in/
 /scratch/desktop-account/
+
+# Swift helper build products stay local.
+packages/cordis-host/native/ios-control/.build/
+packages/cordis-host/native/ios-control/.swiftpm/

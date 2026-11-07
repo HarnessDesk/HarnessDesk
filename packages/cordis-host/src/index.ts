@@ -80,5 +80,10 @@ export {
 } from './browser-scopes.js'
 export { validateForgeArgs, type ForgeVerb, type ForgeAssociatedPullRequest, type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeRequester, type ForgeGitEntry, type ForgeWriteResult, ForgeService, setForgeEngine, type ForgeEngine, type ForgeIdentity, type ForgeScope, type ForgeSeat } from './forge.js'
 export { IosService, type SimDevice } from './ios.js'
-export type { IosAppearance, IosFrame, IosSetup } from './ios-types.js'
+export type { IosAction, IosAppearance, IosCapability, IosFrame, IosKey, IosOrientation, IosSetup, PixelPoint, TimedPoint } from './ios-types.js'
 export { AndroidService, type AndroidDevice } from './android.js'
+
+export { IosEngine } from './ios-engine.js'
+export { validateIosAction, iosActionWorkMs, iosInteractionTimeoutMs } from './ios-validation.js'
+export { iosCallTimeoutMs, iosReplyTimeoutMs } from './ios-deadlines.js'
+export { currentIosInvocation, withIosInvocation, withIosInputSignal } from './ios-invocation.js'

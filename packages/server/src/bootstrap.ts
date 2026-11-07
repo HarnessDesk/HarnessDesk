@@ -8,7 +8,7 @@ import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync
 import { AcpRuntime, geminiTrustsFolder, geminiTrustsFolderStatus, type AcpAgentConfig } from '@harnessdesk/adapter-acp'
 import { runtimeId, sessionId, type RuntimeInfo } from '@harnessdesk/protocol'
 import { CodexRuntime, CODEX_RUNTIME_ID } from '@harnessdesk/adapter-codex'
-import { ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessdesk/cordis-host'
+import { IosEngine, ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessdesk/cordis-host'
 import { SupervisedExtensionHost } from '@harnessdesk/extension-host'
 import { invokeForBridge, ToolGateway, type BridgeCaller } from './tool-gateway.js'
 import { GatedRegistry } from './ceilings/gate.js'
@@ -225,6 +225,7 @@ export interface BootstrapOptions {
    * user's Chrome; the desktop shell passes its own pane. See
    * `BrowserEngine` in `@harnessdesk/cordis-host`.
    */
+  readonly iosHelperPath?: string
   readonly browserEngine?: BrowserEngine
 }
 
@@ -271,10 +272,12 @@ export const createDefaultHost = (
   // different about them is the process: built-ins run in this one, everything
   // installed runs in the supervised plugin host child — third-party code never
   // shares a process with the window, the wire server, or a credential.
+  const iosEngine = new IosEngine(options.iosHelperPath ? { helperPath: options.iosHelperPath } : {})
   const extensions = new SupervisedExtensionHost(
-    new ExtensionKernel({ logger: logger.child('extensions') }),
+    new ExtensionKernel({ logger: logger.child('extensions'), iosEngine }),
     {
       logger: logger.child('plugin-host'),
+      iosEngine,
       // Installed plugins' browser tools reach the same page the built-ins do.
       ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),
     },

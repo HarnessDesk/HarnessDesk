@@ -34,9 +34,12 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { withIosReleaseMount } from './ios-release-mount.mjs'
+import { verifyIosArtifact } from './verify-ios-artifact.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SEMVER = /^\d+\.\d+\.\d+$/
@@ -181,6 +184,10 @@ const verifyArtifacts = dirArg => {
       'source=Notarized Developer ID',
       `\n${dmg}: spctl did not report "Notarized Developer ID" — do not publish it.`,
     )
+    const arch = /-arm64\.dmg$/.test(dmg) ? 'arm64' : /-x64\.dmg$/.test(dmg) ? 'x64' : null
+    if (!arch) fail(`${dmg}: the artifact name does not identify its architecture.`)
+    const mount = mkdtempSync(join(dir, '.verify-ios-'))
+    withIosReleaseMount(join(dir, dmg), mount, () => verifyIosArtifact(join(mount, 'HarnessDesk.app'), arch), { run })
   }
 }
 

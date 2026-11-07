@@ -236,6 +236,13 @@ since it was installed; installing it again shows the person the new manifest,
 and their agreement replaces the record. Plugins installed before the record
 existed are recorded the first time they start.
 
+Simulator authority is checked against the record more often than that.
+Each time the host hands a call simulator access, it compares the manifest
+with the record again, so a manifest changed while the plugin runs loses
+`ctx.ios` at once, not only at its next start. Because a process holds one
+plugin, the grant is that plugin's alone: a neighbour installed without it
+neither blocks nor widens it.
+
 **A lease** is the host's record of one call it made into a plugin. It
 holds:
 - the conversation;
@@ -396,7 +403,7 @@ request.
 | `ctx.editor` | `editor` | host's editor plane | pipe | — |
 | `ctx.team` | `team` | host's team engine | pipe | lease (required) |
 | `ctx.forge` | `forge` (`publish`, `write`) | host's forge engine, through the git gateway | pipe | lease (required); context resolution may read, never write |
-| `ctx.ios` | `ios`, plus the grant given in Settings | host's simulator engine | pipe | lease (required) |
+| `ctx.ios` | `ios`, re-checked against the consent record on every call | host's simulator engine | pipe | lease (required) |
 | `ctx.android` | `android` | host's device engine | pipe | lease (required) |
 
 **Hooks** are ordered across plugins the way they are within one. The host

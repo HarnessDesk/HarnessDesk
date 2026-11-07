@@ -4,12 +4,13 @@ import { simulatorPlugin } from '../src/simulator.js'
 
 const pngUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg=='
 
-interface Tool { name: string; inputSchema: { properties: Record<string, unknown>; additionalProperties?: boolean }; execute(args: Record<string, unknown>): Promise<unknown> }
+interface Tool { name: string; description: string; inputSchema: { properties: Record<string, unknown>; $defs?: Record<string, unknown>; additionalProperties?: boolean }; execute(args: Record<string, unknown>): Promise<unknown> }
 const fixture = (appearance = 'light') => {
   const calls: unknown[][] = []
   const record = (name: string, result?: unknown) => async (...args: unknown[]) => { calls.push([name, ...args]); return result }
   const ios = {
     booted: record('booted', { udid: 'B', name: 'iPhone B', runtime: 'iOS-27' }), screenshot: record('screenshot', pngUrl), boot: record('boot'), install: record('install'), launch: record('launch'), terminate: record('terminate'), tap: record('tap'), openUrl: record('openUrl'),
+    interact: record('interact', { udid: 'B', width: 1, height: 1, frameId: 'frame-B', url: pngUrl, mimeType: 'image/png' }),
     frame: record('frame', { udid: 'B', width: 1, height: 1, frameId: 'frame-B', url: pngUrl, mimeType: 'image/png' }),
     diagnose: record('diagnose', { available: true, code: 'ready', message: 'iOS Simulator is ready.' }),
     getAppearance: record('getAppearance', 'light'), setAppearance: record('setAppearance', appearance),
@@ -60,7 +61,8 @@ test('all udid schemas require a UUID', () => {
   const valid = '00000000-0000-0000-0000-00000000000A'
   for (const [name, tool] of tools) {
     if (['ios_devices', 'ios_diagnose'].includes(name)) continue
-    const schema = tool.inputSchema.properties['udid'] as { pattern?: string }
+    const property = tool.inputSchema.properties['udid'] as { pattern?: string; $ref?: string }
+    const schema = (property.$ref ? tool.inputSchema.$defs?.['udid'] : property) as { pattern?: string }
     assert.equal(typeof schema.pattern, 'string', `${name} has a UUID pattern`)
     const pattern = new RegExp(schema.pattern!)
     assert.ok(pattern.test(valid), `${name} accepts a UUID`)
@@ -87,4 +89,30 @@ test('appearance application status distinguishes matches from unsupported and u
 
 test('ios_devices refuses additional schema properties', () => {
   assert.equal(fixture().tools.get('ios_devices')!.inputSchema.additionalProperties, false)
+})
+
+test('native input tools have local definitions, UUID targeting and no generic permissions', () => {
+  const {tools}=fixture()
+  for(const name of ['ios_long_press','ios_swipe','ios_drag','ios_pinch','ios_rotate_gesture','ios_text','ios_key','ios_button','ios_rotate','ios_keyboard']) {
+    const tool=tools.get(name)
+    assert.ok(tool,`${name} is registered`)
+    assert.equal(tool.inputSchema.additionalProperties,false)
+    assert.ok('$defs' in tool.inputSchema)
+  }
+})
+test('tap and new tools use atomic interact and apply bounded defaults', async () => {
+  const {calls,run}=fixture()
+  await run('ios_tap',{x:0,y:0,udid:'B',frameId:'frame-B'})
+  await run('ios_long_press',{x:0,y:0,udid:'B'})
+  await run('ios_key',{key:'return',udid:'B'})
+  assert.deepEqual(calls,[
+    ['interact',{kind:'tap',x:0,y:0,frameId:'frame-B'},'B'],
+    ['interact',{kind:'longPress',x:0,y:0,durationMs:750},'B'],
+    ['interact',{kind:'key',key:'return',count:1},'B'],
+  ])
+})
+
+test('text and key descriptions have no coordinate or distance instructions', () => {
+  const {tools}=fixture()
+  for(const name of ['ios_text','ios_key'])assert.doesNotMatch(tools.get(name)!.description,/coordinates|distances/i)
 })

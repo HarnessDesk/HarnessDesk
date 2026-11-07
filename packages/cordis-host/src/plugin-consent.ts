@@ -72,6 +72,16 @@ export class ConsentRecord {
     })
   }
 
+  /**
+   * Whether `manifest` is exactly the one agreed to for `id`, without
+   * recording anything: a missing entry is not agreement. For checks made
+   * while the plugin runs, where a first-time record would be a grant.
+   */
+  async matches(id: string, manifest: Uint8Array): Promise<boolean> {
+    const entry = (await this.#read())[id]
+    return entry !== undefined && entry.manifest === digest(manifest)
+  }
+
   /** Forgets `id`, when it is uninstalled. */
   forget(id: string): Promise<void> {
     return this.#serialised(async () => {

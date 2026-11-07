@@ -248,7 +248,7 @@ So the child's ids are namespaced (`child:c2`) at the supervisor merge, and
 every cross-boundary dispatch resolves `namespace/name` against the registry
 *as it is now*.
 
-**Engines live in the plugin host, not in plugins.** Chrome-over-CDP, simctl
+**Engines belong to the host, not to plugins.** Chrome-over-CDP, simctl
 and adb are engines a plugin *uses* through `ctx`, each behind its own
 manifest permission with its own install-time sentence ("Control the iOS
 Simulator on this machine"). They share one discipline in
@@ -273,8 +273,40 @@ the default still opens it. `screenshot(udid?)` remains a PNG data URL, while
 are the original PNG's pixels in its captured orientation, with the origin at
 the top left. `frameId` is an opaque capture identity bound to that device,
 boot generation and image geometry. Screenshot tools put those facts beside
-the image. Tapping still uses `cliclick` and the visible Simulator window;
-it refuses when several devices are booted, even with an explicit `udid`.
+the image. `rotation` records the measured interface rotation in clockwise quarter
+turns when the runtime reports it. Input refuses unknown or changed geometry.
+
+`interact(action, udid?)` serializes a complete action and its resulting frame on
+one host-owned engine. `tap()` remains a compatibility wrapper. The simulator
+plugin uses `interact()` for tap, long press, swipe, timed drag, pinch, clockwise
+rotation gestures, text, keys and hardware buttons. Coordinates, distances and
+radii are original screenshot pixels; optional `frameId` rejects a changed boot
+or display geometry. Captures by other callers do not invalidate it.
+Durations are 1–10000ms; drag paths contain 2–600 points, start at zero and have
+strictly increasing times. Key counts are 1–100. All input tools require edit.
+
+The repository-built `hd-ios-control` helper uses versioned NDJSON and Xcode 27's
+DTUHID service with a liveness round trip. Native input does not move the macOS pointer or
+use a window. Xcode selection is read, never changed. If DTUHID is unavailable
+or no helper was built, taps alone retain the previous `cliclick` window path:
+it moves the pointer, requires Simulator's window and refuses multiple booted
+devices. Other input tools remain unavailable there. Installed plugins forward typed requests over extension protocol
+16; the parent verifies its invocation ID and the plugin's consented grant before
+calling the same engine. Plugins cannot choose a native executable, symbol or
+service name.
+
+Installed plugins may call `ctx.ios` only during a live tool, command, hook or
+context invocation. Calls from `apply()` or a timer outside that invocation are
+refused; the parent checks the invocation lifetime and the grant it recorded when
+the person installed the plugin. Each installed plugin runs in a process of its
+own, so a grant is the plugin's alone: another plugin installed beside it never
+widens or blocks it, and a manifest rewritten after installation grants nothing.
+
+Text requires an observed US QWERTY guest keyboard and supports letters, digits, spaces and newlines through
+HID and reports `hid-us-layout`; other characters are refused. It does not use
+the host clipboard. Software-keyboard visibility, device rotation and deterministic
+locking return explicit refusals because their native state changes are not yet
+verified. `side` requests the physical side button and may lock or wake the device.
 
 `getAppearance(udid?)` and `setAppearance('light' | 'dark', udid?)` use
 `simctl ui` and read back after setting; `unsupported` and `unknown` stay
@@ -870,7 +902,7 @@ privileged path:
 | guardrails | hooks | repeated-identical-call escalation, destructive-command checks |
 | web | `ctx.http` | fetch a page as text |
 | browser | `ctx.browser` (CDP) | open, look, click, type, read the page as refs, console, network, and any DevTools method |
-| iOS simulator | `ctx.ios` (simctl) | setup diagnosis, devices, boot, install, launch, terminate, screenshot, tap, open URL, appearance |
+| iOS simulator | `ctx.ios` (simctl) | setup diagnosis, devices, boot, install, launch, terminate, screenshot, headless input, open URL, appearance |
 | Android | `ctx.android` (adb) | devices, install, launch, screenshot, tap, key, text, logcat |
 | tests | `ctx.shell` | `run_tests` with the framework detected, structured pass/fail; the `/test` command |
 

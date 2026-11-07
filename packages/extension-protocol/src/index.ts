@@ -1,3 +1,4 @@
+import type { IosCapability, IosInvocationAuthority } from '@harnessdesk/protocol'
 import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult } from '@harnessdesk/protocol'
 import type {
   CapabilityContribution,
@@ -73,9 +74,12 @@ import type {
 // to the inbox or that conversation's composer under the person's setting.
 // 10 adds the host-executed forge write verbs and Git record reads.
 // 12 adds the invocation-bound associated pull request read.
-// 13 binds each plugin host process to exactly one installed plugin, and runs
+// 13 adds host-owned, invocation-bound simulator capability requests.
+// 14 allows a non-secret per-owner refusal marker instead of an iOS bearer.
+// 15 carries the injected request-clock scale used by deadline tests.
+// 16 binds each plugin host process to exactly one installed plugin, and runs
 //    hooks one at a time so the parent can order them across processes.
-export const EXTENSION_PROTOCOL_VERSION = 13
+export const EXTENSION_PROTOCOL_VERSION = 16
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -129,6 +133,7 @@ export interface PluginHostMethods {
   'host/hello': {
     params: {
       readonly protocolVersion: number
+      readonly requestTimeoutScale?: number
       /**
        * True when the parent has a browser page of its own to drive — the
        * desktop shell's pane. The child's `ctx.browser` then forwards to it
@@ -172,11 +177,12 @@ export interface PluginHostMethods {
     result: null
   }
   'command/run': {
-    params: { readonly name: string; readonly argument: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly name: string; readonly argument: string; readonly scope: ScopeQuery }
     result: { readonly handled: boolean }
   }
   'tool/invoke': {
     params: {
+      readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>
       readonly id: string
       readonly args: unknown
       readonly scope: ScopeQuery
@@ -184,21 +190,21 @@ export interface PluginHostMethods {
     }
     result: ToolResult
   }
-  'hooks/run': { params: { readonly invocation: HookInvocation }; result: HookVerdict }
+  'hooks/run': { params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly invocation: HookInvocation }; result: HookVerdict }
   /**
    * One hook, by its id in this process. The parent orders every installed
    * plugin's hooks by priority and asks each process for one verdict at a
    * time, so the first `deny` or `ask` decides across plugins as it does
    * within one.
    */
-  'hooks/runOne': { params: { readonly id: string; readonly invocation: HookInvocation }; result: HookVerdict }
+  'hooks/runOne': { params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly id: string; readonly invocation: HookInvocation }; result: HookVerdict }
   'context/resolve': {
-    params: { readonly query: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly query: ScopeQuery }
     result: readonly { readonly label: string; readonly text: string }[]
   }
   /** One provider, because the user attached its chip. */
   'context/resolveOne': {
-    params: { readonly id: string; readonly ref?: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly id: string; readonly ref?: string; readonly scope: ScopeQuery }
     result: { readonly label: string; readonly text: string } | null
   }
   'workspace/set': {
@@ -248,7 +254,9 @@ export interface CdpEventWire {
  * child that pays for events no plugin ever reads. Draining on demand keeps
  * one direction and one buffer, and a turn that never asks costs nothing.
  */
+export type IosCall = { [M in keyof IosCapability]: { readonly method: M; readonly args: Parameters<IosCapability[M]> } }[keyof IosCapability]
 export interface ChildToHostMethods {
+  'ios/call': { params: { readonly invocation: string; readonly call: IosCall }; result: unknown }
   'browser/ensure': { params: { readonly invocation: string }; result: null }
   'browser/send': {
     params: {

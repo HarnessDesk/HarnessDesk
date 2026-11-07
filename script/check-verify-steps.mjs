@@ -61,6 +61,7 @@ export const DESCRIBED_AS = new Map([
   ['gate tests', /gate scripts/i],
   ['ui typecheck', /UI typecheck/i],
   ['ui tests', /UI and desktop/i],
+  ['ios native tests', /Swift simulator tests/i],
   ['desktop tests', /UI and desktop/i],
   ['layering rule', /layering rules?/i],
   ['half-applied fixes', /half-applied-fixes/i],

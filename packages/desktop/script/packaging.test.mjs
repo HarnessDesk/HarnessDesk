@@ -265,8 +265,8 @@ test('the packaged smoke runs the bundled command line on the app’s own runtim
  */
 test('the Lead Node is fetched before packing, copied as a resource and signed with the app', async () => {
   const { LEAD_NODE_RESOURCE } = await import('../electron/lead-runtime.mjs')
-  const hook = await import('./fetch-lead-node.mjs')
-  assert.equal(manifest.build.beforePack, './script/fetch-lead-node.mjs', 'electron-builder runs the checksummed fetch before it copies extraResources')
+  const hook = await import('./before-pack.mjs')
+  assert.equal(manifest.build.beforePack, './script/before-pack.mjs', 'electron-builder runs the checksummed fetch before it copies extraResources')
   assert.equal(typeof hook.beforePack, 'function', 'electron-builder calls the named beforePack export')
   const resource = (manifest.build.extraResources ?? []).find((entry) => typeof entry === 'object' && entry.to === 'lead-node')
   assert.deepEqual(resource, { from: '.lead-node/${arch}', to: 'lead-node', filter: ['bin/node', 'LICENSE'] },
@@ -289,4 +289,34 @@ test('the packaged smoke proves the Lead Node is there, executable, signed with 
   assert.match(smoke, /TeamIdentifier/, 'by the same identity as the app')
   assert.match(smoke, /probeLeadRuntime/, 'the probe this build carries')
   assert.match(smoke, /the bundled Node fails the Lead probe/, 'a failing probe fails the smoke')
+})
+
+test('the source-built iOS helper is an architecture-specific signed extra resource', () => {
+  assert.equal(manifest.build.beforePack,'./script/before-pack.mjs')
+  assert.ok(manifest.build.extraResources.some(r=>r.from==='../cordis-host/dist/native/darwin-${arch}' && r.to==='native/ios' && r.filter.includes('hd-ios-control')))
+  assert.ok(manifest.build.mac.binaries.includes('Contents/Resources/native/ios/hd-ios-control'))
+  assert.match(smoke,/verifyIosHelperUniqueness\(appPath\)/)
+  assert.match(smoke,/--version/)
+})
+test('native helpers in dependency dist are excluded from the application archive', () => {
+  const path='node_modules/@harnessdesk/cordis-host/dist/native/darwin-arm64/hd-ios-control'
+  assert.ok(manifest.build.files.some(glob=>glob.startsWith('!')&&matchesGlob(path,glob.slice(1))))
+})
+
+test('linked native package source and SwiftPM products never enter the app archive', () => {
+  const excluded=(manifest.build.files??[]).filter(glob=>glob.startsWith('!')).map(glob=>glob.slice(1))
+  for(const path of [
+    'native/ios-control/Package.swift',
+    'native/ios-control/Sources/IosControl/main.swift',
+    'native/ios-control/Tests/IosControlTests/InputTests.swift',
+    'native/ios-control/.build/out/Products/Release/hd-ios-control',
+    'native/ios-control/.build/out/Products/Debug/hd-ios-control',
+    'native/ios-control/.build/out/Products/Release/hd-ios-control.dSYM/Contents/Resources/DWARF/hd-ios-control',
+  ]) {
+    const file=`node_modules/@harnessdesk/cordis-host/${path}`
+    const parts=file.split('/')
+    // Excluding an ancestor directory also excludes hidden SwiftPM descendants.
+    const ancestors=parts.map((_,i)=>parts.slice(0,i+1).join('/'))
+    assert.ok(excluded.some(glob=>ancestors.some(path=>matchesGlob(path,glob))),`${file} must be excluded`)
+  }
 })
