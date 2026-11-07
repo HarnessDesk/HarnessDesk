@@ -140,6 +140,12 @@ export interface PluginHostOptions {
    */
   readonly beforeStart?: () => Promise<void>
   /**
+   * Told when `beforeStart` refused a start. The process drops the snapshot
+   * it kept for the restart, since the plugin will not come back on its own,
+   * and whoever shows its row and its tools has to hear that.
+   */
+  readonly onRefused?: () => void
+  /**
    * Whether the plugin's manifest is still the one the person agreed to,
    * asked each time simulator authority is handed out. A manifest changed
    * while the plugin runs withdraws that authority at once, not only at the
@@ -351,6 +357,11 @@ export class PluginHostProcess {
         this.#problem = null
       } catch (error) {
         this.#problem = error instanceof Error ? error.message : String(error)
+        // The snapshot was kept so a restart would not flicker; a refused
+        // restart is not one, and tools it still advertised would fail.
+        this.#plugins = []
+        this.#contributions = []
+        this.#options.onRefused?.()
         throw error
       }
     }
@@ -1529,6 +1540,11 @@ export class SupervisedExtensionHost {
           if ((await this.#consent.check(member.id, now)) === 'changed') throw new Error(MANIFEST_CHANGED)
         },
         stillConsented: async () => this.#consent.matches(member.id, (await readInstalledManifest(member.directory)).bytes),
+        onRefused: () => {
+          if (member.proc !== proc) return
+          this.#emit({ type: 'contributions/changed', owner: installedInstanceId(member.id), revision: 0, contributions: [] })
+          this.#emit({ type: 'plugin/updated', plugin: this.#describe(member) })
+        },
         onEvent: (event) => this.#emit(
           event.type === 'plugin/added' || event.type === 'plugin/updated'
             ? { type: event.type, plugin: this.#hostLifecycle(member, event.plugin) }

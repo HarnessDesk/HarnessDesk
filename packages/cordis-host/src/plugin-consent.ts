@@ -122,7 +122,12 @@ export class ConsentRecord {
     const out: Record<string, Entry> = {}
     for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
       const manifest = (value as { manifest?: unknown } | null)?.manifest
-      if (typeof manifest === 'string') out[id] = { manifest }
+      // An entry that is there but unreadable is not an absent one: dropped,
+      // the next check would record whatever manifest is on disk as agreed.
+      if (typeof manifest !== 'string' || !/^[0-9a-f]{64}$/.test(manifest)) {
+        throw new Error(`${this.path} has an entry for "${id}" that is not a consent record.`)
+      }
+      out[id] = { manifest }
     }
     return out
   }

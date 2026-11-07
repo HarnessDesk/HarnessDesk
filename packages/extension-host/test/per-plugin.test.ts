@@ -412,6 +412,47 @@ test('an install whose manifest changed after it was shown is refused, and the r
   }
 })
 
+test('a consent entry that is there but unreadable stops the plugin rather than recording what is on disk', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-perplugin-'))
+  await cp(join(FIXTURES, 'plugin-good'), join(dir, 'plugins', 'good'), { recursive: true })
+  await writeFile(join(dir, 'plugin-consent.json'), JSON.stringify({ good: {} }))
+  const harness = await make(dir, 'malformed consent entry')
+  try {
+    const good = harness.host.plugins().find((plugin) => plugin.identity.id === 'good')
+    assert.equal(good?.state.type, 'failed')
+    assert.match(JSON.stringify(good?.state), /not a consent record/)
+    assert.equal(harness.host.list('tool').some((entry) => entry.name === 'ping'), false)
+    assert.equal(await readFile(join(dir, 'plugin-consent.json'), 'utf8'), JSON.stringify({ good: {} }), 'and nothing was recorded over it')
+  } finally {
+    await cleanup(harness)
+  }
+})
+
+test('a restart the record refuses withdraws the plugin\'s tools and shows it failed', async () => {
+  const harness = await start(['exit'])
+  const events = listen(harness.host)
+  try {
+    const die = harness.toolId('die')
+    // The manifest is rewritten while it runs, then its process exits.
+    const path = join(harness.store, 'exit', 'harnessdesk.plugin.json')
+    const manifest = JSON.parse(await readFile(path, 'utf8')) as { permissions?: Record<string, unknown> }
+    await writeFile(path, JSON.stringify({ ...manifest, permissions: { ...manifest.permissions, shell: true } }))
+    await harness.host.invokeTool(die, {}, scope)
+
+    await until(() => events.heard.some((event) => event.type === 'plugin/updated' && event.plugin.identity.id === 'exit' && event.plugin.state.type === 'failed'))
+    const withdrawn = events.heard.find((event): event is Extract<ExtensionEvent, { type: 'contributions/changed' }> =>
+      event.type === 'contributions/changed' && event.owner === 'exit#installed' && event.contributions.length === 0)
+    assert.ok(withdrawn, 'the renderer is told its tools are gone')
+    assert.equal(harness.host.list('tool').some((entry) => entry.name === 'die'), false, 'and the host no longer offers them')
+    const exit = harness.host.plugins().find((plugin) => plugin.identity.id === 'exit')
+    assert.equal(exit?.state.type, 'failed')
+    assert.match(JSON.stringify(exit?.state), /manifest/i)
+  } finally {
+    events.stop()
+    await cleanup(harness)
+  }
+})
+
 test('a consent record that cannot be read stops plugins rather than trusting what is on disk', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-perplugin-'))
   await cp(join(FIXTURES, 'plugin-good'), join(dir, 'plugins', 'good'), { recursive: true })
