@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, readdir, rm, stat, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -233,6 +233,20 @@ test('an install is held to the manifest that was shown, and a refused one leave
   assert.equal(await readFile(join(root, 'sample', 'index.js'), 'utf8'), copy, 'the version already installed stays')
   assert.deepEqual(await readdir(join(root, '.staging')).catch(() => []), [], 'no half-made copy is left behind')
   assert.deepEqual((await listInstalled()).map((entry) => entry.id), ['sample'])
+})
+
+test('a local source is never removed, whatever its path contains', async (t) => {
+  await withPluginsRoot(t)
+  const work = await mkdtemp(join(tmpdir(), 'harnessdesk-work-'))
+  t.after(() => rm(work, { recursive: true, force: true }))
+  // A developer's folder whose path happens to look like a staging copy.
+  const source = join(work, 'plugins.staging', 'sample')
+  await cp(FIXTURE, source, { recursive: true })
+
+  await assert.rejects(install(source, 'f'.repeat(64)), /changed after it was shown to you/)
+  assert.ok((await stat(join(source, 'harnessdesk.plugin.json'))).isFile(), 'a refused install leaves the source')
+  await install(source, (await inspect(source)).manifestDigest)
+  assert.ok((await stat(join(source, 'index.js'))).isFile(), 'and so does one that succeeds')
 })
 
 test('an installed plugin loads, registers, and runs', async (t) => {

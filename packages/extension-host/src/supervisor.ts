@@ -1871,9 +1871,17 @@ export class SupervisedExtensionHost {
     }
   }
 
-  /** Read in the installer proc: nothing from the package is imported. */
-  inspectPlugin(specifier: string): Promise<InspectedPlugin> {
-    return this.#installer.call('plugin/inspect', { specifier })
+  /**
+   * Read in the installer proc: nothing from the package is imported. That
+   * proc runs no plugins, so whether one with this id is already installed,
+   * and would be replaced, is the host's to answer from its own inventory.
+   */
+  async inspectPlugin(specifier: string): Promise<InspectedPlugin> {
+    const inspected = await this.#installer.call('plugin/inspect', { specifier })
+    return {
+      ...inspected,
+      alreadyInstalled: this.#members.has(inspected.id),
+    }
   }
 
   /**

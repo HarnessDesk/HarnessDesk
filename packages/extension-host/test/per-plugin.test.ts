@@ -375,6 +375,17 @@ test('installing a plugin that is running replaces its process', async () => {
   }
 })
 
+test('the install dialog is told a plugin will be replaced by what the host has installed', async () => {
+  const harness = await start(['envspy'])
+  try {
+    assert.equal((await harness.host.inspectPlugin(join(FIXTURES, 'plugin-envspy'))).alreadyInstalled, true,
+      'the installer process runs no plugins, so it cannot be the one to say')
+    assert.equal((await harness.host.inspectPlugin(join(FIXTURES, 'plugin-good'))).alreadyInstalled, false)
+  } finally {
+    await cleanup(harness)
+  }
+})
+
 test('an install whose manifest changed after it was shown is refused, and the running version stays', async () => {
   const harness = await start(['envspy'])
   const source = await mkdtemp(join(tmpdir(), 'hd-perplugin-source-'))

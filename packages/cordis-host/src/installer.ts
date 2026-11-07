@@ -70,11 +70,17 @@ const readManifestAt = async (
 /** A package read for the consent dialog, with the digest of the manifest bytes shown. */
 export interface InspectedPackage extends PluginPackage {
   readonly manifestDigest: string
+  /**
+   * Whether `directory` is a copy fetched for this inspection (an npm
+   * package), which an install removes afterwards. Never true of a folder the
+   * person named: that is their source, and it is never deleted.
+   */
+  readonly fetched: boolean
 }
 
-const inspectAt = async (directory: string, source: PluginSource): Promise<InspectedPackage> => {
+const inspectAt = async (directory: string, source: PluginSource, fetched: boolean): Promise<InspectedPackage> => {
   const bytes = await readManifestBytes(directory)
-  return { ...parseManifestBytes(bytes, directory, source), manifestDigest: manifestDigest(bytes) }
+  return { ...parseManifestBytes(bytes, directory, source), manifestDigest: manifestDigest(bytes), fetched }
 }
 
 /**
@@ -86,13 +92,13 @@ const inspectAt = async (directory: string, source: PluginSource): Promise<Inspe
 export const inspect = async (specifier: string): Promise<InspectedPackage> => {
   if (isLocalPath(specifier)) {
     const directory = resolve(specifier)
-    return inspectAt(directory, { kind: 'local', path: directory })
+    return inspectAt(directory, { kind: 'local', path: directory }, false)
   }
   // An npm package has to be fetched before its manifest can be read; `npm pack`
   // downloads the tarball without running install scripts.
   const staging = join(pluginsRoot(), '.staging', sanitise(specifier))
   await fetchFromNpm(specifier, staging)
-  return inspectAt(staging, { kind: 'npm', specifier })
+  return inspectAt(staging, { kind: 'npm', specifier }, true)
 }
 
 const isLocalPath = (specifier: string): boolean =>
@@ -213,8 +219,10 @@ export const install = async (specifier: string, reviewed?: string): Promise<Ins
       throw error
     }
   } finally {
-    // The npm staging copy has served its purpose, installed or not.
-    if (inspected.directory.includes(`${'.staging'}`)) {
+    // The npm staging copy has served its purpose, installed or not. Only a
+    // copy this install fetched: a local folder is the person's own source,
+    // whatever its path happens to contain.
+    if (inspected.fetched) {
       await rm(inspected.directory, { recursive: true, force: true })
     }
   }
