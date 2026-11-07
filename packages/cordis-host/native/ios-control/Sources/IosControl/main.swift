@@ -20,12 +20,10 @@ func point(_ value: Any?) throws -> Point {
     guard let data = value as? [String: Any], let x = data["x"] as? Double, let y = data["y"] as? Double else { throw InputFailure("point", "A point needs numeric x and y coordinates.") }
     return Point(x: x, y: y)
 }
-func sendKeys(_ usages: [UInt64], connection: HDSimulatorConnection) throws {
-    var held: [UInt64] = []
-    defer { for usage in held.reversed() { try? connection.sendPayload(["usageCode": usage, "state": UInt64(2)], messageType: "IndigoKeyboardButtonEvent", barrier: false) } }
-    for usage in usages { if HDInputCancelled() != 0 { throw CancellationError() }; try connection.sendPayload(["usageCode": usage, "state": UInt64(1)], messageType: "IndigoKeyboardButtonEvent", barrier: false); held.append(usage) }
-    for usage in held.reversed() { try connection.sendPayload(["usageCode": usage, "state": UInt64(2)], messageType: "IndigoKeyboardButtonEvent", barrier: false) }
-    held = []
+func transport(_ connection: HDSimulatorConnection) -> InputTransport {
+    InputTransport(cancelled: { HDInputCancelled() != 0 }, send: { payload, type, wait in
+        try connection.sendPayload(payload, messageType: type, barrier: false, waitForAcknowledgement: wait)
+    })
 }
 func selectedDeveloperDirectory() throws -> String {
     let directory: String
@@ -38,9 +36,7 @@ func selectedDeveloperDirectory() throws -> String {
     }
     let versionURL = URL(fileURLWithPath: directory).deletingLastPathComponent().appendingPathComponent("version.plist")
     let version = (try? Data(contentsOf: versionURL)).flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
-    let major = (version?["CFBundleShortVersionString"] as? String)?.split(separator: ".").first.flatMap { Int($0) } ?? 0
-    guard major >= 27 else { throw InputFailure("xcode", "iOS Simulator control requires Xcode; install and open Xcode, then select it in Settings › Locations › Command Line Tools.") }
-    return directory
+    return try establish(xcodeVersion: version ?? [:]) { _ in directory }
 }
 if CommandLine.arguments.contains("--probe") {
     do {
@@ -60,10 +56,13 @@ while let line = readLine() {
         guard let requestId = request["id"] as? String, !requestId.isEmpty else { throw InputFailure("request", "A request ID is required.") }; id = requestId
         guard request["protocolVersion"] as? Int == 1 else { throw InputFailure("version", "The simulator helper protocol version is incompatible.") }
         guard let udid = request["udid"] as? String, UUID(uuidString: udid) != nil else { throw InputFailure("target", "A concrete simulator UUID is required.") }
-        let directory = try selectedDeveloperDirectory()
-        let connection = try establish(xcodeMajor: 27) { _ in try HDSimulatorConnection(developerDirectory: directory, udid: udid) }
-        defer { connection.close() }
         guard let operation = request["operation"] as? String, ["probe", "interact"].contains(operation) else { throw InputFailure("operation", "An input operation is required.") }
+        let connection = try withInputConnection(action: request["action"] as? [String: Any], connect: {
+            let directory = try selectedDeveloperDirectory()
+            do { return try HDSimulatorConnection(developerDirectory: directory, udid: udid) }
+            catch { throw InputFailure("unavailable", (error as NSError).localizedDescription) }
+        }, reset: { try transport($0).releaseContacts() })
+        defer { connection.close() }
         var result: [String: Any] = ["transport": "dtuhid", "width": connection.pixelWidth, "height": connection.pixelHeight]
         if operation != "probe" {
             guard let action = request["action"] as? [String: Any], let kind = action["kind"] as? String else { throw InputFailure("action", "A typed input action is required.") }
@@ -103,32 +102,24 @@ while let line = readLine() {
                 guard let button = action["button"] as? String, ["home", "side", "lock"].contains(button), (1...10000).contains(duration) else { throw InputFailure("button", "Choose a supported hardware button and a bounded duration.") }
                 if button == "lock" { throw InputFailure("lock", "Deterministic device locking is unavailable because native locked-state delivery could not be verified on this Xcode.") }
                 let usage: UInt64 = button == "home" ? 0x40 : 0x30
-                if HDInputCancelled() != 0 { throw CancellationError() }
-                try connection.sendPayload(["usagePage": UInt64(12), "usageCode": usage, "state": UInt64(1)], messageType: "IndigoButtonEvent", barrier: false)
-                defer { try? connection.sendPayload(["usagePage": UInt64(12), "usageCode": usage, "state": UInt64(2)], messageType: "IndigoButtonEvent", barrier: false) }
-                try waitInput(duration)
+                try transport(connection).button(usage, duration: duration, sleep: waitInput)
             case "key":
                 let count = action["count"] as? Int ?? 1
                 guard let key = action["key"] as? String, (1...100).contains(count) else { throw InputFailure("key", "A key needs a count between 1 and 100.") }
                 let usages = try keyboardUsage(key)
-                for _ in 0..<count { try sendKeys(usages, connection: connection) }
+                for _ in 0..<count { try transport(connection).keys(usages) }
             case "text":
                 guard let text = action["text"] as? String, !text.isEmpty, text.utf8.count <= 16384 else { throw InputFailure("text", "Text must contain between 1 and 16384 bytes.") }
                 let characters = try asciiUsages(text)
                 try connection.verifyUsKeyboard()
-                for usages in characters { try sendKeys(usages, connection: connection) }
+                for usages in characters { try transport(connection).keys(usages) }
                 result["method"] = "hid-us-layout"
             default: throw InputFailure("unsupported", "This simulator input operation has not been verified.")
             }
             // Validate every contact before any event can be delivered.
             let normalized = try samples.map { sample in Sample(phase: sample.phase, points: try sample.points.map(geometry.normalize), tMs: sample.tMs) }
             if pixelInput { try connection.verifyRotation(rotation) }
-            try Gesture.deliver(normalized, sink: { sample in
-                if sample.phase != .end && HDInputCancelled() != 0 { throw CancellationError() }
-                var payload: [String: Any] = ["eventType": sample.phase.rawValue, "edge": UInt64(0), "target": UInt64(0), "pointOne": ["x": sample.points[0].x, "y": sample.points[0].y]]
-                if sample.points.count == 2 { payload["pointTwo"] = ["x": sample.points[1].x, "y": sample.points[1].y] }
-                try connection.sendPayload(payload, messageType: "IndigoDigitizerEvent", barrier: false)
-            }, sleep: waitInput)
+            try Gesture.deliver(normalized, sink: { try transport(connection).contact($0) }, sleep: waitInput)
             Thread.sleep(forTimeInterval: 0.08)
         }
         let response: [String: Any] = ["id": id, "protocolVersion": 1, "result": result]

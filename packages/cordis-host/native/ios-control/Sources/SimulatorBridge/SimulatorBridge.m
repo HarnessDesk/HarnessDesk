@@ -45,6 +45,15 @@ static xpc_object_t encode(id value) {
     }
     return xpc_null_create();
 }
+BOOL HDUsesUsKeyboard(NSDictionary *preferences, NSDictionary *global) {
+    NSArray *keyboards = preferences[@"KeyboardsCurrentAndNext"];
+    NSString *current = [keyboards isKindOfClass:NSArray.class] && keyboards.count ? keyboards[0] : nil;
+    if ([current isKindOfClass:NSString.class] && ([current isEqualToString:@"en_US@sw=QWERTY;hw=Automatic"] || [current isEqualToString:@"en_US@sw=QWERTY;hw=US"])) return YES;
+    id configured = global[@"AppleKeyboards"];
+    BOOL unconfigured = preferences[@"KeyboardsCurrentAndNext"] == nil &&
+        (configured == nil || ([configured isKindOfClass:NSArray.class] && [configured count] == 0));
+    return unconfigured && [global[@"AppleLocale"] isEqual:@"en_US"];
+}
 @implementation HDSimulatorConnection {
     id _device;
     NSString *_udid;
@@ -111,7 +120,7 @@ static xpc_object_t encode(id value) {
             if (strongSelf && xpc_get_type(event) == XPC_TYPE_ERROR) { @synchronized(strongSelf) { strongSelf->_invalidated = YES; } }
         });
         xpc_connection_resume(_connection);
-        if (![self sendPayload:@{@"usageCode":@0, @"state":@2} messageType:@"IndigoKeyboardButtonEvent" barrier:YES error:error]) { [self close]; return nil; }
+        if (![self sendPayload:@{@"usageCode":@0, @"state":@2} messageType:@"IndigoKeyboardButtonEvent" barrier:YES waitForAcknowledgement:YES error:error]) { [self close]; return nil; }
         [NSThread sleepForTimeInterval:0.2];
         return self;
     } @catch (NSException *exception) {
@@ -119,11 +128,18 @@ static xpc_object_t encode(id value) {
         return nil;
     }
 }
-- (BOOL)sendPayload:(NSDictionary *)payload messageType:(NSString *)messageType barrier:(BOOL)barrier error:(NSError **)error {
+- (BOOL)sendPayload:(NSDictionary *)payload messageType:(NSString *)messageType barrier:(BOOL)barrier waitForAcknowledgement:(BOOL)wait error:(NSError **)error {
     @synchronized(self) { if (!_connection || _invalidated) { *error = failure(@"The simulator input connection was interrupted; the gesture was stopped."); return NO; } }
     xpc_object_t message = encode(@{@"messageType":messageType, @"featureIdentifier":service, @"isBarrier":@(barrier), @"payload":payload});
     dispatch_semaphore_t done = dispatch_semaphore_create(0);
     __block BOOL ok = YES;
+    if (!wait) {
+        // Queue the release and give the local XPC sender a bounded drain. No guest acknowledgement.
+        xpc_connection_send_message(_connection, message);
+        xpc_connection_send_barrier(_connection, ^{ dispatch_semaphore_signal(done); });
+        dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 100*NSEC_PER_MSEC));
+        return YES;
+    }
     if (barrier) {
         xpc_connection_send_message_with_reply(_connection, message, _queue, ^(xpc_object_t reply) {
             ok = xpc_get_type(reply) != XPC_TYPE_ERROR;
@@ -133,7 +149,12 @@ static xpc_object_t encode(id value) {
         xpc_connection_send_message(_connection, message);
         xpc_connection_send_barrier(_connection, ^{ dispatch_semaphore_signal(done); });
     }
-    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 4*NSEC_PER_SEC)) != 0 || !ok) {
+    NSTimeInterval deadline = NSProcessInfo.processInfo.systemUptime + 4;
+    BOOL answered = NO;
+    while (!HDInputCancelled() && NSProcessInfo.processInfo.systemUptime < deadline) {
+        if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 10*NSEC_PER_MSEC)) == 0) { answered = YES; break; }
+    }
+    if (!answered || !ok) {
         *error = failure(@"DTUHID did not answer the simulator input liveness round trip."); return NO;
     }
     return YES;
@@ -176,9 +197,8 @@ static xpc_object_t encode(id value) {
     NSString *dataPath = get(_device, @"dataPath");
     if (![dataPath isKindOfClass:NSString.class]) { *error = failure(@"The simulator keyboard layout could not be observed."); return NO; }
     NSDictionary *preferences = [NSDictionary dictionaryWithContentsOfURL:[NSURL fileURLWithPath:[dataPath stringByAppendingPathComponent:@"Library/Preferences/com.apple.keyboard.preferences.plist"]] error:nil];
-    NSArray *keyboards = preferences[@"KeyboardsCurrentAndNext"];
-    NSString *current = [keyboards isKindOfClass:NSArray.class] && keyboards.count ? keyboards[0] : nil;
-    if ([current isKindOfClass:NSString.class] && ([current isEqualToString:@"en_US@sw=QWERTY;hw=Automatic"] || [current isEqualToString:@"en_US@sw=QWERTY;hw=US"])) return YES;
+    NSDictionary *global = [NSDictionary dictionaryWithContentsOfURL:[NSURL fileURLWithPath:[dataPath stringByAppendingPathComponent:@"Library/Preferences/.GlobalPreferences.plist"]] error:nil];
+    if (HDUsesUsKeyboard(preferences ?: @{}, global ?: @{})) return YES;
     *error = failure(@"Text input requires an observed US QWERTY simulator keyboard; other or unknown layouts are not yet supported.");
     return NO;
 }

@@ -21,13 +21,53 @@ struct Geometry {
         }
     }
 }
-func establish<T>(xcodeMajor: Int, connect: (String) throws -> T) throws -> T {
-    // Legacy support requires its own verified toolchain. No substitution after a failed send.
-    guard xcodeMajor >= 27 else { throw InputFailure("unsupported", "Native input requires a verified Xcode 27 DTUHID transport.") }
+func establish<T>(xcodeVersion: [String: Any], connect: (String) throws -> T) throws -> T {
+    let major = (xcodeVersion["CFBundleShortVersionString"] as? String)?.split(separator: ".").first.flatMap { Int($0) } ?? 0
+    guard major >= 27 else { throw InputFailure("xcode", "Native input requires a verified Xcode 27 DTUHID transport.") }
     return try connect("dtuhid")
 }
-func requireSymbols(_ names: [String], resolve: (String) -> Bool) throws {
-    for name in names where !resolve(name) { throw InputFailure("symbol", "The installed Xcode is missing the simulator input symbol \(name).") }
+func withInputConnection<T>(action: [String: Any]?, connect: () throws -> T, reset: (T) throws -> Void) throws -> T {
+    switch action?["kind"] as? String {
+    case "keyboard": throw InputFailure("keyboard", "Software keyboard show and hide are unavailable because simulator-local visibility observation has not been verified.")
+    case "rotateDevice": throw InputFailure("orientation", "Device rotation is unavailable because its idempotent native delivery has not been verified on this Xcode.")
+    case "button" where action?["button"] as? String == "lock": throw InputFailure("lock", "Deterministic device locking is unavailable because native locked-state delivery could not be verified on this Xcode.")
+    default: break
+    }
+    let connection = try connect()
+    try reset(connection)
+    return connection
+}
+struct InputTransport {
+    let cancelled: () -> Bool
+    let send: ([String: Any], String, Bool) throws -> Void
+    func event(_ payload: [String: Any], _ type: String) throws { try send(payload, type, !cancelled()) }
+    func contact(_ sample: Sample) throws {
+        if sample.phase != .end && cancelled() { throw CancellationError() }
+        var payload: [String: Any] = ["eventType": sample.phase.rawValue, "edge": UInt64(0), "target": UInt64(0), "pointOne": ["x": sample.points[0].x, "y": sample.points[0].y]]
+        if sample.points.count == 2 { payload["pointTwo"] = ["x": sample.points[1].x, "y": sample.points[1].y] }
+        try event(payload, "IndigoDigitizerEvent")
+    }
+    func keys(_ usages: [UInt64]) throws {
+        var held: [UInt64] = []
+        defer { for usage in held.reversed() { try? event(["usageCode": usage, "state": UInt64(2)], "IndigoKeyboardButtonEvent") } }
+        for usage in usages {
+            if cancelled() { throw CancellationError() }
+            held.append(usage)
+            try event(["usageCode": usage, "state": UInt64(1)], "IndigoKeyboardButtonEvent")
+        }
+        for usage in held.reversed() { try event(["usageCode": usage, "state": UInt64(2)], "IndigoKeyboardButtonEvent") }
+        held = []
+    }
+    func button(_ usage: UInt64, duration: Int, sleep: (Int) throws -> Void) throws {
+        if cancelled() { throw CancellationError() }
+        defer { try? event(["usagePage": UInt64(12), "usageCode": usage, "state": UInt64(2)], "IndigoButtonEvent") }
+        try event(["usagePage": UInt64(12), "usageCode": usage, "state": UInt64(1)], "IndigoButtonEvent")
+        try sleep(duration)
+    }
+    func releaseContacts() throws {
+        let point = ["x": 0.0, "y": 0.0]
+        try send(["eventType": UInt64(2), "edge": UInt64(0), "target": UInt64(0), "pointOne": point, "pointTwo": point], "IndigoDigitizerEvent", false)
+    }
 }
 enum Gesture {
     static func samples(from: [Point], to: [Point], durationMs: Int) throws -> [Sample] {
@@ -48,8 +88,10 @@ enum Gesture {
         do {
             for sample in samples {
                 if sample.tMs > elapsed { try sleep(sample.tMs-elapsed) }
+                // A send may reach the guest before its acknowledgement fails.
+                if sample.phase != .end { held = sample }
                 try sink(sample)
-                held = sample.phase == .end ? nil : sample
+                if sample.phase == .end { held = nil }
                 elapsed = sample.tMs
             }
         } catch {
