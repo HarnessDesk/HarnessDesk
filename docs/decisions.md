@@ -5356,7 +5356,7 @@ Native interruption ends the current gesture and releases contacts and modifiers
 without waiting for guest acknowledgement. Each connection first clears both
 contacts. Frame identities authenticate a geometry epoch: another caller's
 capture does not invalidate them, but an observed size, rotation or boot change
-does. Text and gesture deadlines scale with their bounded work.
+does. Native and installed-plugin IPC deadlines scale with validated bounded work; the parent holds the invocation only while the bounded native call is active.
 
 Keyboard show/hide, device rotation and deterministic lock are explicit refusals
 until the requested guest state can be observed and verified. A physical power

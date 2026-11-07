@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import { validateIosAction } from '../src/ios-validation.js'
+import { IosHelper } from '../src/ios-helper.js'
 import { IosEngine } from '../src/ios-engine.js'
 import { iosService, PNG } from './fixtures/ios.js'
 const target='11111111-1111-1111-1111-111111111111'
@@ -95,4 +96,46 @@ test('legacy tapping still refuses more than one booted simulator', async () => 
   }} as ConstructorParameters<typeof IosEngine>[0])
   await assert.rejects(engine.interact({kind:'tap',x:0,y:0},target),/More than one/)
   assert.equal(calls.includes('osascript'),false)
+})
+
+test('a helper crash cancels input already queued at the engine boundary', async () => {
+  const helper=new IosHelper({executable:process.execPath,args:['-e',"process.stdin.once('data',d=>{const q=JSON.parse(d);console.log(JSON.stringify({id:q.id,protocolVersion:1,result:{}}));setImmediate(()=>process.exit(0))})"]})
+  let captures=0
+  const engine=new IosEngine({input:helper,run:async(_bin,args)=>{
+    if(args[1]==='list')return {stdout:JSON.stringify({devices:{iOS:[{udid:target,state:'Booted'}]}}),stderr:''}
+    if(args[3]==='screenshot'){ if(++captures===2)await new Promise(r=>setTimeout(r,100));writeFileSync(args[4]!,PNG) }
+    return {stdout:'',stderr:''}
+  }})
+  try {
+    const results=await Promise.allSettled([engine.interact({kind:'key',key:'return',count:1},target),engine.interact({kind:'key',key:'delete',count:1},target)])
+    assert.equal(results[0]!.status,'fulfilled')
+    assert.equal(results[1]!.status,'rejected')
+    if(results[1]!.status==='rejected')assert.match(String(results[1]!.reason),/stopped/)
+  } finally {engine.dispose()}
+})
+test('legacy window measurement cannot click after invocation expiry', async () => {
+  const {withIosInputSignal}=await import('../src/ios-invocation.js')
+  const controller=new AbortController();let clicks=0
+  const engine=new IosEngine({helperPath:'/missing/native/helper',exists:()=>true,run:async(bin,args)=>{
+    if(args[1]==='list')return {stdout:JSON.stringify({devices:{iOS:[{udid:target,state:'Booted'}]}}),stderr:''}
+    if(args[3]==='screenshot')writeFileSync(args[4]!,PNG)
+    if(bin==='osascript') {controller.abort();return {stdout:'100, 200, 400, 828',stderr:''}}
+    if(bin.includes('cliclick'))clicks++
+    return {stdout:'',stderr:''}
+  }})
+  await assert.rejects(withIosInputSignal(controller.signal,()=>engine.interact({kind:'tap',x:0,y:0},target)),/abort/i)
+  assert.equal(clicks,0)
+})
+test('a failed capture observing rotation revokes old frames even after returning to the original orientation', async () => {
+  const rotations=['Portrait','Portrait','Landscape Right','Portrait'];let reads=0,inputs=0
+  const engine=new IosEngine({run:async(_bin,args)=>{
+    if(args[1]==='list')return {stdout:JSON.stringify({devices:{iOS:[{udid:target,state:'Booted'}]}}),stderr:''}
+    if(args[3]==='enumerate')return {stdout:`Screen Type: Integrated\nUI Orientation: ${rotations[reads++]??'Portrait'}\n`,stderr:''}
+    if(args[3]==='screenshot')writeFileSync(args[4]!,PNG)
+    return {stdout:'',stderr:''}
+  },input:{request:async()=>{inputs++;return {}}}})
+  const first=await engine.frame(target)
+  await assert.rejects(engine.frame(target),/orientation/)
+  await assert.rejects(engine.interact({kind:'tap',x:0,y:0,frameId:first.frameId},target),/stale/)
+  assert.equal(inputs,0)
 })

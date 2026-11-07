@@ -63,3 +63,31 @@ test('optional targets and iOS access survive commands, hooks and context entryp
     assert.equal(calls,6)
   } finally {await host.dispose();await rm(dir,{recursive:true,force:true})}
 })
+test('installed maximum-length text outlives both generic IPC deadlines', {timeout:45000}, async()=> {
+  const scratch=fileURLToPath(new URL('../../../../output/ios-input/',import.meta.url));await mkdir(scratch,{recursive:true})
+  const dir=await mkdtemp(join(scratch,'text-deadline-')),store=join(dir,'plugins'),plugin=join(store,'iosish')
+  await cp(join(FIXTURES,'plugin-ios'),plugin,{recursive:true})
+  const source=join(plugin,'index.js')
+  await writeFile(source,(await readFile(source,'utf8')).replace('apply(ctx) {',`apply(ctx) {
+    ctx.tools.register({name:'ios_text_boundary',description:'Synthetic bounded text.',inputSchema:{type:'object',properties:{}},execute:async()=>JSON.stringify(await ctx.ios.interact({kind:'text',text:'A'.repeat(16384)}))})`))
+  let completed=false, finish=()=>{}, timer:ReturnType<typeof setTimeout>|undefined
+  const engine={interact:async(action:{kind:string;text:string})=>{
+    assert.equal(action.kind,'text');assert.equal(action.text.length,16384)
+    await new Promise<void>(resolve=>{finish=resolve;timer=setTimeout(resolve,31000)})
+    completed=true
+    return {udid:'11111111-1111-1111-1111-111111111111',frameId:'text',width:1,height:1,mimeType:'image/png',url:'data:image/png;base64,'}
+  }} as unknown as IosCapability
+  const host=new SupervisedExtensionHost(new ExtensionKernel(),{env:{HARNESSDESK_PLUGINS:store},iosEngine:engine,invokeTimeoutMs:1000})
+  try {
+    await host.loadInstalledPlugins()
+    const result=await host.invokeTool(host.list('tool').find(t=>t.name==='ios_text_boundary')!.id,{},{})
+    assert.equal(result.ok,true,JSON.stringify(result));assert.equal(completed,true)
+  } finally {clearTimeout(timer);finish();await host.dispose();await rm(dir,{recursive:true,force:true})}
+})
+test('only bounded validated input can extend the installed operation deadline', async()=> {
+  const {iosInteractionTimeoutMs}=await import('@harnessdesk/cordis-host')
+  const maximum=iosInteractionTimeoutMs({kind:'text',text:'A'.repeat(16384)})
+  assert.ok(maximum>30000 && maximum<900000)
+  assert.throws(()=>iosInteractionTimeoutMs({kind:'text',text:'A'.repeat(16385)}),/16384/)
+  assert.throws(()=>iosInteractionTimeoutMs({kind:'longPress',x:0,y:0,durationMs:10001}),/duration/)
+})

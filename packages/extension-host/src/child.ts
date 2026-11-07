@@ -2,7 +2,7 @@ import { createInterface } from 'node:readline'
 
 import {
   ExtensionKernel,
-  currentIosInvocation, withIosInvocation, type IosCapability,
+  iosInteractionTimeoutMs, currentIosInvocation, withIosInvocation, type IosCapability,
   setBrowserEngine,
   setBrowserSettings,
   setEditorEngine,
@@ -93,10 +93,12 @@ const askHost = <M extends keyof ChildToHostMethods>(
 ): Promise<ChildToHostMethods[M]['result']> =>
   new Promise((resolve, reject) => {
     const id = ++nextHostRequest
+    const ios = method === 'ios/call' ? params as ChildToHostMethods['ios/call']['params'] : undefined
+    const timeoutMs = ios?.call.method === 'interact' ? iosInteractionTimeoutMs(ios.call.args[0]) + 5_000 : HOST_REQUEST_TIMEOUT_MS
     const timer = setTimeout(() => {
       hostPending.delete(id)
       reject(new Error(`The host did not answer ${method} in time.`))
-    }, HOST_REQUEST_TIMEOUT_MS)
+    }, timeoutMs)
     hostPending.set(id, {
       resolve: (value) => {
         clearTimeout(timer)

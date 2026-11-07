@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import {
   BrowserInvocations,
   pluginsRoot,
-  withIosInputSignal,
+  withIosInputSignal, iosInteractionTimeoutMs,
   type IosCapability,
   canonicalScopeQuery,
   setEditorEngine,
@@ -129,7 +129,7 @@ export interface PluginHostOptions {
 }
 
 export class PluginHostProcess {
-  readonly #iosInvocations = new Map<string, { owner: string; signal: AbortSignal }>()
+  readonly #iosInvocations = new Map<string, { owner: string; signal: AbortSignal; hold: () => () => void; abort: () => void }>()
   #child: ChildProcess | null = null
   #nextId = 0
   readonly #pending = new Map<number, Pending>()
@@ -374,6 +374,19 @@ export class PluginHostProcess {
         const plugin = this.#plugins.find(p => String(p.instanceId) === lease?.owner)
         if (!plugin?.enabled || plugin.permissions.ios !== true || !lease || lease.signal.aborted || !this.#options.iosEngine || !await hasInstalledIosGrant(this.#iosStore(), plugin.identity.id)) throw new Error('This simulator request has no live invocation with an iOS permission grant.')
         if (this.#child !== child || this.#iosInvocations.get(params.invocation) !== lease) throw new Error('This simulator invocation has ended.')
+        if (params.call?.method === 'interact') {
+          const timeoutMs = iosInteractionTimeoutMs(params.call.args?.[0])
+          const release = lease.hold()
+          let timer: ReturnType<typeof setTimeout> | undefined
+          try {
+            const expired = new Promise<never>((_, reject) => {
+              timer = setTimeout(() => { lease.abort(); reject(new Error('The simulator operation exceeded its bounded work deadline.')) }, timeoutMs)
+              timer.unref?.()
+            })
+            const result = await Promise.race([withIosInputSignal(lease.signal, () => answerIosCall(this.#options.iosEngine!, params.call)), expired])
+            reply({ response: request.request, result }); return
+          } finally { clearTimeout(timer); release() }
+        }
         const result = await withIosInputSignal(lease.signal, () => answerIosCall(this.#options.iosEngine!, params.call))
         reply({ response: request.request, result }); return
       }
@@ -851,7 +864,7 @@ export class PluginHostProcess {
         if (!await hasInstalledIosGrant(store, owner.identity.id)) continue
         const token = randomUUID()
         iosInvocations[String(owner.instanceId)] = token
-        this.#iosInvocations.set(token, { owner: String(owner.instanceId), signal: iosController.signal })
+        this.#iosInvocations.set(token, { owner: String(owner.instanceId), signal: iosController.signal, hold: () => lifetime.hold(), abort: () => iosController.abort() })
       }
       const { iosInvocations: _untrusted, ...plain } = params as { iosInvocations?: unknown }
       params = { ...plain, iosInvocations } as PluginHostMethods[M]['params']

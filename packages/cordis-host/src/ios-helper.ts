@@ -2,18 +2,13 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
+import { iosActionWorkMs } from './ios-validation.js'
 import type { IosAction, IosFrame } from './ios-types.js'
 
 export interface IosInputTransport {
+  readonly generation?: number
   request(udid: string, action: IosAction, frame?: Pick<IosFrame, 'width' | 'height' | 'rotation'>, signal?: AbortSignal): Promise<Record<string, unknown>>
   dispose?(): void
-}
-/** Startup/liveness budget plus bounded work. Invocation expiry can still cancel any action. */
-function inputWorkMs(action: IosAction): number {
-  if (action.kind === 'text') return Buffer.byteLength(action.text, 'utf8') * 50
-  if (action.kind === 'key') return action.count * 100
-  if (action.kind === 'drag') return action.path.at(-1)?.tMs ?? 0
-  return 'durationMs' in action ? action.durationMs : 0
 }
 interface Pending { resolve(value: Record<string, unknown>): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
 const unavailable = 'iOS Simulator control requires Xcode; install and open Xcode, then select it in Settings › Locations › Command Line Tools.'
@@ -26,6 +21,7 @@ export class IosHelper implements IosInputTransport {
   #lifetime = 0
   #queue: Promise<unknown> = Promise.resolve()
   #disposed = false
+  get generation(): number { return this.#lifetime }
   constructor(private readonly options: { executable?: string; args?: readonly string[]; timeoutMs?: number; spawn?: typeof spawn } = {}) {}
   #stop(child: ChildProcessWithoutNullStreams, error: Error): void {
     if (this.#child !== child) return
@@ -90,7 +86,7 @@ export class IosHelper implements IosInputTransport {
     const cancel = () => this.#stop(child, new Error('The simulator invocation ended; the gesture was stopped.'))
     signal?.addEventListener('abort', cancel, { once: true })
     try { return await new Promise<Record<string, unknown>>((resolve, reject) => {
-      const timer = setTimeout(() => this.#stop(child, new Error('The simulator input helper timed out; the gesture was stopped.')), (this.options.timeoutMs ?? 20_000) + inputWorkMs(action))
+      const timer = setTimeout(() => this.#stop(child, new Error('The simulator input helper timed out; the gesture was stopped.')), (this.options.timeoutMs ?? 20_000) + iosActionWorkMs(action))
       this.#pending.set(id, { resolve, reject, timer })
       child.stdin.write(`${JSON.stringify({ protocolVersion: 1, id, udid, operation: 'interact', action, ...(frame ? { geometry: { width: frame.width, height: frame.height, rotation: frame.rotation } } : {}) })}\n`, (error) => { if (error) this.#stop(child, new Error('The simulator input helper connection closed.')) })
     }) } finally { signal?.removeEventListener('abort', cancel) }

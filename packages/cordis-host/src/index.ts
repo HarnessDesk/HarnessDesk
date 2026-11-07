@@ -81,5 +81,5 @@ export type { IosAction, IosAppearance, IosCapability, IosFrame, IosKey, IosOrie
 export { AndroidService, type AndroidDevice } from './android.js'
 
 export { IosEngine } from './ios-engine.js'
-export { validateIosAction } from './ios-validation.js'
+export { validateIosAction, iosActionWorkMs, iosInteractionTimeoutMs } from './ios-validation.js'
 export { currentIosInvocation, withIosInvocation, withIosInputSignal } from './ios-invocation.js'

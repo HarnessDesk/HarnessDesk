@@ -152,9 +152,14 @@ export class IosEngine {
     const file = join(dir, 'shot.png')
     try {
       const orientationBefore = await this.readRotation(device.udid)
+      const observed = this.geometries.get(device.udid)
+      if (observed && observed.rotation !== orientationBefore) this.geometries.delete(device.udid)
       await this.run(SIMCTL_BIN, ['simctl', 'io', device.udid, 'screenshot', file], { what: 'Screenshotting the simulator' })
       const rotation = await this.readRotation(device.udid)
-      if (rotation !== orientationBefore) throw new Error('The simulator display changed orientation during capture; capture a fresh frame.')
+      if (rotation !== orientationBefore) {
+        this.geometries.delete(device.udid)
+        throw new Error('The simulator display changed orientation during capture; capture a fresh frame.')
+      }
       const png = readFileSync(file)
       if (!isPng(png) || png.length < 33 || png.readUInt32BE(8) !== 13 || png.toString('ascii', 12, 16) !== 'IHDR') {
         throw new Error('Could not read the screenshot PNG dimensions.')
@@ -216,14 +221,20 @@ export class IosEngine {
   }
   /** Serialize input and its frame together across all capability callers. */
   async interact(action: IosAction, udid?: string): Promise<IosFrame> {
+    const inputGeneration = this.input.generation
     const device = await this.booted(udid).catch((error: unknown) => {
       if (/unable to find utility ["']?simctl|requires Xcode|invalid active developer path|spawn xcrun ENOENT/i.test(String(error))) throw new Error('iOS Simulator control requires Xcode; install and open Xcode, then select it in Settings › Locations › Command Line Tools.')
       throw error
     })
     const signal = currentIosInputSignal()
-    return this.exclusive(device.udid, () => this.inputTurn(async () => {
+    const assertCurrent = () => {
       signal?.throwIfAborted()
+      if (inputGeneration !== this.input.generation) throw new Error('The simulator input helper stopped; queued input was cancelled.')
+    }
+    return this.exclusive(device.udid, () => this.inputTurn(async () => {
+      assertCurrent()
       const before = await this.captureFrame(device.udid)
+      assertCurrent()
       validateIosAction(action, before)
       if ('frameId' in action && action.frameId !== undefined) {
         const nonce = action.frameId.split('.')[1]
@@ -235,7 +246,7 @@ export class IosEngine {
       catch (error) {
         if (!(error instanceof IosInputUnavailableError) || action.kind !== 'tap') throw error
         signal?.throwIfAborted()
-        await this.legacyTap(action.x, action.y, before)
+        await this.legacyTap(action.x, action.y, before, signal)
         result = { method: 'legacy-window' }
       }
       const after = await this.captureFrame(device.udid)
@@ -243,19 +254,22 @@ export class IosEngine {
     }))
   }
   /** PR 1 compatibility only: requires exactly one booted device and moves the desktop pointer. */
-  private async legacyTap(x: number, y: number, frame: IosFrame): Promise<void> {
+  private async legacyTap(x: number, y: number, frame: IosFrame, signal?: AbortSignal): Promise<void> {
     const booted = (await this.devices()).filter(device => device.state === 'Booted')
+    signal?.throwIfAborted()
     if (booted.length > 1) throw new Error(`More than one simulator is booted (${booted.map(device => device.udid).join(', ')}). Tapping uses the Simulator window; shut down the other simulators before tapping.`)
     if (booted.length !== 1 || booted[0]!.udid !== frame.udid) throw new Error('The target simulator is no longer booted.')
     const cliclick = ['/opt/homebrew/bin/cliclick', '/usr/local/bin/cliclick'].find(path => (this.dependencies.exists ?? existsSync)(path))
     if (!cliclick) throw new Error('Tapping needs cliclick (brew install cliclick). Screenshots and launches work without it.')
     await this.run('open', ['-a', 'Simulator'], { what: 'Fronting Simulator' }).catch(() => {})
+    signal?.throwIfAborted()
     const { stdout } = await this.run('osascript', ['-e', 'tell application "System Events" to tell process "Simulator" to get {position, size} of front window'], { what: 'Locating the Simulator window' })
     const numbers = stdout.match(/-?\d+/g)?.map(Number) ?? []
     if (numbers.length < 4) throw new Error('Could not read the Simulator window frame. Is the Simulator app open and frontmost on this desktop?')
     const [left, top, width, height] = numbers as [number, number, number, number]
     const screenX = Math.round(left + (x / frame.width) * width)
     const screenY = Math.round(top + 28 + (y / frame.height) * (height - 28))
+    signal?.throwIfAborted()
     await this.run(cliclick, [`c:${screenX},${screenY}`], { what: `Tapping (${x}, ${y})` })
   }
   async tap(x: number, y: number, udid?: string): Promise<void> { await this.interact({ kind: 'tap', x, y }, udid) }

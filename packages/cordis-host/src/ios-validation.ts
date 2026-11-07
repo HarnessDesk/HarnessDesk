@@ -48,3 +48,16 @@ export function validateIosAction(value: unknown, frame: Pick<IosFrame, 'width' 
     case 'keyboard': if(typeof a['visible']!=='boolean') throw new Error('Keyboard visibility must be true or false.'); break
   }
 }
+
+/** Bounded native work beyond the connection/startup allowance. */
+export function iosActionWorkMs(action: IosAction): number {
+  if (action.kind === 'text') return action.text.length * 50
+  if (action.kind === 'key') return action.count * 100
+  if (action.kind === 'drag') return action.path.at(-1)?.tMs ?? 0
+  return 'durationMs' in action ? action.durationMs : 0
+}
+/** Installed calls also allow captures around input; only validated actions extend IPC deadlines. */
+export function iosInteractionTimeoutMs(action: unknown): number {
+  validateIosAction(action, { width: Number.MAX_VALUE, height: Number.MAX_VALUE })
+  return 60_000 + iosActionWorkMs(action)
+}
