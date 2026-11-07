@@ -84,6 +84,11 @@ interface LeadChats {
   readonly teams?: ReadonlyMap<string, { readonly step: string | null; readonly accepted: boolean }>
   /** The Teams whose waiting seat the Lead puts to the person as its own card, by Team id. */
   readonly relayed?: ReadonlySet<string>
+  /**
+   * Whether this Team's wrap needs a choice only the desk asks: a posting of its findings the pull request could not
+   * confirm. The phone wraps with no such choice, so it does not offer Wrap there.
+   */
+  readonly wrapsOnDesk?: (team: string) => boolean
 }
 
 const workTeamStage = (input: PhoneTeamInput) => input.view.stage === undefined
@@ -350,7 +355,7 @@ export class PhoneWorkspace {
         reviewers: members.filter(member => /review|referee|audit|critic/i.test(member.role ?? '')).length,
         spent: micros(row.cost ?? 0),
         ...(step ? { step } : {}),
-        ...(owned?.accepted && row.status === 'ready' ? { canWrap: true as const } : {}),
+        ...(owned?.accepted && row.status === 'ready' && !lead?.wrapsOnDesk?.(input.view.goal.id) ? { canWrap: true as const } : {}),
         ...(owned && lead?.relayed?.has(input.view.goal.id) ? { relayed: true as const } : {}),
       },
     }

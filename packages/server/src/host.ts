@@ -10077,7 +10077,7 @@ export class Host {
           return teams
         }
         return { name: leadDisplayName(state.name), ids, retrying: new Set([...ids].filter(id => this.#leadChats?.incidents?.waiting(id))), teams: leadOwnedTeams(state),
-          get relayed() { return relayed ??= relays() } }
+          get relayed() { return relayed ??= relays() }, wrapsOnDesk: (team: string) => this.#publications.unsettled(team) }
       },
       teams: async () => (await this.#goals.list()).map((view) => {
         const latest = this.#flows.executionSummaries({ team: view.goal.id, active: false })[0]

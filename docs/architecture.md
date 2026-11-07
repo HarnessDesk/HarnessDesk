@@ -983,7 +983,8 @@ decisions retain the separate Answer grant and the existing approval path.
 whose result the person accepted, once every card on it is finished or
 dropped; the desk writes the receipt from the board, and wrapping keeps every
 branch. The Lead itself never wraps. A Lead's Team row carries the plan
-`step` it was started for, `canWrap` once that wrap would be taken, and
+`step` it was started for, `canWrap` once that wrap would be taken (never while
+a posting of its findings the pull request could not confirm waits on the desk), and
 `relayed` while one of its seats waits on an approval the Lead puts to the
 person as its own card, so the phone lists that wait once. An accepted
 goal's Teams stay the Lead's when it starts the next goal (the Lead state keeps
