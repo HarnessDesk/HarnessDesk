@@ -47,7 +47,7 @@ import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
 import { panes } from '../state/layout'
 
 import { useSnapshot, useSnapshotSelector, useStore } from '../state/context'
-import type { AppSnapshot } from '../state/store'
+import type { AppSnapshot, AppStore } from '../state/store'
 import {
   ArchiveIcon,
   AgentIcon,
@@ -1080,6 +1080,12 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
 export const useProjectGroups = (options: { searching?: boolean } = {}): ProjectGroup[] =>
   useProjectList(options).groups
 
+/** A bound action carries only the store and folder names, not a render's snapshot. */
+const foldProjects = (store: Pick<AppStore, 'setProjectsCollapsed'>, roots: readonly string[], collapsed: boolean): void =>
+  store.setProjectsCollapsed(roots, collapsed)
+const projectFoldAction = (store: Pick<AppStore, 'setProjectsCollapsed'>, roots: readonly string[], collapsed: boolean): (() => void) =>
+  foldProjects.bind(null, store, roots, collapsed)
+
 export const SessionTree = ({ now, searching = false, filter = '', searchEmptyState = null, suppressSelection = false }: {
   now: number
   searching?: boolean
@@ -1362,8 +1368,8 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
   }, [activeGroup, activeKey, activeTeam, collapsed, far, liftedKeys, noFolderGroup, othersOpen, roomsByProject, snapshot.goals, snapshot.flowExecutions, store, toggle])
 
   const anyOpen = groups.some((group) => !collapsed.has(group.root))
-  const toggleAll = useCallback(
-    () => store.setProjectsCollapsed(groups.flatMap(group => anyOpen ? [group.root] : group.folders), anyOpen),
+  const toggleAll = useMemo(
+    () => projectFoldAction(store, groups.flatMap(group => anyOpen ? [group.root] : group.folders), anyOpen),
     [anyOpen, groups, store],
   )
 
