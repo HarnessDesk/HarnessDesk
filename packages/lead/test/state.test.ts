@@ -346,3 +346,37 @@ test('an older checkpoint without the chat effect tally loads with none counted'
   forged.state.chatEffectsSinceReply.started = -1
   assert.throws(() => lead.parseLeadCheckpoint(forged))
 })
+
+test('a new goal keeps an accepted goal\'s Teams, named by their step, through a checkpoint, and forgets the oldest past 64', async () => {
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {} })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'old', caps: { usdMicros: 100, rounds: 2 }, freshnessMs: 1000 })
+  await journal.stop(async () => {})
+  const attempt = (id: string, stepId: string | null): [string, lead.LeadAttemptState] => [id, { id, correlationId: id, method: 'flow/start-goal', action: null, kind: 'mutation',
+    stepId, arguments: summarizeLeadArguments({}), phase: 'finished', effect: 'allow', dispatched: true, outcome: 'succeeded', recoveryReported: false,
+    evidence: null, evidenceSeq: null, resolutionPending: false, contested: false } as lead.LeadAttemptState]
+  const base = journal.state, event = { version: 1 as const, seq: base.seq + 1, type: 'new-goal' as const, now: 100, id: 'new' }
+  const finished = {
+    ...base, phase: 'accepted' as const, contract: { ...(base.contract ?? {}), steps: [{ id: 'first', title: 'Review first repair' }] } as unknown as lead.LeadState['contract'],
+    attempts: new Map([attempt('c1', 'first')]), runs: [{ correlationId: 'c1', runId: 'r1', teamId: 't1' }], teams: ['t1', 't2'],
+    acceptedTeams: [{ team: 'old', step: 'An earlier step' }, { team: 't2', step: null }],
+  }
+  const next = lead.reduceLeadRecord(finished, event)
+  assert.deepEqual(next.teams, [])
+  assert.deepEqual(next.acceptedTeams, [{ team: 'old', step: 'An earlier step' }, { team: 't1', step: 'Review first repair' }, { team: 't2', step: null }])
+  assert.deepEqual(lead.leadOwnedTeams(next).get('t1'), { step: 'Review first repair', accepted: true })
+  assert.deepEqual(lead.parseLeadCheckpoint(JSON.parse(JSON.stringify(lead.leadCheckpoint(next, 'c'.repeat(64))))).state.acceptedTeams, next.acceptedTeams)
+  // A goal that ended any other way hands nothing on.
+  assert.deepEqual(lead.reduceLeadRecord({ ...finished, phase: 'declined' as const }, event).acceptedTeams, finished.acceptedTeams)
+  const many = Array.from({ length: lead.LEAD_ACCEPTED_TEAMS }, (_, i) => ({ team: `k${i}`, step: null }))
+  const kept = lead.reduceLeadRecord({ ...finished, acceptedTeams: many }, event).acceptedTeams
+  assert.equal(kept.length, lead.LEAD_ACCEPTED_TEAMS)
+  assert.equal(kept[0]!.team, 'k2', 'the oldest go first')
+  // A checkpoint written before accepted Teams were kept reads back with none; a malformed one is refused.
+  const checkpoint = JSON.parse(JSON.stringify(lead.leadCheckpoint(next, 'd'.repeat(64))))
+  const legacy = structuredClone(checkpoint); delete legacy.state.acceptedTeams
+  assert.deepEqual(lead.parseLeadCheckpoint(legacy).state.acceptedTeams, [])
+  for (const change of [(item: any) => { item.state.acceptedTeams.push(item.state.acceptedTeams[0]) },
+    (item: any) => { item.state.acceptedTeams[0].extra = true }, (item: any) => { item.state.acceptedTeams[0].team = '' }]) {
+    const malformed = structuredClone(checkpoint); change(malformed); assert.throws(() => lead.parseLeadCheckpoint(malformed))
+  }
+})

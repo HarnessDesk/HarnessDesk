@@ -6,7 +6,8 @@ export type { LeadPermissionEffect, LeadPermissionFloor, LeadPermissionCall, Lea
 export { LEAD_JOURNAL_BYTES, summarizeLeadArguments, parseLeadOwnedPush, parseLeadPublicationSource, parseLeadPublicationOperation, parseLeadJournalRecord, prepareLeadJournalRecord, parseLeadRunIdentity, LeadJournal, createLeadJournal } from './journal.js'
 export type { LeadJournalEvent, LeadJournalRecord, LeadJournalStorage, LeadRunIdentity, LeadRunObservation, LeadOwnedPush, LeadPublicationSource, LeadPublicationOperation, LeadArgumentSummary,
   LeadAttemptOutcome, LeadToolAttempt, LeadDispatch, LeadDispatchResult, LeadRecoveryAction } from './journal.js'
-export { hasPendingLeadPlan, isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, leadHandbackTerminal, leadRepairResultReady, leadWorkerDispatchBlockedByOpenPr, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadLimitedCaps, leadDraftCaps, leadGoalSpendCap, initialLeadState, reduceLeadRecord, replayLeadJournal } from './state.js'
+export { hasPendingLeadPlan, isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, leadHandbackTerminal, leadRepairResultReady, leadWorkerDispatchBlockedByOpenPr, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadGoalTeams, leadOwnedTeams, LEAD_ACCEPTED_TEAMS, leadLimitedCaps, leadDraftCaps, leadGoalSpendCap, initialLeadState, reduceLeadRecord, replayLeadJournal } from './state.js'
+export type { LeadAcceptedTeam, LeadOwnedTeam } from './state.js'
 export type { LeadState, LeadStepState, LeadAttemptState, LeadChatEffects } from './state.js'
 
 export type { LeadJournalSecurity } from './journal-security.js'

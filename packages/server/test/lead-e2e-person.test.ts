@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { canBeginLeadGoal } from '@harnessdesk/lead'
 import test, { type TestContext } from 'node:test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -201,6 +202,13 @@ test('the phone names each Lead Team by its step, refuses a wrap before acceptan
   await rig.decide(result, 'accept')
   assert.equal(rig.journal.state.phase, 'accepted')
   await rig.waitFor(async () => (await teamItems()).filter(item => item.team?.canWrap === true).length === 2, 'both Teams wrappable')
+  // The next goal starts before the person wraps: the accepted Teams stay the Lead's, named and wrappable.
+  await rig.waitFor(() => canBeginLeadGoal(rig.journal.state), 'the accepted goal settled')
+  await rig.journal.beginGoal('next-goal', Date.now())
+  assert.deepEqual(rig.journal.state.teams, [])
+  const after = await teamItems()
+  assert.deepEqual(after.map(item => item.team?.step).sort(), ['Review first repair', 'Review second repair'])
+  assert.ok(after.every(item => item.by === 'Dex' && item.team?.canWrap === true), JSON.stringify(after))
   // Nothing irreversible happened before the person wrapped. Wrapping then removes clean checkouts, as on the desk,
   // and never a branch: every reviewed commit stays reachable.
   await rig.assertNoForbiddenEffects()

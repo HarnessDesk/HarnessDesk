@@ -118,6 +118,24 @@ test('index changes invalidate paged sessions even when the bounded snapshot is 
   } finally { await d.done() }
 })
 
+test('a Lead change rebuilds the workspace, and publishes it only when a row moved', async () => {
+  const d = await door()
+  try {
+    const phone = await d.pair(['read'])
+    d.emit({ method: 'goal/changed', params: {} })
+    await phone.next(isSnapshot)
+    d.emit({ method: 'lead/changed', params: {} })
+    await d.settle()
+    assert.equal(phone.inbox.filter(isSnapshot).length, 0, 'an unchanged snapshot is not sent again')
+    // Rows a Lead change can move (a Team's step, canWrap, relayed) have no Team event of their own.
+    d.state.title = 'Review first repair'
+    d.emit({ method: 'lead/changed', params: {} })
+    await d.settle()
+    assert.equal(phone.inbox.filter(isSnapshot).length, 1, 'the changed snapshot reaches the phone')
+    phone.close()
+  } finally { await d.done() }
+})
+
 test('encrypted phone page and action requests dispatch only the visible choices to the existing host ports', async () => {
   const d = await door()
   try {
