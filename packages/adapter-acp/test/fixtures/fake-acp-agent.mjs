@@ -70,7 +70,7 @@ const recordOpen = (method, sessionId, cwd, meta) => {
     // carried a Seat's filter — the one fact a test of "never unfiltered" needs.
     const filtered = process.env.FAKE_ACP_ATTACHMENTS === '1' ? { filtered: Boolean(meta?.harnessdesk?.attachments) } : {}
     const ceiling = process.env.FAKE_ACP_READ_CEILING === '1' ? { ceiling: meta?.harnessdesk?.ceiling ?? null } : {}
-    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered, ...ceiling })}\n`)
+    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered, ...ceiling, ...(method === 'session/fork' ? { _meta: meta ?? null } : {}) })}\n`)
   }
 }
 const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
@@ -451,6 +451,11 @@ const runPrompt = async (id, params) => {
   if (text.startsWith('ceiling permission ')) {
     const input = JSON.parse(text.slice('ceiling permission '.length))
     const toolCall = input.toolCall ?? input
+    // The fork fixture's native guard uses only the ceiling actually received.
+    if (process.env.FAKE_ACP_READ_CEILING === '1' && state.forkCeiling === 'read' && ['edit', 'execute'].includes(toolCall.kind)) {
+      say('denied.')
+      return reply(id, { stopReason: 'end_turn' })
+    }
     const { outcome } = await request('session/request_permission', {
       sessionId: state.id, toolCall,
       ...(input._meta ? { _meta: input._meta } : {}),
@@ -1174,6 +1179,7 @@ const handlers = {
       helpers.delete(params.sessionId)
     }
     sessions.delete(params.sessionId)
+    if (process.env.FAKE_ACP_CLOSES) appendFileSync(process.env.FAKE_ACP_CLOSES, `${params.sessionId}\n`)
     lifetime({ type: 'close', sessionId: params.sessionId })
     reply(id, {})
   },
@@ -1365,19 +1371,28 @@ const handlers = {
     reply(id, null)
     update(state.id, { sessionUpdate: 'config_option_update', configOptions: configOptionsOf(state) })
   },
-  'session/fork': (id, params) => {
+  'session/fork': async (id, params) => {
     const source = sessions.get(params.sessionId) ?? readStore()[params.sessionId]
     if (!source || process.env.FAKE_ACP_FORK !== '1') return fail(id, 'fork unavailable')
     const state = newSession(undefined, params.cwd)
     state.options = { ...state.options, ...source.options }
     if (ATTACHMENTS && params._meta?.harnessdesk?.attachments) attachmentsBySession.set(state.id, params._meta.harnessdesk.attachments.input)
+    state.forkCeiling = params._meta?.harnessdesk?.ceiling
     recordOpen('session/fork', state.id, params.cwd, params._meta)
+    const gate = process.env.FAKE_ACP_FORK_GATE
+    // A disk gate gives the test control without consuming a native watcher.
+    while (gate && !existsSync(gate)) await new Promise(resolve => setTimeout(resolve, 10))
     reply(id, { sessionId: state.id, configOptions: configOptionsOf(state) })
   },
   '_session/steering': (id, params) => {
     const state = sessions.get(params.sessionId)
     if (!state || !process.env.FAKE_ACP_STEER) return fail(id, 'steering unavailable')
     if (params._meta?.steering?.idleBehavior !== 'promptRequired') return fail(id, 'host must own the idle fallback')
+    if (process.env.FAKE_ACP_STEER === 'goal-failure-race' && state.waitingGoal !== undefined) {
+      fail(state.waitingGoal, 'the earlier goal turn failed')
+      state.waitingGoal = undefined
+      return reply(id, { outcome: 'promptRequired', reason: 'noRunningTurn' })
+    }
     const original = state.waitingPrompt
     state.waitingPrompt = undefined
     if (!original || process.env.FAKE_ACP_STEER === 'race') {
@@ -1391,6 +1406,15 @@ const handlers = {
   '_session/goal': (id, params) => {
     if (!process.env.FAKE_ACP_GOALS) return fail(id, 'goals unavailable')
     update(params.sessionId, { sessionUpdate: 'session_info_update', _meta: { jetbrains: { air: { goal: params.action === 'clear' ? null : { objective: params.objective, status: 'active', controlMethod: '_session/goal' } } } } })
+    if (process.env.FAKE_ACP_GOAL_LIFECYCLE) {
+      const state = sessions.get(params.sessionId)
+      state.waitingGoal = id
+      if (process.env.FAKE_ACP_GOAL_LIFECYCLE === 'fail') setImmediate(() => {
+        state.waitingGoal = undefined
+        fail(id, 'the accepted goal turn failed')
+      })
+      return
+    }
     reply(id, {})
   },
   'session/prompt': (id, params) => void runPrompt(id, params),
@@ -1504,6 +1528,13 @@ const handlers = {
   },
   'session/cancel': (_id, params) => {
     cancelled.add(params.sessionId)
+    const state = sessions.get(params.sessionId)
+    if (state?.waitingGoal !== undefined) {
+      const goal = state.waitingGoal
+      state.waitingGoal = undefined
+      // The real bridge drops its inner prompt's cancelled stop reason.
+      reply(goal, {})
+    }
   },
 }
 

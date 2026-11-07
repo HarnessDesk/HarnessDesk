@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent, AgentSession, AgentRuntime } from '@harnessdesk/protocol'
@@ -130,10 +130,13 @@ test('goals negotiate the versioned control and project set and clear updates', 
   assert.ok(session.setGoal)
   await session.setGoal('finish the fixture')
   await until(() => events.some(event => event.type === 'session/goal' && event.goal?.objective === 'finish the fixture'))
+  await until(() => events.filter(event => event.type === 'turn/completed').length === 1)
   assert.equal((await runtime.readSession(session.id)).goal?.objective, 'finish the fixture')
   await session.setGoal(null)
   await until(() => events.some(event => event.type === 'session/goal' && event.goal === null))
+  await until(() => events.filter(event => event.type === 'turn/completed').length === 2)
   assert.equal((await runtime.readSession(session.id)).goal, null)
+  assert.deepEqual((await runtime.readSession(session.id)).turns.map(turn => turn.status), ['completed', 'completed'])
 })
 
 test('a goal that races the running turn uses a tracked continuation', async t => {
@@ -170,4 +173,143 @@ test('untrusted goal states and unknown extension versions are refused', () => {
   assert.equal(goalUpdate({ jetbrains: { air: { goal } } }), undefined)
   assert.equal(supportsGoals({ jetbrains: { air: { goal: { version: 2, controlMethod: '_session/goal', actions: ['set', 'clear'] } } } }), false)
   assert.equal(supportsSteering({ steering: { supported: 'true' } }), false)
+})
+
+for (const native of [false, true]) {
+  for (const readFrom of ['source', 'options'] as const) {
+    test(`a fork retains its ${readFrom} read ceiling with native enforcement ${native}`, async t => {
+      const dir = mkdtempSync(join(tmpdir(), 'acp-fork-read-'))
+      t.after(() => rmSync(dir, { recursive: true, force: true }))
+      const opens = join(dir, 'opens.jsonl')
+      const runtime = make({ FAKE_ACP_FORK: '1', FAKE_ACP_STORE: join(dir, 'store.json'), FAKE_ACP_OPENS: opens,
+        ...(native ? { FAKE_ACP_READ_CEILING: '1' } : {}) })
+      t.after(() => runtime.dispose())
+      const events: AgentEvent[] = []
+      runtime.subscribe(event => events.push(event))
+      await runtime.start()
+      const source = await runtime.createSession({ cwd: dir, ...(readFrom === 'source' ? { requestedCeiling: 'read' } : {}) })
+      const fork = await runtime.forkSession(source.id, { requestedCeiling: readFrom === 'options' ? 'read' : 'edit' })
+      const opened = readFileSync(opens, 'utf8').trim().split('\n').map(line => JSON.parse(line)).find(row => row.method === 'session/fork')
+      assert.equal(opened._meta?.harnessdesk?.ceiling, native ? 'read' : undefined)
+      let approvals = 0
+      let live = fork
+      runtime.subscribe(event => {
+        if (event.type === 'approval/requested') {
+          approvals++
+          void live.respondToApproval(event.approval.id, { type: 'option', optionId: 'yes' })
+        }
+      })
+      const refuse = async () => {
+        for (const kind of ['edit', 'execute']) {
+          await finish(events, live, `ceiling permission ${JSON.stringify({ toolCallId: `fork-${kind}`, kind })}`)
+          const turn = (await runtime.readSession(live.id)).turns.at(-1)!
+          assert.ok(turn.items.some(item => item.type === 'assistantMessage' && item.text === 'denied.'), kind)
+        }
+        assert.equal(approvals, 0)
+      }
+      await refuse()
+      if (!native) {
+        await finish(events, fork, 'persist read fork')
+        await fork.close()
+        live = await runtime.resumeSession(fork.id)
+        await refuse()
+      }
+    })
+  }
+}
+
+test('a busy source refuses a fork before sending session/fork', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'acp-busy-fork-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const opens = join(dir, 'opens.jsonl')
+  const runtime = make({ FAKE_ACP_FORK: '1', FAKE_ACP_OPENS: opens })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const source = await runtime.createSession({ cwd: dir })
+  await source.send([{ type: 'text', text: 'wait for steer' }])
+  await assert.rejects(runtime.forkSession(source.id), /running turn/)
+  assert.ok(!readFileSync(opens, 'utf8').includes('session/fork'))
+})
+
+for (const state of ['running', 'completed']) {
+  test(`a source turn ${state} during session/fork refuses and closes the fork`, async t => {
+    const dir = mkdtempSync(join(tmpdir(), 'acp-fork-race-'))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    const opens = join(dir, 'opens.jsonl'), gate = join(dir, 'release'), closes = join(dir, 'closed')
+    const runtime = make({ FAKE_ACP_FORK: '1', FAKE_ACP_OPENS: opens, FAKE_ACP_FORK_GATE: gate, FAKE_ACP_CLOSES: closes })
+    t.after(() => runtime.dispose())
+    const events: AgentEvent[] = []
+    runtime.subscribe(event => events.push(event))
+    await runtime.start()
+    const source = await runtime.createSession({ cwd: dir })
+    const forking = runtime.forkSession(source.id)
+    const refused = assert.rejects(forking, /source.*changed|running turn/)
+    await until(() => existsSync(opens) && readFileSync(opens, 'utf8').includes('session/fork'))
+    const forkId = JSON.parse(readFileSync(opens, 'utf8').trim().split('\n').find(line => line.includes('session/fork'))!).sessionId
+    if (state === 'running') await source.send([{ type: 'text', text: 'wait for steer' }])
+    else await finish(events, source, 'a whole turn before fork answers')
+    writeFileSync(gate, 'release')
+    await refused
+    assert.ok(existsSync(closes) && readFileSync(closes, 'utf8').split('\n').includes(forkId), 'the unused fork is closed')
+    assert.ok(!events.some(event => event.type === 'session/started' && event.session.id === forkId))
+  })
+}
+
+test('an idle goal returns on acceptance while its turn is still running', async t => {
+  const runtime = make({ FAKE_ACP_GOALS: '1', FAKE_ACP_GOAL_LIFECYCLE: 'pending' })
+  t.after(() => runtime.dispose())
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  const session = await runtime.createSession({ cwd: '/tmp' })
+  let accepted = false
+  const setting = session.setGoal!('keep running').then(() => { accepted = true }, () => {})
+  await until(() => events.some(event => event.type === 'session/goal'))
+  assert.equal(accepted, true, 'setting the goal does not wait for its turn')
+  assert.equal((await runtime.readSession(session.id)).turns[0]!.status, 'inProgress')
+  await session.interrupt()
+  await setting
+})
+
+test('an accepted goal turn failure stays internal and is recorded as failed', async t => {
+  const runtime = make({ FAKE_ACP_GOALS: '1', FAKE_ACP_GOAL_LIFECYCLE: 'fail' })
+  t.after(() => runtime.dispose())
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  const session = await runtime.createSession({ cwd: '/tmp' })
+  const setting = session.setGoal!('eventually fails').then(() => 'accepted', () => 'rejected')
+  await until(() => events.some(event => event.type === 'turn/completed'))
+  assert.equal(await setting, 'accepted')
+  assert.equal((await runtime.readSession(session.id)).turns[0]!.status, 'failed')
+})
+
+test('interrupting an idle goal records interrupted when the bridge replies with an empty object', async t => {
+  const runtime = make({ FAKE_ACP_GOALS: '1', FAKE_ACP_GOAL_LIFECYCLE: 'pending' })
+  t.after(() => runtime.dispose())
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  const session = await runtime.createSession({ cwd: '/tmp' })
+  const setting = session.setGoal!('interrupt this goal').catch(() => {})
+  await until(() => events.some(event => event.type === 'session/goal'))
+  await session.interrupt()
+  await setting
+  await until(() => events.some(event => event.type === 'turn/completed'))
+  assert.equal((await runtime.readSession(session.id)).turns[0]!.status, 'interrupted')
+})
+
+test('steering continues after the earlier goal fails in the promptRequired race', async t => {
+  const runtime = make({ FAKE_ACP_GOALS: '1', FAKE_ACP_GOAL_LIFECYCLE: 'pending', FAKE_ACP_STEER: 'goal-failure-race' })
+  t.after(() => runtime.dispose())
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  const session = await runtime.createSession({ cwd: '/tmp' })
+  const setting = session.setGoal!('old failing goal').catch(() => {})
+  await until(() => events.some(event => event.type === 'session/goal'))
+  await session.steer([{ type: 'text', text: 'continue with this input' }])
+  await setting
+  await until(() => events.filter(event => event.type === 'turn/completed').length === 2)
+  assert.deepEqual((await runtime.readSession(session.id)).turns.map(turn => turn.status), ['failed', 'completed'])
 })

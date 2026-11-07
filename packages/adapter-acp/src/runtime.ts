@@ -3763,7 +3763,8 @@ export class AcpRuntime implements AgentRuntime {
     const environment = options.environment ?? this.#environments.get(id)
     const requestedCeiling = options.requestedCeiling ?? this.#sessionCeilings.get(id)
     // A read source cannot produce an unguarded branch.
-    const heldRead = this.#readCeiling && (requestedCeiling === 'read' || this.#sessionCeilings.get(id) === 'read')
+    const readRequested = requestedCeiling === 'read' || this.#sessionCeilings.get(id) === 'read'
+    const heldRead = this.#readCeiling && readRequested
     const meta = heldRead ? { harnessdesk: { ceiling: 'read' } } : {}
     const sourceAttachments = this.#attachmentInputs.get(id)
     // The filter is inherited, its staging directory is not: closing either
@@ -3776,9 +3777,15 @@ export class AcpRuntime implements AgentRuntime {
     const session = AcpSession.fromFork(this, opened, cwd, history)
     this.#sessions.set(session.id, session)
     this.#openedIn.set(session.id, cwd)
-    if (heldRead) { this.#sessionCeilings.set(session.id, 'read'); this.#readGuardedSessions.add(session) }
+    if (readRequested) this.#sessionCeilings.set(session.id, 'read')
+    if (heldRead) this.#readGuardedSessions.add(session)
     if (attachments) this.#attachmentInputs.set(session.id, attachments)
     try {
+      // Fork copies asynchronously. Refuse both a still-running turn and one
+      // that started and finished while the peer was copying the transcript.
+      if (source.busy || source.snapshot().turns.length !== history.turns.length) {
+        throw new Error('The source conversation changed while forking; wait for its running turn to finish and try again.')
+      }
       if (environment) {
         acknowledgeEnvironment(opened._meta, environment)
         this.#environments.set(session.id, laneEnvironmentOf(environment))
@@ -4985,13 +4992,18 @@ class AcpSession implements AgentSession {
         // turns and not others is the commoner shape, and it was the one left
         // showing turn one's tokens and cache chip under turn two (#159).
         else this.#forgetLastTurn()
-        this.#finishTurn(turn, response.stopReason)
+        // Goal control replies omit the inner prompt's stop reason. Preserve
+        // a cancellation the host requested instead of reading {} as success.
+        this.#finishTurn(turn, response.stopReason ?? (control && turn.interruptRequested ? 'cancelled' : undefined))
       })
       .catch((error: unknown) => {
         this.#host.refusedForSignIn(error)
         this.#failTurn(turn, describeAcp(error))
         if (control) throw error
       })
+    // A control's result is internal turn bookkeeping, not setter acceptance.
+    // Keep its rejection observable to races, with an attached handler always.
+    void this.#turnCompletion.catch(() => {})
     return id
   }
 
@@ -5037,7 +5049,7 @@ class AcpSession implements AgentSession {
       sessionId: this.id, prompt: this.#prompt(input), _meta: { steering: { idleBehavior: 'promptRequired' } },
     })
     if (response.outcome === 'promptRequired') {
-      await completion
+      await completion?.catch(() => {})
       await this.send(input, { recordAs })
       return
     }
@@ -5064,11 +5076,11 @@ class AcpSession implements AgentSession {
       await this.#host.connectionFor(this.id).request(ACP_GOAL, params)
     } else {
       await this.#send([{ type: 'text', text: objective === null ? '/goal clear' : `/goal ${objective}` }], { recordAs: 'notice' }, { method: ACP_GOAL, params })
-      await this.#turnCompletion
     }
   }
 
   async interrupt(): Promise<void> {
+    if (this.busy && this.#currentTurn) this.#currentTurn.interruptRequested = true
     this.#host.connectionFor(this.id).notify('session/cancel', { sessionId: this.id })
   }
 
@@ -5842,6 +5854,7 @@ const OPEN_TURN = -1
 
 interface MutableTurn {
   readonly id: TurnId
+  interruptRequested?: boolean
   items: AgentItem[]
   tools?: Map<string, ToolItemState>
   /**
