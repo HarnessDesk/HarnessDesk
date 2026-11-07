@@ -36,13 +36,16 @@ final class Controller: UIViewController, UITextFieldDelegate {
     @objc func pinched(_ gesture:UIPinchGestureRecognizer) { record(["kind":"pinch","scale":gesture.scale,"state":gesture.state.rawValue]) }
     @objc func rotated(_ gesture:UIRotationGestureRecognizer) { record(["kind":"rotate","angle":gesture.rotation,"state":gesture.state.rawValue]) }
     func record(_ event: [String: Any]) {
-        receipts.append(event)
+        receipts.append(event.merging(["atSeconds": ProcessInfo.processInfo.systemUptime]) { first, _ in first })
         label.text = String(describing:event)
         if let data = try? JSONSerialization.data(withJSONObject:receipts,options:[.sortedKeys]), let dir = FileManager.default.urls(for:.documentDirectory,in:.userDomainMask).first { try? data.write(to:dir.appendingPathComponent("receipts.json"),options:.atomic) }
     }
 }
 final class App: UIResponder, UIApplicationDelegate {
     var window:UIWindow?
+    func applicationWillResignActive(_ application:UIApplication) { (window?.rootViewController as? Controller)?.record(["kind":"lifecycle","state":"inactive"]) }
+    func applicationDidEnterBackground(_ application:UIApplication) { (window?.rootViewController as? Controller)?.record(["kind":"lifecycle","state":"background"]) }
+    func applicationDidBecomeActive(_ application:UIApplication) { (window?.rootViewController as? Controller)?.record(["kind":"lifecycle","state":"active"]) }
     func application(_ application:UIApplication,didFinishLaunchingWithOptions options:[UIApplication.LaunchOptionsKey:Any]?) -> Bool {
         window = UIWindow(frame:UIScreen.main.bounds); window?.rootViewController = Controller(); window?.makeKeyAndVisible(); return true
     }

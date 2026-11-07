@@ -46,7 +46,7 @@
     "directories": {
       "output": "release"
     },
-    "beforePack": "./script/fetch-lead-node.mjs",
+    "beforePack": "./script/before-pack.mjs",
     "files": [
       "electron/**/*.mjs",
       "electron/**/*.cjs",
@@ -79,6 +79,13 @@
           "bin/node",
           "LICENSE"
         ]
+      },
+      {
+        "from": "../cordis-host/dist/native/darwin-${arch}",
+        "to": "native/ios",
+        "filter": [
+          "hd-ios-control"
+        ]
       }
     ],
     "asarUnpack": [
@@ -107,7 +114,8 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "binaries": [
-        "Contents/Resources/lead-node/bin/node"
+        "Contents/Resources/lead-node/bin/node",
+        "Contents/Resources/native/ios/hd-ios-control"
       ],
       "notarize": false,
       "gatekeeperAssess": false,

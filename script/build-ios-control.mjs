@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { existsSync, mkdirSync, copyFileSync, chmodSync } from 'node:fs'
+import { existsSync, mkdirSync, copyFileSync, chmodSync, rmSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const execute = promisify(execFile)
-export async function buildIosControl({ platform = process.platform, arch = process.arch, required = false, run = execute, exists = existsSync } = {}) {
+export async function buildIosControl({ platform = process.platform, arch = process.arch, required = false, run = execute, exists = existsSync, remove = (path) => rmSync(path, { force: true }) } = {}) {
   if (platform !== 'darwin') return
   if (!['arm64', 'x64'].includes(arch)) throw Error('Unsupported iOS helper architecture.')
   const nativeArch = arch === 'x64' ? 'x86_64' : arch
@@ -24,6 +24,7 @@ export async function buildIosControl({ platform = process.platform, arch = proc
     chmodSync(output, 0o755)
     return output
   } catch (error) {
+    remove(output)
     if (required) throw error
     console.error('iOS input helper unavailable; select a full Xcode to build it.')
   }

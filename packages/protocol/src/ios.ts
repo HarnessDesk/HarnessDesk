@@ -22,6 +22,8 @@ export interface IosFrame {
   readonly height: number
   readonly mimeType: 'image/png'
   readonly url: string
+  /** Measured interface rotation in clockwise quarter turns. */
+  readonly rotation?: 0 | 1 | 2 | 3
   readonly inputMethod?: string
 }
 export type IosAppearance = 'light' | 'dark' | 'unsupported' | 'unknown'

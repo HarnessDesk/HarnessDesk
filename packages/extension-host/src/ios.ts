@@ -1,3 +1,6 @@
+import { readFile, realpath } from 'node:fs/promises'
+import { join, relative, isAbsolute } from 'node:path'
+import { parseManifest } from '@harnessdesk/cordis-host'
 import type { IosCapability } from '@harnessdesk/cordis-host'
 import type { IosCall } from '@harnessdesk/extension-protocol'
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -12,7 +15,10 @@ export async function answerIosCall(engine: IosCapability, call: IosCall): Promi
     return value
   }
   const text = (index: number) => { const value=args[index]; if(typeof value!=='string' || !value || value.length>32768) throw new Error('Expected a bounded simulator argument.'); return value }
-  if (args.length>3) throw new Error('Too many simulator arguments.')
+  const counts: Record<string, readonly [number, number]> = { devices:[0,0],diagnose:[0,0],frame:[0,1],getAppearance:[0,1],setAppearance:[1,2],booted:[0,1],boot:[1,2],install:[1,2],launch:[1,2],terminate:[1,2],openUrl:[1,2],screenshot:[0,1],tap:[2,3],interact:[1,2] }
+  const count=counts[call.method]
+  if (!count) throw new Error('Unknown simulator capability operation.')
+  if (args.length<count[0] || args.length>count[1]) throw new Error('Malformed simulator argument count.')
   switch(call.method) {
     case 'devices': if(args.length) throw new Error('Unexpected simulator arguments.'); return engine.devices()
     case 'diagnose': if(args.length) throw new Error('Unexpected simulator arguments.'); return engine.diagnose()
@@ -34,4 +40,17 @@ export async function answerIosCall(engine: IosCapability, call: IosCall): Promi
     case 'interact': return engine.interact(call.args[0],target(1))
     default: throw new Error('Unknown simulator capability operation.')
   }
+}
+
+/** The child's snapshot is not authority for its own permissions. Read the installed manifest in the parent's configured store. */
+export async function hasInstalledIosGrant(root: string, id: string): Promise<boolean> {
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(id)) return false
+  try {
+    const store = await realpath(root), directory = await realpath(join(store, id))
+    const within = relative(store, directory)
+    if (!within || within.startsWith('..') || isAbsolute(within)) return false
+    const path = join(directory, 'harnessdesk.plugin.json')
+    const parsed = parseManifest(JSON.parse(await readFile(path, 'utf8')), { path, directory, source: { kind: 'local', path: directory } })
+    return parsed.manifest.id === id && parsed.manifest.permissions?.ios === true
+  } catch { return false }
 }

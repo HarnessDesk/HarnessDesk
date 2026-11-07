@@ -35,3 +35,17 @@ final class InputTests: XCTestCase {
         }
     }
 }
+extension InputTests {
+    func testTimedDragRejectsNonIncreasingSamples() throws {
+        XCTAssertThrowsError(try Gesture.drag([Sample(phase:.position,points:[Point(x:0,y:0)],tMs:0),Sample(phase:.position,points:[Point(x:1,y:1)],tMs:0)]))
+        let samples = try Gesture.drag([Sample(phase:.position,points:[Point(x:0,y:0)],tMs:0),Sample(phase:.position,points:[Point(x:1,y:1)],tMs:50)])
+        XCTAssertEqual(samples.map(\.phase),[.start,.end])
+    }
+    func testPositiveRotationIsClockwise() throws {
+        let samples=try Gesture.rotation(center:Point(x:100,y:100),radius:50,degrees:90,durationMs:32)
+        XCTAssertEqual(samples.first!.points[0],Point(x:150,y:100))
+        XCTAssertEqual(samples.last!.points[0].x,100,accuracy:0.0001)
+        XCTAssertEqual(samples.last!.points[0].y,150,accuracy:0.0001)
+        XCTAssertEqual(samples.last!.points[1].y,50,accuracy:0.0001)
+    }
+}

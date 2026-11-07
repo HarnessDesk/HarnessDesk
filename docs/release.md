@@ -291,3 +291,24 @@ notes generated from commit titles are a different, worse document than the
 one `CHANGELOG.md` already curated. `script/release.mjs` automates the parts
 that are pure mechanics and worth getting byte-identical every run —
 nothing more.
+
+
+## Native simulator helper
+
+`build:node` ends by building `hd-ios-control` from
+`packages/cordis-host/native/ios-control`. Non-macOS hosts skip it; source builds
+without full Xcode warn and stay usable. Packaging requires a successful build
+for its selected architecture. `script/before-pack.mjs` also preserves the
+existing pinned Lead runtime preparation. `HARNESSDESK_NO_DOWNLOADS=1` refuses
+packing if that verified Lead cache is absent.
+
+The resource is `Contents/Resources/native/ios/hd-ios-control`, listed in
+`build.mac.binaries` so the normal release signs it with the app identity and
+hardened runtime. Apple frameworks are loaded from installed Xcode, never copied.
+The packaged smoke runs the actual helper's `--version` without a simulator.
+
+On the release machine, inspect each artifact's helper architecture with `lipo`,
+verify its nested signature with `codesign --verify --strict`, and test dynamic
+framework loading and simulator input from the signed, notarized app. The ad-hoc
+`pack` and `smoke` checks do not establish Developer ID or notarized compatibility.
+No library-validation exception is added for this helper.

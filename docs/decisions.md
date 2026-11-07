@@ -5334,3 +5334,30 @@ Once the first message starts, its id is returned even if saving the receipt
 fails, and the durable claim still prevents a duplicate move. It leaves the
 old chat intact. Agent configuration and credentials remain in the agents'
 own worlds.
+
+
+## 2026-11-07 — Simulator input belongs to the host
+
+Simulator input uses a source-built Swift/Objective-C helper and Xcode 27 DTUHID,
+confirmed by a liveness round trip before any action. A port lookup alone can
+succeed while the guest discards events. There is no legacy fallback after a
+failed connection or gesture. The helper dynamically loads the installed Apple
+frameworks, which are never redistributed. Older toolchains remain unavailable
+until separately verified.
+
+One host engine serializes input and capture per device. Installed plugins use
+invocation-bound, manifest-checked parent requests, rather than spawning their
+own native process. Screenshot pixels are transformed through measured display
+orientation; missing/stale geometry and out-of-bounds contacts are refused.
+Native interruption ends the current gesture and releases contacts and modifiers.
+
+Keyboard show/hide, device rotation and deterministic lock are explicit refusals
+until the requested guest state can be observed and verified. A physical power
+button is not a deterministic lock setter. Text currently reports US-layout HID
+insertion and refuses characters requiring an unverified Unicode method.
+
+The desktop's beforePack hook preserves preparation of the pinned Lead Node and
+requires a helper for the target architecture. The helper is copied as an extra
+resource and listed in mac.binaries for nested signing. Source builds without
+Xcode stay usable; input reports the missing prerequisite. Release signing and
+notarization remain the release machine's separate gate.

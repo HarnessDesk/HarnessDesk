@@ -1,4 +1,4 @@
-import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
+import type { IosAction, IosFrame, HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
 
 /**
  * The iOS Simulator, as tools every agent can call.
@@ -28,13 +28,11 @@ export const simulatorPlugin: HarnessPlugin = {
         return value
       }
       const target = async (udid?: string) => (await ctx.ios.booted(udid)).udid
-      const look = async (note: string, udid?: string) => {
-        const frame = await ctx.ios.frame(udid)
-        return [
-          { type: 'text' as const, text: `${note ? `${note} — ` : ''}${frame.udid} · ${frame.width} × ${frame.height} pixels · ${frame.frameId}` },
+      const renderFrame = (frame: IosFrame, note = '') => [
+          { type: 'text' as const, text: `${note ? `${note} — ` : ''}${frame.inputMethod ? `${frame.inputMethod} · ` : ''}${frame.udid} · ${frame.width} × ${frame.height} pixels · ${frame.frameId}` },
           { type: 'image' as const, url: frame.url, mimeType: frame.mimeType },
         ]
-      }
+      const look = async (note: string, udid?: string) => renderFrame(await ctx.ios.frame(udid), note)
 
       ctx.tools.register({
         name: 'ios_diagnose',
@@ -137,25 +135,38 @@ export const simulatorPlugin: HarnessPlugin = {
         execute: (args: { udid?: string }) => look('', args.udid),
       })
 
-      ctx.tools.register({
-        name: 'ios_tap',
-        title: 'Tap the iOS simulator',
-        description:
-          'With exactly one simulator booted, tap at coordinates in the pixels of the screenshots (origin top-left), then return a fresh screenshot.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            udid: udidSchema,
-            x: { type: 'number', description: 'Pixels from the left of the screenshot.' },
-            y: { type: 'number', description: 'Pixels from the top of the screenshot.' },
-          },
-          required: ['x', 'y'], additionalProperties: false,
-        },
-        execute: async (args: { x: number; y: number; udid?: string }) => {
-          const udid = await target(args.udid)
-          await ctx.ios.tap(Number(args.x), Number(args.y), udid)
-          await new Promise((resolve) => setTimeout(resolve, 600))
-          return look(`Tapped (${Number(args.x)}, ${Number(args.y)})`, udid)
+      const ref = (name: string) => ({ $ref: `#/$defs/${name}` })
+      const coordinate = { type: 'number', minimum: 0 }
+      const duration = (value: number) => ({ type: 'integer', minimum: 1, maximum: 10000, default: value })
+      const defs = {
+        udid: udidSchema, frameId: { type: 'string', minLength: 1 }, coordinate,
+        duration: { type: 'integer', minimum: 1, maximum: 10000 },
+        point: { type: 'object', properties: { x: ref('coordinate'), y: ref('coordinate') }, required: ['x','y'], additionalProperties: false },
+        sample: { type: 'object', properties: { x: ref('coordinate'), y: ref('coordinate'), tMs: { type: 'integer', minimum: 0, maximum: 10000 } }, required: ['x','y','tMs'], additionalProperties: false },
+      }
+      const pixelTarget = { udid: ref('udid'), frameId: ref('frameId') }
+      const deviceTarget = { udid: ref('udid') }
+      const inputs = [
+        { name: 'ios_tap', kind: 'tap', title: 'Tap the iOS simulator', properties: { ...pixelTarget, x: coordinate, y: coordinate }, required: ['x','y'] },
+        { name: 'ios_long_press', kind: 'longPress', title: 'Long press the iOS simulator', properties: { ...pixelTarget, x: ref('coordinate'), y: ref('coordinate'), durationMs: duration(750) }, required: ['x','y'], defaults: { durationMs: 750 } },
+        { name: 'ios_swipe', kind: 'swipe', title: 'Swipe the iOS simulator', properties: { ...pixelTarget, from: ref('point'), to: ref('point'), durationMs: duration(350) }, required: ['from','to'], defaults: { durationMs: 350 } },
+        { name: 'ios_drag', kind: 'drag', title: 'Drag on the iOS simulator', properties: { ...pixelTarget, path: { type: 'array', minItems: 2, maxItems: 600, items: ref('sample') } }, required: ['path'] },
+        { name: 'ios_pinch', kind: 'pinch', title: 'Pinch the iOS simulator', properties: { ...pixelTarget, center: ref('point'), startDistance: { type: 'number', exclusiveMinimum: 0 }, endDistance: { type: 'number', exclusiveMinimum: 0 }, durationMs: duration(500) }, required: ['center','startDistance','endDistance'], defaults: { durationMs: 500 } },
+        { name: 'ios_rotate_gesture', kind: 'rotateGesture', title: 'Rotate a gesture on the iOS simulator', properties: { ...pixelTarget, center: ref('point'), radius: { type: 'number', exclusiveMinimum: 0 }, angleDegrees: { type: 'number', minimum: -360, maximum: 360 }, durationMs: duration(500) }, required: ['center','radius','angleDegrees'], defaults: { durationMs: 500 } },
+        { name: 'ios_text', kind: 'text', title: 'Enter text in the iOS simulator', properties: { ...deviceTarget, text: { type: 'string', minLength: 1, maxLength: 16384 } }, required: ['text'] },
+        { name: 'ios_key', kind: 'key', title: 'Press an iOS simulator key', properties: { ...deviceTarget, key: { type: 'string', enum: ['return','delete','left','right','up','down','selectAll','undo'] }, count: { type: 'integer', minimum: 1, maximum: 100, default: 1 } }, required: ['key'], defaults: { count: 1 } },
+        { name: 'ios_button', kind: 'button', title: 'Press an iOS simulator button', properties: { ...deviceTarget, button: { type: 'string', enum: ['home','lock','side'] }, durationMs: duration(100) }, required: ['button'], defaults: { durationMs: 100 } },
+        { name: 'ios_rotate', kind: 'rotateDevice', title: 'Rotate the iOS simulator device', properties: { ...deviceTarget, orientation: { type: 'string', enum: ['portrait','portraitUpsideDown','landscapeLeft','landscapeRight'] } }, required: ['orientation'] },
+        { name: 'ios_keyboard', kind: 'keyboard', title: 'Set the iOS software keyboard', properties: { ...deviceTarget, visible: { type: 'boolean' } }, required: ['visible'] },
+      ]
+      for (const input of inputs) ctx.tools.register({
+        name: input.name, title: input.title,
+        description: `${input.title}. Coordinates and distances are original screenshot pixels. Returns a fresh frame of the concrete target; unverified native operations are refused.`,
+        inputSchema: { type: 'object', $defs: defs, properties: input.properties, required: input.required, additionalProperties: false },
+        execute: async (args: Record<string, unknown>) => {
+          const { udid, ...values } = args
+          const action = { ...input.defaults, ...values, kind: input.kind } as IosAction
+          return renderFrame(await ctx.ios.interact(action, udid as string | undefined))
         },
       })
 

@@ -102,32 +102,32 @@ export class IosEngine {
 
   async install(appPath: string, udid?: string): Promise<void> {
     const device = await this.booted(udid)
-    await this.run(SIMCTL_BIN, ['simctl', 'install', device.udid, appPath], {
+    await this.exclusive(device.udid, () => this.run(SIMCTL_BIN, ['simctl', 'install', device.udid, appPath], {
       what: `Installing ${appPath}`,
       timeoutMs: 120_000,
-    })
+    }))
   }
 
   async launch(bundleId: string, udid?: string): Promise<void> {
     assertBundleId(bundleId)
     const device = await this.booted(udid)
-    await this.run(SIMCTL_BIN, ['simctl', 'launch', device.udid, bundleId], {
+    await this.exclusive(device.udid, () => this.run(SIMCTL_BIN, ['simctl', 'launch', device.udid, bundleId], {
       what: `Launching ${bundleId}`,
       timeoutMs: 60_000,
-    })
+    }))
   }
 
   async terminate(bundleId: string, udid?: string): Promise<void> {
     assertBundleId(bundleId)
     const device = await this.booted(udid)
-    await this.run(SIMCTL_BIN, ['simctl', 'terminate', device.udid, bundleId], {
+    await this.exclusive(device.udid, () => this.run(SIMCTL_BIN, ['simctl', 'terminate', device.udid, bundleId], {
       what: `Terminating ${bundleId}`,
-    }).catch(() => {})
+    }).catch(() => {}))
   }
 
   async openUrl(url: string, udid?: string): Promise<void> {
     const device = await this.booted(udid)
-    await this.run(SIMCTL_BIN, ['simctl', 'openurl', device.udid, url], { what: `Opening ${url}` })
+    await this.exclusive(device.udid, () => this.run(SIMCTL_BIN, ['simctl', 'openurl', device.udid, url], { what: `Opening ${url}` }))
   }
 
   /** A PNG at original resolution; coordinates refer to this image's pixels. */
@@ -135,13 +135,27 @@ export class IosEngine {
     return (await this.frame(udid)).url
   }
 
+  private async exclusive<T>(udid: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.queues.get(udid) ?? Promise.resolve()
+    const work = previous.catch(() => {}).then(run)
+    this.queues.set(udid, work)
+    try { return await work } finally { if (this.queues.get(udid) === work) this.queues.delete(udid) }
+  }
   async frame(udid?: string): Promise<IosFrame> {
+    const device = await this.booted(udid)
+    return this.exclusive(device.udid, () => this.captureFrame(device.udid))
+  }
+
+  private async captureFrame(udid?: string): Promise<IosFrame> {
     const device = await this.booted(udid)
     const generation = this.generations.get(device.udid)!.generation
     const dir = mkdtempSync(join(tmpdir(), 'hd-sim-'))
     const file = join(dir, 'shot.png')
     try {
+      const orientationBefore = await this.readRotation(device.udid)
       await this.run(SIMCTL_BIN, ['simctl', 'io', device.udid, 'screenshot', file], { what: 'Screenshotting the simulator' })
+      const rotation = await this.readRotation(device.udid)
+      if (rotation !== orientationBefore) throw new Error('The simulator display changed orientation during capture; capture a fresh frame.')
       const png = readFileSync(file)
       if (!isPng(png) || png.length < 33 || png.readUInt32BE(8) !== 13 || png.toString('ascii', 12, 16) !== 'IHDR') {
         throw new Error('Could not read the screenshot PNG dimensions.')
@@ -152,13 +166,21 @@ export class IosEngine {
       // The digest binds the full currently oriented image, including rotations
       // that have the same dimensions. A nonce prevents reuse after an unobserved
       // restart; the generation also changes on observed boots.
-      const frameId = createHash('sha256').update(device.udid).update(generation).update(randomUUID()).update(png).digest('hex')
-      const frame: IosFrame = { udid: device.udid, frameId, width, height, mimeType: 'image/png', url: `data:image/png;base64,${png.toString('base64')}` }
+      const frameId = createHash('sha256').update(device.udid).update(generation).update(randomUUID()).update(String(rotation)).update(png).digest('hex')
+      const frame: IosFrame = { udid: device.udid, frameId, width, height, mimeType: 'image/png', url: `data:image/png;base64,${png.toString('base64')}`, ...(rotation === undefined ? {} : { rotation }) }
       this.frames.set(device.udid, { frame, generation })
       return frame
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  }
+
+  private async readRotation(udid: string): Promise<0 | 1 | 2 | 3 | undefined> {
+    const { stdout } = await this.run(SIMCTL_BIN, ['simctl', 'io', udid, 'enumerate'], { what: 'Reading simulator display orientation' }).catch(() => ({ stdout: '', stderr: '' }))
+    // The integrated screen has the geometry the screenshot and digitizer share.
+    const integrated = stdout.split(/Screen Type: Integrated/)[1]?.split(/Screen Type:/)[0]
+    const value = integrated?.match(/UI Orientation:\s*([^\r\n]+)/)?.[1]?.trim().toLowerCase().replace(/[ _-]/g, '')
+    return ({ portrait: 0, portraitupsidedown: 2, landscapeleft: 3, landscaperight: 1 } as const)[value as 'portrait']
   }
 
   private async appearance(udid: string, value?: 'light' | 'dark'): Promise<IosAppearance> {
@@ -181,29 +203,31 @@ export class IosEngine {
   async setAppearance(value: 'light' | 'dark', udid?: string): Promise<IosAppearance> {
     if (value !== 'light' && value !== 'dark') throw new Error('Appearance must be light or dark.')
     const device = await this.booted(udid)
-    const applied = await this.appearance(device.udid, value)
-    if (applied === 'unsupported') return applied
-    return this.appearance(device.udid)
+    return this.exclusive(device.udid, async () => {
+      const applied = await this.appearance(device.udid, value)
+      if (applied === 'unsupported') return applied
+      return this.appearance(device.udid)
+    })
   }
 
   /** Serialize input and its frame together across all capability callers. */
   async interact(action: IosAction, udid?: string): Promise<IosFrame> {
-    const device = await this.booted(udid)
-    const previous = this.queues.get(device.udid) ?? Promise.resolve()
-    const work = previous.catch(() => {}).then(async () => {
+    const device = await this.booted(udid).catch((error: unknown) => {
+      if (/unable to find utility ["']?simctl|requires Xcode|invalid active developer path|spawn xcrun ENOENT/i.test(String(error))) throw new Error('iOS Simulator control requires Xcode; install and open Xcode, then select it in Settings › Locations › Command Line Tools.')
+      throw error
+    })
+    return this.exclusive(device.udid, async () => {
       const remembered = this.frames.get(device.udid)
-      const before = await this.frame(device.udid)
+      const before = await this.captureFrame(device.udid)
       validateIosAction(action, before)
       if ('frameId' in action && action.frameId !== undefined &&
-          (!remembered || remembered.frame.frameId !== action.frameId || remembered.generation !== this.generations.get(device.udid)?.generation || remembered.frame.width !== before.width || remembered.frame.height !== before.height)) {
+          (!remembered || remembered.frame.frameId !== action.frameId || remembered.generation !== this.generations.get(device.udid)?.generation || remembered.frame.width !== before.width || remembered.frame.height !== before.height || remembered.frame.rotation !== before.rotation)) {
         throw new Error('The simulator screenshot is stale; capture a fresh frame before sending input.')
       }
       const result = await this.input.request(device.udid, action, before)
-      const after = await this.frame(device.udid)
+      const after = await this.captureFrame(device.udid)
       return typeof result['method'] === 'string' ? { ...after, inputMethod: result['method'] } : after
     })
-    this.queues.set(device.udid, work)
-    try { return await work } finally { if (this.queues.get(device.udid) === work) this.queues.delete(device.udid) }
   }
   async tap(x: number, y: number, udid?: string): Promise<void> { await this.interact({ kind: 'tap', x, y }, udid) }
 }

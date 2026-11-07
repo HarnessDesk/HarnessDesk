@@ -9,7 +9,7 @@ const fixture = (png = PNG) => {
   const service = iosService({ run: async (binary: string, args: readonly string[]) => {
     calls.push([binary, ...args])
     if (args[1] === 'list') return { stdout: JSON.stringify({ devices: { 'iOS-27': ['A', 'B'].map((udid) => ({ udid, name: `iPhone ${udid}`, state: 'Booted' })) } }), stderr: '' }
-    if (args[1] === 'io') writeFileSync(args[4]!, png)
+    if (args[1] === 'io' && args[3] === 'screenshot') writeFileSync(args[4]!, png)
     if (args[1] === 'ui' && args.length === 5) appearance = args[4]!
     return { stdout: args[1] === 'ui' ? appearance : '', stderr: '' }
   } })
@@ -36,7 +36,7 @@ test('explicit target is used by action and screenshot', async () => {
   assert.ok(frame.frameId)
   assert.equal(frame.url, `data:image/png;base64,${PNG.toString('base64')}`)
   assert.equal(await service.screenshot('B'), frame.url)
-  const actions = calls.filter((call) => call[2] !== 'list')
+  const actions = calls.filter((call) => call[2] !== 'list' && call[4] !== 'enumerate')
   assert.deepEqual(actions.map((call) => [call[2], call[3]]), [['install', 'B'], ['launch', 'B'], ['terminate', 'B'], ['openurl', 'B'], ['io', 'B'], ['io', 'B']])
   assert.ok(!calls.some((call) => call.includes('booted')))
 })
@@ -112,7 +112,7 @@ test('headless tap uses its explicit target with multiple simulators booted', as
   let tapped = ''
   const service = iosService({ run: async (_binary, args) => {
     if (args[1] === 'list') return { stdout: JSON.stringify({ devices: { iOS: ['A','B'].map(udid => ({ udid, name: 'Fixture', state: 'Booted' })) } }), stderr: '' }
-    if (args[1] === 'io') writeFileSync(args[4]!, PNG)
+    if (args[1] === 'io' && args[3] === 'screenshot') writeFileSync(args[4]!, PNG)
     return { stdout: '', stderr: '' }
   }, input: { request: async (udid) => { tapped = udid; return {} } } })
   await service.tap(0, 0, 'B')

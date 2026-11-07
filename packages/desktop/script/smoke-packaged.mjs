@@ -63,6 +63,15 @@ if (!existsSync(binary)) {
   process.exit(1)
 }
 
+// The actual bundled native executable, independent of a booted simulator or account.
+const iosHelper = join(appPath, 'Contents/Resources/native/ios/hd-ios-control')
+const iosVersion = spawnSync(iosHelper, ['--version'], { encoding: 'utf8', timeout: 5000 })
+if (iosVersion.status !== 0) { fail('the bundled iOS input helper could not report its version'); process.exit(1) }
+try {
+  if (JSON.parse(iosVersion.stdout).protocolVersion !== 1) throw new Error('version')
+} catch { fail('the bundled iOS input helper has an incompatible protocol'); process.exit(1) }
+console.log('smoke: bundled iOS input helper protocol 1 answered')
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const targets = async () => {

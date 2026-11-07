@@ -6,6 +6,6 @@ test('non-macOS skips without running compiler', async () => {
 })
 test('required build refuses missing or stale architecture output', async () => {
   for (const exists of [false, true]) {
-    await assert.rejects(buildIosControl({ platform: 'darwin', arch: 'arm64', required: true, exists: () => exists, run: async (bin) => ({ stdout: bin === 'lipo' ? 'x86_64' : '' }) }), /architecture|output/)
+    await assert.rejects(buildIosControl({ platform: 'darwin', arch: 'arm64', required: true, remove: () => {}, exists: () => exists, run: async (bin) => ({ stdout: bin === 'lipo' ? 'x86_64' : '' }) }), /architecture|output/)
   }
 })

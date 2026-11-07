@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline'
 import type { IosAction, IosFrame } from './ios-types.js'
 
 export interface IosInputTransport {
-  request(udid: string, action: IosAction, frame?: Pick<IosFrame, 'width' | 'height'>): Promise<Record<string, unknown>>
+  request(udid: string, action: IosAction, frame?: Pick<IosFrame, 'width' | 'height' | 'rotation'>): Promise<Record<string, unknown>>
   dispose?(): void
 }
 interface Pending { resolve(value: Record<string, unknown>): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
@@ -55,13 +55,13 @@ export class IosHelper implements IosInputTransport {
     })
     return child
   }
-  async request(udid: string, action: IosAction, frame?: Pick<IosFrame, 'width' | 'height'>): Promise<Record<string, unknown>> {
+  async request(udid: string, action: IosAction, frame?: Pick<IosFrame, 'width' | 'height' | 'rotation'>): Promise<Record<string, unknown>> {
     const child = this.#ensure()
     const id = String(++this.#nextId)
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => this.#stop(child, new Error('The simulator input helper timed out; the gesture was stopped.')), this.options.timeoutMs ?? 20_000)
       this.#pending.set(id, { resolve, reject, timer })
-      child.stdin.write(`${JSON.stringify({ protocolVersion: 1, id, udid, operation: 'interact', action, ...(frame ? { geometry: frame } : {}) })}\n`, (error) => { if (error) this.#stop(child, new Error('The simulator input helper connection closed.')) })
+      child.stdin.write(`${JSON.stringify({ protocolVersion: 1, id, udid, operation: 'interact', action, ...(frame ? { geometry: { width: frame.width, height: frame.height, rotation: frame.rotation } } : {}) })}\n`, (error) => { if (error) this.#stop(child, new Error('The simulator input helper connection closed.')) })
     })
   }
   dispose(): void { if (this.#child) this.#stop(this.#child, new Error('The simulator input helper was disposed.')) }

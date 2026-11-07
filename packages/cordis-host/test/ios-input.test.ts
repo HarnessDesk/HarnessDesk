@@ -14,7 +14,7 @@ test('two callers cannot interleave input and resulting frames', async () => {
   const events:string[]=[]
   const engine=new IosEngine({run:async(_bin,args)=> {
     if(args[1]==='list') return {stdout:JSON.stringify({devices:{iOS:[{udid:target,name:'Fixture',state:'Booted'}]}}),stderr:''}
-    if(args[1]==='io') { events.push('frame'); writeFileSync(args[4]!,PNG) }
+    if(args[1]==='io' && args[3]==='screenshot') { events.push('frame'); writeFileSync(args[4]!,PNG) }
     return {stdout:'',stderr:''}
   },input:{request:async()=>{events.push('input');await new Promise(r=>setTimeout(r,20));return {}}}})
   await Promise.all([engine.interact({kind:'tap',x:0,y:0},target),engine.interact({kind:'tap',x:0,y:0},target)])
@@ -24,7 +24,7 @@ test('invalid actions and stale frame IDs are refused before input', async () =>
   let calls=0
   const engine=new IosEngine({run:async(_bin,args)=> {
     if(args[1]==='list') return {stdout:JSON.stringify({devices:{iOS:[{udid:target,state:'Booted'}]}}),stderr:''}
-    if(args[1]==='io') writeFileSync(args[4]!,PNG)
+    if(args[1]==='io' && args[3]==='screenshot') writeFileSync(args[4]!,PNG)
     return {stdout:'',stderr:''}
   },input:{request:async()=>{calls++;return {}}}})
   for(const action of [{kind:'tap',x:NaN,y:0},{kind:'tap',x:1,y:0},{kind:'tap',x:0,y:0,frameId:'stale'},{kind:'drag',path:[{x:0,y:0,tMs:1},{x:0,y:0,tMs:2}]}]) await assert.rejects(engine.interact(action as never,target))

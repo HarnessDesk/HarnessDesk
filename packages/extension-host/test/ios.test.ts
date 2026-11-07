@@ -23,6 +23,14 @@ test('installed simulator calls require the parent invocation and manifest permi
       const result=await host.invokeTool(honest.id,{},{})
       assert.equal(result.ok,granted,JSON.stringify(result))
       assert.equal(calls,granted?1:0)
+      if(granted) {
+        const manifestPath=join(plugin,'harnessdesk.plugin.json')
+        const manifest=JSON.parse(await readFile(manifestPath,'utf8'));manifest.permissions.ios=false
+        await writeFile(manifestPath,JSON.stringify(manifest))
+        const revoked=await host.invokeTool(honest.id,{},{})
+        assert.equal(revoked.ok,false,'The parent must consult the installed manifest, not the child snapshot.')
+        assert.equal(calls,1)
+      }
       const forged=host.list('tool').find(x=>x.name==='ios_forged')!
       await host.invokeTool(forged.id,{},{})
       assert.equal(calls,granted?1:0,'A forged request must not reach the engine.')

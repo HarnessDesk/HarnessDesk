@@ -20,3 +20,10 @@ test('a late reply from a stopped helper cannot settle its replacement', async (
   await assert.rejects(helper.request(target, {kind:'key',key:'delete',count:1}), /time/i)
   helper.dispose()
 })
+test('only measured geometry crosses native stdio, never screenshot bytes', async () => {
+  const helper = new IosHelper({ executable: process.execPath, args: ['-e', "process.stdin.on('data',d=>{const q=JSON.parse(d);console.log(JSON.stringify({id:q.id,protocolVersion:1,result:{keys:Object.keys(q.geometry).sort()}}))})"] })
+  try {
+    const result=await helper.request(target,{kind:'tap',x:0,y:0},{width:1,height:1,rotation:0,url:'private-image-bytes'} as never)
+    assert.deepEqual(result['keys'],['height','rotation','width'])
+  } finally { helper.dispose() }
+})

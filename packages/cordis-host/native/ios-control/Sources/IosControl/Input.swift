@@ -84,3 +84,23 @@ func asciiUsages(_ text: String) throws -> [[UInt64]] {
         }
     }
 }
+extension Gesture {
+    static func drag(_ path: [Sample]) throws -> [Sample] {
+        guard (2...600).contains(path.count), path.first?.tMs == 0 else { throw InputFailure("path", "A drag needs 2 to 600 points and must start at zero milliseconds.") }
+        var previous = -1
+        for sample in path {
+            guard sample.points.count == 1, sample.tMs > previous, sample.tMs <= 10000 else { throw InputFailure("path", "Drag sample times must strictly increase through 10000 milliseconds.") }
+            previous = sample.tMs
+        }
+        return path.enumerated().map { i,s in Sample(phase:i == 0 ? .start : i == path.count-1 ? .end : .position,points:s.points,tMs:s.tMs) }
+    }
+    static func rotation(center: Point, radius: Double, degrees: Double, durationMs: Int) throws -> [Sample] {
+        guard radius.isFinite, radius > 0, degrees.isFinite, abs(degrees) <= 360, (1...10000).contains(durationMs) else { throw InputFailure("rotation", "A rotation needs a positive radius, a bounded angle and duration.") }
+        let steps=max(1,Int(ceil(Double(durationMs)/16)))
+        return (0...steps).map { step in
+            let angle=degrees * .pi / 180 * Double(step)/Double(steps)
+            let dx=cos(angle)*radius, dy=sin(angle)*radius
+            return Sample(phase:step == 0 ? .start : step == steps ? .end : .position, points:[Point(x:center.x+dx,y:center.y+dy),Point(x:center.x-dx,y:center.y-dy)],tMs:durationMs*step/steps)
+        }
+    }
+}

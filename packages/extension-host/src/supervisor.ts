@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { answerIosCall } from './ios.js'
+import { join } from 'node:path'
+import { answerIosCall, hasInstalledIosGrant } from './ios.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
@@ -7,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   BrowserInvocations,
+  pluginsRoot,
   type IosCapability,
   canonicalScopeQuery,
   setEditorEngine,
@@ -363,10 +365,12 @@ export class PluginHostProcess {
     }
     try {
       if (request.method === 'ios/call') {
+        const child = this.#child
         const params = request.params as ChildToHostMethods['ios/call']['params']
         const owner = this.#iosInvocations.get(params?.invocation)
         const plugin = this.#plugins.find(p => String(p.instanceId) === owner)
-        if (!plugin?.enabled || plugin.permissions.ios !== true || !this.#options.iosEngine) throw new Error('This simulator request has no live invocation with an iOS permission grant.')
+        if (!plugin?.enabled || plugin.permissions.ios !== true || !this.#options.iosEngine || !await hasInstalledIosGrant(this.#options.env?.['HARNESSDESK_PLUGINS'] ?? (this.#options.env?.['HARNESSDESK_HOME'] ? join(this.#options.env['HARNESSDESK_HOME'], 'plugins') : pluginsRoot()), plugin.identity.id)) throw new Error('This simulator request has no live invocation with an iOS permission grant.')
+        if (this.#child !== child || this.#iosInvocations.get(params.invocation) !== owner) throw new Error('This simulator invocation has ended.')
         const result = await answerIosCall(this.#options.iosEngine, params.call)
         reply({ response: request.request, result }); return
       }
@@ -822,7 +826,7 @@ export class PluginHostProcess {
       const owner = this.#plugins.find((plugin) =>
         plugin.contributions.some((entry) => entry.id === namespaced),
       )
-      if (owner?.enabled && owner.permissions.ios && owner.contributions.some(entry => entry.id === namespaced && scopeApplies(entry.scope, input.scope))) {
+      if (owner?.enabled && owner.permissions.ios && owner.contributions.some(entry => entry.id === namespaced && scopeApplies(entry.scope, input.scope)) && await hasInstalledIosGrant(this.#options.env?.['HARNESSDESK_PLUGINS'] ?? (this.#options.env?.['HARNESSDESK_HOME'] ? join(this.#options.env['HARNESSDESK_HOME'], 'plugins') : pluginsRoot()), owner.identity.id)) {
         iosInvocation = randomUUID()
         this.#iosInvocations.set(iosInvocation, String(owner.instanceId))
       }

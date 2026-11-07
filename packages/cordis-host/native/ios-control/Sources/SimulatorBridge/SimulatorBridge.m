@@ -8,6 +8,11 @@
 #import <dlfcn.h>
 #import <xpc/xpc.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <signal.h>
+static volatile sig_atomic_t inputCancelled = 0;
+static void cancelInput(int signalNumber) { inputCancelled = 1; }
+void HDInstallCancellationHandlers(void) { signal(SIGTERM, cancelInput); signal(SIGINT, cancelInput); }
+int HDInputCancelled(void) { return inputCancelled != 0; }
 static NSString *const service = @"com.apple.coredevice.feature.remote.hid.digitizer";
 static NSError *failure(NSString *message) { return [NSError errorWithDomain:@"app.harnessdesk.ios" code:1 userInfo:@{NSLocalizedDescriptionKey:message}]; }
 static BOOL selector(id object, NSString *name, NSError **error) {
@@ -31,6 +36,7 @@ static xpc_object_t encode(id value) {
     return xpc_null_create();
 }
 @implementation HDSimulatorConnection {
+    id _device;
     xpc_connection_t _connection;
     dispatch_queue_t _queue;
     BOOL _invalidated;
@@ -64,6 +70,7 @@ static xpc_object_t encode(id value) {
             if ([[get(candidate, @"UDID") UUIDString] caseInsensitiveCompare:udid] == NSOrderedSame) { device = candidate; break; }
         }
         if (!device) { *error = failure(@"The requested simulator was not found."); return nil; }
+        _device = device;
         if (!selector(device, @"state", error)) return nil;
         if (((NSUInteger(*)(id,SEL))objc_msgSend)(device, NSSelectorFromString(@"state")) != 3) { *error = failure(@"The requested simulator is not booted."); return nil; }
         if (!selector(device, @"deviceType", error)) return nil;
@@ -118,6 +125,17 @@ static xpc_object_t encode(id value) {
         *error = failure(@"DTUHID did not answer the simulator input liveness round trip."); return NO;
     }
     return YES;
+}
+- (BOOL)verifyUsKeyboardWithError:(NSError **)error {
+    if (!selector(_device, @"dataPath", error)) return NO;
+    NSString *dataPath = get(_device, @"dataPath");
+    if (![dataPath isKindOfClass:NSString.class]) { *error = failure(@"The simulator keyboard layout could not be observed."); return NO; }
+    NSDictionary *preferences = [NSDictionary dictionaryWithContentsOfURL:[NSURL fileURLWithPath:[dataPath stringByAppendingPathComponent:@"Library/Preferences/com.apple.keyboard.preferences.plist"]] error:nil];
+    NSArray *keyboards = preferences[@"KeyboardsCurrentAndNext"];
+    NSString *current = [keyboards isKindOfClass:NSArray.class] && keyboards.count ? keyboards[0] : nil;
+    if ([current isKindOfClass:NSString.class] && ([current isEqualToString:@"en_US@sw=QWERTY;hw=Automatic"] || [current isEqualToString:@"en_US@sw=QWERTY;hw=US"])) return YES;
+    *error = failure(@"Text input requires an observed US QWERTY simulator keyboard; other or unknown layouts are not yet supported.");
+    return NO;
 }
 - (void)close { @synchronized(self) { _invalidated = YES; if (_connection) { xpc_connection_cancel(_connection); _connection = nil; } } }
 - (void)dealloc { [self close]; }
