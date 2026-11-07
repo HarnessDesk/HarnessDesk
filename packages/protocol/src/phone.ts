@@ -224,6 +224,8 @@ export interface PhoneWorkTeam {
   readonly step?: string
   /** The person accepted the Lead's result and this Team is ready to wrap: `workspace/team/wrap` will take it. */
   readonly canWrap?: true
+  /** A seat of this Team waits on an approval the Lead puts to the person as its own card; the phone lists it there, once. */
+  readonly relayed?: true
 }
 
 export interface PhoneWorkItem {

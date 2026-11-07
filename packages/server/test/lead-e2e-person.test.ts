@@ -54,6 +54,9 @@ for (const { surface, hidden } of [{ surface: 'window', hidden: false }, { surfa
   const projection = await rig.host.call('lead/thread/read', {}) as any
   const action = projection.personActions.find((one: any) => one.kind === 'worker-approval')
   assert.ok(action, 'person can answer the real worker approval')
+  // The phone lists that wait once, in the Lead's thread: the Team says the Lead relays it.
+  const relayedTeams = async () => (await rig.host.call('workspace/read', {})).items.filter(item => item.kind === 'team' && item.team?.relayed).map(item => item.id)
+  assert.deepEqual(await relayedTeams(), [rig.journal.state.runs.find(run => run.runId === action.runId)!.teamId])
   const perform = await personSurface(rig, surface, t)
   // Commands never offer a goal rule. A hidden request can only be refused here.
   assert.deepEqual(action.choices, hidden ? ['no'] : ['yes-once', 'no'])
@@ -68,6 +71,7 @@ for (const { surface, hidden } of [{ surface: 'window', hidden: false }, { surfa
   await rig.waitFor(async () => (await rig.workerCalls()).some(one => one.method === 'worker-approval-answer'), 'person answer reaches worker')
   const answer = (await rig.workerCalls()).find(one => one.method === 'worker-approval-answer')!
   assert.deepEqual(answer.result, { decision: hidden ? 'decline' : 'accept' })
+  await rig.waitFor(async () => (await relayedTeams()).length === 0, 'nothing left for the Lead to relay')
   await rig.assertNoForbiddenEffects()
 })
 

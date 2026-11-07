@@ -176,7 +176,7 @@ test('the phone surface carries the three workspace names at the tiers a phone n
   assert.equal(PHONE_POLICY.methods['workspace/read'], 'read')
   assert.equal(PHONE_POLICY.methods['workspace/thread/read'], 'read')
   assert.equal(PHONE_POLICY.methods['workspace/approval/decide'], 'answer')
-  assert.equal(PHONE_POLICY.methods['workspace/team/wrap'], 'answer')
+  assert.equal(PHONE_POLICY.methods['workspace/team/wrap'], 'run')
   assert.equal(PHONE_POLICY.topics.workspace, 'read')
   assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/session/send', 'workspace/session/start', 'workspace/sessions/list', 'workspace/stop', 'workspace/team/wrap', 'workspace/thread/read'])
 })

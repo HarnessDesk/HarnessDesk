@@ -48,8 +48,9 @@ export const PHONE_POLICY: PhonePolicy = {
     'workspace/stop': 'run',
     'workspace/thread/read': 'read',
     'workspace/approval/decide': 'answer',
-    // Only a Team whose Lead result the person accepted, and only when nothing on it needs a choice.
-    'workspace/team/wrap': 'answer',
+    // Only a Team whose Lead result the person accepted, and only when nothing on it needs a choice. Run, as stop is:
+    // wrapping closes seats, archives the Team's conversations and removes its clean worktrees.
+    'workspace/team/wrap': 'run',
     'lead/thread/send': 'run',
     'lead/stop': 'run',
     'lead/resume': 'run',

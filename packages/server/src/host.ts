@@ -164,7 +164,7 @@ import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { leadContractDigest, readLeadEvidence, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
 import type { LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
@@ -10059,7 +10059,25 @@ export class Host {
         const journal = this.#leadJournal, project = this.#leadChatProject, store = this.#leadChatControl
         if (!journal || !project || !store) return null
         const ids = new Set(store.current(project.path).chats.filter(chat => chat.holder === 'lead').map(chat => chat.id))
-        return { name: leadDisplayName(journal.state.name), ids, retrying: new Set([...ids].filter(id => this.#leadChats?.incidents?.waiting(id))), teams: leadOwnedTeams(journal.state) }
+        // A Team whose seat holds an approval the Lead puts to the person as its own card: the same seats and phases the
+        // Lead's person actions read, so the phone lists that wait once, in the Lead's thread. Walked only when a Team
+        // row asks; a session row reads the rest.
+        const state = journal.state
+        let relayed: Set<string> | undefined
+        const relays = (): Set<string> => {
+          const teams = new Set<string>()
+          if (!state.contract || ['accepted', 'declined', 'stopped', 'following'].includes(state.phase)) return teams
+          const runs = new Set(leadPlanRuns(state).map(run => run.teamId))
+          for (const seat of this.#evidence.seats.all()) {
+            const board = seat.board
+            if (seat.closed || board === null || !runs.has(board)) continue
+            const record = this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))
+            if (record && record.approvals.size > 0) teams.add(board)
+          }
+          return teams
+        }
+        return { name: leadDisplayName(state.name), ids, retrying: new Set([...ids].filter(id => this.#leadChats?.incidents?.waiting(id))), teams: leadOwnedTeams(state),
+          get relayed() { return relayed ??= relays() } }
       },
       teams: async () => (await this.#goals.list()).map((view) => {
         const latest = this.#flows.executionSummaries({ team: view.goal.id, active: false })[0]
@@ -10205,7 +10223,6 @@ export class Host {
     }
   }
 
-  /** The phone's snapshot, conversation and approval answers, built on first use over the same planes. */
   /**
    * Wraps, for the phone, a Team the current Lead goal started, once the person has accepted its result. The receipt is
    * written from the cards alone: each finished card is finished and each dropped one keeps its note. Anything that
@@ -10227,10 +10244,16 @@ export class Host {
     }
     const summary = view.board.intents.map(card => `#${card.id} · ${card.title} — ${card.state === 'done' ? 'Finished' : 'Dropped'}`).join('\n') || view.goal.sentence
     const choices: WrapChoices = { summary, cards }
-    const preview = await this.#goals.preview(team, choices)
-    await this.#goals.wrap(team, preview.stamp, choices)
+    // A refusal the desk explains at length (findings a pull request could not confirm) is asked on the desk instead.
+    const short = (error: unknown): never => {
+      const message = error instanceof Error ? error.message : ''
+      throw new Error(message && message.length <= 120 ? message : 'This Team needs a choice before it wraps. Wrap it on the desk.')
+    }
+    const preview = await this.#goals.preview(team, choices).catch(short)
+    await this.#goals.wrap(team, preview.stamp, choices).catch(short)
   }
 
+  /** The phone's snapshot, conversation and approval answers, built on first use over the same planes. */
   #phoneWorkView(): PhoneWork {
     return this.#phoneWork ??= new PhoneWork({
       workspace: this.#phoneWorkspaceView(),

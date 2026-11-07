@@ -53,24 +53,31 @@ export const leadRepairInput = (result: LeadAcceptanceResult) => ({
   failed: result.assertions.filter(assertion => assertion.status === 'failed').map(({ assertionId, reason }) => ({ assertionId, reason })),
   errored: result.erroredChecks ?? result.assertions.filter(assertion => assertion.status === 'errored').map(assertion => assertion.assertionId),
 })
-/** Host-owned per-run data appended to the repair card, never interpolated into Flow YAML. */
 /**
  * The result's "how to verify" line: the commits the passing checks and the review read, so the person can check the
- * work themselves. Read from the evidence alone; a result whose evidence names no commit gets no line.
+ * work themselves. Read from the evidence alone; it says the review read the same commits only when it did, and a
+ * result whose evidence names no commit gets no line.
  */
 export const leadVerifyLine = (assertions: readonly LeadAssertionResult[]): string | null => {
-  const commits = [...new Set(assertions.flatMap(result => result.evidence)
-    .filter(ref => (ref.kind === 'check' || ref.kind === 'review') && /^[0-9a-f]{7,64}$/i.test(ref.revision))
-    .map(ref => ref.revision.slice(0, 7)))]
-  if (!commits.length) return null
-  const at = commits.length === 1 ? `commit ${commits[0]}` : `commits ${commits.slice(0, -1).join(', ')} and ${commits.at(-1)}`
-  return `How to verify: run the project's required checks at ${at}. The review read the same ${commits.length === 1 ? 'commit' : 'commits'}.`
+  const evidence = assertions.flatMap(result => result.evidence)
+  const commitsOf = (kind: 'check' | 'review') => [...new Set(evidence
+    .filter(ref => ref.kind === kind && /^[0-9a-f]{7,64}$/i.test(ref.revision)).map(ref => ref.revision.slice(0, 7)))]
+  const checks = commitsOf('check'), reviews = commitsOf('review')
+  const at = (commits: readonly string[]) => commits.length === 1 ? `commit ${commits[0]}` : `commits ${commits.slice(0, -1).join(', ')} and ${commits.at(-1)}`
+  const same = checks.length > 0 && reviews.length === checks.length && reviews.every(commit => checks.includes(commit))
+  const parts = [
+    ...(checks.length ? [`run the project's required checks at ${at(checks)}.`] : []),
+    ...(!reviews.length ? [] : same ? [`The review read the same ${checks.length === 1 ? 'commit' : 'commits'}.`]
+      : [`${checks.length ? 'The' : 'the'} review read ${at(reviews)}.`]),
+  ]
+  return parts.length ? `How to verify: ${parts.join(' ')}` : null
 }
 
 /** A result card's summary: its fixed sentence, then the "how to verify" line when the evidence names a commit. */
 export const leadResultSummary = (sentence: string, assertions: readonly LeadAssertionResult[]): string =>
   [sentence, leadVerifyLine(assertions)].filter(Boolean).join('\n')
 
+/** Host-owned per-run data appended to the repair card, never interpolated into Flow YAML. */
 export const LEAD_REPAIR_INSTRUCTIONS = 'Fix only the failed assertions listed; leave the passed behavior alone. After a new commit, run all declared required checks again at that revision before independent review.'
 export const leadRepairDetail = (result: LeadAcceptanceResult): string =>
   `Repair input: ${JSON.stringify(leadRepairInput(result))}`

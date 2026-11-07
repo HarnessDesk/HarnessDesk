@@ -175,11 +175,15 @@ test('a result says how to verify it from the commits its checks and review read
   const head = 'abcdef0123456789abcdef0123456789abcdef01'
   assert.equal(leadVerifyLine([result('passed', [{ kind: 'check', id: 'c1', revision: head }]), result('passed', [{ kind: 'review', id: 'r1', revision: head }])]),
     "How to verify: run the project's required checks at commit abcdef0. The review read the same commit.")
+  // Checks alone say nothing about a review, and a review of another commit is named, never called the same.
   assert.equal(leadVerifyLine([result('passed', [{ kind: 'check', id: 'c1', revision: head }, { kind: 'check', id: 'c2', revision: '1234567890' }])]),
-    "How to verify: run the project's required checks at commits abcdef0 and 1234567. The review read the same commits.")
+    "How to verify: run the project's required checks at commits abcdef0 and 1234567.")
+  assert.equal(leadVerifyLine([result('passed', [{ kind: 'check', id: 'c1', revision: head }]), result('passed', [{ kind: 'review', id: 'r1', revision: '1234567890' }])]),
+    "How to verify: run the project's required checks at commit abcdef0. The review read commit 1234567.")
+  assert.equal(leadVerifyLine([result('passed', [{ kind: 'review', id: 'r1', revision: head }])]), 'How to verify: the review read commit abcdef0.')
   // Spend and opaque revisions name no commit.
   assert.equal(leadVerifyLine([result('passed', [{ kind: 'spend', id: 's', revision: head }, { kind: 'check', id: 'c', revision: 'r-7' }])]), null)
   assert.equal(leadResultSummary('Ready.', []), 'Ready.')
   assert.equal(leadResultSummary('Ready.', [result('passed', [{ kind: 'check', id: 'c1', revision: head }])]),
-    "Ready.\nHow to verify: run the project's required checks at commit abcdef0. The review read the same commit.")
+    "Ready.\nHow to verify: run the project's required checks at commit abcdef0.")
 })

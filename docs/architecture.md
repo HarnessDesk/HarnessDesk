@@ -979,11 +979,13 @@ catalogue; project names resolve
 only to admitted folders, and ambiguous names are refused. Archived sessions
 are readable; their mutations and Team-owned session ids are refused. Approval
 decisions retain the separate Answer grant and the existing approval path.
-`workspace/team/wrap` needs Answer and wraps only a Team the Lead started
+`workspace/team/wrap` needs Run, as stopping does, and wraps only a Team the Lead started
 whose result the person accepted, once every card on it is finished or
 dropped; the desk writes the receipt from the board, and wrapping keeps every
 branch. The Lead itself never wraps. A Lead's Team row carries the plan
-`step` it was started for and `canWrap` once that wrap would be taken.
+`step` it was started for, `canWrap` once that wrap would be taken, and
+`relayed` while one of its seats waits on an approval the Lead puts to the
+person as its own card, so the phone lists that wait once.
 
 The account request inventory in [data-boundaries.md](data-boundaries.md#harnessdesk-account--only-after-you-choose-sign-in)
 names each endpoint, payload and trigger. Account sign-out/deletion clear the

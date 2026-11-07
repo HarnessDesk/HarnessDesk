@@ -82,6 +82,8 @@ interface LeadChats {
   readonly name: string; readonly ids: ReadonlySet<string>; readonly retrying?: ReadonlySet<string>
   /** The Teams the current Lead goal started, by Team id. */
   readonly teams?: ReadonlyMap<string, { readonly step: string | null; readonly accepted: boolean }>
+  /** The Teams whose waiting seat the Lead puts to the person as its own card, by Team id. */
+  readonly relayed?: ReadonlySet<string>
 }
 
 const workTeamStage = (input: PhoneTeamInput) => input.view.stage === undefined
@@ -303,15 +305,16 @@ export class PhoneWorkspace {
   async workItems(limit = WORK_ITEMS): Promise<PhoneWorkItem[]> {
     const [{ rows: sessions }, inputs] = [this.sessionsList({ limit }), await this.#ports.teams()]
     const live = new Map(this.#ports.live().map(one => [keyOf(one.runtime, one.id), one]))
-    const leadName = this.#ports.leadChats?.()?.name
+    // Read once: the Lead's view walks its seats and approvals, and every Team row consults it.
+    const lead = this.#ports.leadChats?.() ?? null
     const items: PhoneWorkItem[] = [
-      ...sessions.map(row => this.#sessionItem(row, leadName, [...live.values()].find(one => `${one.runtime}:${one.id}` === row.id))),
-      ...inputs.map(input => this.#teamItem(input, live)),
+      ...sessions.map(row => this.#sessionItem(row, lead?.name, [...live.values()].find(one => `${one.runtime}:${one.id}` === row.id))),
+      ...inputs.map(input => this.#teamItem(input, live, lead)),
     ]
     return items.sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
-  #teamItem(input: PhoneTeamInput, live: ReadonlyMap<string, PhoneLiveSession>): PhoneWorkItem {
+  #teamItem(input: PhoneTeamInput, live: ReadonlyMap<string, PhoneLiveSession>, lead: LeadChats | null): PhoneWorkItem {
     const row = this.#teamRow(input)
     const { stage, reason: stageReason } = workTeamStage(input)
     const stageLine = { plan: 'Planning', build: 'Building', review: 'In review', land: 'Landing' }[row.stage]
@@ -335,7 +338,6 @@ export class PhoneWorkspace {
     const { done, total } = row.progress
     // A Team the Lead started is the Lead's work: it says so, names its plan step, and once the person accepted the
     // result it can be wrapped from the phone.
-    const lead = this.#ports.leadChats?.() ?? null
     const owned = lead?.teams?.get(input.view.goal.id)
     const step = owned?.step ? scrub(owned.step, 80) : ''
     return {
@@ -349,6 +351,7 @@ export class PhoneWorkspace {
         spent: micros(row.cost ?? 0),
         ...(step ? { step } : {}),
         ...(owned?.accepted && row.status === 'ready' ? { canWrap: true as const } : {}),
+        ...(owned && lead?.relayed?.has(input.view.goal.id) ? { relayed: true as const } : {}),
       },
     }
   }
