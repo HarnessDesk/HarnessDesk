@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { runtimeId, sessionId, sessionKey, type Session } from '@harnessdesk/protocol'
 import { AppStore } from '../state/store'
 import { PaneProvider, StoreProvider } from '../state/context'
@@ -24,4 +24,20 @@ it('shows the secondary transcript without actions that edit or navigate the mai
     expect([...host.querySelectorAll('button')].some(button => button.title.includes('Open child'))).toBe(false)
     expect(host.querySelector('textarea')).toBeNull()
   } finally { act(() => root.unmount());host.remove() }
+})
+
+it('prevents file links from navigating away and explains why', () => {
+  const store = new AppStore('ws://localhost:0/'), runtime = runtimeId('other'), id = sessionId('secondary'), key = sessionKey(runtime, id)
+  const notice = vi.spyOn(store, 'notice')
+  const session = { runtime, id, cwd: '/project', turns: [{ id: 'turn', status: 'completed', items: [{ id: 'answer', type: 'assistantMessage', text: '[Source](src/file.ts:12)' }] }] } as unknown as Session
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host)
+  try {
+    act(() => root.render(<StoreProvider store={store}><PaneProvider scope={{ paneId: 'secondary', view: { kind: 'conversation', session: key }, sessionKey: key }}><AdjacentTranscript session={session} /></PaneProvider></StoreProvider>))
+    const link = host.querySelector<HTMLAnchorElement>('a[href="src/file.ts:12"]')!
+    expect(link).not.toBeNull()
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+    act(() => { link.dispatchEvent(click) })
+    expect(click.defaultPrevented).toBe(true)
+    expect(notice).toHaveBeenCalledWith('warning', expect.stringContaining('File links'))
+  } finally { act(() => root.unmount()); host.remove() }
 })

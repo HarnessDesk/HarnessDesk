@@ -1575,6 +1575,11 @@ export class AppStore {
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
+          const adjacent = this.#snapshot.adjacentSession
+          if (adjacent && splitSessionKey(adjacent.key).runtime === runtime) {
+            this.#adjacentGeneration++
+            this.#patch({ adjacentSession: { ...adjacent, loading: false, error: 'This runtime is unavailable.' } })
+          }
           this.#transcriptChange++
           for (const key of this.#transcriptCursors.keys()) if (splitSessionKey(key).runtime === runtime) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptCursors.delete(key) }
           for (const key of this.#transcriptAuthority.keys()) if (splitSessionKey(key).runtime === runtime) this.#transcriptAuthority.delete(key)
@@ -3550,6 +3555,11 @@ export class AppStore {
     this.#adjacentRelease = visibility
     this.#patch({ adjacentSession: { key, subject, loading: true, error: null } })
     this.closeFloatingSidebar()
+    if (this.#historyRemovedRuntimes.has(runtime)) {
+      this.#patch({ adjacentSession: { key, subject, loading: false, error: 'This runtime is unavailable.' } })
+      operation()
+      return
+    }
     const current = () => generation === this.#adjacentGeneration && this.#snapshot.adjacentSession?.key === key &&
       this.workSubject() === subject && (this.#sessionRemovalRevisions.get(key) ?? 0) === removal && this.#chatConnectionGeneration === connection
     let read = false
@@ -3575,7 +3585,9 @@ export class AppStore {
   #setAdjacentRead(read: Session, eventRevision: number): void {
     const key = sessionKey(read.runtime, read.id), held = this.#snapshot.sessions.get(key)
     if (!held || (this.#adjacentEventRevision) === eventRevision) { this.#setSession(read); return }
-    const merged = mergeRead(held, read)
+    // An unfenced read may predate a turn that started and settled while it
+    // was pending. The event stream, not the stale read, owns that turn.
+    const merged = mergeRead(held, read, () => true)
     const turns = new Map(held.turns.map(turn => [turn.id, turn]))
     const combined = merged.turns.map(turn => {
       const newer = turns.get(turn.id)

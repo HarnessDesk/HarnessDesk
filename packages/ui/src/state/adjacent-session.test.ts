@@ -81,6 +81,66 @@ it('merges a live event received while the read is pending', async () => {
   expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.turns[0]?.items[0]).toMatchObject({ text: 'start live' })
 })
 
+it.each(['read', 'resume'] as const)('keeps a turn completed while %s is pending', async phase => {
+  const store = new AppStore('ws://localhost:0/'), id = sessionId('a'), stale = body('a')
+  const waiting = deferred<Session>(), started = deferred<void>()
+  vi.spyOn(store.transport, 'request').mockImplementation(((method: string) => {
+    if (method === `session/${phase}`) { started.resolve(); return waiting.promise }
+    return Promise.resolve(stale)
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: { onEvent(runtime: unknown, event: unknown): void } }).handlers
+  handlers.onEvent(runtime, { type: 'session/started', session: stale })
+  const pending = store.openAdjacentSession(id, runtime)
+  await started.promise
+  const turn = { id: 'new-turn', status: 'completed', items: [{ id: 'answer', type: 'assistantMessage', text: 'Finished while waiting' }] }
+  handlers.onEvent(runtime, { type: 'turn/started', sessionId: id, turn: { ...turn, status: 'inProgress', items: [] } })
+  handlers.onEvent(runtime, { type: 'item/started', sessionId: id, turnId: turn.id, item: turn.items[0] })
+  handlers.onEvent(runtime, { type: 'turn/completed', sessionId: id, turn })
+  waiting.resolve(stale); await pending
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.turns).toMatchObject([turn])
+})
+
+it.each(['read', 'resume'] as const)('keeps the held body unavailable when the runtime disappears during %s', async phase => {
+  const store = new AppStore('ws://localhost:0/'), id = sessionId('a'), held = body('a')
+  const waiting = deferred<Session>(), started = deferred<void>()
+  const request = vi.spyOn(store.transport, 'request').mockImplementation(((method: string) => {
+    if (method === `session/${phase}`) { started.resolve(); return waiting.promise }
+    return Promise.resolve(held)
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: { onEvent(runtime: unknown, event: unknown): void; onNotification(value: unknown): void } }).handlers
+  handlers.onEvent(runtime, { type: 'session/started', session: held })
+  const pending = store.openAdjacentSession(id, runtime)
+  await started.promise
+  handlers.onNotification({ method: 'runtime/removed', params: { runtime } })
+  waiting.resolve({ ...held, title: 'stale response' }); await pending
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.title).toBe('a')
+  expect(store.getSnapshot().adjacentSession).toMatchObject({ loading: false, error: expect.stringMatching(/unavailable/i) })
+  const calls = request.mock.calls.length
+  await store.openAdjacentSession(id, runtime)
+  expect(request.mock.calls).toHaveLength(calls)
+})
+
+it('reconnects the current reader and rejects an earlier connection’s late read', async () => {
+  const store = new AppStore('ws://localhost:0/'), id = sessionId('a'), first = deferred<Session>(), second = deferred<Session>()
+  let reads = 0
+  vi.spyOn(store.transport, 'request').mockImplementation(((method: string) => {
+    if (method === 'session/read') return ++reads === 1 ? first.promise : second.promise
+    if (method === 'session/resume') return Promise.resolve(body('a'))
+    return Promise.resolve({})
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: { onStatus(value: string): void } }).handlers
+  const pending = store.openAdjacentSession(id, runtime)
+  handlers.onStatus('reconnecting')
+  expect(store.getSnapshot().adjacentSession?.error).toContain('Connection lost')
+  handlers.onStatus('open')
+  expect(reads).toBe(2)
+  second.resolve({ ...body('a'), title: 'current' })
+  await vi.waitFor(() => expect(store.getSnapshot().adjacentSession?.loading).toBe(false))
+  first.resolve({ ...body('a'), title: 'stale' }); await pending
+  expect(store.getSnapshot().adjacentSession?.key).toBe(sessionKey(runtime, id))
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.title).not.toBe('stale')
+})
+
 it('protects a visible body and a closed reader with overlapping reads from eviction', async () => {
   const store = new AppStore('ws://localhost:0/'), id = sessionId('a'), first = deferred<Session>(), second = deferred<Session>()
   const current = body('a'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
