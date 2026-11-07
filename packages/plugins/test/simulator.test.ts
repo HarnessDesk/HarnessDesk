@@ -4,7 +4,7 @@ import { simulatorPlugin } from '../src/simulator.js'
 
 const pngUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg=='
 
-interface Tool { name: string; inputSchema: { properties: Record<string, unknown>; $defs?: Record<string, unknown>; additionalProperties?: boolean }; execute(args: Record<string, unknown>): Promise<unknown> }
+interface Tool { name: string; description: string; inputSchema: { properties: Record<string, unknown>; $defs?: Record<string, unknown>; additionalProperties?: boolean }; execute(args: Record<string, unknown>): Promise<unknown> }
 const fixture = (appearance = 'light') => {
   const calls: unknown[][] = []
   const record = (name: string, result?: unknown) => async (...args: unknown[]) => { calls.push([name, ...args]); return result }
@@ -110,4 +110,9 @@ test('tap and new tools use atomic interact and apply bounded defaults', async (
     ['interact',{kind:'longPress',x:0,y:0,durationMs:750},'B'],
     ['interact',{kind:'key',key:'return',count:1},'B'],
   ])
+})
+
+test('text and key descriptions have no coordinate or distance instructions', () => {
+  const {tools}=fixture()
+  for(const name of ['ios_text','ios_key'])assert.doesNotMatch(tools.get(name)!.description,/coordinates|distances/i)
 })

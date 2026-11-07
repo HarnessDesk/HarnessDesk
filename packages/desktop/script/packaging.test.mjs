@@ -298,3 +298,7 @@ test('the source-built iOS helper is an architecture-specific signed extra resou
   assert.match(smoke,/native\/ios\/hd-ios-control/)
   assert.match(smoke,/--version/)
 })
+test('native helpers in dependency dist are excluded from the application archive', () => {
+  const path='node_modules/@harnessdesk/cordis-host/dist/native/darwin-arm64/hd-ios-control'
+  assert.ok(manifest.build.files.some(glob=>glob.startsWith('!')&&matchesGlob(path,glob.slice(1))))
+})

@@ -5,6 +5,7 @@ import { mkdir, readFile, copyFile, writeFile } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
+import { measureProofEnvironment } from './ios-proof-environment.mjs'
 const run = promisify(execFile)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const at = process.argv.indexOf('--udid')
@@ -24,7 +25,8 @@ await run('codesign',['--force','--sign','-',app])
 await run('xcrun',['simctl','terminate',udid,'app.harnessdesk.input-fixture']).catch(()=>{})
 await run('xcrun',['simctl','install',udid,app])
 await run('xcrun',['simctl','launch',udid,'app.harnessdesk.input-fixture'])
-const helper = resolve(root,'packages/cordis-host/dist/native/darwin-arm64/hd-ios-control')
+const metadata = await measureProofEnvironment({ run, devices: JSON.parse(listing), udid, arch: process.arch })
+const helper = resolve(root, metadata.helper)
 const measurement=resolve(scratch,'fixture-before.png')
 await run('xcrun',['simctl','io',udid,'screenshot',measurement])
 const png=await readFile(measurement)
@@ -99,6 +101,6 @@ assert(receipts.some(r=>r.kind==='lifecycle' && r.state==='background'), 'No Hom
 await run('xcrun',['simctl','launch',udid,'app.harnessdesk.input-fixture'])
 const after = await pointer()
 assert.deepEqual(after,before,'The macOS pointer moved during native input.')
-const result={udid,device:device.name,runtime:'iOS 26.5',xcode:'27.1 (27A9275)',simulatorApp:windowState,windowReceipt,pointerBefore:before,pointerAfter:after,receipts}
+const result={udid,device:device.name,runtime:metadata.runtime,runtimeIdentifier:metadata.runtimeIdentifier,xcode:metadata.xcode,simulatorApp:windowState,windowReceipt,pointerBefore:before,pointerAfter:after,receipts}
 await writeFile(resolve(scratch,`native-proof-${windowState}.json`),JSON.stringify(result,null,2)+'\n')
 console.log(JSON.stringify(result,null,2))

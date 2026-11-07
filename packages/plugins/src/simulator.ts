@@ -161,7 +161,7 @@ export const simulatorPlugin: HarnessPlugin = {
       ]
       for (const input of inputs) ctx.tools.register({
         name: input.name, title: input.title,
-        description: `${input.title}. Coordinates and distances are original screenshot pixels. Returns a fresh frame of the concrete target; unverified native operations are refused.`,
+        description: `${input.title}.${'frameId' in input.properties ? ' Coordinates and distances are original screenshot pixels.' : ''} Returns a fresh frame of the concrete target; unverified native operations are refused.`,
         inputSchema: { type: 'object', $defs: defs, properties: input.properties, required: input.required, additionalProperties: false },
         execute: async (args: Record<string, unknown>) => {
           const { udid, ...values } = args

@@ -34,10 +34,11 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { readdirSync, readFileSync, writeFileSync, mkdtempSync, rmdirSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { withIosReleaseMount } from './ios-release-mount.mjs'
 import { verifyIosArtifact } from './verify-ios-artifact.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -186,16 +187,7 @@ const verifyArtifacts = dirArg => {
     const arch = /-arm64\.dmg$/.test(dmg) ? 'arm64' : /-x64\.dmg$/.test(dmg) ? 'x64' : null
     if (!arch) fail(`${dmg}: the artifact name does not identify its architecture.`)
     const mount = mkdtempSync(join(dir, '.verify-ios-'))
-    let mounted = false
-    try {
-      run('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mount, join(dir, dmg)])
-      mounted = true
-      verifyIosArtifact(join(mount, 'HarnessDesk.app'), arch)
-    } finally {
-      if (mounted) run('hdiutil', ['detach', mount])
-      // Remove only the empty directory we created, never a mounted volume's contents.
-      rmdirSync(mount)
-    }
+    withIosReleaseMount(join(dir, dmg), mount, () => verifyIosArtifact(join(mount, 'HarnessDesk.app'), arch), { run })
   }
 }
 

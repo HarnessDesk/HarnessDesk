@@ -315,3 +315,10 @@ verify its nested signature with `codesign --verify --strict`, and test dynamic
 framework loading and simulator input from the signed, notarized app. The ad-hoc
 `pack` and `smoke` checks do not establish Developer ID or notarized compatibility.
 No library-validation exception is added for this helper.
+
+The release verification machine must have Xcode 27 or newer selected in
+Settings › Locations › Command Line Tools. It also needs Rosetta installed to
+execute the x64 helper's `--probe` on Apple silicon. Artifact verification checks
+that the signed resource is the only helper in the bundle. If detach fails,
+verification retries once and retains the mount rather than removing a mounted
+volume; detach the reported verification mount before removing its empty folder.
