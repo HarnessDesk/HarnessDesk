@@ -870,9 +870,15 @@ copies the directory into `~/.harnessdesk/plugins/<id>` (or
 
 **The development loop:** edit your plugin where it lives, then press
 **Update from source** in the More menu of its page in Customize › Plugins
-(offered for a plugin installed from a local path). The copy is
+(offered for a plugin installed from a local path). The manifest in your
+folder is read and shown, as for a first install; once you agree, the copy is
 refreshed and the module reloaded — imports are cache-busted, so the new code
 is really the code that runs.
+
+What is installed is what was shown. The dialog carries back the digest of
+the manifest it displayed, the copy is checked against it before it replaces
+the installed one, and a manifest that changed in between is refused. That
+digest is what the host records as agreed to.
 
 [`examples/browser-plugin`](../examples/browser-plugin) is all of the above as
 one working plugin — install it by path and read it side by side with this

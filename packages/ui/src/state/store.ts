@@ -8713,22 +8713,6 @@ export class AppStore {
     }
   }
 
-  /**
-   * The developer loop: edit the plugin where it lives, press Update, get the
-   * new code — a fresh install from the recorded source path, cache-busted.
-   */
-  async updatePluginFromSource(plugin: PluginInstance): Promise<void> {
-    const source = plugin.identity.source
-    if (source.kind !== 'local' || !source.path) return
-    try {
-      await this.transport.request('plugin/install', { specifier: source.path })
-      await this.loadPlugins()
-      this.resultNotice('info', `${plugin.identity.name} updated from ${source.path}.`)
-    } catch (error) {
-      this.resultNotice('error', describe(error))
-    }
-  }
-
   async uninstallPlugin(pluginId: string): Promise<void> {
     try {
       await this.transport.request('plugin/uninstall', { pluginId })

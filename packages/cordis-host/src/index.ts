@@ -29,10 +29,11 @@ export {
   redactCredentials,
   sanitise,
   uninstall,
+  type InspectedPackage,
   type InstalledManifest,
   type InstalledPlugin,
 } from './installer.js'
-export { ConsentRecord, consentPath, type ConsentCheck } from './plugin-consent.js'
+export { ConsentRecord, consentPath, manifestDigest, type ConsentCheck } from './plugin-consent.js'
 export type { HarnessContext, HarnessPluginModule } from './context.js'
 export { ALL_PERMISSIONS, type WorkspaceState } from './runtime.js'
 export type {

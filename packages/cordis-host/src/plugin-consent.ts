@@ -2,8 +2,6 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
-import { MANIFEST_FILENAME } from './manifest.js'
-
 /**
  * What the person agreed to when they installed each plugin.
  *
@@ -33,10 +31,13 @@ interface Entry {
   readonly manifest: string
 }
 
-const digest = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
+/**
+ * The digest of a manifest file's bytes: what the install dialog shows the
+ * person, what the install is held to, and what this record keeps.
+ */
+export const manifestDigest = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
 
-const digestAt = async (directory: string): Promise<string> =>
-  digest(await readFile(join(directory, MANIFEST_FILENAME)))
+const digest = manifestDigest
 
 export class ConsentRecord {
   /** Writes are serialised: plugins start in parallel, and two read-modify-writes would lose one. */
@@ -44,11 +45,16 @@ export class ConsentRecord {
 
   constructor(readonly path: string) {}
 
-  /** Records the manifest now in `directory` as the one the person agreed to for `id`. */
-  record(id: string, directory: string): Promise<void> {
+  /**
+   * Records `manifest`, the digest of the manifest the person was shown and
+   * agreed to, for `id`. The digest comes from that dialog, never from the
+   * installed copy: a copy that differs from what was shown is then a changed
+   * manifest, and does not start.
+   */
+  record(id: string, manifest: string): Promise<void> {
     return this.#serialised(async () => {
       const entries = await this.#read()
-      entries[id] = { manifest: await digestAt(directory) }
+      entries[id] = { manifest }
       await this.#write(entries)
     })
   }

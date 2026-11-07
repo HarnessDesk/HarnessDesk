@@ -51,7 +51,7 @@ store.transport.request = (async (method, params) => {
     if (query.get('frame-plugin-pending') === '1') return new Promise(() => {})
     return snapshot.contributions.filter(contribution => contribution.kind === (params as { kind: string }).kind)
   }
-  if (method === 'plugin/inspect') return { id: 'sample', name: 'Sample plugin', permissions: ['Read workspace files'], alreadyInstalled: false }
+  if (method === 'plugin/inspect') return { id: 'sample', name: 'Sample plugin', permissions: ['Read workspace files'], alreadyInstalled: false, manifestDigest: '0'.repeat(64) }
   if (method === 'plugin/list') return snapshot.plugins
   if (method === 'plugin/install' || method === 'plugin/configure' || method === 'plugin/setEnabled' || method === 'plugin/uninstall') return undefined
   return request(method, params as never)

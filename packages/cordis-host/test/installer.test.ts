@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,6 +14,7 @@ import {
   inspect,
   listInstalled,
   loadInstalled,
+  manifestDigest,
   parseManifest,
   readPermissions,
   redactCredentials,
@@ -219,6 +220,19 @@ test('installing copies the plugin into HarnessDesk’s own directory', async (t
     (await listInstalled()).map((entry) => entry.id),
     ['sample'],
   )
+})
+
+test('an install is held to the manifest that was shown, and a refused one leaves the installed copy', async (t) => {
+  const root = await withPluginsRoot(t)
+  const shown = (await inspect(FIXTURE)).manifestDigest
+  assert.equal(shown, manifestDigest(await readFile(join(FIXTURE, 'harnessdesk.plugin.json'))))
+  assert.equal((await install(FIXTURE, shown)).id, 'sample')
+  const copy = await readFile(join(root, 'sample', 'index.js'), 'utf8')
+
+  await assert.rejects(install(FIXTURE, 'f'.repeat(64)), /changed after it was shown to you/)
+  assert.equal(await readFile(join(root, 'sample', 'index.js'), 'utf8'), copy, 'the version already installed stays')
+  assert.deepEqual(await readdir(join(root, '.staging')).catch(() => []), [], 'no half-made copy is left behind')
+  assert.deepEqual((await listInstalled()).map((entry) => entry.id), ['sample'])
 })
 
 test('an installed plugin loads, registers, and runs', async (t) => {

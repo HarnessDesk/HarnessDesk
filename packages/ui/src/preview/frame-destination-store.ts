@@ -166,7 +166,7 @@ export const frameDestinationStore = (fixture: AppStore, { workspaceOutsideGit =
     if (method === 'usage/ledger') return fixture.ledger(params as Parameters<AppStore['ledger']>[0])
     if (method === 'insight/usage') return fixture.readUsageInsight(params as Parameters<AppStore['readUsageInsight']>[0])
     if (method === 'capability/list') return seed.contributions.filter(contribution => contribution.kind === (params as {kind:string}).kind)
-    if (method === 'plugin/inspect') return {id:'sample',name:'Sample plugin',permissions:['Read workspace files'],alreadyInstalled:false}
+    if (method === 'plugin/inspect') return {id:'sample',name:'Sample plugin',permissions:['Read workspace files'],alreadyInstalled:false,manifestDigest:'0'.repeat(64)}
     if (method === 'plugin/list') return fixture.getSnapshot().plugins
     if (method === 'plugin/setEnabled') {
       const { pluginId, enabled } = params as {pluginId:string;enabled:boolean}

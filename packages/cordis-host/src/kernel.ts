@@ -620,6 +620,7 @@ export class ExtensionKernel implements CapabilityRegistry {
     source: PluginSource
     permissions: readonly string[]
     alreadyInstalled: boolean
+    manifestDigest: string
   }> {
     const pkg = await inspect(specifier)
     const manifest = pkg.manifest
@@ -631,12 +632,17 @@ export class ExtensionKernel implements CapabilityRegistry {
       source: manifest.source ?? { kind: 'local', path: pkg.directory },
       permissions: describePermissions(mergePermissions(manifest.permissions)),
       alreadyInstalled: this.#plugins.has(manifest.id),
+      manifestDigest: pkg.manifestDigest,
     }
   }
 
-  /** Installs and loads in one step; the consent decision happened already. */
-  async installPlugin(specifier: string): Promise<string> {
-    const installed = await install(specifier)
+  /**
+   * Installs and loads in one step; the consent decision happened already,
+   * over the manifest whose digest is `manifestDigest`, and a package whose
+   * manifest is no longer that one is refused.
+   */
+  async installPlugin(specifier: string, manifestDigest: string): Promise<string> {
+    const installed = await install(specifier, manifestDigest)
     // Replacing an existing plugin means unloading the old one first, or two
     // revisions of the same id would both be live.
     if (this.#plugins.has(installed.id)) await this.unload(installed.id)

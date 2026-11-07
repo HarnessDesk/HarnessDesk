@@ -332,7 +332,8 @@ test('installing a plugin that is running replaces its process', async () => {
   const harness = await start(['envspy'])
   try {
     const before = await spy(harness)
-    const id = await harness.host.installPlugin(join(FIXTURES, 'plugin-envspy'))
+    const source = join(FIXTURES, 'plugin-envspy')
+    const id = await harness.host.installPlugin(source, (await harness.host.inspectPlugin(source)).manifestDigest)
     assert.equal(id, 'envspy')
     const processes = (await harness.host.stats()).processes ?? []
     assert.equal(processes.filter((entry) => entry.plugin === 'envspy').length, 1, 'one process for it, not two')
@@ -340,6 +341,32 @@ test('installing a plugin that is running replaces its process', async () => {
     assert.notEqual(after.pid, before.pid, 'the new version runs in a new process')
     assert.equal(harness.host.plugins().filter((plugin) => plugin.identity.id === 'envspy').length, 1)
   } finally {
+    await cleanup(harness)
+  }
+})
+
+test('an install whose manifest changed after it was shown is refused, and the running version stays', async () => {
+  const harness = await start(['envspy'])
+  const source = await mkdtemp(join(tmpdir(), 'hd-perplugin-source-'))
+  try {
+    await cp(join(FIXTURES, 'plugin-envspy'), source, { recursive: true })
+    const before = await spy(harness)
+    const record = await readFile(join(harness.dir, 'plugin-consent.json'), 'utf8')
+    const shown = (await harness.host.inspectPlugin(source)).manifestDigest
+    const path = join(source, 'harnessdesk.plugin.json')
+    const manifest = JSON.parse(await readFile(path, 'utf8')) as { permissions?: Record<string, unknown> }
+    manifest.permissions = { ...manifest.permissions, shell: true }
+    await writeFile(path, JSON.stringify(manifest))
+
+    await assert.rejects(harness.host.installPlugin(source, shown), /changed after it was shown to you/)
+    assert.equal(await readFile(join(harness.dir, 'plugin-consent.json'), 'utf8'), record, 'nothing unseen is recorded')
+    assert.equal((await spy(harness)).pid, before.pid, 'the installed version was never stopped')
+    const installed = JSON.parse(await readFile(join(harness.dir, 'plugins', 'envspy', 'harnessdesk.plugin.json'), 'utf8')) as {
+      permissions?: Record<string, unknown>
+    }
+    assert.notEqual(installed.permissions?.['shell'], true, 'the installed copy is the one agreed to')
+  } finally {
+    await rm(source, { recursive: true, force: true })
     await cleanup(harness)
   }
 })

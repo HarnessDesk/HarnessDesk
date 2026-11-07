@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
-import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -16,6 +17,7 @@ import {
   parseManifest,
   type PluginPackage,
 } from './manifest.js'
+import { manifestDigest } from './plugin-consent.js'
 
 /**
  * Installing and loading plugins from disk and from npm.
@@ -65,22 +67,32 @@ const readManifestAt = async (
   source: PluginSource,
 ): Promise<PluginPackage> => parseManifestBytes(await readManifestBytes(directory), directory, source)
 
+/** A package read for the consent dialog, with the digest of the manifest bytes shown. */
+export interface InspectedPackage extends PluginPackage {
+  readonly manifestDigest: string
+}
+
+const inspectAt = async (directory: string, source: PluginSource): Promise<InspectedPackage> => {
+  const bytes = await readManifestBytes(directory)
+  return { ...parseManifestBytes(bytes, directory, source), manifestDigest: manifestDigest(bytes) }
+}
+
 /**
  * Reads a plugin's manifest without installing or running anything.
  *
  * This is what the consent dialog is built from: the user sees what a plugin
  * asks for before any of its code is imported.
  */
-export const inspect = async (specifier: string): Promise<PluginPackage> => {
+export const inspect = async (specifier: string): Promise<InspectedPackage> => {
   if (isLocalPath(specifier)) {
     const directory = resolve(specifier)
-    return readManifestAt(directory, { kind: 'local', path: directory })
+    return inspectAt(directory, { kind: 'local', path: directory })
   }
   // An npm package has to be fetched before its manifest can be read; `npm pack`
   // downloads the tarball without running install scripts.
   const staging = join(pluginsRoot(), '.staging', sanitise(specifier))
   await fetchFromNpm(specifier, staging)
-  return readManifestAt(staging, { kind: 'npm', specifier })
+  return inspectAt(staging, { kind: 'npm', specifier })
 }
 
 const isLocalPath = (specifier: string): boolean =>
@@ -157,35 +169,58 @@ export interface InstalledPlugin {
 /** Where the installed copy remembers what it was installed from. */
 const SOURCE_FILENAME = '.harnessdesk-source.json'
 
-export const install = async (specifier: string): Promise<InstalledPlugin> => {
+export const install = async (specifier: string, reviewed?: string): Promise<InstalledPlugin> => {
   const inspected = await inspect(specifier)
-  const target = join(pluginsRoot(), inspected.manifest.id)
+  const id = inspected.manifest.id
+  const target = join(pluginsRoot(), id)
 
-  if (resolve(inspected.directory) === resolve(target)) {
-    throw new InstallError(
-      `${inspected.manifest.id} is already the installed copy. Install from the ` +
-        'directory you develop in, and "Update from source" will work from then on.',
+  try {
+    if (resolve(inspected.directory) === resolve(target)) {
+      throw new InstallError(
+        `${id} is already the installed copy. Install from the ` +
+          'directory you develop in, and "Update from source" will work from then on.',
+      )
+    }
+    // `reviewed` is the digest of the manifest the person was shown. The
+    // source is read again here, and can have changed since: a local folder
+    // is edited, an npm tag moves. What they agreed to is what gets installed,
+    // or nothing is.
+    const changed = (): InstallError => new InstallError(
+      `The manifest of ${id} changed after it was shown to you, so nothing was installed. ` +
+        'Read it again before installing.',
     )
-  }
+    if (reviewed !== undefined && inspected.manifestDigest !== reviewed) throw changed()
 
-  await rm(target, { recursive: true, force: true })
-  await mkdir(target, { recursive: true })
-  await cp(inspected.directory, target, { recursive: true })
-  // The installed copy remembers its origin, so "Update from source" can
-  // reinstall from where the developer actually edits — the copied
-  // manifest's own idea of its source is this directory, which is useless.
-  await writeFile(
-    join(target, SOURCE_FILENAME),
-    JSON.stringify(inspected.manifest.source ?? { kind: 'local', path: resolve(specifier) }),
-  )
-
-  // The staging copy has served its purpose.
-  if (inspected.directory.includes(`${'.staging'}`)) {
-    await rm(inspected.directory, { recursive: true, force: true })
+    // Copied beside the target and checked there, then moved into place: the
+    // installed copy is the checked one, and a refused install leaves the
+    // version already installed as it was.
+    const incoming = join(pluginsRoot(), '.staging', `${id}.install-${randomUUID()}`)
+    await mkdir(join(pluginsRoot(), '.staging'), { recursive: true })
+    try {
+      await cp(inspected.directory, incoming, { recursive: true })
+      if (reviewed !== undefined && manifestDigest(await readManifestBytes(incoming)) !== reviewed) throw changed()
+      // The installed copy remembers its origin, so "Update from source" can
+      // reinstall from where the developer actually edits — the copied
+      // manifest's own idea of its source is this directory, which is useless.
+      await writeFile(
+        join(incoming, SOURCE_FILENAME),
+        JSON.stringify(inspected.manifest.source ?? { kind: 'local', path: resolve(specifier) }),
+      )
+      await rm(target, { recursive: true, force: true })
+      await rename(incoming, target)
+    } catch (error) {
+      await rm(incoming, { recursive: true, force: true })
+      throw error
+    }
+  } finally {
+    // The npm staging copy has served its purpose, installed or not.
+    if (inspected.directory.includes(`${'.staging'}`)) {
+      await rm(inspected.directory, { recursive: true, force: true })
+    }
   }
 
   return {
-    id: inspected.manifest.id,
+    id,
     directory: target,
     source: inspected.manifest.source ?? { kind: 'local', path: target },
   }

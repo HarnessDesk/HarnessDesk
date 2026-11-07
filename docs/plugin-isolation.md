@@ -229,7 +229,12 @@ of them:
 **The consent record.** When the person installs a plugin, they see what its
 manifest asks for, and the host records exactly that, outside the plugins
 directory. An update is an install: the person sees the new manifest, and
-their agreement replaces the record. At every start, the host reads the
+their agreement replaces the record. "Exactly that" is held by a digest: the
+dialog that showed the manifest passes its digest back with the install, the
+copy is checked against it before it replaces the installed one, and the
+record keeps the digest of what was shown, never one read from the copy. A
+source that changes between the dialog and the click is refused, and the
+installed version stays as it was. At every start, the host reads the
 manifest again and compares. If it no longer matches the record, the plugin
 does not start. Settings lists it as failed, saying its manifest changed
 since it was installed; installing it again shows the person the new manifest,

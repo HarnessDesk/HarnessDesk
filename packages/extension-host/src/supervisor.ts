@@ -1850,27 +1850,38 @@ export class SupervisedExtensionHost {
 
   /**
    * The installer copies the package into place; the host records the
-   * manifest the person just agreed to, then starts the plugin in a proc
-   * of its own. An older version's proc is stopped first.
+   * manifest the person agreed to, then starts the plugin in a proc of its
+   * own. An older version's proc is stopped first.
+   *
+   * `manifestDigest` is the digest `inspectPlugin` reported for the manifest
+   * the person was shown. The install is refused unless the copy it makes
+   * has exactly that manifest, and that digest, not the copy's, is what the
+   * consent record keeps.
    */
-  async installPlugin(specifier: string): Promise<string> {
+  async installPlugin(specifier: string, manifestDigest: string): Promise<string> {
     // An older version of the same plugin stops before its files are
     // replaced: a process left running through the install could rewrite the
     // new manifest before the host records it. The id comes from inspecting
     // the package, which runs none of its code.
     const inspected = await this.#installer.call('plugin/inspect', { specifier })
+    if (inspected.manifestDigest !== manifestDigest) {
+      throw new Error(
+        `The manifest of ${inspected.id} changed after it was shown to you, so nothing was installed. ` +
+          'Read it again before installing.',
+      )
+    }
     const existing = this.#members.get(inspected.id)
     if (existing) await this.#stop(existing)
     let id: string
     try {
-      ;({ id } = await this.#installer.call('plugin/install', { specifier }))
+      ;({ id } = await this.#installer.call('plugin/install', { specifier, manifestDigest }))
     } catch (error) {
       // The install did not happen, so the version that was running comes back.
       if (existing?.enabled) await this.#start(existing)
       throw error
     }
     const directory = join(this.#root, id)
-    await this.#consent.record(id, directory)
+    await this.#consent.record(id, manifestDigest)
     const member = this.#members.get(id) ?? { id, directory, proc: null, enabled: true, problem: null, config: null, identity: null, generation: 0 }
     this.#members.set(id, member)
     if (member !== existing && existing) await this.#stop(existing)

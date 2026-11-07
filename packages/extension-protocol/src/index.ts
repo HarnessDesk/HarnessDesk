@@ -77,8 +77,9 @@ import type {
 // 13 adds host-owned, invocation-bound simulator capability requests.
 // 14 allows a non-secret per-owner refusal marker instead of an iOS bearer.
 // 15 carries the injected request-clock scale used by deadline tests.
-// 16 binds each plugin host process to exactly one installed plugin, and runs
-//    hooks one at a time so the parent can order them across processes.
+// 16 binds each plugin host process to exactly one installed plugin, runs
+//    hooks one at a time so the parent can order them across processes, and
+//    holds an install to the digest of the manifest the person was shown.
 export const EXTENSION_PROTOCOL_VERSION = 16
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
@@ -90,6 +91,8 @@ export interface InspectedPlugin {
   readonly source: PluginSource
   readonly permissions: readonly string[]
   readonly alreadyInstalled: boolean
+  /** The sha256 of the manifest bytes shown; `plugin/install` is held to it. */
+  readonly manifestDigest: string
 }
 
 /** Resource accounting the child reports about itself. */
@@ -166,7 +169,10 @@ export interface PluginHostMethods {
    */
   'plugins/loadInstalled': { params: Record<string, never>; result: null }
   'plugin/inspect': { params: { readonly specifier: string }; result: InspectedPlugin }
-  'plugin/install': { params: { readonly specifier: string }; result: { readonly id: string } }
+  'plugin/install': {
+    params: { readonly specifier: string; readonly manifestDigest: string }
+    result: { readonly id: string }
+  }
   'plugin/uninstall': { params: { readonly pluginId: string }; result: null }
   'plugin/setEnabled': {
     params: { readonly pluginId: string; readonly enabled: boolean }

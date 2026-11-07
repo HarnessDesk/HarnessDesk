@@ -299,7 +299,7 @@ const handlers: Handlers = {
   // Copies the package into place and nothing more: the plugin's own process imports it.
   'plugin/install': async (params) => {
     onlyInstaller('install packages')
-    return { id: (await install(params.specifier)).id }
+    return { id: (await install(params.specifier, params.manifestDigest)).id }
   },
   'plugin/uninstall': async (params) => {
     onlyInstaller('remove packages')

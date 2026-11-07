@@ -2797,10 +2797,17 @@ export interface HostMethods {
       /** Plain-language lines describing what it is asking for. */
       readonly permissions: readonly string[]
       readonly alreadyInstalled: boolean
+      /** The sha256 of the manifest shown; the install that follows passes it back. */
+      readonly manifestDigest: string
     }
   }
+  /**
+   * Installs what `plugin/inspect` showed. `manifestDigest` is the one it
+   * reported: a package whose manifest has changed since is refused, so what
+   * the person agreed to is what is installed.
+   */
   'plugin/install': {
-    params: { readonly specifier: string }
+    params: { readonly specifier: string; readonly manifestDigest: string }
     result: { readonly pluginId: string }
   }
   'plugin/uninstall': { params: { readonly pluginId: string }; result: null }
