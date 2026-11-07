@@ -119,13 +119,16 @@ export function scriptedFlow(raw, { send, notify }) {
               if (script.approvalBeforeWork === true) await requestApproval(threadId, turnId, cwd, controller.signal)
               check()
               if (script.delayMs) await delay(script.delayMs, undefined, { signal: controller.signal })
-              if (script.gates) {
+              const gate = async (name) => {
                 const until = Date.now() + 90000
-                while (!existsSync(join(script.gates, marker))) {
-                  if (Date.now() > until) throw new Error(`The scripted ${marker} camera gate was not released`)
+                while (!existsSync(join(script.gates, name))) {
+                  if (Date.now() > until) throw new Error(`The scripted ${name} camera gate was not released`)
                   await delay(50, undefined, { signal: controller.signal })
                 }
               }
+              // A reviewer held on its commit waits for that commit's own gate instead, once it knows the commit.
+              const onHead = script.gates && script.reviewGateOnHead === true && step.kind === 'review'
+              if (script.gates && !onHead) await gate(marker)
               check()
               if (step.kind === 'write') {
                 if (step.publish && execFileSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf8' }).trim() !== `rig-write-review-${intent}`) {
@@ -144,8 +147,10 @@ export function scriptedFlow(raw, { send, notify }) {
               } else {
                 const candidates = await call(tools, threadId, turnId, 'review_candidates', { intent })
                 check()
-                const candidate = /^(\S+) — at [0-9a-f]+/m.exec(candidates)?.[1]
+                const found = /^(\S+) — at ([0-9a-f]+)/m.exec(candidates)
+                const candidate = found?.[1]
                 if (!candidate) throw new Error(`No observed review candidate: ${candidates}`)
+                if (onHead) { await gate(`${marker}@${found[2]}`); check() }
                 await call(tools, threadId, turnId, 'record_review', { intent, candidate, verdict: outcome })
                 check()
               }
