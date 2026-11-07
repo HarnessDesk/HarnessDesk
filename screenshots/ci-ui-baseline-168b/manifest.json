@@ -1,0 +1,24 @@
+{
+  "sourceHead": "168b3196033dce926abeabf5d25f6117250e6400",
+  "scope": "Synthetic preview only; not a production phone or native application capture",
+  "viewport": {
+    "width": 340,
+    "height": 800
+  },
+  "privacyAuditReasons": 0,
+  "parentVisuallyInspected": true,
+  "frames": [
+    {
+      "file": "header-status-narrow-inline.png",
+      "sha256": "81d2f2eabba45ec167aa9768dbe27f65c826d5bb8ea9b4e0b364cc89129b170d",
+      "width": 340,
+      "height": 893
+    },
+    {
+      "file": "header-status-narrow-roster.png",
+      "sha256": "a4508672808159b83f97c53dbf92f73f5365f90ccb329656b468da658c7e45ff",
+      "width": 340,
+      "height": 893
+    }
+  ]
+}
