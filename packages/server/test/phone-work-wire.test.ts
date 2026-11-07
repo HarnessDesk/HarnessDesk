@@ -176,8 +176,9 @@ test('the phone surface carries the three workspace names at the tiers a phone n
   assert.equal(PHONE_POLICY.methods['workspace/read'], 'read')
   assert.equal(PHONE_POLICY.methods['workspace/thread/read'], 'read')
   assert.equal(PHONE_POLICY.methods['workspace/approval/decide'], 'answer')
+  assert.equal(PHONE_POLICY.methods['workspace/team/wrap'], 'answer')
   assert.equal(PHONE_POLICY.topics.workspace, 'read')
-  assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/session/send', 'workspace/session/start', 'workspace/sessions/list', 'workspace/stop', 'workspace/thread/read'])
+  assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/session/send', 'workspace/session/start', 'workspace/sessions/list', 'workspace/stop', 'workspace/team/wrap', 'workspace/thread/read'])
 })
 
 test('a phone that may read gets the snapshot and a conversation, and both scrub machine paths, addresses and output tokens', async () => {

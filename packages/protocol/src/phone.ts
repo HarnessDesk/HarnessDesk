@@ -220,6 +220,10 @@ export interface PhoneWorkTeam {
   readonly workers: readonly PhoneWorkWorker[]
   readonly reviewers: number
   readonly spent: PhoneMoney
+  /** The plan step a Lead started this Team for, so two Teams of one goal can be told apart. Left out otherwise. */
+  readonly step?: string
+  /** The person accepted the Lead's result and this Team is ready to wrap: `workspace/team/wrap` will take it. */
+  readonly canWrap?: true
 }
 
 export interface PhoneWorkItem {

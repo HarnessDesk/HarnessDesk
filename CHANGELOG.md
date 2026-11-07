@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Wrap a Lead's Teams from your phone.** Once you accept the Lead's result, each of its Teams offers Wrap up: the desk closes it with its own receipt and keeps every branch. Two Teams of one goal are named by their plan step, and the result card says which commit to check and that the review read the same one.
+
 - **The Lead waits, then asks when a delegated chat gets stuck.** It retries on the provider’s reset clock at most twice, then offers retry, move to another available agent with the original request and progress, or stop.
 - **Lead calls work done only with evidence.** Reviews that say “should work” no longer pass, and checks that could not run ask for another check instead of a pointless repair round. Repairs focus on what failed.
 

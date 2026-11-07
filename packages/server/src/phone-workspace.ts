@@ -78,7 +78,11 @@ export interface PhoneWorkspacePorts {
 }
 
 /** The chats the Lead holds in its project. A chat the person took over is theirs again. */
-interface LeadChats { readonly name: string; readonly ids: ReadonlySet<string>; readonly retrying?: ReadonlySet<string> }
+interface LeadChats {
+  readonly name: string; readonly ids: ReadonlySet<string>; readonly retrying?: ReadonlySet<string>
+  /** The Teams the current Lead goal started, by Team id. */
+  readonly teams?: ReadonlyMap<string, { readonly step: string | null; readonly accepted: boolean }>
+}
 
 const workTeamStage = (input: PhoneTeamInput) => input.view.stage === undefined
   ? teamLeadStage(input.view, input.execution) : { stage: input.view.stage, reason: input.view.stageReason ?? 'idle' }
@@ -329,14 +333,22 @@ export class PhoneWorkspace {
       }
     })
     const { done, total } = row.progress
+    // A Team the Lead started is the Lead's work: it says so, names its plan step, and once the person accepted the
+    // result it can be wrapped from the phone.
+    const lead = this.#ports.leadChats?.() ?? null
+    const owned = lead?.teams?.get(input.view.goal.id)
+    const step = owned?.step ? scrub(owned.step, 80) : ''
     return {
       stage, stageReason, id: row.id, kind: 'team', title: row.title, ...(row.project ? { project: row.project } : {}), phase, line,
+      ...(owned && lead ? { by: lead.name } : {}),
       updatedAt: row.updatedAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
       team: {
         stage: row.stage, ...(total > 0 ? { stageNote: `${done} of ${total} done` } : {}),
         startedAt: input.view.goal.createdAt, workers,
         reviewers: members.filter(member => /review|referee|audit|critic/i.test(member.role ?? '')).length,
         spent: micros(row.cost ?? 0),
+        ...(step ? { step } : {}),
+        ...(owned?.accepted && row.status === 'ready' ? { canWrap: true as const } : {}),
       },
     }
   }

@@ -48,6 +48,8 @@ export const PHONE_POLICY: PhonePolicy = {
     'workspace/stop': 'run',
     'workspace/thread/read': 'read',
     'workspace/approval/decide': 'answer',
+    // Only a Team whose Lead result the person accepted, and only when nothing on it needs a choice.
+    'workspace/team/wrap': 'answer',
     'lead/thread/send': 'run',
     'lead/stop': 'run',
     'lead/resume': 'run',

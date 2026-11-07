@@ -80,6 +80,8 @@ const UNREACHED = {
     'likewise — the paired phone reads one conversation through this redacted projection; the window opens the session itself',
   'workspace/approval/decide':
     'likewise — the paired phone answers an approval here; the window answers through `approval/respond`, which this calls',
+  'workspace/team/wrap':
+    'likewise — the native phone wraps a Team whose Lead result the person accepted; the window wraps through goal/preview and goal/wrap',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
 }
