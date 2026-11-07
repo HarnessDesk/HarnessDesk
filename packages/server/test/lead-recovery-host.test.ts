@@ -3,7 +3,8 @@ import { readFile, realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { createLeadJournal, initialLeadState, type LeadJournal, type LeadPermissionCall, type LeadPermissionContext } from '@harnessdesk/lead'
-import { runtimeId, sessionId, turnId, type AgentError, type WireNotification } from '@harnessdesk/protocol'
+import { canonicalTranscriptBody, runtimeId, sessionId, turnId, type AgentError, type WireNotification } from '@harnessdesk/protocol'
+import { TranscriptStore } from '../src/transcripts.js'
 import { evidenceDesk } from './fixtures/evidence-desk.js'
 import { FakeRuntime, FakeSession } from './fixtures/fake-runtime.js'
 
@@ -465,6 +466,14 @@ test('a desk interrupt settles an automatic retry through its terminal turn even
 
 
 for (const removal of ['cancel', 'clear', 'delete'] as const) test(`a queued renewal removed before dispatch settles recovery: ${removal}`, async t => {
+  let transcripts: TranscriptStore | undefined
+  if (removal === 'delete') {
+    const record = TranscriptStore.prototype.record
+    t.mock.method(TranscriptStore.prototype, 'record', function (this: TranscriptStore, ...args: Parameters<TranscriptStore['record']>) {
+      transcripts = this
+      return record.apply(this, args)
+    })
+  }
   const r = await rig(t), created = await r.start()
   r.fail(created.id, 'credits'); await r.idle()
   await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
@@ -474,7 +483,22 @@ for (const removal of ['cancel', 'clear', 'delete'] as const) test(`a queued ren
   const target = { runtime: r.runtime.info.id, sessionId: sessionId(created.id.slice(created.id.indexOf(':') + 1)) }
   const record = r.host.registry.get(target.runtime, target.sessionId)!
   assert.equal(record.queue.messages.length, 1)
-  if (removal === 'delete') r.host.registry.delete(target.runtime, target.sessionId)
+  if (removal === 'delete') {
+    // A bare registry delete does not perform the Host's transcript cleanup.
+    // Settle this active owner's exact body first so deletion cannot strand a
+    // pending write whose generation no longer has an owner.
+    assert.ok(transcripts, 'the real Host recorded a transcript')
+    const held = record.session
+    await transcripts.flushSession(target.runtime, target.sessionId)
+    const saved = await transcripts.recover(target.runtime, target.sessionId)
+    assert.ok(saved, 'the current transcript reached durable storage')
+    assert.equal(canonicalTranscriptBody(saved.turns).canonical, canonicalTranscriptBody(held.turns).canonical)
+    assert.equal(r.host.registry.get(target.runtime, target.sessionId), record, 'the saved generation still has its owner')
+    assert.equal(record.session, held, 'the saved body is still the current body')
+    assert.ok(record.running.size > 0 && held.turns.some(turn => turn.status === 'inProgress'), 'the person turn is still active')
+    assert.equal(record.queue.messages.length, 1, 'the renewal is still queued at deletion')
+    r.host.registry.delete(target.runtime, target.sessionId)
+  }
   else if (removal === 'clear') await r.host.call('turn/queue/clear', target)
   else await r.host.call('turn/queue/cancel', { ...target, id: record.queue.messages[0]!.id })
   await r.idle()
