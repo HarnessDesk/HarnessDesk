@@ -2,6 +2,8 @@ import { createInterface } from 'node:readline'
 
 import {
   ExtensionKernel,
+  install,
+  uninstall,
   setBrowserEngine,
   setBrowserSettings,
   setEditorEngine,
@@ -23,13 +25,18 @@ import {
 } from '@harnessdesk/extension-protocol'
 
 /**
- * The plugin host process.
+ * A plugin host process.
  *
- * This is the only place third-party plugin code ever runs. It owns a real
- * `ExtensionKernel`, serves the extension protocol over stdio, and holds
- * nothing else: no window, no wire server, no credential, no path to one.
- * A plugin that calls `process.exit` takes this process down and nothing
- * more — the parent notices the exit and restarts.
+ * This is the only place third-party plugin code ever runs, and each process
+ * runs exactly one plugin: `host/hello` binds it, and it refuses to load
+ * anything else. It owns a real `ExtensionKernel`, serves the extension
+ * protocol over stdio, and holds nothing else: no window, no wire server, no
+ * credential, no path to one. A plugin that calls `process.exit` takes this
+ * process down and nothing more — the parent notices the exit and restarts.
+ *
+ * One process is never bound: the installer. It inspects, installs and
+ * removes packages, which never imports their code, and it refuses to load a
+ * plugin. See docs/plugin-isolation.md.
  *
  * stdout carries protocol lines only; the kernel's own logging goes to
  * stderr, where the parent forwards it to the diagnostics log.
@@ -207,6 +214,19 @@ kernel.subscribe((event) => {
   snapshot()
 })
 
+/** The plugin this process runs; null until `host/hello`, and for the installer. */
+let bound: { readonly id: string; readonly directory: string } | null = null
+let greeted = false
+
+const onlyInstaller = (what: string): void => {
+  if (bound) throw new Error(`This process runs ${bound.id}; it does not ${what}.`)
+}
+const onlyBound = (pluginId?: string): { readonly id: string; readonly directory: string } => {
+  if (!bound) throw new Error('The installer process runs no plugin.')
+  if (pluginId !== undefined && pluginId !== bound.id) throw new Error(`This process runs ${bound.id}, not ${pluginId}.`)
+  return bound
+}
+
 type Handlers = {
   [K in keyof PluginHostMethods]: (
     params: PluginHostMethods[K]['params'],
@@ -221,6 +241,9 @@ const handlers: Handlers = {
           `not ${params.protocolVersion}. The build is inconsistent; reinstall.`,
       )
     }
+    if (greeted) throw new Error('This plugin host has already been greeted.')
+    greeted = true
+    if (params.plugin) bound = { id: params.plugin.id, directory: params.plugin.directory }
     if (params.inlineBrowser) setBrowserEngine(remoteBrowserEngine)
     // A restarted child is told again, because it starts on the defaults.
     if (params.browser) setBrowserSettings(params.browser)
@@ -231,22 +254,31 @@ const handlers: Handlers = {
     return null
   },
   'plugins/loadInstalled': async () => {
-    await kernel.loadInstalledPlugins()
+    const plugin = onlyBound()
+    await kernel.loadInstalledPlugin(plugin.directory, plugin.id)
     snapshot()
     return null
   },
-  'plugin/inspect': (params) => kernel.inspectPlugin(params.specifier),
-  'plugin/install': async (params) => ({ id: await kernel.installPlugin(params.specifier) }),
+  'plugin/inspect': (params) => {
+    onlyInstaller('inspect packages')
+    return kernel.inspectPlugin(params.specifier)
+  },
+  // Copies the package into place and nothing more: the plugin's own process imports it.
+  'plugin/install': async (params) => {
+    onlyInstaller('install packages')
+    return { id: (await install(params.specifier)).id }
+  },
   'plugin/uninstall': async (params) => {
-    await kernel.uninstallPlugin(params.pluginId)
+    onlyInstaller('remove packages')
+    await uninstall(params.pluginId)
     return null
   },
   'plugin/setEnabled': async (params) => {
-    await kernel.setEnabled(params.pluginId, params.enabled)
+    await kernel.setEnabled(onlyBound(params.pluginId).id, params.enabled)
     return null
   },
   'plugin/reconfigure': async (params) => {
-    await kernel.reconfigure(params.pluginId, params.config)
+    await kernel.reconfigure(onlyBound(params.pluginId).id, params.config)
     return null
   },
   'command/run': async (params) => ({
@@ -255,6 +287,7 @@ const handlers: Handlers = {
   'tool/invoke': (params) =>
     kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null),
   'hooks/run': (params) => kernel.runHooks(params.invocation),
+  'hooks/runOne': (params) => kernel.runHook(params.id as never, params.invocation),
   'context/resolve': (params) => kernel.resolveContext(params.query),
   'context/resolveOne': (params) => kernel.resolveOne(params.id as never, params.ref, params.scope),
   'workspace/set': (params) => {

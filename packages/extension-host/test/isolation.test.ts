@@ -109,24 +109,24 @@ test('a plugin loaded in the child contributes tools the parent can call', async
   }
 })
 
-test('a plugin calling process.exit kills only the plugin host; callers fail fast and it recovers', async () => {
+test('a plugin calling process.exit kills only its own process; its caller fails fast, a bystander never notices, and it recovers', async () => {
   const harness = await start(['good', 'exit'])
   try {
     const began = Date.now()
     const dying = harness.host.invokeTool(harness.toolId('die'), {}, scope)
     const bystander = harness.host.invokeTool(harness.toolId('ping'), {}, scope)
 
-    // Both in-flight calls resolve to failures well inside the timeout: the
-    // exit is detected, not waited out.
+    // The dying call fails well inside the timeout: the exit is detected, not
+    // waited out. The other plugin runs in a process of its own and answers.
     const [dieResult, pingResult] = await Promise.all([dying, bystander])
     assert.equal(dieResult.ok, false)
     assert.match(String((dieResult as { error: string }).error), /exited/)
-    assert.equal(pingResult.ok, false)
+    assert.equal(pingResult.ok, true, JSON.stringify(pingResult))
     assert.ok(Date.now() - began < 1400, 'failure came from the exit, not the deadline')
 
     // This process is alive to make the next assertion, which is the point.
-    // The supervisor restarts the child and reloads what is installed.
-    await until(() => harness.host.plugins().some((plugin) => plugin.identity.id === 'good'))
+    // The supervisor restarts the plugin's process and reloads it.
+    await until(() => harness.host.plugins().some((plugin) => plugin.identity.id === 'exit' && plugin.state.type === 'active'))
     const recovered = await harness.host.invokeTool(harness.toolId('ping'), {}, scope)
     assert.equal(recovered.ok, true)
   } finally {
@@ -161,15 +161,25 @@ test('a host whose start fails is disposed, so no child is restarted behind the 
   // supervisor restarts a child it killed whether or not anyone is left who
   // wants it, so the host has to be disposed on the failure — and the child
   // it would have brought up is a healthy one that nothing ever ends.
-  await assert.rejects(start(['slow-once'], { invokeTimeoutMs: 400 }), /did not answer/)
+  //
+  // One plugin that fails to start does not fail the others' start: it is
+  // listed with the reason, and its process is disposed, not restarted.
+  const harness = await start(['slow-once'], { invokeTimeoutMs: 400 })
+  try {
+    const listed = harness.host.plugins().find((plugin) => plugin.identity.id === 'slow-once')
+    assert.equal(listed?.state.type, 'failed')
+    assert.match(listed?.state.type === 'failed' ? listed.state.message : '', /did not answer/)
 
-  // The child the deadline killed is only just gone, and its replacement
-  // would come up a quarter of a second after that. Neither may be there.
-  await childrenGone()
-  const watched = Date.now() + 1500
-  while (Date.now() < watched) {
-    assert.equal(childrenUp(), 0, 'a plugin host child is running and no test owns it')
-    await new Promise((resolve) => setTimeout(resolve, 25))
+    // The child the deadline killed is only just gone, and its replacement
+    // would come up a quarter of a second after that. Neither may be there.
+    await childrenGone()
+    const watched = Date.now() + 1500
+    while (Date.now() < watched) {
+      assert.equal(childrenUp(), 0, 'a plugin host child is running and no test owns it')
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+  } finally {
+    await cleanup(harness)
   }
 })
 

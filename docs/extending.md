@@ -105,6 +105,17 @@ Built-in plugins are held to their manifests exactly like third-party ones. That
 is deliberate: a permission model only stays correct if the code you ship every
 day runs through it.
 
+An installed plugin runs in a process of its own, started for it alone, with a
+short allowlist of environment variables rather than the host's. The host knows
+which plugin is asking from the pipe a request arrives on, not from anything the
+request says, and it holds each plugin to the manifest the person agreed to at
+install: if the manifest on disk changes afterwards, the plugin does not start
+until it is installed again. A plugin that crashes or hangs takes down only its
+own process; the host restarts it with the config it had. Hooks from different
+plugins run one at a time, in priority order, and a hook whose process cannot
+answer denies. [Plugin isolation](plugin-isolation.md) is the full design,
+including what is not confined yet.
+
 During a tool call or context resolution, the host admits the calling
 conversation to a checkout and supplies it through the invocation scope; tool
 arguments cannot replace it. `ctx.shell.run` runs there by default, and an

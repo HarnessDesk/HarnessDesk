@@ -683,11 +683,19 @@ Three rules the live runs taught, all load-bearing:
 
 ### Process isolation
 
-Installed plugin code runs in a supervised child process
-(`packages/extension-host`) behind a versioned IPC contract
-(`packages/extension-protocol`). A plugin calling `process.exit` kills only
-that process; a spinning plugin is killed from the healthy side; hooks in a
-dead host fail closed. Built-in plugins run in-process on the same API.
+Each installed plugin runs in a supervised process of its own
+(`packages/extension-host`), bound to that one plugin at its handshake, behind a
+versioned IPC contract (`packages/extension-protocol`). A separate installer
+process inspects, installs and removes packages and never loads plugin code.
+The pipe is the plugin's identity: the host stamps every request with the
+plugin it came from, keeps only that plugin's entry in the snapshot the process
+reports, and takes its identity and permissions from the manifest the person
+agreed to, held in a consent record outside the plugins directory
+(`packages/cordis-host/src/plugin-consent.ts`). A plugin calling `process.exit` kills
+only its own process; a spinning plugin is killed from the healthy side; hooks
+run across processes in priority order, and one whose process is down denies.
+Built-in plugins run in-process on the same API. `docs/plugin-isolation.md` is
+the design.
 
 ## The renderer
 

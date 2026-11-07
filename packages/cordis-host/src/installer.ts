@@ -28,9 +28,9 @@ import {
 
 const run = promisify(execFile)
 
-export const pluginsRoot = (): string =>
-  process.env['HARNESSDESK_PLUGINS'] ??
-  join(process.env['HARNESSDESK_HOME'] ?? join(homedir(), '.harnessdesk'), 'plugins')
+export const pluginsRoot = (env: NodeJS.ProcessEnv = process.env): string =>
+  env['HARNESSDESK_PLUGINS'] ??
+  join(env['HARNESSDESK_HOME'] ?? join(homedir(), '.harnessdesk'), 'plugins')
 
 export class InstallError extends Error {
   constructor(message: string) {
@@ -284,9 +284,16 @@ const recordedSource = async (directory: string): Promise<PluginSource> => {
   return { kind: 'local', path: directory }
 }
 
+/**
+ * An installed plugin's manifest, read from its directory without importing
+ * anything. The host reads it here, never from what the plugin's process
+ * reports, so that the permissions it holds a plugin to are the ones on disk.
+ */
+export const readInstalledManifest = async (directory: string): Promise<PluginPackage> =>
+  readManifestAt(directory, await recordedSource(directory))
+
 /** Every plugin currently installed, whether or not it loads. */
-export const listInstalled = async (): Promise<InstalledPlugin[]> => {
-  const root = pluginsRoot()
+export const listInstalled = async (root: string = pluginsRoot()): Promise<InstalledPlugin[]> => {
   let entries
   try {
     entries = await readdir(root, { withFileTypes: true })

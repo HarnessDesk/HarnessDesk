@@ -7,6 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Each installed plugin runs on its own.** Every plugin you install gets a process of its own, so a crash or a hang stops only that plugin, and it is held to what you agreed to when you installed it: if its manifest changes afterwards, it stays off until you install it again.
 - **The iOS Simulator tells you what setup needs.** Check Xcode selection, its license, iOS support and simulator runtimes without changing them. Simulator tools can name a device when several are booted, boot without opening a window, and read or change light and dark appearance; screenshots identify the device and original pixel dimensions. Tapping refuses when several devices are booted, and appearance changes say whether they applied.
 - **Claude Code conversations can branch, take direction mid-turn, and keep a goal.** The bundled bridge is updated, with the source conversation’s read ceiling preserved when branching.
 

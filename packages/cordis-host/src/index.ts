@@ -6,7 +6,7 @@
  * `adapter-codex` imports Codex.
  */
 
-export { ExtensionKernel, type HarnessPlugin, type KernelLogger, type KernelOptions, type PluginManifest } from './kernel.js'
+export { ExtensionKernel, mergePermissions, type HarnessPlugin, type KernelLogger, type KernelOptions, type PluginManifest } from './kernel.js'
 export { PermissionDenied, PermissionGate, hostAllowed, pathWithin } from './permissions.js'
 export { ContributionStore } from './store.js'
 export { canonicalScopeQuery } from './workspace-scope.js'
@@ -25,11 +25,13 @@ export {
   listInstalled,
   loadInstalled,
   pluginsRoot,
+  readInstalledManifest,
   redactCredentials,
   sanitise,
   uninstall,
   type InstalledPlugin,
 } from './installer.js'
+export { ConsentRecord, consentPath, type ConsentCheck } from './plugin-consent.js'
 export type { HarnessContext, HarnessPluginModule } from './context.js'
 export { ALL_PERMISSIONS, type WorkspaceState } from './runtime.js'
 export type {

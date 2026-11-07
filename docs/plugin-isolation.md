@@ -215,9 +215,10 @@ manifest asks for, and the host records exactly that, outside the plugins
 directory. An update is an install: the person sees the new manifest, and
 their agreement replaces the record. At every start, the host reads the
 manifest again and compares. If it no longer matches the record, the plugin
-does not start. Settings shows it as changed since installed, with a button
-to review and agree again. Plugins installed before the record existed are
-recorded the first time they start.
+does not start. Settings lists it as failed, saying its manifest changed
+since it was installed; installing it again shows the person the new manifest,
+and their agreement replaces the record. Plugins installed before the record
+existed are recorded the first time they start.
 
 **A lease** is the host's record of one call it made into a plugin. It
 holds:
@@ -353,7 +354,7 @@ request.
 | Event | What happens |
 | --- | --- |
 | **Inspect** | The installer reads the package's manifest in a short-lived process with no plugin code loaded. The person sees what it asks for before anything runs. |
-| **Install or update** | The person agrees to the manifest, and the host records it. The installer writes the package into the plugins directory, and a new plugin process loads it. If an older version was running, its process is stopped once the new one has loaded. |
+| **Install or update** | The person agrees to the manifest, and the host records it. The installer writes the package into the plugins directory. If an older version was running, its process is stopped, and a new plugin process loads the new version. |
 | **Start** | The process is spawned and greeted: protocol version, browser settings and workspace. It loads its one plugin. The host checks the manifest against the record, replays the plugin's stored configuration, and keeps its snapshot. |
 | **Enable / disable** | Enabling starts the process. Disabling stops it. The plugin stays listed in Settings either way. |
 | **Configure** | The setting goes to that plugin's process only. The host keeps the stored value and replays it after every restart. |

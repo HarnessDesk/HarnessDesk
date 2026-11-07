@@ -72,7 +72,9 @@ import type {
 // to the inbox or that conversation's composer under the person's setting.
 // 10 adds the host-executed forge write verbs and Git record reads.
 // 12 adds the invocation-bound associated pull request read.
-export const EXTENSION_PROTOCOL_VERSION = 12
+// 13 binds each plugin host process to exactly one installed plugin, and runs
+//    hooks one at a time so the parent can order them across processes.
+export const EXTENSION_PROTOCOL_VERSION = 13
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -92,6 +94,16 @@ export interface PluginHostStats {
   readonly activeHandles: number
   /** Tool invocations served per plugin instance since the child started. */
   readonly invocations: Readonly<Record<string, number>>
+  /**
+   * Each installed plugin's own process, when the figures above are a sum
+   * across them. A process answering for itself leaves this out.
+   */
+  readonly processes?: readonly {
+    readonly plugin: string
+    readonly pid: number
+    readonly rssBytes: number
+    readonly activeHandles: number
+  }[]
 }
 
 /**
@@ -124,6 +136,13 @@ export interface PluginHostMethods {
       readonly inlineBrowser?: boolean
       /** Where pages open, as the user has set it. See `browser/settings`. */
       readonly browser?: BrowserSettingsWire
+      /**
+       * The one installed plugin this process runs. Absent only for the
+       * installer process, which inspects, installs and removes packages and
+       * never imports plugin code. A process is bound once, by its parent; the
+       * plugin never names itself.
+       */
+      readonly plugin?: { readonly id: string; readonly directory: string }
     }
     result: { readonly protocolVersion: number; readonly pid: number }
   }
@@ -133,7 +152,10 @@ export interface PluginHostMethods {
    * been told would quietly open pages somewhere the user did not choose.
    */
   'browser/settings': { params: { readonly settings: BrowserSettingsWire }; result: null }
-  /** Loads every plugin in the on-disk store. Failures are per-plugin, reported as events. */
+  /**
+   * Loads the plugin this process was bound to in `host/hello`. A failure is
+   * the answer, so the parent can say why the plugin is not running.
+   */
   'plugins/loadInstalled': { params: Record<string, never>; result: null }
   'plugin/inspect': { params: { readonly specifier: string }; result: InspectedPlugin }
   'plugin/install': { params: { readonly specifier: string }; result: { readonly id: string } }
@@ -160,6 +182,13 @@ export interface PluginHostMethods {
     result: ToolResult
   }
   'hooks/run': { params: { readonly invocation: HookInvocation }; result: HookVerdict }
+  /**
+   * One hook, by its id in this process. The parent orders every installed
+   * plugin's hooks by priority and asks each process for one verdict at a
+   * time, so the first `deny` or `ask` decides across plugins as it does
+   * within one.
+   */
+  'hooks/runOne': { params: { readonly id: string; readonly invocation: HookInvocation }; result: HookVerdict }
   'context/resolve': {
     params: { readonly query: ScopeQuery }
     result: readonly { readonly label: string; readonly text: string }[]
