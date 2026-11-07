@@ -70,7 +70,7 @@ test('the model gets one standing text for the whole goal, the contract in a mes
 })
 
 test('two-run reviewed result follows failed review and repair and retries a failed second gate save', async t => {
-  const rig = await createLeadRig(); t.after(() => rig.dispose())
+  const rig = await createLeadRig({ checksBeforeReview: true }); t.after(() => rig.dispose())
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
   await rig.decide(rig.pending('plan')!, 'approve')
   await rig.waitFor(() => !!rig.pending('result'), 'reviewed two-run result')
@@ -108,7 +108,7 @@ test('two-run reviewed result follows failed review and repair and retries a fai
 })
 
 test('one repeat approval runs twice and skips a slot while its first result waits', async t => {
-  const rig = await createLeadRig({ repeat: true }); t.after(() => rig.dispose())
+  const rig = await createLeadRig({ repeat: true, checksBeforeReview: true }); t.after(() => rig.dispose())
   await rig.reviewed()
   let schedule = await rig.host.call('lead/schedule/read', {})
   assert.equal(schedule.tasks.length, 1)
