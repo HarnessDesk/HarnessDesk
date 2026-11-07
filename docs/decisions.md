@@ -5334,3 +5334,46 @@ Once the first message starts, its id is returned even if saving the receipt
 fails, and the durable claim still prevents a duplicate move. It leaves the
 old chat intact. Agent configuration and credentials remain in the agents'
 own worlds.
+
+## Installed plugins run one to a process
+
+*2026-11-07.* Each installed plugin runs in its own process, and the host
+attributes everything that process asks for to that plugin, by the pipe it
+arrived on. [plugin-isolation.md](plugin-isolation.md) is the design.
+
+**Why.** One process shared by every installed plugin survives a crash, but
+it cannot tell its plugins apart. Every request comes out of the same pipe,
+so the plugin making it has to say who it is. And whatever the host tells one
+plugin, every plugin in that process can read. Per-call claims and tokens can
+narrow that, but they cannot close it: inside one process there is nothing
+to bind a claim to. A process per plugin gives the host something it can
+know rather than be told, which is which pipe a frame came in on.
+
+**The rule:**
+- **Identity comes from the channel.** A request from a plugin process never
+  names a plugin.
+- **Authority comes from the record.** The record is the manifest the person
+  agreed to at install, kept by the host outside the plugins directory, plus
+  the grants they gave in Settings. A plugin whose manifest on disk no longer
+  matches its record does not start until the person agrees again.
+- **The conversation comes from the lease.** The lease is the host's record
+  of the call it started, scoped to that one pipe.
+
+A change that reads any of the three from a plugin's message is wrong,
+however well it validates the value.
+
+**What it costs.** A runtime per plugin in memory, and one round trip more
+for each brokered capability. Installed plugins also cannot share Cordis
+services with each other; cooperation goes through the host's attributed
+planes instead. Built-in plugins stay in the host process: they are the
+repository's own reviewed code, on the same API and the same gate.
+
+**Layers.** Attribution and authority are about what the host does, so they
+hold for every plugin, confined or not. Confinement under Node's permission
+model is what keeps a plugin from reaching the machine without asking the
+host, and Node describes that model as a seat belt against accidental reach,
+not a defence against code written to escape it. A plugin that escapes it, or
+runs where no confining runtime passed the probe, has the user account's own
+access. The host says so in the plugin host's status rather than implying
+otherwise, and an operating-system sandbox per plugin process is the layer
+planned after it.
