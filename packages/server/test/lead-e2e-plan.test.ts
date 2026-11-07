@@ -108,7 +108,7 @@ test('two-run reviewed result follows failed review and repair and retries a fai
 })
 
 test('one repeat approval runs twice and skips a slot while its first result waits', async t => {
-  const rig = await createLeadRig({ repeat: true }); t.after(() => rig.dispose())
+  const rig = await createLeadRig({ repeat: true, checksBeforeReview: true }); t.after(() => rig.dispose())
   await rig.reviewed()
   let schedule = await rig.host.call('lead/schedule/read', {})
   assert.equal(schedule.tasks.length, 1)
