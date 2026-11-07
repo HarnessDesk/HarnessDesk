@@ -59,6 +59,7 @@ import {
   type ForgeReference,
   type HookInvocation,
   type HookVerdict,
+  type JsonSchema,
   type PluginIdentity,
   type PluginInstance,
   type PluginPermissions,
@@ -1463,7 +1464,7 @@ export class SupervisedExtensionHost {
     const started: Promise<void>[] = []
     for (const entry of installed) {
       if (this.#members.has(entry.id)) continue
-      const member: Member = { id: entry.id, directory: entry.directory, proc: null, enabled: true, problem: null, config: null, identity: null, generation: 0 }
+      const member: Member = { id: entry.id, directory: entry.directory, proc: null, enabled: true, problem: null, config: null, identity: null, configSchema: null, uninstalling: false, generation: 0 }
       this.#members.set(entry.id, member)
       started.push(this.#start(member))
     }
@@ -1482,14 +1483,14 @@ export class SupervisedExtensionHost {
    * user's to do and their copy may be one they have since edited.
    */
   async #start(member: Member): Promise<void> {
-    if (this.#disposed) return
+    if (this.#disposed || member.uninstalling) return
     // Each start is a generation. Whatever stops or restarts this plugin
     // while a start is under way moves the generation on, and the start that
     // finds itself overtaken gives up and disposes the process it made, so
     // two starts never leave two processes, and a plugin turned off mid-start
     // stays off.
     const generation = ++member.generation
-    const current = (): boolean => !this.#disposed && member.generation === generation
+    const current = (): boolean => !this.#disposed && !member.uninstalling && member.generation === generation
     const previous = member.proc
     member.proc = null
     await previous?.dispose()
@@ -1507,6 +1508,7 @@ export class SupervisedExtensionHost {
         ...(pkg.manifest.version ? { version: pkg.manifest.version } : {}),
         source: pkg.manifest.source ?? { kind: 'local', path: member.directory },
       }
+      member.configSchema = pkg.manifest.configSchema ?? null
       if (this.#kernelPluginIds().has(member.id)) {
         member.enabled = false
         this.#logger.warn?.('an installed plugin shadows a built-in of the same id and was switched off', { plugin: member.id })
@@ -1635,6 +1637,7 @@ export class SupervisedExtensionHost {
       provides: [],
       contributions: [],
       enabled: member.enabled,
+      ...(member.configSchema ? { configSchema: member.configSchema } : {}),
       ...(member.config ? { config: member.config } : {}),
     }
   }
@@ -1800,6 +1803,7 @@ export class SupervisedExtensionHost {
     if (this.#kernelPluginIds().has(pluginId)) return this.#kernel.setEnabled(pluginId, enabled)
     const member = this.#members.get(pluginId)
     if (!member) return
+    if (member.uninstalling) throw new Error(`${member.identity?.name ?? pluginId} is being uninstalled.`)
     if (!enabled) {
       member.enabled = false
       member.problem = null
@@ -1923,6 +1927,7 @@ export class SupervisedExtensionHost {
       )
     }
     const existing = this.#members.get(inspected.id)
+    if (existing?.uninstalling) throw new Error(`${inspected.name} is being uninstalled; install it again once that is done.`)
     if (existing) await this.#stop(existing)
     let id: string
     try {
@@ -1934,7 +1939,7 @@ export class SupervisedExtensionHost {
     }
     const directory = join(this.#root, id)
     await this.#consent.record(id, manifestDigest)
-    const member = this.#members.get(id) ?? { id, directory, proc: null, enabled: true, problem: null, config: null, identity: null, generation: 0 }
+    const member = this.#members.get(id) ?? { id, directory, proc: null, enabled: true, problem: null, config: null, identity: null, configSchema: null, uninstalling: false, generation: 0 }
     this.#members.set(id, member)
     if (member !== existing && existing) await this.#stop(existing)
     member.directory = directory
@@ -1959,12 +1964,17 @@ export class SupervisedExtensionHost {
     if (!member) {
       throw new Error('Built-in plugins are part of HarnessDesk and cannot be uninstalled.')
     }
-    // Off first, so nothing restarts it while its files go.
+    if (member.uninstalling) throw new Error(`${member.identity?.name ?? pluginId} is already being uninstalled.`)
+    // Off first, so nothing restarts it while its files go. Marked too, so a
+    // switch flipped or an install made while the old process is still
+    // stopping cannot start one that this removal would then lose track of.
+    member.uninstalling = true
     member.enabled = false
     await this.#stop(member)
     try {
       await this.#installer.call('plugin/uninstall', { pluginId })
     } catch (error) {
+      member.uninstalling = false
       member.problem = `It could not be removed: ${error instanceof Error ? error.message : String(error)}`
       this.#emit({ type: 'plugin/updated', plugin: this.#describe(member) })
       throw error
@@ -2024,6 +2034,10 @@ interface Member {
   problem: string | null
   config: Readonly<Record<string, unknown>> | null
   identity: PluginIdentity | null
+  /** The settings form its manifest declares, kept so a stopped plugin can still be configured. */
+  configSchema: JsonSchema | null
+  /** Set while it is being removed: nothing may start it again. */
+  uninstalling: boolean
   /** Moves on with every start and stop; a start that finds it moved was overtaken. */
   generation: number
 }

@@ -310,6 +310,39 @@ test('a plugin\'s config is given back to its process after a restart', async ()
   }
 })
 
+test('a plugin being uninstalled cannot be switched back on, and leaves no process behind', async () => {
+  const harness = await start(['good'])
+  try {
+    const removing = harness.host.uninstallPlugin('good')
+    // While its process is still stopping.
+    await assert.rejects(harness.host.setEnabled('good', true), /being uninstalled/)
+    await removing
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(harness.host.plugins().some((plugin) => plugin.identity.id === 'good'), false)
+    assert.equal(childrenUp(), 1, 'only the installer is left running, not the removed plugin')
+  } finally {
+    await cleanup(harness)
+  }
+})
+
+test('a plugin that is off keeps its settings form', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-perplugin-'))
+  const target = join(dir, 'plugins', 'good')
+  await cp(join(FIXTURES, 'plugin-good'), target, { recursive: true })
+  const path = join(target, 'harnessdesk.plugin.json')
+  const schema = { type: 'object', properties: { greeting: { type: 'string', title: 'Greeting' } } }
+  await writeFile(path, JSON.stringify({ ...JSON.parse(await readFile(path, 'utf8')), configSchema: schema }))
+  const harness = await make(dir, 'config schema while off')
+  try {
+    await harness.host.setEnabled('good', false)
+    const good = harness.host.plugins().find((plugin) => plugin.identity.id === 'good')
+    assert.equal(good?.enabled, false)
+    assert.deepEqual(good?.configSchema, schema, 'its settings can be changed before it is turned back on')
+  } finally {
+    await cleanup(harness)
+  }
+})
+
 test('a plugin turned off while it is starting stays off, and two starts leave one process', async () => {
   const harness = await start(['envspy'])
   try {
