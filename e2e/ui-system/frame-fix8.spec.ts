@@ -48,7 +48,7 @@ const openFrame = async (page: Page, query: string, width = 1280, theme: 'light'
     const readiness = tools.locator(`[data-slot="chip"][data-state="${state === 'failed' ? 'broken' : 'starting'}"]`)
     await expect(readiness).toBeVisible()
     expect((await tools.locator('[data-composer-track="work-in"]').boundingBox())!.width).toBeGreaterThanOrEqual(24)
-    await expect(readiness).toHaveText(state === 'failed' ? 'Unavailable' : 'Starting')
+    await expect(readiness).toHaveText(state === 'failed' ? 'Not working' : 'Starting')
     await textarea.fill('Review the checkout changes.')
     await expect(send).toBeDisabled()
     await expect(send).toHaveAttribute('title', state === 'failed'
@@ -57,7 +57,8 @@ const openFrame = async (page: Page, query: string, width = 1280, theme: 'light'
     if (process.env.HD_1737_FRAMES) await page.screenshot({ path: `${process.env.HD_1737_FRAMES}/draft-${state}-${theme}.png` })
     if (state === 'failed') {
       await tools.getByRole('button', { name: 'Open runtime Settings', exact: true }).click()
-      await expect(page.getByRole('heading', { name: 'Runtimes', exact: true })).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Storefront catalogue review and checkout diagnostics', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Back to Runtimes', exact: true })).toBeVisible()
     }
 
 
