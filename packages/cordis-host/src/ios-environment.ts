@@ -18,8 +18,8 @@ export interface IosEnvironmentDependencies {
 }
 
 const execute: IosEnvironmentDependencies['execute'] = (binary, args, options) => new Promise((resolve) => {
-  execFile(binary, [...args], { timeout: options.timeoutMs, env: options.env, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
-    resolve({ exitCode: error ? error.code ?? null : 0, stdout, stderr: stderr || error?.message || '', timedOut: error?.killed ?? false })
+  execFile(binary, [...args], { signal: AbortSignal.timeout(options.timeoutMs), env: options.env, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
+    resolve({ exitCode: error ? error.code ?? null : 0, stdout, stderr: stderr || error?.message || '', timedOut: error?.code === 'ABORT_ERR' })
   })
 })
 
@@ -28,6 +28,7 @@ const messages = {
   xcodeMissing: 'Install Xcode from the App Store, open it once, then select it in Settings › Locations › Command Line Tools.',
   developerDirectory: 'Select the installed Xcode in Xcode › Settings › Locations › Command Line Tools; the current developer directory does not provide the iOS Simulator.',
   license: 'Open Xcode and accept its license, then retry.',
+  firstLaunch: 'Open Xcode once so it can finish installing its components, then retry.',
   platformMissing: 'Install iOS support in Xcode › Settings › Components.',
   runtimeMissing: 'Download an iOS Simulator runtime in Xcode › Settings › Components.',
   serviceUnavailable: 'Could not query the iOS Simulator service.',
@@ -57,7 +58,9 @@ export const diagnoseIosEnvironment = async (overrides: Partial<IosEnvironmentDe
       if (selected.timedOut) return failed(selected)
       return answer(deps.exists('/Applications/Xcode.app') ? 'developerDirectory' : 'xcodeMissing')
     }
-    developerDirectory = selected.stdout.trim()
+    const directory = selected.stdout.trim()
+    if (!directory) return failed({ ...selected, exitCode: null, stderr: 'xcode-select returned an empty developer directory.' })
+    developerDirectory = directory
   }
   const found = await probe('xcrun', ['--find', 'simctl'])
   if (found.exitCode !== 0) {
@@ -69,7 +72,11 @@ export const diagnoseIosEnvironment = async (overrides: Partial<IosEnvironmentDe
     return answer(installed ? 'developerDirectory' : 'xcodeMissing')
   }
   const launch = await probe('xcodebuild', ['-checkFirstLaunchStatus'])
-  if (launch.exitCode !== 0) return failed(launch)
+  if (launch.exitCode !== 0) {
+    const failure = failed(launch)
+    if (failure.code === 'license' || launch.timedOut || typeof launch.exitCode !== 'number') return failure
+    return answer('firstLaunch')
+  }
   const sdks = await probe('xcodebuild', ['-showsdks'])
   if (sdks.exitCode !== 0) return failed(sdks)
   if (!/\b(?:iphoneos|iphonesimulator)\d/i.test(sdks.stdout)) return answer('platformMissing')

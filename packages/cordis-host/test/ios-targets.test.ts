@@ -44,7 +44,7 @@ test('explicit target is used by action and screenshot', async () => {
 test('headless boot does not invoke open', async () => {
   const { service, calls } = fixture()
   await service.boot('B', { openWindow: false })
-  assert.deepEqual(calls, [['xcrun', 'simctl', 'boot', 'B']])
+  assert.deepEqual(calls, [['xcrun', 'simctl', 'list', 'devices', '-j'], ['xcrun', 'simctl', 'boot', 'B']])
   await service.boot('B')
   assert.deepEqual(calls.at(-1), ['open', '-a', 'Simulator'])
 })
@@ -91,4 +91,27 @@ test('frame identity cannot be reused by a later capture of identical pixels', a
   const first = await service.frame('B')
   const next = await service.frame('B')
   assert.notEqual(first.frameId, next.frameId, 'an unobserved shutdown and reboot must not reuse a frame identity')
+})
+
+test('boot requires an exact device udid rather than a selector or name', async () => {
+  const { service, calls } = fixture()
+  for (const udid of ['--help', 'booted', 'iPhone A', '00000000-0000-0000-0000-000000000000']) {
+    await assert.rejects(service.boot(udid, { openWindow: false }), /udid.*ios_devices/i)
+  }
+  assert.ok(calls.every((call) => call[2] === 'list'), 'invalid targets never reach simctl boot or open')
+})
+
+test('bundle ids beginning with a dash are refused before simctl runs', async () => {
+  const { service, calls } = fixture()
+  await assert.rejects(service.launch('--help', 'B'), /bundle.*begin.*-/i)
+  await assert.rejects(service.terminate('--help', 'B'), /bundle.*begin.*-/i)
+  assert.deepEqual(calls, [])
+})
+
+test('tap refuses multiple booted simulators even with an explicit target', async () => {
+  const { service, calls } = fixture()
+  for (const udid of ['B', undefined]) {
+    await assert.rejects(service.tap(0, 0, udid), /more than one.*booted.*shut down/i)
+  }
+  assert.ok(calls.every((call) => call[2] === 'list'), 'no screenshot, window access or click follows the refusal')
 })

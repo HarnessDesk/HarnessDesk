@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
+import childProcess from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
 import { iosService, type ProbeResult } from './fixtures/ios.js'
 
 const ok = (stdout = ''): ProbeResult => ({ exitCode: 0, stdout, stderr: '' })
@@ -66,4 +68,46 @@ test('a denied service connection cannot masquerade as an empty runtime inventor
   const setup = await fixture({ runtimes: result }).service.diagnose()
   assert.equal(setup.code, 'serviceUnavailable')
   assert.match(setup.message, /permission denied/)
+})
+
+
+test('first launch has its own actionable diagnosis', async () => {
+  const { service, calls } = fixture({ launch: fail('') })
+  const setup = await service.diagnose()
+  assert.equal(setup.code, 'firstLaunch')
+  assert.equal(setup.message, 'Open Xcode once so it can finish installing its components, then retry.')
+  assert.ok(calls.every(({ args }) => !args.includes('-showsdks')), 'stop before querying SDKs')
+})
+
+test('empty selected developer directory fails before xcrun', async () => {
+  const { service, calls } = fixture({ selected: '  \n' })
+  const setup = await service.diagnose()
+  assert.equal(setup.code, 'serviceUnavailable')
+  assert.match(setup.message, /empty developer directory/i)
+  assert.equal(setup.developerDirectory, undefined)
+  assert.deepEqual(calls.map(({ binary }) => binary), ['xcode-select'])
+})
+
+const probeFailure = (t: TestContext, code: string, killed: boolean) => {
+  t.mock.method(childProcess, 'execFile', ((_binary: string, _args: string[], _options: unknown,
+    callback: (error: Error, stdout: string, stderr: string) => void) => {
+    callback(Object.assign(new Error('synthetic probe failure'), { code, killed }), '', '')
+  }) as unknown as typeof childProcess.execFile)
+  syncBuiltinESMExports()
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports() })
+  return iosService({ environment: {
+    platform: 'darwin', developerDirectory: '/Applications/Xcode.app/Contents/Developer', exists: () => true,
+  } }).diagnose()
+}
+
+test('maxBuffer termination is not diagnosed as a timeout', async (t) => {
+  const setup = await probeFailure(t, 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER', true)
+  assert.equal(setup.code, 'serviceUnavailable')
+  assert.doesNotMatch(setup.message, /timed out/i)
+})
+
+test('an aborted timeout is recognized without the killed flag', async (t) => {
+  const setup = await probeFailure(t, 'ABORT_ERR', false)
+  assert.equal(setup.code, 'serviceUnavailable')
+  assert.match(setup.message, /timed out/i)
 })

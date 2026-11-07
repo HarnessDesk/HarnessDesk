@@ -246,13 +246,15 @@ PNG-to-data-URL screenshots — a hung device must never hang a turn, and every
 screenshot rides the already-proven image-result pipeline.
 
 The iOS capability's `diagnose()` (`ios_diagnose`) checks the selected Xcode,
-license, iOS SDK and simulator runtimes with read-only, bounded probes. It
-respects `DEVELOPER_DIR` and never switches Xcode, accepts a license or installs
+license, first-launch components, iOS SDK and simulator runtimes with read-only,
+bounded probes. It respects `DEVELOPER_DIR` and never switches Xcode, accepts a license or installs
 components. A failed service query stays a service failure, rather than being
 reported as a missing runtime.
 
-Device operations take an optional `udid`. Without it, exactly one device must
-be booted; with several, the refusal lists their identifiers. Each tool keeps
+Device operations take an optional UUID `udid` from `ios_devices`. Booting
+requires an exact identifier from that inventory. Operations on a booted device
+require exactly one when `udid` is omitted; with several, the refusal lists
+their identifiers. Each tool keeps
 its chosen device for the action and the screenshot that follows.
 `boot(udid, { openWindow: false })` boots without opening the Simulator window;
 the default still opens it. `screenshot(udid?)` remains a PNG data URL, while
@@ -260,13 +262,15 @@ the default still opens it. `screenshot(udid?)` remains a PNG data URL, while
 are the original PNG's pixels in its captured orientation, with the origin at
 the top left. `frameId` is an opaque capture identity bound to that device,
 boot generation and image geometry. Screenshot tools put those facts beside
-the image. Tapping still uses `cliclick` and the visible Simulator window.
+the image. Tapping still uses `cliclick` and the visible Simulator window;
+it refuses when several devices are booted, even with an explicit `udid`.
 
 `getAppearance(udid?)` and `setAppearance('light' | 'dark', udid?)` use
 `simctl ui` and read back after setting; `unsupported` and `unknown` stay
 visible instead of claiming the requested appearance was applied. Their tools
-are `ios_get_appearance` and `ios_set_appearance`. Diagnosis and appearance
-reads have the read ceiling; appearance writes have edit. All these methods
+are `ios_get_appearance` and `ios_set_appearance`. The setter tool returns
+`{ requested, observed, applied }`; `applied` is true only when the read-back
+state matches the request. Diagnosis and appearance reads have the read ceiling; appearance writes have edit. All these methods
 require only the existing `ios: true` manifest permission.
 
 ### Context and composer chips

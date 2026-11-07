@@ -28,6 +28,10 @@ import { isPng, runDevice } from './device-exec.js'
 const SIMCTL_BIN = 'xcrun'
 const CLICLICK_PATHS = ['/opt/homebrew/bin/cliclick', '/usr/local/bin/cliclick']
 
+const assertBundleId = (bundleId: string): void => {
+  if (bundleId.startsWith('-')) throw new Error('An app bundle id cannot begin with -.')
+}
+
 export interface SimDevice {
   readonly udid: string
   readonly name: string
@@ -101,8 +105,10 @@ export class IosService extends Service {
 
   async boot(udid: string, options: { openWindow?: boolean } = {}): Promise<void> {
     this.runtime.owner(this.ctx).gate.assertIos()
-    await this.run(SIMCTL_BIN, ['simctl', 'boot', udid], { what: 'Booting the simulator', timeoutMs: 60_000 })
-    this.generations.set(udid, { state: 'Booted', generation: randomUUID() })
+    const device = (await this.devices()).find((device) => device.udid === udid)
+    if (!device) throw new Error('Choose an exact device udid from ios_devices before booting a simulator.')
+    await this.run(SIMCTL_BIN, ['simctl', 'boot', device.udid], { what: 'Booting the simulator', timeoutMs: 60_000 })
+    this.generations.set(device.udid, { state: 'Booted', generation: randomUUID() })
     // Open the Simulator app so the person can watch — same headed principle
     // as the browser engine.
     if (options.openWindow !== false) await this.run('open', ['-a', 'Simulator'], { what: 'Opening Simulator' }).catch(() => {})
@@ -119,6 +125,7 @@ export class IosService extends Service {
 
   async launch(bundleId: string, udid?: string): Promise<void> {
     this.runtime.owner(this.ctx).gate.assertIos()
+    assertBundleId(bundleId)
     const device = await this.booted(udid)
     await this.run(SIMCTL_BIN, ['simctl', 'launch', device.udid, bundleId], {
       what: `Launching ${bundleId}`,
@@ -128,6 +135,7 @@ export class IosService extends Service {
 
   async terminate(bundleId: string, udid?: string): Promise<void> {
     this.runtime.owner(this.ctx).gate.assertIos()
+    assertBundleId(bundleId)
     const device = await this.booted(udid)
     await this.run(SIMCTL_BIN, ['simctl', 'terminate', device.udid, bundleId], {
       what: `Terminating ${bundleId}`,
@@ -219,6 +227,10 @@ export class IosService extends Service {
    */
   async tap(x: number, y: number, udid?: string): Promise<void> {
     this.runtime.owner(this.ctx).gate.assertIos()
+    const booted = (await this.devices()).filter((device) => device.state === 'Booted')
+    if (booted.length > 1) {
+      throw new Error(`More than one simulator is booted (${booted.map((device) => device.udid).join(', ')}). Tapping uses the Simulator window; shut down the other simulators before tapping.`)
+    }
     const cliclick = CLICLICK_PATHS.find((path) => existsSync(path))
     if (!cliclick) {
       throw new Error('Tapping needs cliclick (brew install cliclick). Screenshots and launches work without it.')

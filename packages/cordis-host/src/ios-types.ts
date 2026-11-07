@@ -13,7 +13,7 @@ export type IosAppearance = 'light' | 'dark' | 'unsupported' | 'unknown'
 
 export interface IosSetup {
   readonly available: boolean
-  readonly code: 'ready' | 'xcodeMissing' | 'developerDirectory' | 'license' | 'platformMissing' | 'runtimeMissing' | 'serviceUnavailable' | 'unsupportedHost'
+  readonly code: 'ready' | 'xcodeMissing' | 'developerDirectory' | 'license' | 'firstLaunch' | 'platformMissing' | 'runtimeMissing' | 'serviceUnavailable' | 'unsupportedHost'
   readonly message: string
   readonly developerDirectory?: string
   readonly xcodeVersion?: string
