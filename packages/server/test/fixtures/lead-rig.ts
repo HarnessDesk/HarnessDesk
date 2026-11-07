@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { whichOnPath } from '../../src/installs/which.js'
 import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { connect as connectSocket, createServer as createSocketServer, type Server as SocketServer, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -56,6 +57,12 @@ export interface LeadRigOptions {
   readonly scenario?: 'happy' | 'interrupted' | 'worker-approval' | 'forbidden'
   readonly workerApprovalCommand?: string
   readonly manualChecks?: boolean
+  /**
+   * The synthetic person runs the declared check on each committed implementation, and its reviewer waits for that
+   * check before reviewing. Without it the check starts only once a review exists, so whether a rejected review is
+   * repaired or re-reviewed at the same commit depends on which finishes first.
+   */
+  readonly checksBeforeReview?: boolean
   readonly holdWorkers?: boolean
   readonly holdPlanning?: boolean
   readonly holdRunning?: boolean
@@ -145,6 +152,37 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     journal.state.cards.find((card): card is Extract<LeadCard, { type: T }> => card.type === type && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))
   const personGates = () => journal.state.runs.flatMap(run => host.teamPlane.stateFor(run.teamId).intents.filter(card => card.role === 'accept'))
   const worktrees = () => [...new Set(host.flowsPlane.leadRuns().flatMap(run => Object.values(run.seatPlans ?? {}).flatMap(plan => plan.handed.map(checkout => checkout.cwd))))]
+  /*
+   * For `checksBeforeReview`: each running review round's handed commit gets the declared check, run as the person
+   * runs it, and its reviewer's gate opens once that check is on the board. Read-only of the host otherwise.
+   */
+  const checkEachReview = async (): Promise<void> => {
+    while (!disposed) {
+      try {
+        for (const run of host.flowsPlane.leadRuns()) {
+          const round = run.rounds.at(-1)
+          const cwd = round?.role === 'review' ? run.seatPlans?.[String(round.n)]?.handed[0]?.cwd : undefined
+          if (!cwd) continue
+          const head = git(cwd, 'rev-parse', 'HEAD'), opened = join(gates, `review@${head.slice(0, 12)}`)
+          if (existsSync(opened)) continue
+          const evidence = await host.call('evidence/board', { room: run.goal })
+          if (evidence.cards.flatMap(card => card.facts).some(one => one.record.fact.kind === 'check' && one.record.fact.at === head)) {
+            await writeFile(opened, ''); continue
+          }
+          if (checkStarts.has(`${run.id}:${head}`)) continue
+          const board = await host.call('goal/read', { goal: run.goal })
+          const implementation = board.board.intents.filter(card => card.role === 'implement' && card.state === 'done').at(-1)
+          const checks = await host.call('evidence/checks', { project: project.path })
+          const check = checks.checks.find(one => one.name === 'verify')
+          if (!implementation || !check || !checks.at) continue
+          checkStarts.add(`${run.id}:${head}`)
+          await host.call('evidence/check/run', { room: run.goal, card: implementation.id, name: check.name, seen: check.run, digest: git(project.path, 'rev-parse', 'HEAD:.harnessdesk/checks.yml') })
+            .catch(() => checkStarts.delete(`${run.id}:${head}`))
+        }
+      } catch { /* The host is starting or stopping; look again. */ }
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+  }
   const releaseWorkers = async (markers = ['write', 'repair', 'review', 'followRepair']) => { for (const marker of markers) await writeFile(join(gates, marker), '') }
   const restoreEnvironment = () => {
     if (previousHome === undefined) delete process.env['HARNESSDESK_HOME']; else process.env['HARNESSDESK_HOME'] = previousHome
@@ -334,7 +372,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         const runtime = new RigRuntime({ id: id as RuntimeId, name: id === 'rig-writer' ? 'Scripted writer' : 'Scripted reviewer', codexHome,
           binaryPath: join(root, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
           capabilities: new GatedRegistry(extensions!, () => host.ceilingGate),
-          env: { ...(options.ordinaryChats ? { FAKE_CODEX_MODE: 'hold' } : {}), FAKE_CODEX_PROCESS_CALLS: workerLog, FAKE_CODEX_FLOW: options.ordinaryChats ? '' : JSON.stringify({ state: passes, gates, approvalLog: workerLog, passPerRun: true, approvalBeforeWork: options.scenario === 'worker-approval', approvalCommand: options.workerApprovalCommand, steps: {
+          env: { ...(options.ordinaryChats ? { FAKE_CODEX_MODE: 'hold' } : {}), FAKE_CODEX_PROCESS_CALLS: workerLog, FAKE_CODEX_FLOW: options.ordinaryChats ? '' : JSON.stringify({ state: passes, gates, approvalLog: workerLog, passPerRun: true, reviewGateOnHead: options.checksBeforeReview === true, approvalBeforeWork: options.scenario === 'worker-approval', approvalCommand: options.workerApprovalCommand, steps: {
             write: { kind: 'write', title: 'Implement the approved goal', outcomes: ['committed'], file: 'retry.txt', contents: 'Incomplete retry status list\n' },
             repair: { kind: 'write', title: 'Repair the blocking findings and rerun required checks', outcomes: ['committed'], file: 'retry.txt', contents: options.publication ? 'Complete retry status list {{intent}}\n' : 'Complete retry status list\n' },
             ...(options.publication ? { followRepair: { kind: 'write', title: 'Repair the followed pull request', outcomes: ['committed'], file: 'retry.txt', contents: 'Followed retry status list {{intent}}\n' } } : {}),
@@ -470,6 +508,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       if (options.premature) { for (const marker of ['write', 'repair']) await writeFile(join(gates, marker), '') }
       else await releaseWorkers()
     }
+    if (options.checksBeforeReview) void checkEachReview()
     const decide = async (card: LeadCard, choice: LeadCardDecision['choice']) => {
       if (card.type === 'stopped' || card.type === 'second-look' || card.type === 'allowance-warning') throw new Error('stopped cards have no decision')
       if (options.offlineForge && choice === 'accept-open-pr') personPublication = true
