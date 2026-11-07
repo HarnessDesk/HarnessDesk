@@ -245,6 +245,17 @@ it('draws a named secondary transcript without replacing the main work', () => {
   expect(store.closeAdjacentSession).toHaveBeenCalledOnce()
 })
 
+it('labels the reader as read only without exposing a missing runtime id', () => {
+  const runtime = runtimeId('private-backend-id'), id = sessionId('b'), key = sessionKey(runtime, id)
+  const subject = fixedSubject(emptySnapshot().workbench.main)!
+  const { store } = rig(undefined, { adjacentSession: { key, subject, loading: false, error: null }, runtimes: [] })
+  render(store)
+  const region = container.querySelector<HTMLElement>('[role="region"][aria-label^="Adjacent conversation:"]')!
+  expect(region.textContent).toContain('Read only')
+  expect(region.textContent).toContain('Agent unavailable')
+  expect(region.outerHTML).not.toContain('private-backend-id')
+})
+
 const panels = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[data-slot="dock-panel"]')]
 
 const tabs = (): string[] =>

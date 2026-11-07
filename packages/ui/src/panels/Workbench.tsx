@@ -17,7 +17,7 @@ import {
 
 import { MainDestination, FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, TerminalShellTabs, Button, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim, useEscapeSurface } from '../design'
 import { CrossIcon, ExpandIcon, SwapIcon } from '../components/Icons'
-import { DockPanel, DockPanelBody, PanelSeam } from '../design'
+import { Chip, DockPanel, DockPanelBody, PanelSeam } from '../design'
 import { dismissOverlays } from '../design'
 import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
@@ -433,9 +433,9 @@ const AdjacentPanel = () => {
   if (!target) return null
   const session = snapshot.sessions.get(target.key)
   const { runtime, id } = splitSessionKey(target.key)
-  const name = snapshot.runtimes.find(one => one.id === runtime)?.presentation.name ?? String(runtime)
+  const name = snapshot.runtimes.find(one => one.id === runtime)?.presentation.name ?? 'Agent unavailable'
   return <FixedPanelBody role="region" aria-label={`Adjacent conversation: ${session?.title || id} — ${name}`} onKeyDown={event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); event.stopPropagation(); store.closeAdjacentSession() } }}>
-      <div>{session?.title || String(id)} · {name}</div>
+      <div>{session?.title || String(id)} · {name} <Chip tone="neutral" size="sm">Read only</Chip></div>
       {target.loading && <p role="status">Loading conversation…</p>}
       {target.error && <div role="alert">{target.error} <Button variant="quiet" size="sm" onClick={() => void store.openAdjacentSession(id, runtime)}>Retry</Button></div>}
       {session && (session.itemsLoaded || session.turns.length > 0) && <KeyboardHereContext.Provider value={false}><PaneProvider scope={{ paneId: 'adjacent-reader', view: { kind: 'conversation', session: target.key }, sessionKey: target.key }}><AdjacentTranscript session={session} /></PaneProvider></KeyboardHereContext.Provider>}
