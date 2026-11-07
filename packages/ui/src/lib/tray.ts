@@ -1,7 +1,7 @@
 import type { AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import { brandForRuntime } from './brands'
-import type { TrayAgent, TraySummary } from './desktop'
+import { isDesktop, setTraySummary, type TrayAgent, type TraySummary } from './desktop'
 import { prefsForUsage, shownAccountLabel } from './accounts'
 import { READINESS_LABEL, readinessOf } from './readiness'
 import { describeReport, workingAccount, type UsagePreference } from './usage'
@@ -26,6 +26,16 @@ export interface TrayInput {
   readonly now: number
   /** Settings › General › Hide account addresses: accounts by name only. */
   readonly hideAddresses?: boolean
+}
+
+/** Own the complete timer lifetime without retaining the App render snapshot. */
+export const startTrayUpdates = (input: Omit<TrayInput, 'now'>): (() => void) | undefined => {
+  if (!isDesktop()) return
+  const send = (): void => setTraySummary(describeTray({ ...input, now: Date.now() }))
+  send()
+  // Countdown labels need a fresh clock even when no tray data changes.
+  const timer = window.setInterval(send, 60_000)
+  return () => window.clearInterval(timer)
 }
 
 

@@ -10,9 +10,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 
 import { useLeadName } from '../components/use-lead-name'
-import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setTraySummary, setWindowTitle } from '../lib/desktop'
+import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setWindowTitle } from '../lib/desktop'
 import { sessionLabel, shortLabel } from '../lib/sessions'
-import { describeTray } from '../lib/tray'
+import { startTrayUpdates } from '../lib/tray'
 import { shortcutFor } from '../lib/shortcuts'
 import { effectiveWindowMode, requestAskInChat } from '../editor'
 import { fixedSubject } from '../state/workbench'
@@ -274,27 +274,15 @@ export const App = () => {
    * a second source for the same number is a second number. What it says is
    * decided in `lib/tray.ts`; the shell only draws it.
    */
-  useEffect(() => {
-    if (!isDesktop()) return
-    const send = (): void =>
-      setTraySummary(
-        describeTray({
-          runtimes: snapshot.runtimes,
-          usage: snapshot.usage,
-          accountsByRuntime: snapshot.accountsByRuntime,
-          accountPrefs: snapshot.accountPrefs,
-          health: snapshot.health,
-          activeRuntime: snapshot.activeRuntime,
-          now: Date.now(),
-          hideAddresses: snapshot.hideAccountAddresses,
-        }),
-      )
-    send()
-    // "resets in 3h" goes stale on its own, and the menu is opened hours after
-    // the last snapshot arrived. A minute is the resolution of what it says.
-    const timer = window.setInterval(send, 60_000)
-    return () => window.clearInterval(timer)
-  }, [
+  useEffect(startTrayUpdates.bind(null, {
+    runtimes: snapshot.runtimes,
+    usage: snapshot.usage,
+    accountsByRuntime: snapshot.accountsByRuntime,
+    accountPrefs: snapshot.accountPrefs,
+    health: snapshot.health,
+    activeRuntime: snapshot.activeRuntime,
+    hideAddresses: snapshot.hideAccountAddresses,
+  }), [
     snapshot.runtimes,
     snapshot.usage,
     snapshot.accountsByRuntime,
