@@ -33,14 +33,23 @@ the adapter has no ACP SDK import or dependency to migrate.
 The adapter exposes `session/fork` when the agent advertises
 `agentCapabilities.sessionCapabilities.fork`. Forks retain the source's
 completed displayed history and read ceiling and receive their own tool caller,
-attachment preparation and connection ownership. A running source must finish
-before it can be forked.
+attachment preparation. A fork uses its source's connection and process
+environment, so even peers with no persistent store can resolve the source.
+Closing either handle preserves the other's worker. A running source must
+finish before it can be forked. Once the peer creates a branch, the adapter
+returns it and reports any concurrent source change or unapplied setting;
+it marks uncertain displayed history as incomplete. A missing lane-environment
+acknowledgement keeps the returned branch visible but blocks prompts until a
+safe reopen.
 
 Steering uses `_session/steering`, negotiated through initialize's
 `_meta.steering.supported`. It opts into `promptRequired` so a turn that ended
 just before injection gets a new host-tracked prompt. Goals use `_session/goal`
 and the versioned `_meta.jetbrains.air.goal` declaration (set and clear), with
-state updates mapped to the host goal model. These two extensions advertise in
+state updates mapped to the host goal model. Busy and idle goal requests both
+use the structured control method; the adapter never builds a slash command.
+If a goal starts a continuation as the original prompt ends, its output and
+completion remain in the tracked turn. These two extensions advertise in
 initialize's `_meta`, rather than `agentCapabilities`; no agent identity gate is
 used. Idle goal commands own tracked turns too.
 

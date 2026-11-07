@@ -99,8 +99,9 @@ bundled Claude Agent ACP bridge at 0.101.0, the current source declarations are:
 These declarations are covered by the scripted ACP peer tests in
 `packages/adapter-acp/test/session-capabilities.test.ts` and the bundled bridge
 fake-CLI tests in `packages/claude-acp/test/claude-acp.test.ts`. They establish
-wire behavior, independent fork history, read-ceiling inheritance, steering
-completion races and goal state; they are not a new live-agent survey. MCP
+wire behavior, forks on their source connection with shared worker lifetime,
+read-ceiling inheritance, visible branches after post-creation errors, steering
+completion races and structured goal controls during running turns; they are not a new live-agent survey. MCP
 status is available as `/mcp` chat output, and compaction as `/compact`, without
 claiming structured MCP management or an advertised compaction control. See
 [the bridge follow-ups](claude-agent-acp-follow-ups.md) for the source audit and

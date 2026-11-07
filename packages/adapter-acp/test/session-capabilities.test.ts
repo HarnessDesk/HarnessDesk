@@ -56,21 +56,53 @@ test('undeclared and null fork capabilities refuse without opening a branch', as
   }
 })
 
-test('an isolated fork connection never replaces the source connection', async t => {
-  const dir = mkdtempSync(join(tmpdir(), 'acp-fork-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
-  const runtime = make({ FAKE_ACP_FORK: '1', FAKE_ACP_NO_CLOSE: '1', FAKE_ACP_STORE: join(dir, 'store.json') })
+for (const isolatedBy of ['no-close', 'git-environment'] as const) {
+  for (const closeFirst of ['source', 'fork'] as const) {
+    test(`fork uses the source connection under ${isolatedBy} and survives closing ${closeFirst}`, async t => {
+      const runtime = new AcpRuntime({
+        id: 'session-peer', name: 'Session peer', command: process.execPath, args: [FAKE],
+        env: { FAKE_ACP_FORK: '1', ...(isolatedBy === 'no-close' ? { FAKE_ACP_NO_CLOSE: '1' } : {}) },
+        ...(isolatedBy === 'git-environment' ? { gitEnvironment: async () => ({ FAKE_GIT_SCOPE: 'source' }) } : {}),
+      })
+      t.after(() => runtime.dispose())
+      const events: AgentEvent[] = []
+      runtime.subscribe(event => events.push(event))
+      await runtime.start()
+      const source = await runtime.createSession({ cwd: '/tmp' })
+      await finish(events, source, 'ephemeral source history')
+      const fork = await runtime.forkSession(source.id)
+      assert.equal(runtime.connectionFor(source.id), runtime.connectionFor(fork.id))
+      await finish(events, source, 'source still owns its id')
+      await finish(events, fork, 'fork owns its id')
+      await (closeFirst === 'source' ? source : fork).close()
+      const survivor = closeFirst === 'source' ? fork : source
+      await finish(events, survivor, 'sibling process survives release')
+      assert.equal((await runtime.readSession(survivor.id)).turns.at(-1)!.status, 'completed')
+    })
+  }
+}
+
+test('concurrent sibling closes reap their shared fork worker', async t => {
+  const runtime = make({ FAKE_ACP_FORK: '1', FAKE_ACP_NO_CLOSE: '1' })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const source = await runtime.createSession({ cwd: '/tmp' })
+  const fork = await runtime.forkSession(source.id)
+  const connection = runtime.connectionFor(source.id)
+  await Promise.all([source.close(), fork.close()])
+  assert.equal(connection.alive, false)
+})
+
+test('a failed fork request never stops the source worker', async t => {
+  const runtime = make({ FAKE_ACP_FORK: '1', FAKE_ACP_NO_CLOSE: '1', FAKE_ACP_FORK_ERROR: '1' })
   t.after(() => runtime.dispose())
   const events: AgentEvent[] = []
   runtime.subscribe(event => events.push(event))
   await runtime.start()
-  const source = await runtime.createSession({ cwd: dir })
-  await finish(events, source, 'persist before fork')
-  const fork = await runtime.forkSession(source.id)
-  await finish(events, source, 'source connection still owns this id')
-  await finish(events, fork, 'fork connection owns its id')
-  assert.equal((await runtime.readSession(source.id)).turns.length, 2)
-  assert.equal((await runtime.readSession(fork.id)).turns.length, 2)
+  const source = await runtime.createSession({ cwd: '/tmp' })
+  await assert.rejects(runtime.forkSession(source.id), /fork refused/)
+  await finish(events, source, 'source survives refusal')
+  assert.equal((await runtime.readSession(source.id)).turns.at(-1)!.status, 'completed')
 })
 
 test('a fork inherits the approved filter under its own staging key', async t => {
@@ -139,8 +171,36 @@ test('goals negotiate the versioned control and project set and clear updates', 
   assert.deepEqual((await runtime.readSession(session.id)).turns.map(turn => turn.status), ['completed', 'completed'])
 })
 
-test('a goal that races the running turn uses a tracked continuation', async t => {
-  const runtime = make({ FAKE_ACP_GOALS: '1', FAKE_ACP_STEER: 'race' })
+test('busy goals preserve structured set and clear independently of steering', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'acp-goal-control-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const requests = join(dir, 'goals.jsonl')
+  const runtime = make({ FAKE_ACP_GOALS: '1', FAKE_ACP_STEER: '1', FAKE_ACP_GOAL_REQUESTS: requests })
+  t.after(() => runtime.dispose())
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  const session = await runtime.createSession({ cwd: dir })
+  const turn = await session.send([{ type: 'text', text: 'wait for steer' }])
+  await until(() => events.some(event => event.type === 'item/started'))
+  await session.setGoal!('clear')
+  assert.equal((await runtime.readSession(session.id)).goal?.objective, 'clear')
+  assert.equal((await runtime.readSession(session.id)).turns[0]!.status, 'inProgress')
+  await session.setGoal!('keep working')
+  await session.setGoal!(null)
+  assert.deepEqual(readFileSync(requests, 'utf8').trim().split('\n').map(line => JSON.parse(line)), [
+    { sessionId: session.id, action: 'set', objective: 'clear' },
+    { sessionId: session.id, action: 'set', objective: 'keep working' },
+    { sessionId: session.id, action: 'clear' },
+  ])
+  assert.equal((await runtime.readSession(session.id)).goal, null)
+  await session.steer([{ type: 'text', text: 'finish' }])
+  await until(() => events.some(event => event.type === 'turn/completed' && event.turn.id === turn))
+  assert.equal((await runtime.readSession(session.id)).turns.length, 1)
+})
+
+test('a structured goal racing the prompt completion keeps its continuation tracked', async t => {
+  const runtime = make({ FAKE_ACP_GOALS: 'race', FAKE_ACP_STEER: 'race' })
   t.after(() => runtime.dispose())
   const events: AgentEvent[] = []
   runtime.subscribe(event => events.push(event))
@@ -149,11 +209,30 @@ test('a goal that races the running turn uses a tracked continuation', async t =
   await session.send([{ type: 'text', text: 'wait for steer' }])
   await until(() => events.some(event => event.type === 'item/started'))
   await session.setGoal!('keep working')
-  await until(() => events.filter(event => event.type === 'turn/completed').length === 2)
+  await until(() => events.some(event => event.type === 'turn/completed'))
   const snapshot = await runtime.readSession(session.id)
   assert.equal(snapshot.goal?.objective, 'keep working')
-  assert.equal(snapshot.turns.length, 2)
-  assert.equal(snapshot.turns[1]!.items[0]!.type, 'notice', 'a control command is not recorded as user speech')
+  assert.equal(snapshot.turns.length, 1)
+  assert.equal(snapshot.turns[0]!.status, 'completed')
+  assert.match(JSON.stringify(snapshot.turns[0]!.items), /structured goal continuation/)
+})
+
+test('interrupting a structured goal continuation preserves interruption after the original prompt ends', async t => {
+  const runtime = make({ FAKE_ACP_GOALS: 'race', FAKE_ACP_STEER: 'race', FAKE_ACP_GOAL_LIFECYCLE: 'pending' })
+  t.after(() => runtime.dispose())
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  const session = await runtime.createSession({ cwd: '/tmp' })
+  await session.send([{ type: 'text', text: 'wait for steer' }])
+  await until(() => events.some(event => event.type === 'item/started'))
+  const setting = session.setGoal!('keep working')
+  await until(() => events.some(event => event.type === 'item/delta' && event.delta.kind === 'assistantText' && event.delta.text.includes('structured goal continuation')))
+  assert.equal((await runtime.readSession(session.id)).turns[0]!.status, 'inProgress')
+  await session.interrupt()
+  await setting
+  await until(() => events.some(event => event.type === 'turn/completed'))
+  assert.equal((await runtime.readSession(session.id)).turns[0]!.status, 'interrupted')
 })
 
 test('unadvertised controls stay off and unsupported features stay off', async t => {
@@ -232,26 +311,32 @@ test('a busy source refuses a fork before sending session/fork', async t => {
 })
 
 for (const state of ['running', 'completed']) {
-  test(`a source turn ${state} during session/fork refuses and closes the fork`, async t => {
+  test(`a source turn ${state} during session/fork returns the durable branch with a history warning`, async t => {
     const dir = mkdtempSync(join(tmpdir(), 'acp-fork-race-'))
     t.after(() => rmSync(dir, { recursive: true, force: true }))
     const opens = join(dir, 'opens.jsonl'), gate = join(dir, 'release'), closes = join(dir, 'closed')
-    const runtime = make({ FAKE_ACP_FORK: '1', FAKE_ACP_OPENS: opens, FAKE_ACP_FORK_GATE: gate, FAKE_ACP_CLOSES: closes })
+    const runtime = make({ FAKE_ACP_FORK: '1', FAKE_ACP_OPENS: opens, FAKE_ACP_FORK_GATE: gate, FAKE_ACP_CLOSES: closes, FAKE_ACP_STORE: join(dir, 'store.json') })
     t.after(() => runtime.dispose())
     const events: AgentEvent[] = []
     runtime.subscribe(event => events.push(event))
     await runtime.start()
     const source = await runtime.createSession({ cwd: dir })
     const forking = runtime.forkSession(source.id)
-    const refused = assert.rejects(forking, /source.*changed|running turn/)
     await until(() => existsSync(opens) && readFileSync(opens, 'utf8').includes('session/fork'))
     const forkId = JSON.parse(readFileSync(opens, 'utf8').trim().split('\n').find(line => line.includes('session/fork'))!).sessionId
     if (state === 'running') await source.send([{ type: 'text', text: 'wait for steer' }])
     else await finish(events, source, 'a whole turn before fork answers')
     writeFileSync(gate, 'release')
-    await refused
-    assert.ok(existsSync(closes) && readFileSync(closes, 'utf8').split('\n').includes(forkId), 'the unused fork is closed')
-    assert.ok(!events.some(event => event.type === 'session/started' && event.session.id === forkId))
+    const fork = await forking
+    assert.equal(fork.id, forkId)
+    assert.ok(!existsSync(closes), 'the created branch is kept live')
+    assert.ok(events.some(event => event.type === 'session/started' && event.session.id === forkId))
+    assert.ok(events.some(event => event.type === 'notice' && event.sessionId === forkId && /source.*changed/i.test(event.message)))
+    const snapshot = await runtime.readSession(fork.id)
+    assert.equal(snapshot.partialHistory, true)
+    assert.equal(snapshot.turns.length, 0, 'the adapter does not claim a transcript whose fork point is unknown')
+    assert.ok((await runtime.listSessions()).data.some(row => row.id === fork.id))
+    await finish(events, fork, 'the returned branch works')
   })
 }
 
@@ -312,4 +397,38 @@ test('steering continues after the earlier goal fails in the promptRequired race
   await setting
   await until(() => events.filter(event => event.type === 'turn/completed').length === 2)
   assert.deepEqual((await runtime.readSession(session.id)).turns.map(turn => turn.status), ['failed', 'completed'])
+})
+
+
+test('a rejected fork option returns the durable branch and reports the unapplied setting', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'acp-fork-option-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const runtime = make({ FAKE_ACP_FORK: '1', FAKE_ACP_STORE: join(dir, 'store.json') })
+  t.after(() => runtime.dispose())
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  const source = await runtime.createSession({ cwd: dir })
+  const fork = await runtime.forkSession(source.id, { options: { voice: 'invalid' } })
+  assert.ok(events.some(event => event.type === 'session/started' && event.session.id === fork.id))
+  assert.ok(events.some(event => event.type === 'notice' && event.sessionId === fork.id && /voice.*invalid/i.test(event.message)))
+  assert.ok((await runtime.listSessions()).data.some(row => row.id === fork.id))
+  await finish(events, fork, 'returned fork is usable')
+  assert.equal((await runtime.readSession(fork.id)).turns.at(-1)!.status, 'completed')
+})
+
+test('an unacknowledged fork environment returns a visible branch that cannot run', async t => {
+  const runtime = make({ FAKE_ACP_FORK: '1', FAKE_ACP_ENVIRONMENT: '1' })
+  t.after(() => runtime.dispose())
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  const source = await runtime.createSession({ cwd: '/tmp' })
+  const fork = await runtime.forkSession(source.id, { environment: {
+    HARNESSDESK_GOAL_ID: 'g1', HARNESSDESK_LANE_ID: 'lane-30000',
+    HARNESSDESK_PORT_START: '30000', HARNESSDESK_PORT_END: '30019', HARNESSDESK_PORT_COUNT: '20', PORT: '30000',
+  } })
+  assert.ok(events.some(event => event.type === 'session/started' && event.session.id === fork.id))
+  assert.equal((await runtime.readSession(fork.id)).status.type, 'error')
+  await assert.rejects(fork.send([{ type: 'text', text: 'must not run' }]), /did not acknowledge/)
 })

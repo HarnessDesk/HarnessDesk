@@ -2620,14 +2620,15 @@ export class AcpRuntime implements AgentRuntime {
       this.#cancelReadRest(session.id)
       const connection = this.connectionFor(session.id)
       try {
-        if (connection === this.#connection) {
+        const hasSiblings = [...this.#sessionConnections].some(([id, sibling]) => id !== session.id && sibling === connection)
+        if (connection === this.#connection || hasSiblings) {
           if (this.#initialized?.agentCapabilities?.sessionCapabilities?.close) {
             await connection.request('session/close', { sessionId: session.id }, 3_000)
           } else {
             // The peer has no release verb. Cancel only this conversation;
             // keep working siblings on their shared process until all handles rest.
             await session.interrupt()
-            if (!this.#isProbe(session.id) && !this.#transientReads.has(session.id)) this.#sharedReleasePending = true
+            if (connection === this.#connection && !this.#isProbe(session.id) && !this.#transientReads.has(session.id)) this.#sharedReleasePending = true
           }
         } else {
           await connection.stop()
@@ -2643,6 +2644,12 @@ export class AcpRuntime implements AgentRuntime {
       this.#transientReads.delete(session.id)
       session.released()
       this.#sessionConnections.delete(session.id)
+      // Two siblings can close concurrently, each initially seeing the other.
+      // The last released mapping also owns reaping their shared worker.
+      if (connection !== this.#connection && ![...this.#sessionConnections.values()].includes(connection)) {
+        await connection.stop()
+        this.#workers.delete(connection)
+      }
       this.#tasks?.forget(session.id)
       if (this.#tasks && !this.#isProbe(session.id)) {
         this.emit({ type: 'session/tasks', sessionId: session.id, tasks: [] })
@@ -3128,9 +3135,14 @@ export class AcpRuntime implements AgentRuntime {
   ): Promise<T> {
     const caller = randomUUID()
     const steeringCaller = randomUUID()
-    const steering = typeof params['cwd'] === 'string' ? await this.#config.gitEnvironment?.(params['cwd'], steeringCaller, (this.#launch && !('blocked' in this.#launch) ? this.#launch.env?.['PATH'] : undefined) ?? this.#config.env?.['PATH']) : undefined
-    let connection = this.#connection
-    if (steering || !this.#initialized?.agentCapabilities?.sessionCapabilities?.close && !this.#config.sharedSessionProcess) {
+    // A fork refers to live state in its source's process. It inherits that
+    // process environment; another worker need not know the source id.
+    const forking = method === 'session/fork'
+    const steering = !forking && typeof params['cwd'] === 'string' ? await this.#config.gitEnvironment?.(params['cwd'], steeringCaller, (this.#launch && !('blocked' in this.#launch) ? this.#launch.env?.['PATH'] : undefined) ?? this.#config.env?.['PATH']) : undefined
+    let connection = forking ? this.connectionFor(makeSessionId(params['sessionId'] as string)) : this.#connection
+    let ownsWorker = false
+    if (!forking && (steering || !this.#initialized?.agentCapabilities?.sessionCapabilities?.close && !this.#config.sharedSessionProcess)) {
+      ownsWorker = true
       if (this.#disposed) throw shutDown(this.#config.name)
       connection = this.#makeConnection(true)
       if (this.#launch && !('blocked' in this.#launch)) {
@@ -3212,7 +3224,7 @@ export class AcpRuntime implements AgentRuntime {
         throw again
       }
     } finally {
-      if (!opened && connection !== this.#connection) {
+      if (!opened && ownsWorker) {
         await connection.stop()
         this.#workers.delete(connection)
         if (method !== 'session/fork' && typeof existingId === 'string' && this.#sessionConnections.get(makeSessionId(existingId)) === connection) {
@@ -3774,32 +3786,37 @@ export class AcpRuntime implements AgentRuntime {
       sessionId: id, cwd,
       _meta: environment ? environmentMeta(meta, environment, this.info.capabilities.sessionEnvironment) : meta,
     }, attachments)
-    const session = AcpSession.fromFork(this, opened, cwd, history)
+    // The peer has created a durable branch. From here on return it, even if
+    // its display history or requested settings cannot be reproduced exactly.
+    const changed = source.busy || source.snapshot().turns.length !== history.turns.length
+    const session = AcpSession.fromFork(this, opened, cwd, history, !changed)
     this.#sessions.set(session.id, session)
     this.#openedIn.set(session.id, cwd)
     if (readRequested) this.#sessionCeilings.set(session.id, 'read')
     if (heldRead) this.#readGuardedSessions.add(session)
     if (attachments) this.#attachmentInputs.set(session.id, attachments)
-    try {
-      // Fork copies asynchronously. Refuse both a still-running turn and one
-      // that started and finished while the peer was copying the transcript.
-      if (source.busy || source.snapshot().turns.length !== history.turns.length) {
-        throw new Error('The source conversation changed while forking; wait for its running turn to finish and try again.')
-      }
-      if (environment) {
+    const warnings: string[] = []
+    if (changed) warnings.push('The source conversation changed while forking. The branch was created, but its displayed history is incomplete because the fork point is unknown.')
+    if (environment) {
+      this.#environments.set(session.id, laneEnvironmentOf(environment))
+      try {
         acknowledgeEnvironment(opened._meta, environment)
-        this.#environments.set(session.id, laneEnvironmentOf(environment))
+      } catch (error) {
+        // Keep the branch visible without permitting work in an unconfirmed
+        // lane. A later reopen must pass the usual environment handshake.
+        session.blockOpening(describeAcp(error))
+        warnings.push(describeAcp(error))
       }
-      for (const [key, value] of Object.entries({ ...(options.model ? { model: options.model } : {}), ...options.options }).sort(([a], [b]) => rankOptionId(a) - rankOptionId(b))) {
-        await session.setOption(key, value)
+    }
+    for (const [key, value] of Object.entries({ ...(options.model ? { model: options.model } : {}), ...options.options }).sort(([a], [b]) => rankOptionId(a) - rankOptionId(b))) {
+      try { await session.setOption(key, value) } catch (error) {
+        warnings.push(`The branch was created, but setting ${key} to ${String(value)} failed: ${describeAcp(error)}`)
       }
-    } catch (error) {
-      await session.close().catch(() => {})
-      throw error
     }
     this.#learnCatalog(opened)
     this.#invalidateSearchListing()
     this.emit({ type: 'session/started', session: session.snapshot() })
+    for (const message of warnings) this.emit({ type: 'notice', class: 'conversation', kind: 'conversation:fork', sessionId: session.id, level: 'warning', message })
     return session
   }
 
@@ -4613,6 +4630,7 @@ class AcpSession implements AgentSession {
   #turnCompletion: Promise<void> | null = null
   #goal: SessionGoal | null = null
   #forkedFrom: SessionId | null = null
+  #openingProblem: string | null = null
   /** What the agent has said about tokens, if anything. Null until it does. */
   #usage: SessionUsage | null = null
   /**
@@ -4658,13 +4676,17 @@ class AcpSession implements AgentSession {
     return session
   }
 
-  static fromFork(host: AcpRuntime, opened: AcpNewSessionResult, cwd: string, source: Session): AcpSession {
+  static fromFork(host: AcpRuntime, opened: AcpNewSessionResult, cwd: string, source: Session, historyReliable = true): AcpSession {
     const session = new AcpSession(host, opened, cwd)
-    session.#turns = [...source.turns]
+    session.#turns = historyReliable ? [...source.turns] : []
     session.#turnPrefix = `turn-f${randomUUID()}-`
-    session.#partialHistory = source.partialHistory ?? false
+    session.#partialHistory = !historyReliable || (source.partialHistory ?? false)
     session.#forkedFrom = source.id
     return session
+  }
+
+  blockOpening(message: string): void {
+    this.#openingProblem = message
   }
 
   /** The draft-options probe: a real session that never says anything. */
@@ -4931,6 +4953,7 @@ class AcpSession implements AgentSession {
   }
 
   async #send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }, control?: { method: string; params: Record<string, unknown> }): Promise<TurnId> {
+    if (this.#openingProblem) throw new Error(this.#openingProblem)
     if (this.busy) {
       throw new Error(
         `${this.#host.agentName} is still working on the last message; wait for the turn to end, or interrupt it.`,
@@ -4978,7 +5001,11 @@ class AcpSession implements AgentSession {
     // including when it dies, which must fail the turn, never strand it.
     this.#turnCompletion = this.#host.connectionFor(this.id)
       .request<AcpPromptResponse>(control?.method ?? 'session/prompt', control?.params ?? { sessionId: this.id, prompt })
-      .then((response) => {
+      .then(async (response) => {
+        // A structured goal control may start its own prompt if the original
+        // prompt ended while that request was in flight. Keep its updates in
+        // the tracked turn until every accepted control has settled.
+        while (turn.controls?.size) await Promise.allSettled([...turn.controls])
         // The turn's tokens land before the turn does, so the finished turn's
         // tail already has them to show. ACP's own field first; an agent that
         // counts in the extension slot instead is read from there, and one
@@ -4994,7 +5021,7 @@ class AcpSession implements AgentSession {
         else this.#forgetLastTurn()
         // Goal control replies omit the inner prompt's stop reason. Preserve
         // a cancellation the host requested instead of reading {} as success.
-        this.#finishTurn(turn, response.stopReason ?? (control && turn.interruptRequested ? 'cancelled' : undefined))
+        this.#finishTurn(turn, (control || turn.goalControlled) && turn.interruptRequested ? 'cancelled' : response.stopReason)
       })
       .catch((error: unknown) => {
         this.#host.refusedForSignIn(error)
@@ -5068,14 +5095,18 @@ class AcpSession implements AgentSession {
     if (!this.#host.info.capabilities.goals) throw new Error('This agent does not support goals.')
     if (objective !== null && !objective.trim()) throw new Error('A goal needs an objective.')
     const params = objective === null ? { sessionId: this.id, action: 'clear' } : { sessionId: this.id, action: 'set', objective }
-    if (this.busy && this.#host.info.capabilities.steer) {
-      // The goal method itself may start a prompt when its turn ends just
-      // before the command arrives. Own that race through steering's opt-in.
-      await this.#steer([{ type: 'text', text: objective === null ? '/goal clear' : `/goal ${objective}` }], 'notice')
-    } else if (this.busy) {
-      await this.#host.connectionFor(this.id).request(ACP_GOAL, params)
+    const turn = this.#currentTurn
+    if (turn && this.busy) {
+      // Goals and steering are independent negotiated extensions. Preserve
+      // the structured action/objective on every path, including literal
+      // objectives that happen to look like a peer's command syntax.
+      const control = this.#host.connectionFor(this.id).request(ACP_GOAL, params)
+      turn.goalControlled = true
+      turn.controls ??= new Set()
+      turn.controls.add(control)
+      try { await control } finally { turn.controls.delete(control) }
     } else {
-      await this.#send([{ type: 'text', text: objective === null ? '/goal clear' : `/goal ${objective}` }], { recordAs: 'notice' }, { method: ACP_GOAL, params })
+      await this.#send([{ type: 'text', text: objective === null ? 'Goal cleared' : `Goal set: ${objective}` }], { recordAs: 'notice' }, { method: ACP_GOAL, params })
     }
   }
 
@@ -5151,7 +5182,7 @@ class AcpSession implements AgentSession {
         // conversation opened stands in for turns this process never saw.
         this.#host.previewOf(this.id),
       cwd: this.#cwd,
-      status: this.#currentTurn ? { type: 'active' as const } : { type: 'idle' as const },
+      status: this.#openingProblem ? { type: 'error' as const, message: this.#openingProblem } : this.#currentTurn ? { type: 'active' as const } : { type: 'idle' as const },
       createdAt: Date.now(),
       updatedAt: Date.now(),
       git: null,
@@ -5855,6 +5886,8 @@ const OPEN_TURN = -1
 interface MutableTurn {
   readonly id: TurnId
   interruptRequested?: boolean
+  goalControlled?: boolean
+  controls?: Set<Promise<unknown>>
   items: AgentItem[]
   tools?: Map<string, ToolItemState>
   /**
