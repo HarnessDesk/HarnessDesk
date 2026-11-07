@@ -637,7 +637,13 @@ const clientFromContext = (context: AgentContext): AcpClient => ({
 })
 type StoredControls = { values: Record<string, string>; meta?: Meta; cwd: string }
 type ModelInfo = { value: string; supportedEffortLevels?: readonly string[] }
-type StoredControlsWithRuntime = StoredControls & { styles: readonly string[]; spawned: Record<string, string>; prompted: boolean }
+type StoredControlsWithRuntime = StoredControls & {
+  styles: readonly string[]
+  spawned: Record<string, string>
+  prompted: boolean
+  /** A created fork whose live query was released after mode enforcement failed. */
+  resumeBeforePrompt?: ResumeSessionRequest
+}
 type RawToolResult = { name: string; content: unknown }
 const customOptions = (stored: StoredControlsWithRuntime): SessionConfigOption[] => [
   { type: 'select', id: AUTOCOMPACT_OPTION_ID, name: 'Auto-compact', description: 'When Claude Code compacts its context window.', category: 'model_config', currentValue: stored.values[AUTOCOMPACT_OPTION_ID] ?? DEFAULT, options: AUTOCOMPACT_CHOICES.map((choice) => ({ ...choice })) },
@@ -830,6 +836,8 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     try {
       return await super.closeSession(params)
     } finally {
+      const stored = this.#controls.get(params.sessionId)
+      if (stored) delete stored.resumeBeforePrompt
       this.#rawToolResults.delete(params.sessionId)
       this.#suppliedMcpServers.delete(params.sessionId)
       this.#releaseAttachments(params.sessionId)
@@ -881,12 +889,21 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     )
   }
   override async resumeSession(request: ResumeSessionRequest): Promise<ResumeSessionResponse> {
+    const recovery = this.#controls.get(request.sessionId)?.resumeBeforePrompt
+    if (recovery) request = { ...recovery, ...request, _meta: request._meta ?? recovery._meta }
     const remembered = { ...this.#readControls(request.sessionId), ...optionsIn(request._meta) }
     // Only a read seat needs its ceiling re-applied here; every other resume
     // stays exactly the wrapper's own.
     if (remembered['ceiling'] !== 'read') return super.resumeSession(request)
     const response = await super.resumeSession({ ...request, _meta: withOptions(request._meta, remembered, new AbortController(), request.cwd) })
-    await this.#forceReadPermissionMode(request.sessionId, remembered)
+    try {
+      await this.#forceReadPermissionMode(request.sessionId, remembered)
+    } catch (error) {
+      // A failed recovery stays closed and pending. Neither an explicit
+      // resume nor a later prompt may reuse a query that failed enforcement.
+      if (recovery) await super.closeSession({ sessionId: request.sessionId })
+      throw error
+    }
     const stored: StoredControlsWithRuntime = {
       values: remembered,
       spawned: { ...remembered },
@@ -913,10 +930,21 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const { params: filtered, input, staged } = withAttachments(prepared, (key) => this.#stagingRoot(key))
     // Apply the source's read ceiling BEFORE upstream starts the fork's query.
     const result = await super.unstable_forkSession({ ...filtered, _meta: withOptions(filtered._meta, inherited, new AbortController(), params.cwd) })
-    await this.#forceReadPermissionMode(result.sessionId, inherited)
+    // The branch already exists. Persist its ceiling before any further SDK
+    // call can fail, and keep the same controls in memory for mode requests.
     this.#writeControls(result.sessionId, inherited)
-    const stored: StoredControlsWithRuntime = { values: inherited, spawned: { ...inherited }, prompted: true, styles: await optionStyles(this, result.sessionId), meta: filtered._meta, cwd: params.cwd }
+    const stored: StoredControlsWithRuntime = { values: inherited, spawned: { ...inherited }, prompted: true, styles: [], meta: filtered._meta, cwd: params.cwd }
     this.#controls.set(result.sessionId, stored)
+    try {
+      await this.#forceReadPermissionMode(result.sessionId, inherited)
+    } catch (error) {
+      stored.resumeBeforePrompt = { sessionId: result.sessionId, cwd: params.cwd, mcpServers: filtered.mcpServers, additionalDirectories: filtered.additionalDirectories, systemPrompt: filtered.systemPrompt, _meta: filtered._meta }
+      // Use upstream's handle release, as reconfiguration does, retaining the
+      // frozen attachment preparation for a guarded resume of this same id.
+      await super.closeSession({ sessionId: result.sessionId })
+      this.#log(`claude-acp: fork ${result.sessionId} could not enforce its read ceiling; released live query: ${String(error)}`)
+    }
+    stored.styles = await optionStyles(this, result.sessionId)
     this.#suppliedMcpServers.set(result.sessionId, filtered.mcpServers?.map(server => server.name) ?? [])
     this.#tasks.set(result.sessionId, new TaskRegistry())
     this.#delegations.set(result.sessionId, new DelegationRegistry())
@@ -954,7 +982,13 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     return { configOptions: customOptions(stored) }
   }
   override async prompt(params: Parameters<ClaudeAcpAgent['prompt']>[0]): ReturnType<ClaudeAcpAgent['prompt']> {
-    const stored = this.#controls.get(params.sessionId)
+    let stored = this.#controls.get(params.sessionId)
+    // Upstream prompt requires a live session. A fork released after a mode
+    // failure must pass our read-enforcing resume before any input is queued.
+    if (stored?.resumeBeforePrompt) {
+      await this.resumeSession(stored.resumeBeforePrompt)
+      stored = this.#controls.get(params.sessionId)
+    }
     if (stored && !stored.prompted) {
       for (const command of commandsFor(stored.values, stored.spawned)) {
         await super.prompt({ sessionId: params.sessionId, prompt: [{ type: 'text', text: command }] })

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -28,13 +28,14 @@ const BRIDGE = fileURLToPath(new URL('../src/main.js', import.meta.url))
 const FAKE = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url))
 const WORKDIR = scratch('claude-acp-')
 
-const make = (extra: Record<string, string> = {}, toolServer?: AcpAgentConfig['toolServer']): AcpRuntime =>
+const make = (extra: Record<string, string> = {}, toolServer?: AcpAgentConfig['toolServer'], logger?: AcpAgentConfig['logger']): AcpRuntime =>
   new AcpRuntime({
     id: 'claude-code',
     name: 'Claude Code',
     command: process.execPath,
     args: [BRIDGE],
     ...(toolServer ? { toolServer, trustsBridgeProvenance: true } : {}),
+    ...(logger ? { logger } : {}),
     env: {
       HOME: scratch('claude-home-'),
       CLAUDE_CODE_EXECUTABLE: FAKE,
@@ -1303,6 +1304,59 @@ test('the bundled bridge forks stored history with the source read ceiling alrea
   assert.equal(await ask(runtime, fork, 'permission {"tool":"Write","input":{"file_path":"/tmp/denied.txt","content":"denied"}}', tape), 'native guard denied.')
   assert.equal(tape.events.filter(event => event.type === 'approval/requested').length, 0)
 })
+
+for (const failure of ['once', 'always'] as const) {
+  test(`a read fork returns its persisted id after permission-mode failure ${failure} and safely resumes before writing`, async t => {
+    const config = scratch('claude-fork-failure-config-')
+    // Avoid upstream's optional Auto-mode fallback synchronization: the
+    // refusal must hit the wrapper's mandatory post-creation enforcement.
+    writeFileSync(join(config, 'settings.json'), JSON.stringify({ permissions: { defaultMode: 'default' } }))
+    const state = scratch('claude-fork-failure-state-')
+    const log = join(scratch('claude-fork-failure-log-'), 'spawns.log')
+    const failureFile = join(state, 'permission-mode-failure')
+    const sourceId = '11111111-1111-4111-8111-111111111111'
+    const userUuid = '22222222-2222-4222-8222-222222222222'
+    storedSession(config, sourceId, WORKDIR, [
+      { ...said('remember this fixture'), uuid: userUuid, parentUuid: null },
+      { ...answered('remembered'), uuid: '33333333-3333-4333-8333-333333333333', parentUuid: userUuid },
+    ])
+    const warnings: string[] = []
+    const runtime = make({
+      CLAUDE_CONFIG_DIR: config, CLAUDE_ACP_STATE_DIR: state,
+      FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_PERMISSION_MODE_FAILURE_FILE: failureFile,
+    }, undefined, { debug: (message, details) => {
+      if (message === 'agent stderr') warnings.push(String((details as { line?: unknown })?.line ?? ''))
+    } })
+    t.after(() => runtime.dispose())
+    const tape = record(runtime)
+    await runtime.start()
+    const source = await runtime.resumeSession((await runtime.listSessions()).data.find(row => String(row.id) === sourceId)!.id, { requestedCeiling: 'read' })
+    writeFileSync(failureFile, failure)
+    const fork = await runtime.forkSession(source.id)
+    assert.notEqual(fork.id, source.id, 'the created branch is returned even when enforcing its live mode fails')
+    assert.equal(JSON.parse(readFileSync(join(state, 'options.json'), 'utf8'))[fork.id]?.ceiling, 'read')
+    await assert.rejects(runtime.connectionFor(fork.id).request('session/set_mode', { sessionId: fork.id, modeId: 'bypassPermissions' }), error => /read ceiling/.test(String(error) + JSON.stringify(error)))
+    const originalPid = new RegExp(`spawn (\\d+) .*resume=${fork.id}`).exec(readFileSync(log, 'utf8'))?.[1]
+    assert.ok(originalPid)
+    if (failure === 'always') {
+      await assert.rejects(runtime.connectionFor(fork.id).request('session/resume', { sessionId: fork.id, cwd: WORKDIR, mcpServers: [] }), error => /fixture permission-mode refusal/.test(String(error) + JSON.stringify(error)))
+      // A failed explicit resume must not leave an unguarded prompt path.
+      await ask(runtime, fork, 'permission {"tool":"Write","input":{"file_path":"/tmp/denied.txt","content":"denied"}}', tape)
+      const turn = (await runtime.readSession(fork.id)).turns.at(-1)!
+      assert.equal(turn.status, 'failed')
+      assert.match(turn.error?.message ?? '', /fixture permission-mode refusal/)
+      rmSync(failureFile)
+    }
+    assert.equal(await ask(runtime, fork, 'permission {"tool":"Write","input":{"file_path":"/tmp/denied.txt","content":"denied"}}', tape), 'native guard denied.')
+    assert.equal(tape.events.filter(event => event.type === 'approval/requested').length, 0)
+    const deadline = Date.now() + 5_000
+    while (!readFileSync(log, 'utf8').includes(`exit ${originalPid}`) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
+    const activity = readFileSync(log, 'utf8')
+    assert.ok(activity.includes(`exit ${originalPid}`), 'the failed live query is released')
+    assert.ok(activity.split('\n').filter(line => line.startsWith('spawn ') && line.includes(`resume=${fork.id}`)).length >= 2, 'the next prompt opens a new guarded query')
+    assert.match(warnings.join('\n'), /fork.*read ceiling.*fixture permission-mode refusal/)
+  })
+}
 
 const textIn = (item: AgentItem): string =>
   item.type === 'userMessage'
