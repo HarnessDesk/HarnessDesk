@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import {
   BrowserInvocations,
   pluginsRoot,
+  withIosInputSignal,
   type IosCapability,
   canonicalScopeQuery,
   setEditorEngine,
@@ -128,7 +129,7 @@ export interface PluginHostOptions {
 }
 
 export class PluginHostProcess {
-  readonly #iosInvocations = new Map<string, string>()
+  readonly #iosInvocations = new Map<string, { owner: string; signal: AbortSignal }>()
   #child: ChildProcess | null = null
   #nextId = 0
   readonly #pending = new Map<number, Pending>()
@@ -357,8 +358,10 @@ export class PluginHostProcess {
    * would have refused every editor call on a host that simply had no pane.
    */
   async #answer(request: ChildToHostRequest): Promise<void> {
+    const sourceChild = this.#child
     const reply = (message: HostToChildResponse): void => {
-      this.#child?.stdin?.write(`${JSON.stringify(message)}\n`)
+      if (this.#child !== sourceChild) return
+      sourceChild?.stdin?.write(`${JSON.stringify(message)}\n`)
     }
     const refuse = (message: string): void => {
       reply({ response: request.request, error: { message } })
@@ -367,11 +370,11 @@ export class PluginHostProcess {
       if (request.method === 'ios/call') {
         const child = this.#child
         const params = request.params as ChildToHostMethods['ios/call']['params']
-        const owner = this.#iosInvocations.get(params?.invocation)
-        const plugin = this.#plugins.find(p => String(p.instanceId) === owner)
-        if (!plugin?.enabled || plugin.permissions.ios !== true || !this.#options.iosEngine || !await hasInstalledIosGrant(this.#options.env?.['HARNESSDESK_PLUGINS'] ?? (this.#options.env?.['HARNESSDESK_HOME'] ? join(this.#options.env['HARNESSDESK_HOME'], 'plugins') : pluginsRoot()), plugin.identity.id)) throw new Error('This simulator request has no live invocation with an iOS permission grant.')
-        if (this.#child !== child || this.#iosInvocations.get(params.invocation) !== owner) throw new Error('This simulator invocation has ended.')
-        const result = await answerIosCall(this.#options.iosEngine, params.call)
+        const lease = this.#iosInvocations.get(params?.invocation)
+        const plugin = this.#plugins.find(p => String(p.instanceId) === lease?.owner)
+        if (!plugin?.enabled || plugin.permissions.ios !== true || !lease || lease.signal.aborted || !this.#options.iosEngine || !await hasInstalledIosGrant(this.#iosStore(), plugin.identity.id)) throw new Error('This simulator request has no live invocation with an iOS permission grant.')
+        if (this.#child !== child || this.#iosInvocations.get(params.invocation) !== lease) throw new Error('This simulator invocation has ended.')
+        const result = await withIosInputSignal(lease.signal, () => answerIosCall(this.#options.iosEngine!, params.call))
         reply({ response: request.request, result }); return
       }
       if (request.method.startsWith('editor/')) {
@@ -819,19 +822,14 @@ export class PluginHostProcess {
   ): Promise<PluginHostMethods[M]['result']> {
     await this.ensure()
     let browserInvocation: string | undefined
-    let iosInvocation: string | undefined
+    const iosInvocations: Record<string, string> = {}
+    const iosController = new AbortController()
     if (method === 'tool/invoke') {
       const input = params as PluginHostMethods['tool/invoke']['params']
       const namespaced = childContributionId(input.id as ContributionId)
       const owner = this.#plugins.find((plugin) =>
         plugin.contributions.some((entry) => entry.id === namespaced),
       )
-      if (owner?.enabled && owner.permissions.ios && owner.contributions.some(entry => entry.id === namespaced && scopeApplies(entry.scope, input.scope)) && await hasInstalledIosGrant(this.#options.env?.['HARNESSDESK_PLUGINS'] ?? (this.#options.env?.['HARNESSDESK_HOME'] ? join(this.#options.env['HARNESSDESK_HOME'], 'plugins') : pluginsRoot()), owner.identity.id)) {
-        iosInvocation = randomUUID()
-        this.#iosInvocations.set(iosInvocation, String(owner.instanceId))
-      }
-      const { iosInvocation: _untrustedIos, ...withoutIos } = input
-      params = { ...withoutIos, ...(iosInvocation ? { iosInvocation } : {}) } as PluginHostMethods[M]['params']
       if (
         input.browser &&
         owner?.enabled &&
@@ -847,6 +845,17 @@ export class PluginHostProcess {
         params = plain as PluginHostMethods[M]['params']
       }
     }
+    if (['tool/invoke','command/run','context/resolve','context/resolveOne','hooks/run'].includes(method)) {
+      const store = this.#iosStore()
+      for (const owner of this.#iosOwnersFor(method, params)) {
+        if (!await hasInstalledIosGrant(store, owner.identity.id)) continue
+        const token = randomUUID()
+        iosInvocations[String(owner.instanceId)] = token
+        this.#iosInvocations.set(token, { owner: String(owner.instanceId), signal: iosController.signal })
+      }
+      const { iosInvocations: _untrusted, ...plain } = params as { iosInvocations?: unknown }
+      params = { ...plain, iosInvocations } as PluginHostMethods[M]['params']
+    }
     const armKeys = this.#armedScopesFor(method, params)
     const controller = new AbortController()
     const inputScope = (params as { scope?: ScopeQuery; query?: ScopeQuery }).scope ?? (params as { query?: ScopeQuery }).query ?? {}
@@ -860,7 +869,8 @@ export class PluginHostProcess {
     try {
       return await this.#dispatch(method, params, lifetime)
     } finally {
-      if (iosInvocation) this.#iosInvocations.delete(iosInvocation)
+      iosController.abort()
+      for (const token of Object.values(iosInvocations)) this.#iosInvocations.delete(token)
       if (browserInvocation) this.#browserInvocations.end(browserInvocation)
       controller.abort()
       for (const key of armKeys) {
@@ -872,6 +882,22 @@ export class PluginHostProcess {
         else this.#teamScopes.set(key, count)
       }
     }
+  }
+
+  #iosStore(): string {
+    return this.#options.env?.['HARNESSDESK_PLUGINS'] ?? (this.#options.env?.['HARNESSDESK_HOME'] ? join(this.#options.env['HARNESSDESK_HOME'], 'plugins') : pluginsRoot())
+  }
+  #iosOwnersFor(method: PluginHostMethodName, value: unknown): readonly PluginInstance[] {
+    const params = value as Record<string, unknown>
+    const hook = params['invocation'] as HookInvocation | undefined
+    const scope = (method === 'context/resolve' ? params['query'] : method === 'hooks/run' ? hook?.scope : params['scope']) as ScopeQuery ?? {}
+    return this.#plugins.filter(plugin => plugin.enabled && plugin.permissions.ios && plugin.contributions.some(entry => {
+      if (!scopeApplies(entry.scope, scope)) return false
+      if (method === 'tool/invoke' || method === 'context/resolveOne') return entry.id === childContributionId(params['id'] as ContributionId)
+      if (method === 'command/run') return entry.kind === 'command' && entry.name === params['name']
+      if (method === 'context/resolve') return entry.kind === 'context' && !entry.chip
+      return method === 'hooks/run' && entry.kind === 'hook' && entry.event === hook?.event && (!entry.match || typeof hook.toolName === 'string' && entry.match.includes(hook.toolName))
+    }))
   }
 
   /**

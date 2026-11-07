@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline'
 import type { IosAction, IosFrame } from './ios-types.js'
 
 export interface IosInputTransport {
-  request(udid: string, action: IosAction, frame?: Pick<IosFrame, 'width' | 'height' | 'rotation'>): Promise<Record<string, unknown>>
+  request(udid: string, action: IosAction, frame?: Pick<IosFrame, 'width' | 'height' | 'rotation'>, signal?: AbortSignal): Promise<Record<string, unknown>>
   dispose?(): void
 }
 interface Pending { resolve(value: Record<string, unknown>): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
@@ -15,6 +15,8 @@ export class IosHelper implements IosInputTransport {
   #child: ChildProcessWithoutNullStreams | null = null
   #pending = new Map<string, Pending>()
   #nextId = 0
+  #queue: Promise<unknown> = Promise.resolve()
+  #disposed = false
   constructor(private readonly options: { executable?: string; args?: readonly string[]; timeoutMs?: number } = {}) {}
   #stop(child: ChildProcessWithoutNullStreams, error: Error): void {
     if (this.#child !== child) return
@@ -55,14 +57,23 @@ export class IosHelper implements IosInputTransport {
     })
     return child
   }
-  async request(udid: string, action: IosAction, frame?: Pick<IosFrame, 'width' | 'height' | 'rotation'>): Promise<Record<string, unknown>> {
+  request(udid: string, action: IosAction, frame?: Pick<IosFrame, 'width' | 'height' | 'rotation'>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const work = this.#queue.catch(() => {}).then(() => this.#requestNow(udid, action, frame, signal))
+    this.#queue = work.catch(() => {})
+    return work
+  }
+  async #requestNow(udid: string, action: IosAction, frame?: Pick<IosFrame, 'width' | 'height' | 'rotation'>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    if (this.#disposed) throw new Error('The simulator input helper was disposed.')
+    signal?.throwIfAborted()
     const child = this.#ensure()
     const id = String(++this.#nextId)
-    return new Promise((resolve, reject) => {
+    const cancel = () => this.#stop(child, new Error('The simulator invocation ended; the gesture was stopped.'))
+    signal?.addEventListener('abort', cancel, { once: true })
+    try { return await new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => this.#stop(child, new Error('The simulator input helper timed out; the gesture was stopped.')), this.options.timeoutMs ?? 20_000)
       this.#pending.set(id, { resolve, reject, timer })
       child.stdin.write(`${JSON.stringify({ protocolVersion: 1, id, udid, operation: 'interact', action, ...(frame ? { geometry: { width: frame.width, height: frame.height, rotation: frame.rotation } } : {}) })}\n`, (error) => { if (error) this.#stop(child, new Error('The simulator input helper connection closed.')) })
-    })
+    }) } finally { signal?.removeEventListener('abort', cancel) }
   }
-  dispose(): void { if (this.#child) this.#stop(this.#child, new Error('The simulator input helper was disposed.')) }
+  dispose(): void { this.#disposed = true; if (this.#child) this.#stop(this.#child, new Error('The simulator input helper was disposed.')) }
 }

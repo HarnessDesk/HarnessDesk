@@ -149,12 +149,12 @@ export interface PluginHostMethods {
     result: null
   }
   'command/run': {
-    params: { readonly name: string; readonly argument: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, string>>; readonly name: string; readonly argument: string; readonly scope: ScopeQuery }
     result: { readonly handled: boolean }
   }
   'tool/invoke': {
     params: {
-      readonly iosInvocation?: string
+      readonly iosInvocations?: Readonly<Record<string, string>>
       readonly id: string
       readonly args: unknown
       readonly scope: ScopeQuery
@@ -162,14 +162,14 @@ export interface PluginHostMethods {
     }
     result: ToolResult
   }
-  'hooks/run': { params: { readonly invocation: HookInvocation }; result: HookVerdict }
+  'hooks/run': { params: { readonly iosInvocations?: Readonly<Record<string, string>>; readonly invocation: HookInvocation }; result: HookVerdict }
   'context/resolve': {
-    params: { readonly query: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, string>>; readonly query: ScopeQuery }
     result: readonly { readonly label: string; readonly text: string }[]
   }
   /** One provider, because the user attached its chip. */
   'context/resolveOne': {
-    params: { readonly id: string; readonly ref?: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, string>>; readonly id: string; readonly ref?: string; readonly scope: ScopeQuery }
     result: { readonly label: string; readonly text: string } | null
   }
   'workspace/set': {

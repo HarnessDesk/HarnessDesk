@@ -298,7 +298,7 @@ nothing more.
 `build:node` ends by building `hd-ios-control` from
 `packages/cordis-host/native/ios-control`. Non-macOS hosts skip it; source builds
 without full Xcode warn and stay usable. Packaging requires a successful build
-for its selected architecture. `script/before-pack.mjs` also preserves the
+for its selected architecture. `packages/desktop/script/before-pack.mjs` also preserves the
 existing pinned Lead runtime preparation. `HARNESSDESK_NO_DOWNLOADS=1` refuses
 packing if that verified Lead cache is absent.
 
@@ -306,6 +306,9 @@ The resource is `Contents/Resources/native/ios/hd-ios-control`, listed in
 `build.mac.binaries` so the normal release signs it with the app identity and
 hardened runtime. Apple frameworks are loaded from installed Xcode, never copied.
 The packaged smoke runs the actual helper's `--version` without a simulator.
+`verify-artifacts` mounts each validated DMG read-only, checks the helper's
+architecture, nested signature, matching signing team and hardened-runtime flag,
+then executes its `--probe` to load the installed Xcode frameworks.
 
 On the release machine, inspect each artifact's helper architecture with `lipo`,
 verify its nested signature with `codesign --verify --strict`, and test dynamic

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { IosHelper, type IosInputTransport } from './ios-helper.js'
+import { currentIosInputSignal } from './ios-invocation.js'
 import { validateIosAction } from './ios-validation.js'
 
 import type { HostRuntime } from './runtime.js'
@@ -33,6 +34,7 @@ export interface IosEngineDependencies {
 }
 export class IosEngine {
   private readonly input: IosInputTransport
+  private inputQueue: Promise<unknown> = Promise.resolve()
   private readonly queues = new Map<string, Promise<unknown>>()
   private readonly frames = new Map<string, { frame: IosFrame; generation: string }>()
   constructor(private readonly dependencies: IosEngineDependencies = {}) {
@@ -210,13 +212,20 @@ export class IosEngine {
     })
   }
 
+  private inputTurn<T>(run: () => Promise<T>): Promise<T> {
+    const work = this.inputQueue.catch(() => {}).then(run)
+    this.inputQueue = work.catch(() => {})
+    return work
+  }
   /** Serialize input and its frame together across all capability callers. */
   async interact(action: IosAction, udid?: string): Promise<IosFrame> {
     const device = await this.booted(udid).catch((error: unknown) => {
       if (/unable to find utility ["']?simctl|requires Xcode|invalid active developer path|spawn xcrun ENOENT/i.test(String(error))) throw new Error('iOS Simulator control requires Xcode; install and open Xcode, then select it in Settings › Locations › Command Line Tools.')
       throw error
     })
-    return this.exclusive(device.udid, async () => {
+    const signal = currentIosInputSignal()
+    return this.exclusive(device.udid, () => this.inputTurn(async () => {
+      signal?.throwIfAborted()
       const remembered = this.frames.get(device.udid)
       const before = await this.captureFrame(device.udid)
       validateIosAction(action, before)
@@ -224,10 +233,10 @@ export class IosEngine {
           (!remembered || remembered.frame.frameId !== action.frameId || remembered.generation !== this.generations.get(device.udid)?.generation || remembered.frame.width !== before.width || remembered.frame.height !== before.height || remembered.frame.rotation !== before.rotation)) {
         throw new Error('The simulator screenshot is stale; capture a fresh frame before sending input.')
       }
-      const result = await this.input.request(device.udid, action, before)
+      const result = await this.input.request(device.udid, action, before, signal)
       const after = await this.captureFrame(device.udid)
       return typeof result['method'] === 'string' ? { ...after, inputMethod: result['method'] } : after
-    })
+    }))
   }
   async tap(x: number, y: number, udid?: string): Promise<void> { await this.interact({ kind: 'tap', x, y }, udid) }
 }

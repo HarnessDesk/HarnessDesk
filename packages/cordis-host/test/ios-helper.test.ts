@@ -27,3 +27,9 @@ test('only measured geometry crosses native stdio, never screenshot bytes', asyn
     assert.deepEqual(result['keys'],['height','rotation','width'])
   } finally { helper.dispose() }
 })
+test('queued devices receive their timeout only when native dispatch starts', async () => {
+  const source="const r=require('node:readline').createInterface({input:process.stdin});let tail=Promise.resolve();r.on('line',line=>{const q=JSON.parse(line);tail=tail.then(()=>new Promise(resolve=>setTimeout(()=>{console.log(JSON.stringify({id:q.id,protocolVersion:1,result:{ok:true}}));resolve()},900)))})"
+  const helper=new IosHelper({executable:process.execPath,args:['-e',source],timeoutMs:1500})
+  try { assert.equal((await Promise.all([1,2,3].map(()=>helper.request(target,{kind:'key',key:'return',count:1})))).length,3) }
+  finally {helper.dispose()}
+})

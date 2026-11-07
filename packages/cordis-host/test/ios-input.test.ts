@@ -30,3 +30,19 @@ test('invalid actions and stale frame IDs are refused before input', async () =>
   for(const action of [{kind:'tap',x:NaN,y:0},{kind:'tap',x:1,y:0},{kind:'tap',x:0,y:0,frameId:'stale'},{kind:'drag',path:[{x:0,y:0,tMs:1},{x:0,y:0,tMs:2}]}]) await assert.rejects(engine.interact(action as never,target))
   assert.equal(calls,0)
 })
+test('an expired invocation cannot deliver queued input', async () => {
+  const { withIosInputSignal }=await import('../src/ios-invocation.js')
+  let delivered=0
+  const engine=new IosEngine({run:async(_bin,args)=>{
+    if(args[1]==='list')return {stdout:JSON.stringify({devices:{iOS:[{udid:target,state:'Booted'}]}}),stderr:''}
+    if(args[1]==='io' && args[3]==='screenshot')writeFileSync(args[4]!,PNG)
+    return {stdout:'',stderr:''}
+  },input:{request:async()=>{delivered++;await new Promise(r=>setTimeout(r,40));return {}}}})
+  const first=engine.interact({kind:'tap',x:0,y:0},target)
+  const controller=new AbortController()
+  const expired=withIosInputSignal(controller.signal,()=>engine.interact({kind:'tap',x:0,y:0},target))
+  controller.abort()
+  await assert.rejects(expired,/abort/i)
+  await first
+  assert.equal(delivered,1)
+})

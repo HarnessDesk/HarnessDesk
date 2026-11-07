@@ -32,6 +32,7 @@ func requireSymbols(_ names: [String], resolve: (String) -> Bool) throws {
 enum Gesture {
     static func samples(from: [Point], to: [Point], durationMs: Int) throws -> [Sample] {
         guard from.count == to.count, (1...2).contains(from.count), (1...10000).contains(durationMs) else { throw InputFailure("gesture", "A gesture needs one or two contacts and a bounded duration.") }
+        if from == to { return [Sample(phase: .start, points: from, tMs: 0), Sample(phase: .end, points: to, tMs: durationMs)] }
         let steps = max(1, Int(ceil(Double(durationMs)/16)))
         var result = [Sample(phase: .start, points: from, tMs: 0)]
         for step in 1..<steps {

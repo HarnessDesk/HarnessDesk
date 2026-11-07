@@ -82,4 +82,4 @@ export { AndroidService, type AndroidDevice } from './android.js'
 
 export { IosEngine } from './ios-engine.js'
 export { validateIosAction } from './ios-validation.js'
-export { currentIosInvocation, withIosInvocation } from './ios-invocation.js'
+export { currentIosInvocation, withIosInvocation, withIosInputSignal } from './ios-invocation.js'

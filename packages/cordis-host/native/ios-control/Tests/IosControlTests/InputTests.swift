@@ -49,3 +49,11 @@ extension InputTests {
         XCTAssertEqual(samples.last!.points[1].y,50,accuracy:0.0001)
     }
 }
+extension InputTests {
+    func testHoldIsExactlyDownThenUp() throws {
+        let point=Point(x:10,y:20)
+        let samples=try Gesture.samples(from:[point],to:[point],durationMs:750)
+        XCTAssertEqual(samples.map(\.phase),[.start,.end])
+        XCTAssertEqual(samples.map(\.tMs),[0,750])
+    }
+}

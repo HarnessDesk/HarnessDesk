@@ -27,6 +27,32 @@ func sendKeys(_ usages: [UInt64], connection: HDSimulatorConnection) throws {
     for usage in held.reversed() { try connection.sendPayload(["usageCode": usage, "state": UInt64(2)], messageType: "IndigoKeyboardButtonEvent", barrier: false) }
     held = []
 }
+func selectedDeveloperDirectory() throws -> String {
+    let directory: String
+    if let explicit = ProcessInfo.processInfo.environment["DEVELOPER_DIR"] { directory = explicit }
+    else {
+        let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select"); process.arguments = ["-p"]
+        let output = Pipe(); process.standardOutput = output; process.standardError = FileHandle.nullDevice
+        try process.run(); process.waitUntilExit()
+        directory = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+    let versionURL = URL(fileURLWithPath: directory).deletingLastPathComponent().appendingPathComponent("version.plist")
+    let version = (try? Data(contentsOf: versionURL)).flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
+    let major = (version?["CFBundleShortVersionString"] as? String)?.split(separator: ".").first.flatMap { Int($0) } ?? 0
+    guard major >= 27 else { throw InputFailure("xcode", "iOS Simulator control requires Xcode; install and open Xcode, then select it in Settings › Locations › Command Line Tools.") }
+    return directory
+}
+if CommandLine.arguments.contains("--probe") {
+    do {
+        let directory = try selectedDeveloperDirectory()
+        var failure: NSError?
+        guard HDProbeXcode(directory, &failure) else { throw failure ?? InputFailure("frameworks", "The simulator frameworks could not be loaded.") }
+        print("{\"protocolVersion\":1,\"frameworks\":\"available\"}")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("The selected Xcode simulator input frameworks could not be loaded.\n".utf8)); exit(1)
+    }
+}
 while let line = readLine() {
     var id = ""
     do {
@@ -34,19 +60,8 @@ while let line = readLine() {
         guard let requestId = request["id"] as? String, !requestId.isEmpty else { throw InputFailure("request", "A request ID is required.") }; id = requestId
         guard request["protocolVersion"] as? Int == 1 else { throw InputFailure("version", "The simulator helper protocol version is incompatible.") }
         guard let udid = request["udid"] as? String, UUID(uuidString: udid) != nil else { throw InputFailure("target", "A concrete simulator UUID is required.") }
-        let directory: String
-        if let explicit = ProcessInfo.processInfo.environment["DEVELOPER_DIR"] { directory = explicit }
-        else {
-            let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select"); process.arguments = ["-p"]
-            let output = Pipe(); process.standardOutput = output; process.standardError = FileHandle.nullDevice
-            try process.run(); process.waitUntilExit()
-            directory = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        }
-        let versionURL = URL(fileURLWithPath: directory).deletingLastPathComponent().appendingPathComponent("version.plist")
-        let version = (try? Data(contentsOf: versionURL)).flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
-        let major = (version?["CFBundleShortVersionString"] as? String)?.split(separator: ".").first.flatMap { Int($0) } ?? 0
-        guard major >= 27 else { throw InputFailure("xcode", "iOS Simulator control requires Xcode; install and open Xcode, then select it in Settings › Locations › Command Line Tools.") }
-        let connection = try establish(xcodeMajor: major) { _ in try HDSimulatorConnection(developerDirectory: directory, udid: udid) }
+        let directory = try selectedDeveloperDirectory()
+        let connection = try establish(xcodeMajor: 27) { _ in try HDSimulatorConnection(developerDirectory: directory, udid: udid) }
         defer { connection.close() }
         guard let operation = request["operation"] as? String, ["probe", "interact"].contains(operation) else { throw InputFailure("operation", "An input operation is required.") }
         var result: [String: Any] = ["transport": "dtuhid", "width": connection.pixelWidth, "height": connection.pixelHeight]
@@ -106,6 +121,7 @@ while let line = readLine() {
             }
             // Validate every contact before any event can be delivered.
             let normalized = try samples.map { sample in Sample(phase: sample.phase, points: try sample.points.map(geometry.normalize), tMs: sample.tMs) }
+            if pixelInput { try connection.verifyRotation(rotation) }
             try Gesture.deliver(normalized, sink: { sample in
                 if sample.phase != .end && HDInputCancelled() != 0 { throw CancellationError() }
                 var payload: [String: Any] = ["eventType": sample.phase.rawValue, "edge": UInt64(0), "target": UInt64(0), "pointOne": ["x": sample.points[0].x, "y": sample.points[0].y]]

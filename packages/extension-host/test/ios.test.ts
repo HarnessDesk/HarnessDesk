@@ -42,3 +42,24 @@ test('IPC rejects helper paths and arbitrary commands',async()=> {
   await assert.rejects(answerIosCall(engine,{method:'spawn',args:['/bin/sh']} as never),/Unknown/)
   await assert.rejects(answerIosCall(engine,{method:'boot',args:['booted']} as never),/UUID/)
 })
+test('optional targets and iOS access survive commands, hooks and context entrypoints',async()=> {
+  const scratch=fileURLToPath(new URL('../../../../output/ios-input/',import.meta.url));await mkdir(scratch,{recursive:true})
+  const dir=await mkdtemp(join(scratch,'entrypoints-')), store=join(dir,'plugins')
+  await cp(join(FIXTURES,'plugin-ios'),join(store,'iosish'),{recursive:true})
+  let calls=0
+  const frame={udid:'11111111-1111-1111-1111-111111111111',frameId:'fixture',width:1,height:1,mimeType:'image/png',url:'data:image/png;base64,'}
+  const engine={devices:async()=>{calls++;return []},frame:async(udid?:string)=>{assert.equal(udid,undefined);calls++;return frame},interact:async(_action:unknown,udid?:string)=>{assert.equal(udid,undefined);calls++;return frame}} as unknown as IosCapability
+  const host=new SupervisedExtensionHost(new ExtensionKernel(),{env:{HARNESSDESK_PLUGINS:store},iosEngine:engine})
+  try {
+    await host.loadInstalledPlugins()
+    assert.equal(await host.runCommand('ios_command','',{}),true)
+    assert.equal((await host.resolveContext({})).length,1)
+    const provider=host.list('context')[0]!
+    assert.ok(await host.resolveOne(provider.id,undefined,{}))
+    assert.equal((await host.runHooks({event:'preTurn',scope:{}})).decision,'allow')
+    const tool=host.list('tool').find(t=>t.name==='ios_implicit')!
+    const result=await host.invokeTool(tool.id,{},{})
+    assert.equal(result.ok,true,JSON.stringify(result))
+    assert.equal(calls,6)
+  } finally {await host.dispose();await rm(dir,{recursive:true,force:true})}
+})

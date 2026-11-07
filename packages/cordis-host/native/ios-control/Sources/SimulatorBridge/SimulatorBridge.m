@@ -15,6 +15,16 @@ void HDInstallCancellationHandlers(void) { signal(SIGTERM, cancelInput); signal(
 int HDInputCancelled(void) { return inputCancelled != 0; }
 static NSString *const service = @"com.apple.coredevice.feature.remote.hid.digitizer";
 static NSError *failure(NSString *message) { return [NSError errorWithDomain:@"app.harnessdesk.ios" code:1 userInfo:@{NSLocalizedDescriptionKey:message}]; }
+BOOL HDProbeXcode(NSString *directory, NSError **error) {
+    BOOL core = NO, kit = NO;
+    for (NSString *path in @[@"/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator", [directory stringByAppendingPathComponent:@"Library/PrivateFrameworks/CoreSimulator.framework/CoreSimulator"]]) if (dlopen(path.UTF8String, RTLD_NOW|RTLD_GLOBAL)) { core = YES; break; }
+    for (NSString *path in @[[directory stringByAppendingPathComponent:@"Library/PrivateFrameworks/SimulatorKit.framework/SimulatorKit"], [[directory stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"SharedFrameworks/SimulatorKit.framework/SimulatorKit"]]) if (dlopen(path.UTF8String, RTLD_NOW|RTLD_GLOBAL)) { kit = YES; break; }
+    void *symbols = dlopen(NULL, RTLD_NOW);
+    BOOL hid = symbols && dlsym(symbols, "xpc_endpoint_create_mach_port_4sim") && dlsym(symbols, "xpc_connection_enable_sim2host_4sim");
+    if (symbols) dlclose(symbols);
+    if (core && kit && hid && NSClassFromString(@"SimServiceContext")) return YES;
+    *error = failure(@"The selected Xcode simulator input frameworks or symbols could not be loaded."); return NO;
+}
 static BOOL selector(id object, NSString *name, NSError **error) {
     if (object && [object respondsToSelector:NSSelectorFromString(name)]) return YES;
     if (error) *error = failure([NSString stringWithFormat:@"The installed Xcode is missing the simulator input selector %@.", name]);
@@ -37,6 +47,8 @@ static xpc_object_t encode(id value) {
 }
 @implementation HDSimulatorConnection {
     id _device;
+    NSString *_udid;
+    NSString *_developerDirectory;
     xpc_connection_t _connection;
     dispatch_queue_t _queue;
     BOOL _invalidated;
@@ -70,7 +82,7 @@ static xpc_object_t encode(id value) {
             if ([[get(candidate, @"UDID") UUIDString] caseInsensitiveCompare:udid] == NSOrderedSame) { device = candidate; break; }
         }
         if (!device) { *error = failure(@"The requested simulator was not found."); return nil; }
-        _device = device;
+        _device = device; _udid = udid; _developerDirectory = directory;
         if (!selector(device, @"state", error)) return nil;
         if (((NSUInteger(*)(id,SEL))objc_msgSend)(device, NSSelectorFromString(@"state")) != 3) { *error = failure(@"The requested simulator is not booted."); return nil; }
         if (!selector(device, @"deviceType", error)) return nil;
@@ -123,6 +135,39 @@ static xpc_object_t encode(id value) {
     }
     if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 4*NSEC_PER_SEC)) != 0 || !ok) {
         *error = failure(@"DTUHID did not answer the simulator input liveness round trip."); return NO;
+    }
+    return YES;
+}
+- (BOOL)verifyRotation:(NSInteger)rotation error:(NSError **)error {
+    // Observe immediately before dispatch, after the helper's queue and DTUHID liveness wait.
+    NSTask *task = [NSTask new]; task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/xcrun"];
+    task.arguments = @[@"simctl", @"io", _udid, @"enumerate"];
+    NSMutableDictionary *environment = NSProcessInfo.processInfo.environment.mutableCopy;
+    environment[@"DEVELOPER_DIR"] = _developerDirectory; task.environment = environment;
+    NSPipe *output = [NSPipe pipe]; task.standardOutput = output; task.standardError = [NSFileHandle fileHandleWithNullDevice];
+    if (![task launchAndReturnError:error]) return NO;
+    NSTimeInterval deadline = NSProcessInfo.processInfo.systemUptime + 5;
+    while (task.running && NSProcessInfo.processInfo.systemUptime < deadline && !HDInputCancelled()) [NSThread sleepForTimeInterval:0.01];
+    if (task.running) {
+        [task terminate];
+        NSTimeInterval stopDeadline = NSProcessInfo.processInfo.systemUptime + 0.2;
+        while (task.running && NSProcessInfo.processInfo.systemUptime < stopDeadline) [NSThread sleepForTimeInterval:0.01];
+        if (task.running) kill(task.processIdentifier, SIGKILL);
+        [task waitUntilExit];
+        *error = failure(@"The simulator display observation timed out or was cancelled."); return NO;
+    }
+    [task waitUntilExit];
+    NSData *bytes = [output.fileHandleForReading readDataToEndOfFile];
+    NSString *text = [[NSString alloc] initWithData:bytes encoding:NSUTF8StringEncoding];
+    NSArray *sections = [text componentsSeparatedByString:@"Screen Type: Integrated"];
+    NSString *screen = sections.count > 1 ? [[sections[1] componentsSeparatedByString:@"Screen Type:"] firstObject] : @"";
+    NSArray *orientations = [screen componentsSeparatedByString:@"UI Orientation:"];
+    NSString *orientation = orientations.count > 1 ? orientations[1] : @"";
+    orientation = [[orientation componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet] firstObject];
+    orientation = [[orientation stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet].lowercaseString stringByReplacingOccurrencesOfString:@" " withString:@""];
+    NSNumber *observed = @{@"portrait":@0, @"landscaperight":@1, @"portraitupsidedown":@2, @"landscapeleft":@3}[orientation ?: @""];
+    if (task.terminationStatus != 0 || !observed || observed.integerValue != rotation) {
+        *error = failure(@"The simulator display geometry changed or could not be observed; capture a fresh frame."); return NO;
     }
     return YES;
 }
