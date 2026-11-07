@@ -1374,7 +1374,12 @@ const handlers = {
   },
   'session/fork': async (id, params) => {
     const source = sessions.get(params.sessionId) ?? readStore()[params.sessionId]
-    if (process.env.FAKE_ACP_FORK_ERROR) return fail(id, 'fork refused')
+    if (process.env.FAKE_ACP_FORK_ERROR) {
+      const gate = process.env.FAKE_ACP_FORK_GATE
+      if (gate) recordOpen('session/fork/refused', params.sessionId, params.cwd, params._meta)
+      while (gate && !existsSync(gate)) await new Promise(resolve => setTimeout(resolve, 10))
+      return fail(id, 'fork refused')
+    }
     if (!source || process.env.FAKE_ACP_FORK !== '1') return fail(id, 'fork unavailable')
     const state = newSession(undefined, params.cwd)
     state.options = { ...state.options, ...source.options }

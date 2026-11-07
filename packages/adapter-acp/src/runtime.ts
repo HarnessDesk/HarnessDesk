@@ -1049,6 +1049,7 @@ export class AcpRuntime implements AgentRuntime {
 
   readonly #workers = new Set<AcpConnection>()
   readonly #sessionConnections = new Map<SessionId, AcpConnection>()
+  readonly #pendingForks = new Map<AcpConnection, number>()
   readonly #closing = new Map<SessionId, Promise<void>>()
   #sharedReleasePending = false
   #idleStopping: Promise<void> | null = null
@@ -2621,7 +2622,7 @@ export class AcpRuntime implements AgentRuntime {
       const connection = this.connectionFor(session.id)
       try {
         const hasSiblings = [...this.#sessionConnections].some(([id, sibling]) => id !== session.id && sibling === connection)
-        if (connection === this.#connection || hasSiblings) {
+        if (connection === this.#connection || hasSiblings || this.#pendingForks.has(connection)) {
           if (this.#initialized?.agentCapabilities?.sessionCapabilities?.close) {
             await connection.request('session/close', { sessionId: session.id }, 3_000)
           } else {
@@ -2646,7 +2647,7 @@ export class AcpRuntime implements AgentRuntime {
       this.#sessionConnections.delete(session.id)
       // Two siblings can close concurrently, each initially seeing the other.
       // The last released mapping also owns reaping their shared worker.
-      if (connection !== this.#connection && ![...this.#sessionConnections.values()].includes(connection)) {
+      if (connection !== this.#connection && !this.#pendingForks.has(connection) && ![...this.#sessionConnections.values()].includes(connection)) {
         await connection.stop()
         this.#workers.delete(connection)
       }
@@ -3187,6 +3188,9 @@ export class AcpRuntime implements AgentRuntime {
       const briefed = { ...p, ...this.#briefed(p) }
       return { ...briefed, ...attachmentsMeta(briefed, attachments) }
     }
+    // The peer can persist a fork before answering; its worker must outlive
+    // the source handle until claim registers the new branch (or open fails).
+    if (forking) this.#pendingForks.set(connection, (this.#pendingForks.get(connection) ?? 0) + 1)
     try {
       return this.#opened(
         claim(await connection.request<T>(method, extend({ ...params, mcpServers: servers }))),
@@ -3224,6 +3228,15 @@ export class AcpRuntime implements AgentRuntime {
         throw again
       }
     } finally {
+      if (forking) {
+        const remaining = this.#pendingForks.get(connection)! - 1
+        if (remaining > 0) this.#pendingForks.set(connection, remaining)
+        else this.#pendingForks.delete(connection)
+        if (connection !== this.#connection && remaining === 0 && ![...this.#sessionConnections.values()].includes(connection)) {
+          await connection.stop()
+          this.#workers.delete(connection)
+        }
+      }
       if (!opened && ownsWorker) {
         await connection.stop()
         this.#workers.delete(connection)
