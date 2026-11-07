@@ -70,7 +70,7 @@ const recordOpen = (method, sessionId, cwd, meta) => {
     // carried a Seat's filter — the one fact a test of "never unfiltered" needs.
     const filtered = process.env.FAKE_ACP_ATTACHMENTS === '1' ? { filtered: Boolean(meta?.harnessdesk?.attachments) } : {}
     const ceiling = process.env.FAKE_ACP_READ_CEILING === '1' ? { ceiling: meta?.harnessdesk?.ceiling ?? null } : {}
-    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered, ...ceiling })}\n`)
+    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered, ...ceiling, ...(method === 'session/fork' ? { _meta: meta ?? null } : {}) })}\n`)
   }
 }
 const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
@@ -286,6 +286,17 @@ const runPrompt = async (id, params) => {
   const say = (chunk) =>
     update(state.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk } })
 
+  if (text === 'wait for steer') {
+    state.waitingPrompt = id
+    say('waiting')
+    return
+  }
+  if (process.env.FAKE_ACP_GOALS && text.startsWith('/goal ')) {
+    const objective = text.slice(6)
+    update(state.id, { sessionUpdate: 'session_info_update', _meta: { jetbrains: { air: { goal: objective === 'clear' ? null : { objective, status: 'active', controlMethod: '_session/goal' } } } } })
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   if (text.startsWith('git-steer-run ')) {
     const request = JSON.parse(text.slice('git-steer-run '.length)), command = [request.binary, ...request.args].join(' ')
     update(state.id, { sessionUpdate: 'tool_call', toolCallId: 'git-write', title: command, kind: 'execute', status: 'in_progress', rawInput: { command } })
@@ -440,6 +451,11 @@ const runPrompt = async (id, params) => {
   if (text.startsWith('ceiling permission ')) {
     const input = JSON.parse(text.slice('ceiling permission '.length))
     const toolCall = input.toolCall ?? input
+    // The fork fixture's native guard uses only the ceiling actually received.
+    if (process.env.FAKE_ACP_READ_CEILING === '1' && state.forkCeiling === 'read' && ['edit', 'execute'].includes(toolCall.kind)) {
+      say('denied.')
+      return reply(id, { stopReason: 'end_turn' })
+    }
     const { outcome } = await request('session/request_permission', {
       sessionId: state.id, toolCall,
       ...(input._meta ? { _meta: input._meta } : {}),
@@ -1058,7 +1074,7 @@ const handlers = {
         loadSession: Boolean(STORE) && !RESUME_ONLY,
         // FAKE_ACP_NO_IMAGES=1 plays an agent that cannot look at pictures.
         promptCapabilities: { image: process.env.FAKE_ACP_NO_IMAGES !== '1' },
-        sessionCapabilities: { ...(STORE && !NO_LIST ? { list: {}, resume: {} } : {}),
+        sessionCapabilities: { ...(process.env.FAKE_ACP_FORK === '1' ? { fork: {} } : process.env.FAKE_ACP_FORK === 'null' ? { fork: null } : {}), ...(STORE && !NO_LIST ? { list: {}, resume: {} } : {}),
           ...(process.env.FAKE_ACP_NO_CLOSE ? {} : { close: {} }) },
         /* `{}` is the only yes; `null` is a no that is spelled out rather
            than omitted, and both are on the wire. */
@@ -1069,10 +1085,13 @@ const handlers = {
         : [
             { id: 'device', name: 'Sign in on the agent side', description: 'Run the agent login.' },
           ],
-      ...(TASKS || DELETES || ATTACHMENTS || process.env.FAKE_ACP_LOADOUT_FILE || process.env.FAKE_ACP_READ_CEILING === '1'
+      ...(TASKS || DELETES || ATTACHMENTS || process.env.FAKE_ACP_LOADOUT_FILE || process.env.FAKE_ACP_READ_CEILING === '1' || process.env.FAKE_ACP_STEER || process.env.FAKE_ACP_GOALS || process.env.FAKE_ACP_ENVIRONMENT
         ? {
             _meta: {
+              ...(process.env.FAKE_ACP_STEER ? { steering: { supported: true } } : {}),
+              ...(process.env.FAKE_ACP_GOALS ? { jetbrains: { air: { goal: { version: 1, controlMethod: '_session/goal', actions: ['set', 'clear'] } } } } : {}),
               harnessdesk: {
+                ...(process.env.FAKE_ACP_ENVIRONMENT ? { sessionEnvironment: true } : {}),
                 ...(process.env.FAKE_ACP_LOADOUT_FILE ? { sessionLoadout: true } : {}),
                 // Handshake only; the bundled bridge tests native enforcement.
                 ...(process.env.FAKE_ACP_READ_CEILING === '1' ? { readCeiling: true } : {}),
@@ -1161,6 +1180,7 @@ const handlers = {
       helpers.delete(params.sessionId)
     }
     sessions.delete(params.sessionId)
+    if (process.env.FAKE_ACP_CLOSES) appendFileSync(process.env.FAKE_ACP_CLOSES, `${params.sessionId}\n`)
     lifetime({ type: 'close', sessionId: params.sessionId })
     reply(id, {})
   },
@@ -1257,6 +1277,8 @@ const handlers = {
             // The per-model form: this model thinks harder than the session
             // option can say, and says so in ACP's extension slot.
             _meta: {
+              ...(process.env.FAKE_ACP_STEER ? { steering: { supported: true } } : {}),
+              ...(process.env.FAKE_ACP_GOALS ? { jetbrains: { air: { goal: { version: 1, controlMethod: '_session/goal', actions: ['set', 'clear'] } } } } : {}),
               harnessdesk: {
                 effortLevels: [
                   { id: 'brief', label: 'Brief' },
@@ -1349,6 +1371,73 @@ const handlers = {
     state.options[params.configId] = params.value
     reply(id, null)
     update(state.id, { sessionUpdate: 'config_option_update', configOptions: configOptionsOf(state) })
+  },
+  'session/fork': async (id, params) => {
+    const source = sessions.get(params.sessionId) ?? readStore()[params.sessionId]
+    if (process.env.FAKE_ACP_FORK_ERROR) return fail(id, 'fork refused')
+    if (!source || process.env.FAKE_ACP_FORK !== '1') return fail(id, 'fork unavailable')
+    const state = newSession(undefined, params.cwd)
+    state.options = { ...state.options, ...source.options }
+    if (ATTACHMENTS && params._meta?.harnessdesk?.attachments) attachmentsBySession.set(state.id, params._meta.harnessdesk.attachments.input)
+    state.forkCeiling = params._meta?.harnessdesk?.ceiling
+    recordOpen('session/fork', state.id, params.cwd, params._meta)
+    if (STORE) {
+      const store = readStore()
+      store[state.id] = { ...store[params.sessionId], sessionId: state.id, cwd: params.cwd, options: state.options, turns: store[params.sessionId]?.turns ?? [], updatedAt: new Date().toISOString() }
+      writeStore(store)
+    }
+    const gate = process.env.FAKE_ACP_FORK_GATE
+    // A disk gate gives the test control without consuming a native watcher.
+    while (gate && !existsSync(gate)) await new Promise(resolve => setTimeout(resolve, 10))
+    reply(id, { sessionId: state.id, configOptions: configOptionsOf(state) })
+  },
+  '_session/steering': (id, params) => {
+    const state = sessions.get(params.sessionId)
+    if (!state || !process.env.FAKE_ACP_STEER) return fail(id, 'steering unavailable')
+    if (params._meta?.steering?.idleBehavior !== 'promptRequired') return fail(id, 'host must own the idle fallback')
+    if (process.env.FAKE_ACP_STEER === 'goal-failure-race' && state.waitingGoal !== undefined) {
+      fail(state.waitingGoal, 'the earlier goal turn failed')
+      state.waitingGoal = undefined
+      return reply(id, { outcome: 'promptRequired', reason: 'noRunningTurn' })
+    }
+    const original = state.waitingPrompt
+    state.waitingPrompt = undefined
+    if (!original || process.env.FAKE_ACP_STEER === 'race') {
+      if (original) reply(original, { stopReason: 'end_turn' })
+      return reply(id, { outcome: 'promptRequired', reason: 'noRunningTurn' })
+    }
+    update(state.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: params.prompt.map(block => block.text ?? '').join(' ') } })
+    reply(id, { outcome: 'injected' })
+    reply(original, { stopReason: 'end_turn' })
+  },
+  '_session/goal': (id, params) => {
+    if (!process.env.FAKE_ACP_GOALS) return fail(id, 'goals unavailable')
+    if (process.env.FAKE_ACP_GOAL_REQUESTS) appendFileSync(process.env.FAKE_ACP_GOAL_REQUESTS, `${JSON.stringify(params)}\n`)
+    const state = sessions.get(params.sessionId)
+    if (process.env.FAKE_ACP_GOALS === 'race' && state.waitingPrompt !== undefined) {
+      reply(state.waitingPrompt, { stopReason: 'end_turn' })
+      state.waitingPrompt = undefined
+      // A goal can find that its running prompt ended and start its own prompt.
+      // Let the host process the first reply before this continuation arrives.
+      setTimeout(() => {
+        update(state.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'structured goal continuation' } })
+        if (process.env.FAKE_ACP_GOAL_LIFECYCLE === 'pending') state.waitingGoal = id
+        else reply(id, {})
+      }, 30)
+      update(params.sessionId, { sessionUpdate: 'session_info_update', _meta: { jetbrains: { air: { goal: { objective: params.objective, status: 'active', controlMethod: '_session/goal' } } } } })
+      return
+    }
+    update(params.sessionId, { sessionUpdate: 'session_info_update', _meta: { jetbrains: { air: { goal: params.action === 'clear' ? null : { objective: params.objective, status: 'active', controlMethod: '_session/goal' } } } } })
+    if (process.env.FAKE_ACP_GOAL_LIFECYCLE) {
+      const state = sessions.get(params.sessionId)
+      state.waitingGoal = id
+      if (process.env.FAKE_ACP_GOAL_LIFECYCLE === 'fail') setImmediate(() => {
+        state.waitingGoal = undefined
+        fail(id, 'the accepted goal turn failed')
+      })
+      return
+    }
+    reply(id, {})
   },
   'session/prompt': (id, params) => void runPrompt(id, params),
   'session/list': (id, params) => {
@@ -1461,6 +1550,13 @@ const handlers = {
   },
   'session/cancel': (_id, params) => {
     cancelled.add(params.sessionId)
+    const state = sessions.get(params.sessionId)
+    if (state?.waitingGoal !== undefined) {
+      const goal = state.waitingGoal
+      state.waitingGoal = undefined
+      // The real bridge drops its inner prompt's cancelled stop reason.
+      reply(goal, {})
+    }
   },
 }
 
