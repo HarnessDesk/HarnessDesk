@@ -103,6 +103,7 @@ while let line = readLine() {
                 guard let button = action["button"] as? String, ["home", "side", "lock"].contains(button), (1...10000).contains(duration) else { throw InputFailure("button", "Choose a supported hardware button and a bounded duration.") }
                 if button == "lock" { throw InputFailure("lock", "Deterministic device locking is unavailable because native locked-state delivery could not be verified on this Xcode.") }
                 let usage: UInt64 = button == "home" ? 0x40 : 0x30
+                if HDInputCancelled() != 0 { throw CancellationError() }
                 try connection.sendPayload(["usagePage": UInt64(12), "usageCode": usage, "state": UInt64(1)], messageType: "IndigoButtonEvent", barrier: false)
                 defer { try? connection.sendPayload(["usagePage": UInt64(12), "usageCode": usage, "state": UInt64(2)], messageType: "IndigoButtonEvent", barrier: false) }
                 try waitInput(duration)
