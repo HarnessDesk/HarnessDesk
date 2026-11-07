@@ -111,3 +111,54 @@ test('an aborted timeout is recognized without the killed flag', async (t) => {
   assert.equal(setup.code, 'serviceUnavailable')
   assert.match(setup.message, /timed out/i)
 })
+
+test('an empty-stderr non-zero first-launch exit remains firstLaunch', async (t) => {
+  t.mock.method(childProcess, 'execFile', ((_binary: string, args: string[], _options: unknown,
+    callback: (error: Error | null, stdout: string, stderr: string) => void) => {
+    if (args[0] === '--find') callback(null, '/Applications/Xcode.app/Contents/Developer/usr/bin/simctl', '')
+    else callback(Object.assign(new Error('Command failed: xcodebuild -checkFirstLaunchStatus'), { code: 1 }), '', '')
+  }) as unknown as typeof childProcess.execFile)
+  syncBuiltinESMExports()
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports() })
+  const setup = await iosService({ environment: {
+    platform: 'darwin', developerDirectory: '/Applications/Xcode.app/Contents/Developer', exists: () => true,
+  } }).diagnose()
+  assert.equal(setup.code, 'firstLaunch')
+  assert.equal(setup.message, 'Open Xcode once so it can finish installing its components, then retry.')
+})
+
+test('permission and internal errors on a non-zero first-launch exit retain their failure', async () => {
+  for (const stderr of ['Permission denied', 'internal error']) {
+    const setup = await fixture({ launch: fail(stderr) }).service.diagnose()
+    assert.equal(setup.code, 'serviceUnavailable', stderr)
+    assert.ok(setup.message.includes(stderr), 'the original stderr remains actionable')
+  }
+})
+
+test('recognized first-launch work is distinguished from a crash, signal or timeout', async () => {
+  for (const stderr of ['Run -runFirstLaunch', 'FIRST LAUNCH work remains', 'Install COMPONENTS', 'Missing SYSTEM CONTENT']) {
+    assert.equal((await fixture({ launch: fail(stderr) }).service.diagnose()).code, 'firstLaunch')
+  }
+  for (const launch of [fail('Segmentation fault'), { ...fail('terminated by SIGTERM'), exitCode: null }, { ...fail(''), timedOut: true }]) {
+    const setup = await fixture({ launch }).service.diagnose()
+    assert.equal(setup.code, 'serviceUnavailable')
+    if (launch.stderr) assert.ok(setup.message.includes(launch.stderr))
+  }
+})
+
+test('the execFile probe receives an AbortSignal in its options', async (t) => {
+  const captured: { signal?: AbortSignal }[] = []
+  t.mock.method(childProcess, 'execFile', ((_binary: string, _args: string[], options: { signal?: AbortSignal },
+    callback: (error: Error, stdout: string, stderr: string) => void) => {
+    captured.push(options)
+    callback(Object.assign(new Error('synthetic probe failure'), { code: 'EACCES' }), '', 'Permission denied')
+  }) as unknown as typeof childProcess.execFile)
+  syncBuiltinESMExports()
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports() })
+  await iosService({ environment: {
+    platform: 'darwin', developerDirectory: '/Applications/Xcode.app/Contents/Developer', exists: () => true,
+  } }).diagnose()
+  assert.equal(captured.length, 1)
+  assert.ok(captured[0]!.signal instanceof AbortSignal)
+  assert.equal(captured[0]!.signal!.aborted, false)
+})

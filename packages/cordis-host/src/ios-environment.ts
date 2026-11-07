@@ -7,6 +7,7 @@ export interface IosProbeResult {
   readonly exitCode: number | string | null
   readonly stdout: string
   readonly stderr: string
+  readonly errorMessage?: string
   readonly timedOut?: boolean
 }
 
@@ -19,7 +20,7 @@ export interface IosEnvironmentDependencies {
 
 const execute: IosEnvironmentDependencies['execute'] = (binary, args, options) => new Promise((resolve) => {
   execFile(binary, [...args], { signal: AbortSignal.timeout(options.timeoutMs), env: options.env, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
-    resolve({ exitCode: error ? error.code ?? null : 0, stdout, stderr: stderr || error?.message || '', timedOut: error?.code === 'ABORT_ERR' })
+    resolve({ exitCode: error ? error.code ?? null : 0, stdout, stderr, errorMessage: error?.message, timedOut: error?.code === 'ABORT_ERR' })
   })
 })
 
@@ -48,8 +49,8 @@ export const diagnoseIosEnvironment = async (overrides: Partial<IosEnvironmentDe
     timeoutMs: 15_000, env: { ...process.env, ...(developerDirectory !== undefined ? { DEVELOPER_DIR: developerDirectory } : {}) },
   })
   const failed = (result: IosProbeResult): IosSetup => {
-    if (!result.timedOut && /license|licence/i.test(`${result.stderr}\n${result.stdout}`)) return answer('license')
-    const detail = (result.stderr || result.stdout).trim().split('\n').slice(-2).join(' · ')
+    if (!result.timedOut && /license|licence/i.test(`${result.stderr}\n${result.stdout}\n${result.errorMessage ?? ''}`)) return answer('license')
+    const detail = (result.stderr || result.errorMessage || result.stdout).trim().split('\n').slice(-2).join(' · ')
     return answer('serviceUnavailable', `${result.timedOut ? 'Probe timed out. ' : ''}${detail}`.trim() || `Probe exited with status ${result.exitCode}.`)
   }
   if (developerDirectory === undefined) {
@@ -74,8 +75,9 @@ export const diagnoseIosEnvironment = async (overrides: Partial<IosEnvironmentDe
   const launch = await probe('xcodebuild', ['-checkFirstLaunchStatus'])
   if (launch.exitCode !== 0) {
     const failure = failed(launch)
-    if (failure.code === 'license' || launch.timedOut || typeof launch.exitCode !== 'number') return failure
-    return answer('firstLaunch')
+    const pending = !launch.stderr.trim() || /runFirstLaunch|first launch|components|system content/i.test(launch.stderr)
+    if (failure.code !== 'license' && !launch.timedOut && typeof launch.exitCode === 'number' && pending) return answer('firstLaunch')
+    return failure
   }
   const sdks = await probe('xcodebuild', ['-showsdks'])
   if (sdks.exitCode !== 0) return failed(sdks)
