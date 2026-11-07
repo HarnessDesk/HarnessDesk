@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after as afterAll, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { ContributionId, SessionId } from '@harnessdesk/protocol'
+import type { ContributionId, ExtensionEvent, SessionId } from '@harnessdesk/protocol'
 
 import type { SupervisedExtensionHost, SupervisedExtensionHostOptions } from '../src/index.js'
-import { Hosts } from './hosts.js'
+import { childrenGone, childrenUp, Hosts } from './hosts.js'
 
 /**
  * One process per installed plugin, and what the host holds each process to:
@@ -129,19 +129,38 @@ test('a plugin process starts from an allowlisted environment, never the host\'s
   }
 })
 
+/** Every event the host emits from now on, and a way to wait for one. */
+const listen = (host: SupervisedExtensionHost) => {
+  const heard: ExtensionEvent[] = []
+  const stop = host.subscribe((event) => heard.push(event))
+  return {
+    heard,
+    stop,
+    /** Waits for the fixture's own closing log line: every frame before it has been handled. */
+    async sent(marker: string): Promise<void> {
+      await until(() => heard.some((event) => event.type === 'extension/log' && event.message === marker))
+    },
+  }
+}
+
+const mentions = (event: ExtensionEvent, text: string): boolean => JSON.stringify(event).includes(text)
+
 test('a snapshot a plugin forges is held to what the host knows about that plugin', async () => {
   const harness = await start(['good', 'forger'])
+  const events = listen(harness.host)
   try {
     const sent = await harness.host.invokeTool(harness.toolId('forge_snapshot'), {}, scope)
     assert.equal(sent.ok, true, JSON.stringify(sent))
-    // The forged frame lands 50ms after the answer; give it time to arrive.
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    await events.sent('snapshot sent')
 
-    const forger = harness.host.plugins().find((plugin) => plugin.instanceId.startsWith('forger'))
+    const forger = harness.host.plugins().find((plugin) => plugin.identity.id === 'forger')
     assert.ok(forger, 'the forger is still listed as itself')
-    assert.equal(forger.identity.id, 'forger', 'identity comes from the host, not the snapshot')
+    assert.equal(forger.instanceId, 'forger#installed', 'its instance id is the host\'s, not one it chose')
+    assert.equal(forger.identity.name, "Plugin that forges its process's snapshot", 'identity comes from the manifest')
     assert.equal(forger.permissions.shell, false, 'permissions come from the manifest the host read')
     assert.equal(forger.permissions.ui.contribute, false)
+    assert.equal(harness.host.plugins().some((plugin) => String(plugin.instanceId).startsWith('git')), false,
+      'an instance id that is not its own is not taken')
     assert.equal(harness.host.list('ui').some((entry) => (entry as { label?: string }).label === 'forged_panel'), false,
       'a UI contribution without ui.contribute is dropped')
     assert.equal(harness.host.list('tool').some((entry) => entry.name === 'forged_ping'), false,
@@ -151,6 +170,34 @@ test('a snapshot a plugin forges is held to what the host knows about that plugi
     const ping = await harness.host.invokeTool(harness.toolId('ping'), {}, scope)
     assert.equal(ping.ok, true, 'the real good plugin is untouched')
   } finally {
+    events.stop()
+    await cleanup(harness)
+  }
+})
+
+test('events a plugin forges about another plugin never leave the host, and its own are re-owned', async () => {
+  const harness = await start(['good', 'forger'])
+  const events = listen(harness.host)
+  try {
+    const sent = await harness.host.invokeTool(harness.toolId('forge_events'), {}, scope)
+    assert.equal(sent.ok, true, JSON.stringify(sent))
+    await events.sent('events sent')
+
+    const fromForger = events.heard.filter((event) => !mentions(event, 'invocation'))
+    assert.equal(fromForger.some((event) => mentions(event, 'good#')), false,
+      `nothing about the good plugin got through: ${JSON.stringify(fromForger.filter((event) => mentions(event, 'good#')))}`)
+    assert.equal(fromForger.some((event) => mentions(event, 'forged_panel')), false, 'no panel without ui.contribute')
+    const own = fromForger.find((event): event is Extract<ExtensionEvent, { type: 'contributions/changed' }> => event.type === 'contributions/changed')
+    assert.ok(own, 'its own contributions event is passed on')
+    assert.equal(own.owner, 'forger#installed')
+    assert.deepEqual(own.contributions, [], 'with nothing it may not contribute')
+    const log = fromForger.find((event) => event.type === 'extension/log' && event.message === 'events sent')
+    assert.equal((log as { owner?: string } | undefined)?.owner, 'forger#installed', 'a log line is the plugin\'s own, whatever it says')
+
+    assert.equal(harness.host.plugins().filter((plugin) => plugin.identity.id === 'good').length, 1)
+    assert.equal((await harness.host.invokeTool(harness.toolId('ping'), {}, scope)).ok, true)
+  } finally {
+    events.stop()
     await cleanup(harness)
   }
 })
@@ -226,6 +273,108 @@ test('a plugin\'s config is given back to its process after a restart', async ()
     const after = await spy(harness)
     assert.notEqual(after.pid, before.pid, 'a new process')
     assert.equal(after.greeting, 'hello', 'with the config it had')
+  } finally {
+    await cleanup(harness)
+  }
+})
+
+test('a plugin turned off while it is starting stays off, and two starts leave one process', async () => {
+  const harness = await start(['envspy'])
+  try {
+    await harness.host.setEnabled('envspy', false)
+    await childrenGone(5000)
+
+    // Two starts at once: one process, not two.
+    await Promise.all([harness.host.setEnabled('envspy', true), harness.host.setEnabled('envspy', true)])
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(childrenUp(), 1, 'two starts leave one process')
+    assert.equal((await harness.host.stats()).processes?.length, 1)
+
+    // Off while a start is under way: it stays off, and the start's process goes.
+    await harness.host.setEnabled('envspy', false)
+    const starting = harness.host.setEnabled('envspy', true)
+    await harness.host.setEnabled('envspy', false)
+    await starting
+    await childrenGone(5000) // the overtaken start left nothing running
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(childrenUp(), 0, 'and nothing restarts it afterwards')
+    const listed = harness.host.plugins().find((plugin) => plugin.identity.id === 'envspy')
+    assert.equal(listed?.enabled, false)
+    assert.equal(listed?.instanceId, 'envspy#installed', 'the same row as when it ran')
+    assert.equal(harness.host.list('tool').some((entry) => entry.name === 'spy'), false)
+  } finally {
+    await cleanup(harness)
+  }
+})
+
+test('turning a plugin off withdraws its contributions under the id it ran with', async () => {
+  const harness = await start(['envspy'])
+  const events = listen(harness.host)
+  try {
+    const running = harness.host.plugins().find((plugin) => plugin.identity.id === 'envspy')
+    assert.equal(running?.instanceId, 'envspy#installed')
+    await harness.host.setEnabled('envspy', false)
+    const withdrawn = events.heard.find((event) => event.type === 'contributions/changed' && event.owner === 'envspy#installed')
+    assert.ok(withdrawn, 'the renderer is told its contributions are gone')
+    assert.deepEqual((withdrawn as unknown as { contributions: unknown[] }).contributions, [])
+    const updated = events.heard.filter((event) => event.type === 'plugin/updated')
+    assert.equal((updated.at(-1) as { plugin: { instanceId: string } }).plugin.instanceId, 'envspy#installed',
+      'the row it is shown in keeps its key, so it is replaced rather than duplicated')
+  } finally {
+    events.stop()
+    await cleanup(harness)
+  }
+})
+
+test('installing a plugin that is running replaces its process', async () => {
+  const harness = await start(['envspy'])
+  try {
+    const before = await spy(harness)
+    const id = await harness.host.installPlugin(join(FIXTURES, 'plugin-envspy'))
+    assert.equal(id, 'envspy')
+    const processes = (await harness.host.stats()).processes ?? []
+    assert.equal(processes.filter((entry) => entry.plugin === 'envspy').length, 1, 'one process for it, not two')
+    const after = await spy(harness)
+    assert.notEqual(after.pid, before.pid, 'the new version runs in a new process')
+    assert.equal(harness.host.plugins().filter((plugin) => plugin.identity.id === 'envspy').length, 1)
+  } finally {
+    await cleanup(harness)
+  }
+})
+
+test('a consent record that cannot be read stops plugins rather than trusting what is on disk', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-perplugin-'))
+  await cp(join(FIXTURES, 'plugin-good'), join(dir, 'plugins', 'good'), { recursive: true })
+  // A directory where the record should be: unreadable as a file.
+  await mkdir(join(dir, 'plugin-consent.json'))
+  const harness = await make(dir, 'unreadable consent record')
+  try {
+    const good = harness.host.plugins().find((plugin) => plugin.identity.id === 'good')
+    assert.equal(good?.state.type, 'failed')
+    assert.match(JSON.stringify(good?.state), /consent record/)
+    assert.equal(harness.host.list('tool').some((entry) => entry.name === 'ping'), false)
+  } finally {
+    await cleanup(harness)
+  }
+})
+
+test('a plugin that rewrites its manifest and restarts does not come back', async () => {
+  const harness = await start(['envspy'])
+  try {
+    await spy(harness)
+    const manifest = join(harness.store, 'envspy', 'harnessdesk.plugin.json')
+    const widened = JSON.parse(await readFile(manifest, 'utf8')) as Record<string, unknown>
+    widened['permissions'] = { shell: true }
+    await writeFile(manifest, JSON.stringify(widened, null, 2))
+
+    const died = await harness.host.invokeTool(harness.toolId('spy_exit'), {}, scope)
+    assert.equal(died.ok, false)
+    const again = await harness.host.invokeTool(harness.toolId('spy'), {}, scope)
+    assert.equal(again.ok, false, 'its tools stay unavailable')
+    assert.match(JSON.stringify(again), /manifest has changed/)
+    const listed = harness.host.plugins().find((plugin) => plugin.identity.id === 'envspy')
+    assert.equal(listed?.state.type, 'failed')
+    assert.match(JSON.stringify(listed?.state), /manifest has changed/)
   } finally {
     await cleanup(harness)
   }

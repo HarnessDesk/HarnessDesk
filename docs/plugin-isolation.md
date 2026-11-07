@@ -132,6 +132,12 @@ The promises come in two kinds:
   Promises 1–4 still hold, because they concern what the host does, but
   promise 6 does not. An operating-system sandbox around each plugin process
   is the planned layer that closes this (see [Delivery](#delivery)).
+- **The consent record is a check, not a lock, until layer 5.** It lives
+  beside the plugins directory, not in any plugin's own files, and it catches
+  a manifest that changed without the person agreeing: by hand, by a tool, or
+  by a plugin editing its own. But a plugin with your file access could
+  rewrite the record too. Only when layer 5 keeps a plugin's file access to
+  its own directory is the record out of its reach.
 - **Everything runs as your user account.** Plugins never run as a separate
   user. What is sensitive stays out of their reach by keeping it in the
   host: plugin processes get an environment built from scratch, and
@@ -194,10 +200,20 @@ The consequences:
 - **Contribution ids are namespaced per plugin** (`plugin:<id>:<n>`). Every
   tool, hook, context provider and command names the process that answers
   it, and two plugins can never shadow each other.
+- **The host names the instance.** A process numbers its own plugin
+  instances, and a plugin can write any number into a frame. So the instance
+  id everyone else sees (`<id>#installed`) is the host's, the same in every
+  process the plugin runs in, and the one team and forge calls are attributed
+  to.
 - **A snapshot is checked against its own record.** The host keeps only the
   contributions of the plugin on that pipe, and only those its permissions
   allow. A panel, for instance, needs `ui.contribute`. Each kept entry is
   stamped with the host's own copy of the plugin's identity and permissions.
+- **So is every event.** Events go straight to Settings and the window, which
+  key plugins and contributions by instance id. An event about any plugin but
+  the one on the pipe is dropped. One about its own plugin is held to the
+  same rules as a snapshot, and a log line is the plugin's own, whatever owner
+  it names.
 
 ### 3. The host holds the authority
 
@@ -354,9 +370,9 @@ request.
 | Event | What happens |
 | --- | --- |
 | **Inspect** | The installer reads the package's manifest in a short-lived process with no plugin code loaded. The person sees what it asks for before anything runs. |
-| **Install or update** | The person agrees to the manifest, and the host records it. The installer writes the package into the plugins directory. If an older version was running, its process is stopped, and a new plugin process loads the new version. |
-| **Start** | The process is spawned and greeted: protocol version, browser settings and workspace. It loads its one plugin. The host checks the manifest against the record, replays the plugin's stored configuration, and keeps its snapshot. |
-| **Enable / disable** | Enabling starts the process. Disabling stops it. The plugin stays listed in Settings either way. |
+| **Install or update** | The person agrees to the manifest. If an older version is running, its process is stopped first, so it cannot touch the files being replaced. The installer writes the package into the plugins directory, the host records the manifest, and a new plugin process loads the new version. |
+| **Start** | The host checks the manifest against the record, before every spawn, restarts included. The process is spawned and greeted: protocol version, browser settings, workspace, and the permissions the host holds the plugin to, which it applies rather than re-reading the manifest. It loads its one plugin. The host replays the plugin's stored configuration and keeps its snapshot. A start that is overtaken, by the plugin being turned off or started again, gives up and stops the process it made. |
+| **Enable / disable** | Enabling starts the process. Disabling stops it and withdraws its contributions. The plugin stays listed in Settings either way, under the same instance id. |
 | **Configure** | The setting goes to that plugin's process only. The host keeps the stored value and replays it after every restart. |
 | **Crash** | The calls in flight on that pipe fail at once and their leases close. A plugin gets three restarts, after 250 ms, 1 s and 4 s. A fourth crash with no healthy run in between marks it failed, with the reason, and it stays stopped until the person enables it again. A healthy run is 30 s up, or any event from the plugin. No other plugin is affected. |
 | **Wedge** | A call that overruns its deadline (30 s unless the host says otherwise) gets the process killed from the host's side. The crash path then takes over. |
@@ -393,6 +409,9 @@ plugin's process. The first `deny` or `ask` decides.
   up to 30 s), is skipped, as it was before isolation.
 - A hook whose process is down, or does not answer at all, counts as
   `deny`: a check that could not run must not read as approval.
+- A plugin that is not running at all, because it is turned off or failed to
+  start, contributes no hooks, exactly as if it were not installed. Settings
+  shows it as off or failed.
 
 Running hooks one at a time means their latency adds up across plugins,
 which is the price of a stable order.

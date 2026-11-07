@@ -33,8 +33,10 @@ interface Entry {
   readonly manifest: string
 }
 
-const digest = async (directory: string): Promise<string> =>
-  createHash('sha256').update(await readFile(join(directory, MANIFEST_FILENAME))).digest('hex')
+const digest = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
+
+const digestAt = async (directory: string): Promise<string> =>
+  digest(await readFile(join(directory, MANIFEST_FILENAME)))
 
 export class ConsentRecord {
   /** Writes are serialised: plugins start in parallel, and two read-modify-writes would lose one. */
@@ -46,16 +48,20 @@ export class ConsentRecord {
   record(id: string, directory: string): Promise<void> {
     return this.#serialised(async () => {
       const entries = await this.#read()
-      entries[id] = { manifest: await digest(directory) }
+      entries[id] = { manifest: await digestAt(directory) }
       await this.#write(entries)
     })
   }
 
-  /** Whether the manifest in `directory` is still the one agreed to for `id`. */
-  check(id: string, directory: string): Promise<ConsentCheck> {
+  /**
+   * Whether `manifest`, the bytes of the manifest about to be started, is
+   * still the one agreed to for `id`. The caller passes the bytes it parsed,
+   * so the check and the permissions it starts with describe the same file.
+   */
+  check(id: string, manifest: Uint8Array): Promise<ConsentCheck> {
     return this.#serialised(async () => {
       const entries = await this.#read()
-      const now = await digest(directory)
+      const now = digest(manifest)
       const entry = entries[id]
       if (!entry) {
         entries[id] = { manifest: now }
@@ -86,8 +92,12 @@ export class ConsentRecord {
     let raw: string
     try {
       raw = await readFile(this.path, 'utf8')
-    } catch {
-      return {}
+    } catch (error) {
+      // Only a record that does not exist yet is empty. One that cannot be
+      // read is not: treating it as empty would record whatever manifest is
+      // on disk now as the one agreed to.
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+      throw new Error(`The plugin consent record at ${this.path} cannot be read: ${(error as Error).message}`)
     }
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {

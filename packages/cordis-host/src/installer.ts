@@ -39,27 +39,31 @@ export class InstallError extends Error {
   }
 }
 
-const readManifestAt = async (
-  directory: string,
-  source: PluginSource,
-): Promise<PluginPackage> => {
-  const path = join(directory, MANIFEST_FILENAME)
-  let raw: string
+const readManifestBytes = async (directory: string): Promise<Buffer> => {
   try {
-    raw = await readFile(path, 'utf8')
+    return await readFile(join(directory, MANIFEST_FILENAME))
   } catch {
     throw new InstallError(
       `No ${MANIFEST_FILENAME} in ${directory}. A HarnessDesk plugin needs one at its root.`,
     )
   }
+}
+
+const parseManifestBytes = (bytes: Buffer, directory: string, source: PluginSource): PluginPackage => {
+  const path = join(directory, MANIFEST_FILENAME)
   let parsed: unknown
   try {
-    parsed = JSON.parse(raw)
+    parsed = JSON.parse(bytes.toString('utf8'))
   } catch (error) {
     throw new ManifestError(path, `is not valid JSON — ${String(error)}`)
   }
   return parseManifest(parsed, { path, directory, source })
 }
+
+const readManifestAt = async (
+  directory: string,
+  source: PluginSource,
+): Promise<PluginPackage> => parseManifestBytes(await readManifestBytes(directory), directory, source)
 
 /**
  * Reads a plugin's manifest without installing or running anything.
@@ -289,8 +293,18 @@ const recordedSource = async (directory: string): Promise<PluginSource> => {
  * anything. The host reads it here, never from what the plugin's process
  * reports, so that the permissions it holds a plugin to are the ones on disk.
  */
-export const readInstalledManifest = async (directory: string): Promise<PluginPackage> =>
-  readManifestAt(directory, await recordedSource(directory))
+export const readInstalledManifest = async (directory: string): Promise<InstalledManifest> => {
+  // Read once: the bytes the consent record is checked against are the bytes
+  // the permissions are parsed from, so nothing can change in between.
+  const bytes = await readManifestBytes(directory)
+  return { package: parseManifestBytes(bytes, directory, await recordedSource(directory)), bytes }
+}
+
+/** An installed plugin's manifest, parsed, with the exact bytes it was parsed from. */
+export interface InstalledManifest {
+  readonly package: PluginPackage
+  readonly bytes: Uint8Array
+}
 
 /** Every plugin currently installed, whether or not it loads. */
 export const listInstalled = async (root: string = pluginsRoot()): Promise<InstalledPlugin[]> => {

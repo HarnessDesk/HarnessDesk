@@ -23,6 +23,7 @@ import {
   type PluginHostMethods,
   type PluginHostNotification,
 } from '@harnessdesk/extension-protocol'
+import type { PluginPermissions } from '@harnessdesk/protocol'
 
 /**
  * A plugin host process.
@@ -215,13 +216,18 @@ kernel.subscribe((event) => {
 })
 
 /** The plugin this process runs; null until `host/hello`, and for the installer. */
-let bound: { readonly id: string; readonly directory: string } | null = null
+interface Bound {
+  readonly id: string
+  readonly directory: string
+  readonly permissions?: PluginPermissions
+}
+let bound: Bound | null = null
 let greeted = false
 
 const onlyInstaller = (what: string): void => {
   if (bound) throw new Error(`This process runs ${bound.id}; it does not ${what}.`)
 }
-const onlyBound = (pluginId?: string): { readonly id: string; readonly directory: string } => {
+const onlyBound = (pluginId?: string): Bound => {
   if (!bound) throw new Error('The installer process runs no plugin.')
   if (pluginId !== undefined && pluginId !== bound.id) throw new Error(`This process runs ${bound.id}, not ${pluginId}.`)
   return bound
@@ -243,7 +249,7 @@ const handlers: Handlers = {
     }
     if (greeted) throw new Error('This plugin host has already been greeted.')
     greeted = true
-    if (params.plugin) bound = { id: params.plugin.id, directory: params.plugin.directory }
+    if (params.plugin) bound = params.plugin
     if (params.inlineBrowser) setBrowserEngine(remoteBrowserEngine)
     // A restarted child is told again, because it starts on the defaults.
     if (params.browser) setBrowserSettings(params.browser)
@@ -255,7 +261,7 @@ const handlers: Handlers = {
   },
   'plugins/loadInstalled': async () => {
     const plugin = onlyBound()
-    await kernel.loadInstalledPlugin(plugin.directory, plugin.id)
+    await kernel.loadInstalledPlugin(plugin.directory, plugin.id, plugin.permissions)
     snapshot()
     return null
   },

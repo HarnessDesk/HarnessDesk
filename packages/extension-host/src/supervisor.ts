@@ -44,6 +44,7 @@ import {
   isForgeReference,
   pluginInstanceId,
   scopeApplies,
+  type PluginInstanceId,
   type CapabilityContribution,
   type ContextImage,
   type ContributionId,
@@ -123,6 +124,13 @@ export interface PluginHostOptions {
   readonly onEvent?: (event: ExtensionEvent) => void
   readonly onSnapshot?: () => void
   /**
+   * Runs before every spawn, the first and each restart. Throwing keeps the
+   * process down, and the message is what the plugin is listed as failing
+   * with: a plugin whose manifest changed while it ran does not come back
+   * under the permissions it gave itself.
+   */
+  readonly beforeStart?: () => Promise<void>
+  /**
    * The parent's own browser page, when it has one — the desktop shell's
    * pane. A child `ctx.browser` is then served from here; without it, the
    * child starts its own Chrome.
@@ -177,6 +185,8 @@ export class PluginHostProcess {
   #config: Readonly<Record<string, unknown>> | null = null
   #disposed = false
   #starting: Promise<void> | null = null
+  /** Why the last start was refused before a process was spawned, if it was. */
+  #problem: string | null = null
   #options: PluginHostOptions
   readonly #logger: KernelLogger
 
@@ -229,6 +239,29 @@ export class PluginHostProcess {
   /** The plugin this process runs, or null for the installer. */
   get bound(): BoundPlugin | null {
     return this.#options.plugin ?? null
+  }
+
+  /** Why the last start was refused before a process was spawned; null when it was not. */
+  get problem(): string | null {
+    return this.#problem
+  }
+
+  /**
+   * The instance id the host gives this plugin. The process numbers its own
+   * instances, and a plugin can write any number it likes into a frame, so
+   * the id everyone else sees is the host's, and it stays the same across
+   * restarts.
+   */
+  get instanceId(): PluginInstanceId | null {
+    return this.#options.plugin ? installedInstanceId(this.#options.plugin.id) : null
+  }
+
+  /** Whether an instance id the process reported is its own plugin's. */
+  #isOwn(instanceId: unknown): boolean {
+    const bound = this.#options.plugin
+    if (!bound || typeof instanceId !== 'string') return false
+    const prefix = `${bound.id}#`
+    return instanceId.startsWith(prefix) && /^[0-9]+$/.test(instanceId.slice(prefix.length))
   }
 
   /** The prefix every contribution id from this process carries. */
@@ -284,6 +317,15 @@ export class PluginHostProcess {
   }
 
   async #start(): Promise<void> {
+    if (this.#options.beforeStart) {
+      try {
+        await this.#options.beforeStart()
+        this.#problem = null
+      } catch (error) {
+        this.#problem = error instanceof Error ? error.message : String(error)
+        throw error
+      }
+    }
     // ELECTRON_RUN_AS_NODE makes the same spawn work when the parent is the
     // Electron main process: the child must be plain Node, never a second app.
     const child = spawn(process.execPath, [CHILD_ENTRY], {
@@ -336,7 +378,7 @@ export class PluginHostProcess {
       this.#logger.warn?.('plugin host exited', { code, signal, crashes: this.#crashes })
       this.#options.onEvent?.({
         type: 'extension/log',
-        owner: this.#plugins[0]?.instanceId ?? pluginInstanceId('plugin-host'),
+        owner: this.instanceId ?? pluginInstanceId('plugin-host'),
         level: 'error',
         message: reason.message,
       })
@@ -361,7 +403,9 @@ export class PluginHostProcess {
       // A restarted child starts on the defaults, so where pages open goes
       // in the greeting rather than being sent once and forgotten.
       ...(this.#browser ? { browser: this.#browser } : {}),
-      ...(this.#options.plugin ? { plugin: { id: this.#options.plugin.id, directory: this.#options.plugin.directory } } : {}),
+      ...(this.#options.plugin
+        ? { plugin: { id: this.#options.plugin.id, directory: this.#options.plugin.directory, permissions: this.#options.plugin.permissions } }
+        : {}),
     })
     this.#logger.info?.('plugin host ready', { pid: hello.pid, plugin: this.#options.plugin?.id })
     // A restarted child must reach the same state the crashed one had; a
@@ -412,7 +456,8 @@ export class PluginHostProcess {
         this.#options.onSnapshot?.()
       } else {
         this.#crashes = 0 // A healthy event stream clears the backoff ladder.
-        this.#options.onEvent?.(notification.event)
+        const event = this.#checkedEvent(notification.event)
+        if (event) this.#options.onEvent?.(event)
       }
       return
     }
@@ -437,20 +482,67 @@ export class PluginHostProcess {
     contributions: readonly CapabilityContribution[],
   ): { plugins: readonly PluginInstance[]; contributions: readonly CapabilityContribution[] } {
     const bound = this.#options.plugin
-    if (!bound) return { plugins: [], contributions: [] }
-    const reported = plugins.find((plugin) => plugin.identity.id === bound.id)
+    const own = this.instanceId
+    if (!bound || !own) return { plugins: [], contributions: [] }
+    const reported = plugins.find((plugin) => plugin.identity?.id === bound.id && this.#isOwn(plugin.instanceId))
     if (!reported) return { plugins: [], contributions: [] }
-    const allowed = (entry: CapabilityContribution): boolean =>
-      entry.owner === reported.instanceId && (entry.kind !== 'ui' || bound.permissions.ui.contribute)
-    const kept = contributions.filter(allowed)
+    const kept = this.#allowed(reported.instanceId, contributions)
     return {
       plugins: [{
         ...reported,
+        instanceId: own,
         identity: bound.identity,
         permissions: bound.permissions,
-        contributions: reported.contributions.filter(allowed),
+        contributions: this.#allowed(reported.instanceId, reported.contributions),
       }],
       contributions: kept,
+    }
+  }
+
+  /** The contributions `owner` may make, re-owned by the host's instance id. */
+  #allowed(owner: PluginInstanceId, contributions: readonly CapabilityContribution[]): CapabilityContribution[] {
+    const bound = this.#options.plugin
+    const own = this.instanceId
+    if (!bound || !own) return []
+    return contributions
+      .filter((entry) => entry.owner === owner && (entry.kind !== 'ui' || bound.permissions.ui.contribute))
+      .map((entry) => ({ ...entry, owner: own }))
+  }
+
+  /**
+   * An event, held to the same rule as a snapshot: it may speak only about
+   * this process's own plugin, and what it says is what the host knows.
+   * Events go straight to Settings and the renderer, which key plugins and
+   * contributions by instance id, so an unchecked one could rewrite or remove
+   * another plugin's row.
+   */
+  #checkedEvent(event: ExtensionEvent): ExtensionEvent | null {
+    const own = this.instanceId
+    if (!own) return null
+    switch (event?.type) {
+      case 'plugin/added':
+      case 'plugin/updated': {
+        const plugin = this.#checked([event.plugin], event.plugin?.contributions ?? []).plugins[0]
+        if (!plugin) return null
+        return {
+          type: event.type,
+          plugin: { ...plugin, contributions: plugin.contributions.map((entry) => ({ ...entry, id: this.#namespaced(entry.id) })) },
+        }
+      }
+      case 'plugin/removed':
+        return this.#isOwn(event.instanceId) ? { type: 'plugin/removed', instanceId: own } : null
+      case 'contributions/changed':
+        if (!this.#isOwn(event.owner) || !Array.isArray(event.contributions)) return null
+        return {
+          type: 'contributions/changed',
+          owner: own,
+          revision: event.revision,
+          contributions: this.#allowed(event.owner, event.contributions).map((entry) => ({ ...entry, id: this.#namespaced(entry.id) })),
+        }
+      case 'extension/log':
+        return { type: 'extension/log', owner: own, level: event.level, message: String(event.message) }
+      default:
+        return null
     }
   }
 
@@ -597,18 +689,24 @@ export class PluginHostProcess {
           } finally { release() }
           return
         }
+        // The rest answer for the invocation the parent dispatched, too: its
+        // actor and turn come from the host's lease, never from the frame.
+        const live = this.#forgeLifetimes.get(teamScopeKey(scope.runtime!, scope.sessionId!, scope.plugin!))
+        const held = live?.size === 1 ? live.values().next().value : undefined
+        if (!held) { refuse('This forge call has no unambiguous live invocation.'); return }
+        const leased: ForgeScope = { ...held.scope, plugin: scope.plugin }
         switch (request.method) {
           case 'forge/identity': {
-            reply({ response: request.request, result: await plane.identity(scope) })
+            reply({ response: request.request, result: await plane.identity(leased) })
             return
           }
           case 'forge/seat': {
-            reply({ response: request.request, result: await plane.seat(scope) })
+            reply({ response: request.request, result: await plane.seat(leased) })
             return
           }
           case 'forge/publicationAllowed': {
             // Answered for the invocation the parent armed, never for a scope the child names.
-            reply({ response: request.request, result: await plane.publicationAllowed(scope) })
+            reply({ response: request.request, result: await plane.publicationAllowed(leased) })
             return
           }
           case 'forge/publish': {
@@ -621,7 +719,8 @@ export class PluginHostProcess {
               )
               return
             }
-            await plane.publish(reference, scope)
+            if (held.scope.actor === 'context') { refuse('Context resolution cannot publish to the transcript.'); return }
+            await plane.publish(reference, leased)
             reply({ response: request.request, result: null })
             return
           }
@@ -1236,7 +1335,7 @@ export class SupervisedExtensionHost {
     const started: Promise<void>[] = []
     for (const entry of installed) {
       if (this.#members.has(entry.id)) continue
-      const member: Member = { id: entry.id, directory: entry.directory, proc: null, enabled: true, problem: null, config: null, identity: null }
+      const member: Member = { id: entry.id, directory: entry.directory, proc: null, enabled: true, problem: null, config: null, identity: null, generation: 0 }
       this.#members.set(entry.id, member)
       started.push(this.#start(member))
     }
@@ -1256,8 +1355,20 @@ export class SupervisedExtensionHost {
    */
   async #start(member: Member): Promise<void> {
     if (this.#disposed) return
+    // Each start is a generation. Whatever stops or restarts this plugin
+    // while a start is under way moves the generation on, and the start that
+    // finds itself overtaken gives up and disposes the process it made, so
+    // two starts never leave two processes, and a plugin turned off mid-start
+    // stays off.
+    const generation = ++member.generation
+    const current = (): boolean => !this.#disposed && member.generation === generation
+    const previous = member.proc
+    member.proc = null
+    await previous?.dispose()
+    let proc: PluginHostProcess | null = null
     try {
-      const pkg = await readInstalledManifest(member.directory)
+      const { package: pkg, bytes } = await readInstalledManifest(member.directory)
+      if (!current()) return
       if (pkg.manifest.id !== member.id) {
         throw new Error(`The manifest in ${member.directory} names ${JSON.stringify(pkg.manifest.id)}, not ${JSON.stringify(member.id)}.`)
       }
@@ -1274,12 +1385,10 @@ export class SupervisedExtensionHost {
         return
       }
       if (!member.enabled) return
-      if ((await this.#consent.check(member.id, member.directory)) === 'changed') {
-        throw new Error(
-          'Its manifest has changed since it was installed. Install it again to review what it asks for; it stays off until then.',
-        )
-      }
-      const proc = new PluginHostProcess({
+      // Checked against the bytes the permissions below were parsed from.
+      if ((await this.#consent.check(member.id, bytes)) === 'changed') throw new Error(MANIFEST_CHANGED)
+      if (!current()) return
+      proc = new PluginHostProcess({
         plugin: {
           id: member.id,
           directory: member.directory,
@@ -1293,10 +1402,17 @@ export class SupervisedExtensionHost {
         ...(this.#engines.editor ? { editorEngine: this.#engines.editor } : {}),
         ...(this.#engines.team ? { teamEngine: this.#engines.team } : {}),
         ...(this.#engines.forge ? { forgeEngine: this.#engines.forge } : {}),
+        // Every restart is held to the record too, not only the first start:
+        // a plugin that rewrites its manifest and exits must not come back
+        // under the permissions it gave itself.
+        beforeStart: async () => {
+          const { bytes: now } = await readInstalledManifest(member.directory)
+          if ((await this.#consent.check(member.id, now)) === 'changed') throw new Error(MANIFEST_CHANGED)
+        },
         onEvent: (event) => this.#emit(event),
         onSnapshot: () => {
           // The proc (re)announced itself; replay what it cannot know.
-          if (this.#workspace.root !== null && proc.alive) {
+          if (this.#workspace.root !== null && proc?.alive) {
             void proc.call('workspace/set', this.#workspace).catch(() => {})
           }
         },
@@ -1306,9 +1422,16 @@ export class SupervisedExtensionHost {
       member.problem = null
       await proc.loadInstalled()
       if (member.config) await proc.reconfigure(member.config)
+      if (!current()) {
+        if (member.proc !== proc) await proc.dispose()
+        return
+      }
     } catch (error) {
+      if (!current()) {
+        if (proc && member.proc !== proc) await proc.dispose()
+        return
+      }
       member.problem = error instanceof Error ? error.message : String(error)
-      const proc = member.proc
       member.proc = null
       await proc?.dispose()
       this.#logger.error?.('installed plugin failed to start', { plugin: member.id, error: member.problem })
@@ -1316,15 +1439,33 @@ export class SupervisedExtensionHost {
     this.#emit({ type: 'plugin/updated', plugin: this.#describe(member) })
   }
 
+  /**
+   * Stops a plugin's proc, and any start of it under way. Its contributions
+   * are withdrawn at once: the renderer keys them by the plugin's instance
+   * id, and a stopped plugin offers nothing.
+   */
+  async #stop(member: Member): Promise<void> {
+    member.generation += 1
+    const proc = member.proc
+    member.proc = null
+    if (!proc) return
+    await proc.dispose()
+    this.#emit({ type: 'contributions/changed', owner: installedInstanceId(member.id), revision: 0, contributions: [] })
+  }
+
   /** What Settings shows for an installed plugin: its proc's report, or what the host knows when it has none. */
   #describe(member: Member): PluginInstance {
-    const reported = member.proc?.plugins[0]
-    if (reported) return reported
+    const proc = member.proc
+    const reported = proc?.plugins[0]
+    const problem = proc?.problem
+      ?? (proc?.failed ? `${member.identity?.name ?? member.id} crashed repeatedly and has been stopped. Turn it off and on again to retry.` : null)
+      ?? (proc ? null : member.problem)
+    if (reported && !problem) return reported
     return {
-      instanceId: pluginInstanceId(`${member.id}#stopped`),
+      instanceId: installedInstanceId(member.id),
       identity: member.identity ?? { id: member.id, name: member.id, source: { kind: 'local', path: member.directory } },
-      state: member.problem ? { type: 'failed', message: member.problem } : { type: 'disposed' },
-      revision: 0,
+      state: problem ? { type: 'failed', message: problem } : { type: 'disposed' },
+      revision: reported?.revision ?? 0,
       permissions: NO_PLUGIN_PERMISSIONS,
       injects: [],
       provides: [],
@@ -1498,17 +1639,12 @@ export class SupervisedExtensionHost {
     if (!enabled) {
       member.enabled = false
       member.problem = null
-      const proc = member.proc
-      member.proc = null
-      await proc?.dispose()
+      await this.#stop(member)
       this.#emit({ type: 'plugin/updated', plugin: this.#describe(member) })
       return
     }
-    if (member.enabled && member.proc && !member.proc.failed) return
+    if (member.enabled && member.proc && !member.proc.failed && !member.proc.problem) return
     member.enabled = true
-    const stale = member.proc
-    member.proc = null
-    await stale?.dispose()
     await this.#start(member)
   }
 
@@ -1598,23 +1734,30 @@ export class SupervisedExtensionHost {
    * of its own. An older version's proc is stopped first.
    */
   async installPlugin(specifier: string): Promise<string> {
-    const { id } = await this.#installer.call('plugin/install', { specifier })
+    // An older version of the same plugin stops before its files are
+    // replaced: a process left running through the install could rewrite the
+    // new manifest before the host records it. The id comes from inspecting
+    // the package, which runs none of its code.
+    const inspected = await this.#installer.call('plugin/inspect', { specifier })
+    const existing = this.#members.get(inspected.id)
+    if (existing) await this.#stop(existing)
+    let id: string
+    try {
+      ;({ id } = await this.#installer.call('plugin/install', { specifier }))
+    } catch (error) {
+      // The install did not happen, so the version that was running comes back.
+      if (existing?.enabled) await this.#start(existing)
+      throw error
+    }
     const directory = join(this.#root, id)
     await this.#consent.record(id, directory)
-    const existing = this.#members.get(id)
-    if (existing) {
-      const proc = existing.proc
-      existing.proc = null
-      await proc?.dispose()
-      existing.directory = directory
-      existing.enabled = true
-      existing.problem = null
-      await this.#start(existing)
-    } else {
-      const member: Member = { id, directory, proc: null, enabled: true, problem: null, config: null, identity: null }
-      this.#members.set(id, member)
-      await this.#start(member)
-    }
+    const member = this.#members.get(id) ?? { id, directory, proc: null, enabled: true, problem: null, config: null, identity: null, generation: 0 }
+    this.#members.set(id, member)
+    if (member !== existing && existing) await this.#stop(existing)
+    member.directory = directory
+    member.enabled = true
+    member.problem = null
+    await this.#start(member)
     return id
   }
 
@@ -1633,14 +1776,19 @@ export class SupervisedExtensionHost {
     if (!member) {
       throw new Error('Built-in plugins are part of HarnessDesk and cannot be uninstalled.')
     }
-    const instanceId = this.#describe(member).instanceId
-    const proc = member.proc
-    member.proc = null
-    await proc?.dispose()
-    await this.#installer.call('plugin/uninstall', { pluginId })
+    // Off first, so nothing restarts it while its files go.
+    member.enabled = false
+    await this.#stop(member)
+    try {
+      await this.#installer.call('plugin/uninstall', { pluginId })
+    } catch (error) {
+      member.problem = `It could not be removed: ${error instanceof Error ? error.message : String(error)}`
+      this.#emit({ type: 'plugin/updated', plugin: this.#describe(member) })
+      throw error
+    }
     await this.#consent.forget(pluginId)
     this.#members.delete(pluginId)
-    this.#emit({ type: 'plugin/removed', instanceId })
+    this.#emit({ type: 'plugin/removed', instanceId: installedInstanceId(pluginId) })
   }
 
   async dispose(): Promise<void> {
@@ -1693,7 +1841,15 @@ interface Member {
   problem: string | null
   config: Readonly<Record<string, unknown>> | null
   identity: PluginIdentity | null
+  /** Moves on with every start and stop; a start that finds it moved was overtaken. */
+  generation: number
 }
+
+/** The instance id the host gives an installed plugin, the same in every process it runs in. */
+export const installedInstanceId = (id: string): PluginInstanceId => pluginInstanceId(`${id}#installed`)
+
+const MANIFEST_CHANGED =
+  'Its manifest has changed since it was installed. Install it again to review what it asks for; it stays off until then.'
 
 /** What a stopped plugin is shown to hold: nothing, because nothing of it is running. */
 const NO_PLUGIN_PERMISSIONS: PluginPermissions = mergePermissions(undefined)
@@ -1708,17 +1864,24 @@ const PLUGIN_ENVIRONMENT = [
   'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'TEMP', 'TMP',
   'LANG', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES', 'TZ',
   'HARNESSDESK_HOME', 'HARNESSDESK_PLUGINS',
-  'SystemRoot', 'windir', 'ComSpec', 'PATHEXT',
+  // What reaching the network from where the person is needs: their proxy and
+  // the certificates it presents. `ctx.http` still runs in the plugin's own
+  // process until the host brokers it (docs/plugin-isolation.md, layer 4).
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
+  'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+  'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'XDG_RUNTIME_DIR',
+  'SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
 ] as const
 
 export const pluginEnvironment = (extra: Readonly<Record<string, string>> | undefined): NodeJS.ProcessEnv => {
-  const env: NodeJS.ProcessEnv = { ELECTRON_RUN_AS_NODE: '1' }
+  const env: NodeJS.ProcessEnv = {}
   for (const name of PLUGIN_ENVIRONMENT) {
     const value = process.env[name]
     if (value !== undefined) env[name] = value
   }
   const { NODE_OPTIONS: _never, ...rest } = extra ?? {}
-  return { ...env, ...rest }
+  // Last, so nothing passed in can make the process a second app.
+  return { ...env, ...rest, ELECTRON_RUN_AS_NODE: '1' }
 }
 
 /**

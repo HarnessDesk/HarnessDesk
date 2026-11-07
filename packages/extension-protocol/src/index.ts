@@ -2,6 +2,7 @@ import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, F
 import type {
   CapabilityContribution,
   DecideFindingInput,
+  PluginPermissions,
   EditorEdit,
   EditorEvent,
   EvidenceRecord,
@@ -140,9 +141,11 @@ export interface PluginHostMethods {
        * The one installed plugin this process runs. Absent only for the
        * installer process, which inspects, installs and removes packages and
        * never imports plugin code. A process is bound once, by its parent; the
-       * plugin never names itself.
+       * plugin never names itself. `permissions` are the ones the host holds
+       * the plugin to; the process applies them rather than re-reading the
+       * manifest, which may have changed since the host checked it.
        */
-      readonly plugin?: { readonly id: string; readonly directory: string }
+      readonly plugin?: { readonly id: string; readonly directory: string; readonly permissions?: PluginPermissions }
     }
     result: { readonly protocolVersion: number; readonly pid: number }
   }

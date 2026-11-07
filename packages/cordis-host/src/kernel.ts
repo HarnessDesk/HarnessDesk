@@ -653,7 +653,7 @@ export class ExtensionKernel implements CapabilityRegistry {
    * A directory whose manifest names another id is refused: the host chose
    * the plugin, and the directory does not get to change its mind.
    */
-  async loadInstalledPlugin(directory: string, expectedId: string): Promise<void> {
+  async loadInstalledPlugin(directory: string, expectedId: string, permissions?: PluginPermissions): Promise<void> {
     // Asked again after a restart's own load: once is enough, and a reload
     // would hand the plugin a new instance mid-invocation.
     if (this.#plugins.has(expectedId)) return
@@ -661,7 +661,10 @@ export class ExtensionKernel implements CapabilityRegistry {
     if (definition.manifest.id !== expectedId) {
       throw new Error(`${directory} holds ${JSON.stringify(definition.manifest.id)}, not ${JSON.stringify(expectedId)}.`)
     }
-    await this.load(definition)
+    // When the host says what the plugin may do, that is what it may do: the
+    // host checked those permissions against what the person agreed to, and
+    // the manifest on disk may have changed since.
+    await this.load(permissions ? { ...definition, manifest: { ...definition.manifest, permissions } } : definition)
   }
 
   /** Loads everything already installed. Called once at startup. */

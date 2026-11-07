@@ -154,7 +154,7 @@ test('forge writes cross the child only with a write grant, valid shapes, and a 
       assert.equal(heard.length, before)
       const context = await host.resolveContext(scope)
       assert.equal(context.length, 1)
-      assert.ok(heard.every(one => one.runtime === 'fixture' && one.sessionId === 's1' && one.plugin === 'writer#1'), JSON.stringify(heard.map(({ signal: _s, ...rest }) => rest)))
+      assert.ok(heard.every(one => one.runtime === 'fixture' && one.sessionId === 's1' && one.plugin === 'writer#installed'), JSON.stringify(heard.map(({ signal: _s, ...rest }) => rest)))
       assert.ok(heard.every(one => one.actor === 'agent' || one.actor === 'context'))
       assert.ok(heard.every(one => one.signal?.aborted), 'the parent closes every invocation lease')
     } finally { await host.dispose(); await rm(root, { recursive: true, force: true }) }

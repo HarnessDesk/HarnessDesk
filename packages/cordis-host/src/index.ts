@@ -29,6 +29,7 @@ export {
   redactCredentials,
   sanitise,
   uninstall,
+  type InstalledManifest,
   type InstalledPlugin,
 } from './installer.js'
 export { ConsentRecord, consentPath, type ConsentCheck } from './plugin-consent.js'
