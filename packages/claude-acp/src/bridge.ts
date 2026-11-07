@@ -24,7 +24,7 @@ import {
   type SessionNotification,
   type SetSessionConfigOptionRequest,
   type SetSessionConfigOptionResponse,
-} from '@agentclientprotocol/sdk'
+} from '@agentclientprotocol/sdk/unstable'
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@agentclientprotocol/claude-agent-acp'
 import { parseGitCommand, gitCommandDirectories, gitAliasResolver, DESK_TOOL_CEILINGS, isCompactionSummary, peelDeskContextPrefix, withoutCompaction } from '@harnessdesk/protocol'
@@ -48,6 +48,25 @@ import {
 
 import { SESSION_SOURCE, SESSION_SOURCE_CAPABILITY } from './session-source-wire.js'
 import { SESSION_LOADOUT, SESSION_LOADOUT_CAPABILITY } from './loadout-wire.js'
+
+// Public ACP extension contracts advertised by the upstream initialize reply.
+// Keep the host-owned idle fallback: a steer never starts an untracked prompt.
+const steerRequest = (raw: unknown): Parameters<ClaudeAcpAgent['steer']>[0] => {
+  const params = raw as Parameters<ClaudeAcpAgent['steer']>[0] | null
+  if (!params || typeof params.sessionId !== 'string' || !params.sessionId || !Array.isArray(params.prompt) || !params.prompt.length ||
+    params._meta?.steering?.idleBehavior !== undefined && params._meta.steering.idleBehavior !== 'promptRequired') {
+    throw RequestError.invalidParams('Steering requires a session id, prompt, and a supported idle behavior.')
+  }
+  return params
+}
+const goalRequest = (raw: unknown): Parameters<ClaudeAcpAgent['goal']>[0] => {
+  const params = raw as Parameters<ClaudeAcpAgent['goal']>[0] | null
+  if (!params || typeof params.sessionId !== 'string' || !params.sessionId ||
+    params.action !== 'clear' && (params.action !== 'set' || typeof params.objective !== 'string' || !params.objective.trim())) {
+    throw RequestError.invalidParams('A goal requires a session id and a set or clear action.')
+  }
+  return params
+}
 
 const DEFAULT = 'default'
 const EFFORT_OPTION_ID = 'effort'
@@ -888,11 +907,22 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     return super.setSessionMode(params)
   }
   override async unstable_forkSession(params: Parameters<ClaudeAcpAgent['unstable_forkSession']>[0]): ReturnType<ClaudeAcpAgent['unstable_forkSession']> {
-    const result = await super.unstable_forkSession(params)
     const parent = this.#controls.get(params.sessionId)?.values ?? this.#readControls(params.sessionId)
-    const inherited = forkedControls(parent)
-    if (inherited['ceiling'] === 'read') this.#writeControls(result.sessionId, inherited)
-    return result
+    const inherited = { ...optionsIn(params._meta), ...forkedControls(parent) }
+    const prepared = withInstructions(params)
+    const { params: filtered, input, staged } = withAttachments(prepared, (key) => this.#stagingRoot(key))
+    // Apply the source's read ceiling BEFORE upstream starts the fork's query.
+    const result = await super.unstable_forkSession({ ...filtered, _meta: withOptions(filtered._meta, inherited, new AbortController(), params.cwd) })
+    await this.#forceReadPermissionMode(result.sessionId, inherited)
+    this.#writeControls(result.sessionId, inherited)
+    const stored: StoredControlsWithRuntime = { values: inherited, spawned: { ...inherited }, prompted: true, styles: await optionStyles(this, result.sessionId), meta: filtered._meta, cwd: params.cwd }
+    this.#controls.set(result.sessionId, stored)
+    this.#suppliedMcpServers.set(result.sessionId, filtered.mcpServers?.map(server => server.name) ?? [])
+    this.#tasks.set(result.sessionId, new TaskRegistry())
+    this.#delegations.set(result.sessionId, new DelegationRegistry())
+    if (input && staged) this.#attachments.set(result.sessionId, { input, staged })
+    const decorated = decorateSessionOptions(result, (this.sessions[result.sessionId]?.modelInfos ?? []) as readonly ModelInfo[])
+    return environmentAck({ ...decorated, configOptions: [...(decorated.configOptions ?? []), ...customOptions(stored)] }, environmentIn(params._meta))
   }
   override async setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
     if (!CONTROL_IDS.includes(params.configId as typeof CONTROL_IDS[number])) {
@@ -1159,7 +1189,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       .onRequest(methods.agent.initialize, (ctx) => agent.initialize(ctx.params))
       .onRequest(methods.agent.session.new, (ctx) => agent.newSession(ctx.params))
       .onRequest(methods.agent.session.load, (ctx) => agent.loadSession(ctx.params))
-      .onRequest(methods.agent.session.fork, (ctx) => agent.unstable_forkSession(ctx.params))
+      .onRequest(methods.agent.session.fork, (ctx) => agent.forking(ctx.params.sessionId, () => agent.unstable_forkSession(ctx.params)))
       .onRequest(methods.agent.session.list, (ctx) => agent.listSessions(ctx.params))
       .onRequest(methods.agent.session.delete, (ctx) => agent.deleteSession(ctx.params))
       .onRequest(methods.agent.session.resume, (ctx) => agent.resumeSession(ctx.params))
@@ -1172,6 +1202,8 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       .onRequest(methods.agent.providers.disable, (ctx) => agent.unstable_disableProvider(ctx.params))
       .onRequest(methods.agent.logout, (ctx) => agent.logout(ctx.params))
       .onRequest(methods.agent.session.prompt, (ctx) => agent.prompt(ctx.params))
+      .onRequest('_session/steering', steerRequest, (ctx) => agent.steer(ctx.params))
+      .onRequest('_session/goal', goalRequest, (ctx) => agent.goal(ctx.params))
       .onRequest(SESSION_SOURCE, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_SOURCE, ctx.params))
       .onRequest(SESSION_LOADOUT, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_LOADOUT, ctx.params))
       .onRequest(SESSION_DELETE, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_DELETE, ctx.params))

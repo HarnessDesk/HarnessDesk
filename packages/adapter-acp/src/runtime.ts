@@ -46,6 +46,7 @@ import {
   type InstallationCheck,
   type Session,
   type SessionId,
+  type SessionGoal,
   type SessionAttachments,
   type SessionAttachmentReceipt,
   type SessionOptions,
@@ -126,6 +127,7 @@ import { decodeLoadout, loadoutItem, loadoutPart } from './loadout.js'
 import { AcpTasks } from './tasks.js'
 import { projectToolItem, type ToolItemState } from './tool-items.js'
 import { whichOnPath } from './which.js'
+import { ACP_STEER, ACP_GOAL, supportsSteering, supportsGoals, goalUpdate } from './session-controls.js'
 
 /**
  * `AgentRuntime` over the Agent Client Protocol.
@@ -1198,6 +1200,9 @@ export class AcpRuntime implements AgentRuntime {
             resume:
               (this.#initialized?.agentCapabilities?.loadSession ?? false) ||
               Boolean(this.#initialized?.agentCapabilities?.sessionCapabilities?.resume),
+            fork: Boolean(this.#initialized?.agentCapabilities?.sessionCapabilities?.fork),
+            steer: supportsSteering(this.#initialized?._meta),
+            goals: supportsGoals(this.#initialized?._meta),
             // Protocol-level: `session/cancel`, plan entries and thought
             // chunks are ACP's own vocabulary, claimable once this agent has
             // shown it speaks ACP at all — and not a moment before, which is
@@ -3103,7 +3108,7 @@ export class AcpRuntime implements AgentRuntime {
   #sessionOpens = 0
 
   async #openWithTools<T>(
-    method: 'session/new' | 'session/load' | 'session/resume',
+    method: 'session/new' | 'session/load' | 'session/resume' | 'session/fork',
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
     probe = false,
@@ -3116,7 +3121,7 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async #openSessionWithTools<T>(
-    method: 'session/new' | 'session/load' | 'session/resume',
+    method: 'session/new' | 'session/load' | 'session/resume' | 'session/fork',
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
     authGeneration = this.#authGeneration,
@@ -3146,7 +3151,7 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     const existingId = params['sessionId']
-    if (typeof existingId === 'string') this.#sessionConnections.set(makeSessionId(existingId), connection)
+    if (method !== 'session/fork' && typeof existingId === 'string') this.#sessionConnections.set(makeSessionId(existingId), connection)
     let opened = false
     const servers = this.#toolServerRefused ? [] : mcpServersOf(this.#config, caller)
     // The token's runtime is known now; its session only once the open answers.
@@ -3210,7 +3215,7 @@ export class AcpRuntime implements AgentRuntime {
       if (!opened && connection !== this.#connection) {
         await connection.stop()
         this.#workers.delete(connection)
-        if (typeof existingId === 'string' && this.#sessionConnections.get(makeSessionId(existingId)) === connection) {
+        if (method !== 'session/fork' && typeof existingId === 'string' && this.#sessionConnections.get(makeSessionId(existingId)) === connection) {
           this.#sessionConnections.delete(makeSessionId(existingId))
         }
       }
@@ -3511,7 +3516,7 @@ export class AcpRuntime implements AgentRuntime {
     return this.#resumeSession(id, options)
   }
 
-  async #resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+  async #resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AcpSession> {
     await this.#closing.get(id)
     const saved = this.#environments.get(id)
     const environment = options.environment ? laneEnvironmentOf(options.environment) : saved
@@ -3749,8 +3754,46 @@ export class AcpRuntime implements AgentRuntime {
     this.#searchListing = null
   }
 
-  async forkSession(): Promise<AgentSession> {
-    throw new Error(`${this.#config.name} does not support forking a session.`)
+  async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    if (!this.info.capabilities.fork) throw new Error(`${this.#config.name} does not support forking a session.`)
+    const source = await this.#resumeSession(id)
+    if (source.busy) throw new Error('Wait for the running turn to finish before forking this conversation.')
+    const history = source.snapshot()
+    const cwd = options.cwd ?? history.cwd
+    const environment = options.environment ?? this.#environments.get(id)
+    const requestedCeiling = options.requestedCeiling ?? this.#sessionCeilings.get(id)
+    // A read source cannot produce an unguarded branch.
+    const heldRead = this.#readCeiling && (requestedCeiling === 'read' || this.#sessionCeilings.get(id) === 'read')
+    const meta = heldRead ? { harnessdesk: { ceiling: 'read' } } : {}
+    const sourceAttachments = this.#attachmentInputs.get(id)
+    // The filter is inherited, its staging directory is not: closing either
+    // conversation must never remove files the other query still reads.
+    const attachments = options.attachments ?? (sourceAttachments ? { ...sourceAttachments, key: randomUUID() } : undefined)
+    const opened = await this.#openWithTools<AcpNewSessionResult>('session/fork', {
+      sessionId: id, cwd,
+      _meta: environment ? environmentMeta(meta, environment, this.info.capabilities.sessionEnvironment) : meta,
+    }, attachments)
+    const session = AcpSession.fromFork(this, opened, cwd, history)
+    this.#sessions.set(session.id, session)
+    this.#openedIn.set(session.id, cwd)
+    if (heldRead) { this.#sessionCeilings.set(session.id, 'read'); this.#readGuardedSessions.add(session) }
+    if (attachments) this.#attachmentInputs.set(session.id, attachments)
+    try {
+      if (environment) {
+        acknowledgeEnvironment(opened._meta, environment)
+        this.#environments.set(session.id, laneEnvironmentOf(environment))
+      }
+      for (const [key, value] of Object.entries({ ...(options.model ? { model: options.model } : {}), ...options.options }).sort(([a], [b]) => rankOptionId(a) - rankOptionId(b))) {
+        await session.setOption(key, value)
+      }
+    } catch (error) {
+      await session.close().catch(() => {})
+      throw error
+    }
+    this.#learnCatalog(opened)
+    this.#invalidateSearchListing()
+    this.emit({ type: 'session/started', session: session.snapshot() })
+    return session
   }
 
   /**
@@ -4560,6 +4603,9 @@ class AcpSession implements AgentSession {
   readonly #announced = { options: 0, model: 0 }
   #turns: Turn[] = []
   #currentTurn: MutableTurn | null = null
+  #turnCompletion: Promise<void> | null = null
+  #goal: SessionGoal | null = null
+  #forkedFrom: SessionId | null = null
   /** What the agent has said about tokens, if anything. Null until it does. */
   #usage: SessionUsage | null = null
   /**
@@ -4602,6 +4648,15 @@ class AcpSession implements AgentSession {
   static forReplay(host: AcpRuntime, id: SessionId, cwd: string): AcpSession {
     const session = new AcpSession(host, { sessionId: String(id) }, cwd)
     session.#replaying = true
+    return session
+  }
+
+  static fromFork(host: AcpRuntime, opened: AcpNewSessionResult, cwd: string, source: Session): AcpSession {
+    const session = new AcpSession(host, opened, cwd)
+    session.#turns = [...source.turns]
+    session.#turnPrefix = `turn-f${randomUUID()}-`
+    session.#partialHistory = source.partialHistory ?? false
+    session.#forkedFrom = source.id
     return session
   }
 
@@ -4865,6 +4920,10 @@ class AcpSession implements AgentSession {
    * being replayed, which is a turn re-read rather than one in flight.
    */
   async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId> {
+    return this.#send(input, opts)
+  }
+
+  async #send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }, control?: { method: string; params: Record<string, unknown> }): Promise<TurnId> {
     if (this.busy) {
       throw new Error(
         `${this.#host.agentName} is still working on the last message; wait for the turn to end, or interrupt it.`,
@@ -4900,7 +4959,44 @@ class AcpSession implements AgentSession {
     })
     this.#host.emit({ type: 'session/status', sessionId: this.id, status: { type: 'active' } })
 
-    const prompt: AcpContentBlock[] = input.flatMap((content): AcpContentBlock[] => {
+    const prompt = this.#prompt(input)
+
+    // Where the agent's own usage record stands before the turn, for an agent
+    // that counts there rather than on the wire: what it gains from here on
+    // is this turn's.
+    const mark = this.#markRecord()
+
+    // ACP's prompt resolves when the *turn* ends; the send contract resolves
+    // on acceptance. Fire, return, and settle the turn when the agent does —
+    // including when it dies, which must fail the turn, never strand it.
+    this.#turnCompletion = this.#host.connectionFor(this.id)
+      .request<AcpPromptResponse>(control?.method ?? 'session/prompt', control?.params ?? { sessionId: this.id, prompt })
+      .then((response) => {
+        // The turn's tokens land before the turn does, so the finished turn's
+        // tail already has them to show. ACP's own field first; an agent that
+        // counts in the extension slot instead is read from there, and one
+        // that says nothing at all, from its own record if it keeps one.
+        const usage = response.usage ?? quotaUsageOf(response._meta) ?? this.#recordedSince(mark)
+        if (usage) this.#recordTurnUsage(usage, response._meta?.harnessdesk?.inputTokensAreUncached === true)
+        // A turn nobody could account for is not the one before it: its figures
+        // are unknown, so the last turn shows none rather than the previous
+        // turn's under this one's name. For every runtime, not only the ones
+        // that keep a record of their own — an agent that reports usage on some
+        // turns and not others is the commoner shape, and it was the one left
+        // showing turn one's tokens and cache chip under turn two (#159).
+        else this.#forgetLastTurn()
+        this.#finishTurn(turn, response.stopReason)
+      })
+      .catch((error: unknown) => {
+        this.#host.refusedForSignIn(error)
+        this.#failTurn(turn, describeAcp(error))
+        if (control) throw error
+      })
+    return id
+  }
+
+  #prompt(input: readonly UserContent[]): AcpContentBlock[] {
+    return input.flatMap((content): AcpContentBlock[] => {
       if (content.type === 'text') return [{ type: 'text', text: content.text }]
       if (content.type === 'image') {
         if (content.url.startsWith('data:')) {
@@ -4926,42 +5022,50 @@ class AcpSession implements AgentSession {
       }
       return []
     })
-
-    // Where the agent's own usage record stands before the turn, for an agent
-    // that counts there rather than on the wire: what it gains from here on
-    // is this turn's.
-    const mark = this.#markRecord()
-
-    // ACP's prompt resolves when the *turn* ends; the send contract resolves
-    // on acceptance. Fire, return, and settle the turn when the agent does —
-    // including when it dies, which must fail the turn, never strand it.
-    void this.#host.connectionFor(this.id)
-      .request<AcpPromptResponse>('session/prompt', { sessionId: this.id, prompt })
-      .then((response) => {
-        // The turn's tokens land before the turn does, so the finished turn's
-        // tail already has them to show. ACP's own field first; an agent that
-        // counts in the extension slot instead is read from there, and one
-        // that says nothing at all, from its own record if it keeps one.
-        const usage = response.usage ?? quotaUsageOf(response._meta) ?? this.#recordedSince(mark)
-        if (usage) this.#recordTurnUsage(usage, response._meta?.harnessdesk?.inputTokensAreUncached === true)
-        // A turn nobody could account for is not the one before it: its figures
-        // are unknown, so the last turn shows none rather than the previous
-        // turn's under this one's name. For every runtime, not only the ones
-        // that keep a record of their own — an agent that reports usage on some
-        // turns and not others is the commoner shape, and it was the one left
-        // showing turn one's tokens and cache chip under turn two (#159).
-        else this.#forgetLastTurn()
-        this.#finishTurn(turn, response.stopReason)
-      })
-      .catch((error: unknown) => {
-        this.#host.refusedForSignIn(error)
-        this.#failTurn(turn, describeAcp(error))
-      })
-    return id
   }
 
-  async steer(): Promise<void> {
-    throw new Error(`${this.#host.agentName} cannot steer a running turn; interrupt it instead.`)
+  async steer(input: readonly UserContent[]): Promise<void> {
+    return this.#steer(input, 'user')
+  }
+
+  async #steer(input: readonly UserContent[], recordAs: 'user' | 'notice'): Promise<void> {
+    if (!this.#host.info.capabilities.steer) throw new Error(`${this.#host.agentName} cannot steer a running turn; interrupt it instead.`)
+    const turn = this.#currentTurn
+    if (!turn || !this.busy) throw new Error('There is no running turn to steer.')
+    const completion = this.#turnCompletion
+    const response = await this.#host.connectionFor(this.id).request<{ outcome: string }>(ACP_STEER, {
+      sessionId: this.id, prompt: this.#prompt(input), _meta: { steering: { idleBehavior: 'promptRequired' } },
+    })
+    if (response.outcome === 'promptRequired') {
+      await completion
+      await this.send(input, { recordAs })
+      return
+    }
+    if (response.outcome !== 'injected') throw new Error('The agent did not confirm steering the running turn.')
+    const { content, context } = peelUserContent(recordDeskInput(input), ACP_ENVELOPE)
+    const item: AgentItem = recordAs === 'notice'
+      ? { id: itemId(`${turn.id}-steer-${randomUUID()}`), type: 'notice', text: plainTextOf(input), startedAt: Date.now() }
+      : { id: itemId(`${turn.id}-steer-${randomUUID()}`), type: 'userMessage', content, ...(context.length ? { context } : {}), startedAt: Date.now() }
+    turn.items.push(item)
+    // The original prompt may have settled before the steering reply arrived.
+    this.#turns = this.#turns.map(finished => finished.id === turn.id ? { ...finished, items: [...turn.items] } : finished)
+    this.#emit({ type: 'item/completed', sessionId: this.id, turnId: turn.id, item })
+  }
+
+  async setGoal(objective: string | null): Promise<void> {
+    if (!this.#host.info.capabilities.goals) throw new Error('This agent does not support goals.')
+    if (objective !== null && !objective.trim()) throw new Error('A goal needs an objective.')
+    const params = objective === null ? { sessionId: this.id, action: 'clear' } : { sessionId: this.id, action: 'set', objective }
+    if (this.busy && this.#host.info.capabilities.steer) {
+      // The goal method itself may start a prompt when its turn ends just
+      // before the command arrives. Own that race through steering's opt-in.
+      await this.#steer([{ type: 'text', text: objective === null ? '/goal clear' : `/goal ${objective}` }], 'notice')
+    } else if (this.busy) {
+      await this.#host.connectionFor(this.id).request(ACP_GOAL, params)
+    } else {
+      await this.#send([{ type: 'text', text: objective === null ? '/goal clear' : `/goal ${objective}` }], { recordAs: 'notice' }, { method: ACP_GOAL, params })
+      await this.#turnCompletion
+    }
   }
 
   async interrupt(): Promise<void> {
@@ -5060,7 +5164,8 @@ class AcpSession implements AgentSession {
       ],
       itemsLoaded: true,
       ...(this.#partialHistory ? { partialHistory: true } : {}),
-      forkedFrom: null,
+      forkedFrom: this.#forkedFrom,
+      goal: this.#goal,
       settings: this.settings(),
       options: this.options(),
       usage: this.#usage,
@@ -5298,6 +5403,13 @@ class AcpSession implements AgentSession {
         return
       }
       case 'session_info_update': {
+        if (this.#host.info.capabilities.goals) {
+          const goal = goalUpdate(update._meta)
+          if (goal !== undefined) {
+            this.#goal = goal
+            this.#emit({ type: 'session/goal', sessionId: this.id, goal })
+          }
+        }
         // The empty and whitespace-only title an agent might send between
         // naming turns is not a name to show — `titleOf` already treats
         // "nothing said yet" as no title, and a live update should not read

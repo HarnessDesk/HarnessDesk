@@ -616,6 +616,7 @@ rl.on('line', (line) => {
     send(message)
     log('echoed user')
     const text = textOf(message.message).trim()
+    if (text === 'bridge wait for steer') { narrate('waiting for direction'); return }
     if (text.startsWith('git-steer-run ')) {
       const request = JSON.parse(text.slice('git-steer-run '.length)), quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
       const child = spawnShell('/bin/zsh', ['-lc', [request.binary, ...request.args].map(quote).join(' ')], { cwd: process.cwd(), env: process.env })

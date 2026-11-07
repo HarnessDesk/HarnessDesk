@@ -221,12 +221,16 @@ test('the bridge uses the official Claude ACP package contract', () => {
   }
   assert.deepEqual(manifest.dependencies, {
     '@harnessdesk/protocol': 'workspace:*',
-    '@agentclientprotocol/claude-agent-acp': '0.85.1',
-    '@agentclientprotocol/sdk': '1.7.0',
-    '@anthropic-ai/claude-agent-sdk': '0.3.288',
+    '@agentclientprotocol/claude-agent-acp': '0.101.0',
+    '@agentclientprotocol/sdk': '2.4.0',
+    '@anthropic-ai/claude-agent-sdk': '0.3.318',
     '@modelcontextprotocol/sdk': '1.32.0',
-    zod: '4.6.6',
+    zod: '4.6.7',
   })
+  const official = JSON.parse(readFileSync(new URL('../../node_modules/@agentclientprotocol/claude-agent-acp/package.json', import.meta.url), 'utf8')) as { dependencies: Record<string, string> }
+  for (const name of ['@agentclientprotocol/sdk', '@anthropic-ai/claude-agent-sdk', 'zod'] as const) {
+    assert.equal(manifest.dependencies?.[name], official.dependencies[name], `${name} matches the official bridge pin`)
+  }
   assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@zed-industries/claude-code-acp'), false)
 })
 
@@ -1236,6 +1240,64 @@ const said = (text: string): Record<string, unknown> => ({ type: 'user', message
 const answered = (text: string): Record<string, unknown> => ({
   type: 'assistant',
   message: { role: 'assistant', content: [{ type: 'text', text }] },
+})
+
+test('the bundled bridge routes negotiated steering into the running SDK turn', async t => {
+  const runtime = make()
+  t.after(() => runtime.dispose())
+  const tape = record(runtime)
+  await runtime.start()
+  assert.equal(runtime.info.capabilities.steer, true)
+  const session = await runtime.createSession({ cwd: WORKDIR })
+  const turn = await session.send([{ type: 'text', text: 'bridge wait for steer' }])
+  await tape.until(event => event.type === 'item/started' && event.sessionId === session.id)
+  await session.steer([{ type: 'text', text: 'follow the new direction' }])
+  await tape.until(event => event.type === 'turn/completed' && event.sessionId === session.id && event.turn.id === turn)
+  assert.equal(tape.events.filter(event => event.type === 'turn/started').length, 1)
+  assert.match(JSON.stringify((await runtime.readSession(session.id)).turns), /follow the new direction/)
+})
+
+test('the bundled bridge routes goal controls and reports their state', async t => {
+  const runtime = make()
+  t.after(() => runtime.dispose())
+  const tape = record(runtime)
+  await runtime.start()
+  assert.equal(runtime.info.capabilities.goals, true)
+  const session = await runtime.createSession({ cwd: WORKDIR })
+  assert.ok(session.setGoal)
+  await session.setGoal('finish this fixture')
+  await tape.until(event => event.type === 'session/goal' && event.goal?.objective === 'finish this fixture')
+  await session.setGoal(null)
+  await tape.until(event => event.type === 'session/goal' && event.goal === null)
+  assert.equal((await runtime.readSession(session.id)).turns.length, 2, 'idle goal commands own their turn lifecycle')
+  const turn = await session.send([{ type: 'text', text: 'bridge wait for steer' }])
+  await tape.until(event => event.type === 'item/started' && event.turnId === turn)
+  await session.setGoal('finish the running fixture')
+  await tape.until(event => event.type === 'session/goal' && event.goal?.objective === 'finish the running fixture')
+  await tape.until(event => event.type === 'turn/completed' && event.turn.id === turn)
+  assert.equal((await runtime.readSession(session.id)).turns.length, 3, 'a running goal update stays in its existing turn')
+})
+
+test('the bundled bridge forks stored history with the source read ceiling already enforced', async t => {
+  const config = scratch('claude-fork-config-')
+  const sourceId = '11111111-1111-4111-8111-111111111111'
+  const userUuid = '22222222-2222-4222-8222-222222222222'
+  storedSession(config, sourceId, WORKDIR, [
+    { ...said('remember this fixture'), uuid: userUuid, parentUuid: null },
+    { ...answered('remembered'), uuid: '33333333-3333-4333-8333-333333333333', parentUuid: userUuid },
+  ])
+  const runtime = make({ CLAUDE_CONFIG_DIR: config })
+  t.after(() => runtime.dispose())
+  const tape = record(runtime)
+  await runtime.start()
+  assert.equal(runtime.info.capabilities.fork, true)
+  const source = await runtime.resumeSession((await runtime.listSessions()).data.find(row => String(row.id) === sourceId)!.id, { requestedCeiling: 'read' })
+  const fork = await runtime.forkSession(source.id)
+  assert.notEqual(fork.id, source.id)
+  assert.ok(fork.options().some(option => option.id === 'autocompact'), 'forks retain the wrapper controls')
+  assert.match(JSON.stringify((await runtime.readSession(fork.id)).turns), /remember this fixture/)
+  assert.equal(await ask(runtime, fork, 'permission {"tool":"Write","input":{"file_path":"/tmp/denied.txt","content":"denied"}}', tape), 'native guard denied.')
+  assert.equal(tape.events.filter(event => event.type === 'approval/requested').length, 0)
 })
 
 const textIn = (item: AgentItem): string =>
