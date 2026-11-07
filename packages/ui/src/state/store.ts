@@ -4443,7 +4443,24 @@ export class AppStore {
    */
   #dropRemoved(key: SessionKey, deleted: boolean): void {
     const released = this.#releasedTranscripts.get(key)
-    if (released) { this.#releasedOrphans.push(released); this.#releasedTranscripts.delete(key) }
+    const removal = this.#sessionRemovalRevisions.get(key) ?? 0
+    // A deletion only owns material from this connection and incarnation.
+    // Older or unsequenced observations remain protected as ambiguous orphans.
+    const currentOwner = (owner: { connection: number; removal: number }) =>
+      deleted && owner.connection === this.#chatConnectionGeneration && owner.removal === removal
+    const matchingCapture = (capture: PendingTranscript, base: TranscriptWatermark) => {
+      const observed = capture.inspect()
+      return !observed.unresolved && observed.watermark?.epoch === base.epoch && observed.watermark.generation === base.generation
+    }
+    if (released) {
+      if (!currentOwner(released) || (released.changed && !matchingCapture(released.pending, released.watermark))) this.#releasedOrphans.push(released)
+      this.#releasedTranscripts.delete(key)
+    }
+    const pending = this.#transcriptPending.get(key)
+    if (pending) {
+      if (!currentOwner(pending) || !matchingCapture(pending.capture, pending.base)) this.#transcriptOrphans.add(pending.capture)
+      this.#transcriptPending.delete(key)
+    }
     this.#transcriptChange++
     this.#transcriptAuthority.delete(key)
     this.#transcriptCursors.delete(key)
