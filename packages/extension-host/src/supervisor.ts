@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { answerIosCall, hasInstalledIosGrant } from './ios.js'
+import { answerIosCall, hasInstalledIosGrant, installedIosResidents } from './ios.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
@@ -81,6 +81,7 @@ const CHILD_ENTRY = fileURLToPath(new URL('./child.js', import.meta.url))
 const DEFAULT_INVOKE_TIMEOUT_MS = 30_000
 /** Restart delays; after the last one the host stays down until asked again. */
 const BACKOFF_MS = [250, 1000, 4000]
+const IOS_COHABITATION_REFUSAL = 'Simulator access for installed plugins needs every enabled installed plugin to hold the iOS permission, because installed plugins share one process.'
 
 interface ForgeLease {
   readonly controller: AbortController
@@ -130,6 +131,10 @@ export interface PluginHostOptions {
 
 export class PluginHostProcess {
   readonly #iosInvocations = new Map<string, { owner: string; signal: AbortSignal; hold: () => () => void; abort: () => void }>()
+  #iosResidents = new Set<string>()
+  #iosDisabledResidents = new Set<string>()
+  #iosResidentChanges = 0
+  #iosResidentRevision = 0
   #child: ChildProcess | null = null
   #nextId = 0
   readonly #pending = new Map<number, Pending>()
@@ -232,6 +237,9 @@ export class PluginHostProcess {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...this.#options.env },
     })
     this.#child = child
+    this.#iosResidents = new Set()
+    this.#iosDisabledResidents = new Set()
+    this.#iosResidentRevision++
 
     // A write that lands after the child is gone answers EPIPE on stdin; an
     // unheard `error` there is an uncaught exception in the host process.
@@ -318,6 +326,10 @@ export class PluginHostProcess {
     if ('notification' in parsed) {
       const notification = parsed.notification
       if (notification.kind === 'snapshot') {
+        for (const plugin of notification.plugins) {
+          this.#iosResidents.add(plugin.identity.id)
+          if (plugin.enabled) this.#iosDisabledResidents.delete(plugin.identity.id)
+        }
         // Child ids are namespaced at this boundary: both kernels number
         // their contributions c1, c2, … independently, and unprefixed child
         // ids shadow in-process ones — a live Codex run resolved a child
@@ -369,10 +381,13 @@ export class PluginHostProcess {
     try {
       if (request.method === 'ios/call') {
         const child = this.#child
+        const current = this.#iosState()
+        if (!await this.#sharedIosGranted() || !current()) throw new Error(IOS_COHABITATION_REFUSAL)
         const params = request.params as ChildToHostMethods['ios/call']['params']
         const lease = this.#iosInvocations.get(params?.invocation)
         const plugin = this.#plugins.find(p => String(p.instanceId) === lease?.owner)
-        if (!plugin?.enabled || plugin.permissions.ios !== true || !lease || lease.signal.aborted || !this.#options.iosEngine || !await hasInstalledIosGrant(this.#iosStore(), plugin.identity.id)) throw new Error('This simulator request has no live invocation with an iOS permission grant.')
+        // The shared guard just re-read every resident's stored grant, including this owner.
+        if (!plugin?.enabled || plugin.permissions.ios !== true || !lease || lease.signal.aborted || !this.#options.iosEngine) throw new Error('This simulator request has no live invocation with an iOS permission grant.')
         if (this.#child !== child || this.#iosInvocations.get(params.invocation) !== lease) throw new Error('This simulator invocation has ended.')
         if (params.call?.method === 'interact') {
           const timeoutMs = iosInteractionTimeoutMs(params.call.args?.[0])
@@ -834,6 +849,10 @@ export class PluginHostProcess {
     params: PluginHostMethods[M]['params'],
   ): Promise<PluginHostMethods[M]['result']> {
     await this.ensure()
+    const iosOwners = this.#iosOwnersFor(method, params)
+    const current = this.#iosState()
+    // Refuse before opening any invocation leases or sending a bearer to the child.
+    if (iosOwners.length && (!await this.#sharedIosGranted() || !current())) throw new Error(IOS_COHABITATION_REFUSAL)
     let browserInvocation: string | undefined
     const iosInvocations: Record<string, string> = {}
     const iosController = new AbortController()
@@ -859,9 +878,7 @@ export class PluginHostProcess {
       }
     }
     if (['tool/invoke','command/run','context/resolve','context/resolveOne','hooks/run'].includes(method)) {
-      const store = this.#iosStore()
-      for (const owner of this.#iosOwnersFor(method, params)) {
-        if (!await hasInstalledIosGrant(store, owner.identity.id)) continue
+      for (const owner of iosOwners) {
         const token = randomUUID()
         iosInvocations[String(owner.instanceId)] = token
         this.#iosInvocations.set(token, { owner: String(owner.instanceId), signal: iosController.signal, hold: () => lifetime.hold(), abort: () => iosController.abort() })
@@ -879,9 +896,24 @@ export class PluginHostProcess {
       lifetimes.add(lifetime); this.#forgeLifetimes.set(key, lifetimes)
     }
     for (const key of armKeys) this.#teamScopes.set(key, (this.#teamScopes.get(key) ?? 0) + 1)
+    const changesResidents = ['plugins/loadInstalled', 'plugin/install', 'plugin/uninstall', 'plugin/setEnabled', 'plugin/reconfigure'].includes(method)
+    if (changesResidents) { this.#iosResidentChanges++; this.#iosResidentRevision++ }
     try {
-      return await this.#dispatch(method, params, lifetime)
+      const result = await this.#dispatch(method, params, lifetime)
+      if (method === 'plugin/setEnabled') {
+        const { pluginId, enabled } = params as PluginHostMethods['plugin/setEnabled']['params']
+        if (enabled) this.#iosDisabledResidents.delete(pluginId)
+        else if (this.#plugins.some(plugin => plugin.identity.id === pluginId && !plugin.enabled)) this.#iosDisabledResidents.add(pluginId)
+      } else if (method === 'plugin/uninstall') {
+        const { pluginId } = params as PluginHostMethods['plugin/uninstall']['params']
+        this.#iosResidents.delete(pluginId)
+        this.#iosDisabledResidents.delete(pluginId)
+      } else if (method === 'plugin/install') {
+        this.#iosDisabledResidents.delete((result as PluginHostMethods['plugin/install']['result']).id)
+      }
+      return result
     } finally {
+      if (changesResidents) { this.#iosResidentChanges--; this.#iosResidentRevision++ }
       iosController.abort()
       for (const token of Object.values(iosInvocations)) this.#iosInvocations.delete(token)
       if (browserInvocation) this.#browserInvocations.end(browserInvocation)
@@ -899,6 +931,30 @@ export class PluginHostProcess {
 
   #iosStore(): string {
     return this.#options.env?.['HARNESSDESK_PLUGINS'] ?? (this.#options.env?.['HARNESSDESK_HOME'] ? join(this.#options.env['HARNESSDESK_HOME'], 'plugins') : pluginsRoot())
+  }
+  #iosState(): () => boolean {
+    const child = this.#child, snapshot = this.#plugins, revision = this.#iosResidentRevision
+    return () => this.#child === child && this.#plugins === snapshot && !this.#iosResidentChanges && this.#iosResidentRevision === revision
+  }
+  async #sharedIosGranted(): Promise<boolean> {
+    const snapshot = this.#plugins, current = this.#iosState()
+    const residents = this.#iosResidents, disabled = this.#iosDisabledResidents
+    if (!this.#child || this.#iosResidentChanges) return false
+    const store = this.#iosStore()
+    // A shared child can omit residents or claim they are disabled in a snapshot.
+    // Keep a conservative parent-owned census, and trust only parent-issued disables.
+    try {
+      for (const id of await installedIosResidents(store)) residents.add(id)
+    } catch { return false }
+    for (const plugin of snapshot) residents.add(plugin.identity.id)
+    for (const id of residents) {
+      if (disabled.has(id)) continue
+      const plugin = snapshot.find(resident => resident.identity.id === id)
+      if (plugin && (!plugin.enabled || plugin.permissions.ios !== true)) return false
+      if (!await hasInstalledIosGrant(store, id)) return false
+    }
+    // A load/enable or a new snapshot during the reads needs a new decision.
+    return current()
   }
   #iosOwnersFor(method: PluginHostMethodName, value: unknown): readonly PluginInstance[] {
     const params = value as Record<string, unknown>
@@ -1015,7 +1071,8 @@ export class PluginHostProcess {
     params: PluginHostMethods[M]['params'],
     lease?: ForgeLease,
   ): Promise<PluginHostMethods[M]['result']> {
-    await this.ensure()
+    // call() has ensured the child and checked authority; do not yield between
+    // minting an invocation's capabilities and sending them to that same child.
     const child = this.#child
     if (!child?.stdin?.writable) throw new Error('The plugin host is not running.')
     const id = ++this.#nextId

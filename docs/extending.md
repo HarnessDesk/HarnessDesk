@@ -287,6 +287,9 @@ service name.
 Installed plugins may call `ctx.ios` only during a live tool, command, hook or
 context invocation. Calls from `apply()` or a timer outside that invocation are
 refused; the parent checks the invocation lifetime and installed manifest.
+Simulator access also requires every enabled installed plugin in the shared child
+to declare `ios: true` and retain its stored grant, because that process cannot
+attribute a request to one resident plugin.
 
 Text requires an observed US QWERTY guest keyboard and supports letters, digits, spaces and newlines through
 HID and reports `hid-us-layout`; other characters are refused. It does not use

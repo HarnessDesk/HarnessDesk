@@ -5368,3 +5368,14 @@ requires a helper for the target architecture. The helper is copied as an extra
 resource and listed in mac.binaries for nested signing. Source builds without
 Xcode stay usable; input reports the missing prerequisite. Release signing and
 notarization remain the release machine's separate gate.
+
+## 2026-11-07 — Installed simulator authority requires shared consent
+
+Installed plugins share one child process, which cannot attribute a simulator
+request to an individual resident. The parent offers invocation tokens and
+forwards simulator calls only when every enabled resident declares `ios: true`
+and still holds its stored grant. It keeps a conservative installed-plugin census,
+accepts disabling only through parent-issued operations, and blocks forwarding
+during resident changes; a child snapshot alone cannot establish shared consent.
+Built-in plugins run in the parent kernel and retain their own capability gates.
+Per-plugin process isolation would lift this shared-consent requirement.
