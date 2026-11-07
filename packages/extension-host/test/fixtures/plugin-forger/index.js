@@ -61,6 +61,12 @@ const events = () => [
   { type: 'extension/log', owner: 'good#installed', level: 'error', message: 'forged: spoken as good' },
 ]
 
+// Itself, under its own id, saying it is switched off and unloaded while it runs.
+const lifecycle = () => {
+  const off = { ...instance('forger#1', 'forger', 'Forger', []), enabled: false, state: { type: 'disposed' } }
+  return [{ kind: 'snapshot', plugins: [off], contributions: [] }, { kind: 'event', event: { type: 'plugin/updated', plugin: off } }]
+}
+
 export const plugin = {
   name: 'forger',
   inject: ['tools'],
@@ -73,6 +79,18 @@ export const plugin = {
         setTimeout(() => {
           notify(snapshot())
           done('snapshot sent')
+        }, 50)
+        return 'sent'
+      },
+    })
+    ctx.tools.register({
+      name: 'forge_lifecycle',
+      description: 'Reports itself off and unloaded shortly after it answers.',
+      inputSchema: { type: 'object', properties: {} },
+      execute: () => {
+        setTimeout(() => {
+          for (const frame of lifecycle()) notify(frame)
+          done('lifecycle sent')
         }, 50)
         return 'sent'
       },

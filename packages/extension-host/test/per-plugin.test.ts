@@ -177,6 +177,36 @@ test('a snapshot a plugin forges is held to what the host knows about that plugi
   }
 })
 
+test('whether a plugin is on is the host\'s to say, not the plugin\'s', async () => {
+  const harness = await start(['forger'])
+  const events = listen(harness.host)
+  try {
+    const sent = await harness.host.invokeTool(harness.toolId('forge_lifecycle'), {}, scope)
+    assert.equal(sent.ok, true, JSON.stringify(sent))
+    await events.sent('lifecycle sent')
+
+    const forger = harness.host.plugins().find((plugin) => plugin.identity.id === 'forger')
+    assert.equal(forger?.enabled, true, 'a running plugin that reports itself off is still shown on')
+    assert.equal(forger?.state.type, 'active', 'and not as unloaded')
+    const updated = events.heard.filter((event): event is Extract<ExtensionEvent, { type: 'plugin/updated' }> => event.type === 'plugin/updated')
+    assert.ok(updated.length > 0, 'its own update is passed on')
+    for (const event of updated) {
+      assert.equal(event.plugin.enabled, true, 'the event the renderer applies says what the host knows')
+      assert.equal(event.plugin.state.type, 'active')
+    }
+
+    // So the switch still works: turning it off stops its process.
+    const running = async () => ((await harness.host.stats()).processes ?? []).filter((entry) => entry.plugin === 'forger').length
+    assert.equal(await running(), 1)
+    await harness.host.setEnabled('forger', false)
+    assert.equal(await running(), 0)
+    assert.equal(harness.host.plugins().find((plugin) => plugin.identity.id === 'forger')?.enabled, false)
+  } finally {
+    events.stop()
+    await cleanup(harness)
+  }
+})
+
 test('events a plugin forges about another plugin never leave the host, and its own are re-owned', async () => {
   const harness = await start(['good', 'forger'])
   const events = listen(harness.host)

@@ -1529,7 +1529,11 @@ export class SupervisedExtensionHost {
           if ((await this.#consent.check(member.id, now)) === 'changed') throw new Error(MANIFEST_CHANGED)
         },
         stillConsented: async () => this.#consent.matches(member.id, (await readInstalledManifest(member.directory)).bytes),
-        onEvent: (event) => this.#emit(event),
+        onEvent: (event) => this.#emit(
+          event.type === 'plugin/added' || event.type === 'plugin/updated'
+            ? { type: event.type, plugin: this.#hostLifecycle(member, event.plugin) }
+            : event,
+        ),
         onSnapshot: () => {
           // The proc (re)announced itself; replay what it cannot know.
           if (this.#workspace.root !== null && proc?.alive) {
@@ -1573,6 +1577,30 @@ export class SupervisedExtensionHost {
     this.#emit({ type: 'contributions/changed', owner: installedInstanceId(member.id), revision: 0, contributions: [] })
   }
 
+  /**
+   * A plugin's report about itself, with the parts the host owns put back.
+   *
+   * Whether a plugin is on, and its configuration, are the host's: it starts
+   * and stops the process and keeps the config. A plugin that reported itself
+   * off, or unloaded, while its process ran would show a switch that no longer
+   * matched what was running, and turning it "on" again would do nothing. So
+   * those come from the member, and of the process's own states only loading,
+   * waiting for a service, and a failure of its own are taken; anything else from a running process
+   * is active.
+   */
+  #hostLifecycle(member: Member, reported: PluginInstance): PluginInstance {
+    const state = reported.state
+    return {
+      ...reported,
+      state: state?.type === 'failed' ? { type: 'failed', message: String(state.message) }
+        : state?.type === 'loading' ? { type: 'loading' }
+        : state?.type === 'pending' ? { type: 'pending', waitingFor: Array.isArray(state.waitingFor) ? state.waitingFor.map(String) : [] }
+        : { type: 'active' },
+      enabled: member.enabled,
+      ...(member.config ? { config: member.config } : {}),
+    }
+  }
+
   /** What Settings shows for an installed plugin: its proc's report, or what the host knows when it has none. */
   #describe(member: Member): PluginInstance {
     const proc = member.proc
@@ -1580,7 +1608,7 @@ export class SupervisedExtensionHost {
     const problem = proc?.problem
       ?? (proc?.failed ? `${member.identity?.name ?? member.id} crashed repeatedly and has been stopped. Turn it off and on again to retry.` : null)
       ?? (proc ? null : member.problem)
-    if (reported && !problem) return reported
+    if (reported && !problem) return this.#hostLifecycle(member, reported)
     return {
       instanceId: installedInstanceId(member.id),
       identity: member.identity ?? { id: member.id, name: member.id, source: { kind: 'local', path: member.directory } },
