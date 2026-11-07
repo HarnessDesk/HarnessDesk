@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
+import { answerIosCall, hasInstalledIosGrant, installedIosResidents } from './ios.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
@@ -5,6 +8,9 @@ import { fileURLToPath } from 'node:url'
 
 import {
   BrowserInvocations,
+  pluginsRoot,
+  withIosInputSignal, iosInteractionTimeoutMs,
+  type IosCapability,
   canonicalScopeQuery,
   setEditorEngine,
   setForgeEngine,
@@ -27,6 +33,7 @@ import {
   isChildMessage,
   type BrowserSettingsWire,
   type ChildToHostRequest,
+  type ChildToHostMethods,
   type HostToChildResponse,
   type InspectedPlugin,
   type PluginHostMethodName,
@@ -47,6 +54,7 @@ import {
   type HookInvocation,
   type HookVerdict,
   type PluginInstance,
+  type IosInvocationAuthority,
   type ScopeQuery,
   type WorkspaceAdmission,
   type SessionId,
@@ -74,6 +82,7 @@ const CHILD_ENTRY = fileURLToPath(new URL('./child.js', import.meta.url))
 const DEFAULT_INVOKE_TIMEOUT_MS = 30_000
 /** Restart delays; after the last one the host stays down until asked again. */
 const BACKOFF_MS = [250, 1000, 4000]
+const IOS_COHABITATION_REFUSAL = 'Simulator access for installed plugins needs every enabled installed plugin to hold the iOS permission, because installed plugins share one process.'
 
 interface ForgeLease {
   readonly controller: AbortController
@@ -100,6 +109,7 @@ export interface PluginHostOptions {
    * pane. A child `ctx.browser` is then served from here; without it, the
    * child starts its own Chrome.
    */
+  readonly iosEngine?: IosCapability
   readonly browserEngine?: BrowserEngine | null
   /**
    * The editor plane. Always the parent's, because the plane is host-owned:
@@ -121,6 +131,11 @@ export interface PluginHostOptions {
 }
 
 export class PluginHostProcess {
+  readonly #iosInvocations = new Map<string, { owner: string; signal: AbortSignal; hold: () => () => void; abort: () => void }>()
+  #iosResidents = new Set<string>()
+  #iosDisabledResidents = new Set<string>()
+  #iosResidentChanges = 0
+  #iosResidentRevision = 0
   #child: ChildProcess | null = null
   #nextId = 0
   readonly #pending = new Map<number, Pending>()
@@ -223,6 +238,9 @@ export class PluginHostProcess {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...this.#options.env },
     })
     this.#child = child
+    this.#iosResidents = new Set()
+    this.#iosDisabledResidents = new Set()
+    this.#iosResidentRevision++
 
     // A write that lands after the child is gone answers EPIPE on stdin; an
     // unheard `error` there is an uncaught exception in the host process.
@@ -309,6 +327,10 @@ export class PluginHostProcess {
     if ('notification' in parsed) {
       const notification = parsed.notification
       if (notification.kind === 'snapshot') {
+        for (const plugin of notification.plugins) {
+          this.#iosResidents.add(plugin.identity.id)
+          if (plugin.enabled) this.#iosDisabledResidents.delete(plugin.identity.id)
+        }
         // Child ids are namespaced at this boundary: both kernels number
         // their contributions c1, c2, … independently, and unprefixed child
         // ids shadow in-process ones — a live Codex run resolved a child
@@ -349,13 +371,41 @@ export class PluginHostProcess {
    * would have refused every editor call on a host that simply had no pane.
    */
   async #answer(request: ChildToHostRequest): Promise<void> {
+    const sourceChild = this.#child
     const reply = (message: HostToChildResponse): void => {
-      this.#child?.stdin?.write(`${JSON.stringify(message)}\n`)
+      if (this.#child !== sourceChild) return
+      sourceChild?.stdin?.write(`${JSON.stringify(message)}\n`)
     }
     const refuse = (message: string): void => {
       reply({ response: request.request, error: { message } })
     }
     try {
+      if (request.method === 'ios/call') {
+        const child = this.#child
+        const current = this.#iosState()
+        if (!await this.#sharedIosGranted() || !current()) throw new Error(IOS_COHABITATION_REFUSAL)
+        const params = request.params as ChildToHostMethods['ios/call']['params']
+        const lease = this.#iosInvocations.get(params?.invocation)
+        const plugin = this.#plugins.find(p => String(p.instanceId) === lease?.owner)
+        // The shared guard just re-read every resident's stored grant, including this owner.
+        if (!plugin?.enabled || plugin.permissions.ios !== true || !lease || lease.signal.aborted || !this.#options.iosEngine) throw new Error('This simulator request has no live invocation with an iOS permission grant.')
+        if (this.#child !== child || this.#iosInvocations.get(params.invocation) !== lease) throw new Error('This simulator invocation has ended.')
+        if (params.call?.method === 'interact') {
+          const timeoutMs = iosInteractionTimeoutMs(params.call.args?.[0])
+          const release = lease.hold()
+          let timer: ReturnType<typeof setTimeout> | undefined
+          try {
+            const expired = new Promise<never>((_, reject) => {
+              timer = setTimeout(() => { lease.abort(); reject(new Error('The simulator operation exceeded its bounded work deadline.')) }, timeoutMs)
+              timer.unref?.()
+            })
+            const result = await Promise.race([withIosInputSignal(lease.signal, () => answerIosCall(this.#options.iosEngine!, params.call)), expired])
+            reply({ response: request.request, result }); return
+          } finally { clearTimeout(timer); release() }
+        }
+        const result = await withIosInputSignal(lease.signal, () => answerIosCall(this.#options.iosEngine!, params.call))
+        reply({ response: request.request, result }); return
+      }
       if (request.method.startsWith('editor/')) {
         const plane = this.#options.editorEngine
         if (!plane) {
@@ -800,7 +850,13 @@ export class PluginHostProcess {
     params: PluginHostMethods[M]['params'],
   ): Promise<PluginHostMethods[M]['result']> {
     await this.ensure()
+    const iosOwners = this.#iosOwnersFor(method, params)
+    const current = this.#iosState()
+    // Withhold simulator authority without preventing the invocation itself.
+    const iosGranted = iosOwners.length > 0 && await this.#sharedIosGranted() && current()
     let browserInvocation: string | undefined
+    const iosInvocations: Record<string, IosInvocationAuthority> = {}
+    const iosController = new AbortController()
     if (method === 'tool/invoke') {
       const input = params as PluginHostMethods['tool/invoke']['params']
       const namespaced = childContributionId(input.id as ContributionId)
@@ -816,11 +872,24 @@ export class PluginHostProcess {
       ) {
         const identity = this.#browserInvocations.begin(input.browser.profile, String(owner.instanceId))
         browserInvocation = identity.invocation
-        params = { ...input, browser: identity } as PluginHostMethods[M]['params']
+        params = { ...params, browser: identity } as PluginHostMethods[M]['params']
       } else if (input.browser) {
-        const { browser: _browser, ...plain } = input
+        const { browser: _browser, ...plain } = params as PluginHostMethods['tool/invoke']['params']
         params = plain as PluginHostMethods[M]['params']
       }
+    }
+    if (['tool/invoke','command/run','context/resolve','context/resolveOne','hooks/run'].includes(method)) {
+      for (const owner of iosOwners) {
+        if (!iosGranted) {
+          iosInvocations[String(owner.instanceId)] = { refused: IOS_COHABITATION_REFUSAL }
+          continue
+        }
+        const token = randomUUID()
+        iosInvocations[String(owner.instanceId)] = token
+        this.#iosInvocations.set(token, { owner: String(owner.instanceId), signal: iosController.signal, hold: () => lifetime.hold(), abort: () => iosController.abort() })
+      }
+      const { iosInvocations: _untrusted, ...plain } = params as { iosInvocations?: unknown }
+      params = { ...plain, iosInvocations } as PluginHostMethods[M]['params']
     }
     const armKeys = this.#armedScopesFor(method, params)
     const controller = new AbortController()
@@ -832,9 +901,26 @@ export class PluginHostProcess {
       lifetimes.add(lifetime); this.#forgeLifetimes.set(key, lifetimes)
     }
     for (const key of armKeys) this.#teamScopes.set(key, (this.#teamScopes.get(key) ?? 0) + 1)
+    const changesResidents = ['plugins/loadInstalled', 'plugin/install', 'plugin/uninstall', 'plugin/setEnabled', 'plugin/reconfigure'].includes(method)
+    if (changesResidents) { this.#iosResidentChanges++; this.#iosResidentRevision++ }
     try {
-      return await this.#dispatch(method, params, lifetime)
+      const result = await this.#dispatch(method, params, lifetime)
+      if (method === 'plugin/setEnabled') {
+        const { pluginId, enabled } = params as PluginHostMethods['plugin/setEnabled']['params']
+        if (enabled) this.#iosDisabledResidents.delete(pluginId)
+        else if (this.#plugins.some(plugin => plugin.identity.id === pluginId && !plugin.enabled)) this.#iosDisabledResidents.add(pluginId)
+      } else if (method === 'plugin/uninstall') {
+        const { pluginId } = params as PluginHostMethods['plugin/uninstall']['params']
+        this.#iosResidents.delete(pluginId)
+        this.#iosDisabledResidents.delete(pluginId)
+      } else if (method === 'plugin/install') {
+        this.#iosDisabledResidents.delete((result as PluginHostMethods['plugin/install']['result']).id)
+      }
+      return result
     } finally {
+      if (changesResidents) { this.#iosResidentChanges--; this.#iosResidentRevision++ }
+      iosController.abort()
+      for (const value of Object.values(iosInvocations)) if (typeof value === 'string') this.#iosInvocations.delete(value)
       if (browserInvocation) this.#browserInvocations.end(browserInvocation)
       controller.abort()
       for (const key of armKeys) {
@@ -846,6 +932,46 @@ export class PluginHostProcess {
         else this.#teamScopes.set(key, count)
       }
     }
+  }
+
+  #iosStore(): string {
+    return this.#options.env?.['HARNESSDESK_PLUGINS'] ?? (this.#options.env?.['HARNESSDESK_HOME'] ? join(this.#options.env['HARNESSDESK_HOME'], 'plugins') : pluginsRoot())
+  }
+  #iosState(): () => boolean {
+    const child = this.#child, snapshot = this.#plugins, revision = this.#iosResidentRevision
+    return () => this.#child === child && this.#plugins === snapshot && !this.#iosResidentChanges && this.#iosResidentRevision === revision
+  }
+  async #sharedIosGranted(): Promise<boolean> {
+    const snapshot = this.#plugins, current = this.#iosState()
+    const residents = this.#iosResidents, disabled = this.#iosDisabledResidents
+    if (!this.#child || this.#iosResidentChanges) return false
+    const store = this.#iosStore()
+    // A shared child can omit residents or claim they are disabled in a snapshot.
+    // Keep a conservative parent-owned census, and trust only parent-issued disables.
+    try {
+      for (const id of await installedIosResidents(store)) residents.add(id)
+    } catch { return false }
+    for (const plugin of snapshot) residents.add(plugin.identity.id)
+    for (const id of residents) {
+      if (disabled.has(id)) continue
+      const plugin = snapshot.find(resident => resident.identity.id === id)
+      if (plugin && (!plugin.enabled || plugin.permissions.ios !== true)) return false
+      if (!await hasInstalledIosGrant(store, id)) return false
+    }
+    // A load/enable or a new snapshot during the reads needs a new decision.
+    return current()
+  }
+  #iosOwnersFor(method: PluginHostMethodName, value: unknown): readonly PluginInstance[] {
+    const params = value as Record<string, unknown>
+    const hook = params['invocation'] as HookInvocation | undefined
+    const scope = (method === 'context/resolve' ? params['query'] : method === 'hooks/run' ? hook?.scope : params['scope']) as ScopeQuery ?? {}
+    return this.#plugins.filter(plugin => plugin.enabled && plugin.permissions.ios && plugin.contributions.some(entry => {
+      if (!scopeApplies(entry.scope, scope)) return false
+      if (method === 'tool/invoke' || method === 'context/resolveOne') return entry.id === childContributionId(params['id'] as ContributionId)
+      if (method === 'command/run') return entry.kind === 'command' && entry.name === params['name']
+      if (method === 'context/resolve') return entry.kind === 'context' && !entry.chip
+      return method === 'hooks/run' && entry.kind === 'hook' && entry.event === hook?.event && (!entry.match || typeof hook.toolName === 'string' && entry.match.includes(hook.toolName))
+    }))
   }
 
   /**
@@ -950,7 +1076,8 @@ export class PluginHostProcess {
     params: PluginHostMethods[M]['params'],
     lease?: ForgeLease,
   ): Promise<PluginHostMethods[M]['result']> {
-    await this.ensure()
+    // call() has ensured the child and checked authority; do not yield between
+    // minting an invocation's capabilities and sending them to that same child.
     const child = this.#child
     if (!child?.stdin?.writable) throw new Error('The plugin host is not running.')
     const id = ++this.#nextId
@@ -1012,6 +1139,7 @@ export interface SupervisedExtensionHostOptions {
   readonly invokeTimeoutMs?: number
   readonly env?: Readonly<Record<string, string>>
   /** The parent's own browser page for child plugins' `ctx.browser`; see `PluginHostOptions`. */
+  readonly iosEngine?: IosCapability
   readonly browserEngine?: BrowserEngine | null
   /** The editor plane for child plugins' `ctx.editor`; see `PluginHostOptions`. */
   readonly editorEngine?: EditorEngine | null
@@ -1059,6 +1187,7 @@ export class SupervisedExtensionHost {
       ...(options.logger ? { logger: options.logger } : {}),
       ...(options.invokeTimeoutMs ? { invokeTimeoutMs: options.invokeTimeoutMs } : {}),
       ...(options.env ? { env: options.env } : {}),
+      ...(options.iosEngine ? { iosEngine: options.iosEngine } : {}),
       ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),
       ...(options.editorEngine ? { editorEngine: options.editorEngine } : {}),
       ...(options.teamEngine ? { teamEngine: options.teamEngine } : {}),

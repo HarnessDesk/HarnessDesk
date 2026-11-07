@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline'
 
 import {
   ExtensionKernel,
+  iosInteractionTimeoutMs, currentIosInvocation, withIosInvocation, type IosCapability,
   setBrowserEngine,
   setBrowserSettings,
   setEditorEngine,
@@ -41,7 +42,29 @@ const log = (level: string, message: string, details?: unknown): void => {
   )
 }
 
+const iosArguments = <T extends readonly unknown[]>(input: T): T => {
+  const args = [...input]
+  while (args.length && args.at(-1) === undefined) args.pop()
+  return args as unknown as T
+}
+const remoteIos: IosCapability = {
+  devices: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'devices', args: iosArguments(args) } }) as ReturnType<IosCapability['devices']>,
+  diagnose: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'diagnose', args: iosArguments(args) } }) as ReturnType<IosCapability['diagnose']>,
+  frame: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'frame', args: iosArguments(args) } }) as ReturnType<IosCapability['frame']>,
+  getAppearance: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'getAppearance', args: iosArguments(args) } }) as ReturnType<IosCapability['getAppearance']>,
+  setAppearance: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'setAppearance', args: iosArguments(args) } }) as ReturnType<IosCapability['setAppearance']>,
+  booted: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'booted', args: iosArguments(args) } }) as ReturnType<IosCapability['booted']>,
+  boot: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'boot', args: iosArguments(args) } }) as ReturnType<IosCapability['boot']>,
+  install: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'install', args: iosArguments(args) } }) as ReturnType<IosCapability['install']>,
+  launch: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'launch', args: iosArguments(args) } }) as ReturnType<IosCapability['launch']>,
+  terminate: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'terminate', args: iosArguments(args) } }) as ReturnType<IosCapability['terminate']>,
+  openUrl: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'openUrl', args: iosArguments(args) } }) as ReturnType<IosCapability['openUrl']>,
+  screenshot: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'screenshot', args: iosArguments(args) } }) as ReturnType<IosCapability['screenshot']>,
+  tap: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'tap', args: iosArguments(args) } }) as ReturnType<IosCapability['tap']>,
+  interact: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'interact', args: iosArguments(args) } }) as ReturnType<IosCapability['interact']>,
+}
 const kernel = new ExtensionKernel({
+  iosEngine: remoteIos,
   logger: {
     debug: (message, details) => log('debug', message, details),
     info: (message, details) => log('info', message, details),
@@ -70,10 +93,12 @@ const askHost = <M extends keyof ChildToHostMethods>(
 ): Promise<ChildToHostMethods[M]['result']> =>
   new Promise((resolve, reject) => {
     const id = ++nextHostRequest
+    const ios = method === 'ios/call' ? params as ChildToHostMethods['ios/call']['params'] : undefined
+    const timeoutMs = ios?.call.method === 'interact' ? iosInteractionTimeoutMs(ios.call.args[0]) + 5_000 : HOST_REQUEST_TIMEOUT_MS
     const timer = setTimeout(() => {
       hostPending.delete(id)
       reject(new Error(`The host did not answer ${method} in time.`))
-    }, HOST_REQUEST_TIMEOUT_MS)
+    }, timeoutMs)
     hostPending.set(id, {
       resolve: (value) => {
         clearTimeout(timer)
@@ -250,13 +275,13 @@ const handlers: Handlers = {
     return null
   },
   'command/run': async (params) => ({
-    handled: await kernel.runCommand(params.name, params.argument, params.scope),
+    handled: await withIosInvocation(params.iosInvocations, () => kernel.runCommand(params.name, params.argument, params.scope)),
   }),
   'tool/invoke': (params) =>
-    kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null),
-  'hooks/run': (params) => kernel.runHooks(params.invocation),
-  'context/resolve': (params) => kernel.resolveContext(params.query),
-  'context/resolveOne': (params) => kernel.resolveOne(params.id as never, params.ref, params.scope),
+    withIosInvocation(params.iosInvocations, () => kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null)),
+  'hooks/run': (params) => withIosInvocation(params.iosInvocations, () => kernel.runHooks(params.invocation)),
+  'context/resolve': (params) => withIosInvocation(params.iosInvocations, () => kernel.resolveContext(params.query)),
+  'context/resolveOne': (params) => withIosInvocation(params.iosInvocations, () => kernel.resolveOne(params.id as never, params.ref, params.scope)),
   'workspace/set': (params) => {
     kernel.setWorkspace({ root: params.root, branch: params.branch, ...(params.admitted ? { admitted: params.admitted } : {}) })
     return null

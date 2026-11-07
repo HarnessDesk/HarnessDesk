@@ -43,6 +43,7 @@ const fakeXcrun = (t: TestContext, options: { readonly failShot?: boolean } = {}
       options.failShot
         ? `if [ "$1 $2" = 'simctl io' ]; then echo 'simctl: the screenshot failed' >&2; exit 1; fi`
         : `if [ "$1 $2" = 'simctl io' ] && [ "$4" = screenshot ]; then cp '${image}' "$5"; exit 0; fi`,
+      `if [ \"$1 $2\" = 'simctl io' ] && [ \"$4\" = enumerate ]; then exit 0; fi`,
       'exit 1',
       '',
     ].join('\n'),

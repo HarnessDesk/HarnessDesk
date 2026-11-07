@@ -1,3 +1,4 @@
+import type { IosCapability, IosInvocationAuthority } from '@harnessdesk/protocol'
 import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult } from '@harnessdesk/protocol'
 import type {
   CapabilityContribution,
@@ -72,7 +73,9 @@ import type {
 // to the inbox or that conversation's composer under the person's setting.
 // 10 adds the host-executed forge write verbs and Git record reads.
 // 12 adds the invocation-bound associated pull request read.
-export const EXTENSION_PROTOCOL_VERSION = 12
+// 13 adds host-owned, invocation-bound simulator capability requests.
+// 14 allows a non-secret per-owner refusal marker instead of an iOS bearer.
+export const EXTENSION_PROTOCOL_VERSION = 14
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -147,11 +150,12 @@ export interface PluginHostMethods {
     result: null
   }
   'command/run': {
-    params: { readonly name: string; readonly argument: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly name: string; readonly argument: string; readonly scope: ScopeQuery }
     result: { readonly handled: boolean }
   }
   'tool/invoke': {
     params: {
+      readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>
       readonly id: string
       readonly args: unknown
       readonly scope: ScopeQuery
@@ -159,14 +163,14 @@ export interface PluginHostMethods {
     }
     result: ToolResult
   }
-  'hooks/run': { params: { readonly invocation: HookInvocation }; result: HookVerdict }
+  'hooks/run': { params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly invocation: HookInvocation }; result: HookVerdict }
   'context/resolve': {
-    params: { readonly query: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly query: ScopeQuery }
     result: readonly { readonly label: string; readonly text: string }[]
   }
   /** One provider, because the user attached its chip. */
   'context/resolveOne': {
-    params: { readonly id: string; readonly ref?: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly id: string; readonly ref?: string; readonly scope: ScopeQuery }
     result: { readonly label: string; readonly text: string } | null
   }
   'workspace/set': {
@@ -216,7 +220,9 @@ export interface CdpEventWire {
  * child that pays for events no plugin ever reads. Draining on demand keeps
  * one direction and one buffer, and a turn that never asks costs nothing.
  */
+export type IosCall = { [M in keyof IosCapability]: { readonly method: M; readonly args: Parameters<IosCapability[M]> } }[keyof IosCapability]
 export interface ChildToHostMethods {
+  'ios/call': { params: { readonly invocation: string; readonly call: IosCall }; result: unknown }
   'browser/ensure': { params: { readonly invocation: string }; result: null }
   'browser/send': {
     params: {

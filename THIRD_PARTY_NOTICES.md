@@ -10,6 +10,16 @@ Name and mark usage is covered by [TRADEMARKS.md](TRADEMARKS.md).
 
 ## Code reproduced in this repository
 
+**Meta idb — MIT** (`licenses/MIT-idb.txt`), Copyright (c) Meta Platforms, Inc.
+and affiliates. The simulator-specific XPC endpoint setup and DTUHID wire
+encoding in `packages/cordis-host/native/ios-control/Sources/SimulatorBridge/`
+are adapted from `FBSimulatorControl/XPC/SimulatorXPCConnection.swift` and
+`FBSimulatorControl/HID/DTUHIDModels.swift`, pinned to upstream commit
+`291575b7dbcf85525a7900b8f752f1c8175fa1ae` at https://github.com/meta/idb.
+HarnessDesk replaces the upstream host dependencies with a bounded native bridge.
+Apple frameworks are dynamically loaded from the installed Xcode, never bundled.
+
+
 **DeepSeek Harness — MIT** (`licenses/MIT-deepseek-harness.txt`). Four built-in
 plugins — search, task list, checkpoints and guardrails — are new
 implementations of ideas that appear upstream, written against this project's
