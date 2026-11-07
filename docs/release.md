@@ -305,7 +305,9 @@ packing if that verified Lead cache is absent.
 The resource is `Contents/Resources/native/ios/hd-ios-control`, listed in
 `build.mac.binaries` so the normal release signs it with the app identity and
 hardened runtime. Apple frameworks are loaded from installed Xcode, never copied.
-The packaged smoke runs the actual helper's `--version` without a simulator.
+The packaged smoke first requires that resource to be the only helper in the
+bundle, then runs its `--version` without a simulator. The unsigned uniqueness
+check is shared with release verification; smoke adds no iOS signing or team check.
 `verify-artifacts` mounts each validated DMG read-only, checks the helper's
 architecture, nested signature, matching signing team and hardened-runtime flag,
 then executes its `--probe` to load the installed Xcode frameworks.

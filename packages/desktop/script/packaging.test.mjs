@@ -295,10 +295,28 @@ test('the source-built iOS helper is an architecture-specific signed extra resou
   assert.equal(manifest.build.beforePack,'./script/before-pack.mjs')
   assert.ok(manifest.build.extraResources.some(r=>r.from==='../cordis-host/dist/native/darwin-${arch}' && r.to==='native/ios' && r.filter.includes('hd-ios-control')))
   assert.ok(manifest.build.mac.binaries.includes('Contents/Resources/native/ios/hd-ios-control'))
-  assert.match(smoke,/native\/ios\/hd-ios-control/)
+  assert.match(smoke,/verifyIosHelperUniqueness\(appPath\)/)
   assert.match(smoke,/--version/)
 })
 test('native helpers in dependency dist are excluded from the application archive', () => {
   const path='node_modules/@harnessdesk/cordis-host/dist/native/darwin-arm64/hd-ios-control'
   assert.ok(manifest.build.files.some(glob=>glob.startsWith('!')&&matchesGlob(path,glob.slice(1))))
+})
+
+test('linked native package source and SwiftPM products never enter the app archive', () => {
+  const excluded=(manifest.build.files??[]).filter(glob=>glob.startsWith('!')).map(glob=>glob.slice(1))
+  for(const path of [
+    'native/ios-control/Package.swift',
+    'native/ios-control/Sources/IosControl/main.swift',
+    'native/ios-control/Tests/IosControlTests/InputTests.swift',
+    'native/ios-control/.build/out/Products/Release/hd-ios-control',
+    'native/ios-control/.build/out/Products/Debug/hd-ios-control',
+    'native/ios-control/.build/out/Products/Release/hd-ios-control.dSYM/Contents/Resources/DWARF/hd-ios-control',
+  ]) {
+    const file=`node_modules/@harnessdesk/cordis-host/${path}`
+    const parts=file.split('/')
+    // Excluding an ancestor directory also excludes hidden SwiftPM descendants.
+    const ancestors=parts.map((_,i)=>parts.slice(0,i+1).join('/'))
+    assert.ok(excluded.some(glob=>ancestors.some(path=>matchesGlob(path,glob))),`${file} must be excluded`)
+  }
 })

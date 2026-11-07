@@ -35,6 +35,7 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
+import { verifyIosHelperUniqueness } from '../../../script/verify-ios-artifact.mjs'
 import { LEAD_NODE, LEAD_NODE_RESOURCE } from '../electron/lead-runtime.mjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
@@ -64,7 +65,10 @@ if (!existsSync(binary)) {
 }
 
 // The actual bundled native executable, independent of a booted simulator or account.
-const iosHelper = join(appPath, 'Contents/Resources/native/ios/hd-ios-control')
+let iosHelper
+try { iosHelper = verifyIosHelperUniqueness(appPath) }
+catch (error) { fail(error.message); process.exit(1) }
+console.log('smoke: bundled iOS input helper is unique')
 const iosVersion = spawnSync(iosHelper, ['--version'], { encoding: 'utf8', timeout: 5000 })
 if (iosVersion.status !== 0) { fail('the bundled iOS input helper could not report its version'); process.exit(1) }
 try {

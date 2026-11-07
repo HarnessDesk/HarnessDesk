@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
-/** Release-only inspection of an already signed/notarized app. Never signs or notarizes. */
+/** Release-only signature/probe inspection. Smoke uses only the unsigned layout check. */
 const inspect = (bin, args) => {
   const result=spawnSync(bin,args,{encoding:'utf8',timeout:15000})
   if(result.status!==0) throw new Error(`iOS artifact inspection failed (${bin}).`)
@@ -14,10 +14,15 @@ function helpersIn(directory) {
     return entry.isDirectory() ? helpersIn(path) : []
   })
 }
-export function verifyIosArtifact(app, arch, { run = inspect, helpers = helpersIn } = {}) {
+/** A shared, unsigned layout check: no binary execution, signature or team inspection. */
+export function verifyIosHelperUniqueness(app, { helpers = helpersIn } = {}) {
   const helper = join(app, 'Contents/Resources/native/ios/hd-ios-control')
   const copies = helpers(app)
-  if (copies.length !== 1 || copies[0] !== helper) throw new Error('The signed resource must be the only hd-ios-control in the app bundle; extra helpers are forbidden.')
+  if (copies.length !== 1 || copies[0] !== helper) throw new Error('The packaged native resource must be the only hd-ios-control in the app bundle; extra helpers are forbidden.')
+  return helper
+}
+export function verifyIosArtifact(app, arch, { run = inspect, helpers = helpersIn } = {}) {
+  const helper = verifyIosHelperUniqueness(app, { helpers })
   const expected = arch === 'x64' ? 'x86_64' : arch
   if (!['arm64','x86_64'].includes(expected) || run('lipo',['-archs',helper]).trim() !== expected) throw new Error('The released iOS helper has the wrong architecture.')
   run('codesign',['--verify','--strict','--verbose=2',helper])

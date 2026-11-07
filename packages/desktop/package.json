@@ -55,6 +55,7 @@
       "package.json",
       "!**/node_modules/@harnessdesk/*/dist/**/*.map",
       "!**/node_modules/@harnessdesk/*/dist/native/**",
+      "!**/node_modules/@harnessdesk/cordis-host/native/**",
       "!**/node_modules/@harnessdesk/*/dist/**/*.d.ts",
       "!**/node_modules/@harnessdesk/*/dist/.tsbuildinfo",
       "!**/node_modules/@harnessdesk/*/dist/test/**",
