@@ -1,4 +1,6 @@
 /** Device operations only. Native executable selection and process ownership stay in the host. */
+/** A live invocation bearer, or a non-secret explanation of withheld simulator authority. */
+export type IosInvocationAuthority = string | { readonly refused: string }
 export type PixelPoint = { x: number; y: number }
 export type TimedPoint = PixelPoint & { tMs: number }
 export type IosKey = 'return' | 'delete' | 'left' | 'right' | 'up' | 'down' | 'selectAll' | 'undo'

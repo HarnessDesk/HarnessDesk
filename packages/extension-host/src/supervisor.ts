@@ -54,6 +54,7 @@ import {
   type HookInvocation,
   type HookVerdict,
   type PluginInstance,
+  type IosInvocationAuthority,
   type ScopeQuery,
   type WorkspaceAdmission,
   type SessionId,
@@ -851,10 +852,10 @@ export class PluginHostProcess {
     await this.ensure()
     const iosOwners = this.#iosOwnersFor(method, params)
     const current = this.#iosState()
-    // Refuse before opening any invocation leases or sending a bearer to the child.
-    if (iosOwners.length && (!await this.#sharedIosGranted() || !current())) throw new Error(IOS_COHABITATION_REFUSAL)
+    // Withhold simulator authority without preventing the invocation itself.
+    const iosGranted = iosOwners.length > 0 && await this.#sharedIosGranted() && current()
     let browserInvocation: string | undefined
-    const iosInvocations: Record<string, string> = {}
+    const iosInvocations: Record<string, IosInvocationAuthority> = {}
     const iosController = new AbortController()
     if (method === 'tool/invoke') {
       const input = params as PluginHostMethods['tool/invoke']['params']
@@ -879,6 +880,10 @@ export class PluginHostProcess {
     }
     if (['tool/invoke','command/run','context/resolve','context/resolveOne','hooks/run'].includes(method)) {
       for (const owner of iosOwners) {
+        if (!iosGranted) {
+          iosInvocations[String(owner.instanceId)] = { refused: IOS_COHABITATION_REFUSAL }
+          continue
+        }
         const token = randomUUID()
         iosInvocations[String(owner.instanceId)] = token
         this.#iosInvocations.set(token, { owner: String(owner.instanceId), signal: iosController.signal, hold: () => lifetime.hold(), abort: () => iosController.abort() })
@@ -915,7 +920,7 @@ export class PluginHostProcess {
     } finally {
       if (changesResidents) { this.#iosResidentChanges--; this.#iosResidentRevision++ }
       iosController.abort()
-      for (const token of Object.values(iosInvocations)) this.#iosInvocations.delete(token)
+      for (const value of Object.values(iosInvocations)) if (typeof value === 'string') this.#iosInvocations.delete(value)
       if (browserInvocation) this.#browserInvocations.end(browserInvocation)
       controller.abort()
       for (const key of armKeys) {

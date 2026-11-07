@@ -5,16 +5,17 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ExtensionKernel, type IosCapability } from '@harnessdesk/cordis-host'
 import { SupervisedExtensionHost } from '../src/index.js'
+import type { ToolResult } from '@harnessdesk/protocol'
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url))
 const REFUSAL = 'Simulator access for installed plugins needs every enabled installed plugin to hold the iOS permission, because installed plugins share one process.'
 
-async function setup(t: TestContext, granted: boolean, disableBeforeLoad = false) {
+async function setup(t: TestContext, granted: boolean, options: { disableBeforeLoad?: boolean; passive?: boolean } = {}) {
   const scratch = fileURLToPath(new URL('../../../../output/ios-input/', import.meta.url))
   await mkdir(scratch, { recursive: true })
   const dir = await mkdtemp(join(scratch, 'cohabitation-')), store = join(dir, 'plugins')
   t.after(() => rm(dir, { recursive: true, force: true }))
-  await cp(join(FIXTURES, 'plugin-ios'), join(store, 'iosish'), { recursive: true })
+  await cp(join(FIXTURES, options.passive ? 'plugin-ios-passive' : 'plugin-ios'), join(store, 'iosish'), { recursive: true })
   await cp(join(FIXTURES, 'plugin-ios-resident'), join(store, 'resident'), { recursive: true })
   const source = join(store, 'iosish', 'index.js')
   await writeFile(source, (await readFile(source, 'utf8')).replace('apply(ctx) {', `apply(ctx) {
@@ -37,7 +38,7 @@ async function setup(t: TestContext, granted: boolean, disableBeforeLoad = false
   const kernel = new ExtensionKernel({ iosEngine: engine })
   const host = new SupervisedExtensionHost(kernel, { env: { HARNESSDESK_PLUGINS: store }, iosEngine: engine })
   t.after(async () => { release(); await host.dispose() })
-  if (disableBeforeLoad) await host.setEnabled('resident', false)
+  if (options.disableBeforeLoad) await host.setEnabled('resident', false)
   await host.loadInstalledPlugins()
   const invoke = (name: string, args = {}) => host.invokeTool(host.list('tool').find(tool => tool.name === name)!.id, args, {})
   const probe = async (snapshot?: unknown): Promise<{ observedToken: boolean; error?: string; result?: unknown }> => {
@@ -72,11 +73,63 @@ test('mixed installed grants issue no token and refuse raw simulator frames', as
 })
 
 test('disabling a resident before it loads does not exempt its enabled instance', async t => {
-  const f = await setup(t, false, true)
+  const f = await setup(t, false, { disableBeforeLoad: true })
   assert.equal(f.host.plugins().find(plugin => plugin.identity.id === 'resident')!.enabled, true)
   assert.deepEqual(await f.invoke('ios_owner', { iosOwner: true }), { ok: false, error: REFUSAL })
   assert.deepEqual(await f.probe(), { observedToken: false, error: REFUSAL })
   assert.equal(f.calls(), 0)
+})
+
+function toolText(result: ToolResult): string {
+  assert.equal(result.ok, true, JSON.stringify(result))
+  if (!result.ok) throw new Error('The synthetic tool did not execute.')
+  const content = result.content[0]!
+  assert.equal(content.type, 'text')
+  return (content as { text: string }).text
+}
+
+async function assertRefusedWithoutBearer(f: Awaited<ReturnType<typeof setup>>, method: string) {
+  assert.deepEqual(await f.probe(), { observedToken: false, error: REFUSAL })
+  const history = JSON.parse(await readFile(join(f.store, 'resident', 'authority-history.json'), 'utf8')) as { method: string; values: unknown[] }[]
+  assert.ok(history.some(entry => entry.method === method && entry.values.length > 0), 'The invocation must reach the child with an owner-specific refusal marker.')
+  for (const entry of history) for (const value of entry.values) assert.deepEqual(value, { refused: REFUSAL }, 'No invocation may expose an iOS bearer while shared consent is missing.')
+  assert.equal(f.calls(), 0)
+}
+
+test('mixed grants preserve all installed hooks while withholding iOS authority', async t => {
+  const f = await setup(t, false, { passive: true })
+  assert.deepEqual(await f.host.runHooks({ event: 'preTurn', scope: {} }), { decision: 'allow' })
+  assert.equal(JSON.parse(toolText(await f.invoke('owner_safe'))).hooks, 1)
+  assert.equal(JSON.parse(toolText(await f.invoke('resident_safe'))).hooks, 1)
+  await assertRefusedWithoutBearer(f, 'hooks/run')
+})
+
+test('mixed grants preserve context from both installed plugins', async t => {
+  const f = await setup(t, false, { passive: true })
+  assert.deepEqual(await f.host.resolveContext({}), [
+    { label: 'Owner context', text: 'owner context ran' },
+    { label: 'Resident context', text: 'resident context ran' },
+  ])
+  await assertRefusedWithoutBearer(f, 'context/resolve')
+})
+
+test('mixed grants preserve an iOS-declaring tool that does not use iOS', async t => {
+  const f = await setup(t, false, { passive: true })
+  assert.deepEqual(JSON.parse(toolText(await f.invoke('owner_safe'))), { hooks: 0, commands: 0 })
+  await assertRefusedWithoutBearer(f, 'tool/invoke')
+})
+
+test('mixed grants refuse ctx.ios inside the dispatched invocation with the cohabitation reason', async t => {
+  const f = await setup(t, false, { passive: true })
+  assert.equal(toolText(await f.invoke('owner_ios_caught')), REFUSAL)
+  await assertRefusedWithoutBearer(f, 'tool/invoke')
+})
+
+test('mixed grants preserve an iOS-declaring command that does not use iOS', async t => {
+  const f = await setup(t, false, { passive: true })
+  assert.equal(await f.host.runCommand('owner_command', '', {}), true)
+  assert.equal(JSON.parse(toolText(await f.invoke('owner_safe'))).commands, 1)
+  await assertRefusedWithoutBearer(f, 'command/run')
 })
 
 test('non-plugin directories do not block installed simulator authority', async t => {

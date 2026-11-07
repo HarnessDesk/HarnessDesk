@@ -1,4 +1,4 @@
-import type { IosCapability } from '@harnessdesk/protocol'
+import type { IosCapability, IosInvocationAuthority } from '@harnessdesk/protocol'
 import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult } from '@harnessdesk/protocol'
 import type {
   CapabilityContribution,
@@ -74,7 +74,8 @@ import type {
 // 10 adds the host-executed forge write verbs and Git record reads.
 // 12 adds the invocation-bound associated pull request read.
 // 13 adds host-owned, invocation-bound simulator capability requests.
-export const EXTENSION_PROTOCOL_VERSION = 13
+// 14 allows a non-secret per-owner refusal marker instead of an iOS bearer.
+export const EXTENSION_PROTOCOL_VERSION = 14
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -149,12 +150,12 @@ export interface PluginHostMethods {
     result: null
   }
   'command/run': {
-    params: { readonly iosInvocations?: Readonly<Record<string, string>>; readonly name: string; readonly argument: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly name: string; readonly argument: string; readonly scope: ScopeQuery }
     result: { readonly handled: boolean }
   }
   'tool/invoke': {
     params: {
-      readonly iosInvocations?: Readonly<Record<string, string>>
+      readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>
       readonly id: string
       readonly args: unknown
       readonly scope: ScopeQuery
@@ -162,14 +163,14 @@ export interface PluginHostMethods {
     }
     result: ToolResult
   }
-  'hooks/run': { params: { readonly iosInvocations?: Readonly<Record<string, string>>; readonly invocation: HookInvocation }; result: HookVerdict }
+  'hooks/run': { params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly invocation: HookInvocation }; result: HookVerdict }
   'context/resolve': {
-    params: { readonly iosInvocations?: Readonly<Record<string, string>>; readonly query: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly query: ScopeQuery }
     result: readonly { readonly label: string; readonly text: string }[]
   }
   /** One provider, because the user attached its chip. */
   'context/resolveOne': {
-    params: { readonly iosInvocations?: Readonly<Record<string, string>>; readonly id: string; readonly ref?: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly id: string; readonly ref?: string; readonly scope: ScopeQuery }
     result: { readonly label: string; readonly text: string } | null
   }
   'workspace/set': {

@@ -5379,3 +5379,6 @@ accepts disabling only through parent-issued operations, and blocks forwarding
 during resident changes; a child snapshot alone cannot establish shared consent.
 Built-in plugins run in the parent kernel and retain their own capability gates.
 Per-plugin process isolation would lift this shared-consent requirement.
+Missing shared consent withholds simulator authority rather than the invocation:
+tools, commands, hooks and context providers still run, and a non-secret per-owner
+refusal marker makes `ctx.ios` explain the constraint without exposing a bearer.

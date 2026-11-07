@@ -280,7 +280,7 @@ use a window. Xcode selection is read, never changed. If DTUHID is unavailable
 or no helper was built, taps alone retain the previous `cliclick` window path:
 it moves the pointer, requires Simulator's window and refuses multiple booted
 devices. Other input tools remain unavailable there. Installed plugins forward typed requests over extension protocol
-13; the parent verifies its invocation ID and current manifest grant before
+14; the parent verifies its invocation ID and current manifest grant before
 calling the same engine. Plugins cannot choose a native executable, symbol or
 service name.
 
@@ -290,6 +290,8 @@ refused; the parent checks the invocation lifetime and installed manifest.
 Simulator access also requires every enabled installed plugin in the shared child
 to declare `ios: true` and retain its stored grant, because that process cannot
 attribute a request to one resident plugin.
+Without that shared grant, invocations still run; only `ctx.ios` refuses, using a
+non-secret per-owner reason in place of a simulator token.
 
 Text requires an observed US QWERTY guest keyboard and supports letters, digits, spaces and newlines through
 HID and reports `hid-us-layout`; other characters are refused. It does not use
