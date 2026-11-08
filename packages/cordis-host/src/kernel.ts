@@ -120,7 +120,7 @@ interface Loaded {
   provides: string[]
 }
 
-const mergePermissions = (
+export const mergePermissions = (
   requested: Partial<PluginPermissions> | undefined,
 ): PluginPermissions => ({
   workspace: { ...NO_PERMISSIONS.workspace, ...requested?.workspace },
@@ -506,6 +506,28 @@ export class ExtensionKernel implements CapabilityRegistry {
     return { decision: 'allow' }
   }
 
+  /**
+   * One hook, by id. A plugin host that runs one plugin per process cannot
+   * order hooks across plugins itself, so the host orders them and asks each
+   * process for one verdict at a time. A hook that throws or overruns is
+   * skipped, exactly as in `runHooks`.
+   */
+  async runHook(id: ContributionId, invocation: HookInvocation): Promise<HookVerdict> {
+    const hook = this.#store.list('hook', invocation.scope).find((entry) => entry.id === id)
+    const handler = hook ? this.#store.get(hook.id)?.hook : undefined
+    if (!hook || !handler) return { decision: 'allow' }
+    try {
+      const verdict = await withTimeout(handler(invocation), hook.timeoutMs)
+      if (!verdict || verdict.decision === 'allow') return { decision: 'allow' }
+      return verdict.decision === 'deny'
+        ? { decision: 'deny', reason: verdict.reason }
+        : { decision: 'ask', reason: verdict.reason }
+    } catch (error) {
+      this.#logger.warn?.('hook failed; treating as allow', { event: hook.event, error: String(error) })
+      return { decision: 'allow' }
+    }
+  }
+
   async resolveContext(query: ScopeQuery): Promise<readonly { label: string; text: string }[]> {
     const admission = await this.#shellScope(query)
     const { scope } = admission
@@ -598,6 +620,7 @@ export class ExtensionKernel implements CapabilityRegistry {
     source: PluginSource
     permissions: readonly string[]
     alreadyInstalled: boolean
+    manifestDigest: string
   }> {
     const pkg = await inspect(specifier)
     const manifest = pkg.manifest
@@ -609,12 +632,17 @@ export class ExtensionKernel implements CapabilityRegistry {
       source: manifest.source ?? { kind: 'local', path: pkg.directory },
       permissions: describePermissions(mergePermissions(manifest.permissions)),
       alreadyInstalled: this.#plugins.has(manifest.id),
+      manifestDigest: pkg.manifestDigest,
     }
   }
 
-  /** Installs and loads in one step; the consent decision happened already. */
-  async installPlugin(specifier: string): Promise<string> {
-    const installed = await install(specifier)
+  /**
+   * Installs and loads in one step; the consent decision happened already,
+   * over the manifest whose digest is `manifestDigest`, and a package whose
+   * manifest is no longer that one is refused.
+   */
+  async installPlugin(specifier: string, manifestDigest: string): Promise<string> {
+    const installed = await install(specifier, manifestDigest)
     // Replacing an existing plugin means unloading the old one first, or two
     // revisions of the same id would both be live.
     if (this.#plugins.has(installed.id)) await this.unload(installed.id)
@@ -626,6 +654,25 @@ export class ExtensionKernel implements CapabilityRegistry {
   async uninstallPlugin(pluginId: string): Promise<void> {
     await this.unload(pluginId)
     await uninstall(pluginId)
+  }
+
+  /**
+   * Loads exactly one installed plugin, the one this process was started for.
+   * A directory whose manifest names another id is refused: the host chose
+   * the plugin, and the directory does not get to change its mind.
+   */
+  async loadInstalledPlugin(directory: string, expectedId: string, permissions?: PluginPermissions): Promise<void> {
+    // Asked again after a restart's own load: once is enough, and a reload
+    // would hand the plugin a new instance mid-invocation.
+    if (this.#plugins.has(expectedId)) return
+    const definition = await loadInstalled(directory)
+    if (definition.manifest.id !== expectedId) {
+      throw new Error(`${directory} holds ${JSON.stringify(definition.manifest.id)}, not ${JSON.stringify(expectedId)}.`)
+    }
+    // When the host says what the plugin may do, that is what it may do: the
+    // host checked those permissions against what the person agreed to, and
+    // the manifest on disk may have changed since.
+    await this.load(permissions ? { ...definition, manifest: { ...definition.manifest, permissions } } : definition)
   }
 
   /** Loads everything already installed. Called once at startup. */

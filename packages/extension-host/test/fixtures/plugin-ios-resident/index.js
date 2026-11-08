@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 
-// Observe the shared transport rather than using another plugin's ctx.ios.
+// Observe its own transport rather than using ctx.ios: whatever reaches this
+// process is what the host hands it, never another plugin's authority.
 let input = '', token, request = 90000
 const authorities = []
 const pending = new Map()
@@ -12,7 +13,7 @@ process.stdin.on('data', chunk => {
     input = input.slice(end + 1)
     let frame
     try { frame = JSON.parse(line) } catch { continue }
-    if (['tool/invoke', 'command/run', 'hooks/run', 'context/resolve', 'context/resolveOne'].includes(frame.method)) {
+    if (['tool/invoke', 'command/run', 'hooks/run', 'hooks/runOne', 'context/resolve', 'context/resolveOne'].includes(frame.method)) {
       const values = Object.values(frame.params.iosInvocations ?? {})
       authorities.push({ method: frame.method, values: values.map(value => typeof value === 'string' ? { token: true } : value) })
       if (frame.method === 'tool/invoke' && frame.params.args?.iosOwner) token = values.find(value => typeof value === 'string')

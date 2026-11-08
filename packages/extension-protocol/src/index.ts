@@ -3,6 +3,7 @@ import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, F
 import type {
   CapabilityContribution,
   DecideFindingInput,
+  PluginPermissions,
   EditorEdit,
   EditorEvent,
   EvidenceRecord,
@@ -76,7 +77,10 @@ import type {
 // 13 adds host-owned, invocation-bound simulator capability requests.
 // 14 allows a non-secret per-owner refusal marker instead of an iOS bearer.
 // 15 carries the injected request-clock scale used by deadline tests.
-export const EXTENSION_PROTOCOL_VERSION = 15
+// 16 binds each plugin host process to exactly one installed plugin, runs
+//    hooks one at a time so the parent can order them across processes, and
+//    holds an install to the digest of the manifest the person was shown.
+export const EXTENSION_PROTOCOL_VERSION = 16
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -87,6 +91,8 @@ export interface InspectedPlugin {
   readonly source: PluginSource
   readonly permissions: readonly string[]
   readonly alreadyInstalled: boolean
+  /** The sha256 of the manifest bytes shown; `plugin/install` is held to it. */
+  readonly manifestDigest: string
 }
 
 /** Resource accounting the child reports about itself. */
@@ -96,6 +102,16 @@ export interface PluginHostStats {
   readonly activeHandles: number
   /** Tool invocations served per plugin instance since the child started. */
   readonly invocations: Readonly<Record<string, number>>
+  /**
+   * Each installed plugin's own process, when the figures above are a sum
+   * across them. A process answering for itself leaves this out.
+   */
+  readonly processes?: readonly {
+    readonly plugin: string
+    readonly pid: number
+    readonly rssBytes: number
+    readonly activeHandles: number
+  }[]
 }
 
 /**
@@ -129,6 +145,15 @@ export interface PluginHostMethods {
       readonly inlineBrowser?: boolean
       /** Where pages open, as the user has set it. See `browser/settings`. */
       readonly browser?: BrowserSettingsWire
+      /**
+       * The one installed plugin this process runs. Absent only for the
+       * installer process, which inspects, installs and removes packages and
+       * never imports plugin code. A process is bound once, by its parent; the
+       * plugin never names itself. `permissions` are the ones the host holds
+       * the plugin to; the process applies them rather than re-reading the
+       * manifest, which may have changed since the host checked it.
+       */
+      readonly plugin?: { readonly id: string; readonly directory: string; readonly permissions?: PluginPermissions }
     }
     result: { readonly protocolVersion: number; readonly pid: number }
   }
@@ -138,10 +163,16 @@ export interface PluginHostMethods {
    * been told would quietly open pages somewhere the user did not choose.
    */
   'browser/settings': { params: { readonly settings: BrowserSettingsWire }; result: null }
-  /** Loads every plugin in the on-disk store. Failures are per-plugin, reported as events. */
+  /**
+   * Loads the plugin this process was bound to in `host/hello`. A failure is
+   * the answer, so the parent can say why the plugin is not running.
+   */
   'plugins/loadInstalled': { params: Record<string, never>; result: null }
   'plugin/inspect': { params: { readonly specifier: string }; result: InspectedPlugin }
-  'plugin/install': { params: { readonly specifier: string }; result: { readonly id: string } }
+  'plugin/install': {
+    params: { readonly specifier: string; readonly manifestDigest: string }
+    result: { readonly id: string }
+  }
   'plugin/uninstall': { params: { readonly pluginId: string }; result: null }
   'plugin/setEnabled': {
     params: { readonly pluginId: string; readonly enabled: boolean }
@@ -166,6 +197,13 @@ export interface PluginHostMethods {
     result: ToolResult
   }
   'hooks/run': { params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly invocation: HookInvocation }; result: HookVerdict }
+  /**
+   * One hook, by its id in this process. The parent orders every installed
+   * plugin's hooks by priority and asks each process for one verdict at a
+   * time, so the first `deny` or `ask` decides across plugins as it does
+   * within one.
+   */
+  'hooks/runOne': { params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly id: string; readonly invocation: HookInvocation }; result: HookVerdict }
   'context/resolve': {
     params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly query: ScopeQuery }
     result: readonly { readonly label: string; readonly text: string }[]

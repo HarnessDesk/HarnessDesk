@@ -1,14 +1,19 @@
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
-import { answerIosCall, hasInstalledIosGrant, installedIosResidents } from './ios.js'
+import { answerIosCall } from './ios.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
 import {
   BrowserInvocations,
+  ConsentRecord,
+  consentPath,
+  listInstalled,
+  mergePermissions,
   pluginsRoot,
+  readInstalledManifest,
   withIosInputSignal, iosCallTimeoutMs,
   type IosCapability,
   canonicalScopeQuery,
@@ -38,12 +43,14 @@ import {
   type InspectedPlugin,
   type PluginHostMethodName,
   type PluginHostMethods,
+  type PluginHostNotification,
   type PluginHostStats,
 } from '@harnessdesk/extension-protocol'
 import {
   isForgeReference,
   pluginInstanceId,
   scopeApplies,
+  type PluginInstanceId,
   type CapabilityContribution,
   type ContextImage,
   type ContributionId,
@@ -53,7 +60,10 @@ import {
   type ForgeReference,
   type HookInvocation,
   type HookVerdict,
+  type JsonSchema,
+  type PluginIdentity,
   type PluginInstance,
+  type PluginPermissions,
   type IosInvocationAuthority,
   type ScopeQuery,
   type WorkspaceAdmission,
@@ -82,7 +92,7 @@ const CHILD_ENTRY = fileURLToPath(new URL('./child.js', import.meta.url))
 const DEFAULT_INVOKE_TIMEOUT_MS = 30_000
 /** Restart delays; after the last one the host stays down until asked again. */
 const BACKOFF_MS = [250, 1000, 4000]
-const IOS_COHABITATION_REFUSAL = 'Simulator access for installed plugins needs every enabled installed plugin to hold the iOS permission, because installed plugins share one process.'
+const IOS_NOT_GRANTED = 'This plugin has no simulator access: it was not granted when the plugin was installed, or its manifest has changed since.'
 
 interface ForgeLease {
   readonly controller: AbortController
@@ -96,7 +106,25 @@ interface Pending {
   timer: ReturnType<typeof setTimeout> | null
 }
 
+/**
+ * The one installed plugin a process runs, as the host knows it. Every field
+ * comes from the host's own reading of the plugin's directory, never from the
+ * process: identity and permissions a plugin reports about itself count for
+ * nothing.
+ */
+export interface BoundPlugin {
+  readonly id: string
+  readonly directory: string
+  readonly identity: PluginIdentity
+  readonly permissions: PluginPermissions
+}
+
 export interface PluginHostOptions {
+  /**
+   * The installed plugin this process runs. Absent for the installer process,
+   * which inspects, installs and removes packages and never imports one.
+   */
+  readonly plugin?: BoundPlugin
   /** How long a single request may take. A wedged child is killed and restarted. */
   readonly invokeTimeoutMs?: number
   /** Scale request clocks in deadline tests; production uses one. */
@@ -106,6 +134,27 @@ export interface PluginHostOptions {
   readonly env?: Readonly<Record<string, string>>
   readonly onEvent?: (event: ExtensionEvent) => void
   readonly onSnapshot?: () => void
+  /**
+   * Runs before every spawn, the first and each restart. Throwing keeps the
+   * process down, and the message is what the plugin is listed as failing
+   * with: a plugin whose manifest changed while it ran does not come back
+   * under the permissions it gave itself.
+   */
+  readonly beforeStart?: () => Promise<void>
+  /**
+   * Told when `beforeStart` refused a start. The process drops the snapshot
+   * it kept for the restart, since the plugin will not come back on its own,
+   * and whoever shows its row and its tools has to hear that.
+   */
+  readonly onRefused?: () => void
+  /**
+   * Whether the plugin's manifest is still the one the person agreed to,
+   * asked each time simulator authority is handed out. A manifest changed
+   * while the plugin runs withdraws that authority at once, not only at the
+   * next start. Any failure to answer reads as no, and a process built
+   * without it is given no simulator access at all.
+   */
+  readonly stillConsented?: () => Promise<boolean>
   /**
    * The parent's own browser page, when it has one — the desktop shell's
    * pane. A child `ctx.browser` is then served from here; without it, the
@@ -134,11 +183,14 @@ export interface PluginHostOptions {
 
 export class PluginHostProcess {
   readonly #iosInvocations = new Map<string, { owner: string; signal: AbortSignal; hold: () => () => void; abort: () => void }>()
-  #iosResidents = new Set<string>()
-  #iosDisabledResidents = new Set<string>()
-  #iosResidentChanges = 0
-  #iosResidentRevision = 0
   #child: ChildProcess | null = null
+  /**
+   * The name the plugin's kernel gave it inside this process (`<id>#<n>`).
+   * The host addresses the plugin by its own name everywhere; this one is
+   * used only to hand the process a simulator token under the name its
+   * `ctx.ios` looks it up by.
+   */
+  #reportedInstanceId: string | null = null
   #nextId = 0
   readonly #pending = new Map<number, Pending>()
   readonly #browserInvocations = new BrowserInvocations()
@@ -158,13 +210,23 @@ export class PluginHostProcess {
    * for it, never as an arbitrary live session.
    */
   readonly #teamScopes = new Map<string, number>()
+  /**
+   * Tool calls in flight into this process: an agent's, each of them. While
+   * one runs, an editor write from the process may be that agent's, and is
+   * refused (see `#editorRefusal`).
+   */
+  #agentCalls = 0
   readonly #forgeLifetimes = new Map<string, Set<ForgeLease>>()
   #crashes = 0
   #browser: BrowserSettingsWire | null = null
   #startedAt = 0
   #wantInstalled = false
+  /** The plugin's configuration, replayed into every restarted process. */
+  #config: Readonly<Record<string, unknown>> | null = null
   #disposed = false
   #starting: Promise<void> | null = null
+  /** Why the last start was refused before a process was spawned, if it was. */
+  #problem: string | null = null
   #options: PluginHostOptions
   readonly #logger: KernelLogger
 
@@ -211,14 +273,76 @@ export class PluginHostProcess {
     return this.#child !== null && this.#child.exitCode === null
   }
 
+  /** Whether it crashed too often and is stopped until someone starts it again. */
+  get failed(): boolean {
+    return this.#crashes > BACKOFF_MS.length
+  }
+
+  /** The plugin this process runs, or null for the installer. */
+  get bound(): BoundPlugin | null {
+    return this.#options.plugin ?? null
+  }
+
+  /** Why the last start was refused before a process was spawned; null when it was not. */
+  get problem(): string | null {
+    return this.#problem
+  }
+
+  /**
+   * The instance id the host gives this plugin. The process numbers its own
+   * instances, and a plugin can write any number it likes into a frame, so
+   * the id everyone else sees is the host's, and it stays the same across
+   * restarts.
+   */
+  get instanceId(): PluginInstanceId | null {
+    return this.#options.plugin ? installedInstanceId(this.#options.plugin.id) : null
+  }
+
+  /** Whether an instance id the process reported is its own plugin's. */
+  #isOwn(instanceId: unknown): boolean {
+    const bound = this.#options.plugin
+    if (!bound || typeof instanceId !== 'string') return false
+    const prefix = `${bound.id}#`
+    return instanceId.startsWith(prefix) && /^[0-9]+$/.test(instanceId.slice(prefix.length))
+  }
+
+  /** The prefix every contribution id from this process carries. */
+  get #prefix(): string {
+    return this.#options.plugin ? `plugin:${this.#options.plugin.id}:` : CHILD_ID_PREFIX
+  }
+
+  #namespaced(id: string | ContributionId): ContributionId {
+    return `${this.#prefix}${String(id)}` as ContributionId
+  }
+
+  /** Whether a namespaced id belongs to this process. */
+  owns(id: ContributionId): boolean {
+    return String(id).startsWith(this.#prefix)
+  }
+
+  /** The id as the process knows it. */
+  strip(id: ContributionId): string {
+    return String(id).slice(this.#prefix.length)
+  }
+
+  /** Stores the configuration and sends it; a restarted process is sent it again. */
+  async reconfigure(config: Readonly<Record<string, unknown>>): Promise<void> {
+    const plugin = this.#options.plugin
+    if (!plugin) throw new Error('The installer process runs no plugin to configure.')
+    this.#config = config
+    await this.call('plugin/reconfigure', { pluginId: plugin.id, config })
+  }
+
   /** Brings the child up if it is not already. Concurrent callers share one start. */
   async ensure(): Promise<void> {
     if (this.#disposed) throw new Error('The plugin host has been disposed.')
     if (this.alive) return
     if (this.#crashes > BACKOFF_MS.length) {
+      const plugin = this.#options.plugin
       throw new Error(
-        'The plugin host crashed repeatedly and has been stopped. ' +
-          'Disable or uninstall the failing plugin, then restart HarnessDesk.',
+        plugin
+          ? `${plugin.identity.name} crashed repeatedly and has been stopped. Turn it off and on again to retry.`
+          : 'The plugin installer crashed repeatedly and has been stopped. Restart HarnessDesk.',
       )
     }
     this.#starting ??= this.#start().finally(() => {
@@ -235,16 +359,34 @@ export class PluginHostProcess {
   }
 
   async #start(): Promise<void> {
+    if (this.#options.beforeStart) {
+      try {
+        await this.#options.beforeStart()
+        this.#problem = null
+      } catch (error) {
+        this.#refuse(error)
+        throw error
+      }
+    }
+    // A stop or uninstall that landed while the check above was reading must
+    // not be followed by a spawn: the plugin's code would load and run, and
+    // its files may already be on their way out. Nothing awaits between here
+    // and the spawn, so a later dispose() finds the child and ends it.
+    if (this.#disposed) throw new Error('The plugin host has been disposed.')
     // ELECTRON_RUN_AS_NODE makes the same spawn work when the parent is the
     // Electron main process: the child must be plain Node, never a second app.
     const child = spawn(process.execPath, [CHILD_ENTRY], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...this.#options.env },
+      // A plugin's process starts from an allowlist, never the host's own
+      // environment: a token the host was started with is not the plugin's.
+      // The installer runs no plugin code and needs the package manager's
+      // configuration, so it keeps the host's.
+      env: this.#options.plugin
+        ? pluginEnvironment(this.#options.env)
+        : { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...this.#options.env },
     })
     this.#child = child
-    this.#iosResidents = new Set()
-    this.#iosDisabledResidents = new Set()
-    this.#iosResidentRevision++
+    this.#reportedInstanceId = null
 
     // A write that lands after the child is gone answers EPIPE on stdin; an
     // unheard `error` there is an uncaught exception in the host process.
@@ -264,9 +406,12 @@ export class PluginHostProcess {
       //
       // Every waiting caller learns immediately: a turn blocked on a tool
       // must fail now, not when a timeout eventually fires.
+      const how = signal ? ` (${signal})` : code !== null ? ` (code ${code})` : ''
+      const bound = this.#options.plugin
       const reason = new Error(
-        `The plugin host exited${signal ? ` (${signal})` : code !== null ? ` (code ${code})` : ''}. ` +
-          'Third-party plugin tools are unavailable until it restarts.',
+        bound
+          ? `${bound.identity.name} exited${how}. Its tools are unavailable until it restarts.`
+          : `The plugin installer exited${how}.`,
       )
       for (const pending of this.#pending.values()) {
         if (pending.timer) clearTimeout(pending.timer)
@@ -281,7 +426,7 @@ export class PluginHostProcess {
       this.#logger.warn?.('plugin host exited', { code, signal, crashes: this.#crashes })
       this.#options.onEvent?.({
         type: 'extension/log',
-        owner: pluginInstanceId('plugin-host'),
+        owner: this.instanceId ?? pluginInstanceId('plugin-host'),
         level: 'error',
         message: reason.message,
       })
@@ -307,12 +452,49 @@ export class PluginHostProcess {
       // A restarted child starts on the defaults, so where pages open goes
       // in the greeting rather than being sent once and forgotten.
       ...(this.#browser ? { browser: this.#browser } : {}),
+      ...(this.#options.plugin
+        ? { plugin: { id: this.#options.plugin.id, directory: this.#options.plugin.directory, permissions: this.#options.plugin.permissions } }
+        : {}),
     })
-    this.#logger.info?.('plugin host ready', { pid: hello.pid })
+    this.#logger.info?.('plugin host ready', { pid: hello.pid, plugin: this.#options.plugin?.id })
     // A restarted child must reach the same state the crashed one had; a
     // fresh, empty child answering hook or tool calls would silently allow
-    // what a loaded plugin might have denied.
-    if (this.#wantInstalled) await this.call('plugins/loadInstalled', {})
+    // what a loaded plugin might have denied. That includes its settings.
+    if (this.#wantInstalled) {
+      try {
+        await this.call('plugins/loadInstalled', {})
+        if (this.#config && this.#options.plugin) {
+          await this.call('plugin/reconfigure', { pluginId: this.#options.plugin.id, config: this.#config })
+        }
+      } catch (error) {
+        // A child that could not take the plugin back is not that plugin: it
+        // would answer the hooks and tools the snapshot still names with an
+        // empty kernel. It is ended, without a restart, and the plugin is
+        // shown as failed until someone starts it again.
+        if (this.#child === child) {
+          this.#child = null
+          child.kill('SIGKILL')
+          const reason = error instanceof Error ? error : new Error(String(error))
+          for (const pending of this.#pending.values()) {
+            if (pending.timer) clearTimeout(pending.timer)
+            pending.reject(reason)
+          }
+          this.#pending.clear()
+        }
+        this.#refuse(error)
+        throw error
+      }
+    }
+  }
+
+  /** A start that did not bring the plugin back: nothing it advertised stays, and the reason is shown. */
+  #refuse(error: unknown): void {
+    this.#problem = error instanceof Error ? error.message : String(error)
+    // The snapshot was kept so a restart would not flicker; a refused
+    // restart is not one, and tools it still advertised would fail.
+    this.#plugins = []
+    this.#contributions = []
+    this.#options.onRefused?.()
   }
 
   #onLine(line: string): void {
@@ -330,32 +512,12 @@ export class PluginHostProcess {
       return
     }
     if ('notification' in parsed) {
-      const notification = parsed.notification
-      if (notification.kind === 'snapshot') {
-        for (const plugin of notification.plugins) {
-          this.#iosResidents.add(plugin.identity.id)
-          if (plugin.enabled) this.#iosDisabledResidents.delete(plugin.identity.id)
-        }
-        // Child ids are namespaced at this boundary: both kernels number
-        // their contributions c1, c2, … independently, and unprefixed child
-        // ids shadow in-process ones — a live Codex run resolved a child
-        // browser tool to c2 and executed the built-in Search tool that
-        // owned c2 in the kernel. Ids must be unique across the merge.
-        this.#plugins = notification.plugins.map((plugin) => ({
-          ...plugin,
-          contributions: plugin.contributions.map((entry) => ({
-            ...entry,
-            id: childContributionId(entry.id),
-          })),
-        }))
-        this.#contributions = notification.contributions.map((entry) => ({
-          ...entry,
-          id: childContributionId(entry.id),
-        }))
-        this.#options.onSnapshot?.()
-      } else {
-        this.#crashes = 0 // A healthy event stream clears the backoff ladder.
-        this.#options.onEvent?.(notification.event)
+      try {
+        this.#onNotification(parsed.notification)
+      } catch (error) {
+        // A frame the checks below did not foresee is still only that
+        // process's mistake: dropped here, it cannot take the host down with it.
+        this.#logger.warn?.('malformed notification from plugin host', { error: String(error) })
       }
       return
     }
@@ -365,6 +527,138 @@ export class PluginHostProcess {
     if (pending.timer) clearTimeout(pending.timer)
     if ('error' in parsed) pending.reject(new Error(parsed.error.message))
     else pending.resolve(parsed.result)
+  }
+
+  /** A notification from the process: a snapshot of its plugin, or an event about it. */
+  #onNotification(notification: PluginHostNotification): void {
+    if (notification.kind === 'snapshot') {
+      // Child ids are namespaced at this boundary: both kernels number
+      // their contributions c1, c2, … independently, and unprefixed child
+      // ids shadow in-process ones — a live Codex run resolved a child
+      // browser tool to c2 and executed the built-in Search tool that
+      // owned c2 in the kernel. Ids must be unique across the merge.
+      const { plugins, contributions } = this.#checked(notification.plugins, notification.contributions)
+      this.#plugins = plugins.map((plugin) => ({
+        ...plugin,
+        contributions: plugin.contributions.map((entry) => ({
+          ...entry,
+          id: this.#namespaced(entry.id),
+        })),
+      }))
+      this.#contributions = contributions.map((entry) => ({
+        ...entry,
+        id: this.#namespaced(entry.id),
+      }))
+      this.#options.onSnapshot?.()
+    } else {
+      this.#crashes = 0 // A healthy event stream clears the backoff ladder.
+      const event = this.#checkedEvent(notification.event)
+      if (event) this.#options.onEvent?.(event)
+    }
+  }
+
+  /**
+   * A snapshot, held to what the host knows about the plugin on this pipe.
+   *
+   * The process reports what its plugin registered; it does not get to say
+   * which plugin it is or what that plugin may do. Only the bound plugin's
+   * entry is kept, its identity and permissions are replaced with the host's
+   * own, and a contribution its permissions do not allow is dropped.
+   */
+  #checked(
+    plugins: readonly PluginInstance[],
+    contributions: readonly CapabilityContribution[],
+  ): { plugins: readonly PluginInstance[]; contributions: readonly CapabilityContribution[] } {
+    const bound = this.#options.plugin
+    const own = this.instanceId
+    if (!bound || !own || !Array.isArray(plugins)) return { plugins: [], contributions: [] }
+    // The frame is the process's, so its shape is too: anything that is not
+    // a plugin entry is not one, rather than something to dereference.
+    const reported = plugins.find((plugin) =>
+      isRecord(plugin) && isRecord(plugin.identity) && plugin.identity.id === bound.id && this.#isOwn(plugin.instanceId))
+    if (!reported) return { plugins: [], contributions: [] }
+    this.#reportedInstanceId = String(reported.instanceId)
+    const kept = this.#allowed(reported.instanceId, contributions)
+    return {
+      plugins: [{
+        ...reported,
+        instanceId: own,
+        identity: bound.identity,
+        permissions: bound.permissions,
+        contributions: this.#allowed(reported.instanceId, reported.contributions),
+      }],
+      contributions: kept,
+    }
+  }
+
+  /** The contributions `owner` may make, re-owned by the host's instance id. */
+  #allowed(owner: PluginInstanceId, contributions: readonly CapabilityContribution[]): CapabilityContribution[] {
+    const bound = this.#options.plugin
+    const own = this.instanceId
+    if (!bound || !own || !Array.isArray(contributions)) return []
+    return contributions
+      .filter((entry) => isRecord(entry) && entry.owner === owner && (entry.kind !== 'ui' || bound.permissions.ui.contribute))
+      .map((entry) => ({ ...entry, owner: own }))
+  }
+
+  /**
+   * An event, held to the same rule as a snapshot: it may speak only about
+   * this process's own plugin, and what it says is what the host knows.
+   * Events go straight to Settings and the renderer, which key plugins and
+   * contributions by instance id, so an unchecked one could rewrite or remove
+   * another plugin's row.
+   */
+  #checkedEvent(event: ExtensionEvent): ExtensionEvent | null {
+    const own = this.instanceId
+    if (!own) return null
+    switch (event?.type) {
+      case 'plugin/added':
+      case 'plugin/updated': {
+        if (!isRecord(event.plugin)) return null
+        const plugin = this.#checked([event.plugin], event.plugin.contributions).plugins[0]
+        if (!plugin) return null
+        return {
+          type: event.type,
+          plugin: { ...plugin, contributions: plugin.contributions.map((entry) => ({ ...entry, id: this.#namespaced(entry.id) })) },
+        }
+      }
+      case 'plugin/removed':
+        // Whether an installed plugin is there is the host's to say, like
+        // whether it is on: only an uninstall removes its row. A process
+        // reporting its own plugin gone would take the row, and the switch
+        // that stops it, away while the process ran on.
+        return null
+      case 'contributions/changed':
+        if (!this.#isOwn(event.owner) || !Array.isArray(event.contributions)) return null
+        return {
+          type: 'contributions/changed',
+          owner: own,
+          revision: event.revision,
+          contributions: this.#allowed(event.owner, event.contributions).map((entry) => ({ ...entry, id: this.#namespaced(entry.id) })),
+        }
+      case 'extension/log':
+        return { type: 'extension/log', owner: own, level: event.level, message: String(event.message) }
+      default:
+        return null
+    }
+  }
+
+  /**
+   * Who is asking is the pipe the request came in on, never a field in it.
+   * Every place a request names a plugin is overwritten with this process's
+   * own, so a request naming another plugin is simply a request from this one.
+   */
+  #attributed(request: ChildToHostRequest): ChildToHostRequest {
+    const bound = this.#options.plugin
+    if (!bound) return request
+    const params = { ...(request.params as Record<string, unknown>) }
+    if (request.method.startsWith('editor/')) params['pluginId'] = bound.id
+    if (request.method.startsWith('team/') || request.method.startsWith('forge/')) {
+      const instance = this.#plugins[0]?.instanceId
+      const { plugin: _claimed, ...scope } = (params['scope'] ?? {}) as Record<string, unknown>
+      params['scope'] = instance === undefined ? scope : { ...scope, plugin: String(instance) }
+    }
+    return { ...request, params } as ChildToHostRequest
   }
 
   /**
@@ -377,6 +671,7 @@ export class PluginHostProcess {
    */
   async #answer(request: ChildToHostRequest): Promise<void> {
     const sourceChild = this.#child
+    request = this.#attributed(request)
     const reply = (message: HostToChildResponse): void => {
       if (this.#child !== sourceChild) return
       sourceChild?.stdin?.write(`${JSON.stringify(message)}\n`)
@@ -388,11 +683,11 @@ export class PluginHostProcess {
       if (request.method === 'ios/call') {
         const child = this.#child
         const current = this.#iosState()
-        if (!await this.#sharedIosGranted() || !current()) throw new Error(IOS_COHABITATION_REFUSAL)
+        if (!await this.#iosGranted() || !current()) throw new Error(IOS_NOT_GRANTED)
         const params = request.params as ChildToHostMethods['ios/call']['params']
         const lease = this.#iosInvocations.get(params?.invocation)
         const plugin = this.#plugins.find(p => String(p.instanceId) === lease?.owner)
-        // The shared guard just re-read every resident's stored grant, including this owner.
+        // The process holds one plugin, and its grant is the host's record of what was consented to.
         if (!plugin?.enabled || plugin.permissions.ios !== true || !lease || lease.signal.aborted || !this.#options.iosEngine) throw new Error('This simulator request has no live invocation with an iOS permission grant.')
         if (this.#child !== child || this.#iosInvocations.get(params.invocation) !== lease) throw new Error('This simulator invocation has ended.')
         const timeoutMs = iosCallTimeoutMs(params.call) * (this.#options.requestTimeoutScale ?? 1)
@@ -414,6 +709,11 @@ export class PluginHostProcess {
         const plane = this.#options.editorEngine
         if (!plane) {
           refuse('The host has no editor plane.')
+          return
+        }
+        const refusal = this.#editorRefusal(request.method)
+        if (refusal) {
+          refuse(refusal)
           return
         }
         switch (request.method) {
@@ -518,18 +818,24 @@ export class PluginHostProcess {
           } finally { release() }
           return
         }
+        // The rest answer for the invocation the parent dispatched, too: its
+        // actor and turn come from the host's lease, never from the frame.
+        const live = this.#forgeLifetimes.get(teamScopeKey(scope.runtime!, scope.sessionId!, scope.plugin!))
+        const held = live?.size === 1 ? live.values().next().value : undefined
+        if (!held) { refuse('This forge call has no unambiguous live invocation.'); return }
+        const leased: ForgeScope = { ...held.scope, plugin: scope.plugin }
         switch (request.method) {
           case 'forge/identity': {
-            reply({ response: request.request, result: await plane.identity(scope) })
+            reply({ response: request.request, result: await plane.identity(leased) })
             return
           }
           case 'forge/seat': {
-            reply({ response: request.request, result: await plane.seat(scope) })
+            reply({ response: request.request, result: await plane.seat(leased) })
             return
           }
           case 'forge/publicationAllowed': {
             // Answered for the invocation the parent armed, never for a scope the child names.
-            reply({ response: request.request, result: await plane.publicationAllowed(scope) })
+            reply({ response: request.request, result: await plane.publicationAllowed(leased) })
             return
           }
           case 'forge/publish': {
@@ -542,7 +848,8 @@ export class PluginHostProcess {
               )
               return
             }
-            await plane.publish(reference, scope)
+            if (held.scope.actor === 'context') { refuse('Context resolution cannot publish to the transcript.'); return }
+            await plane.publish(reference, leased)
             reply({ response: request.request, result: null })
             return
           }
@@ -845,6 +1152,35 @@ export class PluginHostProcess {
   }
 
   /**
+   * Why this process may not make an `editor/*` request, or null if it may.
+   *
+   * `ctx.editor` checks the same grants inside the process, but a plugin can
+   * write the frame itself and skip `ctx.editor` entirely, so the host checks
+   * them again against what it holds: the permissions the person agreed to,
+   * never the process's own report. Opening or marking a file shows it, so it
+   * takes `workspace.read`; changing one takes `workspace.write`; the plane
+   * keeps the path inside the workspace. A write is refused while an agent's
+   * tool call runs in this process too: the frame cannot say who asked, and a
+   * write on an agent's behalf belongs to that agent's own runtime and its
+   * own approval, which is the rule `ctx.editor` holds inside the process.
+   */
+  #editorRefusal(method: string): string | null {
+    const permissions = this.#options.plugin?.permissions
+    if (!permissions) return 'This process holds no plugin that may use the editor.'
+    if (!permissions.editor) return 'Refused: this plugin was not granted `editor`, so it cannot open or annotate files in the editor.'
+    if ((method === 'editor/open' || method === 'editor/decorate') && !permissions.workspace.read) {
+      return 'Refused: this plugin was not granted `workspace.read`, so it cannot show a file.'
+    }
+    if (method === 'editor/applyEdits') {
+      if (!permissions.workspace.write) return 'Refused: this plugin was not granted `workspace.write`, so it cannot change a file.'
+      if (this.#agentCalls > 0) {
+        return 'Refused: an agent cannot write files through a plugin. Editing on an agent’s behalf belongs to that agent’s own runtime, where its own approval applies.'
+      }
+    }
+    return null
+  }
+
+  /**
    * One request. If it overruns the deadline the child's event loop is wedged
    * — a plugin spinning — and the only recovery is on this side: kill it. The
    * exit handler fails everything else in flight and schedules the restart.
@@ -857,13 +1193,13 @@ export class PluginHostProcess {
     const iosOwners = this.#iosOwnersFor(method, params)
     const current = this.#iosState()
     // Withhold simulator authority without preventing the invocation itself.
-    const iosGranted = iosOwners.length > 0 && await this.#sharedIosGranted() && current()
+    const iosGranted = iosOwners.length > 0 && await this.#iosGranted() && current()
     let browserInvocation: string | undefined
     const iosInvocations: Record<string, IosInvocationAuthority> = {}
     const iosController = new AbortController()
     if (method === 'tool/invoke') {
       const input = params as PluginHostMethods['tool/invoke']['params']
-      const namespaced = childContributionId(input.id as ContributionId)
+      const namespaced = this.#namespaced(input.id)
       const owner = this.#plugins.find((plugin) =>
         plugin.contributions.some((entry) => entry.id === namespaced),
       )
@@ -882,14 +1218,14 @@ export class PluginHostProcess {
         params = plain as PluginHostMethods[M]['params']
       }
     }
-    if (['tool/invoke','command/run','context/resolve','context/resolveOne','hooks/run'].includes(method)) {
+    if (['tool/invoke','command/run','context/resolve','context/resolveOne','hooks/run','hooks/runOne'].includes(method)) {
       for (const owner of iosOwners) {
         if (!iosGranted) {
-          iosInvocations[String(owner.instanceId)] = { refused: IOS_COHABITATION_REFUSAL }
+          iosInvocations[this.#reportedInstanceId ?? String(owner.instanceId)] = { refused: IOS_NOT_GRANTED }
           continue
         }
         const token = randomUUID()
-        iosInvocations[String(owner.instanceId)] = token
+        iosInvocations[this.#reportedInstanceId ?? String(owner.instanceId)] = token
         this.#iosInvocations.set(token, { owner: String(owner.instanceId), signal: iosController.signal, hold: () => lifetime.hold(), abort: () => iosController.abort() })
       }
       const { iosInvocations: _untrusted, ...plain } = params as { iosInvocations?: unknown }
@@ -905,24 +1241,12 @@ export class PluginHostProcess {
       lifetimes.add(lifetime); this.#forgeLifetimes.set(key, lifetimes)
     }
     for (const key of armKeys) this.#teamScopes.set(key, (this.#teamScopes.get(key) ?? 0) + 1)
-    const changesResidents = ['plugins/loadInstalled', 'plugin/install', 'plugin/uninstall', 'plugin/setEnabled', 'plugin/reconfigure'].includes(method)
-    if (changesResidents) { this.#iosResidentChanges++; this.#iosResidentRevision++ }
+    const agent = method === 'tool/invoke'
+    if (agent) this.#agentCalls += 1
     try {
-      const result = await this.#dispatch(method, params, lifetime)
-      if (method === 'plugin/setEnabled') {
-        const { pluginId, enabled } = params as PluginHostMethods['plugin/setEnabled']['params']
-        if (enabled) this.#iosDisabledResidents.delete(pluginId)
-        else if (this.#plugins.some(plugin => plugin.identity.id === pluginId && !plugin.enabled)) this.#iosDisabledResidents.add(pluginId)
-      } else if (method === 'plugin/uninstall') {
-        const { pluginId } = params as PluginHostMethods['plugin/uninstall']['params']
-        this.#iosResidents.delete(pluginId)
-        this.#iosDisabledResidents.delete(pluginId)
-      } else if (method === 'plugin/install') {
-        this.#iosDisabledResidents.delete((result as PluginHostMethods['plugin/install']['result']).id)
-      }
-      return result
+      return await this.#dispatch(method, params, lifetime)
     } finally {
-      if (changesResidents) { this.#iosResidentChanges--; this.#iosResidentRevision++ }
+      if (agent) this.#agentCalls -= 1
       iosController.abort()
       for (const value of Object.values(iosInvocations)) if (typeof value === 'string') this.#iosInvocations.delete(value)
       if (browserInvocation) this.#browserInvocations.end(browserInvocation)
@@ -938,40 +1262,29 @@ export class PluginHostProcess {
     }
   }
 
-  #iosStore(): string {
-    return this.#options.env?.['HARNESSDESK_PLUGINS'] ?? (this.#options.env?.['HARNESSDESK_HOME'] ? join(this.#options.env['HARNESSDESK_HOME'], 'plugins') : pluginsRoot())
-  }
   #iosState(): () => boolean {
-    const child = this.#child, snapshot = this.#plugins, revision = this.#iosResidentRevision
-    return () => this.#child === child && this.#plugins === snapshot && !this.#iosResidentChanges && this.#iosResidentRevision === revision
+    const child = this.#child, snapshot = this.#plugins
+    return () => this.#child === child && this.#plugins === snapshot
   }
-  async #sharedIosGranted(): Promise<boolean> {
-    const snapshot = this.#plugins, current = this.#iosState()
-    const residents = this.#iosResidents, disabled = this.#iosDisabledResidents
-    if (!this.#child || this.#iosResidentChanges) return false
-    const store = this.#iosStore()
-    // A shared child can omit residents or claim they are disabled in a snapshot.
-    // Keep a conservative parent-owned census, and trust only parent-issued disables.
-    try {
-      for (const id of await installedIosResidents(store)) residents.add(id)
-    } catch { return false }
-    for (const plugin of snapshot) residents.add(plugin.identity.id)
-    for (const id of residents) {
-      if (disabled.has(id)) continue
-      const plugin = snapshot.find(resident => resident.identity.id === id)
-      if (plugin && (!plugin.enabled || plugin.permissions.ios !== true)) return false
-      if (!await hasInstalledIosGrant(store, id)) return false
-    }
-    // A load/enable or a new snapshot during the reads needs a new decision.
-    return current()
+  /**
+   * Simulator authority for this process. It holds exactly one plugin, so the
+   * grant is that plugin's own: the permissions the host read from the
+   * manifest the person consented to, never what the process reports.
+   */
+  async #iosGranted(): Promise<boolean> {
+    const consented = this.#options.stillConsented
+    // No way to ask is no grant: a process built without the check never
+    // reaches the simulator, rather than reaching it unchecked.
+    if (this.#child === null || this.#options.plugin?.permissions?.ios !== true || !consented) return false
+    try { return await consented() } catch { return false }
   }
   #iosOwnersFor(method: PluginHostMethodName, value: unknown): readonly PluginInstance[] {
     const params = value as Record<string, unknown>
     const hook = params['invocation'] as HookInvocation | undefined
-    const scope = (method === 'context/resolve' ? params['query'] : method === 'hooks/run' ? hook?.scope : params['scope']) as ScopeQuery ?? {}
+    const scope = (method === 'context/resolve' ? params['query'] : method === 'hooks/run' || method === 'hooks/runOne' ? hook?.scope : params['scope']) as ScopeQuery ?? {}
     return this.#plugins.filter(plugin => plugin.enabled && plugin.permissions.ios && plugin.contributions.some(entry => {
       if (!scopeApplies(entry.scope, scope)) return false
-      if (method === 'tool/invoke' || method === 'context/resolveOne') return entry.id === childContributionId(params['id'] as ContributionId)
+      if (method === 'tool/invoke' || method === 'context/resolveOne' || method === 'hooks/runOne') return entry.id === this.#namespaced(params['id'] as string)
       if (method === 'command/run') return entry.kind === 'command' && entry.name === params['name']
       if (method === 'context/resolve') return entry.kind === 'context' && !entry.chip
       return method === 'hooks/run' && entry.kind === 'hook' && entry.event === hook?.event && (!entry.match || typeof hook.toolName === 'string' && entry.match.includes(hook.toolName))
@@ -1026,7 +1339,7 @@ export class PluginHostProcess {
   /** The team-granted plugin owning a contribution, by its stripped child id. */
   #ownersOfContribution(strippedId: string | null): readonly string[] {
     if (strippedId === null) return []
-    const namespaced = childContributionId(strippedId as ContributionId)
+    const namespaced = this.#namespaced(strippedId)
     return this.#teamPlugins()
       .filter((plugin) => plugin.contributions.some((entry) => entry.id === namespaced))
       .map((plugin) => String(plugin.instanceId))
@@ -1165,91 +1478,300 @@ export interface SupervisedExtensionHostOptions {
 /**
  * The one extension surface the host consumes.
  *
- * Trusted built-ins run in-process — they are this repository's own code and
- * review gates them, not a process boundary. Everything installed from disk
- * or npm runs in the child. Routing is by contribution ownership, decided
- * from the merged snapshots, so callers never say which side they mean.
+ * Trusted built-ins run in-proc — they are this repository's own code and
+ * review gates them, not a proc boundary. Every installed plugin runs in a
+ * proc of its own, and one more proc, the installer, inspects, installs
+ * and removes packages without importing any. Routing is by contribution id:
+ * each installed plugin's ids carry its own prefix, so callers never say which
+ * proc they mean. docs/plugin-isolation.md is the design.
  *
  * Failure posture, deliberately asymmetric:
- * - a tool call into a dead child fails with a clear error (the turn
+ * - a tool call into a plugin that is down fails with a clear error (the turn
  *   continues; the agent is told the tool is unavailable);
- * - a *hook* that lives in a dead child denies (a security review that
- *   cannot run must not silently allow);
- * - context from a dead child is simply absent (context is additive).
+ * - a *hook* whose plugin is down denies (a security review that cannot run
+ *   must not silently allow);
+ * - context from a plugin that is down is simply absent (context is additive).
  */
 export class SupervisedExtensionHost {
   readonly #kernel: ExtensionKernel
-  readonly #child: PluginHostProcess
+  readonly #installer: PluginHostProcess
+  /** One entry per installed plugin, in install order, running or not. */
+  readonly #members = new Map<string, Member>()
+  /** The lifecycle operation each plugin is in, so the next one waits for it. */
+  readonly #lifecycle = new Map<string, Promise<void>>()
   readonly #listeners = new Set<(event: ExtensionEvent) => void>()
   readonly #logger: KernelLogger
+  readonly #options: SupervisedExtensionHostOptions
+  readonly #root: string
+  readonly #consent: ConsentRecord
+  #engines: { browser: BrowserEngine | null; editor: EditorEngine | null; team: TeamEngine | null; forge: ForgeEngine | null }
+  #browserSettings: BrowserSettingsWire | null = null
   #workspace: { root: string | null; branch: string | null; admitted?: readonly string[] } = { root: null, branch: null }
   #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'
+  #disposed = false
 
   constructor(kernel: ExtensionKernel, options: SupervisedExtensionHostOptions = {}) {
     this.#kernel = kernel
+    this.#options = options
     this.#logger = options.logger ?? {}
-    this.#child = new PluginHostProcess({
+    this.#root = pluginsRoot({ ...process.env, ...options.env })
+    this.#consent = new ConsentRecord(consentPath(this.#root))
+    this.#engines = {
+      browser: options.browserEngine ?? null,
+      editor: options.editorEngine ?? null,
+      team: options.teamEngine ?? null,
+      forge: options.forgeEngine ?? null,
+    }
+    this.#installer = new PluginHostProcess({
       ...(options.logger ? { logger: options.logger } : {}),
       ...(options.invokeTimeoutMs ? { invokeTimeoutMs: options.invokeTimeoutMs } : {}),
       ...(options.requestTimeoutScale !== undefined ? { requestTimeoutScale: options.requestTimeoutScale } : {}),
       ...(options.env ? { env: options.env } : {}),
-      ...(options.iosEngine ? { iosEngine: options.iosEngine } : {}),
-      ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),
-      ...(options.editorEngine ? { editorEngine: options.editorEngine } : {}),
-      ...(options.teamEngine ? { teamEngine: options.teamEngine } : {}),
-      ...(options.forgeEngine ? { forgeEngine: options.forgeEngine } : {}),
       onEvent: (event) => this.#emit(event),
-      onSnapshot: () => {
-        // The child (re)announced itself; replay what it cannot know.
-        if (this.#workspace.root !== null && this.#child.alive) {
-          void this.#child.call('workspace/set', this.#workspace).catch(() => {})
-        }
-      },
     })
     kernel.subscribe((event) => this.#emit(event))
-    // The constructor option must reach *both* halves — the child (spread
-    // above) and the in-process kernel's module state — exactly as the
-    // setter does; an option accepted but half-honoured is a builtin plugin
-    // whose `ctx.team` quietly points at nothing.
+    // The constructor option must reach *both* halves — every plugin proc
+    // (through `#engines`) and the in-proc kernel's module state — exactly
+    // as the setter does; an option accepted but half-honoured is a builtin
+    // plugin whose `ctx.team` quietly points at nothing.
     if (options.teamEngine !== undefined) setTeamEngine(options.teamEngine)
     if (options.forgeEngine !== undefined) setForgeEngine(options.forgeEngine)
   }
 
-  /** Loads one of the repository's own plugins, in-process. Not for third-party code. */
+  /** Loads one of the repository's own plugins, in-proc. Not for third-party code. */
   async loadBuiltin(plugin: HarnessPlugin): Promise<void> {
     await this.#kernel.load(plugin)
   }
 
-  /** Brings up the child and loads everything installed on disk into it. */
+  /**
+   * Starts a proc for every installed plugin, in parallel. One plugin that
+   * fails to start is listed with the reason and does not stop the others.
+   */
   async loadInstalledPlugins(): Promise<void> {
-    await this.#child.loadInstalled()
-    await this.#retireShadowed()
+    const installed = await listInstalled(this.#root)
+    const started: Promise<void>[] = []
+    for (const entry of installed) {
+      // A plugin is the directory it was installed into, never what its
+      // manifest says now: the manifest is the plugin's to rewrite, and a
+      // plugin that renamed itself would otherwise come back as a plugin
+      // nobody agreed to, with no record to hold it to. #start then refuses
+      // a manifest that names anything else.
+      const id = basename(entry.directory)
+      if (this.#members.has(id)) continue
+      const member: Member = { id, directory: entry.directory, proc: null, enabled: true, problem: null, config: null, identity: null, configSchema: null, permissions: null, uninstalling: false, generation: 0 }
+      this.#members.set(id, member)
+      started.push(this.#start(member))
+    }
+    await Promise.all(started)
   }
 
   /**
-   * An installed plugin does not stand in for a built-in of the same id.
+   * Brings one installed plugin's proc up, or says why it is not.
    *
-   * This happens for one reason, and it is a good one: a plugin that shipped
-   * as an example, and was installed from there, later becomes part of the
-   * app. Leaving both loaded hands an agent two `browser_open` tools that
-   * differ only by a namespace it never sees. The installed copy is switched
-   * off and the reason is logged — nothing is deleted, because uninstalling is
-   * the user's to do and their copy may be one they have since edited.
+   * An installed plugin does not stand in for a built-in of the same id. This
+   * happens for one reason, and it is a good one: a plugin that shipped as an
+   * example, and was installed from there, later becomes part of the app.
+   * Leaving both loaded hands an agent two `browser_open` tools that differ
+   * only by a namespace it never sees. The installed copy is switched off and
+   * the reason is logged — nothing is deleted, because uninstalling is the
+   * user's to do and their copy may be one they have since edited.
    */
-  async #retireShadowed(): Promise<void> {
-    const builtin = this.#kernelPluginIds()
-    for (const plugin of this.#child.plugins) {
-      const id = plugin.identity.id
-      if (!builtin.has(id) || !plugin.enabled) continue
-      await this.#child.call('plugin/setEnabled', { pluginId: id, enabled: false }).catch(() => {})
-      this.#logger.warn?.('an installed plugin shadows a built-in of the same id and was switched off', {
-        plugin: id,
+  async #start(member: Member): Promise<void> {
+    if (this.#disposed || member.uninstalling) return
+    // Each start is a generation. Whatever stops or restarts this plugin
+    // while a start is under way moves the generation on, and the start that
+    // finds itself overtaken gives up and disposes the process it made, so
+    // two starts never leave two processes, and a plugin turned off mid-start
+    // stays off.
+    const generation = ++member.generation
+    const current = (): boolean => !this.#disposed && !member.uninstalling && member.generation === generation
+    const previous = member.proc
+    member.proc = null
+    await previous?.dispose()
+    let proc: PluginHostProcess | null = null
+    try {
+      const { package: pkg, bytes } = await readInstalledManifest(member.directory)
+      if (!current()) return
+      if (pkg.manifest.id !== member.id) {
+        throw new Error(`The manifest in ${member.directory} names ${JSON.stringify(pkg.manifest.id)}, not ${JSON.stringify(member.id)}.`)
+      }
+      member.identity = {
+        id: pkg.manifest.id,
+        name: pkg.manifest.name,
+        ...(pkg.manifest.description ? { description: pkg.manifest.description } : {}),
+        ...(pkg.manifest.version ? { version: pkg.manifest.version } : {}),
+        source: pkg.manifest.source ?? { kind: 'local', path: member.directory },
+      }
+      member.configSchema = pkg.manifest.configSchema ?? null
+      if (this.#kernelPluginIds().has(member.id)) {
+        member.enabled = false
+        this.#logger.warn?.('an installed plugin shadows a built-in of the same id and was switched off', { plugin: member.id })
+        return
+      }
+      if (!member.enabled) {
+        // Read-only: a plugin that is off records nothing, but one whose
+        // manifest is the agreed one shows what it may do once it is on.
+        member.permissions = (await this.#consent.matches(member.id, bytes).catch(() => false))
+          ? mergePermissions(pkg.manifest.permissions)
+          : null
+        return
+      }
+      // Checked against the bytes the permissions below were parsed from.
+      if ((await this.#consent.check(member.id, bytes)) === 'changed') {
+        member.permissions = null
+        throw new Error(MANIFEST_CHANGED)
+      }
+      member.permissions = mergePermissions(pkg.manifest.permissions)
+      if (!current()) return
+      proc = new PluginHostProcess({
+        plugin: {
+          id: member.id,
+          directory: member.directory,
+          identity: member.identity,
+          permissions: mergePermissions(pkg.manifest.permissions),
+        },
+        ...(this.#options.logger ? { logger: this.#options.logger } : {}),
+        ...(this.#options.invokeTimeoutMs ? { invokeTimeoutMs: this.#options.invokeTimeoutMs } : {}),
+        ...(this.#options.requestTimeoutScale !== undefined ? { requestTimeoutScale: this.#options.requestTimeoutScale } : {}),
+        ...(this.#options.env ? { env: this.#options.env } : {}),
+        ...(this.#options.iosEngine ? { iosEngine: this.#options.iosEngine } : {}),
+        ...(this.#engines.browser ? { browserEngine: this.#engines.browser } : {}),
+        ...(this.#engines.editor ? { editorEngine: this.#engines.editor } : {}),
+        ...(this.#engines.team ? { teamEngine: this.#engines.team } : {}),
+        ...(this.#engines.forge ? { forgeEngine: this.#engines.forge } : {}),
+        // Every restart is held to the record too, not only the first start:
+        // a plugin that rewrites its manifest and exits must not come back
+        // under the permissions it gave itself.
+        beforeStart: async () => {
+          const { package: pkg, bytes: now } = await readInstalledManifest(member.directory)
+          // Before the record is consulted: a missing record is recorded as
+          // agreed, and must not be for a manifest that renamed its plugin.
+          if (pkg.manifest.id !== member.id) throw new Error(MANIFEST_CHANGED)
+          if ((await this.#consent.check(member.id, now)) === 'changed') throw new Error(MANIFEST_CHANGED)
+        },
+        stillConsented: async () => this.#consent.matches(member.id, (await readInstalledManifest(member.directory)).bytes),
+        onRefused: () => {
+          if (member.proc !== proc) return
+          this.#emit({ type: 'contributions/changed', owner: installedInstanceId(member.id), revision: 0, contributions: [] })
+          this.#emit({ type: 'plugin/updated', plugin: this.#describe(member) })
+        },
+        onEvent: (event) => this.#emit(
+          event.type === 'plugin/added' || event.type === 'plugin/updated'
+            ? { type: event.type, plugin: this.#hostLifecycle(member, event.plugin) }
+            : event,
+        ),
+        onSnapshot: () => {
+          // The proc (re)announced itself; replay what it cannot know.
+          if (this.#workspace.root !== null && proc?.alive) {
+            void proc.call('workspace/set', this.#workspace).catch(() => {})
+          }
+        },
       })
+      if (this.#browserSettings) proc.setBrowserSettings(this.#browserSettings)
+      member.proc = proc
+      member.problem = null
+      await proc.loadInstalled()
+      if (member.config) await proc.reconfigure(member.config)
+      if (!current()) {
+        if (member.proc !== proc) await proc.dispose()
+        return
+      }
+    } catch (error) {
+      if (!current()) {
+        if (proc && member.proc !== proc) await proc.dispose()
+        return
+      }
+      member.problem = error instanceof Error ? error.message : String(error)
+      member.proc = null
+      await proc?.dispose()
+      this.#logger.error?.('installed plugin failed to start', { plugin: member.id, error: member.problem })
+    }
+    this.#emit({ type: 'plugin/updated', plugin: this.#describe(member) })
+  }
+
+  /**
+   * Stops a plugin's proc, and any start of it under way. Its contributions
+   * are withdrawn at once: the renderer keys them by the plugin's instance
+   * id, and a stopped plugin offers nothing.
+   */
+  async #stop(member: Member): Promise<void> {
+    member.generation += 1
+    const proc = member.proc
+    member.proc = null
+    if (!proc) return
+    await proc.dispose()
+    this.#emit({ type: 'contributions/changed', owner: installedInstanceId(member.id), revision: 0, contributions: [] })
+  }
+
+  /**
+   * A plugin's report about itself, with the parts the host owns put back.
+   *
+   * Whether a plugin is on, and its configuration, are the host's: it starts
+   * and stops the process and keeps the config. A plugin that reported itself
+   * off, or unloaded, while its process ran would show a switch that no longer
+   * matched what was running, and turning it "on" again would do nothing. So
+   * those come from the member, and of the process's own states only loading,
+   * waiting for a service, and a failure of its own are taken; anything else from a running process
+   * is active.
+   */
+  #hostLifecycle(member: Member, reported: PluginInstance): PluginInstance {
+    const state = reported.state
+    return {
+      ...reported,
+      state: state?.type === 'failed' ? { type: 'failed', message: String(state.message) }
+        : state?.type === 'loading' ? { type: 'loading' }
+        : state?.type === 'pending' ? { type: 'pending', waitingFor: Array.isArray(state.waitingFor) ? state.waitingFor.map(String) : [] }
+        : { type: 'active' },
+      enabled: member.enabled,
+      ...(member.config ? { config: member.config } : {}),
     }
   }
 
-  stats(): Promise<PluginHostStats> {
-    return this.#child.call('host/stats', {})
+  /** What Settings shows for an installed plugin: its proc's report, or what the host knows when it has none. */
+  #describe(member: Member): PluginInstance {
+    const proc = member.proc
+    const reported = proc?.plugins[0]
+    const problem = proc?.problem
+      ?? (proc?.failed ? `${member.identity?.name ?? member.id} crashed repeatedly and has been stopped. Turn it off and on again to retry.` : null)
+      ?? (proc ? null : member.problem)
+    if (reported && !problem) return this.#hostLifecycle(member, reported)
+    return {
+      instanceId: installedInstanceId(member.id),
+      identity: member.identity ?? { id: member.id, name: member.id, source: { kind: 'local', path: member.directory } },
+      state: problem ? { type: 'failed', message: problem } : { type: 'disposed' },
+      revision: reported?.revision ?? 0,
+      permissions: member.permissions ?? NO_PLUGIN_PERMISSIONS,
+      injects: [],
+      provides: [],
+      contributions: [],
+      enabled: member.enabled,
+      ...(member.configSchema ? { configSchema: member.configSchema } : {}),
+      ...(member.config ? { config: member.config } : {}),
+    }
+  }
+
+  /** Each proc's figures, and their sum: the cost of a heavy plugin is visible and attributed. */
+  async stats(): Promise<PluginHostStats> {
+    const running = [...this.#members.values()].filter((member) => member.proc?.alive)
+    const each = await Promise.all(running.map(async (member) => {
+      try {
+        return { plugin: member.id, ...(await member.proc!.call('host/stats', {})) }
+      } catch {
+        return null
+      }
+    }))
+    const processes = each.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    const invocations: Record<string, number> = {}
+    for (const entry of processes) {
+      for (const [key, count] of Object.entries(entry.invocations)) invocations[key] = (invocations[key] ?? 0) + count
+    }
+    return {
+      pid: processes[0]?.pid ?? 0,
+      rssBytes: processes.reduce((sum, entry) => sum + entry.rssBytes, 0),
+      activeHandles: processes.reduce((sum, entry) => sum + entry.activeHandles, 0),
+      invocations,
+      processes: processes.map(({ plugin, pid, rssBytes, activeHandles }) => ({ plugin, pid, rssBytes, activeHandles })),
+    }
   }
 
   // ---------------------------------------------------- CapabilityRegistry
@@ -1263,7 +1785,7 @@ export class SupervisedExtensionHost {
       contribution.kind === kind && (!query || scopeApplies(contribution.scope, query))
     return [
       ...this.#kernel.list(kind, query),
-      ...(this.#child.contributions.filter(applies) as unknown as readonly Extract<
+      ...(this.#installedContributions().filter(applies) as unknown as readonly Extract<
         CapabilityContribution,
         { kind: K }
       >[]),
@@ -1271,7 +1793,7 @@ export class SupervisedExtensionHost {
   }
 
   plugins(): readonly PluginInstance[] {
-    return [...this.#kernel.plugins(), ...this.#child.plugins]
+    return [...this.#kernel.plugins(), ...[...this.#members.values()].map((member) => this.#describe(member))]
   }
 
   #shellWorkspaceResolver: (scope: ScopeQuery) => Promise<WorkspaceAdmission | undefined> = async (scope) => scope.workspaceRoot === undefined
@@ -1299,14 +1821,13 @@ export class SupervisedExtensionHost {
 
   async invokeTool(id: ContributionId, args: unknown, scope: ScopeQuery): Promise<ToolResult> {
     if (this.#ownsInProcess(id)) return this.#kernel.invokeTool(id, args, scope)
+    const proc = this.#processFor(id)
+    if (!proc) return { ok: false, error: `No tool is registered with id ${String(id)}` }
     scope = await this.#shellScope(scope)
-    if (!isChildContributionId(id)) {
-      return { ok: false, error: `No tool is registered with id ${String(id)}` }
-    }
     try {
       const profile = this.#browserResolver(scope)
-      return await this.#child.call('tool/invoke', {
-        id: stripChildContributionId(id),
+      return await proc.call('tool/invoke', {
+        id: proc.strip(id),
         args,
         scope,
         ...(profile ? { browser: { invocation: 'pending-parent-lease', profile } } : {}),
@@ -1317,34 +1838,53 @@ export class SupervisedExtensionHost {
     }
   }
 
+  /**
+   * Built-ins first, then every installed plugin's matching hooks, ordered by
+   * priority across processes exactly as they are ordered within one, each run
+   * in its own plugin's proc. The first `deny` or `ask` decides.
+   */
   async runHooks(invocation: HookInvocation): Promise<HookVerdict> {
     const own = await this.#kernel.runHooks(invocation)
     if (own.decision !== 'allow') return own
-    const childHasHooks = this.#child.contributions.some((entry) => entry.kind === 'hook')
-    if (!childHasHooks && !this.#child.alive) return own
-    try {
-      return await this.#child.call('hooks/run', { invocation })
-    } catch (error) {
-      if (!childHasHooks) return own
-      // Fail closed: a review that could not run must not read as approval.
-      return {
-        decision: 'deny',
-        reason: `A plugin hook could not run: ${error instanceof Error ? error.message : String(error)}`,
+    const query = invocation.scope ? canonicalScopeQuery(invocation.scope) : undefined
+    const matching = [...this.#members.values()]
+      .flatMap((member) => (member.enabled && member.proc ? member.proc.contributions : [])
+        .filter((entry): entry is Extract<CapabilityContribution, { kind: 'hook' }> => entry.kind === 'hook')
+        .filter((hook) => hook.event === invocation.event)
+        .filter((hook) => !hook.match || (invocation.toolName !== undefined && hook.match.includes(invocation.toolName)))
+        .filter((hook) => !query || scopeApplies(hook.scope, query))
+        .map((hook) => ({ hook, proc: member.proc! })))
+    // A stable sort: equal priorities keep install order, then registration order.
+    matching.sort((a, b) => a.hook.priority - b.hook.priority)
+    for (const { hook, proc } of matching) {
+      try {
+        const verdict = await proc.call('hooks/runOne', { id: proc.strip(hook.id), invocation })
+        if (verdict.decision !== 'allow') return verdict
+      } catch (error) {
+        // Fail closed: a review that could not run must not read as approval.
+        return {
+          decision: 'deny',
+          reason: `A plugin hook could not run: ${error instanceof Error ? error.message : String(error)}`,
+        }
       }
     }
+    return own
   }
 
+  /** Every installed plugin that provides context is asked at once; the answers keep install order. */
   async resolveContext(query: ScopeQuery): Promise<readonly { label: string; text: string }[]> {
     const own = await this.#kernel.resolveContext(query)
     query = await this.#shellScope(query)
-    if (!this.#child.alive && this.#child.contributions.every((entry) => entry.kind !== 'context')) {
-      return own
-    }
-    try {
-      return [...own, ...(await this.#child.call('context/resolve', { query }))]
-    } catch {
-      return own
-    }
+    const providers = [...this.#members.values()].filter((member) =>
+      member.enabled && member.proc?.contributions.some((entry) => entry.kind === 'context'))
+    const answers = await Promise.all(providers.map(async (member) => {
+      try {
+        return await member.proc!.call('context/resolve', { query })
+      } catch {
+        return []
+      }
+    }))
+    return [...own, ...answers.flat()]
   }
 
   async resolveOne(
@@ -1353,9 +1893,10 @@ export class SupervisedExtensionHost {
     scope: ScopeQuery,
   ): Promise<{ label: string; text: string; image?: ContextImage } | null> {
     if (this.#ownsInProcess(id)) return this.#kernel.resolveOne(id, ref, scope)
-    if (!isChildContributionId(id)) return null
+    const proc = this.#processFor(id)
+    if (!proc) return null
     scope = await this.#shellScope(scope)
-    return this.#child.call('context/resolveOne', { id: stripChildContributionId(id), ...(ref === undefined ? {} : { ref }), scope })
+    return proc.call('context/resolveOne', { id: proc.strip(id), ...(ref === undefined ? {} : { ref }), scope })
   }
 
   subscribe(listener: (event: ExtensionEvent) => void): () => void {
@@ -1365,14 +1906,38 @@ export class SupervisedExtensionHost {
 
   // -------------------------------------------------------- ExtensionHost
 
+  /** Turning an installed plugin off stops its proc; turning it on starts a fresh one. */
   async setEnabled(pluginId: string, enabled: boolean): Promise<void> {
     if (this.#kernelPluginIds().has(pluginId)) return this.#kernel.setEnabled(pluginId, enabled)
-    await this.#child.call('plugin/setEnabled', { pluginId, enabled })
+    const member = this.#members.get(pluginId)
+    if (!member) return
+    if (member.uninstalling) throw new Error(`${member.identity?.name ?? pluginId} is being uninstalled.`)
+    return this.#serially(pluginId, () => this.#setEnabled(member, enabled))
   }
 
+  async #setEnabled(member: Member, enabled: boolean): Promise<void> {
+    if (member.uninstalling || this.#members.get(member.id) !== member) {
+      throw new Error(`${member.identity?.name ?? member.id} is being uninstalled.`)
+    }
+    if (!enabled) {
+      member.enabled = false
+      member.problem = null
+      await this.#stop(member)
+      this.#emit({ type: 'plugin/updated', plugin: this.#describe(member) })
+      return
+    }
+    if (member.enabled && member.proc && !member.proc.failed && !member.proc.problem) return
+    member.enabled = true
+    await this.#start(member)
+  }
+
+  /** Kept by the host and replayed into every restart of that plugin's proc. */
   async reconfigure(pluginId: string, config: Readonly<Record<string, unknown>>): Promise<void> {
     if (this.#kernelPluginIds().has(pluginId)) return this.#kernel.reconfigure(pluginId, config)
-    await this.#child.call('plugin/reconfigure', { pluginId, config })
+    const member = this.#members.get(pluginId)
+    if (!member) return
+    member.config = config
+    if (member.proc) await member.proc.reconfigure(config)
   }
 
   async runCommand(
@@ -1381,74 +1946,141 @@ export class SupervisedExtensionHost {
     scope: { sessionId?: SessionId },
   ): Promise<boolean> {
     if (await this.#kernel.runCommand(name, argument, scope)) return true
-    const childHasIt = this.#child.contributions.some(
-      (entry) => entry.kind === 'command' && entry.name === name,
-    )
-    if (!this.#child.alive && !childHasIt) return false
-    try {
-      const { handled } = await this.#child.call('command/run', { name, argument, scope })
-      return handled
-    } catch (error) {
-      // The command exists over there and failed — that is an answer, not an
-      // absence. Only an unknown name reads as unhandled.
-      if (childHasIt) throw error
-      return false
-    }
+    const owner = [...this.#members.values()].find((member) =>
+      member.enabled && member.proc?.contributions.some((entry) => entry.kind === 'command' && entry.name === name))
+    if (!owner?.proc) return false
+    // The command exists over there; a failure is an answer, not an absence.
+    const { handled } = await owner.proc.call('command/run', { name, argument, scope })
+    return handled
   }
 
   /**
-   * Where an agent's pages open. Both sides are told: built-ins run here,
-   * installed plugins run in the child, and the two must not disagree about
+   * Where an agent's pages open. Every side is told: built-ins run here,
+   * installed plugins run in their own processes, and none may disagree about
    * which browser they are driving.
    */
   setBrowserSettings(settings: BrowserSettings): void {
     this.#kernel.setBrowserSettings(settings)
-    this.#child.setBrowserSettings({
+    this.#browserSettings = {
       placement: settings.placement,
       ...(settings.binary === undefined ? {} : { binary: settings.binary }),
       ...(settings.keepProfile === undefined ? {} : { keepProfile: settings.keepProfile }),
       ...(settings.profileDir === undefined ? {} : { profileDir: settings.profileDir }),
-    })
+    }
+    for (const proc of this.#processes()) proc.setBrowserSettings(this.#browserSettings)
   }
 
   /**
-   * The editor plane, to both halves.
+   * The editor plane, to every side.
    *
-   * Built-ins run in this process and reach it through the module-level
-   * engine; installed plugins run in the child and reach it by forwarding.
-   * Told separately for the same reason browser settings are: the two must
-   * not disagree about which plane they are driving.
+   * Built-ins run in this proc and reach it through the module-level
+   * engine; installed plugins reach it by forwarding. Told separately for the
+   * same reason browser settings are: none may disagree about which plane
+   * they are driving.
    */
   setEditorEngine(engine: EditorEngine | null): void {
     setEditorEngine(engine)
-    this.#child.setEditorEngine(engine)
+    this.#engines.editor = engine
+    for (const proc of this.#processes()) proc.setEditorEngine(engine)
   }
 
-  /** The team plane, to both halves — the editor plane's reasoning, verbatim. */
+  /** The team plane, to every side — the editor plane's reasoning, verbatim. */
   setTeamEngine(engine: TeamEngine | null): void {
     setTeamEngine(engine)
-    this.#child.setTeamEngine(engine)
+    this.#engines.team = engine
+    for (const proc of this.#processes()) proc.setTeamEngine(engine)
   }
 
-  /** The forge plane, to both halves, for the same reason. */
+  /** The forge plane, to every side, for the same reason. */
   setForgeEngine(engine: ForgeEngine | null): void {
     setForgeEngine(engine)
-    this.#child.setForgeEngine(engine)
+    this.#engines.forge = engine
+    for (const proc of this.#processes()) proc.setForgeEngine(engine)
   }
 
   setWorkspace(state: { root: string | null; branch: string | null; admitted?: readonly string[] }): void {
     this.#workspace = state
     this.#kernel.setWorkspace(state)
-    if (this.#child.alive) void this.#child.call('workspace/set', state).catch(() => {})
+    for (const proc of this.#processes()) {
+      if (proc.alive) void proc.call('workspace/set', state).catch(() => {})
+    }
   }
 
-  inspectPlugin(specifier: string): Promise<InspectedPlugin> {
-    return this.#child.call('plugin/inspect', { specifier })
+  /**
+   * Read in the installer proc: nothing from the package is imported. That
+   * proc runs no plugins, so whether one with this id is already installed,
+   * and would be replaced, is the host's to answer from its own inventory.
+   */
+  async inspectPlugin(specifier: string): Promise<InspectedPlugin> {
+    const inspected = await this.#installer.call('plugin/inspect', { specifier })
+    return {
+      ...inspected,
+      alreadyInstalled: this.#members.has(inspected.id),
+    }
   }
 
-  /** Installation and the import() it implies happen in the child, never here. */
-  async installPlugin(specifier: string): Promise<string> {
-    const { id } = await this.#child.call('plugin/install', { specifier })
+  /**
+   * The installer copies the package into place; the host records the
+   * manifest the person agreed to, then starts the plugin in a proc of its
+   * own. An older version's proc is stopped first.
+   *
+   * `manifestDigest` is the digest `inspectPlugin` reported for the manifest
+   * the person was shown. The install is refused unless the copy it makes
+   * has exactly that manifest, and that digest, not the copy's, is what the
+   * consent record keeps.
+   */
+  async installPlugin(specifier: string, manifestDigest: string): Promise<string> {
+    // An older version of the same plugin stops before its files are
+    // replaced: a process left running through the install could rewrite the
+    // new manifest before the host records it. The id comes from inspecting
+    // the package, which runs none of its code.
+    const inspected = await this.#installer.call('plugin/inspect', { specifier })
+    if (inspected.manifestDigest !== manifestDigest) {
+      throw new Error(
+        `The manifest of ${inspected.id} changed after it was shown to you, so nothing was installed. ` +
+          'Read it again before installing.',
+      )
+    }
+    if (this.#members.get(inspected.id)?.uninstalling) {
+      throw new Error(`${inspected.name} is being uninstalled; install it again once that is done.`)
+    }
+    return this.#serially(inspected.id, () => this.#install(inspected.id, inspected.name, specifier, manifestDigest))
+  }
+
+  async #install(id: string, name: string, specifier: string, manifestDigest: string): Promise<string> {
+    const existing = this.#members.get(id)
+    if (existing?.uninstalling) throw new Error(`${name} is being uninstalled; install it again once that is done.`)
+    if (existing) await this.#stop(existing)
+    // The record is written before the copy replaces anything. A record that
+    // cannot be written then leaves the installed version's files as they
+    // were, and a copy that fails puts the earlier entry back, so the version
+    // that was running still matches what the person agreed to for it.
+    let previous: string | undefined
+    try {
+      previous = await this.#consent.record(id, manifestDigest)
+    } catch (error) {
+      if (existing?.enabled) await this.#start(existing)
+      throw error
+    }
+    try {
+      const installed = await this.#installer.call('plugin/install', { specifier, manifestDigest })
+      if (installed.id !== id) throw new Error(`The package installed as ${JSON.stringify(installed.id)}, not ${JSON.stringify(id)}.`)
+    } catch (error) {
+      // The install did not happen, so the version that was running comes back.
+      await this.#consent.restore(id, previous).catch((restoreError: unknown) =>
+        this.#logger.error?.('the plugin consent record could not be put back', { plugin: id, error: String(restoreError) }),
+      )
+      if (existing?.enabled) await this.#start(existing)
+      throw error
+    }
+    const directory = join(this.#root, id)
+    const member = this.#members.get(id) ?? { id, directory, proc: null, enabled: true, problem: null, config: null, identity: null, configSchema: null, permissions: null, uninstalling: false, generation: 0 }
+    this.#members.set(id, member)
+    if (member !== existing && existing) await this.#stop(existing)
+    member.directory = directory
+    member.enabled = true
+    member.problem = null
+    await this.#start(member)
     return id
   }
 
@@ -1456,29 +2088,91 @@ export class SupervisedExtensionHost {
    * Removes an installed plugin's copy from disk.
    *
    * The check is "is there a copy on disk", not "is this id also a built-in".
-   * They come apart in exactly the case `#retireShadowed` exists for: a plugin
+   * They come apart in exactly the case `#start` switches off: a plugin
    * installed from the examples before it shipped as part of the app leaves a
    * copy behind under the same id, and refusing to remove it because a
    * built-in now answers to that id left the only thing that resolves the
    * situation permanently disabled.
    */
   async uninstallPlugin(pluginId: string): Promise<void> {
-    const installed = this.#child.plugins.some((plugin) => plugin.identity.id === pluginId)
-    if (!installed) {
+    const member = this.#members.get(pluginId)
+    if (!member) {
       throw new Error('Built-in plugins are part of HarnessDesk and cannot be uninstalled.')
     }
-    await this.#child.call('plugin/uninstall', { pluginId })
+    if (member.uninstalling) throw new Error(`${member.identity?.name ?? pluginId} is already being uninstalled.`)
+    // Marked at once, so a switch flipped or an install made from here on is
+    // refused rather than queued behind the removal; one already under way
+    // finishes first, and nothing it starts outlives what follows.
+    member.uninstalling = true
+    return this.#serially(pluginId, () => this.#uninstall(member))
+  }
+
+  async #uninstall(member: Member): Promise<void> {
+    const pluginId = member.id
+    // Off first, so nothing restarts it while its files go.
+    member.enabled = false
+    await this.#stop(member)
+    try {
+      await this.#installer.call('plugin/uninstall', { pluginId })
+    } catch (error) {
+      member.uninstalling = false
+      member.problem = `It could not be removed: ${error instanceof Error ? error.message : String(error)}`
+      this.#emit({ type: 'plugin/updated', plugin: this.#describe(member) })
+      throw error
+    }
+    // The files are gone, so the plugin is too, whatever happens to its
+    // entry in the record. One left behind grants nothing new: a later install
+    // of the same id writes its own before it copies anything.
+    this.#members.delete(pluginId)
+    this.#emit({ type: 'plugin/removed', instanceId: installedInstanceId(pluginId) })
+    await this.#consent.forget(pluginId).catch((error: unknown) =>
+      this.#logger.error?.('the plugin consent record could not forget an uninstalled plugin', { plugin: pluginId, error: String(error) }),
+    )
   }
 
   async dispose(): Promise<void> {
-    await this.#child.dispose()
+    this.#disposed = true
+    await Promise.all([this.#installer.dispose(), ...[...this.#members.values()].map((member) => member.proc?.dispose())])
     await this.#kernel.dispose()
   }
 
   // ------------------------------------------------------------------ private
 
+  /**
+   * Installs, uninstalls and switches of one plugin, one at a time. Each of
+   * them awaits the installer or a process, and one that read the member
+   * before another's await and acted after it would undo what the other did:
+   * an uninstall landing while an install copied files was followed by the
+   * install starting the plugin it had just removed.
+   */
+  #serially<T>(pluginId: string, work: () => Promise<T>): Promise<T> {
+    const next = (this.#lifecycle.get(pluginId) ?? Promise.resolve()).then(work, work)
+    const settled = next.then(() => undefined, () => undefined)
+    this.#lifecycle.set(pluginId, settled)
+    void settled.then(() => {
+      if (this.#lifecycle.get(pluginId) === settled) this.#lifecycle.delete(pluginId)
+    })
+    return next
+  }
+
+  #processes(): PluginHostProcess[] {
+    return [...this.#members.values()].flatMap((member) => (member.proc ? [member.proc] : []))
+  }
+
+  #installedContributions(): readonly CapabilityContribution[] {
+    return [...this.#members.values()].flatMap((member) => (member.enabled && member.proc ? member.proc.contributions : []))
+  }
+
+  /** The proc that answers a namespaced id, by the prefix it carries. */
+  #processFor(id: ContributionId): PluginHostProcess | null {
+    for (const member of this.#members.values()) {
+      if (member.enabled && member.proc?.owns(id)) return member.proc
+    }
+    return null
+  }
+
   #ownsInProcess(id: ContributionId): boolean {
-    if (isChildContributionId(id)) return false
+    if (String(id).startsWith('plugin:')) return false
     return this.#kernel
       .plugins()
       .some((plugin) => plugin.contributions.some((entry) => entry.id === id))
@@ -1493,23 +2187,85 @@ export class SupervisedExtensionHost {
   }
 }
 
+/** An installed plugin, as the host keeps it: its directory, and its proc when it has one. */
+interface Member {
+  readonly id: string
+  directory: string
+  proc: PluginHostProcess | null
+  enabled: boolean
+  /** Why it is not running, when it should be. */
+  problem: string | null
+  config: Readonly<Record<string, unknown>> | null
+  identity: PluginIdentity | null
+  /** The settings form its manifest declares, kept so a stopped plugin can still be configured. */
+  configSchema: JsonSchema | null
+  /**
+   * What it may do, from the last manifest checked against the record, so a
+   * stopped plugin still shows the access it gets back when it is turned on.
+   * Null until a manifest has matched: one that did not was never agreed to.
+   */
+  permissions: PluginPermissions | null
+  /** Set while it is being removed: nothing may start it again. */
+  uninstalling: boolean
+  /** Moves on with every start and stop; a start that finds it moved was overtaken. */
+  generation: number
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> & object =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** The instance id the host gives an installed plugin, the same in every process it runs in. */
+export const installedInstanceId = (id: string): PluginInstanceId => pluginInstanceId(`${id}#installed`)
+
+const MANIFEST_CHANGED =
+  'Its manifest has changed since it was installed. Install it again to review what it asks for; it stays off until then.'
+
+/** What a plugin with no agreed manifest is shown to hold: nothing. */
+const NO_PLUGIN_PERMISSIONS: PluginPermissions = mergePermissions(undefined)
+
 /**
- * The child's contribution ids, namespaced so they can never collide with
- * the in-process kernel's. The prefix is an addressing detail of this
- * supervisor; it is stripped again before anything crosses back to the child.
+ * A plugin proc's environment, from scratch. The variable that makes the
+ * desktop binary run as plain Node, where plugins live, locale and time, and
+ * the few variables the capabilities still running in the plugin's proc
+ * read. Never the host's tokens, and never `NODE_OPTIONS`.
  */
+const PLUGIN_ENVIRONMENT = [
+  'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'TEMP', 'TMP',
+  'LANG', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES', 'TZ',
+  'HARNESSDESK_HOME', 'HARNESSDESK_PLUGINS',
+  // What reaching the network from where the person is needs: their proxy and
+  // the certificates it presents. `ctx.http` still runs in the plugin's own
+  // process until the host brokers it (docs/plugin-isolation.md, layer 4).
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
+  'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+  'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'XDG_RUNTIME_DIR',
+  'SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
+] as const
+
+export const pluginEnvironment = (extra: Readonly<Record<string, string>> | undefined): NodeJS.ProcessEnv => {
+  const env: NodeJS.ProcessEnv = {}
+  for (const name of PLUGIN_ENVIRONMENT) {
+    const value = process.env[name]
+    if (value !== undefined) env[name] = value
+  }
+  const { NODE_OPTIONS: _never, ...rest } = extra ?? {}
+  // Last, so nothing passed in can make the process a second app.
+  return { ...env, ...rest, ELECTRON_RUN_AS_NODE: '1' }
+}
+
 /**
  * Unambiguous for any runtime/session/plugin triple, and plain ASCII in the
- * source. The plugin is part of the key because a grant that arms the whole
- * child process is not attribution: every plugin in there shares one stdout.
+ * source. Each process runs one plugin now, so the plugin part is always that
+ * process's own; it stays in the key so a lease can never be read as another
+ * plugin's.
  */
 const teamScopeKey = (runtime: string, sessionId: string, plugin: string): string =>
   JSON.stringify([runtime, sessionId, plugin])
 
+/**
+ * The installer's ids, which it never has: it loads no plugin. A plugin's own
+ * process namespaces its ids `plugin:<id>:` instead (`PluginHostProcess.owns`),
+ * so they can never collide with the in-process kernel's or another plugin's.
+ */
 const CHILD_ID_PREFIX = 'child:'
-const childContributionId = (id: ContributionId): ContributionId =>
-  `${CHILD_ID_PREFIX}${String(id)}` as ContributionId
-const isChildContributionId = (id: ContributionId): boolean =>
-  String(id).startsWith(CHILD_ID_PREFIX)
-const stripChildContributionId = (id: ContributionId): string =>
-  String(id).slice(CHILD_ID_PREFIX.length)
+

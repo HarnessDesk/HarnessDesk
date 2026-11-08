@@ -113,10 +113,21 @@ test('forge writes cross the child only with a write grant, valid shapes, and a 
         assert.equal(heard.length, beforeForgedArgs)
       }
 
+      // Who is asking is the pipe the frame came in on. A frame naming another
+      // plugin is answered as this plugin's own, and the engine is told so.
+      const beforeNamedOther = heard.length
+      const namedOther = await host.invokeTool(
+        tool.id,
+        { verb: 'associatedPullRequest', input: {}, raw: true, rawScope: { plugin: 'other#1' } },
+        scope,
+      )
+      assert.ok(namedOther.ok, JSON.stringify(namedOther))
+      assert.equal(heard.length, beforeNamedOther + 1)
+      assert.match(String(heard.at(-1)?.plugin), /^writer#/)
+
       for (const rawScope of [
         { runtime: 'other' },
         { sessionId: 'other' },
-        { plugin: 'other#1' },
       ]) {
         const beforeForgedScope = heard.length
         const result = await host.invokeTool(
@@ -143,7 +154,7 @@ test('forge writes cross the child only with a write grant, valid shapes, and a 
       assert.equal(heard.length, before)
       const context = await host.resolveContext(scope)
       assert.equal(context.length, 1)
-      assert.ok(heard.every(one => one.runtime === 'fixture' && one.sessionId === 's1' && one.plugin === 'writer#1'))
+      assert.ok(heard.every(one => one.runtime === 'fixture' && one.sessionId === 's1' && one.plugin === 'writer#installed'), JSON.stringify(heard.map(({ signal: _s, ...rest }) => rest)))
       assert.ok(heard.every(one => one.actor === 'agent' || one.actor === 'context'))
       assert.ok(heard.every(one => one.signal?.aborted), 'the parent closes every invocation lease')
     } finally { await host.dispose(); await rm(root, { recursive: true, force: true }) }

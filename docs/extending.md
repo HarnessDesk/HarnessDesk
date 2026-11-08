@@ -105,6 +105,17 @@ Built-in plugins are held to their manifests exactly like third-party ones. That
 is deliberate: a permission model only stays correct if the code you ship every
 day runs through it.
 
+An installed plugin runs in a process of its own, started for it alone, with a
+short allowlist of environment variables rather than the host's. The host knows
+which plugin is asking from the pipe a request arrives on, not from anything the
+request says, and it holds each plugin to the manifest the person agreed to at
+install: if the manifest on disk changes afterwards, the plugin does not start
+until it is installed again. A plugin that crashes or hangs takes down only its
+own process; the host restarts it with the config it had. Hooks from different
+plugins run one at a time, in priority order, and a hook whose process cannot
+answer denies. [Plugin isolation](plugin-isolation.md) is the full design,
+including what is not confined yet.
+
 During a tool call or context resolution, the host admits the calling
 conversation to a checkout and supplies it through the invocation scope; tool
 arguments cannot replace it. `ctx.shell.run` runs there by default, and an
@@ -280,18 +291,16 @@ use a window. Xcode selection is read, never changed. If DTUHID is unavailable
 or no helper was built, taps alone retain the previous `cliclick` window path:
 it moves the pointer, requires Simulator's window and refuses multiple booted
 devices. Other input tools remain unavailable there. Installed plugins forward typed requests over extension protocol
-15; the parent verifies its invocation ID and current manifest grant before
+16; the parent verifies its invocation ID and the plugin's consented grant before
 calling the same engine. Plugins cannot choose a native executable, symbol or
 service name.
 
 Installed plugins may call `ctx.ios` only during a live tool, command, hook or
 context invocation. Calls from `apply()` or a timer outside that invocation are
-refused; the parent checks the invocation lifetime and installed manifest.
-Simulator access also requires every enabled installed plugin in the shared child
-to declare `ios: true` and retain its stored grant, because that process cannot
-attribute a request to one resident plugin.
-Without that shared grant, invocations still run; only `ctx.ios` refuses, using a
-non-secret per-owner reason in place of a simulator token.
+refused; the parent checks the invocation lifetime and the grant it recorded when
+the person installed the plugin. Each installed plugin runs in a process of its
+own, so a grant is the plugin's alone: another plugin installed beside it never
+widens or blocks it, and a manifest rewritten after installation grants nothing.
 
 Text requires an observed US QWERTY guest keyboard and supports letters, digits, spaces and newlines through
 HID and reports `hid-us-layout`; other characters are refused. It does not use
@@ -861,9 +870,15 @@ copies the directory into `~/.harnessdesk/plugins/<id>` (or
 
 **The development loop:** edit your plugin where it lives, then press
 **Update from source** in the More menu of its page in Customize › Plugins
-(offered for a plugin installed from a local path). The copy is
+(offered for a plugin installed from a local path). The manifest in your
+folder is read and shown, as for a first install; once you agree, the copy is
 refreshed and the module reloaded — imports are cache-busted, so the new code
 is really the code that runs.
+
+What is installed is what was shown. The dialog carries back the digest of
+the manifest it displayed, the copy is checked against it before it replaces
+the installed one, and a manifest that changed in between is refused. That
+digest is what the host records as agreed to.
 
 [`examples/browser-plugin`](../examples/browser-plugin) is all of the above as
 one working plugin — install it by path and read it side by side with this

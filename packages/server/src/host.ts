@@ -311,8 +311,10 @@ export interface ExtensionHost extends CapabilityRegistry {
     source: PluginSource
     permissions: readonly string[]
     alreadyInstalled: boolean
+    manifestDigest: string
   }>
-  installPlugin(specifier: string): Promise<string>
+  /** Installs what `inspectPlugin` showed, held to the digest it reported. */
+  installPlugin(specifier: string, manifestDigest: string): Promise<string>
   uninstallPlugin(pluginId: string): Promise<void>
 }
 

@@ -1655,7 +1655,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'plugin/setEnabled': shape({ pluginId: isString, enabled: isBoolean }),
   'plugin/configure': shape({ pluginId: isString, config: isObject }),
   'plugin/inspect': shape({ specifier: isString }),
-  'plugin/install': shape({ specifier: isString }),
+  'plugin/install': shape({ specifier: isString, manifestDigest: isString }),
   'plugin/uninstall': shape({ pluginId: isString }),
   'capability/list': shape({
     kind: literalUnion('tool', 'hook', 'context', 'command', 'ui', 'agent', 'resource'),

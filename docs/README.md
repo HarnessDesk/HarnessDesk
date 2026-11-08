@@ -32,6 +32,7 @@ You are building against HarnessDesk — a plugin, a tool, or a backend.
 | | |
 | --- | --- |
 | [extending.md](extending.md) | Writing plugins (panels, tools, editor plane), composer context chips, and runtime adapters |
+| [plugin-isolation.md](plugin-isolation.md) | How installed plugins run: a process each, attributed by its channel, held to its manifest; and how to add a capability safely |
 
 ## Understand it
 
