@@ -186,6 +186,8 @@ export class LeadChats {
     // before asynchronous file/scope checks return; its two transitions still matter.
     const id = `${runtime}:${session}`, state = this.#stateOf(id)
     const incidents = this.incidents, ready = this.#ready, root = this.ports.project.path
+    const observationRevision = incidents?.observationRevision(id)
+    const superseded = () => incidents?.observationRevision(id) !== observationRevision
     const terminal = turn?.status === 'interrupted' || turn && turn.status !== 'inProgress' && !turn.error
     const stage = this.#stageOf(id, !terminal)
     if (turn?.status === 'interrupted' || turn?.status === 'completed' && !turn.error) incidents?.invalidateRetry(id)
@@ -197,14 +199,14 @@ export class LeadChats {
         if (!tracked.includes(id)) return
         if (await this.#personHolds(id)) return
         await this.#target(id, false); await this.#gate({ method: 'lead/chat/read', params: { id } })
-        if (this.ports.project.path !== root) return
+        if (this.ports.project.path !== root || superseded()) return
         if (turn && incidents) {
           const raw = turn.error
           const code = ['auth', 'credits', 'rateLimit', 'versionGate', 'sandboxDenied', 'network', 'interrupted', 'runtimeUnavailable', 'protocol', 'unknown'].includes(raw?.code ?? '') ? raw!.code as AgentError['code'] : 'unknown'
           const error = raw ? { ...raw, code } : (turn.status === 'failed' ? { code: 'unknown' as const, message: 'The turn failed.' } : null)
-          if (turn.status === 'interrupted') await incidents.stop(id)
+          if (turn.status === 'interrupted') await incidents.stop(id, () => !superseded())
           else if (error || turn.status !== 'inProgress') await incidents.ended(id, String(turn.id), error,
-            error?.code === 'rateLimit' ? await this.ports.recovery!.limits(id) : null)
+            error?.code === 'rateLimit' ? await this.ports.recovery!.limits(id) : null, () => !superseded())
         }
         if (state !== 'waiting' && (incidents?.waiting(id) || incidents?.get(id)?.state === 'asked')) return
         if (await this.#personHolds(id)) return
@@ -217,7 +219,7 @@ export class LeadChats {
       finally {
         // Capturing a terminal turn revoked its timer/claim before any await.
         // A withdrawn observation must also retire the durable waiting record.
-        if (terminal && incidents?.waiting(id)) await incidents.stop(id)
+        if (terminal && !superseded() && incidents?.waiting(id)) await incidents.stop(id, () => !superseded())
       }
     })
     this.#changes = changed.catch(() => {})
@@ -485,6 +487,7 @@ export class LeadChats {
         effectStarted(); return { queued: true }
       }
       let beganRetry = false, started = false, dispatched = false
+      let unconfirmed: (() => Promise<void>) | undefined
       const renewal: { lease: Awaited<ReturnType<LeadChatIncidents['beginRetry']>> } = { lease: null }
       const settle = async () => {
         if (dispatched) return
@@ -499,7 +502,11 @@ export class LeadChats {
         try { await admission(cwd) } catch (error) { await settle(); throw error }
       }, {
         assertDispatch: () => { try { admission.assertDispatch?.() } catch (error) { discard(); throw error } },
-        dispatchStarted: () => { dispatched = true },
+        dispatchStarted: () => {
+          dispatched = true
+          if (renewal.lease || currentRetry) unconfirmed = this.incidents?.unconfirmedReceipt(params.id, currentRetry, !!renewal.lease)
+        },
+        dispatchUnconfirmed: () => unconfirmed?.() ?? Promise.resolve(),
         queueRemoved: discard,
         dispatchRefused: discard,
       })

@@ -7831,17 +7831,20 @@ export class Host {
     // off with its `turn/started` and nothing clears this, so a referenced timer
     // would hold the whole process open until it fired.
     deadline.unref()
+    let sendStarted = false
     try {
       const send = async (live: AgentSession) => {
         if (admitLive) await admitLive(live)
         admitLive?.assertDispatch?.()
         effectStarted?.()
         admitLive?.dispatchStarted?.()
+        sendStarted = true
         return this.#sendWithPersonMarker(record, live, input, personSeat)
       }
       return await (held ? send(held) : this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, send))
     } catch (error) {
       release()
+      if (sendStarted) await admitLive?.dispatchUnconfirmed?.().catch(() => this.#logger.warn('Lead chat recovery could not settle an unconfirmed send'))
       throw error
     }
   }
@@ -7903,9 +7906,11 @@ export class Host {
       if (!sending) return
       this.#pushQueue(record)
       let sendStarted = false
+      let sendingAdmission: DispatchAdmission<AgentSession> | undefined
       try {
         await this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, async current => {
           const admit = this.registry.queuedAdmission(record, sending.id)
+          sendingAdmission = admit
           if (admit) await admit(current)
           if (!record.queue.messages.some(message => message.id === sending.id)) { cancelled = true; return }
           admit?.assertDispatch?.()
@@ -7928,6 +7933,7 @@ export class Host {
           await this.#noteLeadChatCancellation(`${record.runtime}:${record.session.id}`, 1)
           return
         }
+        if (sendStarted) await sendingAdmission?.dispatchUnconfirmed?.().catch(() => this.#logger.warn('Lead chat recovery could not settle an unconfirmed send'))
         // Put it back exactly where it was and stop: the message is the thing
         // worth keeping, and a queue that kept firing into a broken agent would
         // burn the rest of it the same way.
@@ -7948,7 +7954,7 @@ export class Host {
               type: 'notice',
               sessionId: record.session.id,
               level: 'warning',
-              message: `The queued message was not sent: ${describeError(error)}`,
+              message: sendStarted ? 'The queued message could not be confirmed. Check the conversation before retrying.' : `The queued message was not sent: ${describeError(error)}`,
             },
           },
         })
@@ -10132,7 +10138,7 @@ export class Host {
       // inherit the admission of the handle that was actually inspected.
       if (this.registry.get(params.runtime, params.sessionId)?.live !== live || !samePath(live.settings().cwd, cwd) ||
         !this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('The chat project scope changed before dispatch.')
-    }, { assertDispatch: admitCwd.assertDispatch, dispatchStarted: admitCwd.dispatchStarted, queueRemoved: admitCwd.queueRemoved, dispatchRefused: admitCwd.dispatchRefused })
+    }, { assertDispatch: admitCwd.assertDispatch, dispatchStarted: admitCwd.dispatchStarted, dispatchUnconfirmed: admitCwd.dispatchUnconfirmed, queueRemoved: admitCwd.queueRemoved, dispatchRefused: admitCwd.dispatchRefused })
     this.#leadChatAdmissions.add(admission)
     return admission
   }

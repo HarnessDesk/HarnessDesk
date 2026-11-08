@@ -54,12 +54,34 @@ export class LeadChatIncidents {
   #effects = new Set<Promise<void>>()
   #retryTail: Promise<void> = Promise.resolve()
   #claims = new Map<string, { active: boolean; started: boolean }>()
+  #revisions = new Map<string, { revoked: number; dispatch: number }>()
   #loaded = false
   #closed = false
   #generation = 0
   constructor(private readonly ports: Ports) {}
   get(id: string): LeadChatIncident | undefined { return this.#records.get(id) }
   waiting(id: string): boolean { return ['waiting-reset', 'retrying'].includes(this.#records.get(id)?.state ?? '') }
+  observationRevision(id: string): number { return this.#revisions.get(id)?.dispatch ?? 0 }
+  #revision(id: string): { revoked: number; dispatch: number } {
+    let revision = this.#revisions.get(id)
+    if (!revision) this.#revisions.set(id, revision = { revoked: 0, dispatch: 0 })
+    return revision
+  }
+  /** The receipt belongs to the exact incident and dispatch, not a later turn or retry. */
+  unconfirmedReceipt(id: string, current: (() => boolean) | undefined, manual: boolean): () => Promise<void> {
+    const record = this.#records.get(id), revision = this.#revision(id), revoked = revision.revoked
+    // Turn observations captured before this dispatch belong to the earlier turn.
+    if (record?.state === 'retrying' && (!current || current())) revision.dispatch++
+    return async () => {
+      if (!record || record.state !== 'retrying' || this.#records.get(id) !== record || revision.revoked !== revoked || current && !current()) return
+      const asked = await this.#queue(async () => {
+        if (this.#closed || this.#records.get(id) !== record || revision.revoked !== revoked || current && !current()) return null
+        return this.#ask({ ...record, kind: 'failed', attempts: Math.min(LEAD_CHAT_RETRY_ATTEMPTS, record.attempts + (manual ? 1 : 0)), resetsAt: null,
+          lastError: { code: 'unknown', message: 'The retry could not be confirmed. Check the conversation before retrying.' } })
+      })
+      if (asked && !this.#closed && await this.ports.allowed(id)) await this.ports.publish(asked)
+    }
+  }
   async idle(): Promise<void> {
     do { await this.#tail; await Promise.allSettled([...this.#effects]) } while (this.#effects.size)
     await this.#tail
@@ -93,7 +115,7 @@ export class LeadChatIncidents {
   }
   async #save(record: StoredIncident): Promise<void> {
     const next = new Map(this.#records); next.delete(record.chatId); next.set(record.chatId, record)
-    while (next.size > LEAD_CHAT_LIMIT) { const id = next.keys().next().value!; next.delete(id); this.#claims.delete(id); this.#timers.get(id)?.(); this.#timers.delete(id) }
+    while (next.size > LEAD_CHAT_LIMIT) { const id = next.keys().next().value!; next.delete(id); this.#claims.delete(id); this.#revisions.delete(id); this.#timers.get(id)?.(); this.#timers.delete(id) }
     await writeAtomicJson(this.ports.file, { version: 1, project: this.ports.project, records: [...next.values()] }, async () => {})
     this.#records = next
     if (record.state !== 'retrying') this.#claims.delete(record.chatId)
@@ -169,10 +191,10 @@ export class LeadChatIncidents {
       for (const record of asked) if (!this.#closed && await this.ports.allowed(record.chatId)) await this.ports.publish(record)
     })
   }
-  ended(chatId: string, turnId: string, error: AgentError | null, limits?: RateLimits | null): Promise<void> {
+  ended(chatId: string, turnId: string, error: AgentError | null, limits?: RateLimits | null, current?: () => boolean): Promise<void> {
     return this.#queue(async () => {
       await this.#load()
-      if (this.#closed || !await this.ports.allowed(chatId)) return
+      if (this.#closed || current && !current() || !await this.ports.allowed(chatId) || current && !current()) return
       const previous = this.#records.get(chatId)
       if (previous?.turnId === turnId) return
       if (error?.retrying && ['rateLimit', 'network', 'interrupted'].includes(error.code)) return
@@ -246,13 +268,15 @@ export class LeadChatIncidents {
     })
   }
   invalidateRetry(id: string): void {
+    if (this.#records.has(id)) this.#revision(id).revoked++
     const claim = this.#claims.get(id); if (claim) claim.active = false
     this.#timers.get(id)?.(); this.#timers.delete(id)
   }
-  stop(id: string): Promise<boolean> {
+  stop(id: string, current?: () => boolean): Promise<boolean> {
+    if (current && !current()) return Promise.resolve(false)
     this.invalidateRetry(id)
     this.#timers.get(id)?.(); this.#timers.delete(id)
-    return this.#queue(async () => { await this.#load(); const record = this.#records.get(id); if (record) {
+    return this.#queue(async () => { await this.#load(); if (current && !current()) return false; const record = this.#records.get(id); if (record) {
       this.#timers.get(id)?.(); this.#timers.delete(id); await this.#save({ ...record, state: 'stopped', nextAt: null })
       return ['waiting-reset', 'retrying', 'asked'].includes(record.state)
     }
