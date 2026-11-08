@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import fs, { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, test } from 'node:test'
@@ -73,14 +74,15 @@ const start = async () => {
   return control!
 }
 
-const until = async (check: () => boolean, what: string) => {
+const until = async (check: () => boolean | Promise<boolean>, what: string) => {
   const deadline = Date.now() + 3000
-  while (!check()) {
+  while (!await check()) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
     await new Promise(r => setTimeout(r, 10))
   }
 }
 const relayIs = (state: PhoneLinkState['relay']) => until(() => control!.state().relay === state, `relay ${state}`)
+const outboxSavedEmpty = () => until(async () => JSON.stringify(JSON.parse(await readFile(join(home, 'phone-link', 'relay-unlinks.json'), 'utf8'))) === '[]', 'the unlink outbox to be saved')
 
 test('the relay runs only while the desk is signed in and reachable, and the pairing code says whether it works away', async () => {
   const phone = await start()
@@ -166,8 +168,7 @@ test('removing a phone on the Mac refuses it at once, and unlinks it from the ac
   account.reachable(true)
   await until(() => account.unlinked.length === 1, 'the unlink')
   assert.deepEqual(account.unlinked, [sim.id])
-  await new Promise(r => setTimeout(r, 50))
-  assert.deepEqual(JSON.parse(await readFile(join(home, 'phone-link', 'relay-unlinks.json'), 'utf8')), [])
+  await outboxSavedEmpty()
 })
 
 test('a removal whose account unlink cannot be saved fails as a whole, and the phone stays', async () => {
@@ -189,9 +190,32 @@ test('a removal whose account unlink cannot be saved fails as a whole, and the p
   assert.deepEqual(phone.state().devices.map(device => device.id), [sim.id])
   assert.deepEqual(account.unlinked, [])
   await rm(outbox, { recursive: true })
-  await phone.revoke(sim.id)
-  assert.equal((await sim.closedWith()).code, CloseCode.REVOKED)
-  await until(() => account.unlinked.length === 1, 'the unlink')
+  const originalWrite = fs.writeFile
+  let release!: () => void, writeStarted = false
+  const gate = new Promise<void>(resolve => { release = resolve })
+  fs.writeFile = (async (...args: Parameters<typeof fs.writeFile>) => {
+    if (String(args[0]).startsWith(`${outbox}.`) && args[1] === '[]') {
+      writeStarted = true
+      await gate
+    }
+    return originalWrite(...args)
+  }) as typeof fs.writeFile
+  syncBuiltinESMExports()
+  try {
+    await phone.revoke(sim.id)
+    assert.equal((await sim.closedWith()).code, CloseCode.REVOKED)
+    await until(() => account.unlinked.length === 1, 'the unlink')
+    await until(() => writeStarted, 'the unlink outbox writer')
+    assert.deepEqual(JSON.parse(await readFile(outbox, 'utf8')), [sim.id], 'the account call precedes the outbox write')
+  } finally {
+    release()
+    try {
+      if (writeStarted) await outboxSavedEmpty()
+    } finally {
+      fs.writeFile = originalWrite
+      syncBuiltinESMExports()
+    }
+  }
 })
 
 test('a removal waits through an account the desk cannot use, and is sent once it signs in again', async () => {
@@ -214,6 +238,7 @@ test('a removal waits through an account the desk cannot use, and is sent once i
   account.emit({})
   await until(() => account.unlinked.length === 1, 'the unlink')
   assert.deepEqual(account.unlinked, [sim.id])
+  await outboxSavedEmpty()
 })
 
 test('removing a phone this desk never paired leaves nothing waiting for the account', async () => {
