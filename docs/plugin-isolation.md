@@ -11,9 +11,9 @@ This page is for three readers:
 The [authoring guide](extending.md) explains what a plugin can contribute.
 This page explains the boundary the plugin runs behind.
 
-> **Status.** This is the target design, built in steps. Layers 1–3 are being
-> built now; layers 4 and 5 follow. The [Delivery](#delivery) table says
-> which parts are in place.
+> **Status.** All five layers are built. An operating-system sandbox per
+> plugin process is the step planned after them. The [Delivery](#delivery)
+> table says which parts are in place.
 
 ## Words used here
 
@@ -132,12 +132,21 @@ The promises come in two kinds:
   Promises 1–4 still hold, because they concern what the host does, but
   promise 6 does not. An operating-system sandbox around each plugin process
   is the planned layer that closes this (see [Delivery](#delivery)).
-- **The consent record is a check, not a lock, until layer 5.** It lives
-  beside the plugins directory, not in any plugin's own files, and it catches
-  a manifest that changed without the person agreeing: by hand, by a tool, or
-  by a plugin editing its own. But a plugin with your file access could
-  rewrite the record too. Only when layer 5 keeps a plugin's file access to
-  its own directory is the record out of its reach.
+- **The consent record is out of a confined plugin's reach, not out of
+  yours.** It lives beside the plugins directory, not in any plugin's own
+  files, and it catches a manifest that changed without the person agreeing:
+  by hand, by a tool, or by a plugin editing its own. A confined plugin can
+  write no file of its own, so it can rewrite neither its manifest nor the
+  record. An unconfined one, or any other program running as you, could.
+- **A confined process can still signal yours.** `process.kill` is outside
+  Node's permission model, so a confined plugin can send a signal to another
+  process of your user account. It cannot read, write, connect or start
+  anything with it.
+- **Links inside a package.** Node follows a symbolic link wherever it
+  leads, even past the paths a process may read. So the installer refuses a
+  package with a link that leads outside it; a link that stays inside is
+  copied as written. A link placed into an installed plugin's directory
+  later, by something other than the installer, is not checked again.
 - **Everything runs as your user account.** Plugins never run as a separate
   user. What is sensitive stays out of their reach by keeping it in the
   host: plugin processes get an environment built from scratch, and
@@ -169,13 +178,14 @@ one plugin, from its installed directory, and refuses to load a second.
   allowlist:
   - the variable that makes the desktop binary run as plain Node;
   - the plugins directory;
-  - locale, time zone and the temporary directory;
-  - until [layer 4](#4-capabilities-are-served-not-handed-over) moves them
-    into the host, the few variables the in-process capabilities read, such
-    as `PATH` and `HOME`.
+  - locale, time zone and the temporary directory.
 
-  It never inherits the host's environment, so a token the host was started
-  with does not reach plugin code. `NODE_OPTIONS` is never passed.
+  Not even the search path, home or proxy: since
+  [layer 4](#4-capabilities-are-served-not-handed-over) the host serves the
+  plugin's files, network and programs, and the programs `ctx.shell` starts
+  get those variables from the host. A process never inherits the host's
+  environment, so a token the host was started with does not reach plugin
+  code. `NODE_OPTIONS` is never passed.
 - **No sharing between plugins:** each process has its own kernel, module
   graph and timers. Plugins that need to cooperate do it through the host's
   planes (the team board, the forge, the editor), where each side is
@@ -272,7 +282,10 @@ holds:
 - **Scoped to one pipe.** A lease's id means something only on the pipe it
   was opened for. A plugin may serve several calls at once, so a capability
   request names the lease it belongs to. An id from another pipe, or one
-  already closed, is refused.
+  already closed, opens nothing: a file, network or shell request naming it
+  runs as a call outside a lease (below) would, in the
+  open workspace and held to the same grants, and a plane that acts for a
+  conversation refuses it.
 - **The source of every scope.** The conversation, checkout and actor of a
   team, forge, browser or device action come from the lease. If a request
   names a different conversation, it is refused.
@@ -297,8 +310,12 @@ Inside a plugin process, these are thin stubs:
 - `ctx.team` and `ctx.forge`;
 - `ctx.ios` and `ctx.android`.
 
-Each call becomes a request on the plugin's pipe. The host's capability
-broker answers it:
+Each call becomes a request on the plugin's pipe. Files, network, shell and
+Android devices share one request, `capability/call`, whose body says which
+(`{ kind: 'fs', method: 'read', path }`, `{ kind: 'http', url, init }`, and
+so on); the others have a request each. The host reads every field of the
+body before anything runs, and refuses one it cannot read. The host's
+capability broker answers it:
 
 1. **Identify** the plugin by the pipe, and the lease by its id on that pipe.
 2. **Check** the permission against the plugin's record, at the point of
@@ -316,37 +333,66 @@ Because the work happens in the host, the check and the action sit in the
 same trusted process. A plugin cannot skip the check by calling the action
 some other way: in a confined process there is no other way.
 
+**Where a call runs.** A tool call or a context read runs in the checkout the
+host admitted for its conversation, as the same call made by a built-in
+plugin would. A command, a hook and work outside any lease run in the open
+workspace.
+
 `agents.invoke` and `secrets` are already in the manifest schema, but no
 plane serves them yet. Each will be added by the recipe under
 [Adding a capability](#adding-a-capability).
 
 ### 5. The runtime is confined
 
-The plugin process starts under Node's permission model, with the flags the
-Lead's child already uses:
+The plugin process starts under Node's permission model:
 
 ```
---permission --no-allow-net --no-addons --allow-fs-read=<plugin directory>,<plugin runtime>
+--permission --no-allow-net --no-addons
+--allow-fs-read=<each part of the plugin process's own code>
+--allow-fs-read=<plugin directory, as the host names it and as it resolves>
 ```
 
 `--permission` denies file writes, child processes, worker threads and WASI
 by default. The two `--no-*` flags deny the network and native addons. The
 plugin may read its own directory and the code the plugin process itself
-runs on, and nothing else. A plugin's npm dependencies therefore have to be
-installed inside its own directory, which the installer already does.
+runs on, and nothing else:
+- **Its own code** is the plugin host's compiled child and every package it
+  imports, followed through their dependencies. A package of this repository
+  is granted its compiled output and manifest, never its source or tests.
+- **Its directory** is granted under both spellings a path can have, since a
+  home behind a symbolic link (`/var` on macOS) is two paths, and the process
+  is handed the resolved one. A plugin's npm dependencies have to be inside
+  that directory, which the installer already does.
 
-**Which runtime runs it.** The same capability probe that chooses the Lead's
-runtime chooses this one. The probe tries a loopback connection that a
-confined runtime must refuse. It records what the runtime actually does,
-not what its version number suggests. Network confinement needs Node 26 or
-later. The desktop app bundles one for the Lead, so a packaged app always
-has a runtime that passes.
+**What the host does for it.** A confined process has no disk, network or
+programs of its own, so a few things it once did for itself the host now
+does:
+- **Files, network, shell and Android devices** are served by
+  [layer 4](#4-capabilities-are-served-not-handed-over).
+- **Workspace roots.** A contribution scoped to a workspace names its root.
+  The host resolves that path once, the first time it sees it from that
+  process, and tells the process what it resolved to, so a link retargeted
+  later cannot move a contribution to another folder.
+- **The browser.** Every page a confined plugin places goes through the
+  host, which picks the placement the person chose for that profile: the
+  app's own pane, Chrome or the system browser. A hand-off to the system
+  browser takes only an `http` or `https` address, and only during a call.
+
+**Which runtime runs it.** The Lead's candidates, in their order: the app's
+own runtime, then the Node it bundles for the Lead. A probe starts each
+candidate with these flags and has it try three things: a loopback
+connection to a listener the host owns, a read of a file outside its grants,
+and starting a program. Only a runtime that refuses all three is used. The
+probe records what the runtime actually does, not what its version number
+suggests, and runs once per runtime for the life of the host.
 
 **When no runtime passes,** for example a source checkout without the
 fetched Node, plugins run unconfined. Layers 1–4 still attribute and check
 every call the plugin makes through the host. But nothing stops an
 unconfined plugin from using Node's own modules directly. The plugin host's
-status says the plugins are unconfined, and why.
+stats record, for each plugin process, whether it is confined and on which
+runtime, or why it is not, and the host logs a warning when a plugin starts
+unconfined.
 
 ## A call, end to end
 
@@ -363,8 +409,9 @@ request.
    - the checkout the host admitted for *X*;
    - the actor, *agent*;
    - the deadline, 30 s.
-3. **The plugin calls `ctx.fs.read('README.md')`.** Its stub sends `fs/read`
-   on the pipe, naming the lease. The broker checks four things:
+3. **The plugin calls `ctx.fs.read('README.md')`.** Its stub sends
+   `capability/call` on the pipe, with `{ kind: 'fs', method: 'read', path:
+   'README.md' }` and the lease. The broker checks four things:
    - the pipe is `acme-issues`'s;
    - the lease is open on that pipe;
    - the recorded permissions grant `workspace.read`;
@@ -375,12 +422,14 @@ request.
    broker checks the host name against the recorded `network.hosts`, and
    makes the request from the host.
 5. **The plugin returns its result.** The host closes the lease. A request
-   naming that lease, arriving any time after this, is refused.
+   naming that lease, arriving any time after this, is background work: it
+   reaches the open workspace at most, never *X*'s checkout.
 
 **Two refusals:**
 - **Another plugin names the lease.** Say plugin `other` sends a request
   naming the lease from step 2. The broker looks the lease up on `other`'s
-  pipe, finds nothing, and refuses.
+  pipe and finds nothing. The request gets no conversation and no checkout:
+  it is `other`'s own background work, held to `other`'s grants.
 - **The plugin asks for too much.** If `acme-issues` asks for a path outside
   the checkout, or a host its record does not list, the broker refuses. It
   uses the same `Permission denied` message a built-in plugin gets.
@@ -552,11 +601,11 @@ side of the pipe is what makes that possible.
 
 | Part | Status |
 | --- | --- |
-| 1. One process per plugin, with a fresh environment | in progress |
-| 2. The channel is the identity | in progress |
-| 3. The host holds the authority, including the consent record | in progress |
-| 4. Capabilities are served, not handed over | next |
-| 5. The runtime is confined | next, with layer 4 |
+| 1. One process per plugin, with a fresh environment | built |
+| 2. The channel is the identity | built |
+| 3. The host holds the authority, including the consent record | built |
+| 4. Capabilities are served, not handed over | built |
+| 5. The runtime is confined | built |
 | An operating-system sandbox per plugin process | planned |
 
 The record of this choice, its costs and its alternatives is in

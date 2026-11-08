@@ -164,7 +164,9 @@ test('a host whose start fails is disposed, so no child is restarted behind the 
   //
   // One plugin that fails to start does not fail the others' start: it is
   // listed with the reason, and its process is disposed, not restarted.
-  const harness = await start(['slow-once'], { invokeTimeoutMs: 400 })
+  // `slow-once` marks its first load by writing beside itself, which a
+  // confined process cannot do; the restart is what is under test here.
+  const harness = await start(['slow-once'], { invokeTimeoutMs: 400, confine: false })
   try {
     const listed = harness.host.plugins().find((plugin) => plugin.identity.id === 'slow-once')
     assert.equal(listed?.state.type, 'failed')

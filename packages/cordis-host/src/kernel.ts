@@ -253,6 +253,11 @@ export class ExtensionKernel implements CapabilityRegistry {
     this.#runtime.setWorkspace(state)
   }
 
+  /** See `ContributionStore.resolveRoots`: a confined process's parent resolving what it cannot. */
+  resolveWorkspaceRoots(resolved: Readonly<Record<string, { readonly from: string; readonly to: string }>>): void {
+    this.#store.resolveRoots(resolved)
+  }
+
   /**
    * Where an agent's pages open. The browser service is module state — one
    * driven browser per process — so this is a process-wide answer, which is

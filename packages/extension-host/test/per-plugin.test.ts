@@ -93,7 +93,7 @@ const textOf = (result: unknown): string => {
   return match[0]
 }
 
-const spy = async (harness: Harness): Promise<{ secret: string | null; nodeOptions: string | null; pid: number; greeting: string | null }> =>
+const spy = async (harness: Harness): Promise<{ secret: string | null; nodeOptions: string | null; path: string | null; proxy: string | null; pid: number; greeting: string | null }> =>
   JSON.parse(textOf(await harness.host.invokeTool(harness.toolId('spy'), {}, scope)))
 
 test('every installed plugin runs in a process of its own', async () => {
@@ -113,7 +113,9 @@ test('every installed plugin runs in a process of its own', async () => {
 
 test('a plugin process starts from an allowlisted environment, never the host\'s whole one', async () => {
   const previous = process.env['HD_TEST_PARENT_SECRET']
+  const proxy = process.env['HTTPS_PROXY']
   process.env['HD_TEST_PARENT_SECRET'] = 'parent-only'
+  process.env['HTTPS_PROXY'] = 'http://proxy.example.com:3128'
   try {
     const harness = await start(['envspy'], {
       env: { NODE_OPTIONS: '--no-warnings' },
@@ -122,12 +124,18 @@ test('a plugin process starts from an allowlisted environment, never the host\'s
       const report = await spy(harness)
       assert.equal(report.secret, null, 'a variable the host holds does not reach a plugin')
       assert.equal(report.nodeOptions, null, 'NODE_OPTIONS is never passed to a plugin process')
+      // Its files, network and programs are the host's to serve, so what
+      // finding a program or reaching the network needs stays with the host.
+      assert.equal(report.path, null, 'the search path is the shell\'s, not the plugin process\'s')
+      assert.equal(report.proxy, null, 'the proxy is the host\'s, not the plugin process\'s')
     } finally {
       await cleanup(harness)
     }
   } finally {
     if (previous === undefined) delete process.env['HD_TEST_PARENT_SECRET']
     else process.env['HD_TEST_PARENT_SECRET'] = previous
+    if (proxy === undefined) delete process.env['HTTPS_PROXY']
+    else process.env['HTTPS_PROXY'] = proxy
   }
 })
 

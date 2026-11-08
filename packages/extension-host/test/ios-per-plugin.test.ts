@@ -37,7 +37,10 @@ async function setup(t: TestContext, granted: boolean, options: { disableBeforeL
     return []
   } } as unknown as IosCapability
   const kernel = new ExtensionKernel({ iosEngine: engine })
-  const host = new SupervisedExtensionHost(kernel, { env: { HARNESSDESK_PLUGINS: store }, iosEngine: engine })
+  // The resident fixture reports what it saw by writing a file beside
+  // itself, which a confined process cannot do; what is under test here is
+  // the simulator frames, so the process runs unconfined.
+  const host = new SupervisedExtensionHost(kernel, { env: { HARNESSDESK_PLUGINS: store }, iosEngine: engine, confine: false })
   t.after(async () => { release(); await host.dispose() })
   if (options.disableBeforeLoad) await host.setEnabled('resident', false)
   await host.loadInstalledPlugins()

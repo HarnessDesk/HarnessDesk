@@ -209,10 +209,28 @@ const scopes = new BrowserScopes<BrowserState>(
   (identity) => currentBrowserIdentity()?.invocation === identity.invocation,
 )
 
-/** Replaces the Chrome engine — the desktop shell does, with its own pane. */
-export const setBrowserEngine = (engine: BrowserEngine | null): void => {
+/**
+ * Whether the installed engine serves every placement, not only the pane. A
+ * plugin's confined process cannot start Chrome or hand a URL to the OS
+ * itself, so its parent does both, by the same settings.
+ */
+let everyPlacement = false
+
+/**
+ * Replaces the Chrome engine — the desktop shell does, with its own pane. A
+ * confined plugin process installs its parent's engine for every placement.
+ */
+export const setBrowserEngine = (engine: BrowserEngine | null, options: { readonly everyPlacement?: boolean } = {}): void => {
   installedEngine = engine
+  everyPlacement = engine !== null && options.everyPlacement === true
   for (const [, state] of scopes.entries()) state.events = []
+}
+
+/** How a URL reaches the person's default browser: the OS here, the parent in a confined process. */
+let systemHandOff = (url: string): Promise<void> => handToSystem(url)
+
+export const setSystemHandOff = (handOff: ((url: string) => Promise<void>) | null): void => {
+  systemHandOff = handOff ?? ((url) => handToSystem(url))
 }
 
 /**
@@ -244,6 +262,7 @@ export const browserSettingsForProfile = (settings: BrowserSettings, profile: st
 const settingsFor = (state: BrowserState): BrowserSettings => browserSettingsForProfile(settings, state.profile)
 
 const engine = (state = scopes.current()): BrowserEngine => {
+  if (everyPlacement && installedEngine) return installedEngine
   switch (settingsFor(state).placement) {
     case 'window':
       return chromeFor(state)
@@ -486,7 +505,7 @@ export class BrowserService extends Service {
     currentBrowserIdentity(currentActor() === 'agent')
     const state = scopes.current()
     if (settingsFor(state).placement === 'system') {
-      await handToSystem(url)
+      await systemHandOff(url)
       return { url, title: '', handedOff: true }
     }
     const cdp = await this.reach()
@@ -1454,6 +1473,48 @@ const chromeFor = (state: BrowserState): BrowserEngine => ({
     if (disposable) rmSync(disposable, { recursive: true, force: true })
   },
 })
+
+/**
+ * The browser a confined plugin process drives, run in its parent: the
+ * placement the settings name for the identity's profile, as the process
+ * would have chosen itself — `pane` when this process has one, a separate
+ * Chrome otherwise, and the refusal `system` gives for anything but opening.
+ */
+export const placedBrowserEngine = (pane: BrowserEngine | null): BrowserEngine => {
+  const placed = (identity: BrowserIdentity | undefined): BrowserEngine => {
+    const state = scopes.forProfile(identity?.profile ?? 'default')
+    switch (settingsFor(state).placement) {
+      case 'window':
+        return chromeFor(state)
+      case 'system':
+        return systemEngine
+      default:
+        return pane ?? chromeFor(state)
+    }
+  }
+  return {
+    ensure: (identity) => placed(identity).ensure(identity),
+    close: (identity) => placed(identity).close(identity),
+  }
+}
+
+/**
+ * Hands a page to the person's default browser for a confined plugin
+ * process. Only a web address: `open` would start an application or open a
+ * file for any other scheme, which is not what "open this page" grants.
+ */
+export const handPageToSystem = async (url: string): Promise<void> => {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error('Only a web address can be opened in the default browser.')
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Only a web address can be opened in the default browser.')
+  }
+  await handToSystem(parsed.href)
+}
 
 export const chromeEngine: BrowserEngine = {
   ensure: () => chromeFor(scopes.forProfile('default')).ensure(),
