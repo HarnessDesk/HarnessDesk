@@ -1,0 +1,26 @@
+{
+  "issue": 1545,
+  "head": "ef0c00643c00425a97e3dd28801614308e0af195",
+  "scope": "Synthetic Electron desk; exact stored transcript restored after unload and public reopen. Expanded command output matches saved body. Not evidence of process RSS limits or real provider behavior.",
+  "privacy": {
+    "syntheticIdentitiesOnly": true,
+    "parentViewedOriginals": true,
+    "ordinaryAudits": 9,
+    "refusalControls": 4,
+    "preAndPostCaptureAudits": true
+  },
+  "frames": [
+    {
+      "name": "restored-light.png",
+      "sha256": "47a46cd15c3196a4c43eace45c89af96dec7280fbec0d32ebc2070f8e80a5816",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "restored-dark.png",
+      "sha256": "1dd20e611ca4778b9729de19c1b03a5816bfd6224401d017282c436fa4ee6645",
+      "width": 2560,
+      "height": 1680
+    }
+  ]
+}
