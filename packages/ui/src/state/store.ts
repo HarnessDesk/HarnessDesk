@@ -1,3 +1,4 @@
+import { AdjacentReadChanges, preserveAdjacentLocal, reconcileAdjacentRead } from './adjacent-read'
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
 import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
@@ -627,7 +628,7 @@ export class AppStore {
   #libraryViews: Record<LibraryViewSection, LibraryViewState> = { skill: emptyLibraryView(), mcp: emptyLibraryView() }
   readonly #sessionRemovalRevisions = new Map<SessionKey, number>()
   #adjacentGeneration = 0
-  #adjacentEventRevision = 0
+  #adjacentReadChanges: { key: SessionKey; changes: AdjacentReadChanges; collectingFences: boolean; lastBody: Session | undefined; localChanged: boolean } | null = null
   #adjacentRelease: (() => void) | null = null
   #listeners = new Set<() => void>()
   readonly #storageListeners = new Set<(usage: import('@harnessdesk/protocol').StorageUsage) => void>()
@@ -1221,7 +1222,6 @@ export class AppStore {
       return
     }
     const key = sessionKey(runtime, id), released = this.#releasedTranscripts.get(key)
-    if (this.#snapshot.adjacentSession?.key === key) this.#adjacentEventRevision++
     if (released) {
       const expected = event.type === 'item/started' || event.type === 'item/completed'
         ? released.awaitedItems.get(event.turnId)?.get(event.item.id) : undefined
@@ -1326,7 +1326,7 @@ export class AppStore {
     if (pending) {
       const result = pending.capture.observe(event, fence, pending.owner)
       if (result === 'duplicate') return
-      if (result === 'unresolved' || result === 'ignored') { pending.eligible = false; this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key); return }
+      if (result === 'unresolved' || result === 'ignored') { if (this.#adjacentReadChanges?.key === key) { this.#adjacentReadChanges.changes.unseen = true; this.#adjacentReadChanges.changes.coverageInvalid = true } pending.eligible = false; this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key); return }
       if ((event.type !== 'item/delta' && event.type !== 'session/status') || (event.type === 'item/delta' && event.delta.kind !== 'assistantText')) {
         pending.eligible = false
         const held = this.#snapshot.sessions.get(key)
@@ -1338,15 +1338,25 @@ export class AppStore {
     if (previous && this.#validTranscriptFence(fence) && fence.epoch === previous.epoch && fence.generation === previous.generation &&
         fence.sequence <= previous.sequence) {
       if (fence.sequence !== previous.sequence || fence.revision !== previous.revision || !cursorEntry?.lastFingerprint ||
-          fingerprint !== cursorEntry.lastFingerprint) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key) }
+          fingerprint !== cursorEntry.lastFingerprint) { if (this.#adjacentReadChanges?.key === key) { this.#adjacentReadChanges.changes.unseen = true; this.#adjacentReadChanges.changes.coverageInvalid = true } this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key) }
       return
     }
     const next = previous && this.#validTranscriptFence(fence) && fence.epoch === previous.epoch && fence.generation === previous.generation &&
       fence.sequence === previous.sequence + 1 && fence.revision >= previous.revision ? fence : null
-    if (previous && !next) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptCursors.delete(key) }
+    if (previous && !next) { if (this.#adjacentReadChanges?.key === key) { this.#adjacentReadChanges.changes.unseen = true; this.#adjacentReadChanges.changes.coverageInvalid = true } this.#transcriptRecoveryBlocked.add(key); this.#transcriptCursors.delete(key) }
     if (next && fingerprint) this.#transcriptCursors.set(key, { watermark: next, lastFingerprint: fingerprint })
     this.#transcriptAuthority.delete(key)
+    const beforeAdjacentEvent = this.#adjacentReadChanges?.key === key ? this.#snapshot.sessions.get(key) : undefined
     this.#onEvent(runtime, event)
+    if (this.#adjacentReadChanges?.key === key) {
+      const owner = this.#adjacentReadChanges, after = this.#snapshot.sessions.get(key)
+      if (owner.collectingFences) {
+        if (beforeAdjacentEvent !== owner.lastBody) owner.localChanged = true
+        owner.changes.observeFence(this.#validTranscriptFence(fence) ? fence : null)
+        owner.lastBody = after
+      }
+      owner.changes.observe(event, beforeAdjacentEvent, after)
+    }
     if (pending) void this.#recoverTranscript(runtime, id, pending)
     const current = this.#snapshot.sessions.get(key)
     if (next && fingerprint && current && entry && !this.#transcriptProtected(key, current)) {
@@ -1401,6 +1411,10 @@ export class AppStore {
         if (notification.method === 'session/cache-invalidated') {
           this.#transcriptChange++
           const key = sessionKey(notification.params.runtime, notification.params.sessionId)
+          if (this.#adjacentReadChanges?.key === key && this.#adjacentReadChanges.collectingFences) {
+            const fence = notification.params.watermark
+            this.#adjacentReadChanges.changes.observeFence(this.#validTranscriptFence(fence) ? fence : null)
+          }
           const released = this.#releasedTranscripts.get(key)
           const cursor = this.#transcriptCursors.get(key)?.watermark, prior = this.#transcriptReproof.get(key)
           const floor = cursor ?? (prior?.change === this.#transcriptChange - 1 && prior.connection === this.#chatConnectionGeneration &&
@@ -3537,6 +3551,7 @@ export class AppStore {
 
   /** A secondary reader owns a visibility lease, never a shared session handle. */
   closeAdjacentSession(): void {
+    this.#adjacentReadChanges = null
     this.#adjacentGeneration++
     this.#adjacentRelease?.()
     this.#adjacentRelease = null
@@ -3546,6 +3561,7 @@ export class AppStore {
   async openAdjacentSession(id: SessionId, runtime: RuntimeId): Promise<void> {
     const subject = this.workSubject()
     if (!subject) return
+    if (this.#snapshot.workbench.navigation.current.kind !== 'work') this.returnToWork()
     const key = sessionKey(runtime, id), generation = ++this.#adjacentGeneration
     const removal = this.#sessionRemovalRevisions.get(key) ?? 0
     const connection = this.#chatConnectionGeneration
@@ -3563,18 +3579,42 @@ export class AppStore {
     const current = () => generation === this.#adjacentGeneration && this.#snapshot.adjacentSession?.key === key &&
       this.workSubject() === subject && (this.#sessionRemovalRevisions.get(key) ?? 0) === removal && this.#chatConnectionGeneration === connection
     let read = false
-    const eventRevision = this.#adjacentEventRevision
+    let changes = new AdjacentReadChanges()
+    const readOwner = { key, changes, collectingFences: !this.#snapshot.sessions.has(key), lastBody: this.#snapshot.sessions.get(key), localChanged: false }
+    this.#adjacentReadChanges = readOwner
     try {
       if (this.#releasedTranscripts.has(key) && !await this.restoreTranscript(runtime, id)) throw new Error('The saved conversation could not be restored.')
       const session = await this.transport.request('session/read', { runtime, sessionId: id })
       if (!current()) return
       if (session.runtime !== runtime || session.id !== id) throw new Error('The conversation returned a different identity.')
-      this.#setAdjacentRead(session, eventRevision)
+      if (readOwner.collectingFences && changes.unseen) {
+        const snapshot = await this.transport.request('session/cache-snapshot', { runtime, sessionId: id })
+        if (!current() || this.#adjacentReadChanges !== readOwner) return
+        const observed = changes.coverage
+        const held = this.#snapshot.sessions.get(key)
+        if (!snapshot || changes.coverageInvalid || readOwner.localChanged || held !== readOwner.lastBody || !observed || !this.#validTranscriptFence(snapshot.watermark) ||
+            snapshot.watermark.epoch !== observed.epoch || snapshot.watermark.generation !== observed.generation ||
+            snapshot.watermark.sequence < observed.sequence || snapshot.watermark.revision < observed.revision ||
+            (snapshot.watermark.sequence === observed.sequence && snapshot.watermark.revision !== observed.revision) ||
+            snapshot.session.runtime !== runtime || snapshot.session.id !== id || !snapshot.session.itemsLoaded || snapshot.session.partialHistory ||
+            !/^[a-f0-9]{64}$/.test(snapshot.identity) ||
+            transcriptFingerprint(canonicalTranscriptBody(snapshot.session.turns).canonical) !== snapshot.identity ||
+            this.#transcriptPending.has(key) || this.#releasedTranscripts.has(key) || this.#transcriptOrphans.size > 0 || this.#releasedOrphans.length > 0) {
+          throw new Error('The conversation changed without a covering snapshot. Retry to refresh it.')
+        }
+        this.#setSession(preserveAdjacentLocal(snapshot.session, held), true)
+        changes = new AdjacentReadChanges()
+        readOwner.changes = changes
+        readOwner.collectingFences = false
+      } else {
+        this.#setAdjacentRead(session, changes)
+        readOwner.collectingFences = false
+      }
       read = true
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       if (!current()) return
       if (live.runtime !== runtime || live.id !== id) throw new Error('The conversation returned a different identity.')
-      this.#setAdjacentRead(live, eventRevision)
+      this.#setAdjacentRead(live, changes)
       // A successful reopen is evidence that this folder is no longer missing.
       this.#lastResumeRefusal.delete(key)
       if (this.#snapshot.foldersGone.has(live.cwd)) {
@@ -3585,25 +3625,15 @@ export class AppStore {
       this.#patch({ adjacentSession: { key, subject, loading: false, error: null } })
     } catch (error) {
       if (current()) this.#patch({ adjacentSession: { key, subject, loading: false, error: `${read ? 'Could not resume: ' : 'Could not read: '}${describe(error)}` } })
-    } finally { operation() }
+    } finally { if (this.#adjacentReadChanges === readOwner) this.#adjacentReadChanges = null; operation() }
   }
 
   /** A read has no sequence fence: keep events observed after it began. */
-  #setAdjacentRead(read: Session, eventRevision: number): void {
+  #setAdjacentRead(read: Session, changes: AdjacentReadChanges): void {
     const key = sessionKey(read.runtime, read.id), held = this.#snapshot.sessions.get(key)
-    if (!held || (this.#adjacentEventRevision) === eventRevision) { this.#setSession(read); return }
-    // An unfenced read may predate a turn that started and settled while it
-    // was pending. The event stream, not the stale read, owns that turn.
-    const merged = mergeRead(held, read, () => true)
-    const turns = new Map(held.turns.map(turn => [turn.id, turn]))
-    const combined = merged.turns.map(turn => {
-      const newer = turns.get(turn.id)
-      if (!newer) return turn
-      const items = new Map(turn.items.map(item => [item.id, item]))
-      for (const item of newer.items) items.set(item.id, item)
-      return { ...turn, ...newer, items: [...items.values()] }
-    })
-    this.#setSession({ ...merged, turns: combined })
+    if (changes.unseen) throw new Error('The conversation changed without a complete event sequence. Retry to refresh it.')
+    if (!held || !changes.observed) { this.#setSession(read); return }
+    this.#setSession(reconcileAdjacentRead(held, read, changes), true)
   }
 
   /**
@@ -9876,7 +9906,7 @@ export class AppStore {
 
   readonly #pendingConversationNotices = new PendingConversationNotices()
 
-  #setSession(session: Session): void {
+  #setSession(session: Session, reconciled = false): void {
     this.#transcriptChange++
     this.#transcriptAuthority.delete(sessionKey(session.runtime, session.id))
     this.#transcriptReceipts.delete(sessionKey(session.runtime, session.id))
@@ -9892,7 +9922,7 @@ export class AppStore {
     const read = existing?.archived !== undefined && session.archived === undefined
       ? { ...session, archived: existing.archived }
       : session
-    sessions.set(key, existing ? mergeRead(existing, read) : read)
+    sessions.set(key, existing && !reconciled ? mergeRead(existing, read) : read)
     this.#patch({ sessions })
   }
 
