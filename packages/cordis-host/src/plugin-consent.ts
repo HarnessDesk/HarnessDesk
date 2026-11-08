@@ -123,14 +123,16 @@ export class ConsentRecord {
       // Only a record that does not exist yet is empty. One that cannot be
       // read is not: treating it as empty would record whatever manifest is
       // on disk now as the one agreed to.
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return Object.create(null) as Record<string, Entry>
       throw new Error(`The plugin consent record at ${this.path} cannot be read: ${(error as Error).message}`)
     }
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       throw new Error(`${this.path} is not a consent record.`)
     }
-    const out: Record<string, Entry> = {}
+    // No prototype: a plugin may be called `constructor`, and its absent
+    // entry must read as absent, not as what every object inherits.
+    const out = Object.create(null) as Record<string, Entry>
     for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
       const manifest = (value as { manifest?: unknown } | null)?.manifest
       // An entry that is there but unreadable is not an absent one: dropped,
