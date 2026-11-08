@@ -1,0 +1,28 @@
+{
+  "issue": 1752,
+  "head": "ba68383b27c1be33eaf2b29a962c0e0c89efb74c",
+  "tree": "40aaf6c5936c47a11c1d48a693c1bbc691c6e05f",
+  "surface": "isolated Electron synthetic desk; live read-only adjacent conversation",
+  "privacy": "All originals independently inspected; 13 original audits and four refusal controls passed.",
+  "frames": [
+    {
+      "name": "adjacent-light.png",
+      "sha256": "5b241ec4a278178f168f5f9e76b71eb743e8f92fc3ce75752bf2e5d103707975",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "adjacent-dark.png",
+      "sha256": "f8cecb4b6a9b52aaabefaed8f51e2b0032dc787951bf65d1a865c33d13fac85f",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "adjacent-closed-main-light.png",
+      "sha256": "d6327cae9229c130852737acf0a618460438e69b61801a40579ce8726881bf56",
+      "width": 2560,
+      "height": 1680
+    }
+  ],
+  "limits": "Two authenticated clients share one host; no real provider or pending approval. A cropped 720px emulation frame is withheld and is not responsive or native-resize proof."
+}
