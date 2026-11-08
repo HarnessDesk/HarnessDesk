@@ -14,6 +14,7 @@ import { EvidenceStore } from '../src/evidence/store.js'
 import { projectOf } from '../src/evidence/revision.js'
 import { HoldFake, HOLD_CEILINGS } from './fixtures/hold-runtime.js'
 import { answer, board, claimed, desk, E2E, execution, git, scopeOf, whenChanged } from './fixtures/flow-host-evidence.js'
+import { registerReviewTargetCleanup } from './fixtures/review-target-cleanup.js'
 
 const execute = promisify(execFile)
 const source = `version: 2
@@ -34,29 +35,44 @@ export function registerReviewTargetCases(modes: readonly ReviewTargetMode[]): v
   for (const mode of modes) test(`public Host ${mode === 'reused-turn' ? 'refuses a reused retired Flow turn ID' : mode === 'delayed-person' ? 'recognizes a later person turn whose start event arrives after acceptance' : mode === 'retired-allow' ? 'merges after an explicit later person allows the disclosed question' : mode === 'late-manual' ? 'refuses a late manual answer from a retired person turn' : mode === 'held-retirement' ? 'keeps an old in-flight merge fenced across Seat retirement' : mode === 'retired-internal-queue' ? 'keeps an internal queued request guarded after Seat retirement' : mode === 'retired-busy-queue' ? 'offers a manual decision for a later busy composer queue after Seat retirement' : mode === 'retired-old-queue' ? 'keeps a message queued before Seat retirement guarded' : mode === 'retired-queue' ? 'offers a manual decision for a later idle composer queue after Seat retirement' : mode === 'retired-person' ? 'offers a manual decision for a later person turn after Seat retirement' : mode === 'person-stale' ? 'explains the moved base to the person' : mode.endsWith('-stale') ? `explains ${mode} to the reviewer` : mode === 'bound' ? 'authorizes its exact target' : mode === 'unpinned' ? 'does not promote an unpinned review after pinning' : mode === 'closed' ? 'refuses a PR closed before review' : mode === 'pr-observation' ? 'records the explicit PR observation' : 'does not fall back after release'} through the Git plugin and gateway`, E2E, async t => {
   const pinned = mode !== 'unpinned'
   const temp = await mkdtemp(join(tmpdir(), 'hd-601-host-')), bin = join(temp, 'bin'), state = join(temp, 'forge.json'), trace = join(temp, 'trace.ndjson')
+  const prior = { PATH: process.env.PATH, FAKE_GH_STATE: process.env.FAKE_GH_STATE, FAKE_GH_TRACE: process.env.FAKE_GH_TRACE }
+  let host: Awaited<ReturnType<typeof desk>>['host'] | undefined
+  let kernel: ExtensionKernel | undefined
+  let releaseRead: () => void = () => {}
+  const pending = new Set<Promise<unknown>>()
+  const controllers = new Set<AbortController>()
+  const track = <T>(work: Promise<T>): Promise<T> => {
+    pending.add(work)
+    void work.then(() => pending.delete(work), () => pending.delete(work))
+    return work
+  }
+  registerReviewTargetCleanup(fn => t.after(fn), {
+    release: () => { releaseRead(); for (const controller of controllers) controller.abort() },
+    disposeHost: async () => { await host?.dispose() },
+    disposeKernel: async () => { await kernel?.dispose() },
+    drain: async () => { while (pending.size) await Promise.allSettled([...pending]) },
+    restore: () => {
+      setForgeEngine(null)
+      for (const [key, value] of Object.entries(prior)) if (value === undefined) delete process.env[key]; else process.env[key] = value
+    },
+    remove: () => rm(temp, { recursive: true, force: true }),
+  })
   await mkdir(bin)
   const ghPath = join(bin, 'gh')
   await copyFile(fileURLToPath(new URL('./fixtures/fake-gh.mjs', import.meta.url)), ghPath)
   await chmod(ghPath, 0o755)
-  const prior = { PATH: process.env.PATH, FAKE_GH_STATE: process.env.FAKE_GH_STATE, FAKE_GH_TRACE: process.env.FAKE_GH_TRACE }
   Object.assign(process.env, { PATH: `${bin}:${process.env.PATH}`, FAKE_GH_STATE: state, FAKE_GH_TRACE: trace })
-  t.after(async () => {
-    setForgeEngine(null)
-    for (const [key, value] of Object.entries(prior)) if (value === undefined) delete process.env[key]; else process.env[key] = value
-    await rm(temp, { recursive: true, force: true })
-  })
-  let unreadable = false, holdRead = false, entered!: () => void, releaseRead!: () => void
+  let unreadable = false, holdRead = false, entered!: () => void
   const readEntered = new Promise<void>(resolve => { entered = resolve })
   const readHeld = new Promise<void>(resolve => { releaseRead = resolve })
-  t.after(() => releaseRead())
-  const fakeGh = async (args: readonly string[], cwd: string) => {
+  const fakeGh = (args: readonly string[], cwd: string) => track((async () => {
     if (unreadable && args[0] === 'pr' && args[1] === 'view') return { stdout: '', stderr: 'synthetic failure', exitCode: 1 }
     if (holdRead && args[0] === 'pr' && args[1] === 'view') { holdRead = false; entered(); await readHeld }
     try { const result = await execute(process.execPath, [ghPath, ...args], { cwd, env: process.env }); return { ...result, exitCode: 0 } }
     catch (error) { const e = error as { stdout?: string; stderr?: string }; return { stdout: e.stdout ?? '', stderr: e.stderr ?? '', exitCode: 1 } }
-  }
+  })())
   let gateway!: GitGateway
-  const d = await desk(t, undefined, { evidenceGh: fakeGh, gatewayFactory: (stateDir) => gateway = new GitGateway({ directory: join(stateDir, 'gateway'), stateDirectory: stateDir, gh: (cwd, args) => fakeGh(args, cwd) }) })
+  const d = await desk(t, undefined, { registerHostCleanup: created => { host = created }, evidenceGh: fakeGh, gatewayFactory: (stateDir) => gateway = new GitGateway({ directory: join(stateDir, 'gateway'), stateDirectory: stateDir, gh: (cwd, args) => fakeGh(args, cwd) }) })
   await git(d.root, 'remote', 'add', 'origin', 'https://github.com/acme/widgets.git')
   const mergeBase = await git(d.root, 'rev-parse', 'HEAD')
   await git(d.root, 'checkout', '-q', 'main')
@@ -148,8 +164,7 @@ export function registerReviewTargetCases(modes: readonly ReviewTargetMode[]): v
   const [merger] = await claimed(d, run.goal, 'merger', 1)
   if (!pinned) await gateway.pins.pin(d.root, 'acme/widgets', { kind: 'person', id: 'fixture-person' })
   setForgeEngine(d.host.forgePlane)
-  const kernel = new ExtensionKernel()
-  t.after(() => kernel.dispose())
+  kernel = new ExtensionKernel()
   await kernel.load(gitPlugin)
   await new Promise(resolve => setTimeout(resolve, 60))
   kernel.setWorkspace({ root: d.root, branch: 'work' })
@@ -198,7 +213,9 @@ export function registerReviewTargetCases(modes: readonly ReviewTargetMode[]): v
     let heldInvocation: ReturnType<typeof kernel.invokeTool> | null = null
     if (mode === 'held-retirement') {
       holdRead = true
-      heldInvocation = kernel.invokeTool(tool.id, { number: 7, head }, { ...scopeOf(merger!), turnId: oldTurn, signal: new AbortController().signal } as never)
+      const controller = new AbortController()
+      controllers.add(controller)
+      heldInvocation = track(kernel.invokeTool(tool.id, { number: 7, head }, { ...scopeOf(merger!), turnId: oldTurn, signal: controller.signal } as never))
       await readEntered
     }
     const before = await d.host.call('goal/read', { goal: run.goal })
@@ -275,7 +292,8 @@ export function registerReviewTargetCases(modes: readonly ReviewTargetMode[]): v
     })
     t.after(off)
     const controller = new AbortController()
-    const invoked = kernel.invokeTool(tool.id, { number: 7, head }, { ...scopeOf(merger!), turnId, signal: controller.signal } as never)
+    controllers.add(controller)
+    const invoked = track(kernel.invokeTool(tool.id, { number: 7, head }, { ...scopeOf(merger!), turnId, signal: controller.signal } as never))
     const first = await Promise.race([asked.then(value => ({ kind: 'question' as const, value })), invoked.then(value => ({ kind: 'result' as const, value }))])
     assert.equal(first.kind, 'question', JSON.stringify(first))
     if (first.kind !== 'question') return
