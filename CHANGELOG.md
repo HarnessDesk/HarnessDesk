@@ -5,7 +5,9 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.7.0 — 2026-11-08
+
+Every installed plugin runs in a process of its own and reaches only what you granted. The optional Lead becomes a conversation that starts, follows and wraps up work, with a right rail for its plan and spend, and your phone reaches this Mac away from home, reviews work and starts sessions. An agent's accounts take turns, usage reads one standing everywhere, and simulator tools no longer need the mouse.
 
 - **Each installed plugin runs on its own.** Every plugin you install gets a process of its own, so a crash or a hang stops only that plugin, and it is held to what you agreed to when you installed it: if its manifest changes afterwards, it stays off until you install it again. What is installed is the manifest you were shown: if the source changes between reading it and confirming, the install is refused, and **Update from source** now shows the new manifest before it installs.
 - **An installed plugin reaches only what you granted.** Its process cannot read outside its own folder, write files, open connections, start programs or signal other programs by itself; HarnessDesk does those for it, within the permissions you agreed to. Where no runtime can confine it, it runs as before and the plugin host says why. A plugin package with a link leading outside it is refused at install.
@@ -21,6 +23,9 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Wrap a Lead's Teams from your phone.** Once you accept the Lead's result, each of its Teams offers Wrap up: the desk closes it with its own receipt and keeps every branch. Two Teams of one goal are named by their plan step, a worker's question the Lead already asks you is listed once, and the result card says which commits to check and which the review read.
 
+- **The Lead's spending limit is Off by default.** Set one in Lead settings or from your phone. A plan the Lead drafts never goes past a limit you set, and a plan you approved keeps its figure. An untouched $1 limit from an earlier version becomes Off; a figure you chose is kept.
+- **The Lead keeps answering in long conversations.** When the Lead spoke first, or a conversation grew past what one request holds, every later message was refused before it was sent. It now sends the latest turns that fit, and a request that could not be sent says nothing was spent.
+
 - **The Lead waits, then asks when a delegated chat gets stuck.** It retries on the provider’s reset clock at most twice, then offers retry, move to another available agent with the original request and progress, or stop.
 - **Lead calls work done only with evidence.** Reviews that say “should work” no longer pass, and checks that could not run ask for another check instead of a pointless repair round. Repairs focus on what failed.
 
@@ -31,13 +36,13 @@ move is real work and is not news to a person weighing an upgrade.
 - **Chats the Lead starts say what they are for.** A chat the Lead starts is named by the task it was given, not "Lead message from …", and your phone lists a chat the Lead directs as the Lead's until you take it over. The Lead names a chat by its task when it tells you about it, never by an id.
 - **The Lead always answers your message.** When a desk change arrived in the middle of your turn, the Lead could finish the work you asked for and say nothing, which left your message looking unanswered and let Resume start the same work a second time. It now always replies once its work for your message is done. Resume after a failed or silent turn also tells the Lead which chats it already started, so it does not start them again.
 
-- **Review work from your phone.** Conversations show your words without desk context wrappers, with bounded, scrubbed command output and diff lines. New sessions can choose the agent's model and effort.
+- **Review work from your phone.** Conversations show your words without desk context wrappers, with bounded, scrubbed command output and diff lines. New sessions can start on any ready agent and choose its model and effort.
 
 - **Lead works when running from source.** Development startup fetches the same verified runtime bundled with the app, and continues if the download is unavailable.
 
 - **Your phone reaches this Mac away from its Wi-Fi.** With your HarnessDesk account signed in, turn on Settings › Account › Reachable from your phone. Paired phones then connect through your account when they are not on the same network, still end-to-end encrypted, and the pairing code works away from home. Reachable says Connected, Connecting… or Can’t reach HarnessDesk, and Settings › Phone says how each phone is connected.
 
-- **The Lead page has a right rail.** It shows the goal, its plan step by step, the workers the current step seats and what the goal has spent against its limit. The dollar and round limits move from under the composer to the rail's Spend card; its toggle sits in the top bar, and the rail stays open until you close it.
+- **The Lead page has a right rail.** It shows the goal, its plan step by step, the workers the current step seats and what the goal has spent against its limit. The dollar and round limits move from under the composer to the rail's Spend card; its toggle sits in the top bar, and the rail stays open until you close it. With no folder open, the page greets you by the Lead's name with Open folder instead of a warning.
 
 - **Settings, the right panel and the dashboard draw each group as one card.** Groups sit on the main ground with a clear edge, Settings labels line up with the main column, and counts and times read a clear step quieter than prose. Settings › Appearance › Surface adds Sheet, which lays the same groups flat with a line between them.
 
@@ -74,6 +79,14 @@ move is real work and is not news to a person weighing an upgrade.
 - **Overview seat states and costs stay readable in narrow panes.** Facts move below the name when they need more room.
 
 - Messages the Lead sends into a chat now say so, and you can take a chat over from the Lead and hand it back. Temporary control-read failures retry without asking you to reset your holds.
+
+- **Removing a worktree warns about ignored files even when Git hides untracked files.** A Git setting that leaves untracked files out of status no longer hides them from the confirmation.
+
+- **An unanswered browser sign-in returns to its choices.** After five minutes without an answer, an agent's browser sign-in stops waiting and offers its sign-in methods again, without signing the agent out.
+
+- **Overview counts the turns it knows.** When some days' turns are missing, Overview shows the partial total and leaves out a trend it cannot draw, and the heatmap's today ring stays in place while it scrolls.
+
+- **Flow thumbnails keep loops clear of other arrows.**
 
 - **Renamed files no longer create a false ignored-file warning.** A staged rename whose original name starts with `!! ` is no longer mistaken for an ignored file when removing a worktree.
 
