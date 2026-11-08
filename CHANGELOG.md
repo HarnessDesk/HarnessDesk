@@ -7,6 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Simulator input on Intel builds needs an Intel-capable Xcode.** With an Xcode whose simulator frameworks are Apple silicon only, the Intel build's simulator input is unavailable; the app stays usable.
+
+- **Ask in chat keeps the removed text you selected.** An editor redraw or scroll no longer replaces the quote with an older selection from the current file.
+
 - **Read another conversation on the right.** Open a conversation as a live, read-only transcript while keeping the current conversation and composer in place. Closing the reader leaves that conversation open.
 
 ## 0.7.0 — 2026-11-08

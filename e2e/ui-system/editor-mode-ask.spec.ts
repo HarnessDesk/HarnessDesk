@@ -47,6 +47,8 @@ for (const theme of ['light', 'dark'] as const) test(`Ask quotes Source, Changes
   await page.keyboard.insertText('\n' + 'unchanged follow-up line\n'.repeat(50))
   await select(main.locator('.cm-line').filter({ hasText: 'Checkout' }).first())
   const removed = await select(main.locator('.cm-deletedText').first())
+  // A redraw restores CodeMirror's previous document selection into the DOM.
+  await page.evaluate(() => { (document.querySelector('[data-slot=editor-main] .cm-content') as any).cmTile.root.view.dispatch({}) })
   await expect(action).toBeVisible()
   const draftBeforeRemoved = await composer.inputValue()
   const scrolled = await main.locator('.cm-scroller').evaluate(node => {

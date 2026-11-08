@@ -114,7 +114,8 @@ export interface CodeViewProps {
   readonly decorations?: readonly UiDecoration[]
   /** Full value for simple consumers; applyTo rebases actual edits onto a shared peer document. */
   readonly onChange?: (value: string, applyTo: (latest: string) => string) => void
-  readonly onSelection?: (selection: EditorSelection | null) => void
+  /** selectionChanged marks an explicit engine selection, excluding app document sync. */
+  readonly onSelection?: (selection: EditorSelection | null, selectionChanged?: boolean) => void
   /** Cmd/Ctrl+S. The pane decides what saving means; the editor only reports it. */
   readonly onSave?: () => void
   readonly ariaLabel?: string
@@ -171,18 +172,18 @@ export const EditorSurface = ({
   // when the view was built.
   const onSelectionRef = useRef(onSelection)
   onSelectionRef.current = onSelection
-  const reportSelection = (current: EditorView): void => {
+  const reportSelection = (current: EditorView, selectionChanged = false): void => {
     // Removed text is a native widget selection, not a range in the current
     // document. FileView owns its quote and refreshes its geometry on scroll.
     const native = current.dom.ownerDocument.getSelection()
     const anchor = native?.anchorNode
     const deleted = (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('.cm-deletedChunk')
-    if (native && !native.isCollapsed && deleted && current.dom.contains(deleted)
+    if (!selectionChanged && native && !native.isCollapsed && deleted && current.dom.contains(deleted)
       && native.focusNode && current.dom.contains(native.focusNode)) return
     const { from, to, empty } = current.state.selection.main
-    if (empty) { onSelectionRef.current?.(null); return }
+    if (empty) { onSelectionRef.current?.(null, selectionChanged); return }
     const at = current.coordsAtPos(from)
-    onSelectionRef.current?.({ source: current.state.doc.toString(), from, to, rect: at ? new DOMRect(at.left, at.top, at.right - at.left, at.bottom - at.top) : null })
+    onSelectionRef.current?.({ source: current.state.doc.toString(), from, to, rect: at ? new DOMRect(at.left, at.top, at.right - at.left, at.bottom - at.top) : null }, selectionChanged)
   }
 
   const onChangeRef = useRef(onChange)
@@ -257,7 +258,7 @@ export const EditorSurface = ({
         ]),
         keymap.of(editingKeymap),
         EditorView.updateListener.of((update) => {
-          if (update.selectionSet || update.docChanged) reportSelection(update.view)
+          if (update.selectionSet || update.docChanged) reportSelection(update.view, update.selectionSet && update.transactions.some(transaction => transaction.selection && !transaction.annotation(Sync)))
           if (update.docChanged || update.transactions.some((transaction) => transaction.effects.some((effect) => effect.is(updateOriginalDoc)))) {
             reportCounts(update.state)
           }
