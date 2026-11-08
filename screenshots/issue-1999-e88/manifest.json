@@ -1,0 +1,25 @@
+{
+  "scope": "synthetic preview rendering only",
+  "sourceHead": "e88adba76572de80bf1d1668a247ec5b973ebcc2",
+  "sourceTree": "4e010df8c747a283c50cc17774aa4ce10f0acb7b",
+  "nativeLeadDispatchVerified": false,
+  "actualHostRegressionEvidence": "PR validation records",
+  "parentInspectedOriginals": true,
+  "preAndPostTextAccountAuditPassed": true,
+  "guestDocuments": 0,
+  "offOriginRequestsObserved": 0,
+  "frames": [
+    {
+      "name": "queued-unconfirmed-light.png",
+      "sha256": "4d4ab5ea2bf0474a843da3e17ef143b2556dc90d9e54ef7c8658451c0540edf1",
+      "width": 1280,
+      "height": 1000
+    },
+    {
+      "name": "queued-unconfirmed-dark.png",
+      "sha256": "f9d9f94a1c43473b54d9574623b833a8b68bcd4bc3f7031956d4ff68599e6cb1",
+      "width": 1280,
+      "height": 1000
+    }
+  ]
+}
