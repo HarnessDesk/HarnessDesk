@@ -5,6 +5,10 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **Read another conversation on the right.** Open a conversation as a live, read-only transcript while keeping the current conversation and composer in place. Closing the reader leaves that conversation open.
+
 ## 0.7.0 — 2026-11-08
 
 Every installed plugin runs in a process of its own and reaches only what you granted. The optional Lead becomes a conversation that starts, follows and wraps up work, with a right rail for its plan and spend, and your phone reaches this Mac away from home, reviews work and starts sessions. An agent's accounts take turns, usage reads one standing everywhere, and simulator tools no longer need the mouse.
@@ -13,8 +17,6 @@ Every installed plugin runs in a process of its own and reaches only what you gr
 - **An installed plugin reaches only what you granted.** Its process cannot read outside its own folder, write files, open connections, start programs or signal other programs by itself; HarnessDesk does those for it, within the permissions you agreed to. Where no runtime can confine it, it runs as before and the plugin host says why. A plugin package with a link leading outside it is refused at install.
 
 - **The first conversation waits for a stored key.** When an agent must be told to use its stored key, a conversation no longer opens before that switch settles.
-
-- **Read another conversation on the right.** Open a conversation as a live, read-only transcript while keeping the current conversation and composer in place. Closing the reader leaves that conversation open.
 
 - **Control a simulator without owning the mouse.** On Xcode 27, simulator tools use a bundled native helper for taps, long presses, swipes, timed drags, pinch and rotation gestures, US-layout text, keys and physical buttons. Input and its screenshot stay on the chosen device. When native input is unavailable, taps alone retain the previous Simulator-window `cliclick` path; newer input tools refuse. Software-keyboard show/hide, device rotation and deterministic lock report that they are not yet verified.
 
