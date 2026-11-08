@@ -18,32 +18,44 @@ import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
 test('the native rig previews Independent review through the Task step and starts its held build Seat', async (t) => {
+  // The timeout may fire during seeding; register disposal before any await.
+  let host: Host | undefined
+  t.after(async () => { await host?.dispose() })
   const base = tempDir('hd-front-door-rig-')
   const home = join(base, 'home')
   const work = join(base, 'work')
   const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
   await promisify(execFile)(process.execPath, [join(repoRoot, 'script/shots/seed.mjs')], {
     env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '1' },
+    signal: t.signal,
   })
-  const host = new Host({ logger: silent, state: new StateStore(join(home, 'state.json')), catalogRefreshMs: 0 })
+  // A timed-out test can continue after an awaited operation settles.
+  t.signal.throwIfAborted()
+  host = new Host({ logger: silent, state: new StateStore(join(home, 'state.json')), catalogRefreshMs: 0 })
   const codex = new CodexRuntime({ binaryPath: join(repoRoot, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'), codexHome: join(home, 'codex-home') })
   host.register(codex)
   const agents = JSON.parse(await readFile(join(home, 'agents.json'), 'utf8')) as { agents: AcpAgentConfig[] }
+  t.signal.throwIfAborted()
   for (const config of agents.agents) host.register(new AcpRuntime(config))
-  t.after(() => host.dispose())
   await host.start()
+  t.signal.throwIfAborted()
   const root = join(work, 'storefront')
   await host.call('workspace/open', { path: root })
+  t.signal.throwIfAborted()
   const source = await readFile(join(builtinFlowRoot(), 'independent-review.yml'), 'utf8')
+  t.signal.throwIfAborted()
   // The dialog first learns the shape's inputs with no values, then reads
   // again after Task is filled. A refusal still has to return those inputs.
   const learn = await host.call('authoring/start/preview', { context: { kind: 'project', root }, source, vars: {} })
+  t.signal.throwIfAborted()
   assert.equal(learn.flow.compiled?.document.format, 'agents')
   if (learn.flow.compiled?.document.format === 'agents') assert.deepEqual(learn.flow.compiled.document.flow.inputs.map(({ id, label }) => ({ id, label })), [{ id: 'task', label: 'Task' }])
   const preview = await host.call('authoring/start/preview', { context: { kind: 'project', root }, source, vars: { task: 'Add 502 to the retryable status set' } })
+  t.signal.throwIfAborted()
   assert.ok(preview.flow.token, JSON.stringify(preview.flow.problems))
   assert.deepEqual(preview.flow.seats.find((seat) => seat.role === 'build')?.plan.ceiling, { level: 'edit', hold: 'held' })
   const run = await host.call('flow/start-goal', { root, source, token: preview.flow.token, sentence: 'Ship it once every specialist approves', vars: preview.vars })
+  t.signal.throwIfAborted()
   assert.notEqual(run.state, 'stopped', JSON.stringify(run))
   assert.equal(run.requireHeld, true)
   assert.equal((await host.call('goal/read', { goal: run.goal })).board.intents[0]?.state, 'claimed')
