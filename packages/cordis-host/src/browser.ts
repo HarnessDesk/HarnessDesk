@@ -209,10 +209,46 @@ const scopes = new BrowserScopes<BrowserState>(
   (identity) => currentBrowserIdentity()?.invocation === identity.invocation,
 )
 
-/** Replaces the Chrome engine — the desktop shell does, with its own pane. */
-export const setBrowserEngine = (engine: BrowserEngine | null): void => {
+/**
+ * Whether the installed engine serves every placement, not only the pane. A
+ * plugin's confined process cannot start Chrome or hand a URL to the OS
+ * itself, so its parent does both, by the same settings.
+ */
+let everyPlacement = false
+
+/**
+ * Replaces the Chrome engine — the desktop shell does, with its own pane. A
+ * confined plugin process installs its parent's engine for every placement.
+ */
+export const setBrowserEngine = (engine: BrowserEngine | null, options: { readonly everyPlacement?: boolean } = {}): void => {
   installedEngine = engine
+  everyPlacement = engine !== null && options.everyPlacement === true
   for (const [, state] of scopes.entries()) state.events = []
+}
+
+/** How a URL reaches the person's default browser: the OS here, the parent in a confined process. */
+let systemHandOff = (url: string): Promise<void> => handToSystem(url)
+
+export const setSystemHandOff = (handOff: ((url: string) => Promise<void>) | null): void => {
+  systemHandOff = handOff ?? ((url) => handToSystem(url))
+}
+
+/**
+ * The files a page's work touches, when another process owns them. A
+ * confined process can write no file and read none of the workspace, so the
+ * parent writes its saved PDFs and looks for the files it uploads.
+ */
+export interface BrowserFiles {
+  /** Writes a saved PDF (base64) under `name`, where it lives as long as the plugin's process; resolves to its path. */
+  savePdf(data: string, name: string): Promise<string>
+  /** The paths among these that name no file. */
+  missing(paths: readonly string[]): Promise<readonly string[]>
+}
+
+let hostFiles: BrowserFiles | null = null
+
+export const setBrowserFiles = (files: BrowserFiles | null): void => {
+  hostFiles = files
 }
 
 /**
@@ -244,6 +280,7 @@ export const browserSettingsForProfile = (settings: BrowserSettings, profile: st
 const settingsFor = (state: BrowserState): BrowserSettings => browserSettingsForProfile(settings, state.profile)
 
 const engine = (state = scopes.current()): BrowserEngine => {
+  if (everyPlacement && installedEngine) return installedEngine
   switch (settingsFor(state).placement) {
     case 'window':
       return chromeFor(state)
@@ -352,7 +389,7 @@ export interface NetworkEntry {
  * space (round 1). A name with nothing left is `page`. What Windows forbids
  * besides is left alone: the desktop app ships for macOS only.
  */
-const pdfName = (title: string | undefined): string => {
+export const pdfName = (title: string | undefined): string => {
   const whole = String(title ?? '')
     .replace(/[\x00-\x1f/\\:]/g, '-')
     .trim()
@@ -486,7 +523,7 @@ export class BrowserService extends Service {
     currentBrowserIdentity(currentActor() === 'agent')
     const state = scopes.current()
     if (settingsFor(state).placement === 'system') {
-      await handToSystem(url)
+      await systemHandOff(url)
       return { url, title: '', handedOff: true }
     }
     const cdp = await this.reach()
@@ -581,7 +618,9 @@ export class BrowserService extends Service {
     options: { landscape?: boolean; printBackground?: boolean; name?: string } = {},
   ): Promise<{ path: string; bytes: number }> {
     const url = await this.pdf(options)
-    const data = Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')
+    const encoded = url.slice(url.indexOf(',') + 1)
+    const data = Buffer.from(encoded, 'base64')
+    if (hostFiles) return { path: await hostFiles.savePdf(encoded, pdfName(options.name)), bytes: data.length }
     /* The folder lives as long as the plugin that asked for it, which for a
        built-in is the desk: nothing else would remove it (review of #187,
        round 1). `this.ctx` is the caller's scope, the one the gate reads. The
@@ -760,7 +799,7 @@ export class BrowserService extends Service {
   /** Hands a file input real files, which only the browser can do. */
   async upload(ref: string, files: readonly string[]): Promise<void> {
     const cdp = await this.reach()
-    const missing = files.filter((file) => !existsSync(file))
+    const missing = hostFiles ? await hostFiles.missing(files) : files.filter((file) => !existsSync(file))
     if (missing.length) throw new Error(`No file at ${missing.join(', ')}.`)
     await cdp.send('DOM.enable')
     const handle = (await cdp.send('Runtime.evaluate', {
@@ -1454,6 +1493,48 @@ const chromeFor = (state: BrowserState): BrowserEngine => ({
     if (disposable) rmSync(disposable, { recursive: true, force: true })
   },
 })
+
+/**
+ * The browser a confined plugin process drives, run in its parent: the
+ * placement the settings name for the identity's profile, as the process
+ * would have chosen itself — `pane` when this process has one, a separate
+ * Chrome otherwise, and the refusal `system` gives for anything but opening.
+ */
+export const placedBrowserEngine = (pane: BrowserEngine | null): BrowserEngine => {
+  const placed = (identity: BrowserIdentity | undefined): BrowserEngine => {
+    const state = scopes.forProfile(identity?.profile ?? 'default')
+    switch (settingsFor(state).placement) {
+      case 'window':
+        return chromeFor(state)
+      case 'system':
+        return systemEngine
+      default:
+        return pane ?? chromeFor(state)
+    }
+  }
+  return {
+    ensure: (identity) => placed(identity).ensure(identity),
+    close: (identity) => placed(identity).close(identity),
+  }
+}
+
+/**
+ * Hands a page to the person's default browser for a confined plugin
+ * process. Only a web address: `open` would start an application or open a
+ * file for any other scheme, which is not what "open this page" grants.
+ */
+export const handPageToSystem = async (url: string): Promise<void> => {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error('Only a web address can be opened in the default browser.')
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Only a web address can be opened in the default browser.')
+  }
+  await handToSystem(parsed.href)
+}
 
 export const chromeEngine: BrowserEngine = {
   ensure: () => chromeFor(scopes.forProfile('default')).ensure(),

@@ -1,3 +1,7 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { connect } from 'node:net'
 import { createInterface } from 'node:readline'
 
 import {
@@ -7,10 +11,18 @@ import {
   iosReplyTimeoutMs, currentIosInvocation, withIosInvocation, type IosCapability,
   setBrowserEngine,
   setBrowserSettings,
+  setSystemHandOff,
+  setBrowserFiles,
+  currentBrowserIdentity,
   setEditorEngine,
   setTeamEngine,
   setForgeEngine,
+  setCapabilityBroker,
+  capabilityWorkMs,
+  runBrowserInvocation,
+  PermissionDenied,
   type BrowserEngine,
+  type CapabilityRequest,
   type EditorEngine,
   type TeamEngine,
   type ForgeEngine,
@@ -43,6 +55,69 @@ import type { PluginPermissions } from '@harnessdesk/protocol'
  * stdout carries protocol lines only; the kernel's own logging goes to
  * stderr, where the parent forwards it to the diagnostics log.
  */
+
+/**
+ * Probe mode: the parent asking whether this runtime confines a plugin
+ * (`probePluginRuntime` in confinement.ts). Everything above has loaded, so
+ * the grants cover the whole module graph; what follows tries the three
+ * things a confined process must be refused, answers in one line, and exits.
+ */
+const probeAt = process.argv.indexOf('--probe')
+if (probeAt !== -1) {
+  const errorCode = (error: unknown): string => String((error as { code?: unknown } | null)?.code ?? 'ERR')
+  const report: Record<string, string> = { version: process.version }
+  try {
+    readFileSync(process.argv[probeAt + 2] ?? '')
+    report['fs'] = 'read'
+  } catch (error) {
+    report['fs'] = errorCode(error)
+  }
+  try {
+    execFileSync(process.execPath, ['--version'], { stdio: 'ignore' })
+    report['spawn'] = 'ran'
+  } catch (error) {
+    report['spawn'] = errorCode(error)
+  }
+  report['net'] = await new Promise<string>((resolve) => {
+    try {
+      const socket = connect(Number(process.argv[probeAt + 1]), '127.0.0.1')
+      socket.once('connect', () => {
+        socket.destroy()
+        resolve('connected')
+      })
+      socket.once('error', (error) => resolve(errorCode(error)))
+    } catch (error) {
+      resolve(errorCode(error))
+    }
+  })
+  process.stdout.write(`HARNESSDESK_PLUGIN_PROBE ${JSON.stringify(report)}\n`)
+  process.exit(0)
+}
+
+/**
+ * Signals are outside Node's permission model, so a confined process could
+ * still stop or kill any other process of the same user. Before any plugin
+ * code loads, a confined process may signal only itself; asking whether a
+ * process exists (signal 0) stays allowed, since it changes nothing.
+ * `process.kill` reaches the system through `process._kill`, so guarding that
+ * one covers both, and it can be neither reassigned nor redefined. The
+ * permission model already refuses `process.binding`, the other way in.
+ */
+if ((process as { permission?: unknown }).permission) {
+  const signalling = process as unknown as { _kill: (pid: number, signal: number) => number }
+  const raw = signalling._kill
+  Object.defineProperty(process, '_kill', {
+    value: (pid: number, signal: number): number => {
+      if (Number(pid) !== process.pid && signal !== 0) {
+        throw Object.assign(new Error('A plugin process cannot signal another process.'), { code: 'ERR_ACCESS_DENIED' })
+      }
+      return raw.call(process, pid, signal)
+    },
+    writable: false,
+    configurable: false,
+    enumerable: false,
+  })
+}
 
 const log = (level: string, message: string, details?: unknown): void => {
   process.stderr.write(
@@ -103,7 +178,8 @@ const askHost = <M extends keyof ChildToHostMethods>(
   new Promise((resolve, reject) => {
     const id = ++nextHostRequest
     const ios = method === 'ios/call' ? params as ChildToHostMethods['ios/call']['params'] : undefined
-    const timeoutMs = (ios ? iosReplyTimeoutMs(ios.call) : HOST_REQUEST_TIMEOUT_MS) * requestTimeoutScale
+    const capability = method === 'capability/call' ? (params as ChildToHostMethods['capability/call']['params']).call : undefined
+    const timeoutMs = (ios ? iosReplyTimeoutMs(ios.call) : capability ? capabilityReplyTimeoutMs(capability) : HOST_REQUEST_TIMEOUT_MS) * requestTimeoutScale
     const timer = setTimeout(() => {
       hostPending.delete(id)
       reject(new Error(`The host did not answer ${method} in time.`))
@@ -120,6 +196,52 @@ const askHost = <M extends keyof ChildToHostMethods>(
     })
     send({ request: id, method, params })
   })
+
+/**
+ * How long a plugin's own reach may take before this process stops waiting.
+ * The parent holds each operation to its own deadline; this one only has to
+ * outlast it, so a command given a long timeout is not cut off here first.
+ */
+const capabilityReplyTimeoutMs = (call: CapabilityRequest): number =>
+  call.kind === 'fs' ? HOST_REQUEST_TIMEOUT_MS : capabilityWorkMs(call) + 15_000
+
+/**
+ * A command or a context read runs with the browser identity the parent
+ * minted for it, as a tool call does, so a page it opens goes through the
+ * parent like any other. Without one it runs as before.
+ */
+const withBrowser = <T>(identity: { readonly invocation: string; readonly profile: string } | undefined, run: () => Promise<T>): Promise<T> =>
+  identity ? runBrowserInvocation(identity, run) : run()
+
+/**
+ * The lease of the invocation a plugin's code is running for, minted by the
+ * parent and handed in with the invocation. Background work carries none, or
+ * one that has ended, and the parent serves it in the open workspace.
+ */
+const capabilityLease = new AsyncLocalStorage<string | undefined>()
+const withCapabilityLease = <T>(lease: string | undefined, body: () => T): T => capabilityLease.run(lease, body)
+
+const DENIED = /^Permission denied: ([^\n]+?) — ([\s\S]*)$/
+
+/**
+ * `ctx.fs`, `ctx.http`, `ctx.shell` and `ctx.android` for the plugin in this
+ * process. This process has no disk, network or programs of its own: the
+ * parent runs every call with the grants the person agreed to. A refusal
+ * comes back as the same `PermissionDenied` the host would have thrown, so
+ * a tool's caller reads it exactly as before.
+ */
+setCapabilityBroker({
+  async call(call) {
+    const lease = capabilityLease.getStore()
+    try {
+      return await askHost('capability/call', { ...(lease === undefined ? {} : { lease }), call })
+    } catch (error) {
+      const denied = error instanceof Error ? DENIED.exec(error.message) : null
+      if (denied) throw new PermissionDenied(denied[1]!, denied[2]!)
+      throw error
+    }
+  },
+})
 
 /**
  * `ctx.browser` for plugins in this process, when the parent has a page of
@@ -276,7 +398,21 @@ const handlers: Handlers = {
     if (greeted) throw new Error('This plugin host has already been greeted.')
     greeted = true
     if (params.plugin) bound = params.plugin
-    if (params.inlineBrowser) setBrowserEngine(remoteBrowserEngine)
+    if (params.confined) {
+      // Under the permission model this process can start no Chrome and
+      // hand nothing to the OS: the parent does both, for every placement.
+      setBrowserEngine(remoteBrowserEngine, { everyPlacement: true })
+      setSystemHandOff(async (url) => {
+        const identity = currentBrowserIdentity(true)!
+        await askHost('browser/handoff', { invocation: identity.invocation, url })
+      })
+      setBrowserFiles({
+        savePdf: (data, name) => askHost('browser/savePdf', { invocation: currentBrowserIdentity(true)!.invocation, data, name }),
+        missing: (paths) => askHost('browser/missing', { invocation: currentBrowserIdentity(true)!.invocation, paths }),
+      })
+    } else if (params.inlineBrowser) {
+      setBrowserEngine(remoteBrowserEngine)
+    }
     requestTimeoutScale = params.requestTimeoutScale ?? 1
     // A restarted child is told again, because it starts on the defaults.
     if (params.browser) setBrowserSettings(params.browser)
@@ -315,11 +451,13 @@ const handlers: Handlers = {
     return null
   },
   'command/run': async (params) => ({
-    handled: await withIosInvocation(params.iosInvocations, () => kernel.runCommand(params.name, params.argument, params.scope)),
+    handled: await withBrowser(params.browser, () => withCapabilityLease(params.capabilityLease, () =>
+      withIosInvocation(params.iosInvocations, () => kernel.runCommand(params.name, params.argument, params.scope)))),
   }),
-  'tool/invoke': (params) =>
-    withIosInvocation(params.iosInvocations, () => kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null)),
-  'hooks/run': (params) => withIosInvocation(params.iosInvocations, () => kernel.runHooks(params.invocation)),
+  'tool/invoke': (params) => withCapabilityLease(params.capabilityLease, () =>
+    withIosInvocation(params.iosInvocations, () => kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null))),
+  'hooks/run': (params) => withCapabilityLease(params.capabilityLease, () =>
+    withIosInvocation(params.iosInvocations, () => kernel.runHooks(params.invocation))),
   'hooks/runOne': (params) => {
     // The host routes only hooks this process announced. One it no longer
     // has was lost with a reload, and the kernel would read it as `allow`:
@@ -327,10 +465,17 @@ const handlers: Handlers = {
     const known = kernel.plugins().some((plugin) =>
       plugin.contributions.some((entry) => entry.kind === 'hook' && entry.id === params.id))
     if (!known) throw new Error('This plugin no longer has that hook.')
-    return withIosInvocation(params.iosInvocations, () => kernel.runHook(params.id as never, params.invocation))
+    return withCapabilityLease(params.capabilityLease, () =>
+      withIosInvocation(params.iosInvocations, () => kernel.runHook(params.id as never, params.invocation)))
   },
-  'context/resolve': (params) => withIosInvocation(params.iosInvocations, () => kernel.resolveContext(params.query)),
-  'context/resolveOne': (params) => withIosInvocation(params.iosInvocations, () => kernel.resolveOne(params.id as never, params.ref, params.scope)),
+  'context/resolve': (params) => withBrowser(params.browser, () => withCapabilityLease(params.capabilityLease, () =>
+    withIosInvocation(params.iosInvocations, () => kernel.resolveContext(params.query)))),
+  'context/resolveOne': (params) => withBrowser(params.browser, () => withCapabilityLease(params.capabilityLease, () =>
+    withIosInvocation(params.iosInvocations, () => kernel.resolveOne(params.id as never, params.ref, params.scope)))),
+  'scopes/resolved': (params) => {
+    kernel.resolveWorkspaceRoots(params.roots)
+    return null
+  },
   'workspace/set': (params) => {
     kernel.setWorkspace({ root: params.root, branch: params.branch, ...(params.admitted ? { admitted: params.admitted } : {}) })
     return null

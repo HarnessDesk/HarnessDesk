@@ -113,8 +113,14 @@ install: if the manifest on disk changes afterwards, the plugin does not start
 until it is installed again. A plugin that crashes or hangs takes down only its
 own process; the host restarts it with the config it had. Hooks from different
 plugins run one at a time, in priority order, and a hook whose process cannot
-answer denies. [Plugin isolation](plugin-isolation.md) is the full design,
-including what is not confined yet.
+answer denies. Where the runtime allows it, the process is also confined: it
+cannot read outside its own directory, write any file, open a connection or
+start a program on its own, so `ctx.fs`, `ctx.http`, `ctx.shell` and
+`ctx.android` are the only way to reach them, and the host serves each call.
+A plugin package may not contain a symbolic link that leads outside it, and
+an installed plugin with one does not start.
+[Plugin isolation](plugin-isolation.md) is the full design, including what
+confinement does not cover.
 
 During a tool call or context resolution, the host admits the calling
 conversation to a checkout and supplies it through the invocation scope; tool

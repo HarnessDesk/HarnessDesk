@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, readdir, readlink, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
@@ -47,6 +47,51 @@ const readManifestBytes = async (directory: string): Promise<Buffer> => {
   } catch {
     throw new InstallError(
       `No ${MANIFEST_FILENAME} in ${directory}. A HarnessDesk plugin needs one at its root.`,
+    )
+  }
+}
+
+/**
+ * The first symbolic link in a package that leads outside it, as a path
+ * relative to the package, or null when there is none.
+ *
+ * A plugin's process may read its own directory and nothing else
+ * (docs/plugin-isolation.md, layer 5), but the permission model follows a
+ * link wherever it points: a package shipping `data -> ~/.ssh` would read
+ * through its own grant. A link that stays inside the package — a bundled
+ * dependency's alias — is left as it is. A link whose target does not exist
+ * is judged by where it would lead.
+ */
+export const escapingLink = async (directory: string): Promise<string | null> => {
+  const root = await realpath(directory)
+  const inside = (path: string): boolean => {
+    const rel = relative(root, path)
+    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+  }
+  const walk = async (at: string): Promise<string | null> => {
+    for (const entry of await readdir(at, { withFileTypes: true })) {
+      const path = join(at, entry.name)
+      if (entry.isSymbolicLink()) {
+        const target = resolve(dirname(path), await readlink(path))
+        const leads = await realpath(path).catch(() => target)
+        if (!inside(target) || !inside(leads)) return relative(root, path)
+      } else if (entry.isDirectory()) {
+        const found = await walk(path)
+        if (found) return found
+      }
+    }
+    return null
+  }
+  return walk(root)
+}
+
+/** Refuses to install a package with a link that leads outside it (`escapingLink`). */
+export const assertSelfContained = async (directory: string): Promise<void> => {
+  const link = await escapingLink(directory)
+  if (link) {
+    throw new InstallError(
+      `${link} is a link that leads outside the plugin, so nothing was installed. ` +
+        'A plugin ships its own files; copy what it needs into the package.',
     )
   }
 }
@@ -203,7 +248,10 @@ export const install = async (specifier: string, reviewed?: string): Promise<Ins
     const incoming = join(pluginsRoot(), '.staging', `${id}.install-${randomUUID()}`)
     await mkdir(join(pluginsRoot(), '.staging'), { recursive: true })
     try {
-      await cp(inspected.directory, incoming, { recursive: true })
+      // `verbatimSymlinks`: a link is copied as written. Without it a link
+      // inside the package is rewritten to point back into the source.
+      await cp(inspected.directory, incoming, { recursive: true, verbatimSymlinks: true })
+      await assertSelfContained(incoming)
       if (reviewed !== undefined && manifestDigest(await readManifestBytes(incoming)) !== reviewed) throw changed()
       // The installed copy remembers its origin, so "Update from source" can
       // reinstall from where the developer actually edits — the copied
