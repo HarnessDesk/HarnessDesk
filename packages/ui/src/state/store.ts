@@ -872,7 +872,7 @@ export class AppStore {
     return this.#transcriptOwners.has(key) || this.#transcriptMounted(key) ||
       this.#snapshot.loadingSessions.has(key) || this.#deleting.has(key) ||
       this.#snapshot.listPrefs.pinnedSessions.includes(key) || !!this.drafts.live(key) || this.drafts.recoverable(key).length > 0 ||
-      !!this.#snapshot.queues.get(key)?.messages.length || !!this.#snapshot.tasks.get(key)?.length ||
+      !!this.#snapshot.queues.get(key)?.messages.length || !!this.#snapshot.tasks.get(key)?.some(task => task.state === 'running') ||
       !!this.#snapshot.planEdits[key]?.length ||
       this.#snapshot.approvals.some(entry => entry.key === key) ||
       !!handoff && sessionKey(handoff.runtime, handoff.sessionId) === key ||

@@ -333,7 +333,6 @@ export const sessionMethods = {
   'session/delete': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const id = makeSessionId(params.sessionId)
-    const conflictOwners = ctx.sessions.conflictOwners(runtime.info.id, id)
     await ctx.runtimes.ensureStarted(runtime)
     if (runtime.info.capabilities.deleteHistory !== 'trash') {
       throw new Error(`${runtime.info.presentation.name} cannot move a stored conversation to the Trash.`)
@@ -342,6 +341,10 @@ export const sessionMethods = {
     // The agent's copy first: if it refuses, the stopped conversation's
     // index and body remain available here.
     const remembered = await ctx.sessionWorktrees.remember(runtime.info.id, id, true).then(() => true, () => false)
+    // Close and worktree bookkeeping can deliver replay events. Bind the
+    // exact owners present just before the delete request; later authority
+    // epochs must not be discarded on behalf of this request.
+    const conflictOwners = ctx.sessions.conflictOwners(runtime.info.id, id)
     const outcome = await runtime.deleteSession(id)
     // Then everything the host was holding about it. A transcript left
     // behind would be re-enriched onto the next session that reused the

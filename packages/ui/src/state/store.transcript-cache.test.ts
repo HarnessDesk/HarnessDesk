@@ -656,6 +656,35 @@ it('an unsent draft protects a hidden conversation', async () => {
   expect(await store.verifyTranscriptCache(runtime, id)).toBe(false)
 })
 
+it.each(['completed', 'failed', 'stopped'] as const)('protects running tasks but permits retained %s tasks to unload and restore', async state => {
+  const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
+  const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
+    turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved answer' }] }] }
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'session/cache-snapshot') return { session: body, watermark, identity }
+    if (method === 'session/prepare-eviction') return { ...watermark, identity }
+    if (method === 'session/read') return body
+    return null
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onEvent(runtime, { type: 'session/started', session: body })
+  const task = (state: 'running' | 'completed' | 'failed' | 'stopped') => ({ id: 'task', label: 'Synthetic', kind: 'other' as const, state, stoppable: false })
+  handlers.onEvent(runtime, { type: 'session/tasks', sessionId: id, tasks: [task('running')] })
+  expect(await store.verifyTranscriptCache(runtime, id)).toBe(false)
+  handlers.onEvent(runtime, { type: 'session/tasks', sessionId: id, tasks: [task('completed'), { ...task('running'), id: 'active' }] })
+  expect(await store.verifyTranscriptCache(runtime, id)).toBe(false)
+  handlers.onEvent(runtime, { type: 'session/tasks', sessionId: id, tasks: [task(state)] })
+  expect(await store.verifyTranscriptCache(runtime, id)).toBe(true)
+  expect(await store.unloadTranscript(runtime, id)).toBe(true)
+  expect(store.getSnapshot().tasks.get(key)).toEqual([task(state)])
+  expect(await store.restoreTranscript(runtime, id)).toBe(true)
+  expect(store.getSnapshot().sessions.get(key)?.turns).toEqual(body.turns)
+  expect(store.getSnapshot().tasks.get(key)).toEqual([task(state)])
+})
+
 it.each(['queue', 'task', 'pinned', 'recoverable'] as const)(
   'a hidden conversation with %s work remains protected', async kind => {
     const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)

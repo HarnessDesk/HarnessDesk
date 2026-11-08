@@ -19,6 +19,7 @@ import { LoadoutRecorder } from '../src/loadouts.js'
 import { TranscriptStore } from '../src/transcripts.js'
 import { TranscriptDatabase } from '../src/transcript-database.js'
 import { DescriptorCache } from '../src/recovery-descriptor.js'
+import { SessionWorktrees } from '../src/session-worktrees.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { claimed, desk, execution, scopeOf, start, whenChanged } from './fixtures/flow-host-evidence.js'
@@ -978,6 +979,55 @@ test('explicit deletion clears quarantined activity without lending it to a late
   assert.equal(replacement.transcriptIncomplete, false)
   await host.dispose()
 })
+
+for (const stage of ['start', 'close', 'remember'] as const) {
+  for (const refused of [false, true]) {
+    test(`a replay conflicting during ${stage} is ${refused ? 'preserved on refused' : 'discarded after confirmed'} deletion`, async t => {
+      const root = tempDir('hd-retention-close-replay-delete-')
+      const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 })
+      t.after(() => host.dispose().catch(() => {}))
+      const runtime = new FakeRuntime(); host.register(runtime); await host.start()
+      const captures: PendingTranscript[] = [], retain = PendingTranscript.prototype.retainLocal
+      t.mock.method(PendingTranscript.prototype, 'retainLocal', function(this: PendingTranscript, ...args: Parameters<typeof retain>) {
+        if (!captures.includes(this)) captures.push(this); return retain.apply(this, args)
+      })
+      const created = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } }) as Session
+      const turn = { id: turnId('one'), status: 'inProgress' as const, items: [] }
+      runtime.emit({ type: 'turn/started', sessionId: created.id, turn })
+      runtime.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id,
+        item: { id: itemId('one'), type: 'assistantMessage', text: 'unsaved' } })
+      const record = host.registry.get(created.runtime, created.id)!, live = record.live!
+      const stale: Session = { ...record.session, turns: [{ ...record.session.turns[0]!,
+        items: [{ id: itemId('one'), type: 'assistantMessage', text: 'conflicting replay' }] }] }
+      const close = live.close.bind(live)
+      if (stage === 'start') {
+        let unavailable = true
+        const health = runtime.health.bind(runtime), start = runtime.start.bind(runtime)
+        runtime.health = () => unavailable ? { state: 'unavailable', reason: 'unknown', message: 'Synthetic stopped runtime' } : health()
+        runtime.start = async () => { runtime.emit({ type: 'session/started', session: stale }); unavailable = false; await start() }
+      } else if (stage === 'close') live.close = async () => { runtime.emit({ type: 'session/started', session: stale }); await close() }
+      else {
+        const remember = SessionWorktrees.prototype.remember
+        t.mock.method(SessionWorktrees.prototype, 'remember', async function(this: SessionWorktrees, ...args: Parameters<typeof remember>) {
+          runtime.emit({ type: 'session/started', session: stale })
+          return remember.apply(this, args)
+        })
+      }
+      if (refused) runtime.deleteSession = async () => { throw new Error('delete refused') }
+      if (refused) await assert.rejects(host.call('session/delete', { runtime: created.runtime, sessionId: created.id }), /delete refused/)
+      else await host.call('session/delete', { runtime: created.runtime, sessionId: created.id })
+      assert.equal(captures.length, 1, `${stage} emitted a new conflicting owner after deletion began`)
+      assert.ok(JSON.stringify(captures[0]!.inspect()).includes('conflicting replay'))
+      if (refused) {
+        assert.ok(host.registry.get(created.runtime, created.id), 'refusal retains the record')
+        await assert.rejects(host.dispose(), /unsaved|protected/i)
+      } else {
+        assert.equal(host.registry.get(created.runtime, created.id), undefined)
+        await host.dispose()
+      }
+    })
+  }
+}
 
 test('deletion does not discard a new authority epoch that arrives during the delete', async t => {
   const root = tempDir('hd-retention-conflict-delete-race-')
