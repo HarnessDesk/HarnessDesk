@@ -290,9 +290,12 @@ export class Drafts {
   /** Keep what is typed now. Empty drafts delete the mirror synchronously. */
   setLive(key: SessionKey, draft: Draft): void {
     if (this.#forgotten.has(key)) return
-    this.#revision++
+    const isEmpty = empty(draft)
+    // An empty write with no live draft still flushes the mirror, but does not
+    // change the draft state that transcript recovery fences protect.
+    if (!isEmpty || this.#entries.get(key)?.live) this.#revision++
     const entry = this.#entry(key)
-    if (empty(draft)) {
+    if (isEmpty) {
       delete entry.live
       this.#writeImmediately()
     } else {

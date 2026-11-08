@@ -1533,3 +1533,30 @@ it.each(['snapshot-before-invalidation', 'event-at-invalidation'] as const)('kee
   expect(await store.restoreTranscript(runtime, id)).toBe(false)
   expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(false)
 })
+
+it.each([false, true])('opens a released conversation while an empty composer draft is saved: write=%s', async writeDraft => {
+  const runtime = runtimeId('example'), id = sessionId('draft-fence'), key = sessionKey(runtime, id)
+  const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
+    turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
+  let release!: (value: unknown) => void, reads = 0
+  const blocked = new Promise(resolve => { release = resolve })
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'session/cache-snapshot') return ++reads === 1 ? { session: body, watermark, identity } : blocked
+    if (method === 'session/prepare-eviction') return { ...watermark, identity }
+    if (method === 'session/read' || method === 'session/resume') return body
+    return null
+  }) as never)
+  ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
+  expect(await store.unloadTranscript(runtime, id)).toBe(true)
+  const opening = store.openSession(id, { runtime })
+  await vi.waitFor(() => expect(reads).toBe(2))
+  expect(store.getSnapshot().activeSessionKey).toBe(key)
+  if (writeDraft) store.drafts.setLive(key, { text: '', attachments: [] })
+  release({ session: body, watermark, identity })
+  expect(await opening).toBe(true)
+  expect(store.getSnapshot().sessions.get(key)?.turns).toEqual(body.turns)
+  expect(request.mock.calls.some(([method]) => method === 'session/read')).toBe(true)
+})
