@@ -3575,6 +3575,13 @@ export class AppStore {
       if (!current()) return
       if (live.runtime !== runtime || live.id !== id) throw new Error('The conversation returned a different identity.')
       this.#setAdjacentRead(live, eventRevision)
+      // A successful reopen is evidence that this folder is no longer missing.
+      this.#lastResumeRefusal.delete(key)
+      if (this.#snapshot.foldersGone.has(live.cwd)) {
+        const foldersGone = new Map(this.#snapshot.foldersGone)
+        foldersGone.delete(live.cwd)
+        this.#patch({ foldersGone })
+      }
       this.#patch({ adjacentSession: { key, subject, loading: false, error: null } })
     } catch (error) {
       if (current()) this.#patch({ adjacentSession: { key, subject, loading: false, error: `${read ? 'Could not resume: ' : 'Could not read: '}${describe(error)}` } })

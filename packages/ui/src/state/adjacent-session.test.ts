@@ -161,3 +161,57 @@ it('protects a visible body and a closed reader with overlapping reads from evic
   second.resolve(current); await two
   expect(await store.prepareTranscriptEviction(runtime, id)).toBe(true)
 })
+
+const missingFolderStore = async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const session = (id: string) => ({ ...body(id), cwd: id === 'other' ? '/other' : '/project' })
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: string }) => {
+    if (method === 'session/read') return session(params.sessionId)
+    if (method === 'session/resume') throw Object.assign(new Error('The folder no longer exists'), { code: 'sessionFolderGone' })
+    return {}
+  }) as never)
+  await store.openSession(sessionId('a'), { runtime })
+  await store.openSession(sessionId('other'), { runtime })
+  expect([...store.getSnapshot().foldersGone.keys()].sort()).toEqual(['/other', '/project'])
+  return { store, request, session }
+}
+
+it('clears only the resumed folder after an adjacent conversation reopens', async () => {
+  const { store, request, session } = await missingFolderStore()
+  const main = store.getSnapshot().activeSessionKey, workspace = store.getSnapshot().workspace
+  request.mockImplementation((async (method: string) => method === 'session/read' || method === 'session/resume' ? session('a') : {}) as never)
+  await store.openAdjacentSession(sessionId('a'), runtime)
+  expect(store.getSnapshot().foldersGone.has('/project')).toBe(false)
+  expect(store.getSnapshot().foldersGone.has('/other')).toBe(true)
+  expect(store.getSnapshot().activeSessionKey).toBe(main)
+  expect(store.getSnapshot().workspace).toBe(workspace)
+})
+
+it.each(['read-refused', 'resume-refused', 'wrong-read', 'wrong-resume'] as const)('retains missing-folder facts for an adjacent %s', async failure => {
+  const { store, request, session } = await missingFolderStore()
+  request.mockImplementation((async (method: string) => {
+    if (method === 'session/read' && failure === 'read-refused') throw new Error('read refused')
+    if (method === 'session/resume' && failure === 'resume-refused') throw new Error('resume refused')
+    if (method === 'session/read' && failure === 'wrong-read') return session('other')
+    if (method === 'session/resume' && failure === 'wrong-resume') return session('other')
+    return method === 'session/read' || method === 'session/resume' ? session('a') : {}
+  }) as never)
+  await store.openAdjacentSession(sessionId('a'), runtime)
+  expect([...store.getSnapshot().foldersGone.keys()].sort()).toEqual(['/other', '/project'])
+  expect(store.getSnapshot().adjacentSession?.error).toBeTruthy()
+})
+
+it('does not clear a missing folder for a stale adjacent resume', async () => {
+  const { store, request, session } = await missingFolderStore()
+  const waiting = deferred<Session>(), started = deferred<void>()
+  request.mockImplementation(((method: string) => {
+    if (method === 'session/read') return Promise.resolve(session('a'))
+    if (method === 'session/resume') { started.resolve(); return waiting.promise }
+    return Promise.resolve({})
+  }) as never)
+  const opening = store.openAdjacentSession(sessionId('a'), runtime)
+  await started.promise
+  store.closeAdjacentSession()
+  waiting.resolve(session('a')); await opening
+  expect([...store.getSnapshot().foldersGone.keys()].sort()).toEqual(['/other', '/project'])
+})
