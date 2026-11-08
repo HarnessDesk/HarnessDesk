@@ -8170,6 +8170,9 @@ export class Host {
           await this.#noteLeadChatCancellation(`${record.runtime}:${record.session.id}`, 1)
           return
         }
+        // Only the attempted admission was refused. A pause retains every
+        // queued message and cannot itself retire their recovery receipts.
+        if (!sendStarted) this.registry.queuedAdmission(record, sending.id)?.dispatchRefused?.()
         if (sendStarted) await sendingAdmission?.dispatchUnconfirmed?.().catch(() => this.#logger.warn('Lead chat recovery could not settle an unconfirmed send'))
         // Put it back exactly where it was and stop: the message is the thing
         // worth keeping, and a queue that kept firing into a broken agent would
