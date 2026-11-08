@@ -38,6 +38,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { answerApprovals, closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE, waitForSnapshot } from '../lib/desk.mjs'
+import { recordNativeStartupExit } from '../lib/native-startup-log.mjs'
 import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { CAST, CONVERSATIONS, REPOS, rigRuntimeId } from './cast.mjs'
@@ -169,6 +170,9 @@ const desk = await launchDesk({
   userDataDir: `${HOME}/electron`,
   logPath: `${HOME}/app.log`,
   env: SHOT_ENV,
+}).catch(error => {
+  if (process.env.HD_SHOTS_STARTUP_EXIT === '1') recordNativeStartupExit(HOME, error)
+  throw error
 })
 const { cdp } = desk
 const q = (value) => JSON.stringify(value)

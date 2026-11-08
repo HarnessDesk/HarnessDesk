@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 
 import { Cdp, closeDesk, launchDesk, sleep, STORE, waitForSnapshot } from '../../script/lib/desk.mjs'
 import { removeTemporaryDirectory } from '../../script/lib/temporary-directory.mjs'
+import { captureNativeStartupLog } from '../../script/lib/native-startup-log.mjs'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
 
 // Retain only process identities/state, never command-line arguments or env.
@@ -66,6 +67,7 @@ const chosenTheme = (() => {
 const environment = {
   ...process.env,
   HD_DESK_TRACE: '1',
+  HD_SHOTS_STARTUP_EXIT: '1',
   HD_SHOTS_HOME: rigHome,
   HD_SHOTS_WORK: rigWork,
   HARNESSDESK_LOG_LEVEL: 'error',
@@ -90,6 +92,7 @@ const run = (script, scriptArgs) =>
     stdio: 'inherit',
   })
 
+let smokeError
 try {
   rmSync(output, { recursive: true, force: true })
   mkdirSync(frames, { recursive: true })
@@ -260,7 +263,11 @@ const report = {
 }
   writeFileSync(join(output, 'report.json'), `${JSON.stringify(report, null, 2)}\n`)
   process.stdout.write(`native UI system smoke: ${screenshots.length} app frames plus About, relaunch persistence verified\n`)
+} catch (error) {
+  smokeError = error
+  throw error
 } finally {
+  captureNativeStartupLog(rig, output)
   // Refuse to remove anything unless it is the exact directory created above
   // and still carries this run's marker.
   if (existsSync(marker)) {
@@ -268,7 +275,12 @@ const report = {
     // the main process exits. Node retries the exact marked directory for the
     // transient ENOTEMPTY/EBUSY window instead of turning a successful visual
     // run red or, worse, broadening the cleanup target.
-    removeTemporaryDirectory(rig)
+    try {
+      removeTemporaryDirectory(rig)
+    } catch (cleanupError) {
+      if (smokeError) throw new AggregateError([smokeError, cleanupError], 'native smoke and rig cleanup failed')
+      throw cleanupError
+    }
   }
   const remaining = [...nativeProcesses().values()].filter(one =>
     one.pid !== process.pid && !initialProcesses.has(one.pid))

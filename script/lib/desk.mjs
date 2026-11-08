@@ -277,7 +277,12 @@ export const waitForDebugger = (child, timeoutMs = 30_000) => new Promise((resol
     const match = /DevTools listening on (ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\/[^\s]+)\s/.exec(output)
     if (match) finish(null, match[1])
   }
-  const onExit = () => finish(new Error('Electron exited before announcing its debugger'))
+  const onExit = (code, signal) => {
+    const error = new Error('Electron exited before announcing its debugger')
+    error.exitCode = Number.isInteger(code) ? code : null
+    error.signalCode = typeof signal === 'string' && /^SIG[A-Z0-9]+$/.test(signal) ? signal : null
+    finish(error)
+  }
   const onError = error => finish(error)
   const timer = setTimeout(() => finish(new Error('Electron did not announce its own debugger')), timeoutMs)
   child.stderr.on('data', onData)

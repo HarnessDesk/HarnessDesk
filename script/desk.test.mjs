@@ -22,6 +22,21 @@ test('debugger discovery refuses a child that exits without binding', async () =
   await assert.rejects(ready, /exited before announcing/)
 })
 
+test('debugger discovery records the owned child exit code and signal without changing its error message', async () => {
+  for (const [code, signal] of [[17, null], [null, 'SIGTERM']]) {
+    const child = new EventEmitter()
+    child.stderr = new EventEmitter()
+    const ready = waitForDebugger(child)
+    child.emit('exit', code, signal)
+    await assert.rejects(ready, error => {
+      assert.equal(error.message, 'Electron exited before announcing its debugger')
+      assert.equal(error.exitCode, code)
+      assert.equal(error.signalCode, signal)
+      return true
+    })
+  }
+})
+
 test('connectDesk refuses a foreign HarnessDesk before opening its renderer', async () => {
   let opened = false
   await assert.rejects(connectDesk({
