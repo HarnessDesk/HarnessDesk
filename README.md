@@ -36,7 +36,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/agents-dark.svg" />
-    <img src="docs/images/agents-light.svg" width="912" alt="Codex, Claude Code, Cursor, Gemini CLI, DeepSeek, Copilot, OpenCode, Cline, Windsurf, Antigravity, Kiro, Kilo Code, Devin, Trae, Amp, CodeBuddy, Goose, Hermes, Junie, Pi, Poolside, Qoder and OpenClaw" />
+    <img src="docs/images/agents-light.svg" width="912" alt="Codex, Claude Code, Cursor, Gemini CLI, DeepSeek Harness, GitHub Copilot, OpenCode, Cline, Windsurf, Antigravity, Kiro, Kilo Code, Devin, Trae, Amp, CodeBuddy, Goose, Hermes, Junie, Pi, Poolside, Qoder and OpenClaw" />
   </picture>
 </p>
 
@@ -64,7 +64,7 @@ Skip the tour of agent terminals. See what is working, what is in review and wha
     <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/readme-board-dark.gif" />
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/readme-board-dark-poster.png" />
     <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/readme-board-light.gif" />
-    <img src="docs/images/app/readme-board-light-poster.png" width="100%" alt="A Team’s board: jobs move from To do through Working and In review to Ready, each card with its checks, its diff and its pull request." />
+    <img src="docs/images/app/readme-board-light-poster.png" width="100%" alt="A Team’s board with columns for Needs you, Working, In review, To do and Ready." />
   </picture>
 </p>
 
@@ -75,7 +75,7 @@ Skip the tour of agent terminals. See what is working, what is in review and wha
     <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/readme-dashboard-dark.gif" />
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/readme-dashboard-dark-poster.png" />
     <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/readme-dashboard-light.gif" />
-    <img src="docs/images/app/readme-dashboard-light-poster.png" width="720" alt="The Dashboard’s three bands in turn: what each agent spent over 30 days, how much each account has left, and a year of activity." />
+    <img src="docs/images/app/readme-dashboard-light-poster.png" width="720" alt="The Dashboard’s three bands in turn: what each agent spent over 30 days, how much each account has left, and a year of activity. The still shows spending." />
   </picture>
 </p>
 
@@ -171,7 +171,7 @@ Script it, or let your agent run it. [Docs →](docs/cli.md)
 
 - **No new bill.** Each agent keeps its own sign-in, so the plans you already pay for keep working. HarnessDesk is free and adds nothing on top.
 - **Your code stays with you.** Agents work in your own folders, and the desk keeps its records on your machine. [Data boundaries →](docs/data-boundaries.md)
-- **Read it before you trust it.** Every line is open under the MIT license.
+- **Read it before you trust it.** HarnessDesk is open source under the MIT license. [Read the source on GitHub.](https://github.com/HarnessDesk/HarnessDesk)
 
 **Also in the box:**
 

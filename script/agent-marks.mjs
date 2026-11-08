@@ -49,8 +49,8 @@ const AGENTS = [
   ['claudecode', 'Claude Code'],
   ['cursor', 'Cursor'],
   ['geminicli', 'Gemini CLI'],
-  ['deepseek', 'DeepSeek'],
-  ['githubcopilot', 'Copilot'],
+  ['deepseek', 'DeepSeek Harness'],
+  ['githubcopilot', 'GitHub Copilot'],
   ['opencode', 'OpenCode'],
   ['cline', 'Cline'],
   ['windsurf', 'Windsurf'],
@@ -122,7 +122,7 @@ const strip = (ink, label) => {
   const bare = label == null
   const agents = bare ? BARE_AGENTS : AGENTS
   const step = bare ? BARE_STEP : STEP
-  const rowHeight = bare ? MARK : LABEL_Y + 6
+  const rowHeight = bare ? MARK : LABEL_Y + 18
   const rows = bare ? 1 : Math.ceil(agents.length / PER_ROW)
   const perRow = bare ? agents.length : PER_ROW
   const width = step * perRow
@@ -139,8 +139,11 @@ const strip = (ink, label) => {
        a tall logo and a wide one still sit on the same optical line. */
     const mark = `  <g transform="translate(${(x - MARK / 2).toFixed(1)} ${y}) scale(${scale.toFixed(4)})" fill="${ink}">${inner}</g>`
     if (bare) return mark
+    // These names need two lines at the README's compact column width.
+    const lines = text === 'DeepSeek Harness' ? ['DeepSeek', 'Harness'] : text === 'GitHub Copilot' ? ['GitHub', 'Copilot'] : [text]
+    const labelText = lines.length === 1 ? text : lines.map((line, i) => `<tspan x="${x.toFixed(1)}" dy="${i === 0 ? 0 : 12}">${line}</tspan>`).join('')
     return `${mark}
-  <text x="${x.toFixed(1)}" y="${y + LABEL_Y}" fill="${label}" font-size="10.5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" text-anchor="middle">${text}</text>`
+  <text x="${x.toFixed(1)}" y="${y + LABEL_Y}" fill="${label}" font-size="10.5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" text-anchor="middle">${labelText}</text>`
   })
   const names = agents.map(([, t]) => t)
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${names.join(', ')}">
