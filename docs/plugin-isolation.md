@@ -339,6 +339,10 @@ host admitted for its conversation, as the same call made by a built-in
 plugin would. A command, a hook and work outside any lease run in the open
 workspace.
 
+**Android devices need a live lease.** A device acts for a conversation, so
+a `capability/call` for one is refused when it comes from startup, a timer,
+or a lease that ended, whatever the plugin was granted.
+
 `agents.invoke` and `secrets` are already in the manifest schema, but no
 plane serves them yet. Each will be added by the recipe under
 [Adding a capability](#adding-a-capability).
@@ -383,7 +387,9 @@ does:
   later cannot move a contribution to another folder.
 - **The browser.** Every page a confined plugin places goes through the
   host, which picks the placement the person chose for that profile: the
-  app's own pane, Chrome or the system browser. A hand-off to the system
+  app's own pane, Chrome or the system browser. A tool call, a command and a
+  context read each carry a browser identity the host minted for that call,
+  so each of them can open a page. A hand-off to the system
   browser takes only an `http` or `https` address, and only during a call.
 
 **Which runtime runs it.** The Lead's candidates, in their order: the app's

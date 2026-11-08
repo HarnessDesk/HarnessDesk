@@ -393,6 +393,30 @@ test('a child plugin\'s browser tools drive the page the parent provides', async
   }
 })
 
+test("a command opens pages through the parent too, under an identity of its own", async () => {
+  // A confined process places every page through the parent, which answers
+  // only a live invocation. A tool call has always had one; a command now
+  // has its own, so a plugin's `/command` can open a page as its tools can.
+  const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
+  const store = join(dir, 'plugins')
+  await cp(join(FIXTURES, 'plugin-browser'), join(store, 'browserish'), { recursive: true })
+  const fake = fakeEngine()
+  const host = hosts.make('browser command', {
+    invokeTimeoutMs: 5_000,
+    env: { HARNESSDESK_PLUGINS: store },
+    browserEngine: fake.engine,
+  })
+  try {
+    await host.loadInstalledPlugins()
+    assert.equal(await host.runCommand('peek', 'http://fake/', scope), true)
+    assert.ok(fake.calls.includes('Page.navigate'), JSON.stringify(fake.calls))
+    assert.ok(fake.ensured() >= 1)
+  } finally {
+    await host.dispose()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('a team call rides its own invocation or is refused: the child cannot impersonate', async () => {
   // The child process is shared by every installed plugin, so the scope on a
   // `team/*` request is a claim, not a fact. The parent stands behind only

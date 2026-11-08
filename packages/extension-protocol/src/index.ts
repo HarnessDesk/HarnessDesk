@@ -200,7 +200,7 @@ export interface PluginHostMethods {
     result: null
   }
   'command/run': {
-    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly name: string; readonly argument: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly name: string; readonly argument: string; readonly scope: ScopeQuery; readonly browser?: { readonly invocation: string; readonly profile: string } }
     result: { readonly handled: boolean }
   }
   'tool/invoke': {
@@ -223,12 +223,12 @@ export interface PluginHostMethods {
    */
   'hooks/runOne': { params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly id: string; readonly invocation: HookInvocation }; result: HookVerdict }
   'context/resolve': {
-    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly query: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly query: ScopeQuery; readonly browser?: { readonly invocation: string; readonly profile: string } }
     result: readonly { readonly label: string; readonly text: string }[]
   }
   /** One provider, because the user attached its chip. */
   'context/resolveOne': {
-    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly id: string; readonly ref?: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly id: string; readonly ref?: string; readonly scope: ScopeQuery; readonly browser?: { readonly invocation: string; readonly profile: string } }
     result: { readonly label: string; readonly text: string } | null
   }
   'workspace/set': {

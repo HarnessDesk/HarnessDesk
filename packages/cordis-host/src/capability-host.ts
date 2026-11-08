@@ -111,6 +111,22 @@ export const readCapabilityRequest = (value: unknown): CapabilityRequest => {
 }
 
 /**
+ * The longest one call may take in the host: its own timeout where it has
+ * one, three minutes for an Android device (an install waits that long), and
+ * thirty seconds otherwise. The invocation's deadline waits this long for a
+ * call in progress, and the plugin's process waits a little longer, so
+ * neither cuts off what the other still allows.
+ */
+export const capabilityWorkMs = (call: CapabilityRequest): number => {
+  switch (call.kind) {
+    case 'http': return call.init?.timeoutMs ?? 30_000
+    case 'shell': return call.options?.timeoutMs ?? 30_000
+    case 'android': return 180_000
+    default: return 30_000
+  }
+}
+
+/**
  * A plugin's own reach, served by the parent for the plugin's process.
  *
  * The process runs under the Node permission model with no disk, network or
@@ -140,6 +156,11 @@ export class PluginCapabilityHost {
 
   serve(raw: unknown, lease: CapabilityLease | undefined): Promise<unknown> {
     const request = readCapabilityRequest(raw)
+    // A device acts for a conversation, so it is reached only while one of
+    // the plugin's calls runs: never from startup, a timer or an ended call.
+    if (request.kind === 'android' && !lease) {
+      return Promise.reject(new Error('Refused: a plugin reaches Android devices only while one of its calls runs, not in the background.'))
+    }
     const root = lease?.root
     return this.#runtime.withContextWorkspace(root, () => inShellWorkspace(root, () => this.#run(request)), lease?.enterCheckout ?? false)
   }

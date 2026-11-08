@@ -17,6 +17,8 @@ import {
   setTeamEngine,
   setForgeEngine,
   setCapabilityBroker,
+  capabilityWorkMs,
+  runBrowserInvocation,
   PermissionDenied,
   type BrowserEngine,
   type CapabilityRequest,
@@ -199,16 +201,16 @@ const askHost = <M extends keyof ChildToHostMethods>(
  * The parent holds each operation to its own deadline; this one only has to
  * outlast it, so a command given a long timeout is not cut off here first.
  */
-const capabilityReplyTimeoutMs = (call: CapabilityRequest): number => {
-  const margin = 15_000
-  switch (call.kind) {
-    case 'http': return (call.init?.timeoutMs ?? 30_000) + margin
-    case 'shell': return (call.options?.timeoutMs ?? 30_000) + margin
-    // `install` waits up to three minutes for the device.
-    case 'android': return 180_000 + margin
-    default: return HOST_REQUEST_TIMEOUT_MS
-  }
-}
+const capabilityReplyTimeoutMs = (call: CapabilityRequest): number =>
+  call.kind === 'fs' ? HOST_REQUEST_TIMEOUT_MS : capabilityWorkMs(call) + 15_000
+
+/**
+ * A command or a context read runs with the browser identity the parent
+ * minted for it, as a tool call does, so a page it opens goes through the
+ * parent like any other. Without one it runs as before.
+ */
+const withBrowser = <T>(identity: { readonly invocation: string; readonly profile: string } | undefined, run: () => Promise<T>): Promise<T> =>
+  identity ? runBrowserInvocation(identity, run) : run()
 
 /**
  * The lease of the invocation a plugin's code is running for, minted by the
@@ -444,8 +446,8 @@ const handlers: Handlers = {
     return null
   },
   'command/run': async (params) => ({
-    handled: await withCapabilityLease(params.capabilityLease, () =>
-      withIosInvocation(params.iosInvocations, () => kernel.runCommand(params.name, params.argument, params.scope))),
+    handled: await withBrowser(params.browser, () => withCapabilityLease(params.capabilityLease, () =>
+      withIosInvocation(params.iosInvocations, () => kernel.runCommand(params.name, params.argument, params.scope)))),
   }),
   'tool/invoke': (params) => withCapabilityLease(params.capabilityLease, () =>
     withIosInvocation(params.iosInvocations, () => kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null))),
@@ -461,10 +463,10 @@ const handlers: Handlers = {
     return withCapabilityLease(params.capabilityLease, () =>
       withIosInvocation(params.iosInvocations, () => kernel.runHook(params.id as never, params.invocation)))
   },
-  'context/resolve': (params) => withCapabilityLease(params.capabilityLease, () =>
-    withIosInvocation(params.iosInvocations, () => kernel.resolveContext(params.query))),
-  'context/resolveOne': (params) => withCapabilityLease(params.capabilityLease, () =>
-    withIosInvocation(params.iosInvocations, () => kernel.resolveOne(params.id as never, params.ref, params.scope))),
+  'context/resolve': (params) => withBrowser(params.browser, () => withCapabilityLease(params.capabilityLease, () =>
+    withIosInvocation(params.iosInvocations, () => kernel.resolveContext(params.query)))),
+  'context/resolveOne': (params) => withBrowser(params.browser, () => withCapabilityLease(params.capabilityLease, () =>
+    withIosInvocation(params.iosInvocations, () => kernel.resolveOne(params.id as never, params.ref, params.scope)))),
   'scopes/resolved': (params) => {
     kernel.resolveWorkspaceRoots(params.roots)
     return null

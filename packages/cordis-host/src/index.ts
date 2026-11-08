@@ -52,7 +52,7 @@ export {
   type ShellHost,
   type ShellResult,
 } from './capabilities.js'
-export { PluginCapabilityHost, readCapabilityRequest, type CapabilityLease } from './capability-host.js'
+export { capabilityWorkMs, PluginCapabilityHost, readCapabilityRequest, type CapabilityLease } from './capability-host.js'
 export {
   BrowserService,
   browserSettings,

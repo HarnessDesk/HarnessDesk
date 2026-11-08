@@ -67,6 +67,8 @@ export const plugin = { name: 'escape', inject: ['tools', 'fs', 'http', 'shell']
     shell: (await ctx.shell.run(args.node, ['-e', 'process.stdout.write("ran")'])).stdout,
     outside: await attempt(() => ctx.fs.read(args.outside)),
   }) })
+  ctx.tools.register({ name: 'slow', description: 'Fixture', inputSchema: { type: 'object' }, execute: async (args) =>
+    (await ctx.shell.run(args.node, ['-e', 'setTimeout(() => process.stdout.write("waited"), 3000)'], { timeoutMs: 10000 })).stdout })
   ctx.tools.register({ name: 'raw', description: 'Fixture', inputSchema: { type: 'object' }, execute: async (args) => speak('capability/call', args.params) })
 } }
 `
@@ -82,7 +84,7 @@ interface Harness {
   invoke(name: string, args?: Record<string, unknown>): Promise<unknown>
 }
 
-const harness = async (t: TestContext, confine: boolean, runtimes?: readonly PluginRuntime[]): Promise<Harness> => {
+const harness = async (t: TestContext, confine: boolean, runtimes?: readonly PluginRuntime[], invokeTimeoutMs = 20_000): Promise<Harness> => {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'hd-confined-')))
   const workspace = join(base, 'work')
   const store = join(base, 'plugins')
@@ -103,7 +105,7 @@ const harness = async (t: TestContext, confine: boolean, runtimes?: readonly Plu
   const port = (server.address() as { port: number }).port
 
   const host = new SupervisedExtensionHost(new ExtensionKernel(), {
-    invokeTimeoutMs: 20_000,
+    invokeTimeoutMs,
     env: { HARNESSDESK_PLUGINS: store },
     confine,
     ...(runtimes ? { runtimes } : {}),
@@ -213,6 +215,19 @@ test('a capability request the host cannot read is refused, and one past the gra
   // same grants: it opens nothing the plugin could not reach anyway.
   assert.match(JSON.stringify(await invoke('raw', { params: { lease: 'forged', call: { kind: 'fs', method: 'read', path: paths.outside } } })), /Permission denied/)
   assert.match(JSON.stringify(await invoke('raw', { params: { lease: 'forged', call: { kind: 'fs', method: 'write', path: 'inside.txt', content: 'x' } } })), /Permission denied/)
+  // A device acts for a conversation: no live lease, no device, whatever the grant.
+  for (const params of [{ call: { kind: 'android', method: 'devices', args: [] } }, { lease: 'forged', call: { kind: 'android', method: 'devices', args: [] } }]) {
+    assert.match(JSON.stringify(await invoke('raw', { params })), /only while one of its calls runs/, JSON.stringify(params))
+  }
+})
+
+test('the call deadline waits while the host serves a slow call, so the plugin is not restarted for waiting', async (t) => {
+  // The invocation may take 1.5 s of the plugin's own time; the program the
+  // host runs for it takes 3 s, inside the 10 s it asked for.
+  const { host, invoke } = await harness(t, true, undefined, 1_500)
+  const before = (await host.stats()).processes?.[0]?.pid
+  assert.equal(await invoke('slow'), 'waited')
+  assert.equal((await host.stats()).processes?.[0]?.pid, before, 'the same process answered')
 })
 
 test('with no runtime that refuses what the probe tries, a plugin runs unconfined and says why', async (t) => {

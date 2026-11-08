@@ -34,6 +34,8 @@ import {
   type HarnessPlugin,
   type KernelLogger,
   PluginCapabilityHost,
+  capabilityWorkMs,
+  readCapabilityRequest,
   type CapabilityLease,
   placedBrowserEngine,
   handPageToSystem,
@@ -248,7 +250,7 @@ export class PluginHostProcess {
    */
   readonly #capabilities: PluginCapabilityHost | null
   /** Invocations in flight into this process, by the lease each was handed. */
-  readonly #capabilityLeases = new Map<string, CapabilityLease>()
+  readonly #capabilityLeases = new Map<string, { readonly lease: CapabilityLease; readonly hold: () => () => void }>()
 
   /** True while the running process is held to the permission model. */
   get #confined(): boolean {
@@ -1311,12 +1313,30 @@ export class PluginHostProcess {
    * or one whose invocation has ended, is background work, and runs in the
    * open workspace — where background work in the host has always run.
    */
-  #serveCapability(raw: unknown): Promise<unknown> {
+  async #serveCapability(raw: unknown): Promise<unknown> {
     const capabilities = this.#capabilities
-    if (!capabilities) return Promise.reject(new Error('The installer process runs no plugin.'))
+    if (!capabilities) throw new Error('The installer process runs no plugin.')
     const params = typeof raw === 'object' && raw !== null ? raw as { readonly lease?: unknown; readonly call?: unknown } : {}
-    const lease = typeof params.lease === 'string' ? this.#capabilityLeases.get(params.lease) : undefined
-    return capabilities.serve(params.call, lease)
+    const leased = typeof params.lease === 'string' ? this.#capabilityLeases.get(params.lease) : undefined
+    const call = readCapabilityRequest(params.call)
+    // While the host does the work, the invocation's deadline waits for it,
+    // up to the call's own bound: a plugin is not timed out for waiting on
+    // the host, and a call that outlives its bound gives the deadline back.
+    const hold = leased?.hold()
+    let released = false
+    const release = (): void => {
+      if (released) return
+      released = true
+      hold?.()
+    }
+    const bound = setTimeout(release, capabilityWorkMs(call) * (this.#options.requestTimeoutScale ?? 1))
+    bound.unref?.()
+    try {
+      return await capabilities.serve(call, leased?.lease)
+    } finally {
+      clearTimeout(bound)
+      release()
+    }
   }
 
   /**
@@ -1399,6 +1419,19 @@ export class PluginHostProcess {
         const { browser: _browser, ...plain } = params as PluginHostMethods['tool/invoke']['params']
         params = plain as PluginHostMethods[M]['params']
       }
+    } else if (method === 'command/run' || method === 'context/resolve' || method === 'context/resolveOne') {
+      // A command or a context read places pages too. The process holds one
+      // plugin, so the identity is that plugin's, for this call only.
+      const input = params as { readonly browser?: { readonly profile: string } }
+      const owner = this.#plugins.length === 1 ? this.#plugins[0] : undefined
+      if (input.browser && owner?.enabled) {
+        const identity = this.#browserInvocations.begin(input.browser.profile, String(owner.instanceId))
+        browserInvocation = identity.invocation
+        params = { ...params, browser: identity } as PluginHostMethods[M]['params']
+      } else if (input.browser) {
+        const { browser: _browser, ...plain } = params as { browser?: unknown }
+        params = plain as PluginHostMethods[M]['params']
+      }
     }
     if (['tool/invoke','command/run','context/resolve','context/resolveOne','hooks/run','hooks/runOne'].includes(method)) {
       for (const owner of iosOwners) {
@@ -1414,7 +1447,7 @@ export class PluginHostProcess {
       params = { ...plain, iosInvocations } as PluginHostMethods[M]['params']
       if (this.#capabilities) {
         capabilityLease = randomUUID()
-        this.#capabilityLeases.set(capabilityLease, this.#leaseFor(method, params))
+        this.#capabilityLeases.set(capabilityLease, { lease: this.#leaseFor(method, params), hold: () => lifetime.hold() })
         params = { ...params, capabilityLease } as PluginHostMethods[M]['params']
       }
     }
@@ -2103,7 +2136,8 @@ export class SupervisedExtensionHost {
       member.enabled && member.proc?.contributions.some((entry) => entry.kind === 'context'))
     const answers = await Promise.all(providers.map(async (member) => {
       try {
-        return await member.proc!.call('context/resolve', { query })
+        const profile = this.#browserResolver(query)
+        return await member.proc!.call('context/resolve', { query, ...(profile ? { browser: { invocation: 'pending-parent-lease', profile } } : {}) })
       } catch {
         return []
       }
@@ -2120,7 +2154,11 @@ export class SupervisedExtensionHost {
     const proc = this.#processFor(id)
     if (!proc) return null
     scope = await this.#shellScope(scope)
-    return proc.call('context/resolveOne', { id: proc.strip(id), ...(ref === undefined ? {} : { ref }), scope })
+    const profile = this.#browserResolver(scope)
+    return proc.call('context/resolveOne', {
+      id: proc.strip(id), ...(ref === undefined ? {} : { ref }), scope,
+      ...(profile ? { browser: { invocation: 'pending-parent-lease', profile } } : {}),
+    })
   }
 
   subscribe(listener: (event: ExtensionEvent) => void): () => void {
@@ -2174,7 +2212,11 @@ export class SupervisedExtensionHost {
       member.enabled && member.proc?.contributions.some((entry) => entry.kind === 'command' && entry.name === name))
     if (!owner?.proc) return false
     // The command exists over there; a failure is an answer, not an absence.
-    const { handled } = await owner.proc.call('command/run', { name, argument, scope })
+    const profile = this.#browserResolver(scope)
+    const { handled } = await owner.proc.call('command/run', {
+      name, argument, scope,
+      ...(profile ? { browser: { invocation: 'pending-parent-lease', profile } } : {}),
+    })
     return handled
   }
 
