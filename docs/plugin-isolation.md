@@ -214,6 +214,13 @@ The consequences:
   the one on the pipe is dropped. One about its own plugin is held to the
   same rules as a snapshot, and a log line is the plugin's own, whatever owner
   it names.
+- **And every request.** A plugin can skip its `ctx` services and write a
+  request frame itself, so the host checks each one against the grants it
+  holds before any engine sees it. An `editor/*` request needs `editor`, plus
+  `workspace.read` to show or mark a file and `workspace.write` to change one,
+  and a change is refused while an agent's tool call runs in that process:
+  the frame cannot say who asked, and an agent's edits belong to its own
+  runtime and its own approval.
 
 ### 3. The host holds the authority
 

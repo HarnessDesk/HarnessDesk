@@ -209,6 +209,12 @@ export class PluginHostProcess {
    * for it, never as an arbitrary live session.
    */
   readonly #teamScopes = new Map<string, number>()
+  /**
+   * Tool calls in flight into this process: an agent's, each of them. While
+   * one runs, an editor write from the process may be that agent's, and is
+   * refused (see `#editorRefusal`).
+   */
+  #agentCalls = 0
   readonly #forgeLifetimes = new Map<string, Set<ForgeLease>>()
   #crashes = 0
   #browser: BrowserSettingsWire | null = null
@@ -690,6 +696,11 @@ export class PluginHostProcess {
           refuse('The host has no editor plane.')
           return
         }
+        const refusal = this.#editorRefusal(request.method)
+        if (refusal) {
+          refuse(refusal)
+          return
+        }
         switch (request.method) {
           case 'editor/open': {
             const { path, pluginId } = request.params as { path: string; pluginId: string }
@@ -1126,6 +1137,35 @@ export class PluginHostProcess {
   }
 
   /**
+   * Why this process may not make an `editor/*` request, or null if it may.
+   *
+   * `ctx.editor` checks the same grants inside the process, but a plugin can
+   * write the frame itself and skip `ctx.editor` entirely, so the host checks
+   * them again against what it holds: the permissions the person agreed to,
+   * never the process's own report. Opening or marking a file shows it, so it
+   * takes `workspace.read`; changing one takes `workspace.write`; the plane
+   * keeps the path inside the workspace. A write is refused while an agent's
+   * tool call runs in this process too: the frame cannot say who asked, and a
+   * write on an agent's behalf belongs to that agent's own runtime and its
+   * own approval, which is the rule `ctx.editor` holds inside the process.
+   */
+  #editorRefusal(method: string): string | null {
+    const permissions = this.#options.plugin?.permissions
+    if (!permissions) return 'This process holds no plugin that may use the editor.'
+    if (!permissions.editor) return 'Refused: this plugin was not granted `editor`, so it cannot open or annotate files in the editor.'
+    if ((method === 'editor/open' || method === 'editor/decorate') && !permissions.workspace.read) {
+      return 'Refused: this plugin was not granted `workspace.read`, so it cannot show a file.'
+    }
+    if (method === 'editor/applyEdits') {
+      if (!permissions.workspace.write) return 'Refused: this plugin was not granted `workspace.write`, so it cannot change a file.'
+      if (this.#agentCalls > 0) {
+        return 'Refused: an agent cannot write files through a plugin. Editing on an agent’s behalf belongs to that agent’s own runtime, where its own approval applies.'
+      }
+    }
+    return null
+  }
+
+  /**
    * One request. If it overruns the deadline the child's event loop is wedged
    * — a plugin spinning — and the only recovery is on this side: kill it. The
    * exit handler fails everything else in flight and schedules the restart.
@@ -1186,9 +1226,12 @@ export class PluginHostProcess {
       lifetimes.add(lifetime); this.#forgeLifetimes.set(key, lifetimes)
     }
     for (const key of armKeys) this.#teamScopes.set(key, (this.#teamScopes.get(key) ?? 0) + 1)
+    const agent = method === 'tool/invoke'
+    if (agent) this.#agentCalls += 1
     try {
       return await this.#dispatch(method, params, lifetime)
     } finally {
+      if (agent) this.#agentCalls -= 1
       iosController.abort()
       for (const value of Object.values(iosInvocations)) if (typeof value === 'string') this.#iosInvocations.delete(value)
       if (browserInvocation) this.#browserInvocations.end(browserInvocation)
