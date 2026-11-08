@@ -50,13 +50,24 @@ export class ConsentRecord {
    * agreed to, for `id`. The digest comes from that dialog, never from the
    * installed copy: a copy that differs from what was shown is then a changed
    * manifest, and does not start.
+   *
+   * Resolves to the digest it replaced, if there was one, so a caller whose
+   * next step fails can put it back with `restore`.
    */
-  record(id: string, manifest: string): Promise<void> {
+  record(id: string, manifest: string): Promise<string | undefined> {
     return this.#serialised(async () => {
       const entries = await this.#read()
+      const previous = entries[id]?.manifest
       entries[id] = { manifest }
       await this.#write(entries)
+      return previous
     })
+  }
+
+  /** Puts back what `record` replaced: the earlier digest, or no entry at all. */
+  restore(id: string, previous: string | undefined): Promise<void> {
+    if (previous === undefined) return this.forget(id)
+    return this.record(id, previous).then(() => undefined)
   }
 
   /**

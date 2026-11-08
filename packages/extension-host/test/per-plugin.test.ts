@@ -510,6 +510,68 @@ test('a consent entry that is there but unreadable stops the plugin rather than 
   }
 })
 
+/** A copy of envspy at version 2.0.0, and the digest the install dialog would show for it. */
+const envspyV2 = async (harness: Harness): Promise<{ source: string; shown: string }> => {
+  const source = await mkdtemp(join(tmpdir(), 'hd-perplugin-source-'))
+  await cp(join(FIXTURES, 'plugin-envspy'), source, { recursive: true })
+  const path = join(source, 'harnessdesk.plugin.json')
+  await writeFile(path, JSON.stringify({ ...JSON.parse(await readFile(path, 'utf8')), version: '2.0.0' }))
+  return { source, shown: (await harness.host.inspectPlugin(source)).manifestDigest }
+}
+
+const installedVersion = async (harness: Harness, id: string): Promise<string> =>
+  (JSON.parse(await readFile(join(harness.store, id, 'harnessdesk.plugin.json'), 'utf8')) as { version: string }).version
+
+test('an update the consent record cannot take leaves the installed copy in place', async () => {
+  const harness = await start(['envspy'])
+  const { source, shown } = await envspyV2(harness)
+  try {
+    const path = join(harness.dir, 'plugin-consent.json')
+    await writeFile(path, JSON.stringify({ ...JSON.parse(await readFile(path, 'utf8')), other: {} }))
+
+    await assert.rejects(harness.host.installPlugin(source, shown), /not a consent record/)
+    assert.equal(await installedVersion(harness, 'envspy'), '1.0.0', 'the working copy was not replaced')
+  } finally {
+    await rm(source, { recursive: true, force: true })
+    await cleanup(harness)
+  }
+})
+
+test('an update whose copy fails puts the record back, and the running version comes back', async () => {
+  const harness = await start(['envspy'])
+  const { source, shown } = await envspyV2(harness)
+  try {
+    const record = await readFile(join(harness.dir, 'plugin-consent.json'), 'utf8')
+    // A file where the installer stages its copy, so the copy cannot be made.
+    await writeFile(join(harness.store, '.staging'), '')
+
+    await assert.rejects(harness.host.installPlugin(source, shown))
+    assert.equal(await readFile(join(harness.dir, 'plugin-consent.json'), 'utf8'), record, 'the earlier entry is back')
+    assert.equal(await installedVersion(harness, 'envspy'), '1.0.0')
+    await until(() => harness.host.list('tool').some((entry) => entry.name === 'spy'))
+    assert.ok((await spy(harness)).pid > 0, 'the version that was running runs again')
+  } finally {
+    await rm(source, { recursive: true, force: true })
+    await cleanup(harness)
+  }
+})
+
+test('an uninstall finishes once the files are gone, even when the record cannot forget the plugin', async () => {
+  const harness = await start(['good'])
+  const events = listen(harness.host)
+  try {
+    const path = join(harness.dir, 'plugin-consent.json')
+    await writeFile(path, JSON.stringify({ ...JSON.parse(await readFile(path, 'utf8')), other: {} }))
+
+    await harness.host.uninstallPlugin('good')
+    assert.equal(harness.host.plugins().some((plugin) => plugin.identity.id === 'good'), false, 'no row is left behind')
+    assert.ok(events.heard.some((event) => event.type === 'plugin/removed' && event.instanceId === 'good#installed'))
+  } finally {
+    events.stop()
+    await cleanup(harness)
+  }
+})
+
 test('a restart that cannot load the plugin again withdraws its tools, shows it failed and leaves no process', async () => {
   const harness = await start(['exit'])
   const events = listen(harness.host)

@@ -1978,20 +1978,33 @@ export class SupervisedExtensionHost {
     return this.#serially(inspected.id, () => this.#install(inspected.id, inspected.name, specifier, manifestDigest))
   }
 
-  async #install(inspectedId: string, name: string, specifier: string, manifestDigest: string): Promise<string> {
-    const existing = this.#members.get(inspectedId)
+  async #install(id: string, name: string, specifier: string, manifestDigest: string): Promise<string> {
+    const existing = this.#members.get(id)
     if (existing?.uninstalling) throw new Error(`${name} is being uninstalled; install it again once that is done.`)
     if (existing) await this.#stop(existing)
-    let id: string
+    // The record is written before the copy replaces anything. A record that
+    // cannot be written then leaves the installed version's files as they
+    // were, and a copy that fails puts the earlier entry back, so the version
+    // that was running still matches what the person agreed to for it.
+    let previous: string | undefined
     try {
-      ;({ id } = await this.#installer.call('plugin/install', { specifier, manifestDigest }))
+      previous = await this.#consent.record(id, manifestDigest)
+    } catch (error) {
+      if (existing?.enabled) await this.#start(existing)
+      throw error
+    }
+    try {
+      const installed = await this.#installer.call('plugin/install', { specifier, manifestDigest })
+      if (installed.id !== id) throw new Error(`The package installed as ${JSON.stringify(installed.id)}, not ${JSON.stringify(id)}.`)
     } catch (error) {
       // The install did not happen, so the version that was running comes back.
+      await this.#consent.restore(id, previous).catch((restoreError: unknown) =>
+        this.#logger.error?.('the plugin consent record could not be put back', { plugin: id, error: String(restoreError) }),
+      )
       if (existing?.enabled) await this.#start(existing)
       throw error
     }
     const directory = join(this.#root, id)
-    await this.#consent.record(id, manifestDigest)
     const member = this.#members.get(id) ?? { id, directory, proc: null, enabled: true, problem: null, config: null, identity: null, configSchema: null, uninstalling: false, generation: 0 }
     this.#members.set(id, member)
     if (member !== existing && existing) await this.#stop(existing)
@@ -2038,9 +2051,14 @@ export class SupervisedExtensionHost {
       this.#emit({ type: 'plugin/updated', plugin: this.#describe(member) })
       throw error
     }
-    await this.#consent.forget(pluginId)
+    // The files are gone, so the plugin is too, whatever happens to its
+    // entry in the record. One left behind grants nothing new: a later install
+    // of the same id writes its own before it copies anything.
     this.#members.delete(pluginId)
     this.#emit({ type: 'plugin/removed', instanceId: installedInstanceId(pluginId) })
+    await this.#consent.forget(pluginId).catch((error: unknown) =>
+      this.#logger.error?.('the plugin consent record could not forget an uninstalled plugin', { plugin: pluginId, error: String(error) }),
+    )
   }
 
   async dispose(): Promise<void> {
