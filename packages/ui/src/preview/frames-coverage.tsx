@@ -16,6 +16,7 @@ import { FlowStart } from '../components/FlowStart'
 import { TroubleNote } from '../components/GitAskAgent'
 import { ConfirmDialog } from '../components/GitDialogs'
 import { AddWorktreeDialog } from '../components/GitWorktrees'
+import { AdjacentTranscript } from '../components/AdjacentTranscript'
 import { PlanSteps, StepNameScope } from '../components/Items'
 import { ImportDialog, LibraryFlows, PlanDialog, ResolveDialog } from '../components/LibraryActions'
 import { Notices, NoticeStripOutlet, SidebarNotices } from '../components/Notices'
@@ -269,6 +270,11 @@ export const CoverageFrames = () => {
           <Text as="h2" role="section">Field measures</Text>
           <Input aria-label="Comfortable field" defaultValue="Review the change" />
         </div>
+      </Frame>
+      <Frame id="coverage-adjacent-transcript" title="Conversation — read-only transcript">
+        <PaneProvider scope={{ paneId: 'coverage-adjacent-transcript', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: PREVIEW_SESSION_KEY }}>
+          <div className="h-[540px]"><AdjacentTranscript session={active} /></div>
+        </PaneProvider>
       </Frame>
       <Frame id="coverage-answer-actions" title="Answer actions">
         <PaneProvider scope={{ paneId: 'coverage-answer-actions', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: PREVIEW_SESSION_KEY }}>

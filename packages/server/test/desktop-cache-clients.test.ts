@@ -111,3 +111,38 @@ test('two authorized desktop sockets receive independent contiguous session fenc
   assert.deepEqual(reloaded, snapshot)
   assert.equal(sourceReads, 0)
 })
+
+test('a first desktop read retains a turn observed by Host while the runtime read waits', { timeout: 15_000 }, async t => {
+  const dir = tempDir('hd-first-desktop-read-')
+  let host: Host | undefined, server: RunningServer | undefined
+  const peers: DesktopPeer[] = []
+  let release = () => {}
+  t.after(async () => { release(); for (const peer of peers) peer.socket.terminate(); await server?.close(); await host?.dispose() })
+  await writeFile(join(dir, 'index.html'), '<html>test</html>')
+  host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), builtinAgents: dir, catalogRefreshMs: 0 })
+  const runtime = new FakeRuntime(); host.register(runtime); await host.start()
+  server = await serve({ host, logger: silent, uiRoot: dir, port: 0 })
+  const owner = await DesktopPeer.connect(server); peers.push(owner)
+  const created = await owner.call('session/create', { runtime: runtime.info.id, options: { cwd: dir } }) as Session
+  const stale = structuredClone(host.registry.get(created.runtime, created.id)!.session)
+  const reader = await DesktopPeer.connect(server); peers.push(reader)
+  let entered!: () => void
+  const waiting = new Promise<void>(resolve => { entered = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  runtime.readSession = async () => { entered(); await gate; return stale }
+  const address = { runtime: created.runtime, sessionId: created.id }
+  const reading = reader.call('session/read', address)
+  await waiting
+  const turn = { id: turnId('unseen-turn'), status: 'inProgress' as const, items: [] }
+  runtime.emit({ type: 'turn/started', sessionId: created.id, turn })
+  runtime.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id, item: { id: itemId('unseen-item'), type: 'assistantMessage', text: 'Synthetic streamed answer' } })
+  runtime.emit({ type: 'turn/completed', sessionId: created.id, turn: { ...turn, status: 'completed' } })
+  release()
+  const result = await reading as Session
+  const observed = result.turns.find(one => one.id === turn.id)
+  assert.equal(observed?.status, 'completed')
+  assert.ok(observed?.items.some(item => item.id === itemId('unseen-item') && item.type === 'assistantMessage' && item.text === 'Synthetic streamed answer'))
+  const frames = sessionFrames(reader, created.id)
+  assert.ok(frames.some(frame => frame.type === 'turn/started'))
+  assert.ok(frames.some(frame => frame.type === 'turn/completed'))
+})

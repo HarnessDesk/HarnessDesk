@@ -59,7 +59,7 @@ const laneContext = (supported: boolean) => {
     },
     evidence: { seats: { latestKeptOf: () => null, latestOf: () => seat } },
     registry: { forReopen: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
-    sessionIndex: { reopen: () => {}, record: () => {} },
+    sessionIndex: { refreshMissingFolder: async () => {}, reopen: () => {}, record: () => {} },
     sessionWorktrees: { prepare: async () => ({}) },
     sessions: {
       attach: async () => transcript,

@@ -5,6 +5,10 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **Read another conversation on the right.** Open a conversation as a live, read-only transcript while keeping the current conversation and composer in place. Closing the reader leaves that conversation open.
+
 ## 0.7.0 — 2026-11-08
 
 Every installed plugin runs in a process of its own and reaches only what you granted. The optional Lead becomes a conversation that starts, follows and wraps up work, with a right rail for its plan and spend, and your phone reaches this Mac away from home, reviews work and starts sessions. An agent's accounts take turns, usage reads one standing everywhere, and simulator tools no longer need the mouse.

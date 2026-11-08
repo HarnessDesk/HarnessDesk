@@ -231,6 +231,11 @@
       "title": "Fields \u2014 comfortable density"
     },
     {
+      "selector": "[data-frame-id=\"coverage-adjacent-transcript\"] > div",
+      "id": "coverage-adjacent-transcript",
+      "title": "Conversation \u2014 read-only transcript"
+    },
+    {
       "selector": "[data-frame-id=\"coverage-answer-actions\"] > div",
       "id": "coverage-answer-actions",
       "title": "Answer actions"

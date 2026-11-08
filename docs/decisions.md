@@ -5467,3 +5467,12 @@ installed. Two gaps are left in the open, not papered over: `process.kill`
 is outside Node's model, and Node follows a symbolic link past the grants.
 The second is closed at the one door a package comes through: the installer
 refuses a package with a link that leads outside it.
+
+## An adjacent conversation is a reader, not a second subject
+
+The sidebar's Open on the right action has one window-local, read-only target.
+The current work remains the sole command and workspace subject, including in
+Editor mode. Opening explicitly reads then resumes the other conversation for
+live updates; the operation may reopen a runtime or restore a worktree. Closing
+its reader does not close a shared Host handle. This deliberately avoids a
+second composer, persisted layout or general-purpose conversation dock.

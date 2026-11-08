@@ -498,6 +498,18 @@ test('a published destination bar credits only its active visible registration',
   expect(hidden.covered).not.toContain('panels/library-bar.tsx#LibraryBar')
 })
 
+test('the read-only transcript preview mounts both reader components', async ({ page }) => {
+  await page.goto('/preview.html')
+  const specimen = page.locator('[data-frame-id="coverage-adjacent-transcript"]')
+  await expect(specimen.locator('[data-transcript]')).toContainText('worktree list')
+  await expect(specimen.locator('textarea')).toHaveCount(0)
+  const result = await collectCoverage(page)
+  expect(result.covered).toEqual(expect.arrayContaining([
+    'components/AdjacentTranscript.tsx#AdjacentTranscript',
+    'components/Items.tsx#ReadOnlyTranscript',
+  ]))
+})
+
 test.describe('preview coverage', () => {
   test('Seat browsers preview live pages and Seats with nothing open', async ({ page }) => {
     await page.goto('/preview.html?tile-browsers')

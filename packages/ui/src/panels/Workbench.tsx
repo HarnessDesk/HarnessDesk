@@ -17,10 +17,12 @@ import {
 
 import { MainDestination, FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, TerminalShellTabs, Button, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim, useEscapeSurface } from '../design'
 import { CrossIcon, ExpandIcon, SwapIcon } from '../components/Icons'
-import { DockPanel, DockPanelBody, PanelSeam } from '../design'
+import { Chip, DockPanel, DockPanelBody, PanelSeam } from '../design'
 import { dismissOverlays } from '../design'
 import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
+import { AdjacentTranscript } from '../components/AdjacentTranscript'
+import { splitSessionKey } from '@harnessdesk/protocol'
 import { terminalCwdForSnapshot } from '../lib/terminal-scope'
 import { terminalName, terminalPathTitle } from '../lib/terminal-labels'
 import { KeyboardHereContext, PaneProvider, useSnapshot, useStore, type PaneScope } from '../state/context'
@@ -121,11 +123,20 @@ const LIVE: Record<DockId, string> = {
 const WorkActive = createContext(true)
 const RightWorkActive = createContext(true)
 
+/** Project the transient reader into the panel without persisting tool intent. */
+const displayWorkbench = (snapshot: ReturnType<typeof useSnapshot>) => {
+  const workbench = tileBrowserWorkbench(snapshot)
+  const subject = fixedSubject(workbench.main)
+  if (!snapshot.adjacentSession || !subject) return workbench
+  const intent = workbench.frameTools[subject] ?? { tool: 'details' as const, mode: 'details', open: false }
+  return { ...workbench, zoom: null, frameTools: { ...workbench.frameTools, [subject]: { ...intent, open: true, expanded: false } } }
+}
+
 export const Workbench = ({ sidebar, suspended = false, pages, pageActive = false }: { sidebar: ReactNode; suspended?: boolean; pages?: ReactNode; pageActive?: boolean }) => {
   const { topRef, mainRef } = useShellHosts('work')
   const store = useStore()
   const snapshot = useSnapshot()
-  const workbench = tileBrowserWorkbench(snapshot)
+  const workbench = displayWorkbench(snapshot)
 
   const shell = useRef<HTMLDivElement>(null)
   const main = useRef<HTMLDivElement>(null)
@@ -378,7 +389,7 @@ const WorkToolBodies = ({ drawn }: { drawn: boolean }) => {
 const RightPanel = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const workbench = tileBrowserWorkbench(snapshot)
+  const workbench = displayWorkbench(snapshot)
   const workActive = useContext(WorkActive)
   const rightActive = useContext(RightWorkActive)
   const drawn = workActive && rightActive && rightPanelDrawn(workbench)
@@ -390,13 +401,15 @@ const RightPanel = () => {
   const intent = subject ? workbench.frameTools[subject] : undefined
   const terminal = intent?.tool === 'terminal'
   const files = intent?.tool === 'files'
+  const adjacent = snapshot.adjacentSession
   const title = intent?.tool === 'changes' ? 'Changes' : terminal ? 'Terminal' : files ? 'Files' : intent?.tool === 'browser' ? 'Browser' : intent?.tool === 'conversation' ? 'Conversation' : intent?.tool === 'activity' ? 'Trajectory' : 'Details'
   const max = Math.max(min, Math.min(dockLimits('right').max, snapshot.windowWidth -
     (sidebarPlacement(snapshot) === 'column' ? workbench.sidebar.size + SEAM : 0) - SEAM - MIN_READING))
   return <>
     {drawn && sized && <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} max={max} />}
     <FixedPanelFrame edge="right" open={drawn} className={styles.right} data-fixed-tool-frame="" style={{ width: '100%', height: '100%' }}
-      heading={title} actions={<>
+      onKeyDown={event => { if (adjacent && event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); event.stopPropagation(); store.closeAdjacentSession() } }}
+      heading={adjacent ? 'Adjacent conversation' : title} actions={adjacent ? <Button variant="ghost" size="icon-sm" aria-label="Close adjacent conversation" title="Close adjacent conversation" onClick={() => store.closeAdjacentSession()}><CrossIcon size={16} /></Button> : <>
         <Button variant="ghost" size="icon-sm" aria-label={overlay ? 'Return to main' : 'Swap pane into main'} title={overlay ? 'Return to main' : 'Swap pane into main'}
           onClick={() => overlay ? store.toggleWorkPanel() : store.swapWorkPane()}>{overlay ? <SwapIcon size={16} /> : <ExpandIcon size={16} />}</Button>
         <Button variant="ghost" size="icon-sm" aria-label="Close pane" title="Close pane" onClick={() => store.toggleWorkPanel()}><CrossIcon size={16} /></Button>
@@ -405,15 +418,29 @@ const RightPanel = () => {
       {noticeHost && <NoticeStripOutlet host area="right" hostId="workbench:right" />}
       {noticeHost && <NoticeStripFallback area="right" />}
 
-      <div data-shell-tool-bodies>
+      {adjacent ? <AdjacentPanel /> : <div data-shell-tool-bodies>
         <div className={styles.layer} {...(terminal ? { 'data-hidden': '', inert: true } : {})}>
           {files && <DockPanel edge="bottom" data-shell-files-tree data-file-open={intent?.mode !== 'files'}><FilesPane /></DockPanel>}
           <div data-shell-file-body {...(files && intent?.mode === 'files' ? { 'data-hidden': '', inert: true } : {})}><WorkToolBodies drawn={drawn && !terminal} /></div>
         </div>
         <div className={styles.layer} {...(terminal && drawn ? {} : { 'data-hidden': '', inert: true })}><BottomPanel drawn={drawn && terminal} /></div>
-      </div>
+      </div>}
     </FixedPanelFrame>
   </>
+}
+
+const AdjacentPanel = () => {
+  const store = useStore(), snapshot = useSnapshot(), target = snapshot.adjacentSession
+  if (!target) return null
+  const session = snapshot.sessions.get(target.key)
+  const { runtime, id } = splitSessionKey(target.key)
+  const name = snapshot.runtimes.find(one => one.id === runtime)?.presentation.name ?? 'Agent unavailable'
+  return <FixedPanelBody role="region" aria-label={`Adjacent conversation: ${session?.title || id} — ${name}`}>
+      <div>{session?.title || String(id)} · {name} <Chip tone="neutral" size="sm">Read only</Chip></div>
+      {target.loading && <p role="status">Loading conversation…</p>}
+      {target.error && <div role="alert">{target.error} <Button variant="quiet" size="sm" onClick={() => void store.openAdjacentSession(id, runtime)}>Retry</Button></div>}
+      {session && (session.itemsLoaded || session.turns.length > 0) && <KeyboardHereContext.Provider value={false}><PaneProvider scope={{ paneId: 'adjacent-reader', view: { kind: 'conversation', session: target.key }, sessionKey: target.key }}><AdjacentTranscript session={session} /></PaneProvider></KeyboardHereContext.Provider>}
+  </FixedPanelBody>
 }
 
 /** Only process documents share the bottom frame; closing the region retains every xterm. */

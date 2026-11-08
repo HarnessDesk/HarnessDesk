@@ -126,6 +126,7 @@ export interface HostContext {
     list(params: HostParams<'session/index'>): Page<SessionSummary>
     record(session: Session): void
     reopen(session: Session): void
+    refreshMissingFolder(cwd: string): Promise<void>
     setTitle(runtime: RuntimeId, id: SessionId, title: string | null): void
     setArchived(runtime: RuntimeId, id: SessionId, archived: boolean): void
     remove(runtime: RuntimeId, id: SessionId): void

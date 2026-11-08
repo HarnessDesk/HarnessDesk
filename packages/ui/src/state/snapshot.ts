@@ -266,6 +266,8 @@ export interface TeamFrameRequest {
 }
 
 export interface AppSnapshot {
+  /** Window-local secondary transcript; never a navigation subject. */
+  readonly adjacentSession: { readonly key: SessionKey; readonly subject: string; readonly loading: boolean; readonly error: string | null } | null
   /** Startup capability proved by the host handshake; absent until then. */
   readonly leadAvailable: boolean
   /** The desk was started with the phone link on; the Phone page and its command exist only then. */
@@ -934,6 +936,7 @@ const EMPTY: AppSnapshot = {
   workbench: EMPTY_WORKBENCH,
   layout: EMPTY_WORKBENCH.main,
   activeSessionKey: null,
+  adjacentSession: null,
   activeSessionId: null,
   loadingSessions: new Set(),
   approvals: [],

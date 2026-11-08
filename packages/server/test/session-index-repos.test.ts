@@ -368,3 +368,77 @@ test('a later refresh resolves a retargeted folder from its new canonical identi
   assert.equal(f.calls.length, 2)
   await repos.close()
 })
+
+test('a missing-folder recovery follows an older in-flight check with a fresh same-folder check', async () => {
+  const cwd = '/synthetic/missing-recovery', index = memoryIndex()
+  index.putRepo(cwd, { repo: null, exists: false, checkedAt: 1 })
+  let calls = 0, release!: () => void, entered!: () => void
+  const started = new Promise<void>(resolve => { entered = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const repos = new SessionIndexRepos(index, { resolve: async () => {
+    calls++
+    if (calls === 1) { entered(); await held }
+    return { root: cwd, worktree: false }
+  } })
+  try {
+    repos.read(cwd, true)
+    await started
+    let finished = false
+    const first = repos.refreshMissing(cwd).then(() => { finished = true })
+    const second = repos.refreshMissing(cwd)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(finished, false)
+    assert.equal(calls, 1)
+    release()
+    await Promise.all([first, second])
+    assert.equal(calls, 2, 'concurrent recoveries share one new check after the old one')
+    assert.equal(index.repo(cwd)?.exists, true)
+  } finally { release(); await repos.close() }
+})
+
+test('a failed missing-folder recovery preserves the measured negative and closes cleanly', async () => {
+  const cwd = '/synthetic/failed-recovery', index = memoryIndex()
+  const old = { repo: null, exists: false, checkedAt: 1 }
+  index.putRepo(cwd, old)
+  let calls = 0
+  const repos = new SessionIndexRepos(index, { resolve: async () => { calls++; throw new Error('Synthetic failure') } })
+  try {
+    await repos.refreshMissing(cwd)
+    assert.equal(calls, 1)
+    assert.deepEqual(index.repo(cwd), old)
+  } finally { await repos.close() }
+})
+
+test('a close during pending missing-folder recovery drains without starting a later check', async () => {
+  const cwd = '/synthetic/closing-recovery', index = memoryIndex()
+  index.putRepo(cwd, { repo: null, exists: false, checkedAt: 1 })
+  let calls = 0, release!: () => void, entered!: () => void
+  const started = new Promise<void>(resolve => { entered = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const repos = new SessionIndexRepos(index, { resolve: async () => { calls++; entered(); await held; return null } })
+  try {
+    repos.read(cwd, true)
+    await started
+    const recovery = repos.refreshMissing(cwd)
+    const closing = repos.close()
+    release()
+    await Promise.all([recovery, closing])
+    assert.equal(calls, 1)
+  } finally { release(); await repos.close() }
+})
+
+test('recovery leaves known-present, unknown and other folders untouched', async () => {
+  const index = memoryIndex(), present = '/synthetic/present', other = '/synthetic/other'
+  const available = { repo: null, exists: true, checkedAt: 1 }
+  const missing = { repo: null, exists: false, checkedAt: 2 }
+  index.putRepo(present, available); index.putRepo(other, missing)
+  let calls = 0
+  const repos = new SessionIndexRepos(index, { resolve: async () => { calls++; return null } })
+  try {
+    await repos.refreshMissing(present)
+    await repos.refreshMissing('/synthetic/unknown')
+    assert.equal(calls, 0)
+    assert.deepEqual(index.repo(present), available)
+    assert.deepEqual(index.repo(other), missing)
+  } finally { await repos.close() }
+})

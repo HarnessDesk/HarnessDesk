@@ -130,6 +130,10 @@ import { Markdown } from './Markdown'
 import { Publication } from './Publication'
 import styles from './Items.module.css'
 
+/** A secondary transcript may disclose and copy, but cannot direct the desk. */
+const ReadOnlyTranscriptContext = createContext(false)
+export const ReadOnlyTranscript = ({ children }: { children: ReactNode }) => <ReadOnlyTranscriptContext.Provider value>{children}</ReadOnlyTranscriptContext.Provider>
+
 /**
  * Transcript item views.
  *
@@ -377,6 +381,7 @@ const useCopyFailed = () => {
 }
 
 const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined }) => {
+  const readOnly = useContext(ReadOnlyTranscriptContext)
   const when = sentAt(at)
   const unavailable = sessionUnavailable(useSnapshot(), useActiveSession())
   const copyFailed = useCopyFailed()
@@ -385,7 +390,7 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
       {when && <Text as="span" role="meta" numeric>{when}</Text>}
       <span data-message-actions="user" className={styles.actions}>
         <CopyButton text={text} label="Copy this message" onError={copyFailed} />
-        {!unavailable && <Button
+        {!readOnly && !unavailable && <Button
           variant="quiet" size="icon-xs" edge="end" edgeGlyph={13}
           title="Edit — puts this message in the composer"
           aria-label="Edit this message"
@@ -1294,6 +1299,7 @@ const ACTION_LABEL: Record<string, string> = {
 
 const Subagent = ({ item }: { item: SubagentItem }) => {
   const store = useStore()
+  const readOnly = useContext(ReadOnlyTranscriptContext)
   // The sub-agent is the same agent's conversation; opening it needs that
   // runtime named, not the active one (see AppStore.openSession).
   const session = useActiveSession()
@@ -1324,6 +1330,7 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
       {item.members.length > 0 && (
         <div className={styles.fileList}>
           {item.members.map((member) => {
+            if (readOnly) return <Text key={member.sessionId} role="muted">{member.nickname ?? member.sessionId.slice(0, 8)}</Text>
             // A child with a conversation of its own can be opened; one whose
             // id is only the handle of the call that spawned it cannot, and a
             // button that fails after the press is worse than a row.
@@ -1486,6 +1493,7 @@ export const ItemView = ({
   /** The compact turn-work register passes its density explicitly. */
   register?: 'light'
 }) => {
+  const readOnly = useContext(ReadOnlyTranscriptContext)
   const body = ((): ReactNode => {
     switch (item.type) {
       case 'userMessage':
@@ -1515,7 +1523,7 @@ export const ItemView = ({
       case 'review':
         return <Review item={item} />
       case 'publication':
-        return <Publication item={item as PublicationItem} root={root} />
+        return <Publication item={item as PublicationItem} root={readOnly ? undefined : root} />
       case 'error':
         return <ErrorRow item={item} />
     }
