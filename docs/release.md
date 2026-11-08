@@ -310,7 +310,9 @@ bundle, then runs its `--version` without a simulator. The unsigned uniqueness
 check is shared with release verification; smoke adds no iOS signing or team check.
 `verify-artifacts` mounts each validated DMG read-only, checks the helper's
 architecture, nested signature, matching signing team and hardened-runtime flag,
-then executes its `--probe` to load the installed Xcode frameworks.
+then executes its `--probe` when both installed Xcode simulator frameworks have
+a compatible slice: `x86_64` for the x64 helper, or `arm64`/`arm64e` for arm64.
+The arm64 probe is mandatory; missing or incompatible frameworks fail verification.
 
 On the release machine, inspect each artifact's helper architecture with `lipo`,
 verify its nested signature with `codesign --verify --strict`, and test dynamic
@@ -319,8 +321,12 @@ framework loading and simulator input from the signed, notarized app. The ad-hoc
 No library-validation exception is added for this helper.
 
 The release verification machine must have Xcode 27 or newer selected in
-Settings › Locations › Command Line Tools. It also needs Rosetta installed to
-execute the x64 helper's `--probe` on Apple silicon. Artifact verification checks
+Settings › Locations › Command Line Tools. With an Apple-silicon-only Xcode,
+the x64 probe is skipped with the helper and framework architectures printed,
+because an Intel process cannot load those frameworks even under Rosetta. When
+the frameworks include x86_64, the x64 probe runs and requires Rosetta on Apple
+silicon. All architecture, signature, signing-team, hardened-runtime and helper
+uniqueness checks still run for both artifacts. Artifact verification checks
 that the signed resource is the only helper in the bundle. If detach fails,
 verification retries once and retains the mount rather than removing a mounted
 volume; detach the reported verification mount before removing its empty folder.

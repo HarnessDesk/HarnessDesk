@@ -293,7 +293,9 @@ strictly increasing times. Key counts are 1–100. All input tools require edit.
 
 The repository-built `hd-ios-control` helper uses versioned NDJSON and Xcode 27's
 DTUHID service with a liveness round trip. Native input does not move the macOS pointer or
-use a window. Xcode selection is read, never changed. If DTUHID is unavailable
+use a window. Xcode selection is read, never changed. With an Xcode whose simulator frameworks
+are Apple silicon only, the Intel build's simulator input is unavailable and the
+app stays usable. If DTUHID is unavailable
 or no helper was built, taps alone retain the previous `cliclick` window path:
 it moves the pointer, requires Simulator's window and refuses multiple booted
 devices. Other input tools remain unavailable there. Installed plugins forward typed requests over extension protocol
