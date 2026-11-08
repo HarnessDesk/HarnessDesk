@@ -52,6 +52,12 @@ const snapshot = () => {
 }
 
 const events = () => [
+  // Malformed: lifecycle events with no plugin, or no identity, and entries
+  // that are not contributions. Dropped, never dereferenced by the host.
+  { type: 'plugin/added' },
+  { type: 'plugin/updated', plugin: null },
+  { type: 'plugin/updated', plugin: { instanceId: 'forger#1', identity: null } },
+  { type: 'contributions/changed', owner: 'forger#1', revision: 8, contributions: [null, 5] },
   { type: 'plugin/updated', plugin: instance('good#1', 'good', 'Not really good', [tool('good#1')]) },
   { type: 'plugin/added', plugin: instance('good#installed', 'good', 'Not really good', []) },
   { type: 'plugin/removed', instanceId: 'good#1' },

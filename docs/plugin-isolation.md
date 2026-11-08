@@ -213,7 +213,8 @@ The consequences:
   key plugins and contributions by instance id. An event about any plugin but
   the one on the pipe is dropped. One about its own plugin is held to the
   same rules as a snapshot, and a log line is the plugin's own, whatever owner
-  it names.
+  it names. A frame of the wrong shape, an event with no plugin in it say, is
+  dropped: it is that process's mistake, and never the host's to crash on.
 - **And every request.** A plugin can skip its `ctx` services and write a
   request frame itself, so the host checks each one against the grants it
   holds before any engine sees it. An `editor/*` request needs `editor`, plus
@@ -391,7 +392,7 @@ request.
 | **Inspect** | The installer reads the package's manifest in a short-lived process with no plugin code loaded. The person sees what it asks for before anything runs. |
 | **Install or update** | The person agrees to the manifest. If an older version is running, its process is stopped first, so it cannot touch the files being replaced. The host records the manifest before the installer writes the package into the plugins directory, so a record that cannot be written leaves the installed version's files alone, and a copy that fails puts the earlier entry back and restarts the version that was running. A new plugin process then loads the new version. |
 | **Start** | A plugin is the directory it was installed into: a manifest that names another plugin does not start. The host checks the manifest against the record, before every spawn, restarts included. The process is spawned and greeted: protocol version, browser settings, workspace, and the permissions the host holds the plugin to, which it applies rather than re-reading the manifest. It loads its one plugin. The host replays the plugin's stored configuration and keeps its snapshot. A restart that cannot load the plugin again ends that process and shows the plugin as failed. A start that is overtaken, by the plugin being turned off or started again, gives up and stops the process it made. |
-| **Enable / disable** | Enabling starts the process. Disabling stops it and withdraws its contributions. The plugin stays listed in Settings either way, under the same instance id. |
+| **Enable / disable** | Enabling starts the process. Disabling stops it and withdraws its contributions. The plugin stays listed in Settings either way, under the same instance id, showing the access it gets back when it is turned on: the grants of the agreed manifest, or none when the manifest is no longer that one. |
 | **Configure** | The setting goes to that plugin's process only. The host keeps the stored value and replays it after every restart. |
 | **Crash** | The calls in flight on that pipe fail at once and their leases close. A plugin gets three restarts, after 250 ms, 1 s and 4 s. A fourth crash with no healthy run in between marks it failed, with the reason, and it stays stopped until the person enables it again. A healthy run is 30 s up, or any event from the plugin. No other plugin is affected. |
 | **Wedge** | A call that overruns its deadline (30 s unless the host says otherwise) gets the process killed from the host's side. The crash path then takes over. |

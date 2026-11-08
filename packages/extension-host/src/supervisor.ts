@@ -43,6 +43,7 @@ import {
   type InspectedPlugin,
   type PluginHostMethodName,
   type PluginHostMethods,
+  type PluginHostNotification,
   type PluginHostStats,
 } from '@harnessdesk/extension-protocol'
 import {
@@ -511,30 +512,12 @@ export class PluginHostProcess {
       return
     }
     if ('notification' in parsed) {
-      const notification = parsed.notification
-      if (notification.kind === 'snapshot') {
-        // Child ids are namespaced at this boundary: both kernels number
-        // their contributions c1, c2, … independently, and unprefixed child
-        // ids shadow in-process ones — a live Codex run resolved a child
-        // browser tool to c2 and executed the built-in Search tool that
-        // owned c2 in the kernel. Ids must be unique across the merge.
-        const { plugins, contributions } = this.#checked(notification.plugins, notification.contributions)
-        this.#plugins = plugins.map((plugin) => ({
-          ...plugin,
-          contributions: plugin.contributions.map((entry) => ({
-            ...entry,
-            id: this.#namespaced(entry.id),
-          })),
-        }))
-        this.#contributions = contributions.map((entry) => ({
-          ...entry,
-          id: this.#namespaced(entry.id),
-        }))
-        this.#options.onSnapshot?.()
-      } else {
-        this.#crashes = 0 // A healthy event stream clears the backoff ladder.
-        const event = this.#checkedEvent(notification.event)
-        if (event) this.#options.onEvent?.(event)
+      try {
+        this.#onNotification(parsed.notification)
+      } catch (error) {
+        // A frame the checks below did not foresee is still only that
+        // process's mistake: dropped here, it cannot take the host down with it.
+        this.#logger.warn?.('malformed notification from plugin host', { error: String(error) })
       }
       return
     }
@@ -544,6 +527,34 @@ export class PluginHostProcess {
     if (pending.timer) clearTimeout(pending.timer)
     if ('error' in parsed) pending.reject(new Error(parsed.error.message))
     else pending.resolve(parsed.result)
+  }
+
+  /** A notification from the process: a snapshot of its plugin, or an event about it. */
+  #onNotification(notification: PluginHostNotification): void {
+    if (notification.kind === 'snapshot') {
+      // Child ids are namespaced at this boundary: both kernels number
+      // their contributions c1, c2, … independently, and unprefixed child
+      // ids shadow in-process ones — a live Codex run resolved a child
+      // browser tool to c2 and executed the built-in Search tool that
+      // owned c2 in the kernel. Ids must be unique across the merge.
+      const { plugins, contributions } = this.#checked(notification.plugins, notification.contributions)
+      this.#plugins = plugins.map((plugin) => ({
+        ...plugin,
+        contributions: plugin.contributions.map((entry) => ({
+          ...entry,
+          id: this.#namespaced(entry.id),
+        })),
+      }))
+      this.#contributions = contributions.map((entry) => ({
+        ...entry,
+        id: this.#namespaced(entry.id),
+      }))
+      this.#options.onSnapshot?.()
+    } else {
+      this.#crashes = 0 // A healthy event stream clears the backoff ladder.
+      const event = this.#checkedEvent(notification.event)
+      if (event) this.#options.onEvent?.(event)
+    }
   }
 
   /**
@@ -560,8 +571,11 @@ export class PluginHostProcess {
   ): { plugins: readonly PluginInstance[]; contributions: readonly CapabilityContribution[] } {
     const bound = this.#options.plugin
     const own = this.instanceId
-    if (!bound || !own) return { plugins: [], contributions: [] }
-    const reported = plugins.find((plugin) => plugin.identity?.id === bound.id && this.#isOwn(plugin.instanceId))
+    if (!bound || !own || !Array.isArray(plugins)) return { plugins: [], contributions: [] }
+    // The frame is the process's, so its shape is too: anything that is not
+    // a plugin entry is not one, rather than something to dereference.
+    const reported = plugins.find((plugin) =>
+      isRecord(plugin) && isRecord(plugin.identity) && plugin.identity.id === bound.id && this.#isOwn(plugin.instanceId))
     if (!reported) return { plugins: [], contributions: [] }
     this.#reportedInstanceId = String(reported.instanceId)
     const kept = this.#allowed(reported.instanceId, contributions)
@@ -581,9 +595,9 @@ export class PluginHostProcess {
   #allowed(owner: PluginInstanceId, contributions: readonly CapabilityContribution[]): CapabilityContribution[] {
     const bound = this.#options.plugin
     const own = this.instanceId
-    if (!bound || !own) return []
+    if (!bound || !own || !Array.isArray(contributions)) return []
     return contributions
-      .filter((entry) => entry.owner === owner && (entry.kind !== 'ui' || bound.permissions.ui.contribute))
+      .filter((entry) => isRecord(entry) && entry.owner === owner && (entry.kind !== 'ui' || bound.permissions.ui.contribute))
       .map((entry) => ({ ...entry, owner: own }))
   }
 
@@ -600,7 +614,8 @@ export class PluginHostProcess {
     switch (event?.type) {
       case 'plugin/added':
       case 'plugin/updated': {
-        const plugin = this.#checked([event.plugin], event.plugin?.contributions ?? []).plugins[0]
+        if (!isRecord(event.plugin)) return null
+        const plugin = this.#checked([event.plugin], event.plugin.contributions).plugins[0]
         if (!plugin) return null
         return {
           type: event.type,
@@ -1543,7 +1558,7 @@ export class SupervisedExtensionHost {
       // a manifest that names anything else.
       const id = basename(entry.directory)
       if (this.#members.has(id)) continue
-      const member: Member = { id, directory: entry.directory, proc: null, enabled: true, problem: null, config: null, identity: null, configSchema: null, uninstalling: false, generation: 0 }
+      const member: Member = { id, directory: entry.directory, proc: null, enabled: true, problem: null, config: null, identity: null, configSchema: null, permissions: null, uninstalling: false, generation: 0 }
       this.#members.set(id, member)
       started.push(this.#start(member))
     }
@@ -1593,9 +1608,20 @@ export class SupervisedExtensionHost {
         this.#logger.warn?.('an installed plugin shadows a built-in of the same id and was switched off', { plugin: member.id })
         return
       }
-      if (!member.enabled) return
+      if (!member.enabled) {
+        // Read-only: a plugin that is off records nothing, but one whose
+        // manifest is the agreed one shows what it may do once it is on.
+        member.permissions = (await this.#consent.matches(member.id, bytes).catch(() => false))
+          ? mergePermissions(pkg.manifest.permissions)
+          : null
+        return
+      }
       // Checked against the bytes the permissions below were parsed from.
-      if ((await this.#consent.check(member.id, bytes)) === 'changed') throw new Error(MANIFEST_CHANGED)
+      if ((await this.#consent.check(member.id, bytes)) === 'changed') {
+        member.permissions = null
+        throw new Error(MANIFEST_CHANGED)
+      }
+      member.permissions = mergePermissions(pkg.manifest.permissions)
       if (!current()) return
       proc = new PluginHostProcess({
         plugin: {
@@ -1714,7 +1740,7 @@ export class SupervisedExtensionHost {
       identity: member.identity ?? { id: member.id, name: member.id, source: { kind: 'local', path: member.directory } },
       state: problem ? { type: 'failed', message: problem } : { type: 'disposed' },
       revision: reported?.revision ?? 0,
-      permissions: NO_PLUGIN_PERMISSIONS,
+      permissions: member.permissions ?? NO_PLUGIN_PERMISSIONS,
       injects: [],
       provides: [],
       contributions: [],
@@ -2048,7 +2074,7 @@ export class SupervisedExtensionHost {
       throw error
     }
     const directory = join(this.#root, id)
-    const member = this.#members.get(id) ?? { id, directory, proc: null, enabled: true, problem: null, config: null, identity: null, configSchema: null, uninstalling: false, generation: 0 }
+    const member = this.#members.get(id) ?? { id, directory, proc: null, enabled: true, problem: null, config: null, identity: null, configSchema: null, permissions: null, uninstalling: false, generation: 0 }
     this.#members.set(id, member)
     if (member !== existing && existing) await this.#stop(existing)
     member.directory = directory
@@ -2173,11 +2199,20 @@ interface Member {
   identity: PluginIdentity | null
   /** The settings form its manifest declares, kept so a stopped plugin can still be configured. */
   configSchema: JsonSchema | null
+  /**
+   * What it may do, from the last manifest checked against the record, so a
+   * stopped plugin still shows the access it gets back when it is turned on.
+   * Null until a manifest has matched: one that did not was never agreed to.
+   */
+  permissions: PluginPermissions | null
   /** Set while it is being removed: nothing may start it again. */
   uninstalling: boolean
   /** Moves on with every start and stop; a start that finds it moved was overtaken. */
   generation: number
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> & object =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** The instance id the host gives an installed plugin, the same in every process it runs in. */
 export const installedInstanceId = (id: string): PluginInstanceId => pluginInstanceId(`${id}#installed`)
@@ -2185,7 +2220,7 @@ export const installedInstanceId = (id: string): PluginInstanceId => pluginInsta
 const MANIFEST_CHANGED =
   'Its manifest has changed since it was installed. Install it again to review what it asks for; it stays off until then.'
 
-/** What a stopped plugin is shown to hold: nothing, because nothing of it is running. */
+/** What a plugin with no agreed manifest is shown to hold: nothing. */
 const NO_PLUGIN_PERMISSIONS: PluginPermissions = mergePermissions(undefined)
 
 /**

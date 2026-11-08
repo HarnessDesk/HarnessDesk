@@ -265,6 +265,7 @@ test('a plugin whose manifest changed after it was agreed to does not start', as
     assert.ok(good, 'the plugin is still listed, so the person can see why it stopped')
     assert.equal(good.state.type, 'failed')
     assert.match(JSON.stringify(good.state), /changed/i)
+    assert.equal(good.permissions.shell, false, 'what the changed manifest asks for is not shown as granted')
     assert.equal(second.host.list('tool').some((entry) => entry.name === 'ping'), false, 'nothing it registers is reachable')
     const stats = await second.host.stats()
     assert.equal((stats.processes ?? []).some((entry) => entry.plugin === 'good'), false, 'no process was started for it')
@@ -288,6 +289,21 @@ test('a disabled plugin has no process, and enabling it starts one', async () =>
     stats = await harness.host.stats()
     assert.deepEqual((stats.processes ?? []).map((entry) => entry.plugin).sort(), ['envspy', 'good'])
     assert.equal((await spy(harness)).secret, null)
+  } finally {
+    await cleanup(harness)
+  }
+})
+
+test('a plugin that is off still shows the access it gets back when it is turned on', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-perplugin-'))
+  await cp(join(FIXTURES, 'plugin-browser'), join(dir, 'plugins', 'browserish'), { recursive: true })
+  const harness = await make(dir, 'a granted plugin, turned off')
+  try {
+    assert.equal(harness.host.plugins().find((plugin) => plugin.identity.id === 'browserish')?.permissions.browser, true)
+    await harness.host.setEnabled('browserish', false)
+    const listed = harness.host.plugins().find((plugin) => plugin.identity.id === 'browserish')
+    assert.equal(listed?.enabled, false)
+    assert.equal(listed?.permissions.browser, true, 'its agreed grants are shown while it is off')
   } finally {
     await cleanup(harness)
   }
