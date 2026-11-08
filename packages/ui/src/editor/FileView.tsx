@@ -354,7 +354,10 @@ export const FileView = (props: FileViewProps) => {
     const read = (event: Event) => {
       const retained = selected.current
       if (event.type === 'scroll' && retained?.removedRange) {
-        setSelection({ ...retained, rect: retained.removedRange.getBoundingClientRect() })
+        const range = retained.removedRange
+        // Re-diffing can remove the widget and collapse its live range onto a parent.
+        if (range.collapsed || !range.startContainer.isConnected || !range.endContainer.isConnected) return
+        setSelection({ ...retained, rect: range.getBoundingClientRect() })
         return
       }
       const host = surface.current, one = document.getSelection()

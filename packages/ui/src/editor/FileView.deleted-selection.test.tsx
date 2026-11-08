@@ -5,10 +5,15 @@ import { StateEffect } from '@codemirror/state'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runtimeId, type SessionKey } from '@harnessdesk/protocol'
 import { PaneProvider, StoreProvider } from '../state/context'
+import { SelectionAction } from '../design'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { FileView } from './FileView'
 import { handOverToComposer } from '../lib/compose'
 
+vi.mock('../design/patterns/SelectionAction', async importOriginal => {
+  const design = await importOriginal<typeof import('../design/patterns/SelectionAction')>()
+  return { ...design, SelectionAction: vi.fn(design.SelectionAction) }
+})
 vi.mock('../lib/compose', () => ({ handOverToComposer: vi.fn(async () => true) }))
 vi.mock('./head', () => ({ readHead: vi.fn(async () => ({ content: 'before\nkeep\n', status: 'tracked' })) }))
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
@@ -24,6 +29,7 @@ const store = {
 beforeEach(async () => {
   await import('./MergeView')
   vi.mocked(handOverToComposer).mockClear()
+  vi.mocked(SelectionAction).mockClear()
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
   vi.spyOn(EditorView.prototype, 'coordsAtPos').mockReturnValue(new DOMRect(100, 100, 30, 20))
   vi.spyOn(Range.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 100, 30, 20))
@@ -65,4 +71,33 @@ it.each([false, true].flatMap(previous => ['removed', 'document', 'collapsed'].m
   expect(button()).toBeTruthy()
   await act(async () => button()!.click())
   expect(handOverToComposer).toHaveBeenCalledWith({ paneId: 'main', sessionKey: session, text: `auth.ts:1\n\`\`\`typescript\n${owner === 'document' ? 'after' : 'before'}\n\`\`\`\n` })
+})
+
+it('keeps the Ask rect when the selected removed widget is detached', async () => {
+  await act(async () => root.render(<StoreProvider store={store}><PaneProvider scope={{ paneId: 'main', view: { kind: 'conversation', session }, sessionKey: session }}>
+    <FileView path="/work/auth.ts" runtime={runtimeId('fake')} root="/work" subject={`session:${session}`} view="changes" />
+  </PaneProvider></StoreProvider>))
+  await vi.waitFor(() => expect(container.querySelector('.cm-content')).not.toBeNull())
+  const view = EditorView.findFromDOM(container.querySelector('.cm-content')!)!
+  const deleted = container.querySelector('.cm-deletedText')!
+  const range = document.createRange(); range.selectNodeContents(deleted)
+  await act(async () => {
+    document.getSelection()!.removeAllRanges(); document.getSelection()!.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+  const before = vi.mocked(SelectionAction).mock.lastCall![0].rect
+  expect(before.toJSON()).toMatchObject({ x: 100, y: 100, width: 30, height: 20 })
+  // Native live ranges collapse onto the parent when their widget is removed.
+  vi.mocked(Range.prototype.getBoundingClientRect).mockImplementation(function (this: Range) {
+    return this.collapsed || !this.startContainer.isConnected || !this.endContainer.isConnected ? new DOMRect() : before
+  })
+  await act(async () => {
+    deleted.remove()
+    view.scrollDOM.dispatchEvent(new Event('scroll'))
+  })
+  expect(deleted.isConnected).toBe(false)
+  expect(vi.mocked(SelectionAction).mock.lastCall![0].rect).toBe(before)
+  const button = [...document.querySelectorAll('button')].find(one => one.textContent === 'Ask in chat ⌘L')!
+  await act(async () => button.click())
+  expect(handOverToComposer).toHaveBeenCalledWith({ paneId: 'main', sessionKey: session, text: 'auth.ts:1\n```typescript\nbefore\n```\n' })
 })
