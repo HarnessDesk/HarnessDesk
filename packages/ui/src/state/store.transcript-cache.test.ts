@@ -1714,3 +1714,124 @@ it('keeps captured streamed output through an owner change and a stale in-flight
   expect(await restoring).toBe(false)
   await vi.waitFor(() => expect(store.getSnapshot().sessions.get(key)).toMatchObject({ itemsLoaded: true, turns: newer.turns }))
 })
+
+it('defers same-session seat and task reads until the existing restore settles', async () => {
+  const runtime = runtimeId('example'), id = sessionId('metadata-wait'), key = sessionKey(runtime, id)
+  const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
+    turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical), seat = { id: 'synthetic-seat' }
+  let finish!: (value: unknown) => void, snapshots = 0
+  const blocked = new Promise(resolve => { finish = resolve })
+  const store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'session/cache-snapshot') return ++snapshots === 1 ? { session: body, watermark, identity } : blocked
+    if (method === 'session/prepare-eviction') return { ...watermark, identity }
+    if (method === 'evidence/seat') return seat
+    if (method === 'tasks/list') return []
+    return null
+  }) as never)
+  ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
+  expect(await store.unloadTranscript(runtime, id)).toBe(true)
+  const restoring = store.restoreTranscript(runtime, id)
+  await vi.waitFor(() => expect(snapshots).toBe(2))
+  const seatRead = store.seatRecord(runtime, id), taskRead = store.refreshTasks(key)
+  await Promise.resolve()
+  expect(request.mock.calls.some(([method]) => method === 'evidence/seat' || method === 'tasks/list')).toBe(false)
+  finish({ session: body, watermark, identity })
+  expect(await restoring).toBe(true)
+  expect(await seatRead).toBe(seat)
+  expect(await taskRead).toBe('loaded')
+  expect(request.mock.calls.filter(([method]) => method === 'evidence/seat' || method === 'tasks/list').map(([method]) => method)).toEqual(['evidence/seat', 'tasks/list'])
+  expect(request).toHaveBeenCalledWith('evidence/seat', { runtime, sessionId: id })
+  expect(request).toHaveBeenCalledWith('tasks/list', { runtime, sessionId: id })
+})
+
+it.each(['loaded', 'released'] as const)('reads seat and tasks from a %s body without starting restoration', async state => {
+  const runtime = runtimeId('example'), id = sessionId('metadata-no-wait'), key = sessionKey(runtime, id)
+  const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }, identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
+  const seat = { id: 'synthetic-seat' }, store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'session/cache-snapshot') return { session: body, watermark, identity }
+    if (method === 'session/prepare-eviction') return { ...watermark, identity }
+    if (method === 'evidence/seat') return seat
+    if (method === 'tasks/list') return []
+    return null
+  }) as never)
+  ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
+  if (state === 'released') expect(await store.unloadTranscript(runtime, id)).toBe(true)
+  const priorSnapshots = request.mock.calls.filter(([method]) => method === 'session/cache-snapshot').length
+  expect(await store.seatRecord(runtime, id)).toBe(seat)
+  expect(await store.refreshTasks(key)).toBe('loaded')
+  expect(request.mock.calls.filter(([method]) => method === 'session/cache-snapshot')).toHaveLength(priorSnapshots)
+  expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(state === 'loaded')
+})
+
+it('continues metadata reads after a refused restore without losing captured transcript activity', async () => {
+  const runtime = runtimeId('example'), id = sessionId('metadata-refusal'), key = sessionKey(runtime, id)
+  const body: Session = { id, runtime, cwd: '/example', title: 'Synthetic original', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
+    turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
+  const newer = { ...body, title: 'Synthetic newer' }, watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }, next = { ...watermark, revision: 2, sequence: 2 }
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical), seat = { id: 'synthetic-seat' }
+  let firstFinish!: (value: unknown) => void, secondFinish!: (value: unknown) => void, snapshots = 0
+  const first = new Promise(resolve => { firstFinish = resolve }), second = new Promise(resolve => { secondFinish = resolve })
+  const store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'session/cache-snapshot') return ++snapshots === 1 ? { session: body, watermark, identity } : snapshots === 2 ? first : second
+    if (method === 'session/prepare-eviction') return { ...watermark, identity }
+    if (method === 'evidence/seat') return seat
+    if (method === 'tasks/list') return []
+    return null
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onEvent(runtime, { type: 'session/started', session: body })
+  expect(await store.unloadTranscript(runtime, id)).toBe(true)
+  const restoring = store.restoreTranscript(runtime, id)
+  await vi.waitFor(() => expect(snapshots).toBe(2))
+  const seatRead = store.seatRecord(runtime, id), taskRead = store.refreshTasks(key)
+  await Promise.resolve()
+  expect(request.mock.calls.some(([method]) => method === 'evidence/seat' || method === 'tasks/list')).toBe(false)
+  handlers.onEvent(runtime, { type: 'session/title', sessionId: id, title: newer.title! }, next)
+  firstFinish({ session: body, watermark, identity })
+  expect(await restoring).toBe(false)
+  expect(await seatRead).toBe(seat)
+  expect(await taskRead).toBe('loaded')
+  expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(false)
+  await vi.waitFor(() => expect(snapshots).toBeGreaterThanOrEqual(3))
+  const retry = store.restoreTranscript(runtime, id)
+  secondFinish({ session: newer, watermark: next, identity })
+  expect(await retry).toBe(false) // The task-list update also crossed this snapshot.
+  expect(await store.restoreTranscript(runtime, id)).toBe(true)
+  expect(store.getSnapshot().sessions.get(key)).toMatchObject({ itemsLoaded: true, title: newer.title, turns: body.turns })
+})
+
+it('preserves seat and task error behavior after waiting for a restore', async () => {
+  const runtime = runtimeId('example'), id = sessionId('metadata-errors'), key = sessionKey(runtime, id)
+  const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }, identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
+  const error = new Error('Synthetic refusal')
+  let finish!: (value: unknown) => void, snapshots = 0
+  const blocked = new Promise(resolve => { finish = resolve })
+  const store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'session/cache-snapshot') return ++snapshots === 1 ? { session: body, watermark, identity } : blocked
+    if (method === 'session/prepare-eviction') return { ...watermark, identity }
+    if (method === 'evidence/seat' || method === 'tasks/list') throw error
+    return null
+  }) as never)
+  ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
+  expect(await store.unloadTranscript(runtime, id)).toBe(true)
+  const restoring = store.restoreTranscript(runtime, id)
+  await vi.waitFor(() => expect(snapshots).toBe(2))
+  const seatRead = store.seatRecord(runtime, id), taskRead = store.refreshTasks(key)
+  const seatRefusal = expect(seatRead).rejects.toBe(error)
+  finish({ session: body, watermark, identity })
+  expect(await restoring).toBe(true)
+  await seatRefusal
+  expect(await taskRead).toBe('failed')
+})

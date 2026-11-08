@@ -6817,6 +6817,10 @@ export class AppStore {
   }
 
   async seatRecord(runtime: RuntimeId, sessionId: SessionId): Promise<SeatRecord | null> {
+    // An addressed Host read invalidates the same transcript fence. Let an
+    // existing restore settle, without restoring a hidden body just for this.
+    const restoring = this.#releasedTranscripts.get(sessionKey(runtime, sessionId))?.inFlight
+    if (restoring) await restoring
     return (await this.transport.request('evidence/seat', { runtime, sessionId })) as SeatRecord | null
   }
 
@@ -8068,6 +8072,10 @@ export class AppStore {
     const runtime = this.#snapshot.runtimes.find((entry) => entry.id === address(key).runtime)
     if (runtime && !runtime.capabilities.backgroundTasks) return 'unsupported'
     try {
+      // As with seat metadata, do not interrupt an already-running restore or
+      // start one just to read the task list.
+      const restoring = this.#releasedTranscripts.get(key)?.inFlight
+      if (restoring) await restoring
       const tasks = await this.transport.request('tasks/list', address(key))
       const next = new Map(this.#snapshot.tasks)
       if (tasks.length === 0) next.delete(key)
