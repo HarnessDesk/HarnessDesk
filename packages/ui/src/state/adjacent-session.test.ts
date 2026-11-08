@@ -411,12 +411,13 @@ it('refuses to replace an independently changed local body during a first-read s
     if (method === 'session/cache-snapshot') { requested.resolve(); return snapshot.promise }
     return Promise.resolve({})
   }) as never)
-  const handlers = (store.transport as unknown as { handlers: { onEvent(runtime: unknown, event: unknown, fence?: unknown): void } }).handlers
+  const handlers = (store.transport as unknown as { handlers: { onEvent(runtime: unknown, event: unknown, fence?: unknown): void; onNotification(event: unknown): void } }).handlers
   const opening = store.openAdjacentSession(id, runtime)
   handlers.onEvent(runtime, { type: 'session/started', session: created }, watermark)
   read.resolve(created); await requested.promise
   const key = sessionKey(runtime, id)
   await store.updateSettings({ model: 'locally-changed' }, key)
+  handlers.onNotification({ method: 'session/indexChanged', params: { upserted: [{ ...created, archived: false }], removed: [] } })
   snapshot.resolve({ session: created, watermark, identity: transcriptFingerprint(canonicalTranscriptBody(created.turns).canonical) })
   await opening
   expect(store.getSnapshot().sessions.get(key)?.settings?.model).toBe('locally-changed')
@@ -441,4 +442,44 @@ it('does not install a covering snapshot after the adjacent reader closes', asyn
   await opening
   expect(store.getSnapshot().adjacentSession).toBeNull()
   expect(store.getSnapshot().sessions.has(sessionKey(runtime, id))).toBe(false)
+})
+
+it.each(['none', 'archive', 'title'] as const)('accepts a covering first-read snapshot with index metadata: %s', async indexUpdate => {
+  const store = new AppStore('ws://localhost:0/'), id = sessionId('unseen'), read = deferred<Session>()
+  const started = { ...body('unseen'), title: 'Synthetic side conversation' }
+  const turn = { id: 'new', status: 'completed', items: [{ id: 'answer', type: 'assistantMessage', text: 'Synthetic completed answer' }] }
+  const covered = { ...started, turns: [turn] } as unknown as Session
+  const watermark = { epoch: 'e', generation: 'g', revision: 3, sequence: 3 }
+  vi.spyOn(store.transport, 'request').mockImplementation(((method: string) => method === 'session/read' ? read.promise : method === 'session/cache-snapshot'
+    ? Promise.resolve({ session: covered, watermark, identity: transcriptFingerprint(canonicalTranscriptBody(covered.turns).canonical) }) : Promise.resolve(covered)) as never)
+  const handlers = (store.transport as unknown as { handlers: { onEvent(runtime: unknown, event: unknown, fence?: unknown): void; onNotification(event: unknown): void } }).handlers
+  const opening = store.openAdjacentSession(id, runtime)
+  handlers.onEvent(runtime, { type: 'session/started', session: started }, { ...watermark, revision: 1, sequence: 1 })
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.archived).toBeUndefined()
+  if (indexUpdate !== 'none') handlers.onNotification({ method: 'session/indexChanged', params: { upserted: [{ ...started, ...(indexUpdate === 'archive' ? { archived: false } : { title: 'Synthetic indexed title' }) }], removed: [] } })
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.archived).toBe(indexUpdate === 'archive' ? false : undefined)
+  handlers.onEvent(runtime, { type: 'turn/started', sessionId: id, turn: { ...turn, status: 'inProgress', items: [] } }, { ...watermark, revision: 2, sequence: 2 })
+  handlers.onEvent(runtime, { type: 'turn/completed', sessionId: id, turn }, watermark)
+  read.resolve(started); await opening
+  expect(store.getSnapshot().adjacentSession?.error).toBeNull()
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.turns).toMatchObject([turn])
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.archived).toBe(indexUpdate === 'archive' ? false : undefined)
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.title).toBe(indexUpdate === 'title' ? 'Synthetic indexed title' : started.title)
+})
+
+it('preserves index metadata that arrives while adjacent resume is pending', async () => {
+  const store = new AppStore('ws://localhost:0/'), id = sessionId('a'), resume = deferred<Session>(), entered = deferred<void>()
+  const original = { ...body('a'), title: 'Before' }
+  vi.spyOn(store.transport, 'request').mockImplementation(((method: string) => {
+    if (method === 'session/resume') { entered.resolve(); return resume.promise }
+    return Promise.resolve(original)
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: { onEvent(runtime: unknown, event: unknown): void; onNotification(event: unknown): void } }).handlers
+  handlers.onEvent(runtime, { type: 'session/started', session: original })
+  const opening = store.openAdjacentSession(id, runtime)
+  await entered.promise
+  handlers.onNotification({ method: 'session/indexChanged', params: { upserted: [{ ...original, title: 'Indexed during resume', archived: false }], removed: [] } })
+  resume.resolve(original); await opening
+  expect(store.getSnapshot().adjacentSession?.error).toBeNull()
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))).toMatchObject({ title: 'Indexed during resume', archived: false })
 })

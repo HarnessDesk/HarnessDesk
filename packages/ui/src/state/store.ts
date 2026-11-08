@@ -3417,7 +3417,15 @@ export class AppStore {
       const archived = row.archived === undefined ? live.archived : row.archived
       if (live.title === title && live.archived === archived) continue
       const next = new Map(sessions)
-      next.set(key, { ...live, title, archived })
+      const indexed = { ...live, title, archived }
+      next.set(key, indexed)
+      const owner = this.#adjacentReadChanges
+      if (owner?.key === key) {
+        if (owner.collectingFences) {
+          if (owner.lastBody !== live) owner.localChanged = true
+          else { owner.changes.observeIndex(live, indexed); owner.lastBody = indexed }
+        } else owner.changes.observeIndex(live, indexed)
+      }
       sessions = next
     }
     const nextFoldersGone = this.#foldersGoneFor(upserted)
@@ -3602,8 +3610,8 @@ export class AppStore {
             this.#transcriptPending.has(key) || this.#releasedTranscripts.has(key) || this.#transcriptOrphans.size > 0 || this.#releasedOrphans.length > 0) {
           throw new Error('The conversation changed without a covering snapshot. Retry to refresh it.')
         }
-        this.#setSession(preserveAdjacentLocal(snapshot.session, held), true)
-        changes = new AdjacentReadChanges()
+        this.#setSession(preserveAdjacentLocal(changes.applyIndex(snapshot.session), held), true)
+        changes = changes.forResume()
         readOwner.changes = changes
         readOwner.collectingFences = false
       } else {
@@ -3632,8 +3640,9 @@ export class AppStore {
   #setAdjacentRead(read: Session, changes: AdjacentReadChanges): void {
     const key = sessionKey(read.runtime, read.id), held = this.#snapshot.sessions.get(key)
     if (changes.unseen) throw new Error('The conversation changed without a complete event sequence. Retry to refresh it.')
-    if (!held || !changes.observed) { this.#setSession(read); return }
-    this.#setSession(reconcileAdjacentRead(held, read, changes), true)
+    const indexed = changes.applyIndex(read)
+    if (!held || !changes.observed) { this.#setSession(indexed); return }
+    this.#setSession(reconcileAdjacentRead(held, indexed, changes), true)
   }
 
   /**

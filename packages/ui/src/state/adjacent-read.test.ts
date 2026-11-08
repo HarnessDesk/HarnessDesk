@@ -48,3 +48,12 @@ it('preserves structured event fields without taking unchanged item fields', () 
   ownership.observe({ type: 'item/delta', sessionId: id, turnId: 'turn', itemId: 'item', delta: { kind: 'fileChangePatch', changes: [] } } as unknown as AgentEvent, first, after)
   expect(reconcileAdjacentRead(after, fresh, ownership).turns[0]?.items[0]).toMatchObject({ changes: [{ path: 'one', kind: 'modified' }], detail: 'fresh' })
 })
+
+it('keeps index-owned title and archive while refusing divergent fresh metadata', () => {
+  const changes = new AdjacentReadChanges(), before = session('text', 'before')
+  const indexed = { ...before, title: 'indexed', archived: false }
+  changes.observeIndex(before, indexed)
+  expect(changes.applyIndex(before)).toMatchObject({ title: 'indexed', archived: false })
+  expect(changes.applyIndex(indexed)).toMatchObject({ title: 'indexed', archived: false })
+  expect(() => changes.applyIndex({ ...before, title: 'different' })).toThrow(/changed.*Retry/i)
+})

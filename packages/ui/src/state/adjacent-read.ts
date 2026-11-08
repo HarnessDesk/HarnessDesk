@@ -45,10 +45,27 @@ const applyFields = <T extends object>(fresh: T, fields: Fields): T => {
 /** Records actual accepted reducer changes, not ownership of an entire cached session. */
 export class AdjacentReadChanges {
   readonly fields: Fields = new Map()
+  readonly indexFields: Fields = new Map()
   readonly turns = new Map<string, TurnChanges>()
   unseen = false
   coverage: TranscriptWatermark | null = null
   coverageInvalid = false
+  /** Index notifications own only their applied title/archive metadata. */
+  observeIndex(before: Session, after: Session): void {
+    for (const key of ['title', 'archived']) {
+      const first = field(before, key), last = field(after, key)
+      if (same(first, last)) continue
+      const previous = this.indexFields.get(key)
+      if (previous) previous.last = last
+      else this.indexFields.set(key, { first, last })
+    }
+  }
+  applyIndex(snapshot: Session): Session { return applyFields(snapshot, this.indexFields) }
+  forResume(): AdjacentReadChanges {
+    const next = new AdjacentReadChanges()
+    for (const [key, change] of this.indexFields) next.indexFields.set(key, { ...change })
+    return next
+  }
   observeFence(fence: TranscriptWatermark | null): void {
     if (!fence) { this.coverageInvalid = true; return }
     const previous = this.coverage
