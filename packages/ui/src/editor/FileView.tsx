@@ -116,7 +116,7 @@ export const FileView = (props: FileViewProps) => {
   const selectionId = useId()
   const keyboardHere = useContext(KeyboardHereContext)
   const surface = useRef<HTMLDivElement>(null)
-  const [selection, setSelection] = useState<{ text: string; rect: DOMRect } | null>(null)
+  const [selection, setSelection] = useState<{ text: string; rect: DOMRect; removedRange?: Range } | null>(null)
   const selected = useRef(selection); selected.current = selection
   const ask = useRef<() => boolean>(() => false)
   const callbacks = useRef(props); callbacks.current = props
@@ -316,7 +316,10 @@ export const FileView = (props: FileViewProps) => {
   const editable = !!state.base && !state.base.truncated && state.base.content.length <= MAX_EDITABLE
   const canSave = editable && state.conflict?.kind !== 'binary' && state.conflict?.kind !== 'tooLarge'
   const quotePath = root && path.startsWith(`${root.replace(/\/$/, '')}/`) ? path.slice(root.replace(/\/$/, '').length + 1) : path
-  const onSelection = (one: EditorSelection | null) => {
+  const onSelection = (one: EditorSelection | null, selectionChanged = true) => {
+    // The removed widget owns its quote until the engine selection changes.
+    // Redraws, document sync and scroll may only refresh its geometry.
+    if (selected.current?.removedRange && !selectionChanged) return
     const text = one ? quoteSelection(quotePath, one.source, one.from, one.to) : null
     setSelection(text && one?.rect ? { text, rect: one.rect } : null)
   }
@@ -348,7 +351,12 @@ export const FileView = (props: FileViewProps) => {
     return () => window.removeEventListener('harnessdesk:ask-in-chat', request)
   }, [selectionId])
   useEffect(() => {
-    const read = () => {
+    const read = (event: Event) => {
+      const retained = selected.current
+      if (event.type === 'scroll' && retained?.removedRange) {
+        setSelection({ ...retained, rect: retained.removedRange.getBoundingClientRect() })
+        return
+      }
       const host = surface.current, one = document.getSelection()
       const start = one?.anchorNode, end = one?.focusNode
       if (!host || !one || one.isCollapsed || !start || !end || !host.contains(start) || !host.contains(end)) {
@@ -361,7 +369,7 @@ export const FileView = (props: FileViewProps) => {
       const source = deleted ? state.comparing && conflict?.kind === 'text' ? conflict.content : state.head ?? '' : content
       const text = previewSelection(quotePath, source, one.toString())
       const rect = one.getRangeAt(0).getBoundingClientRect()
-      setSelection(text ? { text, rect } : null)
+      setSelection(text ? { text, rect, ...(deleted ? { removedRange: one.getRangeAt(0).cloneRange() } : {}) } : null)
     }
     document.addEventListener('selectionchange', read)
     const host = surface.current

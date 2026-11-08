@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Ask in chat keeps the removed text you selected.** An editor redraw or scroll no longer replaces the quote with an older selection from the current file.
+
 - **Read another conversation on the right.** Open a conversation as a live, read-only transcript while keeping the current conversation and composer in place. Closing the reader leaves that conversation open.
 
 ## 0.7.0 — 2026-11-08

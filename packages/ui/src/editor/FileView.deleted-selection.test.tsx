@@ -1,6 +1,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { EditorView } from '@codemirror/view'
+import { Decoration, EditorView } from '@codemirror/view'
+import { StateEffect } from '@codemirror/state'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runtimeId, type SessionKey } from '@harnessdesk/protocol'
 import { PaneProvider, StoreProvider } from '../state/context'
@@ -24,10 +25,11 @@ beforeEach(async () => {
   await import('./MergeView')
   vi.mocked(handOverToComposer).mockClear()
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
+  vi.spyOn(EditorView.prototype, 'coordsAtPos').mockReturnValue(new DOMRect(100, 100, 30, 20))
   vi.spyOn(Range.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 100, 30, 20))
 })
 afterEach(() => { act(() => root.unmount()); container.remove(); document.getSelection()?.removeAllRanges(); vi.restoreAllMocks() })
-it.each([false, true])('preserves removed text and its original lines after scrolling (previous current selection: %s)', async previous => {
+it.each([false, true].flatMap(previous => ['removed', 'document', 'collapsed'].map(owner => ({ previous, owner }))))('retains removed ownership across redraws until a new document selection ($previous, $owner)', async ({ previous, owner }) => {
   await act(async () => root.render(<StoreProvider store={store}><PaneProvider scope={{ paneId: 'main', view: { kind: 'conversation', session }, sessionKey: session }}>
     <FileView path="/work/auth.ts" runtime={runtimeId('fake')} root="/work" subject={`session:${session}`} view="changes" />
   </PaneProvider></StoreProvider>))
@@ -45,8 +47,22 @@ it.each([false, true])('preserves removed text and its original lines after scro
   const button = () => [...document.querySelectorAll('button')].find(one => one.textContent === 'Ask in chat ⌘L')
   expect(button()).toBeTruthy()
   expect(view.state.selection.main.empty).toBe(!previous)
-  await act(async () => view.scrollDOM.dispatchEvent(new Event('scroll')))
+  await act(async () => {
+    view.dispatch({})
+    view.dispatch({ effects: StateEffect.appendConfig.of(EditorView.decorations.of(Decoration.none)) })
+    view.dispatch({ changes: { from: view.state.doc.length, insert: 'draft' } })
+    // jsdom does not draw the engine selection: reproduce the browser redraw.
+    const restored = document.createRange()
+    restored.selectNodeContents(container.querySelector('.cm-line')!)
+    document.getSelection()!.removeAllRanges(); document.getSelection()!.addRange(restored)
+    document.dispatchEvent(new Event('selectionchange'))
+    view.scrollDOM.dispatchEvent(new Event('scroll'))
+  })
+  if (owner !== 'removed') {
+    await act(async () => view.dispatch({ selection: { anchor: 0, head: owner === 'document' ? 5 : 0 } }))
+    if (owner === 'collapsed') { expect(button()).toBeFalsy(); return }
+  }
   expect(button()).toBeTruthy()
   await act(async () => button()!.click())
-  expect(handOverToComposer).toHaveBeenCalledWith({ paneId: 'main', sessionKey: session, text: 'auth.ts:1\n```typescript\nbefore\n```\n' })
+  expect(handOverToComposer).toHaveBeenCalledWith({ paneId: 'main', sessionKey: session, text: `auth.ts:1\n\`\`\`typescript\n${owner === 'document' ? 'after' : 'before'}\n\`\`\`\n` })
 })
