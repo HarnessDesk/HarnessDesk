@@ -138,10 +138,11 @@ The promises come in two kinds:
   by hand, by a tool, or by a plugin editing its own. A confined plugin can
   write no file of its own, so it can rewrite neither its manifest nor the
   record. An unconfined one, or any other program running as you, could.
-- **A confined process can still signal yours.** `process.kill` is outside
-  Node's permission model, so a confined plugin can send a signal to another
-  process of your user account. It cannot read, write, connect or start
-  anything with it.
+- **Signals are guarded by the plugin process, not by Node.** `process.kill`
+  is outside Node's permission model. So before any plugin code loads, a
+  confined process locks it down to signal only itself (asking whether a
+  process exists, signal 0, still works). This holds only while the
+  permission model holds, like the rest of layer 5.
 - **Links inside a package.** Node follows a symbolic link wherever it
   leads, even past the paths a process may read. So the installer refuses a
   package with a link that leads outside it; a link that stays inside is
@@ -363,6 +364,13 @@ runs on, and nothing else:
   home behind a symbolic link (`/var` on macOS) is two paths, and the process
   is handed the resolved one. A plugin's npm dependencies have to be inside
   that directory, which the installer already does.
+
+**Signals.** Node's permission model does not cover `process.kill`. So the
+plugin process guards it itself, before any plugin code loads: it may
+signal only its own process. Asking whether another process exists
+(signal 0) changes nothing and stays allowed. The guard cannot be
+reassigned or redefined, and the permission model already refuses
+`process.binding`, the other way to the system call.
 
 **What the host does for it.** A confined process has no disk, network or
 programs of its own, so a few things it once did for itself the host now

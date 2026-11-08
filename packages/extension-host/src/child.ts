@@ -91,6 +91,31 @@ if (probeAt !== -1) {
   process.exit(0)
 }
 
+/**
+ * Signals are outside Node's permission model, so a confined process could
+ * still stop or kill any other process of the same user. Before any plugin
+ * code loads, a confined process may signal only itself; asking whether a
+ * process exists (signal 0) stays allowed, since it changes nothing.
+ * `process.kill` reaches the system through `process._kill`, so guarding that
+ * one covers both, and it can be neither reassigned nor redefined. The
+ * permission model already refuses `process.binding`, the other way in.
+ */
+if ((process as { permission?: unknown }).permission) {
+  const signalling = process as unknown as { _kill: (pid: number, signal: number) => number }
+  const raw = signalling._kill
+  Object.defineProperty(process, '_kill', {
+    value: (pid: number, signal: number): number => {
+      if (Number(pid) !== process.pid && signal !== 0) {
+        throw Object.assign(new Error('A plugin process cannot signal another process.'), { code: 'ERR_ACCESS_DENIED' })
+      }
+      return raw.call(process, pid, signal)
+    },
+    writable: false,
+    configurable: false,
+    enumerable: false,
+  })
+}
+
 const log = (level: string, message: string, details?: unknown): void => {
   process.stderr.write(
     `${JSON.stringify({ level, message, ...(details === undefined ? {} : { details }) })}\n`,

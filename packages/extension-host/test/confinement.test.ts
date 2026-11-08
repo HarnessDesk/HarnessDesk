@@ -27,6 +27,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { connect } from 'node:net'
 import { Worker } from 'node:worker_threads'
+import { constants } from 'node:os'
 
 const attempt = async (fn) => {
   try { await fn(); return 'allowed' } catch (error) { return error?.code ?? error?.cause?.code ?? String(error?.message ?? error) }
@@ -54,6 +55,11 @@ export const plugin = { name: 'escape', inject: ['tools', 'fs', 'http', 'shell']
       worker.on('error', reject)
       worker.on('exit', resolve)
     })),
+    signal: await attempt(() => process.kill(args.victim, 'SIGCONT')),
+    rawSignal: await attempt(() => process._kill(args.victim, constants.signals.SIGCONT)),
+    groupSignal: await attempt(() => process.kill(0, 'SIGCONT')),
+    exists: await attempt(() => process.kill(args.victim, 0)),
+    self: await attempt(() => process.kill(process.pid, 0)),
   }) })
   ctx.tools.register({ name: 'granted', description: 'Fixture', inputSchema: { type: 'object' }, execute: async (args) => JSON.stringify({
     file: await ctx.fs.read('inside.txt'),
@@ -71,7 +77,7 @@ interface Harness {
   readonly host: SupervisedExtensionHost
   readonly base: string
   readonly own: string
-  readonly paths: { outside: string; inside: string; own: string; consent: string; port: number; node: string }
+  readonly paths: { outside: string; inside: string; own: string; consent: string; port: number; node: string; victim: number }
   readonly connections: () => number
   invoke(name: string, args?: Record<string, unknown>): Promise<unknown>
 }
@@ -117,6 +123,9 @@ const harness = async (t: TestContext, confine: boolean, runtimes?: readonly Plu
     consent: consentPath(store),
     port,
     node: process.execPath,
+    // A process of the same user the plugin did not start: the test itself.
+    // Only signal 0 and SIGCONT are tried, and both leave it as it is.
+    victim: process.pid,
   }
   return {
     host,
@@ -155,6 +164,11 @@ test('a confined plugin reaches no file, socket, program or worker of its own', 
     connect: 'ERR_ACCESS_DENIED',
     fetch: 'ERR_ACCESS_DENIED',
     worker: 'ERR_ACCESS_DENIED',
+    signal: 'ERR_ACCESS_DENIED',
+    rawSignal: 'ERR_ACCESS_DENIED',
+    groupSignal: 'ERR_ACCESS_DENIED',
+    exists: 'allowed',
+    self: 'allowed',
   })
   assert.equal(connections(), 0, 'nothing reached the listener')
   assert.equal(await readFile(own, 'utf8'), before, 'its own code is unchanged')
@@ -167,7 +181,7 @@ test('the same plugin unconfined reaches all of it, which is what the refusals a
   assert.deepEqual(stats.processes?.map((one) => one.confinement), [{ confined: false, reason: 'confinement is off' }])
   const escaped = await invoke('escape', { consent: join(tmpdir(), `hd-confined-unused-${process.pid}.json`) }) as Record<string, string>
   await rm(join(tmpdir(), `hd-confined-unused-${process.pid}.json`), { force: true })
-  for (const what of ['read', 'readWorkspace', 'writeOwn', 'spawn', 'connect', 'fetch', 'worker']) {
+  for (const what of ['read', 'readWorkspace', 'writeOwn', 'spawn', 'connect', 'fetch', 'worker', 'signal', 'groupSignal']) {
     assert.equal(escaped[what], 'allowed', what)
   }
   assert.ok(connections() >= 2)

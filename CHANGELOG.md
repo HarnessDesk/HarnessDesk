@@ -8,7 +8,7 @@ move is real work and is not news to a person weighing an upgrade.
 ## Unreleased
 
 - **Each installed plugin runs on its own.** Every plugin you install gets a process of its own, so a crash or a hang stops only that plugin, and it is held to what you agreed to when you installed it: if its manifest changes afterwards, it stays off until you install it again. What is installed is the manifest you were shown: if the source changes between reading it and confirming, the install is refused, and **Update from source** now shows the new manifest before it installs.
-- **An installed plugin reaches only what you granted.** Its process cannot read outside its own folder, write files, open connections or start programs by itself; HarnessDesk does those for it, within the permissions you agreed to. Where no runtime can confine it, it runs as before and the plugin host says why. A plugin package with a link leading outside it is refused at install.
+- **An installed plugin reaches only what you granted.** Its process cannot read outside its own folder, write files, open connections, start programs or signal other programs by itself; HarnessDesk does those for it, within the permissions you agreed to. Where no runtime can confine it, it runs as before and the plugin host says why. A plugin package with a link leading outside it is refused at install.
 
 - **The first conversation waits for a stored key.** When an agent must be told to use its stored key, a conversation no longer opens before that switch settles.
 

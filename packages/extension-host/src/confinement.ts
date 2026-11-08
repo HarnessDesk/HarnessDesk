@@ -24,8 +24,9 @@ import { dirname, join, resolve, sep } from 'node:path'
  * refuses all three is used. With none, plugins run as before — isolated by
  * process, not confined — and the process's stats say why.
  *
- * Residual: `process.kill` is outside the permission model, so a plugin can
- * still signal processes of the same user.
+ * Signals are outside the permission model, so the confined child guards
+ * `process.kill` itself before any plugin code loads (child.ts): it may
+ * signal only its own process.
  */
 
 /** A Node executable that could run a plugin's process. The Lead's candidates have this shape. */

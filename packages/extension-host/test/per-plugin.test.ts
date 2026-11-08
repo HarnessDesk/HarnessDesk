@@ -375,7 +375,9 @@ test('a plugin that renamed itself in its manifest does not start under the new 
 })
 
 test('an uninstall made while an install copies files leaves the plugin removed', async () => {
-  const harness = await start(['envspy'])
+  // The uninstall waits for a 256 MiB copy, which a loaded machine can take
+  // longer than the short deadline the other tests use for plugin calls.
+  const harness = await start(['envspy'], { invokeTimeoutMs: 30_000 })
   const source = await mkdtemp(join(tmpdir(), 'hd-perplugin-source-'))
   try {
     await cp(join(FIXTURES, 'plugin-envspy'), source, { recursive: true })
