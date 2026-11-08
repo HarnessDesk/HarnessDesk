@@ -280,6 +280,9 @@ export const createDefaultHost = (
       iosEngine,
       // Installed plugins' browser tools reach the same page the built-ins do.
       ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),
+      // Each installed plugin's process runs under the Node permission model
+      // on the first of these that holds it there — the Lead's candidates.
+      ...(options.leadRuntimes ? { runtimes: options.leadRuntimes } : {}),
     },
   )
   // Every runtime sees the same capability surface; the gate consults the

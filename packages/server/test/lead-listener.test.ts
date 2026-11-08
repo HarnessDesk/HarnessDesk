@@ -2,10 +2,16 @@ import assert from 'node:assert/strict'
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { Server } from 'node:http'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { cleanupLeadClientDoors, openLeadClientDoor } from '../src/lead/client-authority.js'
 import { silent } from './fixtures/harness.js'
 import { Host, StateStore } from '../src/index.js'
+
+const listenerHost = (t: TestContext, home: string) => {
+  const host = new Host({ leadEnabled: true, logger: silent, state: new StateStore(join(home, 'state.json')), version: 'test', catalogRefreshMs: 0 })
+  t.after(async () => { await host.dispose(); await rm(home, { recursive: true, force: true }) })
+  return host
+}
 
 test('host start sweeps stale private Lead listeners after acquiring the home writer', async t => {
   const home = await mkdtemp('/tmp/hd-l-')
@@ -75,8 +81,7 @@ test('unsafe Lead listener parent blocks Lead but preserves ordinary host startu
   const home = await mkdtemp('/tmp/hd-l-')
   await mkdir(join(home, 'lead-clients'), { mode: 0o755 })
   await chmod(join(home, 'lead-clients'), 0o755)
-  const host = new Host({ leadEnabled: true, logger: silent, state: new StateStore(join(home, 'state.json')), version: 'test', catalogRefreshMs: 0 })
-  t.after(async () => { try { await host.dispose() } finally { await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) } })
+  const host = listenerHost(t, home)
   await host.start()
   assert.throws(() => host.createLeadService({} as any), /lead-listener-unavailable/)
   assert.equal((await lstat(join(home, 'lead-clients'))).mode & 0o777, 0o755)
@@ -84,10 +89,52 @@ test('unsafe Lead listener parent blocks Lead but preserves ordinary host startu
 
 test('Lead service cannot start a child before host recovery owns the desk', async t => {
   const home = await mkdtemp('/tmp/hd-l-')
-  t.after(() => rm(home, { recursive: true, force: true }))
-  const host = new Host({ leadEnabled: true, logger: silent, state: new StateStore(join(home, 'state.json')), version: 'test', catalogRefreshMs: 0 })
-  t.after(() => host.dispose())
+  const host = listenerHost(t, home)
   assert.throws(() => host.createLeadService({} as any), /lead-host-starting/)
+})
+
+test('listener fixture retains its home until its real Host finishes disposal', async () => {
+  const home = await mkdtemp('/tmp/hd-l-')
+  const hooks: Array<() => unknown> = []
+  const context = { after: (hook: () => unknown) => { hooks.push(hook) } } as unknown as TestContext
+  const host = listenerHost(context, home)
+  const dispose = host.dispose.bind(host)
+  let release!: () => void, entered!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const started = new Promise<void>(resolve => { entered = resolve })
+  let closed = false
+  host.dispose = async () => { entered(); await held; await dispose(); closed = true }
+  const cleanup = (async () => { for (const hook of hooks) await hook() })()
+  try {
+    assert.equal(await Promise.race([started.then(() => true), cleanup.then(() => false, () => false)]), true)
+    assert.equal((await lstat(home)).isDirectory(), true, 'home remains while Host disposal is held')
+    release()
+    await cleanup
+    assert.equal(closed, true)
+    await assert.rejects(lstat(home), { code: 'ENOENT' })
+  } finally {
+    release()
+    await cleanup.catch(() => {})
+    if (!closed) { await dispose(); closed = true }
+    if (closed) await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('listener fixture retains its home when Host disposal rejects', async () => {
+  const home = await mkdtemp('/tmp/hd-l-')
+  const hooks: Array<() => unknown> = []
+  const context = { after: (hook: () => unknown) => { hooks.push(hook) } } as unknown as TestContext
+  const host = listenerHost(context, home)
+  const dispose = host.dispose.bind(host)
+  let closed = false
+  host.dispose = async () => { await dispose(); closed = true; throw new Error('controlled disposal refusal') }
+  try {
+    await assert.rejects(async () => { for (const hook of hooks) await hook() }, /controlled disposal refusal/)
+    assert.equal((await lstat(home)).isDirectory(), true, 'failed disposal must retain the home')
+  } finally {
+    if (!closed) { await dispose(); closed = true }
+    if (closed) await rm(home, { recursive: true, force: true })
+  }
 })
 
 test('a home too deep for a socket path keeps its private Lead listener in a short per-user directory', async t => {

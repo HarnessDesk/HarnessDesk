@@ -14,6 +14,8 @@ export const plugin = {
       execute: () => JSON.stringify({
         secret: process.env.HD_TEST_PARENT_SECRET ?? null,
         nodeOptions: process.env.NODE_OPTIONS ?? null,
+        path: process.env.PATH ?? null,
+        proxy: process.env.HTTPS_PROXY ?? null,
         pid: process.pid,
         greeting: config?.greeting ?? null,
       }),

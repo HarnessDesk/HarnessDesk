@@ -42,13 +42,13 @@ export const runDevice = (
 export const runDeviceForPng = (
   binary: string,
   args: readonly string[],
-  options: { readonly timeoutMs?: number; readonly what: string },
+  options: { readonly timeoutMs?: number; readonly what: string; readonly signal?: AbortSignal },
 ): Promise<string> =>
   new Promise((resolve, reject) => {
     execFile(
       binary,
       [...args],
-      { timeout: options.timeoutMs ?? DEVICE_RUN_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024, encoding: 'buffer' },
+      { timeout: options.timeoutMs ?? DEVICE_RUN_TIMEOUT_MS, ...(options.signal ? { signal: options.signal } : {}), maxBuffer: 64 * 1024 * 1024, encoding: 'buffer' },
       (error, stdout, stderr) => {
         if (error) {
           const detail = (stderr ?? '').toString().trim().split('\n').slice(-2).join(' · ')

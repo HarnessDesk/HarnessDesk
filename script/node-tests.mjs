@@ -39,7 +39,8 @@ const DURATIONS = 'script/node-test-durations.json'
  *
  * - `concurrency`: files at once. Unset is Node's own (cores - 1).
  * - `node`: the major version CI runs it on. The Lead's child and its network
- *   denial probes need a permission model that blocks the network (Node 26).
+ *   denial probes need a permission model that blocks the network (Node 26),
+ *   and so does a confined plugin's process.
  */
 export const GROUPS = [
   {
@@ -88,6 +89,14 @@ export const GROUPS = [
     // engine, and keeps a core or two busy: one file at a time.
     patterns: ['packages/server/dist/test/lead-e2e-*.test.js'],
     timeout: 600_000, node: 26, concurrency: 1,
+  },
+  {
+    name: 'plugin-confinement',
+    // A plugin's process runs confined only on a runtime whose permission
+    // model refuses the network (`--no-allow-net`), which Node 22 does not
+    // have: there these cases would test the unconfined fallback instead.
+    patterns: ['packages/extension-host/dist/test/confinement.test.js'],
+    timeout: 120_000, node: 26,
   },
   {
     name: 'unit',
