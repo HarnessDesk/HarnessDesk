@@ -493,6 +493,41 @@ test('a detached agent pauses a queued renewal without retiring it before resume
   assert.equal(r.prompts.length, 3, 'another flush cannot send the renewal twice')
 })
 
+test('expiry of a removed paused conversation settles its queued renewal', async t => {
+  let transcripts: TranscriptStore | undefined
+  const recordTranscript = TranscriptStore.prototype.record
+  t.mock.method(TranscriptStore.prototype, 'record', function (this: TranscriptStore, ...args: Parameters<TranscriptStore['record']>) {
+    transcripts = this
+    return recordTranscript.apply(this, args)
+  })
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits'); await r.idle()
+  await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
+  await r.host.call('workspace/session/send', { id: created.id, text: 'Person turn still running' })
+  await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Continue after this turn' } })
+  const target = { runtime: r.runtime.info.id, sessionId: sessionId(created.id.slice(created.id.indexOf(':') + 1)) }
+  const record = r.host.registry.get(target.runtime, target.sessionId)!
+  r.host.registry.pauseQueue(record, 'The agent stopped')
+  assert.equal((await r.stored()).records[0].state, 'retrying')
+  assert.ok(transcripts)
+  await transcripts.flushSession(target.runtime, target.sessionId)
+  const saved = await transcripts.recover(target.runtime, target.sessionId)
+  assert.ok(saved)
+  assert.equal(canonicalTranscriptBody(saved.turns).canonical, canonicalTranscriptBody(record.session.turns).canonical)
+  const removed = await r.host.call('session/remove', { ...target, removed: true })
+  const deadline = removed.undoUntil
+  assert.ok(deadline, 'the actual removal provides an Undo deadline')
+  assert.equal(r.host.registry.get(target.runtime, target.sessionId), undefined)
+  assert.equal(r.host.registry.forReopen(target.runtime, target.sessionId), record)
+  r.host.registry.sweepRemoved(deadline - 1)
+  await r.idle()
+  assert.equal((await r.stored()).records[0].state, 'retrying', 'Undo still owns the queued renewal')
+  r.host.registry.sweepRemoved(deadline)
+  await r.idle()
+  assert.equal((await r.stored()).records[0].state, 'stopped')
+  assert.equal(r.prompts.length, 2, 'expiry did not dispatch the renewal')
+})
+
 for (const removal of ['cancel', 'clear', 'delete'] as const) test(`a queued renewal removed before dispatch settles recovery: ${removal}`, async t => {
   let transcripts: TranscriptStore | undefined
   if (removal === 'delete') {

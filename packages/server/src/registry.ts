@@ -441,7 +441,11 @@ export class SessionRegistry {
     const key = sessionKey(runtime, id)
     const held = this.#removed.get(key)
     this.#removed.delete(key)
-    if (!held || Date.now() >= held.undoUntil) return undefined
+    if (!held) return undefined
+    if (Date.now() >= held.undoUntil) {
+      this.clearQueue(held.record)
+      return undefined
+    }
     this.#records.set(key, held.record)
     return held.record
   }
@@ -449,7 +453,11 @@ export class SessionRegistry {
   removalDeadlines(): number[] { return [...this.#removed.values()].map(held => held.undoUntil) }
 
   sweepRemoved(now: number): void {
-    for (const [key, held] of this.#removed) if (now >= held.undoUntil) this.#removed.delete(key)
+    for (const [key, held] of this.#removed) {
+      if (now < held.undoUntil) continue
+      this.#removed.delete(key)
+      this.clearQueue(held.record)
+    }
   }
 
   all(): SessionRecord[] {

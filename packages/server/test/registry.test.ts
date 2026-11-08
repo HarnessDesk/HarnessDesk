@@ -76,6 +76,31 @@ test('the deadline sweep forgets held state, including records without a stored 
   assert.equal(registry.restoreRemoved(RUNTIME, ID), undefined)
 })
 
+for (const expiry of ['sweep', 'restore'] as const) test(`expiry by ${expiry} retires held queued admissions once, but Undo preserves them`, t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 10 })
+  const registry = new SessionRegistry()
+  const record = registry.upsert(session([]), null)
+  let removed = 0
+  const admission = Object.assign(async () => {}, { queueRemoved: () => { removed++ } })
+  registry.enqueue(record, 'renewal', [{ type: 'text', text: 'Continue' }], undefined, admission)
+  registry.pauseQueue(record, 'Waiting')
+  registry.holdRemoved(RUNTIME, ID, 8_010)
+  registry.sweepRemoved(8_009)
+  assert.equal(removed, 0, 'the Undo window retains admission')
+  assert.equal(registry.restoreRemoved(RUNTIME, ID), record, 'Undo restores the same record')
+  assert.equal(registry.queuedAdmission(record, 'renewal'), admission)
+  registry.holdRemoved(RUNTIME, ID, 8_010)
+  t.mock.timers.tick(8_000)
+  if (expiry === 'sweep') registry.sweepRemoved(8_010)
+  else assert.equal(registry.restoreRemoved(RUNTIME, ID), undefined)
+  assert.equal(removed, 1, 'expiry retires the admission')
+  assert.deepEqual(record.queue.messages, [])
+  registry.sweepRemoved(8_010)
+  registry.restoreRemoved(RUNTIME, ID)
+  registry.delete(RUNTIME, ID)
+  assert.equal(removed, 1, 'subsequent cleanup cannot settle twice')
+})
+
 test('an explicit reopen cannot restore held state after its deadline or deletion', t => {
   t.mock.timers.enable({ apis: ['Date'], now: 10 })
   const registry = new SessionRegistry()
