@@ -184,6 +184,18 @@ test('single-screen pattern accounting groups the conversation family, not only 
   assert.equal(singleScreenAreaOf([items, sidebar]), null)
 })
 
+test('an adjacent transcript is a conversation without hiding unrelated workbench consumers', () => {
+  const adjacent = path.join(repoRoot, 'packages/ui/src/components/AdjacentTranscript.tsx')
+  const items = path.join(repoRoot, 'packages/ui/src/components/Items.tsx')
+  const conversation = path.join(repoRoot, 'packages/ui/src/components/Conversation.tsx')
+  const workbench = path.join(repoRoot, 'packages/ui/src/panels/Workbench.tsx')
+  assert.equal(screenAreaOf(adjacent), 'conversation')
+  assert.equal(screenAreaOf(items), 'conversation')
+  // A separate Workbench use is still genuinely cross-family.
+  const graph = new Map([[items, [conversation, adjacent, workbench]]])
+  assert.equal(resolveFamilies([items], graph, NAMED_ROOTS).get(items), 'items')
+})
+
 test('single-screen pattern accounting names the settings, agent roster and room families (#914)', () => {
   const settings = path.join(repoRoot, 'packages/ui/src/components/Settings.tsx')
   const settingsAgents = path.join(repoRoot, 'packages/ui/src/components/SettingsAgents.tsx')

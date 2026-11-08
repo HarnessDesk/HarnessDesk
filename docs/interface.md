@@ -52,6 +52,18 @@ then carries a badge for the number of views waiting there. A split that would
 leave either half below its minimum size stays disabled and tells you the size
 it needs and the size this panel has.
 
+### Reading another conversation
+
+**Open on the right** in a conversation's sidebar menu opens one transient,
+read-only transcript beside the current work. Its title and agent identify the
+conversation; Close or Escape returns to the previously selected tool. Selecting
+another tool or changing the main subject dismisses it. The main composer,
+workspace and keyboard commands still belong to the main subject. The reader
+has no composer or session actions. It reads the saved body and then resumes the
+conversation for live updates; resuming can reopen a runtime or restore a
+missing worktree. Read and resume failures are shown with Retry, retaining any
+body already available. The reader is not restored after a window restart.
+
 ### Reading changes
 
 Before a draft has its first message, Changes stays disabled with

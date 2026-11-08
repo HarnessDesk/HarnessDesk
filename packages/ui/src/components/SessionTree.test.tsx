@@ -17,7 +17,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { SessionTree } from './SessionTree'
 import { teamSeats } from '../lib/team-seats'
 
@@ -35,6 +35,26 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+})
+
+it('opens the selected sidebar conversation beside the current subject', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const runtime = runtimeId('demo'), id = sessionId('secondary')
+  const info = { id: runtime, presentation: { name: 'Demo' }, capabilities: {} } as RuntimeInfo
+  const summary = { id, runtime, title: 'Secondary conversation', preview: null, cwd: '/project', status: { type: 'idle' }, createdAt: 1, updatedAt: 2, archived: false } as SessionSummary
+  const session = { ...summary, itemsLoaded: true, turns: [{ id: 'turn', status: 'completed', items: [{ id: 'answer', type: 'assistantMessage', text: 'Unique secondary answer' }] }] } as unknown as Session
+  Object.assign(store.getSnapshot(), { status: 'open', activeRuntime: runtime, runtimes: [info], history: [summary], workspace: { path: '/project', name: 'project' } })
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/read' || method === 'session/resume' ? session : []) as never)
+  const before = store.getSnapshot().activeSessionKey
+  await act(async () => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  const menu = [...container.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="menu"]')].find(button => button.getAttribute('aria-label')?.includes('Secondary conversation'))!
+  act(() => menu.click())
+  const open = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Open on the right'))!
+  await act(async () => open.click())
+  expect((store.getSnapshot() as AppSnapshot & { adjacentSession?: { key: string } }).adjacentSession?.key).toBe(sessionKey(runtime, id))
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.turns[0]?.items[0]).toMatchObject({ text: 'Unique secondary answer' })
+  expect(store.getSnapshot().activeSessionKey).toBe(before)
+  expect(request.mock.calls.some(([method]) => method === 'session/close')).toBe(false)
 })
 
 it('keeps Archive self-explanatory without a subtitle', () => {

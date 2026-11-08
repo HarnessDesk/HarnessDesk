@@ -5432,6 +5432,7 @@ export class Host {
           return page
         },
         record: (session) => this.#recordSessionIndex(session, true),
+        refreshMissingFolder: (cwd) => this.#sessionIndexRepos.refreshMissing(cwd),
         reopen: (session) => {
           if (!this.#sessionIndex.admitReopened(session.runtime, session.id)) return
           const restored = this.registry.restoreRemoved(session.runtime, session.id)

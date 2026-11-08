@@ -751,6 +751,16 @@ store's conversation-bound file entry, preserving the full unsaved document
 and its hash across panel/main. Ask appends an editable quote to the owning
 conversation's draft and never starts a turn.
 
+A window may also mount one transient adjacent transcript, keyed by runtime and
+session ID, without changing the main subject or persisted tool intent. Its
+read-only item policy omits session actions and uses the normal sanitized
+transcript renderers. Explicit opening reads and then resumes the target; each
+mount and in-flight operation retains a separate transcript owner. Generations,
+connection and removal revisions reject stale replies. Closing releases only
+these renderer owners, never the shared Host session handle. A resumed hidden
+handle may remain ineligible for renderer eviction under the existing Host
+quiet policy; the soft budget does not override that protection.
+
 The interface those pieces build is described in [interface.md](interface.md).
 
 ## Across agents

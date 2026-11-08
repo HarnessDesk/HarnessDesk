@@ -275,6 +275,8 @@ export const sessionMethods = {
     ctx.sessions.noteReconciled(resumedRecord, transcript)
     const resumed = resumedRecord.session
     ctx.sessionIndex.record(resumed)
+    // A prior index miss is only retired by a new filesystem measurement.
+    await ctx.sessionIndex.refreshMissingFolder(resumed.cwd)
     // Ordinary history resumes register directly above rather than through
     // create/fork's attach; observe that handle without changing admission.
     ctx.loadouts.observe(runtime, live.id, resumed.cwd)

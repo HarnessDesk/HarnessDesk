@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { CapabilityContribution } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, type Session, type CapabilityContribution } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { useSessionKey } from '../state/context'
@@ -227,6 +227,55 @@ const render = (store: AppStore): void => {
     )
   })
 }
+
+it('draws a named secondary transcript without replacing the main work', () => {
+  const runtime = runtimeId('secondary'), id = sessionId('b'), key = sessionKey(runtime, id)
+  const session = { runtime, id, title: 'Second conversation', cwd: '/project', createdAt: 1, updatedAt: 2, status: { type: 'idle' }, itemsLoaded: true, turns: [{ id: 'turn', status: 'completed', items: [{ id: 'answer', type: 'assistantMessage', text: 'Unique adjacent answer' }] }] } as unknown as Session
+  const subject = fixedSubject(emptySnapshot().workbench.main)!
+  const { store } = rig(undefined, { adjacentSession: { key, subject, loading: false, error: null }, sessions: new Map([[key, session]]), runtimes: [{ id: runtime, presentation: { name: 'Other agent' }, capabilities: {} } as never] })
+  Object.assign(store, { closeAdjacentSession: vi.fn() })
+  render(store)
+  expect(container.textContent).toContain('Unique adjacent answer')
+  expect(container.textContent).toContain('Second conversation')
+  expect(container.textContent).toContain('Other agent')
+  expect(container.querySelector('[data-testid="panes"]')).not.toBeNull()
+  expect(container.querySelector('button[aria-label="Close adjacent conversation"]')).not.toBeNull()
+  const region = container.querySelector<HTMLElement>('[role="region"][aria-label^="Adjacent conversation:"]')!
+  act(() => region.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(store.closeAdjacentSession).toHaveBeenCalledOnce()
+})
+
+it('closes the adjacent reader on Escape from its focused header button', () => {
+  const runtime = runtimeId('secondary'), id = sessionId('b'), key = sessionKey(runtime, id)
+  const subject = fixedSubject(emptySnapshot().workbench.main)!
+  const rigged = rig(undefined, { adjacentSession: { key, subject, loading: false, error: null } })
+  const close = vi.fn()
+  Object.assign(rigged.store, { closeAdjacentSession: close })
+  render(rigged.store)
+  const button = container.querySelector<HTMLButtonElement>('button[aria-label="Close adjacent conversation"]')!
+  const parentKeydown = vi.fn()
+  document.addEventListener('keydown', parentKeydown)
+  button.focus()
+  expect(document.activeElement).toBe(button)
+  const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  act(() => button.dispatchEvent(escape))
+  expect(close).toHaveBeenCalledOnce()
+  expect(escape.defaultPrevented).toBe(true)
+  expect(parentKeydown).not.toHaveBeenCalled()
+  expect(container.querySelector('[data-testid="panes"]')).not.toBeNull()
+  document.removeEventListener('keydown', parentKeydown)
+})
+
+it('labels the reader as read only without exposing a missing runtime id', () => {
+  const runtime = runtimeId('private-backend-id'), id = sessionId('b'), key = sessionKey(runtime, id)
+  const subject = fixedSubject(emptySnapshot().workbench.main)!
+  const { store } = rig(undefined, { adjacentSession: { key, subject, loading: false, error: null }, runtimes: [] })
+  render(store)
+  const region = container.querySelector<HTMLElement>('[role="region"][aria-label^="Adjacent conversation:"]')!
+  expect(region.textContent).toContain('Read only')
+  expect(region.textContent).toContain('Agent unavailable')
+  expect(region.outerHTML).not.toContain('private-backend-id')
+})
 
 const panels = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[data-slot="dock-panel"]')]
 

@@ -1,3 +1,4 @@
+import { AdjacentReadChanges, preserveAdjacentLocal, reconcileAdjacentRead } from './adjacent-read'
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
 import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
@@ -626,6 +627,9 @@ export class AppStore {
   readonly #libraryViewListeners = new Set<() => void>()
   #libraryViews: Record<LibraryViewSection, LibraryViewState> = { skill: emptyLibraryView(), mcp: emptyLibraryView() }
   readonly #sessionRemovalRevisions = new Map<SessionKey, number>()
+  #adjacentGeneration = 0
+  #adjacentReadChanges: { key: SessionKey; changes: AdjacentReadChanges; collectingFences: boolean; lastBody: Session | undefined; localChanged: boolean } | null = null
+  #adjacentRelease: (() => void) | null = null
   #listeners = new Set<() => void>()
   readonly #storageListeners = new Set<(usage: import('@harnessdesk/protocol').StorageUsage) => void>()
   subscribeStorageUsage(listener: (usage: import('@harnessdesk/protocol').StorageUsage) => void): () => void {
@@ -1322,7 +1326,7 @@ export class AppStore {
     if (pending) {
       const result = pending.capture.observe(event, fence, pending.owner)
       if (result === 'duplicate') return
-      if (result === 'unresolved' || result === 'ignored') { pending.eligible = false; this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key); return }
+      if (result === 'unresolved' || result === 'ignored') { if (this.#adjacentReadChanges?.key === key) { this.#adjacentReadChanges.changes.unseen = true; this.#adjacentReadChanges.changes.coverageInvalid = true } pending.eligible = false; this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key); return }
       if ((event.type !== 'item/delta' && event.type !== 'session/status') || (event.type === 'item/delta' && event.delta.kind !== 'assistantText')) {
         pending.eligible = false
         const held = this.#snapshot.sessions.get(key)
@@ -1334,15 +1338,25 @@ export class AppStore {
     if (previous && this.#validTranscriptFence(fence) && fence.epoch === previous.epoch && fence.generation === previous.generation &&
         fence.sequence <= previous.sequence) {
       if (fence.sequence !== previous.sequence || fence.revision !== previous.revision || !cursorEntry?.lastFingerprint ||
-          fingerprint !== cursorEntry.lastFingerprint) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key) }
+          fingerprint !== cursorEntry.lastFingerprint) { if (this.#adjacentReadChanges?.key === key) { this.#adjacentReadChanges.changes.unseen = true; this.#adjacentReadChanges.changes.coverageInvalid = true } this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key) }
       return
     }
     const next = previous && this.#validTranscriptFence(fence) && fence.epoch === previous.epoch && fence.generation === previous.generation &&
       fence.sequence === previous.sequence + 1 && fence.revision >= previous.revision ? fence : null
-    if (previous && !next) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptCursors.delete(key) }
+    if (previous && !next) { if (this.#adjacentReadChanges?.key === key) { this.#adjacentReadChanges.changes.unseen = true; this.#adjacentReadChanges.changes.coverageInvalid = true } this.#transcriptRecoveryBlocked.add(key); this.#transcriptCursors.delete(key) }
     if (next && fingerprint) this.#transcriptCursors.set(key, { watermark: next, lastFingerprint: fingerprint })
     this.#transcriptAuthority.delete(key)
+    const beforeAdjacentEvent = this.#adjacentReadChanges?.key === key ? this.#snapshot.sessions.get(key) : undefined
     this.#onEvent(runtime, event)
+    if (this.#adjacentReadChanges?.key === key) {
+      const owner = this.#adjacentReadChanges, after = this.#snapshot.sessions.get(key)
+      if (owner.collectingFences) {
+        if (beforeAdjacentEvent !== owner.lastBody) owner.localChanged = true
+        owner.changes.observeFence(this.#validTranscriptFence(fence) ? fence : null)
+        owner.lastBody = after
+      }
+      owner.changes.observe(event, beforeAdjacentEvent, after)
+    }
     if (pending) void this.#recoverTranscript(runtime, id, pending)
     const current = this.#snapshot.sessions.get(key)
     if (next && fingerprint && current && entry && !this.#transcriptProtected(key, current)) {
@@ -1397,6 +1411,10 @@ export class AppStore {
         if (notification.method === 'session/cache-invalidated') {
           this.#transcriptChange++
           const key = sessionKey(notification.params.runtime, notification.params.sessionId)
+          if (this.#adjacentReadChanges?.key === key && this.#adjacentReadChanges.collectingFences) {
+            const fence = notification.params.watermark
+            this.#adjacentReadChanges.changes.observeFence(this.#validTranscriptFence(fence) ? fence : null)
+          }
           const released = this.#releasedTranscripts.get(key)
           const cursor = this.#transcriptCursors.get(key)?.watermark, prior = this.#transcriptReproof.get(key)
           const floor = cursor ?? (prior?.change === this.#transcriptChange - 1 && prior.connection === this.#chatConnectionGeneration &&
@@ -1571,6 +1589,11 @@ export class AppStore {
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
+          const adjacent = this.#snapshot.adjacentSession
+          if (adjacent && splitSessionKey(adjacent.key).runtime === runtime) {
+            this.#adjacentGeneration++
+            this.#patch({ adjacentSession: { ...adjacent, loading: false, error: 'This runtime is unavailable.' } })
+          }
           this.#transcriptChange++
           for (const key of this.#transcriptCursors.keys()) if (splitSessionKey(key).runtime === runtime) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptCursors.delete(key) }
           for (const key of this.#transcriptAuthority.keys()) if (splitSessionKey(key).runtime === runtime) this.#transcriptAuthority.delete(key)
@@ -1801,6 +1824,7 @@ export class AppStore {
           this.#transcriptCursors.clear()
           this.#transcriptReceipts.clear()
           this.#chatConnectionGeneration += 1
+          if (this.#snapshot.adjacentSession) this.#patch({ adjacentSession: { ...this.#snapshot.adjacentSession, loading: false, error: 'Connection lost. Reconnecting…' } })
           this.#chatRootsVersion = null
           this.#leadCapabilityEpoch += 1
           this.#captureEpoch += 1
@@ -1811,6 +1835,8 @@ export class AppStore {
         } else {
           this.#patch({ status })
           if (previous === 'reconnecting') {
+            const adjacent = this.#snapshot.adjacentSession
+            if (adjacent) { const { runtime, id } = splitSessionKey(adjacent.key); void this.openAdjacentSession(id, runtime) }
             void this.#refreshLeadAvailability()
             const generation = this.#chatConnectionGeneration
             void this.transport.request('app/state/get', {}).then(preferences => this.#applyChatsPreferences(preferences, generation)).catch(() => {})
@@ -3391,7 +3417,15 @@ export class AppStore {
       const archived = row.archived === undefined ? live.archived : row.archived
       if (live.title === title && live.archived === archived) continue
       const next = new Map(sessions)
-      next.set(key, { ...live, title, archived })
+      const indexed = { ...live, title, archived }
+      next.set(key, indexed)
+      const owner = this.#adjacentReadChanges
+      if (owner?.key === key) {
+        if (owner.collectingFences) {
+          if (owner.lastBody !== live) owner.localChanged = true
+          else { owner.changes.observeIndex(live, indexed); owner.lastBody = indexed }
+        } else owner.changes.observeIndex(live, indexed)
+      }
       sessions = next
     }
     const nextFoldersGone = this.#foldersGoneFor(upserted)
@@ -3522,6 +3556,94 @@ export class AppStore {
   }
 
   // ----------------------------------------------------------------- sessions
+
+  /** A secondary reader owns a visibility lease, never a shared session handle. */
+  closeAdjacentSession(): void {
+    this.#adjacentReadChanges = null
+    this.#adjacentGeneration++
+    this.#adjacentRelease?.()
+    this.#adjacentRelease = null
+    if (this.#snapshot.adjacentSession) this.#patch({ adjacentSession: null })
+  }
+
+  async openAdjacentSession(id: SessionId, runtime: RuntimeId): Promise<void> {
+    const subject = this.workSubject()
+    if (!subject) return
+    if (this.#snapshot.workbench.navigation.current.kind !== 'work') this.returnToWork()
+    const key = sessionKey(runtime, id), generation = ++this.#adjacentGeneration
+    const removal = this.#sessionRemovalRevisions.get(key) ?? 0
+    const connection = this.#chatConnectionGeneration
+    const visibility = this.retainTranscript(runtime, id)
+    const operation = this.retainTranscript(runtime, id)
+    this.#adjacentRelease?.()
+    this.#adjacentRelease = visibility
+    this.#patch({ adjacentSession: { key, subject, loading: true, error: null } })
+    this.closeFloatingSidebar()
+    if (this.#historyRemovedRuntimes.has(runtime)) {
+      this.#patch({ adjacentSession: { key, subject, loading: false, error: 'This runtime is unavailable.' } })
+      operation()
+      return
+    }
+    const current = () => generation === this.#adjacentGeneration && this.#snapshot.adjacentSession?.key === key &&
+      this.workSubject() === subject && (this.#sessionRemovalRevisions.get(key) ?? 0) === removal && this.#chatConnectionGeneration === connection
+    let read = false
+    let changes = new AdjacentReadChanges()
+    const readOwner = { key, changes, collectingFences: !this.#snapshot.sessions.has(key), lastBody: this.#snapshot.sessions.get(key), localChanged: false }
+    this.#adjacentReadChanges = readOwner
+    try {
+      if (this.#releasedTranscripts.has(key) && !await this.restoreTranscript(runtime, id)) throw new Error('The saved conversation could not be restored.')
+      const session = await this.transport.request('session/read', { runtime, sessionId: id })
+      if (!current()) return
+      if (session.runtime !== runtime || session.id !== id) throw new Error('The conversation returned a different identity.')
+      if (readOwner.collectingFences && changes.unseen) {
+        const snapshot = await this.transport.request('session/cache-snapshot', { runtime, sessionId: id })
+        if (!current() || this.#adjacentReadChanges !== readOwner) return
+        const observed = changes.coverage
+        const held = this.#snapshot.sessions.get(key)
+        if (!snapshot || changes.coverageInvalid || readOwner.localChanged || held !== readOwner.lastBody || !observed || !this.#validTranscriptFence(snapshot.watermark) ||
+            snapshot.watermark.epoch !== observed.epoch || snapshot.watermark.generation !== observed.generation ||
+            snapshot.watermark.sequence < observed.sequence || snapshot.watermark.revision < observed.revision ||
+            (snapshot.watermark.sequence === observed.sequence && snapshot.watermark.revision !== observed.revision) ||
+            snapshot.session.runtime !== runtime || snapshot.session.id !== id || !snapshot.session.itemsLoaded || snapshot.session.partialHistory ||
+            !/^[a-f0-9]{64}$/.test(snapshot.identity) ||
+            transcriptFingerprint(canonicalTranscriptBody(snapshot.session.turns).canonical) !== snapshot.identity ||
+            this.#transcriptPending.has(key) || this.#releasedTranscripts.has(key) || this.#transcriptOrphans.size > 0 || this.#releasedOrphans.length > 0) {
+          throw new Error('The conversation changed without a covering snapshot. Retry to refresh it.')
+        }
+        this.#setSession(preserveAdjacentLocal(changes.applyIndex(snapshot.session), held), true)
+        changes = changes.forResume()
+        readOwner.changes = changes
+        readOwner.collectingFences = false
+      } else {
+        this.#setAdjacentRead(session, changes)
+        readOwner.collectingFences = false
+      }
+      read = true
+      const live = await this.transport.request('session/resume', { runtime, sessionId: id })
+      if (!current()) return
+      if (live.runtime !== runtime || live.id !== id) throw new Error('The conversation returned a different identity.')
+      this.#setAdjacentRead(live, changes)
+      // A successful reopen is evidence that this folder is no longer missing.
+      this.#lastResumeRefusal.delete(key)
+      if (this.#snapshot.foldersGone.has(live.cwd)) {
+        const foldersGone = new Map(this.#snapshot.foldersGone)
+        foldersGone.delete(live.cwd)
+        this.#patch({ foldersGone })
+      }
+      this.#patch({ adjacentSession: { key, subject, loading: false, error: null } })
+    } catch (error) {
+      if (current()) this.#patch({ adjacentSession: { key, subject, loading: false, error: `${read ? 'Could not resume: ' : 'Could not read: '}${describe(error)}` } })
+    } finally { if (this.#adjacentReadChanges === readOwner) this.#adjacentReadChanges = null; operation() }
+  }
+
+  /** A read has no sequence fence: keep events observed after it began. */
+  #setAdjacentRead(read: Session, changes: AdjacentReadChanges): void {
+    const key = sessionKey(read.runtime, read.id), held = this.#snapshot.sessions.get(key)
+    if (changes.unseen) throw new Error('The conversation changed without a complete event sequence. Retry to refresh it.')
+    const indexed = changes.applyIndex(read)
+    if (!held || !changes.observed) { this.#setSession(indexed); return }
+    this.#setSession(reconcileAdjacentRead(held, indexed, changes), true)
+  }
 
   /**
    * Opens a conversation: in the pane already showing it, else in the
@@ -4451,6 +4573,7 @@ export class AppStore {
    * again for a conversation it never showed.
    */
   #dropRemoved(key: SessionKey, deleted: boolean): void {
+    if (this.#snapshot.adjacentSession?.key === key) this.closeAdjacentSession()
     const released = this.#releasedTranscripts.get(key)
     const removal = this.#sessionRemovalRevisions.get(key) ?? 0
     // A deletion only owns material from this connection and incarnation.
@@ -5516,6 +5639,7 @@ export class AppStore {
     return null
   }
   chooseWorkTool(tool: WorkTool, mode: string = tool, toggle = false): void {
+    if (this.#snapshot.adjacentSession) this.closeAdjacentSession()
     const subject = this.workSubject()
     if (!subject) return
     const before = this.#snapshot.workbench
@@ -5561,6 +5685,7 @@ export class AppStore {
       frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
   }
   toggleWorkPanel(): void {
+    if (this.#snapshot.adjacentSession) { this.closeAdjacentSession(); return }
     const subject = this.workSubject()
     if (!subject) return
     const before = this.#snapshot.workbench
@@ -5580,6 +5705,7 @@ export class AppStore {
 
   /** Mounts a view in an area, bringing it forward if it is already somewhere. */
   showViewIn(area: AreaId, view: PaneView): void {
+    if (area === 'right' && this.#snapshot.adjacentSession) this.closeAdjacentSession()
     if (view.kind === 'board') { this.openTeamBoard(view.room); return }
     if (view.kind === 'run-steps') {
       const room = this.#roomToShow()
@@ -9789,7 +9915,7 @@ export class AppStore {
 
   readonly #pendingConversationNotices = new PendingConversationNotices()
 
-  #setSession(session: Session): void {
+  #setSession(session: Session, reconciled = false): void {
     this.#transcriptChange++
     this.#transcriptAuthority.delete(sessionKey(session.runtime, session.id))
     this.#transcriptReceipts.delete(sessionKey(session.runtime, session.id))
@@ -9805,7 +9931,7 @@ export class AppStore {
     const read = existing?.archived !== undefined && session.archived === undefined
       ? { ...session, archived: existing.archived }
       : session
-    sessions.set(key, existing ? mergeRead(existing, read) : read)
+    sessions.set(key, existing && !reconciled ? mergeRead(existing, read) : read)
     this.#patch({ sessions })
   }
 
@@ -9817,6 +9943,13 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>, options?: { preserveSessionMembership?: boolean }): void {
     const next = { ...this.#snapshot, ...patch }
+    if (next.adjacentSession && (fixedSubject(next.workbench.main) !== next.adjacentSession.subject ||
+      !sameDestination(this.#snapshot.workbench.navigation.current, next.workbench.navigation.current))) {
+      this.#adjacentGeneration++
+      this.#adjacentRelease?.()
+      this.#adjacentRelease = null
+      next.adjacentSession = null
+    }
     const navigation = availableDestinationHistory(next.workbench.navigation, () => {
       const view = focusedPane(next.workbench.main).view
       return destinationOf(view.kind === 'conversation' || view.kind === 'room' ? view : { kind: 'conversation', session: null })

@@ -32,6 +32,8 @@ export class SessionIndexRepos {
   readonly #retries = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #queue: string[] = []
   readonly #waiters: (() => void)[] = []
+  readonly #folderWaiters = new Map<string, (() => void)[]>()
+  readonly #recoveries = new Map<string, Promise<void>>()
   #scheduled = false
   #active = 0
   #closed = false
@@ -62,6 +64,32 @@ export class SessionIndexRepos {
     return this.#pending.size === 0 ? Promise.resolve() : new Promise((resolve) => this.#waiters.push(resolve))
   }
 
+  /** Re-measure a cached missing folder after an accepted reopen, not from the agent's answer. */
+  async refreshMissing(cwd: string): Promise<void> {
+    if (this.#closed) return
+    const current = this.#recoveries.get(cwd)
+    if (current) return current
+    if (this.#index.repo(cwd)?.exists !== false) return
+    const recovery = (async () => {
+      // A pending check may have observed the old folder before the reopen.
+      while (!this.#closed && this.#pending.has(cwd)) await this.#waitForFolder(cwd)
+      if (this.#closed) return
+      this.read(cwd, true)
+      await this.#waitForFolder(cwd)
+    })()
+    this.#recoveries.set(cwd, recovery)
+    try { await recovery } finally { if (this.#recoveries.get(cwd) === recovery) this.#recoveries.delete(cwd) }
+  }
+
+  #waitForFolder(cwd: string): Promise<void> {
+    if (!this.#pending.has(cwd)) return Promise.resolve()
+    return new Promise(resolve => {
+      const waiters = this.#folderWaiters.get(cwd) ?? []
+      waiters.push(resolve)
+      this.#folderWaiters.set(cwd, waiters)
+    })
+  }
+
   /** Call before closing the index, so no late background write reaches it. */
   async close(): Promise<void> {
     this.#closed = true
@@ -77,6 +105,9 @@ export class SessionIndexRepos {
       void this.#check(cwd).finally(() => {
         this.#active--
         this.#pending.delete(cwd)
+        const folderWaiters = this.#folderWaiters.get(cwd)
+        this.#folderWaiters.delete(cwd)
+        folderWaiters?.forEach(resolve => resolve())
         this.#pump()
         if (this.#pending.size === 0) this.#waiters.splice(0).forEach((resolve) => resolve())
       })
