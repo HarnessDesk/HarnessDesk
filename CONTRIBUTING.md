@@ -70,8 +70,9 @@ command line's end-to-end files and the Lead journal's disk-rotation file) and t
 per-file timeout than the rest (Node 22 caps `--test-timeout` per file,
 cumulatively, where these legitimately run long), the host-retention test file
 in an invocation of its own (its heap and CPU workload runs without competing
-server fixtures), and the Lead group (supervisor, service, client, assembly
-child and host repair) on its runtime — the Swift simulator tests (macOS with Xcode 27; otherwise skipped), the UI typecheck, the layering rules,
+server fixtures), the Lead group (supervisor, service, client, assembly
+child and host repair) on its runtime, and the plugin-confinement file on the
+same runtime — the Swift simulator tests (macOS with Xcode 27; otherwise skipped), the UI typecheck, the layering rules,
 the half-applied-fixes check, a tracked-secrets scan, the
 reachable-methods check, the third-party notices check, the design-system
 gates, the UI-system architecture gate, interface drift, the command-line reference check, the recorded-claims link, the doc-paths check, the

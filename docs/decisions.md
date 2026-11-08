@@ -5454,3 +5454,16 @@ runs where no confining runtime passed the probe, has the user account's own
 access. The host says so in the plugin host's status rather than implying
 otherwise, and an operating-system sandbox per plugin process is the layer
 planned after it.
+
+**Confinement, as built.** A confined process reads its own code and its
+plugin's directory and nothing else, so everything it once did for itself
+with the disk, the network or a program moved to the host: `ctx.fs`,
+`ctx.http`, `ctx.shell` and `ctx.android` are served there, workspace roots
+are resolved there once, and a browser page is placed there. The runtime is
+the first of the Lead's candidates whose probe refuses a connection, a read
+outside the grants and a spawn; with none, the plugin runs unconfined and
+the host's stats say why, rather than refusing to run a plugin the person
+installed. Two gaps are left in the open, not papered over: `process.kill`
+is outside Node's model, and Node follows a symbolic link past the grants.
+The second is closed at the one door a package comes through: the installer
+refuses a package with a link that leads outside it.

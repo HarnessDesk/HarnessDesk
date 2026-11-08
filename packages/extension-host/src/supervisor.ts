@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { answerIosCall } from './ios.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
@@ -17,6 +20,7 @@ import {
   withIosInputSignal, iosCallTimeoutMs,
   type IosCapability,
   canonicalScopeQuery,
+  canonicalRoot,
   setEditorEngine,
   setForgeEngine,
   validateForgeArgs,
@@ -32,7 +36,25 @@ import {
   type TeamScope,
   type HarnessPlugin,
   type KernelLogger,
+  PluginCapabilityHost,
+  capabilityWorkMs,
+  escapingLink,
+  readCapabilityRequest,
+  type CapabilityLease,
+  placedBrowserEngine,
+  handPageToSystem,
+  pdfName,
 } from '@harnessdesk/cordis-host'
+import {
+  choosePluginRuntime,
+  confinedArgs,
+  hostPluginRuntime,
+  real,
+  runtimeEnvironment,
+  type PluginRuntime,
+  type PluginRuntimeChoice,
+  type PluginRuntimeProber,
+} from './confinement.js'
 import {
   EXTENSION_PROTOCOL_VERSION,
   isChildMessage,
@@ -179,7 +201,17 @@ export interface PluginHostOptions {
    * no conversation, no model and no transcript.
    */
   readonly forgeEngine?: ForgeEngine | null
+  /**
+   * The runtime that holds the plugin's process to the Node permission
+   * model, asked before each start (`confinement.ts`). Absent, or a choice
+   * with no runtime, and the process runs as before — its own process, not
+   * confined — and its stats say why. Never given to the installer.
+   */
+  readonly confinement?: () => Promise<PluginRuntimeChoice>
 }
+
+/** How a plugin's process is held, as its stats report it. */
+export type PluginConfinement = { readonly confined: true; readonly runtime: string } | { readonly confined: false; readonly reason: string }
 
 export class PluginHostProcess {
   readonly #iosInvocations = new Map<string, { owner: string; signal: AbortSignal; hold: () => () => void; abort: () => void }>()
@@ -216,6 +248,37 @@ export class PluginHostProcess {
    * refused (see `#editorRefusal`).
    */
   #agentCalls = 0
+  /**
+   * The plugin's own reach — files, network, programs, Android — served here
+   * for its process, which has none of its own (see `#serveCapability`).
+   * Null for the installer, which runs no plugin.
+   */
+  readonly #capabilities: PluginCapabilityHost | null
+  /** Invocations in flight into this process, by the lease each was handed. */
+  readonly #capabilityLeases = new Map<string, { readonly lease: CapabilityLease; readonly hold: () => () => void }>()
+
+  /** True while the running process is held to the permission model. */
+  get #confined(): boolean {
+    return this.#confinement?.confined === true
+  }
+
+  /** How the running (or last) process is held; null for the installer and before a start. */
+  get confinement(): PluginConfinement | null {
+    return this.#confinement
+  }
+  /** Ends every program this process asked for, when the process goes. */
+  #capabilityRuns = new AbortController()
+  /** The folders this process's saved PDFs were written into, removed with it. */
+  readonly #pdfFolders = new Set<string>()
+  /** Whether the running process is under the permission model, and on what. */
+  #confinement: PluginConfinement | null = null
+  /**
+   * Each workspace-scoped contribution's root as this host resolved it when
+   * first seen, by the process's contribution id and the spelling it gave.
+   */
+  readonly #roots = new Map<string, string>()
+  /** Resolutions the process has not been told yet. */
+  #unresolved: Record<string, { from: string; to: string }> = {}
   readonly #forgeLifetimes = new Map<string, Set<ForgeLease>>()
   #crashes = 0
   #browser: BrowserSettingsWire | null = null
@@ -235,6 +298,13 @@ export class PluginHostProcess {
     if (!Number.isFinite(scale) || scale <= 0 || scale > 1) throw new Error('Request timeout scale must be greater than zero and at most one.')
     this.#options = options
     this.#logger = options.logger ?? {}
+    const plugin = options.plugin
+    this.#capabilities = plugin
+      ? new PluginCapabilityHost(plugin.id, plugin.permissions, () => ({
+          env: pluginEnvironment(this.#options.env),
+          signal: this.#capabilityRuns.signal,
+        }))
+      : null
   }
 
   /**
@@ -368,25 +438,51 @@ export class PluginHostProcess {
         throw error
       }
     }
-    // A stop or uninstall that landed while the check above was reading must
+    const plugin = this.#options.plugin
+    // Asked before the check below, because nothing may await between that
+    // check and the spawn. The answer is cached per runtime, so only the
+    // first start pays for the probe.
+    const choice: PluginRuntimeChoice | null = plugin
+      ? await (this.#options.confinement?.() ?? Promise.resolve({ runtime: null, reason: 'confinement is off' } as const)).catch(
+          (error: unknown) => ({ runtime: null, reason: `the runtime could not be chosen (${error instanceof Error ? error.message : String(error)})` }) as const,
+        )
+      : null
+    // A stop or uninstall that landed while the checks above were reading must
     // not be followed by a spawn: the plugin's code would load and run, and
     // its files may already be on their way out. Nothing awaits between here
     // and the spawn, so a later dispose() finds the child and ends it.
     if (this.#disposed) throw new Error('The plugin host has been disposed.')
-    // ELECTRON_RUN_AS_NODE makes the same spawn work when the parent is the
-    // Electron main process: the child must be plain Node, never a second app.
-    const child = spawn(process.execPath, [CHILD_ENTRY], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      // A plugin's process starts from an allowlist, never the host's own
-      // environment: a token the host was started with is not the plugin's.
-      // The installer runs no plugin code and needs the package manager's
-      // configuration, so it keeps the host's.
-      env: this.#options.plugin
-        ? pluginEnvironment(this.#options.env)
-        : { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...this.#options.env },
-    })
+    let command = process.execPath
+    let args: readonly string[] = [CHILD_ENTRY]
+    // A plugin's process starts from an allowlist, never the host's own
+    // environment: a token the host was started with is not the plugin's.
+    // The installer runs no plugin code and needs the package manager's
+    // configuration, so it keeps the host's. ELECTRON_RUN_AS_NODE makes the
+    // same spawn work when the parent is the Electron main process: the
+    // child must be plain Node, never a second app.
+    let env: NodeJS.ProcessEnv = plugin
+      ? pluginProcessEnvironment(this.#options.env)
+      : { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...this.#options.env }
+    if (plugin && choice?.runtime) {
+      // Read access to the child's own code and the plugin's directory, and
+      // nothing else: no writes, network, programs, workers or addons.
+      command = choice.runtime.binary
+      args = confinedArgs(CHILD_ENTRY, plugin.directory)
+      env = runtimeEnvironment(env, choice.runtime)
+      this.#confinement = { confined: true, runtime: `${choice.runtime.label} (Node ${choice.runtime.version})` }
+    } else if (plugin && choice) {
+      const reason = choice.runtime === null ? choice.reason : 'no runtime'
+      if (this.#confinement?.confined !== false) {
+        this.#logger.warn?.('plugin runs unconfined', { plugin: plugin.id, reason })
+      }
+      this.#confinement = { confined: false, reason }
+    }
+    const child = spawn(command, [...args], { stdio: ['pipe', 'pipe', 'pipe'], env })
     this.#child = child
     this.#reportedInstanceId = null
+    // A new process numbers its contributions afresh.
+    this.#roots.clear()
+    this.#unresolved = {}
 
     // A write that lands after the child is gone answers EPIPE on stdin; an
     // unheard `error` there is an uncaught exception in the host process.
@@ -399,6 +495,10 @@ export class PluginHostProcess {
     child.on('exit', (code, signal) => {
       if (this.#child !== child) return
       this.#child = null
+      // A program the process started dies with it, as it did when the
+      // process ran it itself.
+      this.#capabilityRuns.abort()
+      this.#capabilityRuns = new AbortController()
       // The snapshot is deliberately kept: the plugins are still installed and
       // will return with the restart, and a Settings page that flickers empty
       // on every crash would be lying about what is installed. Consumers see
@@ -448,12 +548,19 @@ export class PluginHostProcess {
     const hello = await this.call('host/hello', {
       protocolVersion: EXTENSION_PROTOCOL_VERSION,
       ...(this.#options.requestTimeoutScale !== undefined ? { requestTimeoutScale: this.#options.requestTimeoutScale } : {}),
-      inlineBrowser: Boolean(this.#options.browserEngine),
+      inlineBrowser: Boolean(this.#options.browserEngine) || this.#confined,
+      ...(this.#confined ? { confined: true } : {}),
       // A restarted child starts on the defaults, so where pages open goes
       // in the greeting rather than being sent once and forgotten.
       ...(this.#browser ? { browser: this.#browser } : {}),
       ...(this.#options.plugin
-        ? { plugin: { id: this.#options.plugin.id, directory: this.#options.plugin.directory, permissions: this.#options.plugin.permissions } }
+        ? {
+            plugin: {
+              id: this.#options.plugin.id,
+              directory: this.#confined ? real(this.#options.plugin.directory) : this.#options.plugin.directory,
+              permissions: this.#options.plugin.permissions,
+            },
+          }
         : {}),
     })
     this.#logger.info?.('plugin host ready', { pid: hello.pid, plugin: this.#options.plugin?.id })
@@ -529,6 +636,36 @@ export class PluginHostProcess {
     else pending.resolve(parsed.result)
   }
 
+  /**
+   * A contribution as the host keeps it: its id namespaced, and a workspace
+   * scope's root resolved here. A confined process cannot resolve a path it
+   * has no grant for, so the root it reports may be a spelling, not the
+   * checkout; resolving it in the host is what a process that could would do.
+   */
+  #received<T extends CapabilityContribution>(entry: T): T {
+    const scope = entry.scope
+    if (scope.kind !== 'workspace') return { ...entry, id: this.#namespaced(entry.id) }
+    // Resolved once per contribution and spelling, when first seen, so a
+    // symlink retargeted later cannot move a scope already registered.
+    const key = `${entry.id}\0${scope.root}`
+    let root = this.#roots.get(key)
+    if (root === undefined) {
+      root = canonicalRoot(scope.root)
+      this.#roots.set(key, root)
+      if (root !== scope.root) this.#unresolved[entry.id] = { from: scope.root, to: root }
+    }
+    return { ...entry, id: this.#namespaced(entry.id), scope: { ...scope, root } }
+  }
+
+  /** Tells the process what the roots it could not resolve resolved to; see `scopes/resolved`. */
+  #sendResolvedRoots(): void {
+    const roots = this.#unresolved
+    if (Object.keys(roots).length === 0) return
+    this.#unresolved = {}
+    void this.call('scopes/resolved', { roots }).catch((error: unknown) =>
+      this.#logger.debug?.('plugin host did not take resolved roots', { error: String(error) }))
+  }
+
   /** A notification from the process: a snapshot of its plugin, or an event about it. */
   #onNotification(notification: PluginHostNotification): void {
     if (notification.kind === 'snapshot') {
@@ -540,19 +677,18 @@ export class PluginHostProcess {
       const { plugins, contributions } = this.#checked(notification.plugins, notification.contributions)
       this.#plugins = plugins.map((plugin) => ({
         ...plugin,
-        contributions: plugin.contributions.map((entry) => ({
-          ...entry,
-          id: this.#namespaced(entry.id),
-        })),
+        contributions: plugin.contributions.map((entry) => this.#received(entry)),
       }))
-      this.#contributions = contributions.map((entry) => ({
-        ...entry,
-        id: this.#namespaced(entry.id),
-      }))
+      this.#contributions = contributions.map((entry) => this.#received(entry))
+      // Forget the resolutions of contributions the process no longer has.
+      const live = new Set(contributions.map((entry) => String(entry.id)))
+      for (const key of this.#roots.keys()) if (!live.has(key.slice(0, key.indexOf('\0')))) this.#roots.delete(key)
+      this.#sendResolvedRoots()
       this.#options.onSnapshot?.()
     } else {
       this.#crashes = 0 // A healthy event stream clears the backoff ladder.
       const event = this.#checkedEvent(notification.event)
+      this.#sendResolvedRoots()
       if (event) this.#options.onEvent?.(event)
     }
   }
@@ -619,7 +755,7 @@ export class PluginHostProcess {
         if (!plugin) return null
         return {
           type: event.type,
-          plugin: { ...plugin, contributions: plugin.contributions.map((entry) => ({ ...entry, id: this.#namespaced(entry.id) })) },
+          plugin: { ...plugin, contributions: plugin.contributions.map((entry) => this.#received(entry)) },
         }
       }
       case 'plugin/removed':
@@ -634,7 +770,7 @@ export class PluginHostProcess {
           type: 'contributions/changed',
           owner: own,
           revision: event.revision,
-          contributions: this.#allowed(event.owner, event.contributions).map((entry) => ({ ...entry, id: this.#namespaced(entry.id) })),
+          contributions: this.#allowed(event.owner, event.contributions).map((entry) => this.#received(entry)),
         }
       case 'extension/log':
         return { type: 'extension/log', owner: own, level: event.level, message: String(event.message) }
@@ -680,6 +816,11 @@ export class PluginHostProcess {
       reply({ response: request.request, error: { message } })
     }
     try {
+      if (request.method === 'capability/call') {
+        const result = await this.#serveCapability(request.params)
+        reply({ response: request.request, result: result === undefined ? null : result })
+        return
+      }
       if (request.method === 'ios/call') {
         const child = this.#child
         const current = this.#iosState()
@@ -1118,12 +1259,62 @@ export class PluginHostProcess {
       ) {
         throw new Error('This plugin no longer has a browser grant.')
       }
-      const engine = this.#options.browserEngine
+      // A confined process can start no browser of its own, so every
+      // placement it is set to is served here, by the same settings.
+      const engine = this.#confined ? placedBrowserEngine(this.#options.browserEngine ?? null) : this.#options.browserEngine
       if (!engine) {
         refuse('The host has no browser of its own.')
         return
       }
       switch (request.method) {
+        case 'browser/handoff': {
+          if (!this.#confined) {
+            refuse('Only a confined plugin process hands pages over.')
+            return
+          }
+          const url = (request.params as { url?: unknown }).url
+          if (typeof url !== 'string') {
+            refuse('A hand-off needs the address of the page.')
+            return
+          }
+          await handPageToSystem(url)
+          reply({ response: request.request, result: null })
+          return
+        }
+        case 'browser/savePdf': {
+          if (!this.#confined) {
+            refuse('Only a confined plugin process has its PDFs written by the host.')
+            return
+          }
+          const { data, name } = request.params as { data?: unknown; name?: unknown }
+          if (typeof data !== 'string' || typeof name !== 'string') {
+            refuse('A saved PDF needs its data and a name.')
+            return
+          }
+          // A folder per PDF, named for this process as the in-process ones
+          // are, so a desk that crashes leaves nothing the next one keeps;
+          // removed when the plugin's process is disposed. The name is made
+          // safe again here: the process's word for it is not.
+          const folder = await mkdtemp(join(tmpdir(), `hd-pdf-${process.pid}-`))
+          this.#pdfFolders.add(folder)
+          const path = join(folder, `${pdfName(name)}.pdf`)
+          await writeFile(path, Buffer.from(data, 'base64'))
+          reply({ response: request.request, result: path })
+          return
+        }
+        case 'browser/missing': {
+          if (!this.#confined) {
+            refuse('Only a confined plugin process has its uploads looked for by the host.')
+            return
+          }
+          const paths = (request.params as { paths?: unknown }).paths
+          if (!Array.isArray(paths) || paths.length > 256 || !paths.every((path) => typeof path === 'string')) {
+            refuse('An upload names its files as a list of paths.')
+            return
+          }
+          reply({ response: request.request, result: (paths as string[]).filter((path) => !existsSync(path)) })
+          return
+        }
         case 'browser/ensure':
           await engine.ensure(identity)
           reply({ response: request.request, result: null })
@@ -1149,6 +1340,57 @@ export class PluginHostProcess {
     } catch (error) {
       reply({ response: request.request, error: { message: error instanceof Error ? error.message : String(error) } })
     }
+  }
+
+  /**
+   * A plugin's `ctx.fs`, `ctx.http`, `ctx.shell` or `ctx.android` call, run
+   * here: the process runs under the Node permission model and has no disk,
+   * network or programs of its own (docs/plugin-isolation.md).
+   *
+   * The call is checked against the permissions the person agreed to, which
+   * the host holds; nothing the process says about itself widens them. The
+   * lease names the invocation the call belongs to, and the call runs in the
+   * checkout the host admitted for it. A lease this process was not handed,
+   * or one whose invocation has ended, is background work, and runs in the
+   * open workspace — where background work in the host has always run.
+   */
+  async #serveCapability(raw: unknown): Promise<unknown> {
+    const capabilities = this.#capabilities
+    if (!capabilities) throw new Error('The installer process runs no plugin.')
+    const params = typeof raw === 'object' && raw !== null ? raw as { readonly lease?: unknown; readonly call?: unknown } : {}
+    const leased = typeof params.lease === 'string' ? this.#capabilityLeases.get(params.lease) : undefined
+    const call = readCapabilityRequest(params.call)
+    // While the host does the work, the invocation's deadline waits for it,
+    // up to the call's own bound: a plugin is not timed out for waiting on
+    // the host, and a call that outlives its bound gives the deadline back.
+    const hold = leased?.hold()
+    let released = false
+    const release = (): void => {
+      if (released) return
+      released = true
+      hold?.()
+    }
+    const bound = setTimeout(release, capabilityWorkMs(call) * (this.#options.requestTimeoutScale ?? 1))
+    bound.unref?.()
+    try {
+      return await capabilities.serve(call, leased?.lease)
+    } finally {
+      clearTimeout(bound)
+      release()
+    }
+  }
+
+  /**
+   * The checkout an invocation's capability calls run in: the one the host
+   * admitted for a tool call or a context read, as the kernel runs those in
+   * the host; the open workspace for a command or a hook, as there.
+   */
+  #leaseFor(method: string, params: unknown): CapabilityLease {
+    if (method !== 'tool/invoke' && !method.startsWith('context/')) return { enterCheckout: false }
+    const input = params as { readonly scope?: ScopeQuery; readonly query?: ScopeQuery }
+    const scope = input.scope ?? input.query
+    const root = scope?.workspaceRoot
+    return { ...(root === undefined ? {} : { root }), enterCheckout: scope?.enterCheckout === true }
   }
 
   /**
@@ -1197,6 +1439,7 @@ export class PluginHostProcess {
     let browserInvocation: string | undefined
     const iosInvocations: Record<string, IosInvocationAuthority> = {}
     const iosController = new AbortController()
+    let capabilityLease: string | undefined
     if (method === 'tool/invoke') {
       const input = params as PluginHostMethods['tool/invoke']['params']
       const namespaced = this.#namespaced(input.id)
@@ -1217,6 +1460,19 @@ export class PluginHostProcess {
         const { browser: _browser, ...plain } = params as PluginHostMethods['tool/invoke']['params']
         params = plain as PluginHostMethods[M]['params']
       }
+    } else if (method === 'command/run' || method === 'context/resolve' || method === 'context/resolveOne') {
+      // A command or a context read places pages too. The process holds one
+      // plugin, so the identity is that plugin's, for this call only.
+      const input = params as { readonly browser?: { readonly profile: string } }
+      const owner = this.#plugins.length === 1 ? this.#plugins[0] : undefined
+      if (input.browser && owner?.enabled) {
+        const identity = this.#browserInvocations.begin(input.browser.profile, String(owner.instanceId))
+        browserInvocation = identity.invocation
+        params = { ...params, browser: identity } as PluginHostMethods[M]['params']
+      } else if (input.browser) {
+        const { browser: _browser, ...plain } = params as { browser?: unknown }
+        params = plain as PluginHostMethods[M]['params']
+      }
     }
     if (['tool/invoke','command/run','context/resolve','context/resolveOne','hooks/run','hooks/runOne'].includes(method)) {
       for (const owner of iosOwners) {
@@ -1228,8 +1484,17 @@ export class PluginHostProcess {
         iosInvocations[this.#reportedInstanceId ?? String(owner.instanceId)] = token
         this.#iosInvocations.set(token, { owner: String(owner.instanceId), signal: iosController.signal, hold: () => lifetime.hold(), abort: () => iosController.abort() })
       }
-      const { iosInvocations: _untrusted, ...plain } = params as { iosInvocations?: unknown }
+      const { iosInvocations: _untrusted, capabilityLease: _forged, ...plain } = params as { iosInvocations?: unknown; capabilityLease?: unknown }
       params = { ...plain, iosInvocations } as PluginHostMethods[M]['params']
+      if (this.#capabilities) {
+        capabilityLease = randomUUID()
+        this.#capabilityLeases.set(capabilityLease, { lease: this.#leaseFor(method, params), hold: () => lifetime.hold() })
+        params = { ...params, capabilityLease } as PluginHostMethods[M]['params']
+      }
+    }
+    if (method === 'workspace/set') {
+      const state = params as PluginHostMethods['workspace/set']['params']
+      this.#capabilities?.setWorkspace({ root: state.root, branch: state.branch, ...(state.admitted ? { admitted: state.admitted } : {}) })
     }
     const armKeys = this.#armedScopesFor(method, params)
     const controller = new AbortController()
@@ -1247,6 +1512,7 @@ export class PluginHostProcess {
       return await this.#dispatch(method, params, lifetime)
     } finally {
       if (agent) this.#agentCalls -= 1
+      if (capabilityLease) this.#capabilityLeases.delete(capabilityLease)
       iosController.abort()
       for (const value of Object.values(iosInvocations)) if (typeof value === 'string') this.#iosInvocations.delete(value)
       if (browserInvocation) this.#browserInvocations.end(browserInvocation)
@@ -1431,6 +1697,9 @@ export class PluginHostProcess {
 
   async dispose(): Promise<void> {
     this.#disposed = true
+    const folders = [...this.#pdfFolders]
+    this.#pdfFolders.clear()
+    await Promise.all(folders.map((folder) => rm(folder, { recursive: true, force: true })))
     const child = this.#child
     if (!child) return
     // Closing stdin asks politely; the deadline answers for plugins that will not.
@@ -1473,6 +1742,17 @@ export interface SupervisedExtensionHostOptions {
    * no conversation, no model and no transcript.
    */
   readonly forgeEngine?: ForgeEngine | null
+  /**
+   * The runtimes that may hold a plugin's process to the Node permission
+   * model, in order of preference — the Lead's candidates on the desktop.
+   * Absent: the runtime this host runs on. The first one whose probe refuses
+   * the network, files outside its grants and starting programs is used.
+   */
+  readonly runtimes?: readonly PluginRuntime[]
+  /** False runs every plugin unconfined. Tests that drive a plugin's own I/O turn it off. */
+  readonly confine?: boolean
+  /** Replaces the probe, for tests. */
+  readonly probeRuntime?: PluginRuntimeProber
 }
 
 /**
@@ -1509,6 +1789,8 @@ export class SupervisedExtensionHost {
   #workspace: { root: string | null; branch: string | null; admitted?: readonly string[] } = { root: null, branch: null }
   #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'
   #disposed = false
+  /** The runtime plugins are confined on, chosen once, at the first start that asks. */
+  #runtimeChoice: Promise<PluginRuntimeChoice> | null = null
 
   constructor(kernel: ExtensionKernel, options: SupervisedExtensionHostOptions = {}) {
     this.#kernel = kernel
@@ -1536,6 +1818,17 @@ export class SupervisedExtensionHost {
     // plugin whose `ctx.team` quietly points at nothing.
     if (options.teamEngine !== undefined) setTeamEngine(options.teamEngine)
     if (options.forgeEngine !== undefined) setForgeEngine(options.forgeEngine)
+  }
+
+  /** Where plugins' processes run confined, or why they do not. */
+  #pluginRuntime(): Promise<PluginRuntimeChoice> {
+    if (this.#options.confine === false) return Promise.resolve({ runtime: null, reason: 'confinement is off' })
+    this.#runtimeChoice ??= choosePluginRuntime(
+      this.#options.runtimes ?? [hostPluginRuntime()],
+      CHILD_ENTRY,
+      ...(this.#options.probeRuntime ? [this.#options.probeRuntime] : []),
+    )
+    return this.#runtimeChoice
   }
 
   /** Loads one of the repository's own plugins, in-proc. Not for third-party code. */
@@ -1639,6 +1932,7 @@ export class SupervisedExtensionHost {
         ...(this.#engines.editor ? { editorEngine: this.#engines.editor } : {}),
         ...(this.#engines.team ? { teamEngine: this.#engines.team } : {}),
         ...(this.#engines.forge ? { forgeEngine: this.#engines.forge } : {}),
+        confinement: () => this.#pluginRuntime(),
         // Every restart is held to the record too, not only the first start:
         // a plugin that rewrites its manifest and exits must not come back
         // under the permissions it gave itself.
@@ -1648,6 +1942,13 @@ export class SupervisedExtensionHost {
           // agreed, and must not be for a manifest that renamed its plugin.
           if (pkg.manifest.id !== member.id) throw new Error(MANIFEST_CHANGED)
           if ((await this.#consent.check(member.id, now)) === 'changed') throw new Error(MANIFEST_CHANGED)
+          // The installer refuses a link that leads outside the package, but
+          // a copy installed before that check, or a link placed since, would
+          // read through the directory grant. Checked again at every start.
+          const link = await escapingLink(member.directory)
+          if (link) {
+            throw new Error(`${link} is a link that leads outside the plugin, so it was not started. Remove the link, or reinstall the plugin.`)
+          }
         },
         stillConsented: async () => this.#consent.matches(member.id, (await readInstalledManifest(member.directory)).bytes),
         onRefused: () => {
@@ -1755,7 +2056,8 @@ export class SupervisedExtensionHost {
     const running = [...this.#members.values()].filter((member) => member.proc?.alive)
     const each = await Promise.all(running.map(async (member) => {
       try {
-        return { plugin: member.id, ...(await member.proc!.call('host/stats', {})) }
+        const proc = member.proc!
+        return { plugin: member.id, confinement: proc.confinement, ...(await proc.call('host/stats', {})) }
       } catch {
         return null
       }
@@ -1770,7 +2072,13 @@ export class SupervisedExtensionHost {
       rssBytes: processes.reduce((sum, entry) => sum + entry.rssBytes, 0),
       activeHandles: processes.reduce((sum, entry) => sum + entry.activeHandles, 0),
       invocations,
-      processes: processes.map(({ plugin, pid, rssBytes, activeHandles }) => ({ plugin, pid, rssBytes, activeHandles })),
+      processes: processes.map(({ plugin, pid, rssBytes, activeHandles, confinement }) => ({
+        plugin,
+        pid,
+        rssBytes,
+        activeHandles,
+        ...(confinement ? { confinement } : {}),
+      })),
     }
   }
 
@@ -1879,7 +2187,8 @@ export class SupervisedExtensionHost {
       member.enabled && member.proc?.contributions.some((entry) => entry.kind === 'context'))
     const answers = await Promise.all(providers.map(async (member) => {
       try {
-        return await member.proc!.call('context/resolve', { query })
+        const profile = this.#browserResolver(query)
+        return await member.proc!.call('context/resolve', { query, ...(profile ? { browser: { invocation: 'pending-parent-lease', profile } } : {}) })
       } catch {
         return []
       }
@@ -1896,7 +2205,11 @@ export class SupervisedExtensionHost {
     const proc = this.#processFor(id)
     if (!proc) return null
     scope = await this.#shellScope(scope)
-    return proc.call('context/resolveOne', { id: proc.strip(id), ...(ref === undefined ? {} : { ref }), scope })
+    const profile = this.#browserResolver(scope)
+    return proc.call('context/resolveOne', {
+      id: proc.strip(id), ...(ref === undefined ? {} : { ref }), scope,
+      ...(profile ? { browser: { invocation: 'pending-parent-lease', profile } } : {}),
+    })
   }
 
   subscribe(listener: (event: ExtensionEvent) => void): () => void {
@@ -1950,7 +2263,11 @@ export class SupervisedExtensionHost {
       member.enabled && member.proc?.contributions.some((entry) => entry.kind === 'command' && entry.name === name))
     if (!owner?.proc) return false
     // The command exists over there; a failure is an answer, not an absence.
-    const { handled } = await owner.proc.call('command/run', { name, argument, scope })
+    const profile = this.#browserResolver(scope)
+    const { handled } = await owner.proc.call('command/run', {
+      name, argument, scope,
+      ...(profile ? { browser: { invocation: 'pending-parent-lease', profile } } : {}),
+    })
     return handled
   }
 
@@ -2224,27 +2541,38 @@ const MANIFEST_CHANGED =
 const NO_PLUGIN_PERMISSIONS: PluginPermissions = mergePermissions(undefined)
 
 /**
- * A plugin proc's environment, from scratch. The variable that makes the
- * desktop binary run as plain Node, where plugins live, locale and time, and
- * the few variables the capabilities still running in the plugin's proc
- * read. Never the host's tokens, and never `NODE_OPTIONS`.
+ * The environment a plugin's `ctx.shell` programs run with, from scratch:
+ * what finding a program and reaching the network from where the person is
+ * needs — search path, home, proxy and the certificates it presents — and
+ * locale and time. Never the host's tokens, and never `NODE_OPTIONS`.
  */
-const PLUGIN_ENVIRONMENT = [
+const SHELL_ENVIRONMENT = [
   'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'TEMP', 'TMP',
   'LANG', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES', 'TZ',
   'HARNESSDESK_HOME', 'HARNESSDESK_PLUGINS',
-  // What reaching the network from where the person is needs: their proxy and
-  // the certificates it presents. `ctx.http` still runs in the plugin's own
-  // process until the host brokers it (docs/plugin-isolation.md, layer 4).
   'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
   'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
   'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'XDG_RUNTIME_DIR',
   'SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
 ] as const
 
-export const pluginEnvironment = (extra: Readonly<Record<string, string>> | undefined): NodeJS.ProcessEnv => {
+/**
+ * A plugin process's own environment: less again. Its files, network and
+ * programs are served by the host (docs/plugin-isolation.md, layer 4), so it
+ * keeps only where plugins live, locale, time and the temporary directory —
+ * not the search path, home, proxy or certificates the shell's programs get.
+ */
+const PROCESS_ENVIRONMENT = [
+  'TMPDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES', 'TZ',
+  'HARNESSDESK_HOME', 'HARNESSDESK_PLUGINS', 'SystemRoot', 'windir',
+] as const
+
+const fromScratch = (
+  names: readonly string[],
+  extra: Readonly<Record<string, string>> | undefined,
+): NodeJS.ProcessEnv => {
   const env: NodeJS.ProcessEnv = {}
-  for (const name of PLUGIN_ENVIRONMENT) {
+  for (const name of names) {
     const value = process.env[name]
     if (value !== undefined) env[name] = value
   }
@@ -2252,6 +2580,14 @@ export const pluginEnvironment = (extra: Readonly<Record<string, string>> | unde
   // Last, so nothing passed in can make the process a second app.
   return { ...env, ...rest, ELECTRON_RUN_AS_NODE: '1' }
 }
+
+/** What a plugin's `ctx.shell` programs run with. */
+export const pluginEnvironment = (extra: Readonly<Record<string, string>> | undefined): NodeJS.ProcessEnv =>
+  fromScratch(SHELL_ENVIRONMENT, extra)
+
+/** What a plugin's own process starts with. */
+export const pluginProcessEnvironment = (extra: Readonly<Record<string, string>> | undefined): NodeJS.ProcessEnv =>
+  fromScratch(PROCESS_ENVIRONMENT, extra)
 
 /**
  * Unambiguous for any runtime/session/plugin triple, and plain ASCII in the

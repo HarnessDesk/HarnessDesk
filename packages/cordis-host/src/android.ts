@@ -6,6 +6,7 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 
 import type { HostRuntime } from './runtime.js'
 import { runDevice, runDeviceForPng } from './device-exec.js'
+import { capabilityBroker } from './capabilities.js'
 
 /**
  * `ctx.android` — Android devices and emulators, through `adb`.
@@ -107,22 +108,38 @@ export const parseAdbDevices = (stdout: string): AndroidDevice[] => {
     })
 }
 
-export class AndroidService extends Service {
-  static [Service.tracker] = { associate: 'android', property: 'ctx' }
+/** The verbs `ctx.android` has, and the only ones the parent serves a plugin's process. */
+export const ANDROID_METHODS = ['devices', 'install', 'launch', 'screenshot', 'tap', 'key', 'text', 'logcat'] as const
+export type AndroidMethod = (typeof ANDROID_METHODS)[number]
 
+/**
+ * The devices themselves, behind one check of the caller's grant. The host's
+ * own service runs these for a plugin in its process; the parent runs them
+ * for a plugin in its own, with that plugin's grant.
+ */
+export class AndroidDevices {
+  /**
+   * `stopped`, when given, is the signal that ends a command early: the parent
+   * passes its plugin process's lifetime, so a plugin that stops takes its
+   * device work with it.
+   */
   constructor(
-    ctx: Context,
-    private readonly runtime: HostRuntime,
-  ) {
-    super(ctx, 'android')
+    private readonly assertAndroid: () => void,
+    private readonly stopped: () => AbortSignal | undefined = () => undefined,
+  ) {}
+
+  private get until(): { readonly signal?: AbortSignal } {
+    const signal = this.stopped()
+    return signal ? { signal } : {}
   }
 
   private async adb(args: readonly string[], what: string, timeoutMs?: number, serial?: string): Promise<string> {
-    this.runtime.owner(this.ctx).gate.assertAndroid()
+    this.assertAndroid()
     try {
       const { stdout } = await runDevice(adbBinary(), [...onDevice(serial), ...args], {
         what,
         ...(timeoutMs ? { timeoutMs } : {}),
+        ...this.until,
       })
       return stdout
     } catch (error) {
@@ -181,10 +198,11 @@ export class AndroidService extends Service {
 
   /** A PNG of the device screen, as a data URL. Pixels are tap coordinates. */
   async screenshot(serial?: string): Promise<string> {
-    this.runtime.owner(this.ctx).gate.assertAndroid()
+    this.assertAndroid()
     try {
       return await runDeviceForPng(adbBinary(), [...onDevice(serial), 'exec-out', 'screencap', '-p'], {
         what: 'Screenshotting the device',
+        ...this.until,
       })
     } catch (error) {
       throw await this.refusal(error as Error, serial)
@@ -218,5 +236,66 @@ export class AndroidService extends Service {
     // adb's, and goes before the subcommand; the two never meet.
     if (tag) args.push('-s', tag)
     return this.adb(args, 'Reading logcat', 30_000, serial)
+  }
+}
+
+export class AndroidService extends Service {
+  static [Service.tracker] = { associate: 'android', property: 'ctx' }
+
+  // TypeScript's `private`, not `#`: Cordis hands plugins the service through a proxy.
+  private readonly engine: AndroidDevices
+
+  constructor(
+    ctx: Context,
+    private readonly runtime: HostRuntime,
+  ) {
+    super(ctx, 'android')
+    this.engine = new AndroidDevices(() => this.runtime.owner(this.ctx).gate.assertAndroid())
+  }
+
+  private async call<M extends AndroidMethod>(method: M, args: Parameters<AndroidDevices[M]>): Promise<Awaited<ReturnType<AndroidDevices[M]>>> {
+    const broker = capabilityBroker()
+    // Trailing `undefined`s are dropped, so the parent reads the same defaults.
+    const sent = [...args]
+    while (sent.length && sent.at(-1) === undefined) sent.pop()
+    if (broker) return await broker.call({ kind: 'android', method, args: sent }) as Awaited<ReturnType<AndroidDevices[M]>>
+    return await (this.engine[method] as (...input: unknown[]) => Promise<unknown>).apply(this.engine, args) as Awaited<ReturnType<AndroidDevices[M]>>
+  }
+
+  /** Connected devices and running emulators, from `adb devices -l`. */
+  devices(): Promise<readonly AndroidDevice[]> {
+    return this.call('devices', [])
+  }
+
+  install(apkPath: string, serial?: string): Promise<void> {
+    return this.call('install', [apkPath, serial])
+  }
+
+  /** Launches an activity (`com.example/.MainActivity`) or a package's default. */
+  launch(target: string, serial?: string): Promise<void> {
+    return this.call('launch', [target, serial])
+  }
+
+  /** A PNG of the device screen, as a data URL. Pixels are tap coordinates. */
+  screenshot(serial?: string): Promise<string> {
+    return this.call('screenshot', [serial])
+  }
+
+  tap(x: number, y: number, serial?: string): Promise<void> {
+    return this.call('tap', [x, y, serial])
+  }
+
+  /** `KEYCODE_*` names or bare names like ENTER, BACK, HOME. */
+  key(key: string, serial?: string): Promise<void> {
+    return this.call('key', [key, serial])
+  }
+
+  text(text: string, serial?: string): Promise<void> {
+    return this.call('text', [text, serial])
+  }
+
+  /** The last `lines` of logcat, optionally filtered to a tag. */
+  logcat(lines = 100, tag?: string, serial?: string): Promise<string> {
+    return this.call('logcat', [lines, tag, serial])
   }
 }

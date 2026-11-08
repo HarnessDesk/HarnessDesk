@@ -9,7 +9,7 @@
 export { ExtensionKernel, mergePermissions, type HarnessPlugin, type KernelLogger, type KernelOptions, type PluginManifest } from './kernel.js'
 export { PermissionDenied, PermissionGate, hostAllowed, pathWithin } from './permissions.js'
 export { ContributionStore } from './store.js'
-export { canonicalScopeQuery } from './workspace-scope.js'
+export { canonicalRoot, canonicalScopeQuery } from './workspace-scope.js'
 export {
   MANIFEST_FILENAME,
   ManifestError,
@@ -22,6 +22,7 @@ export {
   InstallError,
   install,
   inspect,
+  escapingLink,
   listInstalled,
   loadInstalled,
   pluginsRoot,
@@ -43,7 +44,16 @@ export type {
   ToolSpec,
   UiSpec,
 } from './services.js'
-export type { HttpRequestInit, ShellResult } from './capabilities.js'
+export {
+  setCapabilityBroker,
+  type CapabilityBroker,
+  type CapabilityRequest,
+  type HttpRequestInit,
+  type HttpResponse,
+  type ShellHost,
+  type ShellResult,
+} from './capabilities.js'
+export { capabilityWorkMs, PluginCapabilityHost, readCapabilityRequest, type CapabilityLease } from './capability-host.js'
 export {
   BrowserService,
   browserSettings,
@@ -51,6 +61,12 @@ export {
   KEY_NAMES,
   namedKey,
   setBrowserEngine,
+  setSystemHandOff,
+  setBrowserFiles,
+  pdfName,
+  type BrowserFiles,
+  placedBrowserEngine,
+  handPageToSystem,
   setBrowserSettings,
   type BrowserEngine,
   type BrowserPage,

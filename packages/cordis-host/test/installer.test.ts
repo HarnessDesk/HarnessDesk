@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { cp, mkdtemp, readFile, readdir, rm, stat, writeFile, mkdir } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -233,6 +233,35 @@ test('an install is held to the manifest that was shown, and a refused one leave
   assert.equal(await readFile(join(root, 'sample', 'index.js'), 'utf8'), copy, 'the version already installed stays')
   assert.deepEqual(await readdir(join(root, '.staging')).catch(() => []), [], 'no half-made copy is left behind')
   assert.deepEqual((await listInstalled()).map((entry) => entry.id), ['sample'])
+})
+
+test('a package with a link leading outside it is refused, and one that stays inside installs as written', async (t) => {
+  const root = await withPluginsRoot(t)
+  const work = await mkdtemp(join(tmpdir(), 'harnessdesk-work-'))
+  t.after(() => rm(work, { recursive: true, force: true }))
+  await writeFile(join(work, 'secret.txt'), 'outside')
+
+  // A confined plugin may read its own directory, and Node follows a link
+  // wherever it points: these would read past that grant.
+  for (const [name, target] of [
+    ['absolute', join(work, 'secret.txt')],
+    ['relative', '../../secret.txt'],
+    ['dangling', '../../../nowhere'],
+  ] as const) {
+    const source = join(work, `pkg-${name}`)
+    await cp(FIXTURE, source, { recursive: true })
+    await mkdir(join(source, 'data'))
+    await symlink(target, join(source, 'data', 'link'))
+    await assert.rejects(install(source), /data\/link is a link that leads outside the plugin/, name)
+    assert.deepEqual(await listInstalled(), [], `${name}: nothing was installed`)
+    assert.deepEqual(await readdir(join(root, '.staging')).catch(() => []), [], `${name}: no half-made copy`)
+  }
+
+  const inside = join(work, 'pkg-inside')
+  await cp(FIXTURE, inside, { recursive: true })
+  await symlink('index.js', join(inside, 'alias.js'))
+  const installed = await install(inside)
+  assert.equal(await readlink(join(installed.directory, 'alias.js')), 'index.js', 'copied as written, not pointed back at the source')
 })
 
 test('a local source is never removed, whatever its path contains', async (t) => {

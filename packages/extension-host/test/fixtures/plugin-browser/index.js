@@ -1,7 +1,7 @@
 /** A plugin that uses ctx.browser the way the Browser plugin does: open, look, click, read. */
 export const plugin = {
   name: 'browserish',
-  inject: ['tools', 'browser'],
+  inject: ['tools', 'browser', 'commands'],
   apply(ctx) {
     ctx.tools.register({
       name: 'look',
@@ -13,6 +13,13 @@ export const plugin = {
         const shot = await ctx.browser.screenshot()
         const value = await ctx.browser.evaluate('1 + 1')
         return JSON.stringify({ page, shot: shot.slice(0, 22), value })
+      },
+    })
+    ctx.commands.register({
+      name: 'peek',
+      description: 'Opens a URL from a command.',
+      run: async (argument) => {
+        await ctx.browser.open(String(argument))
       },
     })
     ctx.tools.register({
