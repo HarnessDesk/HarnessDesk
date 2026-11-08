@@ -408,6 +408,7 @@ const RightPanel = () => {
   return <>
     {drawn && sized && <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} max={max} />}
     <FixedPanelFrame edge="right" open={drawn} className={styles.right} data-fixed-tool-frame="" style={{ width: '100%', height: '100%' }}
+      onKeyDown={event => { if (adjacent && event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); event.stopPropagation(); store.closeAdjacentSession() } }}
       heading={adjacent ? 'Adjacent conversation' : title} actions={adjacent ? <Button variant="ghost" size="icon-sm" aria-label="Close adjacent conversation" title="Close adjacent conversation" onClick={() => store.closeAdjacentSession()}><CrossIcon size={16} /></Button> : <>
         <Button variant="ghost" size="icon-sm" aria-label={overlay ? 'Return to main' : 'Swap pane into main'} title={overlay ? 'Return to main' : 'Swap pane into main'}
           onClick={() => overlay ? store.toggleWorkPanel() : store.swapWorkPane()}>{overlay ? <SwapIcon size={16} /> : <ExpandIcon size={16} />}</Button>
@@ -434,7 +435,7 @@ const AdjacentPanel = () => {
   const session = snapshot.sessions.get(target.key)
   const { runtime, id } = splitSessionKey(target.key)
   const name = snapshot.runtimes.find(one => one.id === runtime)?.presentation.name ?? 'Agent unavailable'
-  return <FixedPanelBody role="region" aria-label={`Adjacent conversation: ${session?.title || id} — ${name}`} onKeyDown={event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); event.stopPropagation(); store.closeAdjacentSession() } }}>
+  return <FixedPanelBody role="region" aria-label={`Adjacent conversation: ${session?.title || id} — ${name}`}>
       <div>{session?.title || String(id)} · {name} <Chip tone="neutral" size="sm">Read only</Chip></div>
       {target.loading && <p role="status">Loading conversation…</p>}
       {target.error && <div role="alert">{target.error} <Button variant="quiet" size="sm" onClick={() => void store.openAdjacentSession(id, runtime)}>Retry</Button></div>}

@@ -245,6 +245,27 @@ it('draws a named secondary transcript without replacing the main work', () => {
   expect(store.closeAdjacentSession).toHaveBeenCalledOnce()
 })
 
+it('closes the adjacent reader on Escape from its focused header button', () => {
+  const runtime = runtimeId('secondary'), id = sessionId('b'), key = sessionKey(runtime, id)
+  const subject = fixedSubject(emptySnapshot().workbench.main)!
+  const rigged = rig(undefined, { adjacentSession: { key, subject, loading: false, error: null } })
+  const close = vi.fn()
+  Object.assign(rigged.store, { closeAdjacentSession: close })
+  render(rigged.store)
+  const button = container.querySelector<HTMLButtonElement>('button[aria-label="Close adjacent conversation"]')!
+  const parentKeydown = vi.fn()
+  document.addEventListener('keydown', parentKeydown)
+  button.focus()
+  expect(document.activeElement).toBe(button)
+  const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  act(() => button.dispatchEvent(escape))
+  expect(close).toHaveBeenCalledOnce()
+  expect(escape.defaultPrevented).toBe(true)
+  expect(parentKeydown).not.toHaveBeenCalled()
+  expect(container.querySelector('[data-testid="panes"]')).not.toBeNull()
+  document.removeEventListener('keydown', parentKeydown)
+})
+
 it('labels the reader as read only without exposing a missing runtime id', () => {
   const runtime = runtimeId('private-backend-id'), id = sessionId('b'), key = sessionKey(runtime, id)
   const subject = fixedSubject(emptySnapshot().workbench.main)!
