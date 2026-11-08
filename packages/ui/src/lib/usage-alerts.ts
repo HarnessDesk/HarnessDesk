@@ -142,10 +142,15 @@ export const toastName = (
   account: string | null,
   accounts: readonly Account[],
   prefs: AccountPrefsMap,
+  hideAddresses = false,
 ): string => {
   if (!account) return agent
   const known = accounts.find((one) => one.label.trim() === account)
-  const shown = known ? accountName(known, prefs[accountKey(runtime, known)], agent) : account
+  // While addresses are hidden the report's own label is named the way
+  // `shownAccountLabel` names one, never shown whole.
+  const shown = known
+    ? accountName(known, prefs[accountKey(runtime, known)], agent, hideAddresses)
+    : hideAddresses ? accountName({ kind: 'oauth', label: account } as unknown as Account, undefined) : account
   /* An account the runtime cannot name is not an address. `accountName` hands
      back the agent's own name for an anonymous one, so the toast read "Claude
      Code (Claude Code)" — the agent twice and the account never (round 2 of
@@ -210,6 +215,17 @@ export const conditionFor = (
   reports: readonly UsageReport[],
   nameFor: (runtime: RuntimeId) => string,
   now: number,
+  /**
+   * The agent's own other accounts, in the order its pool uses them
+   * (`lib/account-pool.ts`), and whether to offer a way out at all. Another
+   * account of the same agent is the cheaper move — same models, same tools,
+   * the conversation's own history format — so one with room is offered
+   * before the roomiest agent of any kind. A pool whose rule is "Stop" offers
+   * nothing: the person said they would rather wait. `canTake` says whether
+   * an account could take a turn at all (`canTakeTurn`); a report is cached
+   * past a sign-out, so a roomy reading alone is not somewhere to go.
+   */
+  pool: { readonly prefer?: readonly RuntimeId[]; readonly offer?: boolean; readonly canTake?: (runtime: RuntimeId) => boolean } = {},
 ): UsageCondition | null => {
   if (runtime === null) return null
   const report = reports.find((entry) => entry.runtime === runtime)
@@ -221,12 +237,27 @@ export const conditionFor = (
   // Somewhere else to go: the roomiest other agent, and only if it has real
   // room. Offering a hand-off to an agent at 3% would be a worse dead end.
   const alternatives = reports
-    .filter((entry) => entry.runtime !== runtime)
+    .filter((entry) => entry.runtime !== runtime && (pool.canTake?.(entry.runtime) ?? true))
     .map((entry) => ({ entry, left: leftOn(entry) }))
     .filter((option): option is { entry: UsageReport; left: number } => option.left !== null && option.left >= 20)
     .sort((a, b) => b.left - a.left)
-  const best = alternatives[0]
-  const handoff = best ? { runtime: best.entry.runtime, name: nameFor(best.entry.runtime) } : null
+  // The next sibling that is not out, in the pool's order — the account
+  // "Use the next account" would move to, so "Ask me" offers the same one.
+  // `prefer` names only accounts that could take a turn (`canTakeTurn`); one
+  // with no report, or little room, is still not out, which is enough for the
+  // same agent; a stranger agent has to show its room.
+  // Searched from the account after this one, wrapping, as `nextInPool`
+  // moves: with [A, B, C] and B spent, C is next and A comes after it.
+  const order = pool.prefer ?? []
+  const at = order.indexOf(runtime)
+  const sibling = [...order.slice(at + 1), ...order.slice(0, Math.max(at, 0))]
+    .filter((id) => id !== runtime)
+    .find((id) => {
+      const own = reports.filter((entry) => entry.runtime === id)
+      return own.length === 0 || !own.every(isBlocked)
+    })
+  const best = sibling ?? alternatives[0]?.entry.runtime
+  const handoff = pool.offer === false || !best ? null : { runtime: best, name: nameFor(best) }
 
   // Only an account-wide limit earns a banner. One model being spent is a
   // fact for the card, not a reason to offer someone another agent.

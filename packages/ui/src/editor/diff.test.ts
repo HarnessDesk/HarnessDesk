@@ -16,6 +16,17 @@ import {
 } from './diff'
 
 describe('parseDiff', () => {
+  test('draws header-shaped lines in a hunkless input preview as content', () => {
+    const diff = '--- old text\n+++ new text\n'
+    expect(parseDiff(diff).map(line => [line.kind, line.text])).toEqual([['remove', '-- old text'], ['add', '++ new text']])
+    expect(countChanges(diff)).toEqual({ added: 1, removed: 1 })
+  })
+  test('leaves positions unknown before a hunk and preserves actual zero positions', () => {
+    const lines = parseDiff('-old\n+new\n context\n@@ -0,0 +1,2 @@\n+first\n+second')
+    expect(lines.slice(0, 3).map(line => [line.oldNumber, line.newNumber])).toEqual([[null, null], [null, null], [null, null]])
+    expect(lines.slice(4).map(line => [line.oldNumber, line.newNumber])).toEqual([[null, 1], [null, 2]])
+    expect(parseDiff('@@ -0 +0 @@\n zero')[1]).toMatchObject({ oldNumber: 0, newNumber: 0 })
+  })
   test('numbers both gutters from the hunk header', () => {
     const lines = parseDiff(
       ['@@ -10,3 +20,4 @@', ' context', '-removed', '+added', '+also added'].join('\n'),

@@ -158,6 +158,21 @@ test('a caller past the wire validator still cannot hand a runtime `attachments`
 /** What the runtime was actually handed when it (re)opened a conversation. */
 const given = (runtime: FakeRuntime, id: string) => runtime.attachmentsGiven.get(id)
 
+test('a phone archive read never reopens a filtered conversation when its retained body is unavailable', async t => {
+  const desk = await deskWithMergeAgent(t)
+  await reviewAndApprove(desk)
+  const session = await desk.harness.host.call('agent/seat', { id: 'reviewer', cwd: desk.work, project: desk.work, permission: 'merge' })
+  const id = `${session.runtime}:${session.id}`
+  desk.runtime.sessions.get(session.id)!.finish()
+  await desk.harness.host.call('session/archive', { runtime: session.runtime, sessionId: session.id, archived: true })
+  assert.equal((await desk.harness.host.call('workspace/thread/read', { id })).id, id, 'the retained filtered transcript remains readable')
+  await forgetStored(desk.harness.stateDir, session.runtime, session.id)
+  await assert.rejects(desk.harness.host.call('workspace/thread/read', { id }), /no retained transcript/)
+  const page = await desk.harness.host.call('workspace/sessions/list', { archived: true })
+  assert.ok(page.items.some(item => item.id === id), 'reading from a phone must leave the filtered conversation archived')
+  await assert.rejects(desk.harness.host.call('workspace/session/send', { id, text: 'Hello' }), /not a session this desk can show/)
+})
+
 test('a restart, then session/resume: the Seat reopens on its frozen filter, revalidated, and appends an epoch — never native defaults', async (t) => {
   const desk = await deskWithMergeAgent(t)
   await reviewAndApprove(desk)

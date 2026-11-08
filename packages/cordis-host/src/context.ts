@@ -1,3 +1,4 @@
+import type { IosCapability } from './ios-types.js'
 import type {
   CommandSpec,
   ContextSpec,
@@ -163,7 +164,7 @@ export interface HarnessContext {
    * `forge` permission. Every verb takes the `ScopeQuery` its tool
    * invocation carried, for the reason the team verbs do.
    */
-  readonly forge: {
+  readonly forge: Pick<import('./forge.js').ForgeService, 'repository' | 'associatedPullRequest' | 'push' | 'pullRequest' | 'review' | 'comment' | 'record' | 'attribute'> & {
     seat(scope?: ScopeQuery): Promise<ForgeSeat | null>
     identity(scope?: ScopeQuery): Promise<ForgeIdentity>
     publish(reference: ForgeReference, scope?: ScopeQuery): Promise<void>
@@ -265,17 +266,8 @@ export interface HarnessContext {
     listFindings(input: FindingReadInput, scope?: ScopeQuery): Promise<readonly FindingSeatRow[]>
   }
   /** The iOS Simulator, via simctl. Requires the `ios` permission. */
-  readonly ios: {
-    devices(): Promise<readonly { udid: string; name: string; state: string; runtime: string }[]>
-    booted(): Promise<{ udid: string; name: string; state: string; runtime: string }>
-    boot(udid: string): Promise<void>
-    install(appPath: string): Promise<void>
-    launch(bundleId: string): Promise<void>
-    terminate(bundleId: string): Promise<void>
-    openUrl(url: string): Promise<void>
-    screenshot(): Promise<string>
-    tap(x: number, y: number): Promise<void>
-  }
+  readonly ios: IosCapability
+
   /**
    * Android devices and emulators, via adb. Requires the `android` permission.
    * Every call that touches a device takes an optional `serial` — one of the

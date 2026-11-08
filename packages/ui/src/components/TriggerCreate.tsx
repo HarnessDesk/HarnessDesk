@@ -51,7 +51,7 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
   const store = useStore()
   const [existing, setExisting] = useState<AuthoringDocument | null>(null)
   const [readProblem, setReadProblem] = useState<string | null>(null)
-  const [id, setId] = useState(slugify('flow' in opens ? opens.flow : opens.agent))
+  const [id, setId] = useState(slugify('lead' in opens ? 'lead-plan' : 'flow' in opens ? opens.flow : opens.agent))
   const [source, setSource] = useState<TriggerSource>('pull-request')
   const [definition, setDefinition] = useState<TriggerDefinition | null>(null)
   const [rendered, setRendered] = useState<{ readonly source: string } | null>(null)

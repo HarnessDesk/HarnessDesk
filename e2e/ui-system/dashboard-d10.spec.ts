@@ -19,8 +19,10 @@ for (const theme of ['light', 'dark'] as const) test(`Dashboard numbers in ${the
   await expect(remaining.getByText('analyst@example.com', { exact: true })).toBeVisible()
   await expect(remaining).toContainText('Business Pro Lite')
   await expect(remaining.locator('[title="self_serve_business_prolite"]')).toBeVisible()
-  await expect(remaining.locator('[data-slot="pace-badge"]').first()).toHaveText('▼39%under pace')
-  await expect(remaining.locator('[data-slot="pace-badge"]').nth(1)).toHaveText('▲39%over pace')
+  // Pace is said as a time under the bar, not a badge: one card lasts to its reset, the other runs out before it.
+  await expect(remaining.locator('[data-slot="pace-badge"]')).toHaveCount(0)
+  await expect(remaining).toContainText(/Lasts to its [^.]*\d:\d{2}\s?[AP]M reset/)
+  await expect(remaining).toContainText(/Runs out ~[^,]*\d:\d{2}\s?[AP]M, before its [^.]*\d:\d{2}\s?[AP]M reset/)
   await expect(dashboard).toContainText('Usage cost')
   await expect(dashboard.locator('[aria-label="What it cost, in brief"]')).not.toContainText('Selected')
   await expect(page.getByText('From a cached read', { exact: true })).toBeVisible()

@@ -818,7 +818,7 @@ Left is one reading per shape: a continuous bar and percent for a window or allo
 
 Project usage compares named Goals or Agents in a table, with Run and Seat counts and Cost when amounts exist. Team and frozen Run records supply names, flow and branch facts; unread Run counts remain a dash, with a visible note and Try again action when a Team's history could not be read. Entering By Goal or By Agent retries refused Teams while retaining successful reads. A shared row note appears once under the table; varying notes stay beside their row. The unattributed reason is shown when it adds to the label. Cost cells use a short Estimate or At least qualifier and their coverage phrase; the full basis and source age remain in the title. Project usage labels its own Last 30 days or Last 24 hours range, offers a return to 30 days, and resets to 30 days when the project changes. A range whose amounts cannot be read has one unknown-amounts warning; a partial read with figures says amounts are incomplete and keeps the known-subtotal qualification in the Cost cell. A partial read offers Last 24 hours until that range is already active; missing attribution alone does not. With no records the page has one empty sentence. With records but no attribution it names the selected grouping once, and the heading follows that grouping. Unattributed usage is the footer. Receipt Cost uses numeric KeyValue rows, with varying notes, the unattributed reason and total source age on full-width lines below each pair. A shared row note appears once below the list. Recorded usage sits under a strong footer rule; repeated source labels are named once with their file count; Sources keeps each full source sentence.
 
-Meter lists in an account card, plan popover, roster and composer quota popover use the same name, bar, percent and countdown arrangement. Standalone readings say “N% left”; inside What is left they say “N%”. Their fixed reading/countdown tracks align consecutive 4px meters; the roster separates each account from its agent’s name. The narrow account menu and context panel omit the bar but keep the name, remaining figure and reset. Plain meter names reveal a title only when clipped; the roster keeps a full-name title for its separately clipped agent and account, and reset countdowns carry the reset clock time in their title. A lane blocked behind a longer spent window says “blocked” and its title names when that hold lifts. Reset readings share “in 3 d” / “in 2 h 14 m”, with a quiet dash for missing facts.
+Meter lists in an account card, plan popover and roster use the same name, bar, percent and countdown arrangement. Standalone readings say “N% left”; inside What is left they say “N%”. Their fixed reading/countdown tracks align consecutive 4px meters; the roster separates each account from its agent’s name. The narrow account menu and context panel omit the bar but keep the name, remaining figure and reset. Plain meter names reveal a title only when clipped; the roster keeps a full-name title for its separately clipped agent and account, and reset countdowns carry the reset clock time in their title. A lane blocked behind a longer spent window says “blocked” and its title names when that hold lifts. Reset readings share “in 3 d” / “in 2 h 14 m”, with a quiet dash for missing facts.
 
 When the account provides its own activity history, the expanded Plans row
 adds an **All machines** band: its daily token counts cover the account across
@@ -938,23 +938,43 @@ hard way somewhere and is cheaper to design out than to fix:
   a number in it now has a column; what is left is the caveat, and there is
   only ever one: the error, or the block, or the gate, or the spent model, or the
   balance on top of the plan, or the pace.
-- **Pace is a badge in the header, not the card's one line.** It spent a
-  release as the *last* of six candidates for that line, which meant the only
-  card that ever showed it was one with nothing else wrong — the opposite of
-  when it matters. It is a standing rather than a sentence, so it wears the
-  same shape a standing wears everywhere: a glyph, a magnitude, a word.
-  `▲ 14% over pace`, `▼ 33% under pace`, `● 0% on pace`, `■ spent`. The margin
-  measures allowance left above or below the even-burn line; the arrow and
-  word carry its direction without a second sign. It is suppressed for a window
-  that has barely opened, where the arithmetic is noise, and it takes no tone
-  until the burn will actually cost something — a lane at 8% left is already
-  amber, and a second amber thing on the card saying the same would be one
-  fact wearing two alarms.
-- The card's line of prose is then only the *consequence* the badge cannot
-  state: `At this rate it runs out in 12h 36m — before the window resets.`
-  The two ran together for a while — `−33% over pace` beside `33% ahead of
-  pace · runs out in 12h 36m` — which is one number in two vocabularies, and
-  a reader has to check whether they agree before deciding to ignore one.
+- **Pace is a time, not a rate.** The card said it for a while as a badge —
+  `▲ 14% over pace`, `▼ 33% under pace` — and the same words meant the
+  opposite in the burn-down's own vocabulary, where "over pace" was burning
+  too fast. A time needs no legend, so the line under the bar says it:
+  `Lasts to its 3:53 PM reset`, `Runs out ~2:47 PM, before its 4:43 PM
+  reset`, `Back Thu 9:00 AM` (`standingSentence`). It is withheld for a window
+  that has barely opened, where the arithmetic is noise. The burn-down cards
+  keep a badge, in the same terms: `runs out ~2:47 PM` or `lasts to reset`,
+  and where a margin is drawn it is `to spare` above the even burn and
+  `overspending` below it — one meaning per word.
+- **One status word, decided once.** `usageStandingOf` in
+  `@harnessdesk/protocol` returns Ready, Low, Short, Out, Overdrawn or
+  Unknown. The card's chip, the Plans table, the needs-attention count and the
+  phone all read it, so an account cannot be Out in one place and Ready in
+  another. An overdrawn balance is `$2.15 overdrawn`, never `−$2.15 left`.
+  A balance decides when there is no plan window, or when the source says
+  the credits are what it hit; then no window's figure or reset is said
+  beside it, and nothing claims an account is "back first" while one is
+  overdrawn, since a top-up can beat any reset.
+  A failed read is Unknown before anything else, even with a cached balance
+  or a spent lane behind it, and Unknown shows none of those cached figures:
+  the card's figure and the Plans table's reading are `—`, the meter has no
+  fill, the phone is sent no percent or balance for it, and it sorts after
+  every account that answered. The cards and the sidebar's count follow the
+  same word: in debt, then out, then short, low and ready. A pinned lane does not change it: the pin picks
+  the card's headline, and the host, which decides the word for the phone,
+  never sees it. Every account-wide window counts, not only the headline:
+  Short is whichever runs dry first, Low whichever is lowest, and when that
+  window is not the headline the line under the bar names it — `Weekly runs
+  out ~2:47 PM, before its Thu 8:11 AM reset`. A spent model is said as one
+  model out only while the account still works. An out account is back at
+  the last reset of the windows that stopped it (no time if one of them
+  gives none), or the first, when only models are spent. `Back …` is said
+  only while that time is still ahead, and so is
+  a spent model's `until …`. The line above the cards, when there is no
+  account to recommend, counts by the same word: Out and Overdrawn as out,
+  Short and Low as running low.
 - **The headline's meter is a countable budget**, forty segments rather than a
   continuous bar: a smooth bar reads as a percentage and a segmented one reads
   as a budget being spent, which is the thing being drawn. It still fills with
@@ -1226,18 +1246,14 @@ Its delta is neutral: a rising cost is a fact about the work done, not by
 itself good or bad news the way a rising bill is.
 
 **Turns** is hidden when no agent reports turns. A reported zero stays visible.
-Otherwise it is `LedgerReport.totals.turns` for the window — unknown, never
-zero, whenever the window mixes a turn-known runtime with one that is not
-(`docs/usage-dashboard.md`, "Turns", above). Its caption prices a turn
-against Paid when both sides are real *and* scope-matched, the same test
-Value's ratio uses (`{amount} paid a turn`), and falls back to "known for N
-of M agents" when coverage is partial and Paid cannot answer either — "N of
-M" here counts the runtimes the ledger actually has rows for
-(`ledgerRuntimeIds`), not every account in scope, since an account with
-nothing recorded this window is neither known nor unknown. Its delta is
-neutral, and suppressed outright whenever either the current or the previous
-period mixes a turn-unknown runtime — a rise measured against a partial
-figure on either side overstates or understates it.
+With complete coverage it is `LedgerReport.totals.turns`; with partial coverage
+it sums the known runtimes' daily turns and says “known for N of M runtimes”.
+If a known daily count is missing, the figure stays unknown. Coverage counts
+runtimes in the daily entries, independent of the table's grouping, rather than
+accounts with nothing recorded in the window. The ledger's aggregate remains
+undefined for mixed coverage. The paid-per-turn caption and the neutral delta
+require complete coverage; the delta also requires complete coverage in the
+comparison window.
 
 **Tokens** is `LedgerReport.totalTokens`, with a cache-hit chip riding the
 figure's own line: `cacheRead / (input + cacheRead)`, the share of the
@@ -1478,11 +1494,13 @@ first ⌘U.
 
 ## The two smaller surfaces
 
-**In the composer — nothing.** This was going to be a micro-meter on the agent
-chip, appearing under 20%. The strip above makes it a second meter for the same
-fact, two inches from the context ring, which is exactly the confusion the
-original note warned about. The composer keeps the context ring — how full
-*this conversation* is — and the plan lives in one place. The account menu in
+**In the composer — no meter of its own.** This was going to be a micro-meter
+on the agent chip, appearing under 20%. The strip above makes it a second meter
+for the same fact, two inches from the context ring, which is exactly the
+confusion the original note warned about. The composer keeps the context ring —
+how full *this conversation* is — and the plan lives in one place; the ring's
+card lists the active metered agent's windows as rows, with no bar
+([context-usage.md](context-usage.md)). The account menu in
 the sidebar keeps its quota line, which now speaks for meter-backed agents too,
 because that line is about the account you are looking at rather than about all
 of them.

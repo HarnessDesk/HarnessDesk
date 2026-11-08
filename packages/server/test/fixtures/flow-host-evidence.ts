@@ -102,6 +102,10 @@ export interface Second { readonly id: string; readonly provider?: string | null
 
 /** How the desk is set up beyond its runtimes: where work happens, and how its agents take a second message. */
 export interface DeskOptions {
+  /** Let a caller combine host disposal with its other owned fixture resources. */
+  readonly registerHostCleanup?: (host: Host) => void
+  readonly evidenceGh?: GhInCheckout
+  readonly gatewayFactory?: (stateDir: string, root: string) => import('../../src/git-gateway/index.js').GitGateway
   readonly findingForge?: FindingForgePort
   /** Work stays on the project's default branch, as a step that is neither isolated nor told to branch does. */
   readonly onMain?: boolean
@@ -134,10 +138,12 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     state: new StateStore(join(stateDir, 'state.json')),
     builtinAgents: tempDir('hd-flow-host-builtins-'),
     catalogRefreshMs: 0,
-    evidence: { gh: gh.gh },
+    evidence: { gh: options.evidenceGh ?? gh.gh },
+    ...(options.gatewayFactory ? { gitGateway: options.gatewayFactory(stateDir, repo.dir) } : {}),
     ...(options.findingForge ? { findingForge: options.findingForge } : {}),
     ...(options.questionTimers ? { questionTimers: options.questionTimers } : {}),
   })
+  if (options.registerHostCleanup) options.registerHostCleanup(host)
   const runtimes = [
     new FakeRuntime({ provider: 'vendor-a' }),
     new FakeRuntime({ id: second.id as never, name: 'Second Fake', ...(second.provider !== undefined ? { provider: second.provider } : {}) }),
@@ -147,7 +153,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     host.register(runtime)
   }
   await host.start()
-  t.after(() => host.dispose())
+  if (!options.registerHostCleanup) t.after(() => host.dispose())
   let wake: (() => void) | null = null
   let next = new Promise<void>((resolve) => { wake = resolve })
   host.addBroadcaster(() => {

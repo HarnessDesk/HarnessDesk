@@ -1,29 +1,16 @@
 import { expect, test } from '@playwright/test'
-import { WALL_DESTINATIONS, WALL_THEMES, WALL_WIDTHS } from './frame-wall-destinations'
-import { expectDestinationPopupContracts, popupContractDestinations } from './frame-contract-helpers'
-
-
+import { WALL_DESTINATIONS, WALL_WIDTHS } from './frame-wall-destinations'
+import { batchTitle, checkPopupBatch } from './frame-contract-popup-batch'
 import { useFrameContractEvidence } from './frame-contract-split-setup'
 useFrameContractEvidence()
-for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
-  test.describe(`C10 all three popup kinds are exercised at ${width} in ${theme}`, () => {
-    test.describe.configure({ mode: 'default' });
-    const kinds = new Set<string>()
-
-    for (const [item0, id] of (['popup-menu-none', 'popup-wide-menu', 'popup-info-card']).entries()) test(`C10 all three popup kinds are exercised at ${width} in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
-
-      const destination = WALL_DESTINATIONS.find(destination => destination.id === id)!
-      const found = await expectDestinationPopupContracts(page, destination, theme, width)
-      expect(found.size).toBeGreaterThan(0)
-      for (const kind of found) kinds.add(kind)
-    });
-    test.afterAll(async () => {
-      expect([...kinds].sort()).toEqual(['info-card', 'menu', 'wide-menu'])
-    })
+for (const width of WALL_WIDTHS) {
+  test(`C10 all three popup kinds are exercised at ${width} in both themes`, async ({ page }) => {
+    const destinations = ['popup-menu-none', 'popup-wide-menu', 'popup-info-card'].map(id => WALL_DESTINATIONS.find(destination => destination.id === id)!)
+    const kinds = await checkPopupBatch(page, destinations, width)
+    expect([...kinds].sort()).toEqual(['info-card', 'menu', 'wide-menu'])
   })
-  for (const destination of WALL_DESTINATIONS.filter(destination => destination.gitRef)) {
-    test(`C10 exhaustive popup contracts ${destination.id} at ${width} in ${theme}`, async ({ page }) => {
-      await expectDestinationPopupContracts(page, destination, theme, width)
-    })
-  }
+  const gitRef = WALL_DESTINATIONS.filter(destination => destination.gitRef)
+  test(`C10 exhaustive popup contracts ${batchTitle(gitRef, width)}`, async ({ page }) => {
+    await checkPopupBatch(page, gitRef, width)
+  })
 }

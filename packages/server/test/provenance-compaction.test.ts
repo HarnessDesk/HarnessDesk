@@ -5,10 +5,17 @@ import { test } from 'node:test'
 
 import { exportProvenance, importProvenance } from '../src/provenance/backup.js'
 import { captureHealth } from '../src/provenance/health.js'
-import { digest, ProvenanceJournal, readCheckpoint, writeCheckpoint } from '../src/provenance/journal.js'
+import { digest, ProvenanceJournal, ProvenanceJournalStorageError, readCheckpoint, writeCheckpoint } from '../src/provenance/journal.js'
 import { reconcileProject, type CommitObservation, type LinkObservation, type RangeObservation, rangeSource } from '../src/provenance/reconcile.js'
 import type { GitReader } from '../src/provenance/git.js'
 import { tempDir } from './scratch.js'
+
+const storageFailure = (message: string) => (error: unknown): boolean => {
+  assert.ok(error instanceof ProvenanceJournalStorageError)
+  assert.ok(error.cause instanceof Error)
+  assert.equal(error.cause.message, message)
+  return true
+}
 
 type CompactJournal = ProvenanceJournal & { compact(force?: boolean): Promise<boolean> }
 const journalAt = (file: string) => new ProvenanceJournal(file) as CompactJournal
@@ -83,6 +90,36 @@ test('compaction preserves every historical record, decisions, status and backup
   assert.deepEqual(await exportProvenance({ projects: port.projects, journal: () => again }), restored)
 })
 
+for (const operation of ['stat', 'open', 'rename'] as const) for (const code of ['ENOSPC', 'EACCES']) {
+  test(`live compaction ${operation} ${code} stays a retryable typed storage failure`, async (t) => {
+    const file = join(tempDir('compact-storage-'), 'provenance.ndjson')
+    const journal = journalAt(file)
+    await journal.append('gap', gap('kept'))
+    await journal.append('cursor', { id: 'orphan', type: 'part', bytes: '{}' })
+    const original = await fs.readFile(file)
+    const message = `injected-${operation}-${code}`
+    const cause = Object.assign(new Error(message), { code })
+    const originalStat = fs.stat
+    const originalOpen = fs.open
+    const mock = operation === 'stat'
+      ? t.mock.method(fs, 'stat', async (...args: Parameters<typeof fs.stat>) => {
+        if (args[0] === file) throw cause
+        return originalStat(...args)
+      })
+      : operation === 'open'
+        ? t.mock.method(fs, 'open', async (...args: Parameters<typeof fs.open>) => {
+          if (String(args[0]).includes('.compact-')) throw cause
+          return originalOpen(...args)
+        })
+        : t.mock.method(fs, 'rename', async () => { throw cause })
+    try { await assert.rejects(journal.compact(true), storageFailure(message)) } finally { mock.mock.restore() }
+    assert.deepEqual(await fs.readFile(file), original)
+    assert.equal((await journal.read()).broken, false)
+    assert.equal(await journal.compact(true), true, 'a failed rewrite does not poison later attempts')
+    assert.deepEqual((await fs.readdir(join(file, '..'))).sort(), ['provenance.ndjson'])
+  })
+}
+
 test('a failure after the compacted file is synced and before rename preserves the original bytes', async (t) => {
   const file = join(tempDir('compact-crash-'), 'provenance.ndjson')
   const journal = journalAt(file)
@@ -91,7 +128,7 @@ test('a failure after the compacted file is synced and before rename preserves t
   await journal.append('cursor', { id: 'orphan', type: 'part', bytes: '{}' })
   const original = await fs.readFile(file)
   const rename = t.mock.method(fs, 'rename', async () => { throw new Error('injected-before-rename') })
-  await assert.rejects(journal.compact(true), /injected-before-rename/)
+  await assert.rejects(journal.compact(true), storageFailure('injected-before-rename'))
   rename.mock.restore()
   assert.deepEqual(await fs.readFile(file), original)
   assert.equal((await journalAt(file).read()).broken, false)
@@ -110,7 +147,7 @@ test('automatic compaction failure leaves validated history and backups readable
   const original = await fs.readFile(file)
   const journal = new ProvenanceJournal(file, { compactOnOpen: true })
   const rename = t.mock.method(fs, 'rename', async () => { throw new Error('injected-open-rename') })
-  await assert.rejects(journal.read(), /injected-open-rename/)
+  await assert.rejects(journal.read(), storageFailure('injected-open-rename'))
   rename.mock.restore()
   assert.deepEqual(await fs.readFile(file), original)
   const read = await journal.read()
@@ -150,7 +187,7 @@ for (const retry of ['compact', 'checkpoint']) test(`sparse replay after failed 
   const original = await fs.readFile(file)
   const journal = new ProvenanceJournal(file, { compactOnOpen: true })
   const rename = t.mock.method(fs, 'rename', async () => { throw new Error('injected-sparse-rename') })
-  await assert.rejects(journal.read(), /injected-sparse-rename/)
+  await assert.rejects(journal.read(), storageFailure('injected-sparse-rename'))
   rename.mock.restore()
   assert.deepEqual(await fs.readFile(file), original)
   const sparse = await journal.read()

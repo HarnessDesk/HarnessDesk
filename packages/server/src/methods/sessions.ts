@@ -16,6 +16,8 @@ import {
   type RuntimeId,
   type SessionId,
   type SessionOptions,
+  type HostParams,
+  type HostResult,
 } from '@harnessdesk/protocol'
 
 import { createChatFolder, rememberChatFolder } from '../chats.js'
@@ -74,7 +76,12 @@ const closeSession = async (ctx: HostContext, params: { runtime: RuntimeId; sess
   // reopen, as the quiet release and archive keep them. A pane closes at
   // once, whatever is happening in it, so there is no quiet to wait for.
   ctx.sessions.holdPicks({ runtime: params.runtime, sessionId: makeSessionId(params.sessionId) })
-  await record?.live?.close()
+  try {
+    await record?.live?.close()
+  } finally {
+    // In-flight tools can ask while the asynchronous close is still pending.
+    ctx.ceilings.settleHeld(params.runtime, params.sessionId)
+  }
   if (record) {
     record.live = null
     /* Closed on purpose, so the handle was not *lost* — which is all
@@ -84,6 +91,7 @@ const closeSession = async (ctx: HostContext, params: { runtime: RuntimeId; sess
        addressed to it. Closing a pane is window management; leaving a room
        is releasing its durable Goal Seat. */
     record.detached = false
+    record.cacheClosed = true
     await ctx.sessions.releaseBody(params)
   }
   return null
@@ -102,6 +110,48 @@ export const archiveConversation = async (ctx: HostContext, params: { runtime: R
   ctx.sessionIndex.setArchived(runtime.info.id, id, params.archived)
   const warning = params.archived ? await ctx.sessionWorktrees.cleanup(runtime.info.id, id, !remembered) : restored.warning
   return warning ? { warning } : null
+}
+
+/** Shared allocation path; the optional receipt is host-only and marks the runtime effect. */
+export async function createConversation(ctx: HostContext, params: HostParams<'session/create'>, effectStarted?: () => void): Promise<HostResult<'session/create'>> {
+  // Before any runtime is handed it, here and in a reopen or a fork. The
+  // adapters pass a cwd on as given, and an agent reads a relative one
+  // against its own working directory, which it has from this process:
+  // wherever the app happened to be started. Codex reads an empty one as that
+  // directory itself. The conversation's cwd is then an open root, which
+  // every confinement check trusts. A reopen or a fork that names no folder
+  // keeps the conversation's own.
+  assertAbsoluteCwd(params.options)
+  const runtime = ctx.runtimes.resolve(params)
+  // Routes resolve here and only here. A client-supplied `route` is
+  // discarded: the wire names a route by id, the host exchanges the
+  // stored credential for a loopback gateway, and only the resolved
+  // gateway address reaches the adapter.
+  // `attachments` is the host's own, like `route`: a Seat's approved filter
+  // is set by `agent/seat` alone, never by whoever calls this.
+  const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, routeId, ...rest } = params.options as typeof params.options & {
+    routeId?: string
+  }
+  const route = typeof routeId === 'string' ? await ctx.routes.resolve(runtime, routeId) : undefined
+  const allocated = rest.cwd === undefined ? await createChatFolder(ctx.state) : null
+  const options: SessionOptions = { ...rest, cwd: rest.cwd ?? allocated!, ...(route ? { route } : {}) }
+  // A lane's checkout is its cwd, which every runtime takes; its variables
+  // go only to a runtime that can take them per session (`laneEnvironmentFor`).
+  let live: AgentSession
+  try {
+    await ctx.runtimes.ensureStarted(runtime)
+    const environment = laneEnvironmentFor(runtime, ctx.laneEnvironment.forCheckout(options.cwd))
+    effectStarted?.()
+    live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
+  } catch (error) {
+    // Never remove a caller's folder or files a runtime managed to write.
+    if (allocated) await rmdir(allocated).catch(() => {})
+    throw error
+  }
+  if (allocated) await rememberChatFolder(ctx.state, allocated)
+  const session = await ctx.sessions.attach(runtime, live.id, live)
+  await announceUnavailableTools(ctx, runtime, session)
+  return session
 }
 
 /**
@@ -138,55 +188,22 @@ export const sessionMethods = {
 
   'transcripts/search': (ctx, params) => ctx.transcripts.search(params.query, { includeTools: params.includeTools }),
 
+  'session/prepare-eviction': (ctx, params) => ctx.sessions.prepareEviction(params),
+
+  'session/cache-snapshot': (ctx, params) => ctx.sessions.cacheSnapshot(params),
+
   'session/read': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const session = await ctx.sessions.read(runtime, makeSessionId(params.sessionId))
     ctx.sessionIndex.reopen(session)
     const record = ctx.registry.upsert(session, ctx.registry.get(session.runtime, session.id)?.live ?? null)
+    ctx.sessions.noteReconciled(record, session)
     const read = record.session
     if (!record.live) await ctx.sessions.releaseBody({ runtime: read.runtime, sessionId: read.id })
     return read
   },
 
-  'session/create': async (ctx, params) => {
-    // Before any runtime is handed it, here and in a reopen or a fork. The
-    // adapters pass a cwd on as given, and an agent reads a relative one
-    // against its own working directory, which it has from this process:
-    // wherever the app happened to be started. Codex reads an empty one as that
-    // directory itself. The conversation's cwd is then an open root, which
-    // every confinement check trusts. A reopen or a fork that names no folder
-    // keeps the conversation's own.
-    assertAbsoluteCwd(params.options)
-    const runtime = ctx.runtimes.resolve(params)
-    // Routes resolve here and only here. A client-supplied `route` is
-    // discarded: the wire names a route by id, the host exchanges the
-    // stored credential for a loopback gateway, and only the resolved
-    // gateway address reaches the adapter.
-    // `attachments` is the host's own, like `route`: a Seat's approved filter
-    // is set by `agent/seat` alone, never by whoever calls this.
-    const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, routeId, ...rest } = params.options as typeof params.options & {
-      routeId?: string
-    }
-    const route = typeof routeId === 'string' ? await ctx.routes.resolve(runtime, routeId) : undefined
-    const allocated = rest.cwd === undefined ? await createChatFolder(ctx.state) : null
-    const options: SessionOptions = { ...rest, cwd: rest.cwd ?? allocated!, ...(route ? { route } : {}) }
-    // A lane's checkout is its cwd, which every runtime takes; its variables
-    // go only to a runtime that can take them per session (`laneEnvironmentFor`).
-    let live: AgentSession
-    try {
-      await ctx.runtimes.ensureStarted(runtime)
-      const environment = laneEnvironmentFor(runtime, ctx.laneEnvironment.forCheckout(options.cwd))
-      live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
-    } catch (error) {
-      // Never remove a caller's folder or files a runtime managed to write.
-      if (allocated) await rmdir(allocated).catch(() => {})
-      throw error
-    }
-    if (allocated) await rememberChatFolder(ctx.state, allocated)
-    const session = await ctx.sessions.attach(runtime, live.id, live)
-    await announceUnavailableTools(ctx, runtime, session)
-    return session
-  },
+  'session/create': (ctx, params) => createConversation(ctx, params),
 
   'session/resume': async (ctx, params) => {
     assertAbsoluteCwd(params.options)
@@ -222,6 +239,7 @@ export const sessionMethods = {
       // the conversation runs, so the reopen runs on the one the caller asked for.
       if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId, ...(options.route ? { route: options.route } : {}) })
       await ctx.runtimes.ensureStarted(runtime)
+      await ctx.sessions.prepareReopenTranscript(runtime.info.id, sessionId)
       const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
       return resumeSeatSession(runtime, sessionId, { ...options, ...(environment ? { environment } : {}) },
         ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.checkout.cwd)
@@ -253,7 +271,9 @@ export const sessionMethods = {
     const transcript = await ctx.sessions.read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
     ctx.sessionIndex.reopen(session)
-    const resumed = ctx.registry.upsert(session, live).session
+    const resumedRecord = ctx.registry.upsert(session, live)
+    ctx.sessions.noteReconciled(resumedRecord, transcript)
+    const resumed = resumedRecord.session
     ctx.sessionIndex.record(resumed)
     // Ordinary history resumes register directly above rather than through
     // create/fork's attach; observe that handle without changing admission.
@@ -321,11 +341,16 @@ export const sessionMethods = {
     // The agent's copy first: if it refuses, the stopped conversation's
     // index and body remain available here.
     const remembered = await ctx.sessionWorktrees.remember(runtime.info.id, id, true).then(() => true, () => false)
+    // Close and worktree bookkeeping can deliver replay events. Bind the
+    // exact owners present just before the delete request; later authority
+    // epochs must not be discarded on behalf of this request.
+    const conflictOwners = ctx.sessions.conflictOwners(runtime.info.id, id)
     const outcome = await runtime.deleteSession(id)
     // Then everything the host was holding about it. A transcript left
     // behind would be re-enriched onto the next session that reused the
     // id, and an archive mark left behind is a row hidden forever.
     await ctx.transcripts.forget(runtime.info.id, id, { deleteIndex: true })
+    ctx.sessions.discardConflictOwners(conflictOwners)
     await ctx.loadouts.forget(runtime.info.id, id)
     ctx.sessionIndex.deleted(runtime.info.id, id)
     const warning = await ctx.sessionWorktrees.cleanup(runtime.info.id, id, !remembered)

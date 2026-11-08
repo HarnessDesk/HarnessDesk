@@ -5,7 +5,7 @@ import { openFrame, resolvedPx } from './frame-contract-helpers'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 const scenes = [
-  ['settings-account-usage', 'frame-wall=settings&frame-detail=account', 'Runtimes'],
+  ['settings-account-usage', 'frame-wall=settings&frame-detail=account', 'Alpha'],
   ['teams', 'frame-wall=teams', 'Teams'],
   ['library', 'frame-wall=library', 'Customize'],
   ['agents', 'frame-wall=agents', 'Agents'],

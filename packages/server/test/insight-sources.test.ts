@@ -651,3 +651,31 @@ test('a whole-file source is read in chunks, never into one buffer the size of t
   assert.ok(largest <= WHOLE_FILE_CHUNK, `no read into a buffer larger than one chunk (${WHOLE_FILE_CHUNK}), got ${largest}`)
   assert.deepEqual(samples.map((sample) => sample.model).sort(), ['gemini', 'm€'])
 })
+
+test('a read of named sessions reads only their sources, so the rest of a busy machine cannot spend its budget', async () => {
+  const dir = tempDir('hd-insight-sessions-')
+  const codexDir = join(dir, 'codex'); await mkdir(codexDir, { recursive: true })
+  const seatContent = codexSessionMeta('01a165e8-seat') + codexEvent('2026-09-20T00:00:00.000Z')
+  await writeFile(join(codexDir, 'rollout-2026-09-20T00-00-00-01a165e8-seat.jsonl'), seatContent)
+  // Someone else's session, far larger than the whole budget, on the same runtime.
+  await writeFile(join(codexDir, 'rollout-2026-09-20T00-00-01-other.jsonl'), codexSessionMeta('other') + codexEvent('2026-09-20T00:00:01.000Z').repeat(50))
+  // And another runtime the meter never seated.
+  const otherDir = join(dir, 'elsewhere'); await mkdir(otherDir, { recursive: true })
+  await writeFile(join(otherDir, 'rollout-01a165e8-seat.jsonl'), codexSessionMeta('01a165e8-seat') + codexEvent('2026-09-20T00:00:02.000Z'))
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [{ runtime: 'codex', kind: 'codex', root: codexDir }, { runtime: 'other', kind: 'codex', root: otherDir }],
+    insightByteLimit: Buffer.byteLength(seatContent, 'utf8'),
+  })
+  try {
+    const query = { root: '/work/project', from: Date.parse('2026-09-19T00:00:00.000Z'), to: Date.parse('2026-09-21T00:00:00.000Z') }
+    const detail = await ledger.readSessions(query, [{ runtime: 'codex', sessionId: '01a165e8-seat' }])
+    assert.deepEqual(detail.samples.map((sample) => [sample.runtime, sample.sessionId]), [['codex', '01a165e8-seat']])
+    assert.deepEqual(detail.gaps.filter((gap) => gap === INSIGHT_BYTE_LIMIT_MESSAGE), [], 'the other sources never touch the budget')
+    // An empty id names no source at all, never every one.
+    assert.deepEqual((await ledger.readSessions(query, [{ runtime: 'codex', sessionId: '' }])).samples, [])
+    // The same machine read whole still stops at the budget.
+    assert.ok((await ledger.readInsight(query)).gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE))
+  } finally { ledger.close() }
+})

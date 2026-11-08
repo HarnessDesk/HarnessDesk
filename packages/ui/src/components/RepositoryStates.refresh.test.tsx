@@ -26,6 +26,41 @@ const noop = () => {}
 const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')]
   .find(button => button.textContent === name || button.getAttribute('aria-label') === name)!
 
+it('keeps the unread reason when both composer refreshes fail', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const unread: WorkspaceEntry = { path: PATH, name: 'storefront', lastOpenedAt: 1 }
+  Object.assign(store.getSnapshot(), { status: 'open', workspace: unread, workspaces: [unread] })
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'git/status') throw new Error('unavailable')
+    return []
+  }) as never)
+  await act(async () => root.render(<StoreProvider store={store}><PlaceControl /></StoreProvider>))
+  await act(async () => button('Checking Git…').click())
+  expect(request.mock.calls.filter(([method]) => method === 'git/status')).toHaveLength(2)
+  expect(store.getSnapshot().workspace?.repo).toBeUndefined()
+  expect(store.getSnapshot().workspace?.git).toBeUndefined()
+  const row = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.startsWith('New worktree'))!
+  expect(row.getAttribute('aria-disabled')).toBe('true')
+  expect(row.textContent).toContain('Repository information is unavailable.')
+})
+
+it('identifies a successful null git status as a non-repository', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const unread: WorkspaceEntry = { path: PATH, name: 'storefront', lastOpenedAt: 1 }
+  Object.assign(store.getSnapshot(), { status: 'open', workspace: unread, workspaces: [unread] })
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'git/status') return null
+    return []
+  }) as never)
+  await act(async () => root.render(<StoreProvider store={store}><PlaceControl /></StoreProvider>))
+  await act(async () => button('Checking Git…').click())
+  expect(store.getSnapshot().workspace?.repo).toBeUndefined()
+  expect(store.getSnapshot().workspace?.git).toBeNull()
+  const row = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.startsWith('New worktree'))!
+  expect(row.getAttribute('aria-disabled')).toBe('true')
+  expect(row.textContent).toContain('Worktrees need a git repository. This folder is not one.')
+})
+
 it.each(['composer', 'sidebar', 'project', 'palette'] as const)('%s re-reads an external first commit on reopening', async (surface) => {
   const store = new AppStore('ws://localhost:0/')
   let committed = false

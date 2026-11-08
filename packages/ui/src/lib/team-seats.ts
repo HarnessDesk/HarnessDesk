@@ -126,3 +126,23 @@ export const compactTeamSeatName = (
   }
   return labels.get(seat.record.id)!
 }
+
+/**
+ * Seats that read the same in one list are told apart by the order they were opened: "Implementer 1",
+ * "Implementer 2". A Flow opens a fresh seat for each round, so one Team lists the same job once per round, and
+ * a list of identical rows says nothing about which is which. A name that is already unique stays whole.
+ */
+export const numberRepeatedSeatLabels = (
+  seats: readonly { readonly id: string; readonly label: string; readonly openedAt: number }[],
+): ReadonlyMap<string, string> => {
+  const total = new Map<string, number>()
+  for (const { label } of seats) total.set(label, (total.get(label) ?? 0) + 1)
+  const seen = new Map<string, number>()
+  const result = new Map<string, string>()
+  for (const seat of [...seats].sort((a, b) => a.openedAt - b.openedAt || a.id.localeCompare(b.id))) {
+    const ordinal = (seen.get(seat.label) ?? 0) + 1
+    seen.set(seat.label, ordinal)
+    result.set(seat.id, total.get(seat.label)! > 1 ? `${seat.label} ${ordinal}` : seat.label)
+  }
+  return result
+}

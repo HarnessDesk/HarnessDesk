@@ -8,6 +8,7 @@ import type { NamedCheck, Sha } from '@harnessdesk/protocol'
 
 import { parseYaml } from '../yaml.js'
 import { isSha } from './records.js'
+import { tipOf } from './revision.js'
 import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 
 /**
@@ -118,6 +119,30 @@ const git = async (project: string, args: readonly string[]): Promise<Buffer | n
   }
 }
 
+/** Reads of named objects already answered, newest last; see `committed`. */
+const objects = new Map<string, Buffer>()
+
+/** Enough for every open Team's commit several times over; the oldest goes first. */
+const OBJECT_READS = 256
+
+/**
+ * `git` for a read that names only immutable objects — a commit's tree, a
+ * blob's size, a file at a commit — so its answer can never change for this
+ * project. A desk asks for the same commit's checks on every evidence read, so
+ * the answer is kept rather than starting the same processes again. A refusal
+ * is never kept: git may be busy, or the object may arrive with a fetch.
+ */
+const committed = async (project: string, args: readonly string[]): Promise<Buffer | null> => {
+  const key = JSON.stringify([project, ...args])
+  const known = objects.get(key)
+  if (known) return known
+  const answer = await git(project, args)
+  if (answer === null) return null
+  objects.set(key, answer)
+  if (objects.size > OBJECT_READS) objects.delete(objects.keys().next().value!)
+  return answer
+}
+
 /**
  * The working copy's bytes, only to compare with what is committed — never
  * parsed, never run. Opened without following a link and without waiting on
@@ -162,7 +187,7 @@ export const readChecksAt = async (project: string, revision: Sha): Promise<Chec
   // The caller chose the commit once. Every lookup below names that immutable
   // object, so a concurrent ref move cannot change either the command or its
   // generation halfway through this read.
-  const listed = (await git(project, ['ls-tree', '-z', at, '--', '.harnessdesk', CHECKS_PATH]))?.toString('utf8') ?? ''
+  const listed = (await committed(project, ['ls-tree', '-z', at, '--', '.harnessdesk', CHECKS_PATH]))?.toString('utf8') ?? ''
   const tree = new Map(
     listed
       .split('\x00')
@@ -184,12 +209,12 @@ export const readChecksAt = async (project: string, revision: Sha): Promise<Chec
   }
   if (blob.mode === '120000') return whole('It is committed as a link. Checks are read only from a file in the project itself.')
   if (blob.type !== 'blob') return whole('It is not a file.')
-  const size = Number((await git(project, ['cat-file', '-s', blob.id]))?.toString('utf8').trim())
+  const size = Number((await committed(project, ['cat-file', '-s', blob.id]))?.toString('utf8').trim())
   if (!Number.isInteger(size)) return whole('It could not be read from git.')
   if (size > CHECKS_FILE_LIMIT) {
     return whole(`It is ${Math.ceil(size / 1024)} KB, and a checks file may be at most ${CHECKS_FILE_LIMIT / 1024} KB.`)
   }
-  const bytes = await git(project, ['show', `${at}:${CHECKS_PATH}`])
+  const bytes = await committed(project, ['show', `${at}:${CHECKS_PATH}`])
   if (bytes === null || bytes.length !== size) return whole('It could not be read from git.')
   digest = blob.id
   // Said, never read: only what is committed runs.
@@ -253,9 +278,13 @@ export const readChecksAt = async (project: string, revision: Sha): Promise<Chec
   return answer(checks, problems)
 }
 
-/** Reads a project's checks as committed at its `HEAD`, for listing surfaces that do not start a command. */
+/**
+ * Reads a project's checks as committed at its `HEAD`, for listing surfaces
+ * that do not start a command. Every board read asks this, so HEAD is the one
+ * every evidence reader shares until it moves (`tipOf`).
+ */
 export const readChecks = async (project: string): Promise<ChecksFile> => {
-  const at = (await git(project, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']))?.toString('utf8').trim() || null
+  const at = await tipOf(project, null)
   if (at !== null) return readChecksAt(project, at)
   const file = join(project, CHECKS_FILE)
   return { file, exists: false, digest: null, at: null, uncommitted: false, checks: [], problems: [] }

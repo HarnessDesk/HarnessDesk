@@ -212,3 +212,54 @@ describe('a refused message in its conversation', () => {
     expect(drafts.recoverable(a).map((item) => item.text)).toEqual(['typed since'])
   })
 })
+
+it('an absent live draft cleared again keeps the revision while flushing the mirror', () => {
+  const values = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value) },
+    removeItem: (key: string) => { values.delete(key) },
+  }
+  const drafts = new Drafts(storage)
+  drafts.addRecoverable(a, { text: 'Keep this recovery', attachments: [], detail: 'Restore it.' })
+  drafts.setLive(b, { text: 'Keep this live draft', attachments: [] })
+  const revision = drafts.revision
+  drafts.setLive(a, { text: '  ', attachments: [] })
+  expect(drafts.revision).toBe(revision)
+  expect(drafts.live(a)).toBeNull()
+  expect(drafts.recoverable(a)).toHaveLength(1)
+  const mirror = JSON.parse(values.get('harnessdesk:drafts:v1')!)
+  expect(mirror[a].recoverable[0].text).toBe('Keep this recovery')
+  expect(mirror[b].live.text).toBe('Keep this live draft')
+})
+
+it('material live draft writes and clears advance the revision', () => {
+  const drafts = new Drafts(null)
+  const initial = drafts.revision
+  drafts.setLive(a, { text: 'typed', attachments: [] })
+  expect(drafts.revision).toBe(initial + 1)
+  drafts.setLive(a, { text: '', attachments: [] })
+  expect(drafts.revision).toBe(initial + 2)
+  drafts.setLive(a, { text: '', attachments: [], imagesWillBeLostOnReload: true })
+  expect(drafts.revision).toBe(initial + 3)
+  expect(drafts.live(a)?.imagesWillBeLostOnReload).toBe(true)
+})
+
+it('an empty flush still reports storage failure and advances the recoverable revision', () => {
+  const values = new Map<string, string>()
+  let fail = false
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { if (fail) throw new Error('quota'); values.set(key, value) },
+    removeItem: (key: string) => { values.delete(key) },
+  }
+  const memoryOnly = vi.fn(), drafts = new Drafts(storage, { onMemoryOnly: memoryOnly })
+  drafts.addRecoverable(a, { text: 'Keep this recovery', attachments: [], detail: 'Restore it.' })
+  const revision = drafts.revision
+  fail = true
+  drafts.setLive(b, { text: '', attachments: [] })
+  expect(drafts.revision).toBe(revision + 1)
+  expect(memoryOnly).toHaveBeenCalledOnce()
+  expect(values.has('harnessdesk:drafts:v1')).toBe(false)
+  expect(drafts.recoverable(a)[0]?.detail).toContain('Not saved for a reload')
+})

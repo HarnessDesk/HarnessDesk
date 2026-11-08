@@ -198,7 +198,7 @@ it('loads in the same column as every other empty state, clear of the composer',
   // shape. Pane-filling empty states keep the word in place; notice-only
   // restores move the explanation up beside their notice.
   const column = empty?.parentElement
-  expect(column?.dataset.slot).toBe('pane-column')
+  expect(column?.dataset.slot).toBe('conversation-thread')
   expect(column?.dataset.inset).toBe('reading')
   expect(column?.style.padding).toContain('--composer-h')
 })
@@ -469,7 +469,7 @@ it('puts the reason where the composer would be, in the agent’s own words', ()
   expect(refusal.textContent).not.toContain('/repo')
   expect(refusal.querySelector('[title="/repo"] .sr-only')?.textContent).toBe('repo')
   const folderFact = [...container.querySelectorAll('[data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Folder')!
-  expect(folderFact.querySelector('.sr-only')?.textContent).toBe('/repo')
+  expect(folderFact.querySelector('dd .sr-only')?.textContent).toBe('/repo')
   expect(container.textContent).toContain('Open a copy in another folder')
   expect(container.textContent).toContain('Archive')
   // Nothing to type into: there is nowhere for it to go.
@@ -661,7 +661,7 @@ it('a click on a link inside the transcript releases the pin', () => {
   render(rig(transcriptSession()).store)
   expect(jumpToLatest()).toBeUndefined()
 
-  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const scrollEl = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   const link = document.createElement('a')
   link.href = '#'
   link.textContent = 'the log'
@@ -675,7 +675,7 @@ it('a selection landing inside the transcript releases the pin', () => {
   render(rig(transcriptSession()).store)
   expect(jumpToLatest()).toBeUndefined()
 
-  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const scrollEl = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   const text = document.createTreeWalker(scrollEl, NodeFilter.SHOW_TEXT).nextNode()
   if (!text) throw new Error('no text node in the transcript to select')
   const range = document.createRange()
@@ -693,7 +693,7 @@ it('a selection landing inside the transcript releases the pin', () => {
 
 it('a collapsed selection (a plain click) does not release the pin', () => {
   render(rig(transcriptSession()).store)
-  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const scrollEl = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   const text = document.createTreeWalker(scrollEl, NodeFilter.SHOW_TEXT).nextNode()
   if (!text) throw new Error('no text node in the transcript to select')
   const range = document.createRange()
@@ -717,7 +717,7 @@ it('a collapsed selection (a plain click) does not release the pin', () => {
 
 it('a selection outside the transcript — in the dock area a composer shares — does not release the pin', () => {
   render(rig(transcriptSession()).store)
-  const dock = container.getElementsByClassName(styles.dockArea!)[0]!
+  const dock = container.querySelectorAll('[data-slot="conversation-dock"]')[0]!
   const note = document.createElement('span')
   note.textContent = 'not the transcript'
   dock.appendChild(note)
@@ -771,7 +771,7 @@ it('a selection in a second conversation pane does not release the first pane’
   })
 
   const [firstPane, secondPane] = [...container.firstElementChild!.children]
-  const [firstScroll, secondScroll] = [...container.getElementsByClassName(styles.scroll!)]
+  const [firstScroll, secondScroll] = [...container.querySelectorAll('[data-slot="conversation-thread"]')]
   expect(firstScroll).toBeDefined()
   expect(secondScroll).toBeDefined()
 
@@ -800,11 +800,11 @@ it('only the transcript’s own scroll container is marked as the live transcrip
   // No turns: the "Nothing to show" pitch is what `.scroll` holds here, and
   // a selection landing in it must not be mistaken for one in the transcript.
   render(rig(session({ updatedAt: 9_000 })).store)
-  const emptyScroll = container.getElementsByClassName(styles.scroll!)[0]!
+  const emptyScroll = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   expect(emptyScroll.hasAttribute('data-live-transcript')).toBe(false)
 
   render(rig(transcriptSession()).store)
-  const liveScroll = container.getElementsByClassName(styles.scroll!)[0]!
+  const liveScroll = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   expect(liveScroll.hasAttribute('data-live-transcript')).toBe(true)
 })
 
@@ -813,7 +813,7 @@ it('a new turn re-engages follow, undoing an earlier release', () => {
   const { store } = rig(session({ updatedAt: 9_000, turns: [first] }))
   render(store)
 
-  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const scrollEl = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   const link = document.createElement('a')
   link.href = '#'
   link.textContent = 'a link'
@@ -957,18 +957,18 @@ it.each(['starting', 'failed', 'ready'] as const)('a %s draft explains runtime r
   const send = container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!
   const tools = container.querySelector('[data-slot="composer-tools"]')!
   if (state === 'ready') {
-    expect(tools.textContent).not.toContain('Unavailable')
-    expect(tools.textContent).not.toContain('Not answered yet')
+    expect(tools.textContent).not.toContain('Not working')
+    expect(tools.textContent).not.toContain('Not checked yet')
     expect(send.title).toBe('')
   } else {
     expect(send.disabled).toBe(true)
     expect(tools.querySelector(`[data-slot="chip"][data-state="${state === 'failed' ? 'broken' : 'starting'}"]`)?.textContent)
-      .toBe(state === 'failed' ? 'Unavailable' : 'Starting')
+      .toBe(state === 'failed' ? 'Not working' : 'Starting')
     expect(send.title).toBe(state === 'failed'
       ? 'The agent failed its version check. Choose a working installation in Settings.'
       : 'Waiting for the runtime to start')
     if (state === 'failed') {
-      const link = [...tools.querySelectorAll('button')].find(button => button.textContent === 'Unavailable')!
+      const link = [...tools.querySelectorAll('button')].find(button => button.textContent === 'Not working')!
       expect(link.getAttribute('aria-label')).toBe('Open runtime Settings')
       act(() => link.click())
       expect(settings).toHaveBeenCalledWith('runtimes', 'codex')
@@ -1098,7 +1098,7 @@ it('a refused local file entry consumes the link instead of falling through to b
   const { store } = rig(transcriptSession()); store.enterEditorFile = vi.fn(() => false)
   render(store)
   const link = document.createElement('a'); link.setAttribute('href', '/repo/file.ts:12')
-  container.getElementsByClassName(styles.scroll!)[0]!.append(link)
+  container.querySelectorAll('[data-slot="conversation-thread"]')[0]!.append(link)
   const event = new MouseEvent('click', { bubbles: true, cancelable: true })
   act(() => link.dispatchEvent(event))
   expect(event.defaultPrevented).toBe(true)

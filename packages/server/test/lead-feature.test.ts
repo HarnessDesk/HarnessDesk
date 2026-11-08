@@ -1,0 +1,456 @@
+import assert from 'node:assert/strict'
+import { lstat, mkdir, readdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import test, { type TestContext } from 'node:test'
+
+import { createLeadJournal, leadReviewedResultSourceFor } from '@harnessdesk/lead'
+import { approvalId, parseLeadAcceptanceContract } from '@harnessdesk/protocol'
+import { Host, Logger, StateStore } from '../src/index.js'
+import { SeatBook } from '../src/evidence/seats.js'
+import { LeadControls } from '../src/lead/controls.js'
+import { evidenceDesk, writeAgent } from './fixtures/evidence-desk.js'
+import { LeadHandbacks, type LeadHandbackPort } from '../src/lead/handback.js'
+import { LeadBudgets } from '../src/lead/budgets.js'
+import { LeadAssembly, leadContractDigest, type LeadAssemblyOptions } from '../src/lead/assembly.js'
+import { FlowPreviews } from '../src/flow-preview.js'
+import { silent } from './fixtures/harness.js'
+import { tempDir } from './scratch.js'
+
+const rig = (t: TestContext, leadEnabled?: boolean) => {
+  const home = tempDir('hd-lead-feature-')
+  const host = new Host({ logger: silent, state: new StateStore(join(home, 'state.json')), catalogRefreshMs: 0,
+    ...(leadEnabled === undefined ? {} : { leadEnabled }) })
+  t.after(() => host.dispose())
+  return { host, home }
+}
+const unavailable = (error: any) => error.wireCode === 'lead-unavailable'
+
+test('the host previews the frozen source revision when checking plan seats', async t => {
+  let options: LeadAssemblyOptions | undefined
+  t.mock.method(LeadAssembly.prototype, 'restore', async function (this: LeadAssembly) {
+    options = (this as unknown as { options: LeadAssemblyOptions }).options
+  })
+  const sources: string[] = []
+  t.mock.method(FlowPreviews.prototype, 'preview', async (_root: string, source: string) => {
+    sources.push(source)
+    throw new Error('No synthetic seats available')
+  })
+  const { host } = rig(t, true)
+  await host.start()
+  assert.ok(options?.seatsHold)
+  for (const sourceRevision of ['recipe-1', 'recipe-2']) {
+    await options.seatsHold('/work/acme', { id: 'work', title: 'Verify', flow: 'lead-reviewed-result', sourceRevision,
+      attendance: 'attended', variables: {}, assignments: [] })
+    assert.equal(sources.at(-1), leadReviewedResultSourceFor(sourceRevision))
+  }
+})
+
+for (const enabled of [undefined, false]) test(`disabled host (${String(enabled)}) refuses a Lead owner before reading its ports`, async t => {
+  const { host } = rig(t, enabled)
+  let reads = 0
+  const options = new Proxy({}, { get() { reads++; throw new Error('Lead service ports were read') } })
+  assert.throws(() => host.createLeadService(options as any), unavailable)
+  assert.throws(() => host.registerLead(options as any, options as any), unavailable)
+  assert.equal(reads, 0)
+  await host.start()
+  assert.throws(() => host.createLeadService(options as any), unavailable)
+  assert.throws(() => host.registerLead(options as any, options as any), unavailable)
+  assert.equal(reads, 0)
+})
+
+for (const enabled of [undefined, false]) test(`disabled host (${String(enabled)}) leaves Lead listeners and recovery untouched`, async t => {
+  const { host, home } = rig(t, enabled)
+  const stale = join(home, 'lead-clients', 'hd-lead-ABC123')
+  await mkdir(join(home, 'lead-clients'), { mode: 0o700 })
+  await mkdir(stale, { mode: 0o700 })
+  await writeFile(join(stale, 'old.sock'), '')
+  let recoveries = 0
+  t.mock.method(LeadBudgets.prototype, 'recover', async () => { recoveries++ })
+  await host.start()
+  assert.equal((await lstat(stale)).isDirectory(), true, 'disabled startup must not sweep a Lead listener')
+  assert.equal(recoveries, 0)
+  assert.equal((await host.call('host/hello', { clientVersion: 'test' }) as any).capabilities?.lead, undefined)
+  let keyCalls = 0
+  for (const name of ['leadStatus', 'resolveLead', 'storeLead', 'deleteLead'] as const) {
+    t.mock.method(host.credentials, name, async () => { keyCalls++; throw new Error('credential port reached') })
+  }
+  const requests = [
+    ['lead/thread/read', {}], ['lead/thread/send', { idempotencyKey: 'off', text: 'Inspect' }],
+    ['lead/card/decide', { version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: 'a'.repeat(64), choice: 'approve' }],
+    ['lead/settings/read', {}], ['lead/settings/update', { expectedRevision: 0, credential: { provider: 'anthropic', key: 'synthetic-value' } }],
+    ['lead/resume', { expectedRevision: 0 }], ['lead/stop', { expectedRevision: 0 }],
+  ] as const
+  for (const [method, params] of requests) await assert.rejects(host.call(method as never, params as never), unavailable, method)
+  assert.equal(keyCalls, 0)
+  assert.equal((await lstat(stale)).isDirectory(), true)
+})
+
+test('a default host creates no Lead directory or files', async t => {
+  const { host, home } = rig(t)
+  await host.start()
+  assert.deepEqual((await readdir(home)).filter(name => /lead/i.test(name)), [])
+  assert.equal(Object.hasOwn(await host.call('host/hello', { clientVersion: 'test' }), 'capabilities'), false)
+})
+
+test('only the explicitly enabled host advertises the Lead capability', async t => {
+  const { host } = rig(t, true)
+  const hello = await host.call('host/hello', { clientVersion: 'test' })
+  assert.deepEqual((hello as any).capabilities, { lead: true })
+})
+
+for (const enabled of [false, true]) test(`the private Lead recipe is never in the Flow catalogue (enabled=${enabled})`, async t => {
+  const { host } = rig(t, enabled)
+  const project = tempDir('hd-lead-feature-project-')
+  await host.start()
+  await host.call('workspace/open', { path: project })
+  const catalogue = await host.call('flow/catalog', { root: project })
+  assert.ok(catalogue.length > 0, 'ordinary built-in Flows remain available')
+  assert.equal(catalogue.some(entry => entry.id === 'lead-reviewed-result'), false)
+})
+
+test('an unrelated Team approval neither projects Lead nor invalidates a concurrent settings save', async t => {
+  const { host, runtime, stateDir, repo } = await evidenceDesk(t, { leadEnabled: true })
+  await writeAgent(stateDir)
+  const goal = await host.call('goal/create', { root: repo.dir, sentence: 'Unrelated work' })
+  const card = await host.call('team/add', { room: goal.goal.id, title: 'Inspect unrelated work' })
+  const seat = await host.call('goal/seat', { goal: goal.goal.id, card: card.id, agent: 'scout' })
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'projection-test', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 1000 })
+  t.mock.method(host.credentials, 'leadStatus', async () => ({ configured: false, protection: 'synthetic cipher' }))
+  const service = host.createLeadService({ journal, project: { id: 'demo', path: repo.dir }, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  t.after(() => service.close())
+  const changed = t.mock.method(LeadControls.prototype, 'workerApprovalsChanged')
+  const before = await host.call('lead/settings/read', {})
+  const live = runtime.sessions.get(seat.session.sessionId)!
+  void live.askApproval(approvalId('unrelated-command'))
+  await host.call('lead/thread/read', {})
+  assert.equal(journal.state.seq, before.revision, 'an unrelated approval request leaves the journal unchanged')
+  const resolved = live.respondToApproval(approvalId('unrelated-command'), { type: 'cancel' })
+  const saved = await host.call('lead/settings/update', { expectedRevision: before.revision, name: 'lex' })
+  await resolved
+  assert.equal(changed.mock.callCount(), 0, 'only approvals from Lead-owned Seats push a Lead projection')
+  assert.equal(journal.state.seq, before.revision + 1, 'only the name save advances the journal')
+  assert.equal(saved.settings.name, 'lex')
+})
+
+
+test('a worker approval resolved after its Seat closes clears the window projection', async t => {
+  const { host, runtime, stateDir, repo } = await evidenceDesk(t, { leadEnabled: true })
+  await writeAgent(stateDir)
+  const goal = await host.call('goal/create', { root: repo.dir, sentence: 'Owned work' })
+  const card = await host.call('team/add', { room: goal.goal.id, title: 'Inspect owned work' })
+  const seat = await host.call('goal/seat', { goal: goal.goal.id, card: card.id, agent: 'scout' })
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'projection-test', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 1000 })
+  const state = journal.state
+  const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Owned work', project: { id: 'demo', path: repo.dir }, policyRevision: 1,
+    steps: [{ id: 'work', title: 'Work', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended',
+      assignments: [{ role: 'implement', agent: 'scout', seat: { runtime: 'fake' }, ceiling: 'read' }] }],
+    assertions: [{ id: 'review', kind: 'review', description: 'Reviewed' }], caps: { usdMicros: 100, rounds: 3 } })
+  // This test isolates live approval projection from Flow execution/accounting.
+  Object.defineProperty(journal, 'state', { get: () => ({ ...state, contract, runs: [{ runId: 'owned-run', teamId: goal.goal.id, correlationId: 'owned-start' }] }) })
+  t.mock.method(host.credentials, 'leadStatus', async () => ({ configured: false, protection: 'synthetic cipher' }))
+  const service = host.createLeadService({ journal, project: contract.project, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  t.after(() => service.close())
+  let book!: SeatBook
+  const all = SeatBook.prototype.all
+  t.mock.method(SeatBook.prototype, 'all', function(this: SeatBook) { book = this; return all.call(this) })
+  const changed = t.mock.method(LeadControls.prototype, 'workerApprovalsChanged')
+  const pushes: any[] = []
+  host.addBroadcaster(value => { if (value.method === 'lead/changed') pushes.push(value.params) })
+  const live = runtime.sessions.get(seat.session.sessionId)!
+  void live.askApproval(approvalId('owned-command'))
+  await Promise.all(changed.mock.calls.map(call => call.result))
+  assert.ok(pushes.at(-1)?.thread.cards.some((one: any) => one.kind === 'worker-approval'))
+  await book.closeId(seat.id, 'Worker closed')
+  assert.ok((await host.call('evidence/seat', seat.session))!.closed)
+  const before = changed.mock.callCount()
+  await live.respondToApproval(approvalId('owned-command'), { type: 'cancel' })
+  await Promise.all(changed.mock.calls.map(call => call.result))
+  assert.equal(changed.mock.callCount(), before + 1, 'resolution must re-project ownership even after close')
+  assert.equal(pushes.at(-1)?.thread.cards.some((one: any) => one.kind === 'worker-approval'), false)
+})
+
+
+test('host Stop effects reach only running and stalled owned runs, preserving prepared postings', async t => {
+  const { host } = rig(t, true); await host.start()
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'stop-effects', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 1000 })
+  const descriptor = Object.getOwnPropertyDescriptor(journal, 'state')
+  const readState = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(journal), 'state')!.get!
+  const runs = ['running', 'stalled', 'settled', 'stopped'].map(state => ({ runId: `owned-${state}`, teamId: `team-${state}`, correlationId: `start-${state}` }))
+  // Isolate both cancellation owners from worker execution and accounting.
+  Object.defineProperty(journal, 'state', { configurable: true, get: () => ({ ...readState.call(journal), runs }) })
+  const postings = { state: 'prepared', run: 'owned-settled' }
+  const before = JSON.stringify(postings), stopped: string[] = [], interrupted: string[] = []
+  const flows = runs.map(run => ({ id: run.runId, goal: run.teamId, state: run.runId.slice(6), lead: { logicalGoalId: 'stop-effects' } }))
+  t.mock.method(host.flowsPlane, 'leadRuns', () => flows as any)
+  t.mock.method(host.flowsPlane, 'interruptChecks', (team: string) => { interrupted.push(team) })
+  t.mock.method(host.flowsPlane, 'stopRun', async (run: string) => { stopped.push(run); flows.find(flow => flow.id === run)!.state = 'stopped'; if (run === postings.run) postings.state = 'skipped' })
+  t.mock.method(host.credentials, 'leadStatus', async () => ({ configured: false, protection: 'synthetic cipher' }))
+  const service = host.createLeadService({ journal, project: { id: 'demo', path: '/workspace/demo' }, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  try {
+    await host.call('lead/stop', { expectedRevision: journal.state.seq })
+    assert.deepEqual(stopped, ['owned-running', 'owned-stalled'])
+    assert.deepEqual(interrupted, ['team-running', 'team-stalled'])
+    assert.equal(JSON.stringify(postings), before)
+  } finally {
+    if (descriptor) Object.defineProperty(journal, 'state', descriptor)
+    else Reflect.deleteProperty(journal, 'state')
+    assert.deepEqual(Object.getOwnPropertyDescriptor(journal, 'state'), descriptor, 'restore the exact state descriptor')
+    await service.close()
+  }
+})
+
+
+test('child crash finishes a stopped owned run after its earlier cleanup failed', async t => {
+  const { host } = rig(t, true); await host.start()
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'crash-cleanup', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 1000 })
+  const descriptor = Object.getOwnPropertyDescriptor(journal, 'state')
+  const state = journal.state
+  Object.defineProperty(journal, 'state', { configurable: true, get: () => ({ ...state,
+    runs: [{ runId: 'owned-run', teamId: 'owned-team', correlationId: 'owned-start' }] }) })
+  const run = { id: 'owned-run', state: 'running' }
+  let attempts = 0, cleanupFinished = false
+  t.mock.method(host.flowsPlane, 'leadRuns', () => [run] as any)
+  t.mock.method(host.flowsPlane, 'interruptChecks', () => {})
+  t.mock.method(host.flowsPlane, 'stopRun', async () => {
+    run.state = 'stopped'
+    if (++attempts === 1) throw new Error('synthetic publication cleanup failure')
+    cleanupFinished = true
+  })
+  let exited!: (reason: string) => void | Promise<void>
+  const service = host.createLeadService({ journal, project: { id: 'demo', path: '/workspace/demo' }, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: options => {
+      exited = options.onExit!
+      return { live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }
+    } })
+  try {
+    await assert.rejects(service.ownershipWithdrawn('owned-run'), /lead-owned-work-stop-pending/)
+    assert.equal(run.state, 'stopped')
+    assert.equal(cleanupFinished, false)
+    await exited('lead-child-exited')
+    assert.equal(attempts, 2, 'crash cleanup must retry stop listeners on the stopped run')
+    assert.equal(cleanupFinished, true)
+  } finally {
+    if (descriptor) Object.defineProperty(journal, 'state', descriptor)
+    else Reflect.deleteProperty(journal, 'state')
+    assert.deepEqual(Object.getOwnPropertyDescriptor(journal, 'state'), descriptor, 'restore the exact state descriptor')
+    await service.close()
+  }
+})
+
+test('host shutdown preserves the owned acceptance round while a published repair awaits CI', async t => {
+  const { host } = rig(t, true); await host.start()
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'awaiting-ci-shutdown', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 1000 })
+  const descriptor = Object.getOwnPropertyDescriptor(journal, 'state'), state = journal.state
+  Object.defineProperty(journal, 'state', { configurable: true, get: () => ({ ...state, phase: 'following',
+    handbacks: [{ stage: 'awaiting-ci' }], runs: [{ runId: 'owned-run', teamId: 'owned-team', correlationId: 'owned-start' }] }) })
+  const stopped = t.mock.method(host.flowsPlane, 'stopRun', async () => {})
+  t.mock.method(host.flowsPlane, 'leadRuns', () => [{ id: 'owned-run', state: 'running' }] as any)
+  const service = host.createLeadService({ journal, project: { id: 'demo', path: '/workspace/demo' }, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: options => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => { await options.onExit?.('lead-host-shutdown') }, ownershipWithdrawn() {} }) })
+  try {
+    await service.close()
+    assert.equal(stopped.mock.calls.length, 0, 'CI wait and its real person gate survive host restart')
+  } finally {
+    if (descriptor) Object.defineProperty(journal, 'state', descriptor)
+    else Reflect.deleteProperty(journal, 'state')
+    await service.close()
+  }
+})
+
+for (const windows of [false, true]) test(`automatic project admission accepts ${windows ? 'Windows casing' : 'a trailing slash'} through the host root guard`, async t => {
+  const read = LeadControls.prototype.readThread
+  let automaticProject: ((path: string) => Promise<void>) | undefined
+  t.mock.method(LeadControls.prototype, 'readThread', function(this: LeadControls) {
+    automaticProject = (this as any).options.automaticProject
+    return read.call(this)
+  })
+  const { createLeadRig } = await import('./fixtures/lead-rig.js')
+  const fixture = await createLeadRig({ holdPlanning: true })
+  t.after(() => fixture.dispose())
+  await fixture.host.call('lead/thread/read', {})
+  assert.ok(automaticProject)
+  if (windows) {
+    // Confine the real folder first; emulate only the comparison platform.
+    const { samePath } = await import('../src/worktree.js')
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      assert.equal(samePath(fixture.project.path, fixture.project.path.toUpperCase() + '/'), true)
+    } finally { Object.defineProperty(process, 'platform', descriptor) }
+  } else await automaticProject(fixture.project.path + '/')
+})
+
+test('the host consumes a saved worker rule before broadcasting the approval and still surfaces irreversible work', async t => {
+  const { host, runtime, stateDir, repo } = await evidenceDesk(t, { leadEnabled: true })
+  await writeAgent(stateDir)
+  const goal = await host.call('goal/create', { root: repo.dir, sentence: 'Inspect demo' })
+  const card = await host.call('team/add', { room: goal.goal.id, title: 'Inspect demo' })
+  const seat = await host.call('goal/seat', { goal: goal.goal.id, card: card.id, agent: 'scout' })
+  const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Inspect demo', project: { id: 'demo', path: repo.dir }, policyRevision: 1,
+    steps: [{ id: 'work', title: 'Inspect', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments: [{ role: 'implement', agent: 'scout', seat: { runtime: 'fake' }, ceiling: 'read' }] }],
+    assertions: [{ id: 'diff', kind: 'diff', description: 'Reviewed' }], caps: { usdMicros: 1000000, rounds: 3 } })
+  const base = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await base.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
+  await base.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'rule-test', caps: contract.caps, freshnessMs: 60000 })
+  await base.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+  await base.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, Date.now() + 60000)
+  const { reduceLeadRecord } = await import('@harnessdesk/lead')
+  let state = base.state
+  for (const event of [
+    { type: 'attempt', id: 'start', correlationId: 'start', method: 'flow/start-goal', action: null, arguments: { type: 'object', size: 0, fields: [] }, kind: 'mutation', stepId: 'work', policyRevision: 1, projectPolicyRevision: null, contractRevision: 1 },
+    { type: 'decision', id: 'start', effect: 'allow', reason: 'policy', rule: null }, { type: 'dispatch-start', id: 'start', dispatched: true },
+    { type: 'result', id: 'start', outcome: 'succeeded', identity: { correlationId: 'start', runId: 'owned-run', teamId: goal.goal.id } },
+  ]) state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, ...event })
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {}, checkpoint: () => state })
+  t.mock.method(host.credentials, 'leadStatus', async () => ({ configured: false, protection: 'synthetic cipher' }))
+  const service = host.createLeadService({ journal, project: contract.project, prices: {}, resolveTool: async () => { throw Error('unused') }, freezePlan: async value => value,
+    readEvidence: async () => { throw Error('unused') }, createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  t.after(() => service.close())
+  const live = runtime.sessions.get(seat.session.sessionId)!
+  const pushes: any[] = []
+  host.addBroadcaster(value => pushes.push(value))
+  const first = live.askPermission(approvalId('first-tool'), 'get_team_status', { server: 'harnessdesk', tool: 'get_team_status' })
+  const initial = await host.call('lead/thread/read', {}), action = initial.personActions!.find(action => action.kind === 'worker-approval')!
+  assert.ok(action.kind === 'worker-approval' && action.choices.includes('yes-goal'))
+  await host.call('lead/action/perform', { id: action.id, contractDigest: contract.digest, choice: 'yes-goal' })
+  await first
+  const next = live.askPermission(approvalId('second-tool'), 'get_team_status', { server: 'harnessdesk', tool: 'get_team_status' })
+  assert.deepEqual(await next, { type: 'option', optionId: 'allow-once' })
+  await journal.recordWake({ id: 'flush', at: Date.now(), source: 'person', decision: 'silent', modelTurn: false, usdMicros: null })
+  assert.equal(journal.state.workerApprovals[0]!.count, 1)
+  assert.equal(journal.state.messages.length, 0)
+  assert.equal(journal.state.workerApprovals[0]!.entries, undefined, 'tool polling stores no diff history')
+  assert.equal(pushes.some(value => value.method === 'event' && value.params.event.type === 'approval/requested' && value.params.event.approval.id === 'second-tool'), false)
+  const irreversible = live.askPermission(approvalId('publish-tool'), 'mcp__harnessdesk__git_push')
+  const projection = await host.call('lead/thread/read', {})
+  const pending = projection.personActions!.find(action => action.kind === 'worker-approval')!
+  assert.ok(pending.kind === 'worker-approval'); assert.ok(!pending.choices.includes('yes-goal'))
+  await host.call('lead/action/perform', { id: pending.id, contractDigest: contract.digest, choice: 'no' })
+  await irreversible
+})
+
+test('an enabled desk without a selected project has no chat control records', async t => {
+  const { host } = rig(t, true)
+  await host.start()
+  for (const method of ['lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack'] as const)
+    assert.deepEqual(await host.call(method, { id: 'fixture:s1' } as never), { project: null, chats: [] })
+})
+
+
+test('PR repair evidence read failure logs and preserves the existing repair opening', async t => {
+  let port: LeadHandbackPort | undefined
+  t.mock.method(LeadHandbacks.prototype, 'recover', async function (this: LeadHandbacks) {
+    port = (this as unknown as { port: LeadHandbackPort }).port
+  })
+  const warn = t.mock.method(Logger.prototype, 'warn', () => {})
+  const { host } = rig(t, true); await host.start()
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'repair-read-failure', caps: { usdMicros: 100, rounds: 10 }, freshnessMs: 1000 })
+  let reads = 0
+  const prepare = t.mock.method(host.flowsPlane, 'prepareLeadRepair', async () => ({ n: 4, role: 'implement', state: 'opening' as const,
+    cards: [], seats: [], evidence: [], cause: 'repair' }))
+  const service = host.createLeadService({ journal, project: { id: 'demo', path: '/workspace/demo' }, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async value => value,
+    readEvidence: async () => { reads++; throw new Error('Synthetic evidence read failed') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  t.after(() => service.close())
+  for (let i = 0; i < 10 && !port; i++) await new Promise<void>(resolve => setImmediate(resolve))
+  assert.ok(port)
+  const op = { runId: 'owned-run', teamId: 'owned-team', key: 'repair', round: 4, detail: 'Repair the observed check.' } as Parameters<LeadHandbackPort['open']>[0]
+  assert.equal(await port.open(op), 4)
+  assert.equal(reads, 1)
+  assert.equal(prepare.mock.calls[0]!.arguments[0]!.detail, op.detail)
+  assert.ok(warn.mock.calls.some(call => String(call.arguments[0]).includes('acceptance evidence could not be read')))
+})
+
+
+test('repeat validation admits legacy recipes from the journal or stored approved repeat across slots', async t => {
+  const { LeadPlanner } = await import('../src/lead/planner.js')
+  const { FakeRuntime } = await import('./fixtures/fake-runtime.js')
+  const { runtimeId } = await import('@harnessdesk/protocol')
+  let validate: ((contract: import('@harnessdesk/protocol').LeadAcceptanceContract) => Promise<string | null>) | undefined
+  const readMarker = new Error('Captured repeat validation')
+  t.mock.method(LeadControls.prototype, 'readThread', async function (this: LeadControls) {
+    validate = (this as any).options.validateRepeat
+    throw readMarker
+  })
+  const { host, home } = rig(t, true)
+  host.register(new FakeRuntime({ id: runtimeId('writer'), provider: 'fixture-writer' }))
+  host.register(new FakeRuntime({ id: runtimeId('reviewer'), provider: 'fixture-reviewer' }))
+  await host.start()
+  const root = tempDir('lead-repeat-recipe-')
+  await host.call('workspace/open', { path: root })
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  let now = Date.now(), next = 0
+  await journal.updateBudget({ version: 1, type: 'initialize', now, logicalGoalId: 'repeat-recipe', caps: { usdMicros: 100, rounds: 10 }, freshnessMs: 1000 })
+  const draft = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Verify the recipe', repeat: { every: 'day', at: '09:00' },
+    project: { id: 'demo', path: root }, policyRevision: 1, caps: { usdMicros: 100, rounds: 10 },
+    steps: [{ id: 'work', title: 'Work', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended',
+      assignments: [{ role: 'implement', agent: 'implementer', seat: { runtime: 'writer' }, ceiling: 'edit' },
+        { role: 'review', agent: 'code-reviewer', seat: { runtime: 'reviewer' }, ceiling: 'read' }] }],
+    assertions: [{ id: 'review', kind: 'review', description: 'Reviewed' }] })
+  const legacy = { ...draft, digest: leadContractDigest(draft) }
+  const service = host.createLeadService({ journal, project: legacy.project, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async value => value,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  t.after(() => service.close())
+  await assert.rejects(host.call('lead/thread/read', {}), readMarker)
+  assert.ok(validate)
+  const sources: string[] = []
+  const preview = t.mock.method(FlowPreviews.prototype, 'preview', async (_root: string, source: string) => {
+    sources.push(source)
+    return { token: 'held', seats: [{ plan: { blocked: null, winner: 0, ceiling: { hold: 'held' }, candidates: [] } }] } as any
+  })
+  assert.equal(await validate(legacy), 'The Flow source changed')
+  assert.equal(preview.mock.calls.length, 0, 'new legacy contracts are refused before preview')
+  // Existing journal authority remains sufficient even without a stored repeat.
+  const state = journal.state
+  const readState = t.mock.getter(journal, 'state', () => ({ ...state, contract: legacy }))
+  assert.equal(await validate(legacy), null)
+  readState.mock.restore()
+  const planner = new LeadPlanner(home)
+  const task = (await planner.approveRepeat('legacy-repeat', legacy, undefined, now)).tasks[0]!
+  const driver = new LeadControls({ journal, project: legacy.project, model: 'fixture', now: () => now, nextId: () => `slot-${++next}`, push() {},
+    service: { async status() { return { configured: true, protection: 'fixture' } }, async assertPublic() {}, async send() { return { status: 'completed' } } } as any,
+    decidePerson: async () => {}, decideResult: async () => {}, validateRepeat: value => validate!(value),
+    freezeRepeat: async value => ({ ...value, digest: leadContractDigest(value) }) })
+  t.after(() => driver.close())
+  const stepIds = new Set<string>()
+  for (let slot = 0; slot < 3; slot++) {
+    const result = await driver.runScheduled(task, now)
+    assert.equal(result.approved, true, `slot ${slot + 1} redeems the stored approval unattended`)
+    await driver.idle()
+    assert.notEqual(journal.state.contract!.digest, legacy.digest, 'each run installs a fresh contract')
+    stepIds.add(journal.state.contract!.steps[0]!.id)
+    await journal.stop(async () => {})
+    now += 86_400_000
+  }
+  assert.equal(stepIds.size, 3)
+  assert.ok(sources.every(source => source === leadReviewedResultSourceFor('recipe-1')))
+  const changed = { ...legacy, goal: 'Different reviewed work' }
+  assert.equal(await validate({ ...changed, digest: leadContractDigest(changed) }), 'The Flow source changed', 'an unapproved legacy contract is still refused')
+})

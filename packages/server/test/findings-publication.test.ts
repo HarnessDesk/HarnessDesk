@@ -31,11 +31,12 @@ interface Rig {
   restart(): Promise<void>
 }
 
-const publicationRig = async (t: { after(fn: () => Promise<void>): void }, options: { bind?: boolean; sighted?: boolean } = {}): Promise<Rig> => {
+const publicationRig = async (t: { after(fn: () => Promise<void>): void }, options: { bind?: boolean; sighted?: boolean; localOnly?: () => boolean } = {}): Promise<Rig> => {
   const f = await findingsRig(t, options.sighted ? { sighted: true } : {})
   const forge = new FakeFindingForge(SHA1)
   const goal = { open: true, preference: undefined as boolean | undefined }
   const make = (): Publications => new Publications({
+    ...{ localOnly: options.localOnly },
     journal: (run, step) => f.rig.flows.withPublicationJournal(run, step),
     runs: () => f.rig.flows.publicationRuns(),
     run: (run) => {
@@ -859,4 +860,24 @@ test('the findings run view carries its review decision while an empty author re
     { round: r.round, state: 'posted', reason: null, pr: 7, cards: before.rounds[1]!.cards },
   ])
   assert.equal(after.publication, 'posted')
+})
+
+
+test('Lead-managed review publication makes zero forge writes with ordinary posting enabled', async t => {
+  const r = await publicationRig(t, { localOnly: () => true })
+  r.goal.preference = true
+  await review(r); await r.f.finishReviews('request-changes'); await r.pub.idle()
+  assert.equal(r.forge.sends.length, 0)
+  assert.equal(await r.pub.status(r.f.run).then(value => value.publication), 'local')
+})
+
+test('Lead publication dispatch refuses a batch prepared under ordinary posting', async t => {
+  let localOnly = false
+  const r = await publicationRig(t, { localOnly: () => localOnly })
+  r.goal.preference = true
+  const observe = r.forge.observeTarget.bind(r.forge)
+  t.mock.method(r.forge, 'observeTarget', async (project: string, pr: number) => { localOnly = true; return observe(project, pr) })
+  await review(r); await r.f.finishReviews('request-changes'); await r.pub.idle()
+  assert.ok(r.entries().length > 0, 'the ordinary batch was prepared')
+  assert.equal(r.forge.sends.length, 0, 'the last dispatch check refuses every forge write')
 })

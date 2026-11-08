@@ -38,6 +38,17 @@ let initialized = false
 let turnCounter = 0
 
 const rl = readline.createInterface({ input: process.stdin })
+let heldRequest
+if (mode === 'overlap-stop') {
+  // Keep the old process alive after stdin closes until the test releases it.
+  setInterval(() => {}, 1_000)
+  process.on('SIGUSR1', () => {
+    process.stdout.write(`${JSON.stringify({ method: 'stale/notification', params: {} })}\n`, () => process.exit(0))
+  })
+  process.on('SIGUSR2', () => {
+    if (heldRequest !== undefined) send({ id: heldRequest, result: { owner: 'replacement' } })
+  })
+}
 rl.on('line', (line) => {
   if (!line.trim()) return
   let message
@@ -60,6 +71,12 @@ rl.on('line', (line) => {
   }
 
   const { id, method, params } = message
+
+  if (mode === 'overlap-stop' && method === 'overlap/wait') {
+    heldRequest = id
+    send({ method: 'overlap/pending', params: {} })
+    return
+  }
 
   if (method === 'initialize') {
     if (mode === 'slow-init') return // never answers, to exercise the timeout
@@ -112,4 +129,4 @@ rl.on('line', (line) => {
   }
 })
 
-process.stdin.on('close', () => process.exit(0))
+process.stdin.on('close', () => { if (mode !== 'overlap-stop') process.exit(0) })

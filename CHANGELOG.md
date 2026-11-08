@@ -5,6 +5,144 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## 0.7.0 — 2026-11-08
+
+Every installed plugin runs in a process of its own and reaches only what you granted. The optional Lead becomes a conversation that starts, follows and wraps up work, with a right rail for its plan and spend, and your phone reaches this Mac away from home, reviews work and starts sessions. An agent's accounts take turns, usage reads one standing everywhere, and simulator tools no longer need the mouse.
+
+- **Each installed plugin runs on its own.** Every plugin you install gets a process of its own, so a crash or a hang stops only that plugin, and it is held to what you agreed to when you installed it: if its manifest changes afterwards, it stays off until you install it again. What is installed is the manifest you were shown: if the source changes between reading it and confirming, the install is refused, and **Update from source** now shows the new manifest before it installs.
+- **An installed plugin reaches only what you granted.** Its process cannot read outside its own folder, write files, open connections, start programs or signal other programs by itself; HarnessDesk does those for it, within the permissions you agreed to. Where no runtime can confine it, it runs as before and the plugin host says why. A plugin package with a link leading outside it is refused at install.
+
+- **The first conversation waits for a stored key.** When an agent must be told to use its stored key, a conversation no longer opens before that switch settles.
+
+- **Control a simulator without owning the mouse.** On Xcode 27, simulator tools use a bundled native helper for taps, long presses, swipes, timed drags, pinch and rotation gestures, US-layout text, keys and physical buttons. Input and its screenshot stay on the chosen device. When native input is unavailable, taps alone retain the previous Simulator-window `cliclick` path; newer input tools refuse. Software-keyboard show/hide, device rotation and deterministic lock report that they are not yet verified.
+
+- **The iOS Simulator tells you what setup needs.** Check Xcode selection, its license, iOS support and simulator runtimes without changing them. When Xcode still needs its first launch to install components, the diagnosis says so even if the simulator tool is not yet available. Simulator tools can name a device when several are booted, boot without opening a window, and read or change light and dark appearance; screenshots identify the device and original pixel dimensions. Appearance changes say whether they applied.
+- **Claude Code conversations can branch, take direction mid-turn, and keep a goal.** The bundled bridge is updated, with the source conversation’s read ceiling preserved when branching.
+
+- **Wrap a Lead's Teams from your phone.** Once you accept the Lead's result, each of its Teams offers Wrap up: the desk closes it with its own receipt and keeps every branch. Two Teams of one goal are named by their plan step, a worker's question the Lead already asks you is listed once, and the result card says which commits to check and which the review read.
+
+- **The Lead's spending limit is Off by default.** Set one in Lead settings or from your phone. A plan the Lead drafts never goes past a limit you set, and a plan you approved keeps its figure. An untouched $1 limit from an earlier version becomes Off; a figure you chose is kept.
+- **The Lead keeps answering in long conversations.** When the Lead spoke first, or a conversation grew past what one request holds, every later message was refused before it was sent. It now sends the latest turns that fit, and a request that could not be sent says nothing was spent.
+
+- **The Lead waits, then asks when a delegated chat gets stuck.** It retries on the provider’s reset clock at most twice, then offers retry, move to another available agent with the original request and progress, or stop.
+- **Lead calls work done only with evidence.** Reviews that say “should work” no longer pass, and checks that could not run ask for another check instead of a pointless repair round. Repairs focus on what failed.
+
+- **One answer to what needs you.** Lead and phone work lists share the desk’s stages for answers, reviews, blockers, working and queued items. A Team ready to accept, a stopped Team and a failed session now count as needing you.
+
+- **Answer the Lead with a tap.** Questions offer short choices with a recommended pick, while you can still type your own answer. Chats the Lead starts include your original words below its brief.
+
+- **Chats the Lead starts say what they are for.** A chat the Lead starts is named by the task it was given, not "Lead message from …", and your phone lists a chat the Lead directs as the Lead's until you take it over. The Lead names a chat by its task when it tells you about it, never by an id.
+- **The Lead always answers your message.** When a desk change arrived in the middle of your turn, the Lead could finish the work you asked for and say nothing, which left your message looking unanswered and let Resume start the same work a second time. It now always replies once its work for your message is done. Resume after a failed or silent turn also tells the Lead which chats it already started, so it does not start them again.
+
+- **Review work from your phone.** Conversations show your words without desk context wrappers, with bounded, scrubbed command output and diff lines. New sessions can start on any ready agent and choose its model and effort.
+
+- **Lead works when running from source.** Development startup fetches the same verified runtime bundled with the app, and continues if the download is unavailable.
+
+- **Your phone reaches this Mac away from its Wi-Fi.** With your HarnessDesk account signed in, turn on Settings › Account › Reachable from your phone. Paired phones then connect through your account when they are not on the same network, still end-to-end encrypted, and the pairing code works away from home. Reachable says Connected, Connecting… or Can’t reach HarnessDesk, and Settings › Phone says how each phone is connected.
+
+- **The Lead page has a right rail.** It shows the goal, its plan step by step, the workers the current step seats and what the goal has spent against its limit. The dollar and round limits move from under the composer to the rail's Spend card; its toggle sits in the top bar, and the rail stays open until you close it. With no folder open, the page greets you by the Lead's name with Open folder instead of a warning.
+
+- **Settings, the right panel and the dashboard draw each group as one card.** Groups sit on the main ground with a clear edge, Settings labels line up with the main column, and counts and times read a clear step quieter than prose. Settings › Appearance › Surface adds Sheet, which lays the same groups flat with a line between them.
+
+- **A Team page opens on its name and what it can do.** The Team's name and Stop run… sit above the tabs. Statuses such as Running, Default or Pro read as words instead of tinted pills, and the session and Team panels show their facts as icon rows.
+
+- **An agent's accounts take turns.** Settings › Runtimes lists an agent's accounts in the order they are used, each with its plan and what is left. Move up and Move down reorder them. *When an account runs out* chooses Use the next account, Ask me or Stop. Use the next account moves new sessions to the next account with room and says so once; open conversations stay where they are.
+
+- **Sign-in states read the same everywhere.** Sign in needed, Not working and Not checked yet replace the older mix of wording across the sign-in sheet, Settings, the usage strip and the tray. Opening sign-in from one runtime shows only that runtime.
+
+- **Hide account addresses.** A switch in Settings › General shows accounts by name only, in the seat menu and on account pages, for sharing your screen.
+
+- **Signing out of an agent account is on its page in Settings.** The seat menu now only switches accounts; signing out of HarnessDesk stays there.
+
+- **Hidden, closed conversations can release cached transcripts.** The desk verifies its saved copy before releasing a body and restores it when needed. Active work, drafts and unconfirmed activity stay protected; unavailable history is reported rather than presented as empty.
+
+- **Automatic PR merges check the review target again.** A changed destination or an older unbound review requires a fresh PR review. Queued and uncertain submissions stay unresolved until a merge is observed; a person may need to inspect or complete them outside the app.
+
+- **Usage says one standing per account, everywhere.** The Dashboard card, Plans and the phone read the same Ready, Low, Short, Out, Overdrawn or Unknown, so an account is no longer Out on one page and Ready on another. Pace is a time ("Runs out ~3:10 PM, before its 4:50 PM reset"), a spent account says when it is back, an overdrawn balance says so, and a spent model says the others still work. Overview's What is left names the account to start on.
+
+- **Saved extra accounts survive without a credential file.** Their status is checked when the agent runs; removing an account whose identity cannot be verified leaves its agent or system credentials in place.
+
+- **Saved approvals end when a goal enters Following.** Their audit history remains available, and a revised plan cannot clear an unresolved worker audit. Unreviewed orphan requests require explicit Resume.
+
+- **Worker approval recovery uses one fence across live and stored state.** Repair hand-backs retain uncertain changes, repair refreshes preserve Resume revisions, and older renewal journals remain readable. Diff actions say View changes.
+
+- **Saved worker approvals recover safely after interruption.** Revoke and Resume survive restart, including older journals and rules whose filenames no longer qualify. Normal automatic answers no longer flash Needs review, and the diff reader distinguishes confirmed answers from changes needing inspection.
+
+- **Unacknowledged saved worker approvals keep their diffs for review.** The diff reader marks uncertain changes with Needs review and retains them after Revoke. Requests cancelled before sending no longer leave the goal waiting; an automatic answer in flight no longer interrupts an admitted start.
+
+- **Lead chat holds stay protected when project folders change.** Temporary read failures offer Try again and recover without clearing holds, including after repeated failures. Hand back releases the chat’s hold across project changes. An unavailable folder explains how to restore access.
+
+- **Account status keeps the last accepted sign-in mode.** A refused key switch no longer erases it, and successful sign-in or sign-out updates it.
+
+- **Overview seat states and costs stay readable in narrow panes.** Facts move below the name when they need more room.
+
+- Messages the Lead sends into a chat now say so, and you can take a chat over from the Lead and hand it back. Temporary control-read failures retry without asking you to reset your holds.
+
+- **Removing a worktree warns about ignored files even when Git hides untracked files.** A Git setting that leaves untracked files out of status no longer hides them from the confirmation.
+
+- **An unanswered browser sign-in returns to its choices.** After five minutes without an answer, an agent's browser sign-in stops waiting and offers its sign-in methods again, without signing the agent out.
+
+- **Overview counts the turns it knows.** When some days' turns are missing, Overview shows the partial total and leaves out a trend it cannot draw, and the heatmap's today ring stays in place while it scrolls.
+
+- **Flow thumbnails keep loops clear of other arrows.**
+
+- **Renamed files no longer create a false ignored-file warning.** A staged rename whose original name starts with `!! ` is no longer mistaken for an ignored file when removing a worktree.
+
+- **Cleaning up saved accounts keeps the right files.** Duplicate saved identifiers no longer make cleanup remove another account's folder, and a folder still used by a retained account is kept.
+
+- **Accepting a Lead result no longer fails while the Lead is re-reading.** A click that lands in the moment the Lead takes its result back to read new observations waits for it and is made on the same result when it comes back unchanged; only a result that actually changed asks you to look again.
+
+- **Card evidence fits on one row.** A compact observed status opens the recorded facts and their details.
+
+- **Changing a hand-off draft's project folder sets where it starts.** The Add menu now honors the chosen folder while keeping the hand-off context.
+
+- **Trigger drafts stay open when their project folder becomes unavailable.** The selected project is retained while Flows are reread, so a draft does not move to another folder or disappear during recovery.
+
+- **A late Codex process exit no longer disrupts its replacement.** Restarting while the previous process drains keeps replies and shutdown with the new process.
+
+- **Lead respects a reached round allowance without losing its child.** A running round can finish, and the next round is stopped at the allowance even if the limit changes while a request is being admitted.
+
+- **Open Teams use less CPU.** The desk no longer asks git the same questions about the same project folders over and over while it reads evidence and findings, and asks where a branch stands only after it has moved: a measured Lead run started about a third as many git processes and finished in under half the time.
+
+- **Detached conversations can find their own pull request.** Omitting the number in view, checks, review or comment uses that conversation's unique recorded open PR. Ambiguous cases still ask for a number; detached updates remain refused.
+- **Lead can repeat an approved plan, take a second look at a stop, and warn at 80% of its allowance.** Manage repeats and their last runs in Settings; raise a running goal's limits directly while keeping every publishing decision separate.
+
+- **Backup restore counts what it saved.** A runtime configuration saved before setup fails is counted as restored once, rather than skipped or counted twice.
+
+- **Input patch previews keep their content and leave unknown lines blank.** Later file headers no longer appear as edits, and previews without reported locations no longer invent line numbers.
+
+- **New worktree explains when repository information is unavailable.** Unread facts no longer claim the folder is outside Git.
+
+- **Lead is a conversation first.** Ask questions directly, or ask it to start, read, message and stop ordinary chats in its project. Simple tasks no longer need an implementer and independent reviewer. Reviewed work keeps its approval gates; setup problems explain what to change instead of repeating Resume.
+
+- **The phone can reach older sessions and control ordinary conversations.** Paired phones page active and archived sessions, and the Run grant allows starting a session, replying and stopping a turn while keeping the desk's session settings. Approval answers still require Answer.
+
+- **Saved face shapes appear correctly at startup.** Faces wait for their saved shape, and remain visible if the initial connection fails.
+
+- **A large saved attribution history no longer crashes the desktop.** Obsolete checkpoints are removed within a bounded recovery pass. If retained history still exceeds the budget, capture pauses for that project, keeping its observations and leaving sign-in, capture controls and normal conversations available. Backups report omitted histories and continue with healthy projects.
+
+- **A replacement Agent shows its own installation details.** Removing and re-adding an Agent no longer carries over the previous Agent's cached version or a late installation check.
+
+- **Account sign-in says when the service is unavailable.** A server failure now explains that the account service is unavailable and asks you to try later, instead of reporting that the desk could not reach your account.
+
+- **Source builds can sign in against staging.** `pnpm app:staging` launches a separate local desk with the staging account service selected explicitly.
+
+- **Sign in to your HarnessDesk account from Settings.** Approve the named desk in your browser, then manage its name, linked phones, sign-out and account deletion separately from agent accounts.
+
+- **The optional Lead plans and follows work from its own conversation.** Enable it to review plans and allowances, steer workers, and follow reviewed pull requests and repair requests.
+
+- **Lead runs in the desktop app.** The app carries a Node 26 LTS for the Lead's restricted process and uses it when its own runtime cannot block that process's network. Where no runtime can, Lead says why it is unavailable.
+
+- **Pair a phone on the local network without an account link.** With local phone access enabled, Settings › Phone shows a code to scan; allow each phone at the desk and remove it from the same page.
+
+- **Git writes have one recorded path.** Approve pushes and steer an agent's own push through HarnessDesk, with a pinned project repository, PR and project Git records, and global or project preferences. Heads written elsewhere appear as Outside and name no one.
+
+- **Saved conversations open reliably during brief database contention.** The desk waits for a short lock when opening its conversation store and safely coordinates concurrent upgrades.
+
+- **Turn edits show their reported location.** Files outside known open workspace and conversation roots, or whose location is unknown, are labelled in the turn card and Changes pane. Git still reports the current working tree separately.
+
+- **Back and Forward stay reachable in a narrow floating sidebar.** The drawer keeps the history controls inside it while the covered content is inactive.
+
 ## 0.6.1 — 2026-10-23
 
 Customize brings Skills, MCP and Plugins into one place, agent sign-in reads what each agent actually reports, and Git, file and lane operations stay inside the folders they belong to. Lane removal and stalled network folders no longer hang.

@@ -288,6 +288,76 @@ test('null or malformed entries in credential file do not crash broker methods (
   }
 })
 
+const leadCipher = {
+  protection: 'synthetic test cipher',
+  encrypt: (value: string) => Buffer.from([...Buffer.from(value)].map(byte => byte ^ 0x5f)),
+  decrypt: (blob: Buffer) => Buffer.from([...blob].map(byte => byte ^ 0x5f)).toString(),
+}
 
+test('Lead provider keys expose only configured/protection metadata and are never endpoint keys', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-lead-keys-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'credentials.json'), key = 'sk-test-not-real-0000'
+  const broker = new CredentialBroker(path, leadCipher)
+  assert.deepEqual(await broker.leadStatus('anthropic'), { configured: false, protection: leadCipher.protection })
+  await broker.storeLead('anthropic', key)
+  assert.deepEqual(await broker.leadStatus('anthropic'), { configured: true, protection: leadCipher.protection })
+  assert.equal(await broker.resolveLead('anthropic'), key)
+  const listed = await credentialMethods['credentials/list']({ credentials: broker, accounts: { gatewayCredentials: () => [] } } as never)
+  assert.equal(listed.find(entry => entry.name === 'lead:anthropic'), undefined)
+  assert.ok(!JSON.stringify([listed, await broker.leadStatus('anthropic')]).includes(key))
+  const raw = await readFile(path, 'utf8')
+  assert.ok(!raw.includes(key)); assert.ok(!raw.includes(Buffer.from(key).toString('base64')))
+  assert.equal(Object.values(JSON.parse(raw) as Record<string, { provider: string }>)[0]?.provider, 'anthropic')
+  assert.equal(await new CredentialBroker(path, leadCipher).resolveLead('anthropic'), key)
+})
 
+test('Lead keys replace and delete by provider, and generic credential doors cannot resolve or delete them', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-lead-keys-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const broker = new CredentialBroker(join(dir, 'credentials.json'), leadCipher)
+  await broker.storeLead('anthropic', 'sk-test-not-real-0000')
+  await broker.storeLead('anthropic', 'sk-test-not-real-0001')
+  assert.equal(await broker.resolveLead('anthropic'), 'sk-test-not-real-0001')
+  const entries = (await broker.describe()).filter(entry => entry.writer === 'lead')
+  assert.equal(entries.length, 1)
+  const ref = entries[0]!.ref
+  await assert.rejects(broker.resolve(ref), /Lead.*provider/)
+  await assert.rejects(broker.delete(ref), /Lead.*provider/)
+  assert.equal(broker.peek('lead:anthropic'), undefined)
+  await broker.forget('lead:anthropic')
+  assert.equal(await broker.resolveLead('anthropic'), 'sk-test-not-real-0001')
+  await broker.deleteLead('anthropic')
+  await broker.deleteLead('anthropic')
+  assert.equal((await broker.leadStatus('anthropic')).configured, false)
+  await assert.rejects(broker.resolveLead('anthropic'), /Lead.*key.*configured/)
+})
 
+test('Lead refuses unavailable protection or keys without borrowing an agent credential', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-lead-keys-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'credentials.json'), key = 'sk-test-not-real-0000'
+  const plain = new CredentialBroker(path)
+  await plain.put(CredentialBroker.secretName('claude', 'ANTHROPIC_API_KEY'), key, 'claude')
+  await assert.rejects(plain.storeLead('anthropic', key), /Lead.*protection.*unavailable/)
+  await assert.rejects(plain.resolveLead('anthropic'), /Lead.*protection.*unavailable/)
+  const broker = new CredentialBroker(path, leadCipher)
+  await assert.rejects(broker.resolveLead('anthropic'), /Lead.*key.*configured/)
+  await broker.storeLead('anthropic', key)
+  const broken = new CredentialBroker(path, { ...leadCipher, decrypt() { throw new Error(key) } })
+  await assert.rejects(broken.resolveLead('anthropic'), error => error instanceof Error && /Lead.*key.*unavailable/.test(error.message) && !error.message.includes(key))
+  await assert.rejects(new CredentialBroker(path).resolveLead('anthropic'), /Lead.*protection.*unavailable/)
+  await assert.rejects(broker.store('bad', key, { kind: 'lead', provider: 'anthropic' }), /Lead.*provider/)
+  await assert.rejects(broker.storeLead('anthropic', ''), /empty/i)
+  await assert.rejects(broker.storeLead('other' as 'anthropic', key), /provider/)
+})
+
+test('generic renderer credential projection carries no Lead name or reference', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-lead-keys-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const broker = new CredentialBroker(join(dir, 'credentials.json'), leadCipher)
+  await broker.storeLead('anthropic', 'sk-test-not-real-0000')
+  const list = await credentialMethods['credentials/list']({ credentials: broker, accounts: { gatewayCredentials: () => [] } } as never)
+  assert.deepEqual(list, [])
+  assert.deepEqual(Object.keys(await broker.leadStatus('anthropic')).sort(), ['configured', 'protection'])
+})

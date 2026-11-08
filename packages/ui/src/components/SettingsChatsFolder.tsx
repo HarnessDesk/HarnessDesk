@@ -16,10 +16,10 @@ export default function SettingsChatsFolder() {
   }
   return <>
     <Rows><Row title="Chats folder" desc={<MiddleTruncate>{chatsFolder}</MiddleTruncate>} control={<>
-      <Button variant="secondary" size="sm" disabled={saving} onClick={() => setChoosing(true)}>Change…</Button>
+      <Button variant="secondary" size="sm" disabled={saving} onClick={() => { store.clearChatsFolderProblem(); setChoosing(true) }}>Change…</Button>
       <Button variant="secondary" size="sm" disabled={saving} onClick={() => { void save(null) }}>Reset</Button>
     </>} /></Rows>
-    {chatsFolderProblem && <Note tone="bad">{chatsFolderProblem}</Note>}
-    {choosing && <FolderPicker title="Chats folder" problem={chatsFolderProblem} onChoose={save} onClose={() => setChoosing(false)} />}
+    {!choosing && chatsFolderProblem && <Note tone="bad">{chatsFolderProblem}</Note>}
+    {choosing && <FolderPicker title="Chats folder" problem={chatsFolderProblem} onChoose={save} onClose={() => { store.clearChatsFolderProblem(); setChoosing(false) }} />}
   </>
 }

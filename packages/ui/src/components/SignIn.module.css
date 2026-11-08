@@ -18,6 +18,9 @@
   grid-template-columns: 244px minmax(0, 1fr);
 }
 
+/* Opened for one runtime — from its row, its page or its notice — there is
+   nothing to choose between, so the roster stays out and the sheet is the
+   width of its column. */
 @media (max-width: 720px) {
   .split {
     grid-template-columns: minmax(0, 1fr);

@@ -92,6 +92,17 @@ export const FlowsDestinationFixture = () => {
   const [evidence, setEvidence] = useState<FlowFixtureEvidence>({})
   const store = useMemo(() => {
     const next = flowsDestinationStore(patch => setEvidence(current => ({ ...current, ...patch })))
+    if (scene === 'unavailable' || scene === 'all-unavailable') {
+      const unavailable = Array.from({ length: 20 }, (_, index) => ({ path: `/work/removed-${index + 1}`, name: `Removed ${index + 1}`, lastOpenedAt: 1 }))
+      Object.assign(next.getSnapshot(), { workspace: unavailable[0], workspaces: [...unavailable, ...(scene === 'unavailable' ? next.getSnapshot().workspaces : [])] })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method === 'flow/catalog' && unavailable.some(folder => folder.path === (params as HostParams<'flow/catalog'>).root)) {
+          throw new Error(`ENOENT: no such file or directory, realpath '${(params as HostParams<'flow/catalog'>).root}'`)
+        }
+        return request(method, params as never)
+      }) as typeof next.transport.request
+    }
     next.openDestination(scene === 'editor' ? { kind: 'flows', root: ROOT, id: 'fix-and-review', origin: 'builtin' }
       : scene === 'draft' ? { kind: 'flows', root: ROOT, id: null, origin: null }
         : { kind: 'flows', root: null, id: null, origin: null })

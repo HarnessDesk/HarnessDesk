@@ -17,7 +17,7 @@ test(`the shipped Team templates finish ${TEMPLATE_TASK} through the visible UI`
   await run('pnpm', ['--filter', '@harnessdesk/ui', 'exec', 'vite', 'build', '--outDir', ui, '--emptyOutDir'], {
     cwd, timeout: 60_000, maxBuffer: 1024 * 1024,
   })
-  await run(process.execPath, ['script/shots/templates.mjs', '--out', out, '--ui', ui], {
+  await run(process.execPath, ['script/shots/templates.mjs', '--observation-clock-test', '--out', out, '--ui', ui], {
     cwd, timeout: 210_000, maxBuffer: 1024 * 1024,
   })
   const sequence = JSON.parse(await readFile(resolve(out, 'sequence.json'), 'utf8')) as { frames: string[]; evidence: { template: string; changedPaths?: string[][]; distinctContents?: boolean; settledSidebar?: boolean }[] }

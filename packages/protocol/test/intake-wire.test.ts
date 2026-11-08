@@ -86,3 +86,16 @@ test('generic state accepts only a declared unattended question wait', () => {
     )
   }
 })
+
+
+test('explicit PR follow events validate without broadening or duplicating the vocabulary', () => {
+  const definition = {
+    id: 'follow', on: { kind: 'pull-request', events: ['checks-failed', 'review-commented'] },
+    opens: { flow: 'review-pr' }, goal: ['pr'], again: null, dedupe: ['pr', 'head', 'event'],
+    concurrency: 1, forks: 'never', budget: { usd: 5, rounds: 3, hours: 4, withoutProgress: 2 },
+  }
+  assert.doesNotThrow(() => request('authoring/triggers/render', { definitions: [definition] }))
+  for (const events of [['checks-failed', 'checks-failed'], ['review-commented', 'unknown']]) {
+    assert.throws(() => request('authoring/triggers/render', { definitions: [{ ...definition, on: { kind: 'pull-request', events } }] }), ValidationError)
+  }
+})

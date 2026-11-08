@@ -466,7 +466,7 @@ export const teamPlugin: HarnessPlugin = {
           const candidates = await ctx.team.reviewCandidates(Number(args.intent), scope)
           if (candidates.length === 0) return 'There is nothing to review for this card yet.'
           return candidates
-            .map((one) => `${one.id} — at ${one.at.slice(0, 12)}${one.branch ? ` on ${one.branch}` : ''}${one.evidence.length ? `, evidence: ${one.evidence.join(', ')}` : ', no other evidence observed yet'}`)
+            .map((one) => `${one.id} — at ${one.at.slice(0, 12)}${one.branch ? ` on ${one.branch}` : ''}${one.reviewTarget ? `; ${one.reviewTarget.repository} pull request #${one.reviewTarget.number}: head ${one.reviewTarget.head} against ${one.reviewTarget.baseRef} at ${one.reviewTarget.baseTip}; compare with git diff ${one.reviewTarget.baseTip} ${one.reviewTarget.head}; not an integrated merge tree` : ''}${one.evidence.length ? `, evidence: ${one.evidence.join(', ')}` : ', no other evidence observed yet'}`)
             .join('\n')
         },
       })

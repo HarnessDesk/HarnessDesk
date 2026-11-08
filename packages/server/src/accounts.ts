@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import { runtimeId, type RuntimeId } from '@harnessdesk/protocol'
 
@@ -28,7 +28,7 @@ const isUnder = (candidate: string, parentDir: string): boolean => {
     resolvedCandidate = realpathSync.native(resolvedCandidate)
   } catch {}
   const rel = relative(resolvedParent, resolvedCandidate)
-  return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
+  return rel.length > 0 && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
 }
 
 /**
@@ -348,6 +348,8 @@ export const slotConfigured = (slot: AccountSlot): boolean =>
  */
 export class AccountSlots {
   #slots: AccountSlot[]
+  readonly #uncertainRemovals = new Map<AccountSlot, number>()
+  readonly #heldHomes = new Map<symbol, AccountSlot>()
 
   constructor(
     private readonly file: string,
@@ -368,6 +370,18 @@ export class AccountSlots {
     return this.#slots.filter((slot) => slot.agent === agent)
   }
 
+  positionOf(slot: AccountSlot): number {
+    const index = this.#slots.indexOf(slot)
+    return index < 0 ? (this.#uncertainRemovals.get(slot) ?? -1) : index
+  }
+
+  /** Protect one exact owner's home until its removal can safely release it. */
+  holdHome(slot: AccountSlot): () => void {
+    const token = Symbol('account home owner')
+    this.#heldHomes.set(token, slot)
+    return () => { this.#heldHomes.delete(token) }
+  }
+
   /**
    * Allocates one more account of `agent` and builds its home.
    *
@@ -380,8 +394,18 @@ export class AccountSlots {
     primary: string,
     stateDir: string,
     gateway?: AccountSlot['gateway'],
+    available: (id: RuntimeId) => boolean = () => true,
   ): AccountSlot {
-    const id = runtimeId(`${agent}-${randomBytes(3).toString('hex')}`)
+    let id: RuntimeId | undefined
+    for (let attempt = 0; attempt < 64; attempt += 1) {
+      const candidate = runtimeId(`${agent}-${randomBytes(3).toString('hex')}`)
+      if (!this.find(candidate) && available(candidate) &&
+          !lstatSync(slotHome(stateDir, candidate), { throwIfNoEntry: false })) {
+        id = candidate
+        break
+      }
+    }
+    if (id === undefined) throw new Error('Could not allocate an unused account id.')
     const home = slotHome(stateDir, id)
     const linked = linkHome(primary, home, gateway ? gatewayPrivateEntries : undefined)
     const slot: AccountSlot = { id, agent, home, createdAt: Date.now(), ...(gateway ? { gateway } : {}) }
@@ -396,32 +420,107 @@ export class AccountSlots {
     return slot
   }
 
-  /** Forgets a slot. Its home is deleted only when `purge` is set. */
-  remove(id: RuntimeId, purge = true): AccountSlot | null {
-    const slot = this.find(id)
+  /** Forgets one saved slot, purging its home only when no retained row uses it. */
+  remove(id: RuntimeId, purge = true, selected?: AccountSlot): AccountSlot | null {
+    const slot = selected === undefined ? this.find(id)
+      : this.#slots.find(entry => entry === selected && entry.id === id) ?? null
     if (!slot) return null
-    this.#slots = this.#slots.filter((entry) => entry.id !== id)
+    // A registered owner can select the saved slot object even when another agent's
+    // ignored row precedes it. The id-only API forgets just the first match.
+    this.#slots = this.#slots.filter((entry) => entry !== slot)
     this.#write()
-    if (purge) {
-      // Only ever the farm: every shared entry inside it is a symlink, and
-      // `rm` of a symlink removes the link, never what it points at.
-      try {
-        const accountsDir = resolve(dirname(this.file), 'accounts')
-        if (isUnder(slot.home, accountsDir)) {
-          // If slot.home itself is a symlink, delete the link without recursing into target
-          if (lstatSync(slot.home, { throwIfNoEntry: false })?.isSymbolicLink()) {
-            rmSync(slot.home, { force: true })
-          } else {
-            rmSync(slot.home, { recursive: true, force: true })
-          }
-        } else {
-          this.log?.('account slot home outside accounts directory, skipping removal', { home: slot.home })
-        }
-      } catch (error) {
-        this.log?.('account slot home could not be removed', { home: slot.home, error: String(error) })
-      }
-    }
+    if (purge) this.purge(slot)
     return slot
+  }
+
+  /** Persist an exact removal before the host stops its owner. */
+  forgetDurably(id: RuntimeId, selected: AccountSlot): AccountSlot {
+    const slot = this.#slots.find(entry => entry === selected && entry.id === id)
+      ?? (selected.id === id && this.#uncertainRemovals.has(selected) ? selected : undefined)
+    if (!slot) throw new Error('The account slot is no longer owned by this runtime.')
+    const position = this.positionOf(slot)
+    const remaining = this.#slots.filter(entry => entry !== slot)
+    const body = `${JSON.stringify({ accounts: remaining }, null, 2)}\n`
+    mkdirSync(dirname(this.file), { recursive: true })
+    const temporary = `${this.file}.tmp-${process.pid}`
+    writeFileSync(temporary, body, 'utf8')
+    try {
+      renameSync(temporary, this.file)
+    } catch (error) {
+      // Some failures can be reported after the rename took effect. Reconcile
+      // only an exact observed body and remember the owner so a retry can
+      // confirm the removal; neither outcome authorizes a home purge here.
+      try {
+        if (readFileSync(this.file, 'utf8') === body) {
+          this.#slots = remaining
+          this.#uncertainRemovals.set(slot, position)
+        }
+      } catch {}
+      throw error
+    }
+    this.#slots = remaining
+    this.#uncertainRemovals.delete(slot)
+    return slot
+  }
+
+  /** Restore an exact row after a failed sign-out, without purging its home. */
+  restoreDurably(slot: AccountSlot, position = this.#slots.length): void {
+    if (this.#slots.includes(slot)) return
+    // Keep the exact owner retryable even if writing the restoration fails.
+    this.#uncertainRemovals.set(slot, position)
+    const restored = [...this.#slots]
+    restored.splice(Math.max(0, Math.min(position, restored.length)), 0, slot)
+    const body = `${JSON.stringify({ accounts: restored }, null, 2)}\n`
+    mkdirSync(dirname(this.file), { recursive: true })
+    const temporary = `${this.file}.tmp-${process.pid}`
+    writeFileSync(temporary, body, 'utf8')
+    try { renameSync(temporary, this.file) } catch (error) {
+      try { if (readFileSync(this.file, 'utf8') === body) { this.#slots = restored; this.#uncertainRemovals.delete(slot) } } catch {}
+      throw error
+    }
+    this.#slots = restored
+    this.#uncertainRemovals.delete(slot)
+  }
+
+  /** Purge only after the owner has stopped and the row has been persisted. */
+  purge(slot: AccountSlot): void {
+    if (this.#homeStillReferenced(slot.home)) {
+      this.log?.('account slot home kept for a retained row')
+      return
+    }
+    // Only ever the farm: every shared entry inside it is a symlink, and
+    // `rm` of a symlink removes the link, never what it points at.
+    try {
+      const accountsDir = resolve(dirname(this.file), 'accounts')
+      if (isUnder(slot.home, accountsDir)) {
+        // If slot.home itself is a symlink, delete the link without recursing into target
+        if (lstatSync(slot.home, { throwIfNoEntry: false })?.isSymbolicLink()) {
+          rmSync(slot.home, { force: true })
+        } else {
+          rmSync(slot.home, { recursive: true, force: true })
+        }
+      } else {
+        this.log?.('account slot home outside accounts directory, skipping removal', { home: slot.home })
+      }
+    } catch (error) {
+      this.log?.('account slot home could not be removed', { home: slot.home, error: String(error) })
+    }
+  }
+  /** A hand-edited roster may share, alias or nest credential homes. */
+  #homeStillReferenced(home: string): boolean {
+    const retained = [...this.#slots, ...this.#uncertainRemovals.keys(), ...this.#heldHomes.values()]
+    if (retained.length === 0) return false
+    // An unreadable or missing path may conceal an alias. Keep the removed
+    // home when either side cannot be resolved, even if that leaves an orphan.
+    const physical = (path: string): string | null => {
+      try { return realpathSync.native(path) } catch { return null }
+    }
+    const removed = physical(home)
+    if (removed === null) return true
+    return retained.some(entry => {
+      const retained = physical(entry.home)
+      return retained === null || retained === removed || isUnder(retained, removed) || isUnder(removed, retained)
+    })
   }
 
   /** Re-mirrors every slot of `agent`. Called on start, before the runtimes come up. */
@@ -442,7 +541,7 @@ export class AccountSlots {
    */
   pruneEmpty(agent: RuntimeId): readonly RuntimeId[] {
     const empty = this.of(agent).filter((slot) => !slotConfigured(slot))
-    for (const slot of empty) this.remove(slot.id)
+    for (const slot of empty) this.remove(slot.id, true, slot)
     if (empty.length > 0) this.log?.('abandoned account slots removed', { count: empty.length })
     return empty.map((slot) => slot.id)
   }
@@ -470,18 +569,18 @@ export class AccountSlots {
     const seen = new Set<string>()
     const own = accountIdentity(primary)
     if (own !== null) seen.add(own)
-    const folded: RuntimeId[] = []
+    const folded: AccountSlot[] = []
     for (const slot of this.of(agent)) {
       const identity = accountIdentity(slot.home)
       if (identity === null) continue // Cannot tell is never the same.
-      if (seen.has(identity)) folded.push(slot.id)
+      if (seen.has(identity)) folded.push(slot)
       else seen.add(identity)
     }
-    for (const id of folded) this.remove(id)
+    for (const slot of folded) this.remove(slot.id, true, slot)
     if (folded.length > 0) {
-      this.log?.('duplicate account slots removed', { count: folded.length, slots: folded })
+      this.log?.('duplicate account slots removed', { count: folded.length, slots: folded.map(slot => slot.id) })
     }
-    return folded
+    return folded.map(slot => slot.id)
   }
 
   #write(): void {

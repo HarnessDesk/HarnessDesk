@@ -105,6 +105,10 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
   const onOpenSettings = vi.fn()
   const onOpenUsage = vi.fn()
   const onSignIn = vi.fn()
+  const signInToHarnessDesk = vi.fn(async () => {})
+  const openHarnessDeskSignIn = vi.fn(async () => {})
+  const cancelHarnessDeskSignIn = vi.fn(async () => {})
+  const signOutOfHarnessDesk = vi.fn(async () => {})
   const claudeAccount = signedIn('olivia@acme.dev')
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -122,7 +126,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     selectRuntime,
-    signOutAgent,
+    signOutAgent, signInToHarnessDesk, openHarnessDeskSignIn, cancelHarnessDeskSignIn, signOutOfHarnessDesk,
   } as unknown as AppStore
   act(() => {
     root.render(
@@ -131,7 +135,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
       </StoreProvider>,
     )
   })
-  return { selectRuntime, signOutAgent, onOpenSettings, onOpenUsage, onSignIn }
+  return { selectRuntime, signOutAgent, onOpenSettings, onOpenUsage, onSignIn, signInToHarnessDesk, openHarnessDeskSignIn, cancelHarnessDeskSignIn, signOutOfHarnessDesk }
 }
 
 const row = (): HTMLButtonElement => {
@@ -208,13 +212,14 @@ it('shows the desk identity and names the default agent on hover', () => {
   expect(seat.querySelector('[data-slot="dot"]')).toBeNull()
 })
 
-it('marks the default in the menu, chooses on a seat’s press, and signs out of the default agent', () => {
+it('marks the default in the menu, chooses on a seat’s press, and leaves signing out to the account’s page', () => {
   const { selectRuntime } = mount()
   click(row())
   const chosen = document.querySelector('[role="menuitem"][data-current]')
   expect(chosen?.textContent).toContain('Shane-Claude')
-  // Sign-out is the default agent's, not the focused conversation's.
-  expect(document.body.textContent).toContain('Sign out of Claude')
+  // Signing out of an agent is on that account's page in Settings, once,
+  // rather than a destructive row beside Settings in a menu opened to switch.
+  expect(document.body.textContent).not.toContain('Sign out of Claude')
   expect(document.body.textContent).not.toContain('Sign out of Codex')
   if (!chosen) throw new Error('no current seat')
   click(chosen)
@@ -327,7 +332,7 @@ it('keeps scoped sign-in in the account picker without listing every signed-out 
   const { onSignIn } = mount({ runtimes: [one, two], activeRuntime: one.id,
     accountsByRuntime: { [one.id]: signedOut, [two.id]: signedOut } })
   click(row())
-  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Sign in to')
+  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Sign in to Agent')
   click(document.querySelector('[role="menuitem"][data-current]')!)
   const signIn = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Sign in to Agent One')!
   expect(signIn).toBeDefined()
@@ -378,26 +383,18 @@ it.each([
   else expect(onSignIn).toHaveBeenCalledWith()
 })
 
-it('closes when something takes the screen, and a sign-out it was asking about is not waiting when it opens again', () => {
+it('closes when something takes the screen, and opens again on the next press', () => {
   /* The floating sidebar sends the event as it is put away. Left open, the
-     menu came back with the sidebar, the sign-out still asking to be
-     confirmed — measured in a real engine. */
+     menu came back with the sidebar — measured in a real engine. */
   mount()
   click(row())
-  const ask = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
-    item.textContent?.includes('Sign out of'),
-  )
-  if (!ask) throw new Error('no sign-out row')
-  click(ask)
-  expect(document.body.textContent).toContain('need to sign in again')
+  expect(document.querySelector('[role="menu"]')).not.toBeNull()
 
   act(() => dismissOverlays())
   expect(document.querySelector('[role="menu"]')).toBeNull()
 
   click(row())
   expect(document.querySelector('[role="menu"]')).not.toBeNull()
-  expect(document.body.textContent).toContain('Sign out of')
-  expect(document.body.textContent).not.toContain('need to sign in again')
 })
 
 it('Escape closes the menu and says so, so a sidebar floating under it stays', () => {
@@ -420,7 +417,7 @@ it('keeps the signed-out account mark and readiness in the menu', () => {
   expect(badge?.querySelector('.brand-claude')).not.toBeNull()
   expect(seat.querySelector('[data-tint]')).toBeNull()
   expect(seat.querySelector('[data-slot="dot"]')).toBeNull()
-  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Needs sign-in')
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Sign in needed')
   expect(seat.getAttribute('title')).toBe('New sessions run as Claude')
 })
 
@@ -515,14 +512,14 @@ it('shows one honest empty-usage note without listing unreported agents', () => 
   expect(onOpenUsage).toHaveBeenCalledWith(CLAUDE)
 })
 
-it('keeps Settings and sign-out outside account and usage details', () => {
+it('keeps Settings outside account and usage details, and ends the menu with it', () => {
   mount()
   click(row())
   const menu = document.querySelector('[role="menu"]')!
   const rows = [...menu.querySelectorAll('[role="menuitem"]')]
-  expect(rows.at(-2)?.textContent).toContain('Settings')
-  expect(rows.at(-1)?.textContent).toContain('Sign out of')
-  expect(rows.at(-2)?.previousElementSibling?.matches('[data-menu-separator]')).toBe(true)
+  expect(rows.at(-1)?.textContent).toContain('Settings')
+  expect(rows.at(-1)?.previousElementSibling?.matches('[data-menu-separator]')).toBe(true)
+  expect(menu.textContent).not.toContain('Sign out of Claude')
 })
 it('shows your chosen name and face without the default agent mark', () => {
   mount({ profile: { name: 'Jane', avatar: 'wizard' } })
@@ -542,17 +539,51 @@ it('draws the house mark until a face is chosen', () => {
   expect(seat.querySelector('.brand-harnessdesk')).not.toBeNull()
 })
 
-it('opens your profile from the top of the menu', () => {
-  const { onOpenSettings } = mount({ profile: { name: 'Jane' } })
+it('starts HarnessDesk sign-in from the top row without changing agent sign-in', async () => {
+  const { signInToHarnessDesk, onSignIn } = mount()
   click(row())
-  const you = document.querySelector('[role="menu"] [role="menuitem"]')
-  if (!you) throw new Error('no menu')
-  expect(you.textContent).toContain('Jane')
-  // Every profile is kept on this Mac, so a chip saying so marked nothing.
-  expect(you.textContent).not.toContain('Local')
-  click(you)
-  expect(onOpenSettings).toHaveBeenCalledWith('profile')
-  expect(document.querySelector('[role="menu"]')).toBeNull()
+  const you = document.querySelector('[role="menu"] [role="menuitem"]')!
+  expect(you.textContent).toContain('Sign in to HarnessDesk…')
+  expect(you.textContent).toContain('Open this desk from your phone')
+  await act(async () => click(you))
+  expect(signInToHarnessDesk).toHaveBeenCalledOnce()
+  expect(onSignIn).not.toHaveBeenCalled()
+})
+
+it('keeps the matching code and browser retry above the seat while sign-in is pending', async () => {
+  const { openHarnessDeskSignIn, cancelHarnessDeskSignIn } = mount({ harnessDeskAccount: {
+    status: 'pending', desk: { name: 'Demo desk', reachable: false }, phones: [],
+    pending: { userCode: 'ABCD-EFGH', verifyUrl: 'https://app.harnessdesk.app/link#code=ABCD-EFGH', expiresAt: Math.floor(Date.now() / 1000) + 60 },
+  } })
+  expect(container.textContent).toContain('Finish in your browser')
+  expect(container.textContent).toContain('app.harnessdesk.app')
+  expect(container.textContent).toContain('ABCD-EFGH')
+  const button = (name: string) => [...container.querySelectorAll('button')].find(one => one.textContent === name)!
+  await act(async () => button('Open the page again').click())
+  expect(openHarnessDeskSignIn).toHaveBeenCalledOnce()
+  await act(async () => button('Cancel').click())
+  expect(cancelHarnessDeskSignIn).toHaveBeenCalledOnce()
+})
+
+it('uses the HarnessDesk identity and confirms its own sign-out separately', async () => {
+  const { signOutOfHarnessDesk, signOutAgent, onOpenSettings } = mount({ harnessDeskAccount: {
+    status: 'signedIn', desk: { name: 'Demo desk', reachable: true }, phones: [{ deviceId: 'AAAAAAAAAAAAAAAAAAAAAA', name: 'iPhone', lastSeenAt: null }],
+    account: { name: 'Jane Doe', email: 'jane@example.com', pictureUrl: 'https://example.com/picture.png', pictureDataUrl: 'data:image/png;base64,AAAA' },
+  } })
+  expect(row().textContent).toContain('Jane Doe')
+  expect(row().querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,AAAA')
+  click(row())
+  click(document.querySelector('[role="menu"] [role="menuitem"]')!)
+  expect(document.body.textContent).toContain('Linked phones')
+  const item = [...document.querySelectorAll('[role="menuitem"]')].find(one => one.textContent?.trim() === 'Sign out…')!
+  click(item)
+  const dialog = document.querySelector('[role="alertdialog"]')!
+  expect(dialog.textContent).toContain('Sign out of HarnessDesk?')
+  expect(dialog.textContent).toContain('agent accounts stay signed in')
+  await act(async () => [...dialog.querySelectorAll('button')].find(one => one.textContent === 'Sign out')!.click())
+  expect(signOutOfHarnessDesk).toHaveBeenCalledOnce()
+  expect(signOutAgent).not.toHaveBeenCalled()
+  expect(onOpenSettings).not.toHaveBeenCalled()
 })
 
 /** jsdom lays nothing out, so a width is whatever the test says it is. */
@@ -583,7 +614,7 @@ it('says your whole name on hover only where the row cuts it', () => {
   expect(row().getAttribute('title')).toMatch(/^New sessions run as /)
 
   click(row())
-  expect(document.querySelector('[role="menu"] [data-menu-label]')?.textContent).toBe(name)
+  expect(document.querySelector('[role="menu"] [data-menu-label]')?.textContent).toBe('Sign in to HarnessDesk…')
 })
 
 it('gives every seat one line, and keeps the identity for the tooltip', () => {
@@ -625,7 +656,7 @@ it('leaves an agent waiting for a sign-in to Add an account…, unless it is the
   click(row())
   const chair = document.querySelector('[role="menuitem"][data-current]')
   expect(chair?.textContent).toContain('Claude Code')
-  expect(chair?.textContent).toContain('Needs sign-in')
+  expect(chair?.textContent).toContain('Sign in needed')
 })
 
 it('keeps Usage available without inventing a figure where nothing is metered', () => {
@@ -702,7 +733,7 @@ it('says what is wrong with a seat that has no figure, in the figure’s place',
   const current = document.querySelector('[role="menuitem"][data-current]')
   if (!current) throw new Error('no current seat')
   click(current)
-  expect(seatNamed('shane@example.com')?.textContent).toContain('Unavailable')
+  expect(seatNamed('shane@example.com')?.textContent).toContain('Not working')
 })
 
 it.each([true, false])('shows unavailable readiness ahead of cached usage when current is %s', current => {
@@ -719,7 +750,7 @@ it.each([true, false])('shows unavailable readiness ahead of cached usage when c
     click(selected)
   }
   const seat = seatNamed('jane@example.com')
-  expect(seat?.querySelector('[data-menu-trailing]')?.textContent).toContain('Unavailable')
+  expect(seat?.querySelector('[data-menu-trailing]')?.textContent).toContain('Not working')
   expect(seat?.querySelector('[data-menu-trailing]')?.textContent).not.toContain('60%')
   // The cached reading remains available in Usage, not on the unavailable seat.
   expect(openUsage().textContent).toContain('60%')
@@ -730,7 +761,7 @@ it('shows sign-in readiness ahead of cached usage for the default agent', () => 
     usage: [usageReport(CODEX, [lane({ id: 'weekly', usedPercent: 40 })])] })
   click(row())
   const selected = document.querySelector('[role="menuitem"][data-current]')!
-  expect(selected.querySelector('[data-menu-trailing]')?.textContent).toContain('Needs sign-in')
+  expect(selected.querySelector('[data-menu-trailing]')?.textContent).toContain('Sign in needed')
   expect(selected.querySelector('[data-menu-trailing]')?.textContent).not.toContain('60%')
 })
 
@@ -746,7 +777,7 @@ it('keeps an agent that has not answered yet, without calling it signed out', ()
     item.textContent?.includes('OpenAI Codex'),
   )
   expect(codexSeat).toBeDefined()
-  expect(codexSeat?.textContent).not.toContain('Needs sign-in')
+  expect(codexSeat?.textContent).not.toContain('Sign in needed')
 })
 
 const openPicker = (): Element[] => {
@@ -816,7 +847,7 @@ it('does not call an agent that has not answered signed out — not on its line,
   expect(codexSeat?.querySelector('[data-off]')).toBeNull()
 })
 
-it('names the agent, not "Unavailable", for one that has not answered and is also broken', () => {
+it('names the agent, not "Not working", for one that has not answered and is also broken', () => {
   // `state` is `broken` here, not `unknown` — health outranks the account
   // check in readinessOf — so the identity has to read `answered`, not the
   // state, or it would repeat the figure word the tooltip is meant to avoid.
@@ -902,7 +933,7 @@ it('calls an account-less row under a heading what it is, not the heading or the
   })
   click(row())
   const current = document.querySelector('[role="menuitem"][data-current]')
-  expect(current?.textContent).toBe('No accountNeeds sign-in')
+  expect(current?.textContent).toBe('No accountSign in needed')
 })
 
 it('keeps a signed-out default listed under its heading when the picker is open, drawn as what it is', () => {
@@ -924,7 +955,7 @@ it('keeps a signed-out default listed under its heading when the picker is open,
   const group = groupNamed('OpenAI Codex')
   const rows = [...(group?.querySelectorAll('[role="menuitem"]') ?? [])]
   // Listed, though its signed-out sibling is not: it is the chair you are in.
-  expect(rows.map((one) => one.textContent?.trim())).toEqual(['jane', 'No accountNeeds sign-in'])
+  expect(rows.map((one) => one.textContent?.trim())).toEqual(['jane', 'No accountSign in needed'])
   const current = rows.find((one) => one.hasAttribute('data-current'))
   expect(current).not.toBe(folded)
   expect(folded.getAttribute('aria-expanded')).toBe('true')
@@ -986,10 +1017,10 @@ it('calls an unanswered account under a heading unknown even when its own health
   })
   openPicker()
   const names = [...(groupNamed('OpenAI Codex')?.querySelectorAll('[role="menuitem"]') ?? [])].map((seat) => seat.textContent?.trim())
-  // The broken slot still carries its own readiness word ("Unavailable") —
+  // The broken slot still carries its own readiness word ("Not working") —
   // that is a real fact readiness always draws — but its label is "Unknown
   // account", never "No account".
-  expect(names).toEqual(['jane', 'Unknown accountUnavailable'])
+  expect(names).toEqual(['jane', 'Unknown accountNot working'])
   expect(names.some((name) => name?.startsWith('No account'))).toBe(false)
 })
 
@@ -1004,40 +1035,22 @@ it('gear is independent of the account menu and reflects Settings mode', () => {
   expect(document.querySelector('[role="menu"]')).toBeNull()
 })
 
-it('Sign out closes the menu, and a failed confirmation stays retryable', async () => {
-  const { signOutAgent } = mount()
-  signOutAgent.mockRejectedValueOnce(new Error('Sign out unavailable'))
-  click(row())
-  const ask = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node => node.textContent?.includes('Sign out of'))!
-  click(ask)
-  expect(document.querySelector('[role="menu"]')).toBeNull()
-  expect(signOutAgent).not.toHaveBeenCalled()
-  const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(node => node.textContent?.trim() === 'Sign out')!
-  await act(async () => { confirm.click() })
-  expect(signOutAgent).toHaveBeenCalledTimes(1)
-  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Sign out unavailable')
-  const keep = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(node => node.textContent?.trim() === 'Keep signed in')!
-  click(keep)
-  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
-})
-
-
-it('keeps the root menu to five actions even with a large account roster', () => {
+it('keeps the root menu to four actions even with a large account roster', () => {
   const others = Array.from({ length: 18 }, (_, index) => runtime(`agent-${index}`, `Agent ${index}`, 'codex'))
   mount({ runtimes: [claude, ...others], accountsByRuntime: Object.fromEntries([
     [CLAUDE, signedIn('dev@example.com')], ...others.map(info => [info.id, signedIn(`account-${info.id}@example.com`)]),
   ]) })
   click(row())
   const menu = document.querySelector('[role="menu"]')!
-  expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(5)
+  expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(4)
   expect(menu.textContent).not.toContain('Agent 17')
   expect(menu.textContent).not.toContain('No usage reported')
   const account = menu.querySelector('[role="menuitem"][data-current]')!
   click(account)
-  expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(5)
+  expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(4)
   expect(account.getAttribute('aria-expanded')).toBe('true')
   openUsage()
-  expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(5)
+  expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(4)
   expect(account.getAttribute('aria-expanded')).toBe('false')
   expect(usageTrigger().getAttribute('aria-expanded')).toBe('true')
 })
@@ -1114,4 +1127,18 @@ it('shows the quota once at the root while account choices keep their readings',
   click(current)
   const choice = [...document.querySelectorAll('[role="menuitem"][data-current]')].find(one => one !== current)!
   expect(choice.querySelector('[data-menu-trailing]')?.textContent).toContain('60%')
+})
+
+it('with addresses hidden, the seat menu names accounts and never draws an address', () => {
+  mount({ hideAccountAddresses: true })
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')!
+  click(current)
+  const html = document.body.innerHTML
+  expect(html).not.toContain('shane@example.com')
+  expect(html).not.toContain('olivia@acme.dev')
+  expect(html).not.toContain('acme.dev')
+  // The names are still there to choose by.
+  expect(document.body.textContent).toContain('Shane-Claude')
+  expect(document.body.textContent).toContain('shane')
 })

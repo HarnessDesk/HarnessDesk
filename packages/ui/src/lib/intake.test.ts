@@ -133,6 +133,11 @@ describe('formatMeterUsd', () => {
 })
 
 describe('triggerRowWords', () => {
+  it('names the two opt-in PR events', () => {
+    expect(triggerRowWords(prDefinition({ on: { kind: 'pull-request', events: ['checks-failed', 'review-commented'] } })).title)
+      .toBe('When a pull request has failing checks or receives a review comment, review it (review-pr)')
+  })
+
   it('separates a human name from the trigger id and concurrency facts', () => {
     expect(triggerRowWords(prDefinition({ id: 'fork-review' }))).toEqual({ title: 'When a pull request opens or is pushed, review it (review-pr)', facts: 'fork-review · at most 4 at once' })
     expect(triggerRowWords(issueDefinition())).toEqual({ title: 'When an issue is labelled, triage it (triager)', facts: 'triage-issue · once at a time' })

@@ -11,7 +11,7 @@ import { Settings } from './Settings'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 it.each([
-  ['profile', 'Profile'], ['general', 'General'], ['appearance', 'Appearance'],
+  ['profile', 'Account'], ['general', 'General'], ['appearance', 'Appearance'],
   ['notifications', 'Notifications'], ['shortcuts', 'Keyboard shortcuts'],
   ['workspaces', 'Workspaces'], ['archive', 'Archive'], ['history', 'History'],
   ['storage', 'Storage'], ['runtimes', 'Runtimes'], ['models', 'Models'],

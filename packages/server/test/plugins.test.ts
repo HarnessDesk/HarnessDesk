@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -28,6 +28,12 @@ const FIXTURE = fileURLToPath(
 )
 
 const settle = (ms = 80): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Inspects, then installs what was shown, as the install dialog does. */
+const installShown = async (client: Client, specifier: string): Promise<unknown> => {
+  const { manifestDigest } = (await client.call('plugin/inspect', { specifier })) as { manifestDigest: string }
+  return client.call('plugin/install', { specifier, manifestDigest })
+}
 
 class Client {
   #socket: WebSocket
@@ -109,9 +115,11 @@ test('a plugin is inspected before it is installed', async (t) => {
     name: string
     permissions: string[]
     alreadyInstalled: boolean
+    manifestDigest: string
   }
 
   assert.equal(inspected.id, 'sample')
+  assert.match(inspected.manifestDigest, /^[0-9a-f]{64}$/)
   assert.equal(inspected.name, 'Sample plugin')
   assert.equal(inspected.alreadyInstalled, false)
   // The consent dialog is built from this, so it has to be readable prose.
@@ -126,7 +134,7 @@ test('installing loads the plugin and its tools become callable', async (t) => {
   const client = await Client.connect(server)
   t.after(() => client.close())
 
-  const installed = (await client.call('plugin/install', { specifier: FIXTURE })) as {
+  const installed = (await installShown(client, FIXTURE)) as {
     pluginId: string
   }
   assert.equal(installed.pluginId, 'sample')
@@ -151,7 +159,7 @@ test('an installed plugin is still held to its manifest', async (t) => {
   const client = await Client.connect(server)
   t.after(() => client.close())
 
-  await client.call('plugin/install', { specifier: FIXTURE })
+  await installShown(client, FIXTURE)
   await settle()
   extensions.setWorkspace({ root: '/tmp', branch: null })
 
@@ -167,7 +175,7 @@ test('uninstalling removes the plugin and its contributions', async (t) => {
   const client = await Client.connect(server)
   t.after(() => client.close())
 
-  await client.call('plugin/install', { specifier: FIXTURE })
+  await installShown(client, FIXTURE)
   await settle()
   assert.equal(extensions.list('tool').length > 0, true)
 
@@ -183,13 +191,40 @@ test('installing the same plugin twice replaces it rather than duplicating', asy
   const client = await Client.connect(server)
   t.after(() => client.close())
 
-  await client.call('plugin/install', { specifier: FIXTURE })
+  await installShown(client, FIXTURE)
   await settle()
-  await client.call('plugin/install', { specifier: FIXTURE })
+  await installShown(client, FIXTURE)
   await settle()
 
   const plugins = (await client.call('plugin/list', {})) as PluginInstance[]
   assert.equal(plugins.length, 1, 'two live revisions of one id would be ambiguous')
+})
+
+test('an install is held to the manifest that was shown', async (t) => {
+  const { server } = await start(t)
+  const client = await Client.connect(server)
+  t.after(() => client.close())
+  const folder = await mkdtemp(join(tmpdir(), 'harnessdesk-source-'))
+  t.after(() => rm(folder, { recursive: true, force: true }))
+  await cp(FIXTURE, folder, { recursive: true })
+
+  const { manifestDigest } = (await client.call('plugin/inspect', { specifier: folder })) as { manifestDigest: string }
+  // Between the dialog and the click, the source asks for more.
+  const path = join(folder, 'harnessdesk.plugin.json')
+  const manifest = JSON.parse(await readFile(path, 'utf8')) as { permissions: Record<string, unknown> }
+  manifest.permissions['shell'] = true
+  await writeFile(path, JSON.stringify(manifest))
+
+  await assert.rejects(
+    () => client.call('plugin/install', { specifier: folder, manifestDigest }),
+    /changed after it was shown to you/,
+  )
+  assert.deepEqual(await client.call('plugin/list', {}), [], 'nothing unseen is installed')
+  await assert.rejects(
+    () => client.call('plugin/install', { specifier: folder }),
+    /manifestDigest/,
+    'an install that carries no shown manifest is refused at the wire',
+  )
 })
 
 test('a bad specifier fails with something a user can act on', async (t) => {

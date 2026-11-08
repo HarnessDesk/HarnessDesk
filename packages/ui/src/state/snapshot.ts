@@ -1,6 +1,7 @@
 import { DEFAULT_DIFF_PREFS, type DiffPrefs } from '../editor'
 import type { BrowserTileMount } from '../lib/browser-tiles'
 import type {
+  HarnessDeskAccountStatus,
   HistoryImportState,
   AccountStatus,
   CapabilityContribution,
@@ -48,6 +49,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefsMap } from '../lib/accounts'
+import type { AccountPoolMap } from '../lib/account-pool'
 
 import type { Profile } from '../lib/profile'
 
@@ -264,6 +266,10 @@ export interface TeamFrameRequest {
 }
 
 export interface AppSnapshot {
+  /** Startup capability proved by the host handshake; absent until then. */
+  readonly leadAvailable: boolean
+  /** The desk was started with the phone link on; the Phone page and its command exist only then. */
+  readonly phoneLink: boolean
   readonly teamFrameRequests: Readonly<Record<string, TeamFrameRequest>>
   /** Per-project state of local, opt-in commit-to-Seat capture. */
   readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
@@ -327,12 +333,25 @@ export interface AppSnapshot {
    */
   readonly accountPrefs: AccountPrefsMap
   /**
+   * The order each agent's accounts are used in, and what happens when the
+   * one new sessions run as is out. Keyed by `agentKey`; see
+   * `lib/account-pool.ts`.
+   */
+  readonly accountPools: AccountPoolMap
+  /**
+   * Account names only, wherever an account is drawn: the address waits for
+   * a hover. For recording a screen or sharing one without anybody's email
+   * in it — Settings › General.
+   */
+  readonly hideAccountAddresses: boolean
+  /**
    * Who you are on this desk — the name and face the seat, its menu, the top
    * of the settings rail and your messages in a room all draw. Only what
    * differs from the default is here; `{}` is "HarnessDesk" and the house
    * mark. Read it through `profileName` and `ProfileFace`, never the fields,
    * so a signed-in account can supply it later in one place. `lib/profile.ts`.
    */
+  readonly harnessDeskAccount: HarnessDeskAccountStatus | null
   readonly profile: Profile
   /**
    * Sign-ins in flight, by runtime. Keyed rather than singular because the
@@ -658,6 +677,13 @@ export interface AppSnapshot {
    * the body attribute is still `data-hd-interface`.
    */
   readonly look: 'desk' | 'studio'
+  /**
+   * How a page holds its groups. `cards` (the default) puts each group of
+   * rows and each rail section in one card; `sheet` lays them flat on the
+   * page with hairlines between. Entirely token values — see
+   * design/foundation/tokens.sheet.css.
+   */
+  readonly surface: 'cards' | 'sheet'
   /** How the session list draws itself; persisted like the theme. */
   /**
    * Tasks the person reworded, by session key. The Tasks panel is a read of
@@ -852,6 +878,8 @@ export const withClosedTurnFiles = (closed: ReadonlySet<string>, session: string
   new Set(closed).add(closedTurnFilesKey(session, turn))
 
 const EMPTY: AppSnapshot = {
+  leadAvailable: false,
+  phoneLink: false,
   teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),
@@ -875,6 +903,9 @@ const EMPTY: AppSnapshot = {
   chatsFolderProblem: null,
   accountsByRuntime: {},
   accountPrefs: {},
+  accountPools: {},
+  hideAccountAddresses: false,
+  harnessDeskAccount: null,
   profile: {},
   logins: {},
   limits: null,
@@ -961,6 +992,7 @@ const EMPTY: AppSnapshot = {
   corners: 'default',
   faces: 'round',
   look: 'desk',
+  surface: 'cards',
   planEdits: {},
   listPrefs: { density: 'compact', agent: null, sort: 'recency', pinned: [], pinnedSessions: [], collapsed: [], panelsCollapsed: [], othersOpen: false },
   editorPrefs: DEFAULT_EDITOR_PREFS,

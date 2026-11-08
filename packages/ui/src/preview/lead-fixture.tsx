@@ -1,0 +1,127 @@
+import { leadStage, NO_CAPABILITIES, runtimeId, type LeadAcceptanceContract, type LeadStageFacts, type LeadCard, type LeadMemory, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
+
+/** Synthetic data only. No desktop, key store, transport connection or provider. */
+export const leadRuntime: RuntimeInfo = { id: runtimeId('fixture'), name: 'Fixture', capabilities: NO_CAPABILITIES, presentation: { name: 'Demo runtime' } }
+export const leadContract: LeadAcceptanceContract = { version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Make the empty state keyboard accessible',
+  project: { id: 'demo', path: '/workspace/demo' }, policyRevision: 1,
+  steps: [{ id: 'work', title: 'Implement and review', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: { task: 'Check focus order' }, attendance: 'attended',
+    assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture', model: 'demo-model' }, ceiling: 'edit' },
+      { role: 'review', agent: 'reviewer', seat: { runtime: 'fixture', model: 'demo-model' }, ceiling: 'read' }] }],
+  assertions: [{ id: 'checks', kind: 'check', description: 'Keyboard checks pass' }, { id: 'review', kind: 'review', description: 'Fresh review approves' }, { id: 'findings', kind: 'blocking-findings', description: 'Blocking findings resolved' }],
+  caps: { usdMicros: 5000000, rounds: 4 } }
+export const leadPlan: Extract<LeadCard, { type: 'plan' }> = { version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: leadContract.digest, contract: leadContract }
+export const leadRepeatingContract: LeadAcceptanceContract = { ...leadContract, digest: 'c'.repeat(64), goal: 'Update the dependencies in acme-web and open a pull request.',
+  project: { id: 'acme-web', path: '/workspace/acme-web' }, repeat: { every: 'mondays', at: '09:00' }, caps: { usdMicros: 3000000, rounds: 2 } }
+export const leadRepeatingPlan: Extract<LeadCard, { type: 'plan' }> = { ...leadPlan, id: 'repeat-plan', contractDigest: leadRepeatingContract.digest, contract: leadRepeatingContract }
+export const leadSecondLook: Extract<LeadCard, { type: 'second-look' }> = { version: 1, id: 'look-1', revision: 1, type: 'second-look', contractDigest: leadContract.digest,
+  logicalGoalId: 'goal-demo', runId: 'run-demo', stopKey: 'stop-demo', said: 'Blocked on #231.', found: '#231 merged at 13:42.', did: 'Restarted, round 2 of 3.' }
+export const leadAllowanceWarning: Extract<LeadCard, { type: 'allowance-warning' }> = { version: 1, id: '80-demo', revision: 1, type: 'allowance-warning', contractDigest: leadContract.digest,
+  logicalGoalId: 'goal-demo', usdMicros: 4000000, caps: leadContract.caps }
+export const leadBudget = { version: 1 as const, logicalGoalId: 'goal-demo', revision: 3, caps: leadContract.caps, leadUsdMicros: 12000, workerUsdMicros: 250000, reservedUsdMicros: 0, roundsAdmitted: 1, spend: 'known' as const, stop: null }
+export const leadWaiting: Extract<LeadCard, { type: 'waiting' }> = { version: 1, id: 'waiting', revision: 2, type: 'waiting', kind: 'person', runId: 'run-demo', personCardId: 'person-demo', summary: 'The empty state now keeps focus on its next action.', contractDigest: leadContract.digest,
+  assertions: [{ assertionId: 'checks', status: 'passed', revision: 2, contractRevision: 1, evidence: [{ kind: 'check', id: 'keyboard', revision: 'head-demo' }], reason: null }] }
+export const leadResult: Extract<LeadCard, { type: 'result' }> = { version: 1, id: 'result', revision: 3, type: 'result', outcome: 'reviewed', contractDigest: leadContract.digest, summary: 'Ready for your acceptance. Inspect the patch in Changes.', assertions: leadContract.assertions.map(assertion => ({ assertionId: assertion.id, status: 'passed', revision: 3, contractRevision: leadContract.revision, evidence: [{ kind: assertion.kind === 'review' ? 'review' : assertion.kind === 'blocking-findings' ? 'finding' : 'check', id: assertion.id, revision: 'head-demo' }], reason: null })), budget: leadBudget }
+export const leadProjection = (over: Partial<LeadWindowProjection> = {}): LeadWindowProjection => {
+  const projection: LeadWindowProjection = { stage: 'idle', stageReason: 'idle', version: 1, revision: 10,
+  settings: { version: 1, name: 'dex', nameChosen: true, model: 'demo-model', key: { configured: true, protection: 'encrypted' }, policy: { version: 1, revision: 1, mode: 'default', rules: [] }, caps: leadContract.caps, follow: { checks: true, reviews: true } },
+  thread: { version: 1, id: 'lead', revision: 10, state: 'draft', project: leadContract.project, olderMessages: 0, messages: [], cards: [] },
+  requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, ...over }
+  const pending = projection.thread.cards.find(card => ['plan', 'permission-change', 'budget-change', 'branch-ownership'].includes(card.type) || card.type === 'waiting' && card.kind === 'person')
+  const { stage, reason: stageReason } = leadStage({ kind: 'lead', state: projection.thread.state,
+    pendingPersonCard: pending?.type as Extract<LeadStageFacts, { kind: 'lead' }>['pendingPersonCard'] ?? null,
+    resultReady: projection.thread.cards.some(card => card.type === 'result' && card.outcome === 'reviewed'),
+    workerApproval: projection.thread.cards.some(card => card.type === 'waiting' && card.kind === 'worker-approval') || (projection.personActions ?? []).some(action => action.kind === 'worker-approval'),
+    checkToRun: (projection.personActions ?? []).some(action => action.kind === 'check'), waitReason: projection.waitReason, requestInFlight: projection.requestInFlight, chatEffectQueued: false })
+  return { ...projection, stage: over.stage ?? stage, stageReason: over.stageReason ?? stageReason }
+}
+
+/** The person's own files, as Settings › Lead shows them: one weekday task, quiet nights, one kept line and one offered. */
+export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', to: '07:00' }, tasks: [
+  { id: 'repeat-repeat-plan', title: 'Update acme-web dependencies', goal: leadRepeatingContract.goal, project: leadRepeatingContract.project.path, every: 'mondays', at: '09:00', enabled: true, lastRunAt: Date.parse('2026-10-26T09:00:00Z'), approved: { contract: leadRepeatingContract, contractDigest: leadRepeatingContract.digest }, perRunCaps: leadRepeatingContract.caps, paused: false, runs: [
+    { slot: Date.parse('2026-10-19T09:00:00Z'), at: Date.parse('2026-10-19T09:00:00Z'), state: 'started', logicalGoalId: 'repeat-goal-one', outcome: 'accepted', usdMicros: 1200000, rounds: 2 },
+    { slot: Date.parse('2026-10-26T09:00:00Z'), at: Date.parse('2026-10-26T09:00:00Z'), state: 'skipped', reason: 'The last run still waits for you.' }] },
+  { id: 'task-tidy', title: 'Morning tidy', goal: 'Close branches merged last week and list what is left.', every: 'weekdays', at: '09:00', enabled: true, lastRunAt: null },
+  { id: 'task-notes', title: 'Release notes draft', goal: 'Draft the notes for what landed this week.', every: 'fridays', at: '16:00', enabled: false, lastRunAt: null }] }
+export const leadMemory: LeadMemory = { version: 1, items: [
+  { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
+  { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
+export const LEAD_SCENES = ['ask-options', 'repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed'] as const
+export type LeadScene = typeof LEAD_SCENES[number]
+export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
+  const base = leadProjection(), thread = { ...base.thread }
+  let projection = base
+  if (!['loading', 'empty', 'goal-composer', 'opening-jobs', 'wake-ledger'].includes(scene) && !scene.startsWith('settings-')) thread.messages = [{ version: 1, id: 'goal', revision: 1, role: 'user', text: leadContract.goal }]
+  if (['pending-plan', 'consent-expired', 'stale-card-replacement', 'narrow', 'app-shell'].includes(scene)) { thread.cards = [{ ...leadPlan, revision: scene === 'consent-expired' || scene === 'stale-card-replacement' ? 2 : 1 }]; thread.state = 'awaiting-plan'; thread.cardPositions = { plan: 2 } }
+  if (scene === 'repeating-plan') { thread.cards = [leadRepeatingPlan]; thread.state = 'awaiting-plan'; thread.cardPositions = { 'repeat-plan': 2 } }
+  if (scene === 'second-look') { thread.cards = [leadSecondLook]; thread.contract = leadContract; thread.state = 'running' }
+  if (scene === 'allowance-warning') { thread.cards = [leadAllowanceWarning]; thread.contract = leadContract; thread.state = 'running'; thread.budget = { ...leadBudget, leadUsdMicros: 1000000, workerUsdMicros: 3000000 } }
+  if (scene === 'stale-card-replacement') thread.cards = [{ ...leadPlan, revision: 2, contractDigest: 'b'.repeat(64), contract: { ...leadContract, revision: 2, digest: 'b'.repeat(64), goal: 'Keep focus after the empty state action completes' } }]
+  if (thread.cards.some(card => card.type === 'plan')) projection = { ...projection, wayOut: 'decide-plan' }
+  if (scene === 'waiting') { thread.cards = [leadWaiting]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { waiting: 3 } }
+  if (scene === 'result-person-gate') { thread.cards = [leadResult]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.cardPositions = { result: 3 } }
+  // A check that ran and said no, and a review that approved without confirming it: the card says each in fixed words.
+  if (scene === 'evidence-failed') { thread.cards = [{ ...leadWaiting, summary: 'Not ready yet. One check failed and the review goes again.', assertions: leadResult.assertions.map(result =>
+    result.assertionId === 'checks' ? { ...result, status: 'failed' as const, reason: 'Recorded evidence failed: keyboard' }
+      : result.assertionId === 'review' ? { ...result, status: 'failed' as const, reason: 'hedged-approval' } : result) }]; thread.state = 'running'; thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { waiting: 3 } }
+  if (['following', 'handback-running', 'branch-released', 'branch-rewritten'].includes(scene)) {
+    const head = 'b'.repeat(40)
+    thread.state = scene === 'handback-running' ? 'running' : scene === 'branch-rewritten' ? 'waiting-for-user' : 'following'
+    thread.contract = leadContract
+    thread.pr = { repository: 'acme/widgets', number: 12, branch: 'repair-focus', head, state: 'open', at: 1,
+      branchOwner: scene.startsWith('branch-') ? 'person' : 'lead', check: { head, state: scene === 'handback-running' ? 'failed' : 'pending', total: 3 }, review: { id: 1, head, state: 'approved' },
+      ...(scene.startsWith('branch-') ? { observedHead: 'c'.repeat(40), branchChange: scene === 'branch-rewritten' ? 'rewrite' : 'fast-forward', releaseReason: 'Another writer updated the branch.' } : {}) }
+    if (scene === 'handback-running') thread.handback = { key: 'repair-2', event: 'checks-failed', kind: 'checks', head, runId: 'run-demo', teamId: 'team-demo', round: 2, at: 1, stage: 'running', publishedHead: null }
+    if (scene.startsWith('branch-')) thread.cards = [{ version: 1, id: 'branch', type: 'branch-ownership', revision: 1, contractDigest: leadContract.digest, repository: 'acme/widgets', number: 12, observedHead: 'c'.repeat(40), summary: scene === 'branch-rewritten' ? 'The branch was rewritten outside this goal. Automatic repairs are paused.' : 'Someone else pushed to this branch. Automatic repairs are paused.' }]
+  }
+  if (scene === 'handback-limit') { thread.state = 'waiting-for-user'; projection = { ...projection, wayOut: 'resume', waitReason: 'lead-handback-limit' } }
+  if (scene === 'push-card') { thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.cards = [{ ...leadResult, publication: 'push' }] }
+  if (scene === 'pending-plan') thread.origin = { source: 'pull-request', event: 'checks-failed', subject: 'acme/widgets#12', url: 'https://github.com/acme/widgets/pull/12' }
+  if (scene === 'required-check') { thread.state = 'running'; thread.contract = leadContract; projection = { ...projection, personActions: [{ kind: 'check', id: 'check-demo', runId: 'run-demo', name: 'verify', command: 'node --test' }] } }
+  if (scene === 'worker-approval') { projection = { ...projection, savedApprovals: [{ id: 'rule-demo', target: '/workspace/demo/src/demo.ts', count: 3, entries: [{ id: 'audit-3', number: 3, diff: '+export const demo = 2' }, { id: 'audit-2', number: 2, diff: '+export const demo = 1' }] }], personActions: [{ kind: 'worker-approval', id: 'waiting', runId: 'run-demo', role: 'code reviewer', request: 'change /workspace/demo/src/panel.tsx', details: '+export const Panel = () => <main>Demo</main>', choices: ['yes-once', 'yes-goal', 'no'] }] }; thread.cards = [{ ...leadWaiting, kind: 'worker-approval', personCardId: null, summary: 'The code reviewer wants to change a source file. Answer on the card.' }]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = { ...leadBudget, spend: 'unknown' }; thread.cardPositions = { waiting: 3 } }
+  if (scene === 'planning') { thread.state = 'planning'; projection = { ...projection, requestInFlight: true } }
+  if (scene === 'running' || scene === 'running-message' || scene === 'stopped') {
+    const running = scene !== 'stopped'
+    thread.state = running ? 'running' : 'stopped'; thread.contract = leadContract
+    projection = { ...projection, requestInFlight: running, ...(running && { progress: { step: 1, steps: leadContract.steps.length, runs: 1, since: Date.now() - 12 * 60_000 },
+      presence: { checked: 3, quiet: 3, lastCheckedAt: Date.now(), readings: [{ runId: 'run-1', kind: 'advanced' }] },
+      ...(scene === 'running-message' && { steers: [{ id: 'steer-1', text: 'Keep the public API unchanged.', at: Date.now() - 60_000, state: 'acknowledged' as const }] }) }) }
+    thread.messages = [...thread.messages, { version: 1, id: 'reply', revision: 2, role: 'assistant', text: 'The approved Flow is running. I will read its checks and review before asking you to accept.' }]
+  }
+  if (scene === 'ask-options') thread.messages = [
+    { version: 1, id: 'person-request', revision: 1, role: 'user', text: 'Help me choose the scope for the keyboard fix.' },
+    { version: 1, id: 'ordinary-ask', revision: 2, role: 'assistant', text: 'I recommend keeping this change small.',
+      ask: { question: 'How much should this change cover?', options: [{ id: 'focus', label: 'Fix focus only' }, { id: 'all', label: 'Include the whole form' }], recommended: 'focus' } },
+    { version: 1, id: 'picked', revision: 3, role: 'user', text: 'Fix focus only' },
+    { version: 1, id: 'live-ask', revision: 4, role: 'assistant', text: 'A nearby label has no accessible name. I have not changed it. Start a separate fix?',
+      proactive: { finding: 'A nearby label has no accessible name.', caveat: 'I have not changed it.', ask: 'Start a separate fix?',
+        options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' } },
+  ]
+  if (scene === 'proactive' || scene === 'away-digest') thread.messages = [{ version: 1, id: 'proactive', revision: 2, role: 'assistant', text: 'The review is ready.\nChecks still need you.\nOpen changes', proactive: { finding: 'The review is ready.', caveat: 'Checks still need you.', ask: 'Open changes', action: 'changes' } }]
+  if (scene === 'runtime-unavailable') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, unavailable: 'runtime', unavailableReason: "this app's runtime (Node 24.19.0) rejected the Lead flags (exit 9)" } } }
+  if (scene === 'first-name') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, nameChosen: false } } }
+  if (scene === 'missing-plan') projection = { ...projection, wayOut: 'decide-plan' }
+  if (scene === 'predecessor-unavailable' || scene === 'predecessor-unverifiable') { thread.state = 'waiting-for-user'; projection = { ...projection, wayOut: null, waitReason: `lead-${scene}` } }
+  if (scene === 'chat-effect-uncertain') { thread.state = 'waiting-for-user'; thread.contract = null; thread.cards = []; projection = { ...projection, wayOut: null, waitReason: 'lead-chat-effect-uncertain' } }
+  if (scene === 'resume') { thread.state = 'waiting-for-user'; projection = { ...projection, wayOut: 'resume', waitReason: 'lead-request-failed' } }
+  // Renewal adds only the expiry fact above the same docked plan decision.
+  if (scene === 'consent-expired') { thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { plan: 2 } }
+  if (scene === 'consent-expired') projection = { ...projection, wayOut: 'decide-plan', planConsentExpiresAt: Date.parse('2026-10-18T12:00:00Z') }
+  if (scene === 'renewal-blocked') { thread.state = 'waiting-for-user'; thread.contract = leadContract; projection = { ...projection, waitReason: 'lead-renewal-blocked', planConsentExpiresAt: Date.parse('2026-10-18T12:00:00Z') } }
+  if (scene === 'settings-unconfigured' || scene === 'empty') projection = { ...projection, settings: { ...base.settings, key: { configured: false, protection: 'encrypted' } } }
+  if (scene === 'ordinary-chat' || scene === 'ordinary-reply' || scene === 'setup-blocked') {
+    thread.state = scene === 'setup-blocked' ? 'waiting-for-user' : 'planning'
+    thread.messages = [
+      { version: 1, id: 'chat-question', revision: 1, role: 'user', text: 'Which chats need attention?' },
+      ...(scene === 'ordinary-reply' ? [] : [{ version: 1 as const, id: 'chat-answer', revision: 2, role: 'assistant' as const,
+        text: 'The checkout chat is waiting for an approval. The docs chat is idle. I can help with either one.' }]),
+    ]
+    projection = { ...projection, requestInFlight: scene === 'ordinary-reply',
+      ...(scene === 'setup-blocked' ? { waitReason: 'lead-plan-not-independent' as const } : {}) }
+  }
+  return leadProjection({ ...projection, thread, stage: undefined, stageReason: undefined })
+}
+
+export const leadWakeFixture = [
+  { id: 'silent-1', at: Date.now() - 180_000, source: 'desk-change' as const, decision: 'silent' as const, modelTurn: false, usdMicros: null },
+  { id: 'scheduled-1', at: Date.now() - 60_000, source: 'schedule' as const, decision: 'asked' as const, modelTurn: true, usdMicros: 1200 },
+]

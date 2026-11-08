@@ -17,13 +17,12 @@ import {
 import { openExternal } from '../lib/desktop'
 import {
   byWords,
-  cardChips,
+  evidenceSummary,
   checkWords,
   chipWords,
   chipOf,
   revisionOfFact,
   shortSha,
-  spokenChip,
   standingWords,
   type FactChip,
 } from '../lib/evidence'
@@ -61,21 +60,19 @@ export const EvidenceChips = ({
   readonly finished?: boolean
 }) => {
   const [open, setOpen] = useState(false)
-  const chips = cardChips(card, finished)
-  if (chips.length === 0) return null
+  const summary = evidenceSummary(card, finished)
+  if (summary === null) return null
   return (
     <>
       <Button
         variant="ghost"
         size="inline"
         data-board-row=""
-        className="flex min-w-0 max-w-full basis-full shrink flex-wrap items-center justify-start gap-1 whitespace-normal"
-        aria-label={`What the desk observed on #${id}: ${chips.map(spokenChip).join(', ')}`}
+        className="flex min-w-0 max-w-full basis-full shrink items-center justify-start"
+        aria-label={`What the desk observed on #${id}: ${summary.label}`}
         onClick={() => setOpen(true)}
       >
-        {chips.map((one) => (
-          <FactChipView key={one.key} chip={one} />
-        ))}
+        <Chip tone={summary.tone}>{summary.label}</Chip>
       </Button>
       {open && <ObservedDialog id={id} title={title} card={card} onClose={() => setOpen(false)} />}
     </>

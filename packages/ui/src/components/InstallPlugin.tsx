@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   ActionError,
@@ -27,6 +27,11 @@ import { AlertIcon, FolderIcon } from './Icons'
  * screen used to draw all four out of `Settings.module.css`, and got one of
  * them wrong by omission: there was no Escape handler at all, so the only ways
  * out were the × and the ground behind it.
+ *
+ * Updating a plugin from its source folder is the same two steps, started on
+ * the second: the new manifest is what the person agrees to, and the install
+ * carries back the digest of the one shown, so a manifest that changes after
+ * it was read is refused rather than accepted unseen.
  */
 
 interface Inspected {
@@ -36,11 +41,16 @@ interface Inspected {
   readonly version?: string
   readonly permissions: readonly string[]
   readonly alreadyInstalled: boolean
+  readonly manifestDigest: string
 }
 
-export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
+export const InstallPlugin = ({ onClose, source }: {
+  onClose: () => void
+  /** An installed plugin's source folder: reads it at once, to update from it. */
+  source?: string
+}) => {
   const store = useStore()
-  const [specifier, setSpecifier] = useState('')
+  const [specifier, setSpecifier] = useState(source ?? '')
   const [inspected, setInspected] = useState<Inspected | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -60,24 +70,35 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
     }
   }, [specifier, store])
 
+  const started = useRef(false)
+  useEffect(() => {
+    if (!source || started.current) return
+    started.current = true
+    void look()
+  }, [look, source])
+
   const confirm = useCallback(async () => {
+    if (!inspected) return
     setBusy(true)
     setError(null)
     try {
-      await store.transport.request('plugin/install', { specifier: specifier.trim() })
+      await store.transport.request('plugin/install', {
+        specifier: specifier.trim(),
+        manifestDigest: inspected.manifestDigest,
+      })
       await store.loadPlugins()
-      store.notice('info', `${inspected?.name ?? 'Plugin'} installed.`)
+      store.notice('info', source ? `${inspected.name} updated from ${source}.` : `${inspected.name} installed.`)
       onClose()
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown))
     } finally {
       setBusy(false)
     }
-  }, [inspected, onClose, specifier, store])
+  }, [inspected, onClose, source, specifier, store])
 
   return (
     <Dialog
-      title="Install a plugin"
+      title={source ? 'Update from source' : 'Install a plugin'}
       size="md"
       onClose={onClose}
       footer={

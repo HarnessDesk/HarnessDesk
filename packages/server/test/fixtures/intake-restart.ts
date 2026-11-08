@@ -74,7 +74,7 @@ export const prFact = (pr: number, head: string, action: 'opened' | 'pushed', ov
   title: `Change ${pr}`, body: '', url: `https://github.com/${REPO}/pull/${pr}`, trigger: null, ...over,
 })
 
-export type CrashAt = AdmissionStep | 'goal' | 'evidence' | 'round' | 'base-fetched' | null
+export type CrashAt = AdmissionStep | 'goal' | 'evidence' | 'round' | 'base-fetched' | 'superseded' | null
 
 export interface DeskOptions {
   /** Local Git repository used only by the remote-base interruption regression. */
@@ -344,6 +344,10 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
   const targets: IntakeTargets = {
     goals: { ensureTriggerGoal: async (request) => { await options.beforeGoal?.(request.input.root); const view = await goals.ensureTriggerGoal(request); log(`goal:${request.id}`); crash('goal'); return view } },
     ended: (operation) => flows.executionOf(operation.run)?.state === 'stopped',
+    supersede: async (operation) => {
+      if (!await flows.supersedeTriggered(operation.run, 'A newer head arrived.', operation.mode === 'again' ? 'round' : 'person', operation.key)) return
+      crash('superseded')
+    },
     // As the plane does it: a firing set aside lets its run go of any hold, waiting on the person.
     setAside: async (operation, reason, stop) => {
       if (!flows.executionOf(operation.run)) return

@@ -108,9 +108,16 @@ test('audit source cache reads each present or missing stylesheet once and prese
   assert.throws(() => read('denied'), /denied/)
 })
 
-test('existing stylesheet co-ownership is capped at six families and eleven modules', () => {
-  assert.equal(Object.keys(STYLESHEET_OWNERS).length, 6)
-  assert.equal(Object.values(STYLESHEET_OWNERS).flat().length, 11)
+test('existing stylesheet co-ownership is capped at three families and five modules', () => {
+  assert.equal(Object.keys(STYLESHEET_OWNERS).length, 3)
+  assert.equal(Object.values(STYLESHEET_OWNERS).flat().length, 5)
+})
+
+test('every stylesheet co-ownership entry names files that exist', () => {
+  const uiSrc = path.join(repoRoot, 'packages/ui/src')
+  for (const [sheet, owners] of Object.entries(STYLESHEET_OWNERS)) {
+    for (const file of [sheet, ...owners]) assert.ok(fs.existsSync(path.join(uiSrc, file)), `${file} is gone; drop it from STYLESHEET_OWNERS`)
+  }
 })
 
 test('single-screen pattern accounting recognizes non-Git screen families', () => {
@@ -166,6 +173,8 @@ test('single-screen pattern accounting groups the conversation family, not only 
   const conversationMap = path.join(repoRoot, 'packages/ui/src/components/ConversationMap.tsx')
   const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
   assert.equal(screenAreaOf(items), 'conversation')
+  assert.equal(screenAreaOf(path.join(repoRoot, 'packages/ui/src/components/LeadPage.tsx')), 'conversation')
+  assert.equal(screenAreaOf(path.join(repoRoot, 'packages/ui/src/components/LeadMessage.tsx')), 'conversation')
   assert.equal(screenAreaOf(turnWork), 'conversation')
   assert.equal(screenAreaOf(conversationMap), 'conversation')
   // Before #914 these were four separate areas ('items', 'turnwork',
@@ -1643,14 +1652,13 @@ test('a named exemption that matches nothing is reported, so the list cannot out
 
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
   const expected = new Map([
-    ['design/ui/timeline.tsx', ['Timeline']],
     ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
     ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
     ['design/ui/delta.tsx', ['Delta']],
     ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
     ['design/adapters/terminal.ts', ['terminalAppearance']],
   ])
-  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 20)
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 19)
   assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
   for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
     if (entry.kind === 'data-geometry') {
@@ -2997,256 +3005,15 @@ test('reachability recognizes the typed client call first literal argument', () 
   assert.deepEqual([...reachedBy(methods, ["await request('flow/executions', {})"])], ['flow/executions'])
 })
 
-/**
- * The test files that run in invocations of their own: the server's (#1000,
- * #1003), the command line's end-to-end file (#1289), and retention (#1648).
- * Each names its package, its glob, and its step in the gate and in CI.
- */
-const CARVED_OUT = [
-  { pkg: 'server', name: 'flow-host-evidence-*.test.js', step: 'flow-host-evidence tests', ciStep: 'Flow-host-evidence tests' },
-  { pkg: 'server', name: 'intake-*.test.js', step: 'intake tests', ciStep: 'Intake tests' },
-  { pkg: 'cli', name: 'e2e*.test.js', step: 'cli e2e tests', ciStep: 'CLI end-to-end tests' },
-  { pkg: 'server', name: 'host-retention.test.js', step: 'host-retention tests', ciStep: 'Host retention tests', timeout: 120000, job: 'node-tests' },
-]
-const carvedOutPaths = (top, dist, tests) => CARVED_OUT.map((one) => `${top}/${one.pkg}/${dist}/${tests}/${one.name}`)
-
-const stringValue = (node) => node && ts.isStringLiteral(node) ? node.text : null
-
-/** Read actual `step(name, () => run(command, args))` calls, not matching text nearby. */
-const runsInStep = (source, stepName) => {
-  const file = ts.createSourceFile('verify.mjs', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
-  const runs = []
-  for (const statement of file.statements) {
-    if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) continue
-    const step = statement.expression
-    if (!ts.isIdentifier(step.expression) || step.expression.text !== 'step' || stringValue(step.arguments[0]) !== stepName) continue
-    const callback = step.arguments[1]
-    if (!callback || (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback))) continue
-    // In verify.mjs these steps return the run(...) call directly. A nested
-    // call could be conditional or otherwise unreachable while still being
-    // present in the AST, so only accept that executable shape.
-    const run = callback.body
-    if (!ts.isCallExpression(run) || !ts.isIdentifier(run.expression) || run.expression.text !== 'run') continue
-    const args = run.arguments[1]
-    runs.push({ command: stringValue(run.arguments[0]), args: args && ts.isArrayLiteralExpression(args) ? args.elements.map(stringValue) : [] })
-  }
-  return runs
-}
-
-/** Read named steps only from the named job's direct `steps` list. */
-const ciStepsInJob = (source, job) => {
-  const steps = []
-  let inVerifyJob = false
-  let inSteps = false
-  let jobIf
-  let current
-  let scalar = null
-  const startScalar = (line) => {
-    const mappingScalar = line.match(/^ *(?:-\s+)?[^#:\s][^:]*:\s*[|>]((?:[1-9][+-]?|[+-][1-9])?)\s*(?:#.*)?$/)
-    const sequenceScalar = line.match(/^ *-\s*[|>]((?:[1-9][+-]?|[+-][1-9])?)\s*(?:#.*)?$/)
-    const header = mappingScalar ?? sequenceScalar
-    if (!header) return
-    const baseIndent = line.match(/^ */)[0].length
-    scalar = {
-      baseIndent,
-      explicitIndent: /\d/.test(header[1]) ? Number(header[1].match(/\d/)[0]) : null,
-      contentIndent: null,
-    }
-  }
-  const lines = source.split('\n')
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]
-    if (scalar) {
-      if (line.trim() === '') continue
-      const indent = line.match(/^ */)[0].length
-      if (scalar.contentIndent === null) {
-        if (indent <= scalar.baseIndent) scalar = null
-        else scalar.contentIndent = scalar.explicitIndent === null ? indent : scalar.baseIndent + scalar.explicitIndent
-      } else if (indent >= scalar.contentIndent) {
-        continue
-      } else {
-        scalar = null
-      }
-      if (scalar) continue
-    }
-    if (line === `  ${job}:`) {
-      inVerifyJob = true
-      continue
-    }
-    if (inVerifyJob && /^  [^\s#][^:]*:\s*$/.test(line)) break
-    if (!inVerifyJob) {
-      startScalar(line)
-      continue
-    }
-    const jobCondition = line.match(/^    if:\s*(.*?)\s*$/)
-    if (jobCondition) jobIf = jobCondition[1]
-    if (line === '    steps:') {
-      inSteps = true
-      continue
-    }
-    if (!inSteps) continue
-    const item = line.match(/^      -\s*(.*?)\s*$/)
-    if (item) {
-      const inlineName = item[1].match(/^name:\s*(.*?)\s*$/)
-      const inlineCondition = item[1].match(/^if:\s*(.*?)\s*$/)
-      current = {
-        name: inlineName?.[1]?.replace(/^(['"])(.*)\1$/, '$2'),
-        run: undefined,
-        condition: inlineCondition?.[1],
-      }
-      steps.push(current)
-      continue
-    }
-    if (!current) continue
-    const name = line.match(/^        name:\s*(.*?)\s*$/)
-    const run = line.match(/^        run:\s*(.*?)\s*$/)
-    const condition = line.match(/^        if:\s*(.*?)\s*$/)
-    if (name) current.name = name[1].replace(/^(['"])(.*)\1$/, '$2')
-    if (run) current.run = run[1]
-    if (condition) current.condition = condition[1]
-
-    startScalar(line)
-  }
-  return steps.map((step) => ({ ...step, jobIf }))
-}
-
-const hasExactBashScript = (runs, expectedScript) => runs.some(({ command, args }) =>
-  command === 'bash' && args.length === 2 && args[0] === '-c' && args[1] === expectedScript,
-)
-
-const hasActiveCIStepRun = (source, stepName, expectedCommand, job = 'verify') =>
-  ciStepsInJob(source, job).some((step) =>
-    step.name === stepName && step.run === expectedCommand && step.condition === undefined && step.jobIf === undefined,
-  )
-
-const mainTestScript = (shape, carveOuts) =>
-  `node --test --test-timeout=120000 $(find ${shape} -name '*.test.js' ${carveOuts.map((path) => `! -path '${path}'`).join(' ')})`
-
 test('the test glob is written one way everywhere it is run (#256)', () => {
-  // Five encodings of one glob: the two runners, the two workflows, and prune-dist's own reading of dist.
-  const repo = repoRoot
+  // The runner reads its files from the packages the solution builds, and the
+  // release workflow and prune-dist read the same compiled tree by one glob.
   const scripts = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts
   const releaseWorkflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/release.yml'), 'utf8')
-  const { top, dist, tests } = distSegments(TEST_GLOB)
-  assert.ok(scripts.test.includes(`find ${top}/*/${dist}/${tests} -name '*.test.js'`),
-    'package.json finds every compiled Node test beneath the same directory prune-dist.mjs writes')
+  assert.ok(scripts.test.includes('node script/node-tests.mjs'),
+    'package.json runs the Node tests through the manifest verify and CI use')
   assert.ok(releaseWorkflow.includes(TEST_GLOB),
     '.github/workflows/release.yml runs the tests by the glob prune-dist.mjs writes')
-  // The gate and CI split the four flow-host-evidence end-to-end files into
-  // their own run, at a wider `--test-timeout` than the rest (#1000's
-  // review, round 2: Node 22 caps that flag per test file, cumulatively, and
-  // those four legitimately run longer than everything else combined) — an
-  // exclusion plus an explicit sub-glob whose union is `TEST_GLOB`, rather
-  // than the one unbroken string these two files used to hold it in. Held
-  // instead to the same directory shape prune-dist.mjs reads dist by, and to
-  // naming the files carved out of it, so a change to either drifting from
-  // the other still fails here rather than silently narrowing what runs.
-  const shape = `${top}/*/${dist}/${tests}`
-  // The one package each set of files lives under, literally — not `*`. The
-  // server's intake test files were split out the same way (#1003), and the
-  // command line's end-to-end file (#1289).
-  for (const { pkg, name, step: stepName, ciStep: ciStepName, timeout = 600000, job = 'node-e2e' } of CARVED_OUT) {
-    const carveOut = `${top}/${pkg}/${dist}/${tests}/${name}`
-    for (const file of ['script/verify.mjs', '.github/workflows/ci.yml']) {
-      const text = fs.readFileSync(path.join(repo, file), 'utf8')
-      const carveOuts = carvedOutPaths(top, dist, tests)
-      const expectedMainScript = mainTestScript(shape, carveOuts)
-      if (file.endsWith('.mjs')) {
-        const dedicated = runsInStep(text, stepName)
-        assert.ok(dedicated.some(({ command, args }) => command === 'node' && args.length === 3 && args[0] === '--test' && args[1] === `--test-timeout=${timeout}` && args[2] === carveOut),
-          `${file} passes the exact carved-out glob as an argument to node --test (${carveOut})`)
-
-        const main = runsInStep(text, 'node tests')
-        assert.ok(hasExactBashScript(main, expectedMainScript),
-          `${file} passes the exact main test invocation as bash -c's script argument`)
-      } else {
-        const dedicatedCommand = `node --test --test-timeout=${timeout} "${carveOut}"`
-        assert.ok(hasActiveCIStepRun(text, ciStepName, dedicatedCommand, job),
-          `${file} runs the carved-out files with its test command and exact sub-glob (${carveOut})`)
-        const expectedCICommand = `bash -c "${expectedMainScript.replaceAll('$', '\\$')}"`
-        assert.ok(hasActiveCIStepRun(text, 'Node tests', expectedCICommand, 'node-tests'),
-          `${file} uses the exact main test invocation in the active Node tests step`)
-      }
-    }
-  }
-})
-
-test('the root test script bounds Node suites like verify does (#1175)', () => {
-  const scripts = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts
-  const { top, dist, tests } = distSegments(TEST_GLOB)
-  const shape = `${top}/*/${dist}/${tests}`
-  const carveOuts = carvedOutPaths(top, dist, tests)
-  const main = mainTestScript(shape, carveOuts)
-  const escapedMain = `bash -c "${main.replaceAll('$', '\\$')}"`
-
-  assert.ok(scripts.test.includes(escapedMain), 'the root test script uses verify’s 120-second Node test run')
-  for (const { pkg, name, timeout = 600000 } of CARVED_OUT) {
-    const carveOut = `${top}/${pkg}/${dist}/${tests}/${name}`
-    assert.ok(
-      scripts.test.includes(`node --test --test-timeout=${timeout} "${carveOut}"`),
-      `the root test script keeps the carved-out run's ${timeout} ms Node timeout (${carveOut})`,
-    )
-  }
-})
-
-test('carved-out run detection ignores comments and unrelated strings (#1063)', () => {
-  const decoys = `/* step('flow-host-evidence tests', () => run('node', ['--test', 'packages/server/dist/test/flow-host-evidence-*.test.js'])) */\nconst note = \`step('flow-host-evidence tests', () => run('node', ['--test', 'packages/server/dist/test/flow-host-evidence-*.test.js']))\`;`
-  assert.deepEqual(runsInStep(decoys, 'flow-host-evidence tests'), [])
-  const unreachable = `if (false) { step('node tests', () => run('bash', ['-c', 'node --test'])); }`
-  assert.deepEqual(runsInStep(unreachable, 'node tests'), [])
-  assert.deepEqual(runsInStep(`step('node tests', () => { if (false) run('bash', ['-c', 'node --test']); });`, 'node tests'), [])
-
-  const shape = 'packages/*/dist/test'
-  const carveOuts = carvedOutPaths('packages', 'dist', 'test')
-  const expected = mainTestScript(shape, carveOuts)
-  assert.equal(hasExactBashScript([{ command: 'bash', args: ['-c', 'true', expected] }], expected), false)
-  assert.equal(hasExactBashScript([{ command: 'bash', args: ['-c', `echo '${expected}'`] }], expected), false)
-  assert.equal(hasExactBashScript([{ command: 'bash', args: ['-c', expected] }], expected), true)
-
-  const expectedCICommand = `bash -c "${expected.replaceAll('$', '\\$')}"`
-  const disabledAndMisplaced = `jobs:\n  unrelated:\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}\n  verify:\n    if: false\n    steps:\n      - name: Other step\n        run: ${expectedCICommand}\n      - name: Node tests\n        run: ${expectedCICommand}`
-  assert.equal(hasActiveCIStepRun(disabledAndMisplaced, 'Node tests', expectedCICommand), false)
-  const shellDecoy = `jobs:\n  verify:\n    steps:\n      - name: Node tests\n        run: bash -c "echo 'node --test ${shape}'; # ${carveOuts.join(' ')}"`
-  assert.equal(hasActiveCIStepRun(shellDecoy, 'Node tests', expectedCICommand), false)
-  const active = `jobs:\n  verify:\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}`
-  assert.equal(hasActiveCIStepRun(active, 'Node tests', expectedCICommand), true)
-  const disabledAfterSteps = `jobs:\n  verify:\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}\n    if: false`
-  assert.equal(hasActiveCIStepRun(disabledAfterSteps, 'Node tests', expectedCICommand), false)
-  const disabledInline = `jobs:\n  verify:\n    steps:\n      - if: false\n        name: Node tests\n        run: ${expectedCICommand}`
-  assert.equal(hasActiveCIStepRun(disabledInline, 'Node tests', expectedCICommand), false)
-  const disabledMultilineStep = `jobs:\n  verify:\n    steps:\n      - name: Node tests\n        if:\n          false\n        run: ${expectedCICommand}`
-  assert.equal(hasActiveCIStepRun(disabledMultilineStep, 'Node tests', expectedCICommand), false)
-  const disabledMultilineJob = `jobs:\n  verify:\n    if:\n      false\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}`
-  assert.equal(hasActiveCIStepRun(disabledMultilineJob, 'Node tests', expectedCICommand), false)
-  const scalarDecoy = `name: |2-\n  verify:\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}\njobs:\n  verify:\n    steps: []`
-  assert.equal(hasActiveCIStepRun(scalarDecoy, 'Node tests', expectedCICommand), false)
-})
-
-test('each carved-out run is given files, and only files (#1003)', (t) => {
-  // What the carve-outs match on disk. Only once something is built: a
-  // fresh checkout has no dist to read, and this gate runs after the build.
-  const { top, dist, tests } = distSegments(TEST_GLOB)
-  for (const { pkg, name } of CARVED_OUT) {
-    const dir = path.join(repoRoot, top, pkg, dist, tests)
-    if (!fs.existsSync(dir)) {
-      t.skip(`packages/${pkg} has not been built`)
-      return
-    }
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
-    const [prefix, suffix = ''] = name.split('*')
-    const files = entries.filter((one) => one.isFile() && (name.includes('*')
-      ? one.name.startsWith(prefix) && one.name.endsWith(suffix) : one.name === name))
-    assert.ok(files.length > 0, `${name} matches at least one built test file, so its run is not empty`)
-    // `find -path` lets `*` cross a `/`, and node's glob does not: a test
-    // under a directory that starts with this prefix, whatever it ends in,
-    // would be excluded from the main run and never picked up by the
-    // separate one (#1052's review, round 3 — `intake-sub/probe.test.js`).
-    assert.deepEqual(
-      entries.filter((one) => one.isDirectory() && one.name.startsWith(prefix)).map((one) => one.name),
-      [],
-      `no directory under ${top}/${pkg}/${dist}/${tests} starts with ${prefix}`,
-    )
-  }
 })
 
 test('the step that reads what the build writes says that it needs it (#208)', () => {
@@ -3388,9 +3155,9 @@ test('a recorded stylesheet family accepts only its capped owner and declared an
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const dir = path.join(root, 'components')
   fs.mkdirSync(dir)
-  fs.writeFileSync(path.join(dir, 'Sidebar.module.css'), '/* @design-owners SessionTree, NewOwner */\n.row { display: flex; }')
-  const inspect = (name) => sheetsOf(dir, path.join(dir, `${name}.tsx`), `components/${name}.tsx`, "import styles from './Sidebar.module.css'", root)
-  assert.deepEqual(inspect('SessionTree').crossImports, [])
+  fs.writeFileSync(path.join(dir, 'Conversation.module.css'), '/* @design-owners TurnTail, NewOwner */\n.row { display: flex; }')
+  const inspect = (name) => sheetsOf(dir, path.join(dir, `${name}.tsx`), `components/${name}.tsx`, "import styles from './Conversation.module.css'", root)
+  assert.deepEqual(inspect('TurnTail').crossImports, [])
   assert.equal(inspect('NewOwner').crossImports.length, 1)
 })
 
@@ -4508,9 +4275,9 @@ test('an arbitrary Tailwind property or an inline style object that writes its o
 })
 
 
-test('timeline geometry exemption excludes its now-shared item and retains only the single-area rail', () => {
+test('the shared Timeline and its items need no single-area geometry exemption', () => {
   const module = path.join(repoRoot, 'packages/ui/src/design/ui/timeline.tsx')
-  assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'room'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineItem', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineAction', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'settings'), false)
@@ -4741,4 +4508,18 @@ test('the browser read gate rejects a server-only plan that omits the package re
   const reads = new Map([['packages/cli/package.json', ['e2e/ui-system/row-box.spec.ts']]])
   const serverOnly = () => ({ browser: 'server', server_specs: '[]', browser_specs: 'all' })
   assert.deepEqual(browserReadGaps(repoRoot, reads, serverOnly), ['packages/cli/package.json'])
+})
+
+test('reachability includes only the closed literal Lead tool map as its native client surface', () => {
+  const file = 'packages/lead/src/tools.ts'
+  const text = `export const LEAD_TOOLS = {
+    chat_start: { method: 'lead/chat/start', input_schema: {} },
+    chat_read: { method: 'lead/chat/read', input_schema: {} },
+  } as const satisfies Record<string, unknown>`
+  assert.deepEqual([...reachedBy(['lead/chat/start', 'lead/chat/read'], [{ file, text }])], ['lead/chat/start', 'lead/chat/read'])
+  assert.deepEqual([...reachedBy(['lead/chat/start'], [{ file: 'packages/server/src/other.ts', text }])], [], 'ordinary host maps confer no surface reachability')
+  assert.deepEqual([...reachedBy(['lead/chat/start'], [{ file, text: "const marker = { method: 'lead/chat/start' }" }])], [])
+  for (const value of ["'unknown/method'", "'lead/chat/start' + suffix", 'selectedMethod']) {
+    assert.throws(() => reachedBy(['lead/chat/start'], [{ file, text: `export const LEAD_TOOLS = { chat: { method: ${value}, input_schema: {} } }` }]), /Lead tool|LEAD_TOOLS/)
+  }
 })

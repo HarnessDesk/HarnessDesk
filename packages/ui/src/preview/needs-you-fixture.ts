@@ -16,7 +16,7 @@ const base = { sessionId: sessionId('overview-1'), requestedAt: at }
 
 const approvals: Record<'approval' | 'stdin' | 'access' | 'question' | 'form', Approval> = {
   approval: {
-    ...base, id: approvalId('answer-command'), type: 'command', command: 'pnpm verify', cwd: '/private/tmp/frame-fix6/fixture-run/storefront', actions: [],
+    ...base, id: approvalId('answer-command'), type: 'command', command: 'pnpm verify', cwd: '/work/storefront', actions: [],
     reason: 'The check needs a clean checkout of the branch.',
     options: [
       { id: 'no', label: 'Deny', intent: 'deny' },

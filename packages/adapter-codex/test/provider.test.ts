@@ -112,6 +112,20 @@ test('a header or assignment this scanner cannot fully parse answers unknown, ne
  * kind of override hides: the raw text never equals "model_provider" even
  * where a real TOML reader would decode it to exactly that.
  */
+test('an array-of-tables header Codex writes itself is read past, and one under profiles or providers stays unknown', async (t) => {
+  const home = folder(t, 'codex-provider-array-')
+  const skills = '[features]\nskills = true\n[[skills.config]]\npath = "/work/acme/skills/one"\nenabled = true\n\n[[ skills.config ]]\npath = "/work/acme/skills/two"\n'
+  writeFileSync(join(home, 'config.toml'), skills)
+  assert.equal(await codexProvider(home, {}), 'openai')
+  // Read past is not looked past: an override after the array still counts.
+  writeFileSync(join(home, 'config.toml'), `${skills}[profiles.gateway]\nmodel_provider = "acme"\n`)
+  assert.equal(await codexProvider(home, {}), 'openai')
+  writeFileSync(join(home, 'config.toml'), `profile = "gateway"\n${skills}[profiles.gateway]\nmodel_provider = "acme"\n`)
+  assert.equal(await codexProvider(home, {}), null)
+  for (const header of ['[[profiles.gateway]]', '[[model_providers.acme]]', '[[profiles]]', '[[skills.config]'])
+    writeFileSync(join(home, 'config.toml'), `${header}\nname = "x"\n`), assert.equal(await codexProvider(home, {}), null, header)
+})
+
 test('a quoted header’s own spacing, and an escaped quoted key, no longer hide a selected override', async (t) => {
   const dottedName = folder(t, 'codex-provider-home-')
   writeFileSync(join(dottedName, 'config.toml'), 'profile = "a . b"\n[profiles."a . b"]\nmodel_provider = "ollama"\n')

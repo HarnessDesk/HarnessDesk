@@ -341,3 +341,31 @@ for (const width of [1440, 720]) test(`E3 Dashboard New session and conversation
   await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
   await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(0)
 })
+
+for (const theme of ['light', 'dark'] as const) test(`today ring fits inside the heatmap scroller at its right edge in ${theme}`, async ({ page }) => {
+  await page.clock.install({ time: WALL_TIME })
+  await openFrame(page, 'frame-wall=dashboard&frame-view=activity', theme, 720)
+  for (const view of ['Last 12 months', 'By runtime']) {
+    await page.getByLabel('Show by').selectOption({ label: view })
+    const today = page.locator('[data-today]').first()
+    await expect(today).toBeVisible()
+    const reading = await today.evaluate(cell => {
+      const grid = cell.parentElement!, scroller = grid.parentElement!
+      scroller.scrollLeft = scroller.scrollWidth
+      const cellRect = cell.getBoundingClientRect(), clip = scroller.getBoundingClientRect()
+      const shadow = getComputedStyle(cell).boxShadow
+      const spread = Number.parseFloat(shadow.match(/0px 0px 0px ([\d.]+)px/)?.[1] ?? '0')
+      const cells = [...grid.querySelectorAll<HTMLElement>('[data-level], [data-state]')]
+      return { right: cellRect.right, clipRight: clip.right, spread, cellWidth: cellRect.width,
+        minWidth: Math.min(...cells.map(item => item.getBoundingClientRect().width)),
+        scrolled: scroller.scrollLeft, scrollable: scroller.scrollWidth > scroller.clientWidth }
+    })
+    expect(reading.spread, `${view} has its today ring`).toBeGreaterThan(0)
+    expect(reading.clipRight - reading.right, `${view} reserves the full ring at the scroll end`).toBeGreaterThanOrEqual(reading.spread - 0.1)
+    expect(reading.minWidth, `${view} keeps normal cells usable`).toBeGreaterThanOrEqual(8.9)
+    if (view === 'By runtime') {
+      expect(reading.scrollable).toBe(true)
+      expect(reading.scrolled).toBeGreaterThan(0)
+    }
+  }
+})

@@ -1,3 +1,4 @@
+import { GitGatewayScene, GIT_GATEWAY_SCENES } from '../../preview/git-gateway-fixture'
 import { DashboardDestinationFixture } from '../../preview/dashboard-destination-fixture'
 import { TopBarProvider } from '../../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../../panels/shell-hosts'
@@ -992,7 +993,7 @@ const signInStore = previewStore(signInSeed('paste code'))
 export const SignInSurface = () => (
   <Mount with={signInStore}>
     <Frame height="window">
-      <SignIn runtime={SIGN_IN_SELECTED['paste code']} onClose={() => {}} />
+      <SignIn runtime={SIGN_IN_SELECTED['paste code']} roster onClose={() => {}} />
     </Frame>
   </Mount>
 )
@@ -1004,3 +1005,5 @@ export const FlowBriefSurface = () => <FlowBriefCases />
 export const RunAgainSurface = () => <RunAgainCases />
 
 export const TeamStartSurface = () => <TeamStartCases />
+
+export const GitGatewaySurface = () => <>{GIT_GATEWAY_SCENES.map(scene => <GitGatewayScene key={scene} scene={scene} />)}</>

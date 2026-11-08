@@ -1,13 +1,28 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { connect } from 'node:net'
 import { createInterface } from 'node:readline'
 
 import {
   ExtensionKernel,
+  install,
+  uninstall,
+  iosReplyTimeoutMs, currentIosInvocation, withIosInvocation, type IosCapability,
   setBrowserEngine,
   setBrowserSettings,
+  setSystemHandOff,
+  setBrowserFiles,
+  currentBrowserIdentity,
   setEditorEngine,
   setTeamEngine,
   setForgeEngine,
+  setCapabilityBroker,
+  capabilityWorkMs,
+  runBrowserInvocation,
+  PermissionDenied,
   type BrowserEngine,
+  type CapabilityRequest,
   type EditorEngine,
   type TeamEngine,
   type ForgeEngine,
@@ -21,19 +36,88 @@ import {
   type PluginHostMethods,
   type PluginHostNotification,
 } from '@harnessdesk/extension-protocol'
+import type { PluginPermissions } from '@harnessdesk/protocol'
 
 /**
- * The plugin host process.
+ * A plugin host process.
  *
- * This is the only place third-party plugin code ever runs. It owns a real
- * `ExtensionKernel`, serves the extension protocol over stdio, and holds
- * nothing else: no window, no wire server, no credential, no path to one.
- * A plugin that calls `process.exit` takes this process down and nothing
- * more — the parent notices the exit and restarts.
+ * This is the only place third-party plugin code ever runs, and each process
+ * runs exactly one plugin: `host/hello` binds it, and it refuses to load
+ * anything else. It owns a real `ExtensionKernel`, serves the extension
+ * protocol over stdio, and holds nothing else: no window, no wire server, no
+ * credential, no path to one. A plugin that calls `process.exit` takes this
+ * process down and nothing more — the parent notices the exit and restarts.
+ *
+ * One process is never bound: the installer. It inspects, installs and
+ * removes packages, which never imports their code, and it refuses to load a
+ * plugin. See docs/plugin-isolation.md.
  *
  * stdout carries protocol lines only; the kernel's own logging goes to
  * stderr, where the parent forwards it to the diagnostics log.
  */
+
+/**
+ * Probe mode: the parent asking whether this runtime confines a plugin
+ * (`probePluginRuntime` in confinement.ts). Everything above has loaded, so
+ * the grants cover the whole module graph; what follows tries the three
+ * things a confined process must be refused, answers in one line, and exits.
+ */
+const probeAt = process.argv.indexOf('--probe')
+if (probeAt !== -1) {
+  const errorCode = (error: unknown): string => String((error as { code?: unknown } | null)?.code ?? 'ERR')
+  const report: Record<string, string> = { version: process.version }
+  try {
+    readFileSync(process.argv[probeAt + 2] ?? '')
+    report['fs'] = 'read'
+  } catch (error) {
+    report['fs'] = errorCode(error)
+  }
+  try {
+    execFileSync(process.execPath, ['--version'], { stdio: 'ignore' })
+    report['spawn'] = 'ran'
+  } catch (error) {
+    report['spawn'] = errorCode(error)
+  }
+  report['net'] = await new Promise<string>((resolve) => {
+    try {
+      const socket = connect(Number(process.argv[probeAt + 1]), '127.0.0.1')
+      socket.once('connect', () => {
+        socket.destroy()
+        resolve('connected')
+      })
+      socket.once('error', (error) => resolve(errorCode(error)))
+    } catch (error) {
+      resolve(errorCode(error))
+    }
+  })
+  process.stdout.write(`HARNESSDESK_PLUGIN_PROBE ${JSON.stringify(report)}\n`)
+  process.exit(0)
+}
+
+/**
+ * Signals are outside Node's permission model, so a confined process could
+ * still stop or kill any other process of the same user. Before any plugin
+ * code loads, a confined process may signal only itself; asking whether a
+ * process exists (signal 0) stays allowed, since it changes nothing.
+ * `process.kill` reaches the system through `process._kill`, so guarding that
+ * one covers both, and it can be neither reassigned nor redefined. The
+ * permission model already refuses `process.binding`, the other way in.
+ */
+if ((process as { permission?: unknown }).permission) {
+  const signalling = process as unknown as { _kill: (pid: number, signal: number) => number }
+  const raw = signalling._kill
+  Object.defineProperty(process, '_kill', {
+    value: (pid: number, signal: number): number => {
+      if (Number(pid) !== process.pid && signal !== 0) {
+        throw Object.assign(new Error('A plugin process cannot signal another process.'), { code: 'ERR_ACCESS_DENIED' })
+      }
+      return raw.call(process, pid, signal)
+    },
+    writable: false,
+    configurable: false,
+    enumerable: false,
+  })
+}
 
 const log = (level: string, message: string, details?: unknown): void => {
   process.stderr.write(
@@ -41,7 +125,29 @@ const log = (level: string, message: string, details?: unknown): void => {
   )
 }
 
+const iosArguments = <T extends readonly unknown[]>(input: T): T => {
+  const args = [...input]
+  while (args.length && args.at(-1) === undefined) args.pop()
+  return args as unknown as T
+}
+const remoteIos: IosCapability = {
+  devices: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'devices', args: iosArguments(args) } }) as ReturnType<IosCapability['devices']>,
+  diagnose: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'diagnose', args: iosArguments(args) } }) as ReturnType<IosCapability['diagnose']>,
+  frame: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'frame', args: iosArguments(args) } }) as ReturnType<IosCapability['frame']>,
+  getAppearance: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'getAppearance', args: iosArguments(args) } }) as ReturnType<IosCapability['getAppearance']>,
+  setAppearance: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'setAppearance', args: iosArguments(args) } }) as ReturnType<IosCapability['setAppearance']>,
+  booted: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'booted', args: iosArguments(args) } }) as ReturnType<IosCapability['booted']>,
+  boot: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'boot', args: iosArguments(args) } }) as ReturnType<IosCapability['boot']>,
+  install: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'install', args: iosArguments(args) } }) as ReturnType<IosCapability['install']>,
+  launch: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'launch', args: iosArguments(args) } }) as ReturnType<IosCapability['launch']>,
+  terminate: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'terminate', args: iosArguments(args) } }) as ReturnType<IosCapability['terminate']>,
+  openUrl: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'openUrl', args: iosArguments(args) } }) as ReturnType<IosCapability['openUrl']>,
+  screenshot: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'screenshot', args: iosArguments(args) } }) as ReturnType<IosCapability['screenshot']>,
+  tap: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'tap', args: iosArguments(args) } }) as ReturnType<IosCapability['tap']>,
+  interact: (...args) => askHost('ios/call', { invocation: currentIosInvocation(), call: { method: 'interact', args: iosArguments(args) } }) as ReturnType<IosCapability['interact']>,
+}
 const kernel = new ExtensionKernel({
+  iosEngine: remoteIos,
   logger: {
     debug: (message, details) => log('debug', message, details),
     info: (message, details) => log('info', message, details),
@@ -63,6 +169,7 @@ const notify = (notification: PluginHostNotification): void => {
 const hostPending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
 let nextHostRequest = 0
 const HOST_REQUEST_TIMEOUT_MS = 30_000
+let requestTimeoutScale = 1
 
 const askHost = <M extends keyof ChildToHostMethods>(
   method: M,
@@ -70,10 +177,13 @@ const askHost = <M extends keyof ChildToHostMethods>(
 ): Promise<ChildToHostMethods[M]['result']> =>
   new Promise((resolve, reject) => {
     const id = ++nextHostRequest
+    const ios = method === 'ios/call' ? params as ChildToHostMethods['ios/call']['params'] : undefined
+    const capability = method === 'capability/call' ? (params as ChildToHostMethods['capability/call']['params']).call : undefined
+    const timeoutMs = (ios ? iosReplyTimeoutMs(ios.call) : capability ? capabilityReplyTimeoutMs(capability) : HOST_REQUEST_TIMEOUT_MS) * requestTimeoutScale
     const timer = setTimeout(() => {
       hostPending.delete(id)
       reject(new Error(`The host did not answer ${method} in time.`))
-    }, HOST_REQUEST_TIMEOUT_MS)
+    }, timeoutMs)
     hostPending.set(id, {
       resolve: (value) => {
         clearTimeout(timer)
@@ -86,6 +196,52 @@ const askHost = <M extends keyof ChildToHostMethods>(
     })
     send({ request: id, method, params })
   })
+
+/**
+ * How long a plugin's own reach may take before this process stops waiting.
+ * The parent holds each operation to its own deadline; this one only has to
+ * outlast it, so a command given a long timeout is not cut off here first.
+ */
+const capabilityReplyTimeoutMs = (call: CapabilityRequest): number =>
+  call.kind === 'fs' ? HOST_REQUEST_TIMEOUT_MS : capabilityWorkMs(call) + 15_000
+
+/**
+ * A command or a context read runs with the browser identity the parent
+ * minted for it, as a tool call does, so a page it opens goes through the
+ * parent like any other. Without one it runs as before.
+ */
+const withBrowser = <T>(identity: { readonly invocation: string; readonly profile: string } | undefined, run: () => Promise<T>): Promise<T> =>
+  identity ? runBrowserInvocation(identity, run) : run()
+
+/**
+ * The lease of the invocation a plugin's code is running for, minted by the
+ * parent and handed in with the invocation. Background work carries none, or
+ * one that has ended, and the parent serves it in the open workspace.
+ */
+const capabilityLease = new AsyncLocalStorage<string | undefined>()
+const withCapabilityLease = <T>(lease: string | undefined, body: () => T): T => capabilityLease.run(lease, body)
+
+const DENIED = /^Permission denied: ([^\n]+?) — ([\s\S]*)$/
+
+/**
+ * `ctx.fs`, `ctx.http`, `ctx.shell` and `ctx.android` for the plugin in this
+ * process. This process has no disk, network or programs of its own: the
+ * parent runs every call with the grants the person agreed to. A refusal
+ * comes back as the same `PermissionDenied` the host would have thrown, so
+ * a tool's caller reads it exactly as before.
+ */
+setCapabilityBroker({
+  async call(call) {
+    const lease = capabilityLease.getStore()
+    try {
+      return await askHost('capability/call', { ...(lease === undefined ? {} : { lease }), call })
+    } catch (error) {
+      const denied = error instanceof Error ? DENIED.exec(error.message) : null
+      if (denied) throw new PermissionDenied(denied[1]!, denied[2]!)
+      throw error
+    }
+  },
+})
 
 /**
  * `ctx.browser` for plugins in this process, when the parent has a page of
@@ -171,6 +327,18 @@ setTeamEngine(remoteTeamEngine)
 
 /** `ctx.forge` for plugins in this process: the seat and the record live with the host, so every verb crosses. */
 const remoteForgeEngine: ForgeEngine = {
+  push: (args, scope) => askHost('forge/push', { args, scope }),
+  pullRequest: {
+    create: (args, scope) => askHost('forge/create', { args, scope }),
+    update: (args, scope) => askHost('forge/update', { args, scope }),
+    merge: (args, scope) => askHost('forge/merge', { args, scope }),
+  },
+  review: (args, scope) => askHost('forge/review', { args, scope }),
+  comment: (args, scope) => askHost('forge/comment', { args, scope }),
+  repository: scope => askHost('forge/repository', { args: {}, scope }),
+  associatedPullRequest: scope => askHost('forge/associatedPullRequest', { args: {}, scope }),
+  record: (args, scope) => askHost('forge/record', { args, scope }),
+  attribute: (args, scope) => askHost('forge/attribute', { args, scope }),
   seat: (scope) => askHost('forge/seat', { scope }),
   identity: (scope) => askHost('forge/identity', { scope }),
   publish: async (reference, scope) => void (await askHost('forge/publish', { scope, reference })),
@@ -195,6 +363,24 @@ kernel.subscribe((event) => {
   snapshot()
 })
 
+/** The plugin this process runs; null until `host/hello`, and for the installer. */
+interface Bound {
+  readonly id: string
+  readonly directory: string
+  readonly permissions?: PluginPermissions
+}
+let bound: Bound | null = null
+let greeted = false
+
+const onlyInstaller = (what: string): void => {
+  if (bound) throw new Error(`This process runs ${bound.id}; it does not ${what}.`)
+}
+const onlyBound = (pluginId?: string): Bound => {
+  if (!bound) throw new Error('The installer process runs no plugin.')
+  if (pluginId !== undefined && pluginId !== bound.id) throw new Error(`This process runs ${bound.id}, not ${pluginId}.`)
+  return bound
+}
+
 type Handlers = {
   [K in keyof PluginHostMethods]: (
     params: PluginHostMethods[K]['params'],
@@ -209,7 +395,25 @@ const handlers: Handlers = {
           `not ${params.protocolVersion}. The build is inconsistent; reinstall.`,
       )
     }
-    if (params.inlineBrowser) setBrowserEngine(remoteBrowserEngine)
+    if (greeted) throw new Error('This plugin host has already been greeted.')
+    greeted = true
+    if (params.plugin) bound = params.plugin
+    if (params.confined) {
+      // Under the permission model this process can start no Chrome and
+      // hand nothing to the OS: the parent does both, for every placement.
+      setBrowserEngine(remoteBrowserEngine, { everyPlacement: true })
+      setSystemHandOff(async (url) => {
+        const identity = currentBrowserIdentity(true)!
+        await askHost('browser/handoff', { invocation: identity.invocation, url })
+      })
+      setBrowserFiles({
+        savePdf: (data, name) => askHost('browser/savePdf', { invocation: currentBrowserIdentity(true)!.invocation, data, name }),
+        missing: (paths) => askHost('browser/missing', { invocation: currentBrowserIdentity(true)!.invocation, paths }),
+      })
+    } else if (params.inlineBrowser) {
+      setBrowserEngine(remoteBrowserEngine)
+    }
+    requestTimeoutScale = params.requestTimeoutScale ?? 1
     // A restarted child is told again, because it starts on the defaults.
     if (params.browser) setBrowserSettings(params.browser)
     return { protocolVersion: EXTENSION_PROTOCOL_VERSION, pid: process.pid }
@@ -219,32 +423,59 @@ const handlers: Handlers = {
     return null
   },
   'plugins/loadInstalled': async () => {
-    await kernel.loadInstalledPlugins()
+    const plugin = onlyBound()
+    await kernel.loadInstalledPlugin(plugin.directory, plugin.id, plugin.permissions)
     snapshot()
     return null
   },
-  'plugin/inspect': (params) => kernel.inspectPlugin(params.specifier),
-  'plugin/install': async (params) => ({ id: await kernel.installPlugin(params.specifier) }),
+  'plugin/inspect': (params) => {
+    onlyInstaller('inspect packages')
+    return kernel.inspectPlugin(params.specifier)
+  },
+  // Copies the package into place and nothing more: the plugin's own process imports it.
+  'plugin/install': async (params) => {
+    onlyInstaller('install packages')
+    return { id: (await install(params.specifier, params.manifestDigest)).id }
+  },
   'plugin/uninstall': async (params) => {
-    await kernel.uninstallPlugin(params.pluginId)
+    onlyInstaller('remove packages')
+    await uninstall(params.pluginId)
     return null
   },
   'plugin/setEnabled': async (params) => {
-    await kernel.setEnabled(params.pluginId, params.enabled)
+    await kernel.setEnabled(onlyBound(params.pluginId).id, params.enabled)
     return null
   },
   'plugin/reconfigure': async (params) => {
-    await kernel.reconfigure(params.pluginId, params.config)
+    await kernel.reconfigure(onlyBound(params.pluginId).id, params.config)
     return null
   },
   'command/run': async (params) => ({
-    handled: await kernel.runCommand(params.name, params.argument, params.scope),
+    handled: await withBrowser(params.browser, () => withCapabilityLease(params.capabilityLease, () =>
+      withIosInvocation(params.iosInvocations, () => kernel.runCommand(params.name, params.argument, params.scope)))),
   }),
-  'tool/invoke': (params) =>
-    kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null),
-  'hooks/run': (params) => kernel.runHooks(params.invocation),
-  'context/resolve': (params) => kernel.resolveContext(params.query),
-  'context/resolveOne': (params) => kernel.resolveOne(params.id as never, params.ref, params.scope),
+  'tool/invoke': (params) => withCapabilityLease(params.capabilityLease, () =>
+    withIosInvocation(params.iosInvocations, () => kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null))),
+  'hooks/run': (params) => withCapabilityLease(params.capabilityLease, () =>
+    withIosInvocation(params.iosInvocations, () => kernel.runHooks(params.invocation))),
+  'hooks/runOne': (params) => {
+    // The host routes only hooks this process announced. One it no longer
+    // has was lost with a reload, and the kernel would read it as `allow`:
+    // refused here, the host fails the check closed instead.
+    const known = kernel.plugins().some((plugin) =>
+      plugin.contributions.some((entry) => entry.kind === 'hook' && entry.id === params.id))
+    if (!known) throw new Error('This plugin no longer has that hook.')
+    return withCapabilityLease(params.capabilityLease, () =>
+      withIosInvocation(params.iosInvocations, () => kernel.runHook(params.id as never, params.invocation)))
+  },
+  'context/resolve': (params) => withBrowser(params.browser, () => withCapabilityLease(params.capabilityLease, () =>
+    withIosInvocation(params.iosInvocations, () => kernel.resolveContext(params.query)))),
+  'context/resolveOne': (params) => withBrowser(params.browser, () => withCapabilityLease(params.capabilityLease, () =>
+    withIosInvocation(params.iosInvocations, () => kernel.resolveOne(params.id as never, params.ref, params.scope)))),
+  'scopes/resolved': (params) => {
+    kernel.resolveWorkspaceRoots(params.roots)
+    return null
+  },
   'workspace/set': (params) => {
     kernel.setWorkspace({ root: params.root, branch: params.branch, ...(params.admitted ? { admitted: params.admitted } : {}) })
     return null

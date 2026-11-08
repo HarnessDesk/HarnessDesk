@@ -110,6 +110,44 @@ export class EvidenceStore {
   #queue: Promise<void> = Promise.resolve()
   /** The first write that failed since the last `flush()`. */
   #failure: unknown = null
+  #generation = 0
+  get generation(): number { return this.#generation }
+  readonly #goalGenerations = new Map<string, number>()
+  readonly #unscopedGenerations = new Map<string, number>()
+  readonly #seatBoards = new Map<string, string | null>()
+
+  /** A queued write fences only its Goal, unless its scope cannot be proven. */
+  generationFor(project: string, goal: string): string {
+    return `${this.#unscopedGenerations.get(project) ?? 0}:${this.#goalGenerations.get(JSON.stringify([project, goal])) ?? 0}`
+  }
+
+  #seatKey(project: string, seat: string): string { return JSON.stringify([project, seat]) }
+
+  #indexSeat(project: string, line: StoredLine): void {
+    if (line.type !== 'seat') return
+    const key = this.#seatKey(project, line.record.id)
+    const board = line.record.board
+    // A conflicting queued or restored opening cannot redirect a later closing
+    // to a different Goal; keep that seat's scope conservatively unknown.
+    if (this.#seatBoards.has(key) && this.#seatBoards.get(key) !== board) this.#seatBoards.set(key, null)
+    else if (!this.#seatBoards.has(key)) this.#seatBoards.set(key, board)
+  }
+
+  #fenceQueued(project: string, lines: readonly StoredLine[]): void {
+    const goals = new Set<string>()
+    let unknown = false
+    for (const line of lines) {
+      this.#indexSeat(project, line)
+      const goal = line.type === 'seat' ? this.#seatBoards.get(this.#seatKey(project, line.record.id)) : line.type === 'evidence' ? line.record.card?.board : this.#seatBoards.get(this.#seatKey(project, line.closing.seat))
+      if (goal) goals.add(goal)
+      else unknown = true
+    }
+    if (unknown) this.#unscopedGenerations.set(project, (this.#unscopedGenerations.get(project) ?? 0) + 1)
+    for (const goal of goals) {
+      const key = JSON.stringify([project, goal])
+      this.#goalGenerations.set(key, (this.#goalGenerations.get(key) ?? 0) + 1)
+    }
+  }
   readonly #durable = new Set<(project: string, file: StoreFile, lines: readonly StoredLine[]) => void>()
 
   constructor(dir: string, log: (message: string, details: Readonly<Record<string, unknown>>) => void = () => {}) {
@@ -148,7 +186,7 @@ export class EvidenceStore {
 
   /** Appends lines to one of a project's two files, after every write queued before them. Resolves once they are synced. */
   append(project: string, file: StoreFile, lines: readonly StoredLine[]): Promise<void> {
-    return this.#enqueue(() => this.#write(project, file, lines))
+    return this.#enqueue(project, lines, () => this.#write(project, file, lines))
   }
 
   /**
@@ -158,7 +196,7 @@ export class EvidenceStore {
    * says of each incoming line whether it is added, already here, or refused.
    */
   merge(project: string, file: StoreFile, incoming: readonly StoredLine[], admit: Admit): Promise<MergeCount> {
-    return this.#enqueue(async () => {
+    return this.#enqueue(project, incoming, async () => {
       const { lines: here } = await this.#readNow(project, file)
       const added: StoredLine[] = []
       let duplicate = 0
@@ -224,7 +262,9 @@ export class EvidenceStore {
     if (failure !== null) throw failure
   }
 
-  #enqueue<T>(step: () => Promise<T>): Promise<T> {
+  #enqueue<T>(project: string, incoming: readonly StoredLine[], step: () => Promise<T>): Promise<T> {
+    this.#generation += 1
+    this.#fenceQueued(project, incoming)
     const run = this.#queue.then(step)
     this.#queue = run.then(
       () => undefined,
@@ -324,6 +364,7 @@ export class EvidenceStore {
       }
       const line = lineOf(parsed, { file, project })
       if (line) {
+        this.#indexSeat(project, line)
         lines.push(line)
         continue
       }

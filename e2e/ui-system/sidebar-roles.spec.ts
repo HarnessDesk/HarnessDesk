@@ -17,7 +17,16 @@ for (const theme of ['light', 'dark'] as const) {
           border: css.borderWidth, shadow: css.boxShadow, padding: css.paddingInline }
       }
       const before = await pill.evaluate(read)
+      const quietInk = tone === 'neutral' ? await quiet.evaluate(node => {
+        const probe = document.createElement('span')
+        probe.style.color = 'var(--hd-muted-foreground)'
+        node.append(probe)
+        const color = getComputedStyle(probe).color
+        probe.remove()
+        return color
+      }) : before.color
       expect(await quiet.evaluate(read)).toEqual({ ...before,
+        color: quietInk,
         background: 'rgba(0, 0, 0, 0)', border: '0px', shadow: 'none', padding: '0px' })
       expect(before.background).not.toBe('rgba(0, 0, 0, 0)')
       if (tone === 'brand') {

@@ -28,8 +28,8 @@ export const PageRecordViews = <T extends string,>({label,value,choices,change}:
 /** Records share a table above 600px of content, and whole earned sentences in list rows below it.
  * Row actions and portalled menus never activate the record; the title is its keyboard button.
  */
-export const PageRecords = ({ label, columns, groups }: {
-  readonly label: string; readonly columns: readonly RecordColumn[]; readonly groups: readonly RecordGroup[]
+export const PageRecords = ({ label, columns, groups, showGroupLabels = true }: {
+  readonly label: string; readonly columns: readonly RecordColumn[]; readonly groups: readonly RecordGroup[]; readonly showGroupLabels?: boolean
 }) => {
   const { ref, narrow } = useNarrowLayout<HTMLDivElement>(600)
   const rowPressed = (event: MouseEvent<HTMLElement>, row: PageRecord): void => {
@@ -44,7 +44,7 @@ export const PageRecords = ({ label, columns, groups }: {
   const trailing = (row: PageRecord) => <span className={styles.trailing}>{row.state}{row.actions}</span>
   return <div ref={ref} data-slot="page-records" data-layout={narrow === null ? 'unmeasured' : narrow ? 'narrow' : 'table'} className={styles.records}>
     {narrow === true ? groups.map(group => <section key={group.id} aria-label={group.label} data-team-project={group.id} className={styles.group}>
-      <GroupLabel>{group.label}</GroupLabel>
+      {showGroupLabels && <GroupLabel>{group.label}</GroupLabel>}
       <ListRows>{group.rows.map(row => <ListRow key={row.id} data-team-row={row.id} interactive
         onClick={event => rowPressed(event, row)} lead={row.lead} mark={row.mark ?? false} title={title(row)}
         subtitle={<span data-slot="team-detail">{row.compact}</span>} wrapSubtitle trail={trailing(row)} />)}</ListRows>
@@ -54,9 +54,9 @@ export const PageRecords = ({ label, columns, groups }: {
         <TableHead className={styles.fact}><span className="sr-only">Actions</span></TableHead>
       </TableRow></TableHeader>
       <TableBody>{groups.map(group => <Fragment key={group.id}>
-        <TableRow data-team-project={group.id}>
+        {showGroupLabels && <TableRow data-team-project={group.id}>
           <TableCell colSpan={columns.length + 3}><GroupLabel>{group.label}</GroupLabel></TableCell>
-        </TableRow>
+        </TableRow>}
         {group.rows.map(row => <TableRow key={row.id} data-team-row={row.id} interactive onClick={event => rowPressed(event, row)}>
           <TableCell className={styles.identityCell} lead={row.lead}>
             <div data-slot="team-identity" className={styles.identity}>

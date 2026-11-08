@@ -1976,6 +1976,7 @@ for (const importer of [...screenSources, ...appSources]) {
  */
 export const NAMED_ROOTS = new Map([
   [path.join(UI_SRC, 'components', 'Conversation.tsx'), 'conversation'],
+  [path.join(UI_SRC, 'components', 'LeadPage.tsx'), 'conversation'],
   [path.join(UI_SRC, 'components', 'Settings.tsx'), 'settings'],
   [path.join(UI_SRC, 'components', 'TeamRoomPane.tsx'), 'room'],
   [path.join(UI_SRC, 'components', 'TeamBoardPane.tsx'), 'room'],
@@ -2306,7 +2307,7 @@ const ICON_MODULES = new Set([
 // The thumbnail draws policy roles, branches and loops from flow-layout, not
 // glyphs. Name its exact module only for SVG admission: FlowCard's controls
 // and appearance remain subject to the ordinary pattern gates.
-const SVG_DATA_GEOMETRY_MODULES = new Set(['design/patterns/FlowCards.tsx'])
+const SVG_DATA_GEOMETRY_MODULES = new Set(['design/patterns/FlowCards.tsx', 'design/patterns/QrCode.tsx'])
 export const allowsInlineSvg = (module) =>
   ICON_MODULES.has(path.basename(module)) || SVG_DATA_GEOMETRY_MODULES.has(module)
 
@@ -3274,16 +3275,13 @@ export const patternSourceAppearanceOf = (file, source, ast, countedDefs = new S
   ...inlineStyleAppearanceIn(file, source, ast, root).map((detail) => `${screenAppearanceName(file)}: ${detail}`),
 ]
 
-/** Existing screen families only, capped at eleven additional owners. An
+/** Existing screen families only, capped at five additional owners. An
  * annotation documents membership; it cannot grant a new exception. See
  * AGENTS.md rule 11. Shared generic UI still belongs in design/. */
 export const STYLESHEET_OWNERS = Object.freeze({
   'components/Conversation.module.css': ['components/TurnTail.tsx'],
   'components/Items.module.css': ['components/MessageActions.tsx', 'components/StepGroup.tsx'],
-  'components/Plugins.module.css': ['components/PluginsSection.tsx'],
-  'components/Settings.module.css': ['components/Extensions.tsx'],
-  'components/Sidebar.module.css': ['components/SessionTree.tsx'],
-  'components/ToolPanes.module.css': ['components/BrowserPane.tsx', 'components/FilePane.tsx', 'components/PreviewPane.tsx', 'components/TerminalPane.tsx', 'components/ToolPaneHeader.tsx'],
+  'components/ToolPanes.module.css': ['components/BrowserPane.tsx', 'components/TerminalPane.tsx'],
 })
 
 /** The space steps the system offers, as plain numbers. */
@@ -4420,13 +4418,6 @@ export const isPatternModule = (module) => /[\\/]design[\\/]patterns[\\/]/.test(
  * any part of that contract changes.
  */
 export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
-  {
-    module: 'design/ui/timeline.tsx',
-    kind: 'data-geometry',
-    exports: ['Timeline'],
-    area: 'room',
-    reason: 'An ordered execution data view: title-centred rings and incoming rail segments encode recorded progress. Existing Button and Text own selection and typography; the timeline introduces no independent control.',
-  },
 
   {
     module: 'design/ui/chart.tsx',
@@ -4519,8 +4510,8 @@ for (const file of tsxFiles()) {
   const source = read(file)
 
   // Shared structural policy covers both raw dialog attributes and low-level
-  // parts, including aliased imports. Canonical patterns own overlay policy;
-  // AppWindow is the exact specialized composition recorded in that policy.
+  // parts, including aliased imports. Canonical patterns own overlay policy,
+  // and no screen is exempt from it.
   const code = codeOf(file)
   for (const detail of overlayViolations(path.relative(root, file).split(path.sep).join('/'), source)) findings.handRolledOverlay.push(`${name}: ${detail}`)
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,6 +14,7 @@ import {
   inspect,
   listInstalled,
   loadInstalled,
+  manifestDigest,
   parseManifest,
   readPermissions,
   redactCredentials,
@@ -219,6 +220,62 @@ test('installing copies the plugin into HarnessDesk’s own directory', async (t
     (await listInstalled()).map((entry) => entry.id),
     ['sample'],
   )
+})
+
+test('an install is held to the manifest that was shown, and a refused one leaves the installed copy', async (t) => {
+  const root = await withPluginsRoot(t)
+  const shown = (await inspect(FIXTURE)).manifestDigest
+  assert.equal(shown, manifestDigest(await readFile(join(FIXTURE, 'harnessdesk.plugin.json'))))
+  assert.equal((await install(FIXTURE, shown)).id, 'sample')
+  const copy = await readFile(join(root, 'sample', 'index.js'), 'utf8')
+
+  await assert.rejects(install(FIXTURE, 'f'.repeat(64)), /changed after it was shown to you/)
+  assert.equal(await readFile(join(root, 'sample', 'index.js'), 'utf8'), copy, 'the version already installed stays')
+  assert.deepEqual(await readdir(join(root, '.staging')).catch(() => []), [], 'no half-made copy is left behind')
+  assert.deepEqual((await listInstalled()).map((entry) => entry.id), ['sample'])
+})
+
+test('a package with a link leading outside it is refused, and one that stays inside installs as written', async (t) => {
+  const root = await withPluginsRoot(t)
+  const work = await mkdtemp(join(tmpdir(), 'harnessdesk-work-'))
+  t.after(() => rm(work, { recursive: true, force: true }))
+  await writeFile(join(work, 'secret.txt'), 'outside')
+
+  // A confined plugin may read its own directory, and Node follows a link
+  // wherever it points: these would read past that grant.
+  for (const [name, target] of [
+    ['absolute', join(work, 'secret.txt')],
+    ['relative', '../../secret.txt'],
+    ['dangling', '../../../nowhere'],
+  ] as const) {
+    const source = join(work, `pkg-${name}`)
+    await cp(FIXTURE, source, { recursive: true })
+    await mkdir(join(source, 'data'))
+    await symlink(target, join(source, 'data', 'link'))
+    await assert.rejects(install(source), /data\/link is a link that leads outside the plugin/, name)
+    assert.deepEqual(await listInstalled(), [], `${name}: nothing was installed`)
+    assert.deepEqual(await readdir(join(root, '.staging')).catch(() => []), [], `${name}: no half-made copy`)
+  }
+
+  const inside = join(work, 'pkg-inside')
+  await cp(FIXTURE, inside, { recursive: true })
+  await symlink('index.js', join(inside, 'alias.js'))
+  const installed = await install(inside)
+  assert.equal(await readlink(join(installed.directory, 'alias.js')), 'index.js', 'copied as written, not pointed back at the source')
+})
+
+test('a local source is never removed, whatever its path contains', async (t) => {
+  await withPluginsRoot(t)
+  const work = await mkdtemp(join(tmpdir(), 'harnessdesk-work-'))
+  t.after(() => rm(work, { recursive: true, force: true }))
+  // A developer's folder whose path happens to look like a staging copy.
+  const source = join(work, 'plugins.staging', 'sample')
+  await cp(FIXTURE, source, { recursive: true })
+
+  await assert.rejects(install(source, 'f'.repeat(64)), /changed after it was shown to you/)
+  assert.ok((await stat(join(source, 'harnessdesk.plugin.json'))).isFile(), 'a refused install leaves the source')
+  await install(source, (await inspect(source)).manifestDigest)
+  assert.ok((await stat(join(source, 'index.js'))).isFile(), 'and so does one that succeeds')
 })
 
 test('an installed plugin loads, registers, and runs', async (t) => {

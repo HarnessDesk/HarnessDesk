@@ -328,3 +328,12 @@ it('attributes an ordinary conversation’s answer to its runtime', async () => 
   await render([{ ...TURN, items: [item('answer', { type: 'assistantMessage', text: 'Ready to review.' })] }])
   expect(leads()).toEqual(['Runtime'])
 })
+
+
+it('labels a branch publication with its address', async () => {
+  await render([{ ...TURN, items: [item('branch', { type: 'publication', reference: {
+    kind: 'branch', action: 'opened', repo: 'acme/widgets', ref: 'feature/widgets', title: 'feature/widgets',
+  } })] } as unknown as Turn])
+  expect(rows()[0]?.getAttribute('title')).toContain('acme/widgets feature/widgets')
+  expect(container.textContent).not.toContain('#undefined')
+})

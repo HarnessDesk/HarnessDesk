@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process'
+import { connect } from 'node:net'
 import { closeSync, fstatSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -22,10 +24,10 @@ import {
   type SessionNotification,
   type SetSessionConfigOptionRequest,
   type SetSessionConfigOptionResponse,
-} from '@agentclientprotocol/sdk'
+} from '@agentclientprotocol/sdk/unstable'
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@agentclientprotocol/claude-agent-acp'
-import { DESK_TOOL_CEILINGS, isCompactionSummary, peelDeskContextPrefix, withoutCompaction } from '@harnessdesk/protocol'
+import { parseGitCommand, gitCommandDirectories, gitAliasResolver, DESK_TOOL_CEILINGS, isCompactionSummary, peelDeskContextPrefix, withoutCompaction } from '@harnessdesk/protocol'
 
 import { sessionFiles, sourceOf, trash } from './store.js'
 import { DELEGATION_CAPABILITY, DELEGATION_LIST, DELEGATION_NOTIFICATION } from './delegation-wire.js'
@@ -46,6 +48,25 @@ import {
 
 import { SESSION_SOURCE, SESSION_SOURCE_CAPABILITY } from './session-source-wire.js'
 import { SESSION_LOADOUT, SESSION_LOADOUT_CAPABILITY } from './loadout-wire.js'
+
+// Public ACP extension contracts advertised by the upstream initialize reply.
+// Keep the host-owned idle fallback: a steer never starts an untracked prompt.
+const steerRequest = (raw: unknown): Parameters<ClaudeAcpAgent['steer']>[0] => {
+  const params = raw as Parameters<ClaudeAcpAgent['steer']>[0] | null
+  if (!params || typeof params.sessionId !== 'string' || !params.sessionId || !Array.isArray(params.prompt) || !params.prompt.length ||
+    params._meta?.steering?.idleBehavior !== undefined && params._meta.steering.idleBehavior !== 'promptRequired') {
+    throw RequestError.invalidParams('Steering requires a session id, prompt, and a supported idle behavior.')
+  }
+  return params
+}
+const goalRequest = (raw: unknown): Parameters<ClaudeAcpAgent['goal']>[0] => {
+  const params = raw as Parameters<ClaudeAcpAgent['goal']>[0] | null
+  if (!params || typeof params.sessionId !== 'string' || !params.sessionId ||
+    params.action !== 'clear' && (params.action !== 'set' || typeof params.objective !== 'string' || !params.objective.trim())) {
+    throw RequestError.invalidParams('A goal requires a session id and a set or clear action.')
+  }
+  return params
+}
 
 const DEFAULT = 'default'
 const EFFORT_OPTION_ID = 'effort'
@@ -356,6 +377,11 @@ export const withOptions = (meta: Meta, values: Record<string, string>, abort: A
       PreToolUse: [...preToolUse, { hooks: [readCeilingHook] }],
     }
   }
+  const steering = (options['env'] as NodeJS.ProcessEnv | undefined)?.['HD_GIT_STEER'] ?? process.env['HD_GIT_STEER']
+  if (steering === 'ask' || steering === 'redirect') {
+    const hooks = (options['hooks'] ?? {}) as Record<string, unknown>
+    options['hooks'] = { ...hooks, PreToolUse: [...((hooks['PreToolUse'] as unknown[] | undefined) ?? []), { hooks: [(input: Parameters<typeof gitSteeringHook>[0]) => gitSteeringHook(input, options['env'] as NodeJS.ProcessEnv | undefined)] }] }
+  }
   const next: Record<string, unknown> = { ...(meta ?? {}), claudeCode: { ...claudeCode, options, emitRawSDKMessages: true } }
   if (values['ceiling'] === 'read') {
     const harnessdesk = (next['harnessdesk'] ?? {}) as Record<string, unknown>
@@ -416,6 +442,27 @@ export const readCeilingDecision = (
   const match = /^mcp__harnessdesk__(.+)$/.exec(toolName)
   if (match && DESK_READ_TOOLS.has(match[1] ?? '')) return undefined
   return { permissionDecision: 'deny', permissionDecisionReason: 'The read ceiling blocks this tool.' }
+}
+
+export const gitSteeringHook = async (input: { readonly tool_name: string; readonly tool_input: unknown }, environment: NodeJS.ProcessEnv = process.env) => {
+  const command = input.tool_name === 'Bash' && input.tool_input && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>)['command'] : undefined
+  const alias = gitAliasResolver(args => {
+    const cwd = typeof command === 'string' ? gitCommandDirectories(command).reduce((base, path) => resolve(base, path), process.cwd()) : process.cwd()
+    try { return execFileSync(environment['HD_GIT_REAL_GIT'] || 'git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() } catch { return undefined }
+  })
+  if (typeof command !== 'string' || !parseGitCommand(command, 0, alias)) return {}
+  if (environment['HD_TOOLS_SOCKET'] && environment['HD_GIT_CALLER']) {
+    const off = await new Promise<boolean>(resolve => {
+      const socket = connect(environment['HD_TOOLS_SOCKET']!), finish = (value: boolean) => { socket.destroy(); resolve(value) }
+      let buffer = ''
+      socket.setTimeout(2000, () => finish(false))
+      socket.on('error', () => finish(false))
+      socket.on('connect', () => socket.write(JSON.stringify({ id: 1, method: 'git/steer', params: { caller: environment['HD_GIT_CALLER'], modeOnly: true } }) + '\n'))
+      socket.on('data', chunk => { buffer += chunk.toString(); if (!buffer.includes('\n')) return; try { finish(JSON.parse(buffer).result?.action === 'own') } catch { finish(false) } })
+    })
+    if (off) return {}
+  }
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Git writes from this conversation go through HarnessDesk. Use git_push for pushes, or pr_create, pr_update, pr_merge, pr_comment, pr_review and issue_comment for forge writes.' } }
 }
 
 const readCeilingHook = async (input: { readonly tool_name: string; readonly tool_input: unknown }) => {
@@ -590,7 +637,13 @@ const clientFromContext = (context: AgentContext): AcpClient => ({
 })
 type StoredControls = { values: Record<string, string>; meta?: Meta; cwd: string }
 type ModelInfo = { value: string; supportedEffortLevels?: readonly string[] }
-type StoredControlsWithRuntime = StoredControls & { styles: readonly string[]; spawned: Record<string, string>; prompted: boolean }
+type StoredControlsWithRuntime = StoredControls & {
+  styles: readonly string[]
+  spawned: Record<string, string>
+  prompted: boolean
+  /** A created fork whose live query was released after mode enforcement failed. */
+  resumeBeforePrompt?: ResumeSessionRequest
+}
 type RawToolResult = { name: string; content: unknown }
 const customOptions = (stored: StoredControlsWithRuntime): SessionConfigOption[] => [
   { type: 'select', id: AUTOCOMPACT_OPTION_ID, name: 'Auto-compact', description: 'When Claude Code compacts its context window.', category: 'model_config', currentValue: stored.values[AUTOCOMPACT_OPTION_ID] ?? DEFAULT, options: AUTOCOMPACT_CHOICES.map((choice) => ({ ...choice })) },
@@ -783,6 +836,8 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     try {
       return await super.closeSession(params)
     } finally {
+      const stored = this.#controls.get(params.sessionId)
+      if (stored) delete stored.resumeBeforePrompt
       this.#rawToolResults.delete(params.sessionId)
       this.#suppliedMcpServers.delete(params.sessionId)
       this.#releaseAttachments(params.sessionId)
@@ -834,12 +889,21 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     )
   }
   override async resumeSession(request: ResumeSessionRequest): Promise<ResumeSessionResponse> {
+    const recovery = this.#controls.get(request.sessionId)?.resumeBeforePrompt
+    if (recovery) request = { ...recovery, ...request, _meta: request._meta ?? recovery._meta }
     const remembered = { ...this.#readControls(request.sessionId), ...optionsIn(request._meta) }
     // Only a read seat needs its ceiling re-applied here; every other resume
     // stays exactly the wrapper's own.
     if (remembered['ceiling'] !== 'read') return super.resumeSession(request)
     const response = await super.resumeSession({ ...request, _meta: withOptions(request._meta, remembered, new AbortController(), request.cwd) })
-    await this.#forceReadPermissionMode(request.sessionId, remembered)
+    try {
+      await this.#forceReadPermissionMode(request.sessionId, remembered)
+    } catch (error) {
+      // A failed recovery stays closed and pending. Neither an explicit
+      // resume nor a later prompt may reuse a query that failed enforcement.
+      if (recovery) await super.closeSession({ sessionId: request.sessionId })
+      throw error
+    }
     const stored: StoredControlsWithRuntime = {
       values: remembered,
       spawned: { ...remembered },
@@ -860,11 +924,33 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     return super.setSessionMode(params)
   }
   override async unstable_forkSession(params: Parameters<ClaudeAcpAgent['unstable_forkSession']>[0]): ReturnType<ClaudeAcpAgent['unstable_forkSession']> {
-    const result = await super.unstable_forkSession(params)
     const parent = this.#controls.get(params.sessionId)?.values ?? this.#readControls(params.sessionId)
-    const inherited = forkedControls(parent)
-    if (inherited['ceiling'] === 'read') this.#writeControls(result.sessionId, inherited)
-    return result
+    const inherited = { ...optionsIn(params._meta), ...forkedControls(parent) }
+    const prepared = withInstructions(params)
+    const { params: filtered, input, staged } = withAttachments(prepared, (key) => this.#stagingRoot(key))
+    // Apply the source's read ceiling BEFORE upstream starts the fork's query.
+    const result = await super.unstable_forkSession({ ...filtered, _meta: withOptions(filtered._meta, inherited, new AbortController(), params.cwd) })
+    // The branch already exists. Persist its ceiling before any further SDK
+    // call can fail, and keep the same controls in memory for mode requests.
+    this.#writeControls(result.sessionId, inherited)
+    const stored: StoredControlsWithRuntime = { values: inherited, spawned: { ...inherited }, prompted: true, styles: [], meta: filtered._meta, cwd: params.cwd }
+    this.#controls.set(result.sessionId, stored)
+    try {
+      await this.#forceReadPermissionMode(result.sessionId, inherited)
+    } catch (error) {
+      stored.resumeBeforePrompt = { sessionId: result.sessionId, cwd: params.cwd, mcpServers: filtered.mcpServers, additionalDirectories: filtered.additionalDirectories, systemPrompt: filtered.systemPrompt, _meta: filtered._meta }
+      // Use upstream's handle release, as reconfiguration does, retaining the
+      // frozen attachment preparation for a guarded resume of this same id.
+      await super.closeSession({ sessionId: result.sessionId })
+      this.#log(`claude-acp: fork ${result.sessionId} could not enforce its read ceiling; released live query: ${String(error)}`)
+    }
+    stored.styles = await optionStyles(this, result.sessionId)
+    this.#suppliedMcpServers.set(result.sessionId, filtered.mcpServers?.map(server => server.name) ?? [])
+    this.#tasks.set(result.sessionId, new TaskRegistry())
+    this.#delegations.set(result.sessionId, new DelegationRegistry())
+    if (input && staged) this.#attachments.set(result.sessionId, { input, staged })
+    const decorated = decorateSessionOptions(result, (this.sessions[result.sessionId]?.modelInfos ?? []) as readonly ModelInfo[])
+    return environmentAck({ ...decorated, configOptions: [...(decorated.configOptions ?? []), ...customOptions(stored)] }, environmentIn(params._meta))
   }
   override async setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
     if (!CONTROL_IDS.includes(params.configId as typeof CONTROL_IDS[number])) {
@@ -896,7 +982,13 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     return { configOptions: customOptions(stored) }
   }
   override async prompt(params: Parameters<ClaudeAcpAgent['prompt']>[0]): ReturnType<ClaudeAcpAgent['prompt']> {
-    const stored = this.#controls.get(params.sessionId)
+    let stored = this.#controls.get(params.sessionId)
+    // Upstream prompt requires a live session. A fork released after a mode
+    // failure must pass our read-enforcing resume before any input is queued.
+    if (stored?.resumeBeforePrompt) {
+      await this.resumeSession(stored.resumeBeforePrompt)
+      stored = this.#controls.get(params.sessionId)
+    }
     if (stored && !stored.prompted) {
       for (const command of commandsFor(stored.values, stored.spawned)) {
         await super.prompt({ sessionId: params.sessionId, prompt: [{ type: 'text', text: command }] })
@@ -1131,7 +1223,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       .onRequest(methods.agent.initialize, (ctx) => agent.initialize(ctx.params))
       .onRequest(methods.agent.session.new, (ctx) => agent.newSession(ctx.params))
       .onRequest(methods.agent.session.load, (ctx) => agent.loadSession(ctx.params))
-      .onRequest(methods.agent.session.fork, (ctx) => agent.unstable_forkSession(ctx.params))
+      .onRequest(methods.agent.session.fork, (ctx) => agent.forking(ctx.params.sessionId, () => agent.unstable_forkSession(ctx.params)))
       .onRequest(methods.agent.session.list, (ctx) => agent.listSessions(ctx.params))
       .onRequest(methods.agent.session.delete, (ctx) => agent.deleteSession(ctx.params))
       .onRequest(methods.agent.session.resume, (ctx) => agent.resumeSession(ctx.params))
@@ -1144,6 +1236,8 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       .onRequest(methods.agent.providers.disable, (ctx) => agent.unstable_disableProvider(ctx.params))
       .onRequest(methods.agent.logout, (ctx) => agent.logout(ctx.params))
       .onRequest(methods.agent.session.prompt, (ctx) => agent.prompt(ctx.params))
+      .onRequest('_session/steering', steerRequest, (ctx) => agent.steer(ctx.params))
+      .onRequest('_session/goal', goalRequest, (ctx) => agent.goal(ctx.params))
       .onRequest(SESSION_SOURCE, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_SOURCE, ctx.params))
       .onRequest(SESSION_LOADOUT, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_LOADOUT, ctx.params))
       .onRequest(SESSION_DELETE, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_DELETE, ctx.params))

@@ -1,5 +1,8 @@
 import { RuntimeSkillPage } from './RuntimeSkills'
 import { openCustomizeSkills } from '../state/library-views'
+import { GitWriteSettings } from './GitRecord'
+import { LeadSettingsSection } from './LeadSettings'
+import { PhoneSettingsSection } from './PhoneSettings'
 import SettingsChatsFolder from './SettingsChatsFolder'
 import { projectWorkspaces } from '../lib/chats'
 import SettingsNewConversations from './SettingsNewConversations'
@@ -85,6 +88,7 @@ import {
 } from '../design'
 import { Dialog, ConfirmDialog, EmptyState } from '../design'
 import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
+import { HarnessDeskAccountSection } from './HarnessDeskAccount'
 import { ProfileSection, GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
 import { shortPath } from '../lib/paths'
 import { NewSessionDefaults } from './SettingsAgents'
@@ -121,6 +125,8 @@ export type Section =
   | 'plugins'
   | 'permissions'
   | 'browser'
+  | 'lead'
+  | 'phone'
 
 /**
  * The pages that used to exist, mapped to where their rows went.
@@ -140,10 +146,10 @@ const MOVED: Readonly<Record<string, Section>> = {
 }
 const SECTIONS: readonly Section[] = [
   'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage',
-  'runtimes', 'models', 'skills', 'hooks', 'extensions', 'library', 'plugins', 'permissions', 'browser',
+  'runtimes', 'models', 'skills', 'hooks', 'extensions', 'library', 'plugins', 'permissions', 'browser', 'lead', 'phone',
 ]
-export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes'): Section =>
-  name && (SECTIONS as readonly string[]).includes(name)
+export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes', leadAvailable = false): Section =>
+  name === 'lead' && !leadAvailable ? fallback : name && (SECTIONS as readonly string[]).includes(name)
     ? (name as Section)
     : (name && MOVED[name]) || fallback
 
@@ -647,6 +653,7 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
       <CeilingsSection focus={focus} />
 
       <QuestionWaitSection />
+      <GitWriteSettings />
 
       <ClientAnswersSection />
 
@@ -1308,6 +1315,7 @@ export const GeneralSectionRows = () => (
   <>
     <SettingsNewConversations />
     <SettingsChatsFolder />
+    <PrivacyRows />
     <SectionHead level="label" name="Backup" />
     <BackupRows />
 
@@ -1321,6 +1329,34 @@ export const GeneralSectionRows = () => (
     </Rows>
   </>
 )
+
+/**
+ * For a desk on a shared screen or in a recording: the agents' accounts go
+ * by the names you gave them (or the part of the address before the @), and
+ * the full address is not drawn or put in a hover anywhere.
+ */
+export const PrivacyRows = () => {
+  const store = useStore()
+  const hide = useSnapshot().hideAccountAddresses
+  return (
+    <>
+      <SectionHead level="label" name="Privacy" />
+      <Rows>
+        <Row
+          title="Hide account addresses"
+          desc="Accounts show by name. Useful when sharing your screen."
+          control={
+            <Switch
+              aria-label="Hide account addresses"
+              checked={hide}
+              onCheckedChange={(next) => store.setHideAccountAddresses(next)}
+            />
+          }
+        />
+      </Rows>
+    </>
+  )
+}
 
 /**
  * Export and restore, side by side, with the two promises that make them
@@ -1500,9 +1536,9 @@ const WorktreeRows = () => {
  * and read by `LibrarySection` on its own first render.
  */
 const SETTINGS_LABELS = {
-  profile: 'Profile', general: 'General', appearance: 'Appearance', notifications: 'Notifications', shortcuts: 'Keyboard shortcuts',
+  profile: 'Account', general: 'General', appearance: 'Appearance', notifications: 'Notifications', shortcuts: 'Keyboard shortcuts',
   workspaces: 'Workspaces', archive: 'Archive', history: 'History', storage: 'Storage', runtimes: 'Runtimes', models: 'Models',
-  skills: 'Skills', hooks: 'Hooks', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser',
+  skills: 'Skills', hooks: 'Hooks', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser', lead: 'Lead', phone: 'Phone',
 } as const
 export const Settings = ({ route, onRoute, onSignIn }: {
   readonly route: SettingsRoute; readonly onRoute: (route: SettingsRoute) => void; readonly onSignIn: (runtime: RuntimeId) => void
@@ -1511,20 +1547,26 @@ export const Settings = ({ route, onRoute, onSignIn }: {
 
   const store = useStore(), runtime = useRuntime(), snapshot = useSnapshot()
   const { active } = useDestinationPage()
-  const section: SettingsSection = route.kind === 'section' ? route.section : route.kind === 'project' ? 'workspaces' : route.kind === 'skill' ? 'skills' : 'runtimes'
+  const section: SettingsSection = route.kind === 'section' ? route.section === 'lead' && !snapshot.leadAvailable ? 'runtimes' : route.section : route.kind === 'project' ? 'workspaces' : route.kind === 'skill' ? 'skills' : 'runtimes'
   const focus = route.kind === 'section' ? route.focus : null
   const sectionRoute = (next: SettingsSection, nextFocus: string | null = null): void => onRoute({ kind: 'section', section: next, focus: nextFocus })
   const hasExtensions = runtime.capabilities.extensionStore || runtime.capabilities.mcp
   useEffect(() => {
     if (!destinationActive) return
- if (active && section === 'extensions' && !hasExtensions) sectionRoute('runtimes') }, [destinationActive, active, section, hasExtensions])
+ if (active && route.kind === 'section' && route.section === 'lead' && !snapshot.leadAvailable) sectionRoute('runtimes')
+ if (active && section === 'extensions' && !hasExtensions) sectionRoute('runtimes') }, [destinationActive, active, section, hasExtensions, snapshot.leadAvailable])
   const runtimeExists = (id: RuntimeId) => snapshot.runtimes.some(info => info.id === id)
   const runtimeView: RuntimeSettingsView = route.kind === 'runtime' && runtimeExists(route.runtime) ? { kind: 'agent', runtime: route.runtime }
     : route.kind === 'account' && runtimeExists(route.runtime) && snapshot.accountsByRuntime[route.runtime]?.accounts.some(account => accountKey(route.runtime, account) === route.key)
       ? { kind: 'account', runtime: route.runtime, key: route.key }
     : route.kind === 'add-runtime' ? { kind: 'add' } : { kind: 'list' }
+  // A runtime's page, and an account's under it, is titled by the runtime:
+  // "Runtimes" over one runtime's page named the list the person had left.
+  const viewed = runtimeView.kind === 'agent' || runtimeView.kind === 'account'
+    ? snapshot.runtimes.find(info => info.id === runtimeView.runtime) : undefined
   const settingsTitle = route.kind === 'project' ? SETTINGS_LABELS.workspaces
-    : route.kind === 'skill' || section === 'skills' ? runtime.presentation.skillsLabel ?? SETTINGS_LABELS.skills : SETTINGS_LABELS[section]
+    : route.kind === 'skill' || section === 'skills' ? runtime.presentation.skillsLabel ?? SETTINGS_LABELS.skills
+    : viewed ? viewed.presentation.name : SETTINGS_LABELS[section]
   const setRuntimeView = (view: RuntimeSettingsView): void => {
     if (view.kind === 'list') sectionRoute('runtimes')
     else if (view.kind === 'add') onRoute({ kind: 'add-runtime' })
@@ -1537,7 +1579,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
       : undefined} />
     {route.kind === 'section' && section !== 'runtimes' && section !== 'skills' && <DestinationBar place={SETTINGS_LABELS[section]}
       more={() => null} />}
-    {section === 'profile' && <ProfileSection />}
+    {section === 'profile' && <><HarnessDeskAccountSection /><SectionHead level="label" name="Local profile" /><ProfileSection /></>}
     {section === 'general' && <GeneralSection rows={<GeneralSectionRows />} />}
     {section === 'appearance' && <AppearanceSection />}
     {section === 'notifications' && <NotificationsSection />}
@@ -1557,6 +1599,8 @@ export const Settings = ({ route, onRoute, onSignIn }: {
       onUse={() => store.returnToWork()} />}
     {section === 'permissions' && <PermissionsSection focus={focus} />}
     {section === 'browser' && <BrowserSection />}
+    {section === 'lead' && snapshot.leadAvailable && <LeadSettingsSection focus={focus} />}
+    {section === 'phone' && <PhoneSettingsSection />}
   </Page>
 }
 

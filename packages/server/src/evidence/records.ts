@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { sameCanonicalPath } from '../path-identity.js'
 import { isNativeServerName } from '@harnessdesk/protocol'
+import { isRevisionName } from '../git-revision.js'
+import { canonicalRepository } from '../git-gateway/record.js'
 
 import type {
   CheckRun,
@@ -183,6 +185,12 @@ const CHECK_STATES = new Set(['pending', 'passed', 'failed', 'skipped', 'cancell
 const isCheckRun = (value: unknown): value is CheckRun =>
   isRecord(value) && isText(value['name']) && CHECK_STATES.has(value['state'] as string) && orNull(value['url'], isText)
 
+const isReviewTarget = (value: unknown): boolean => {
+  if (!isRecord(value) || typeof value['repository'] !== 'string' || !isInteger(value['number']) || value['number'] < 1 ||
+      !isSha(value['head']) || !isSha(value['baseTip']) || typeof value['baseRef'] !== 'string' || !isRevisionName(value['baseRef'])) return false
+  try { return canonicalRepository(value['repository']) === value['repository'] } catch { return false }
+}
+
 /** One fact, by kind. A kind this build does not know is not a fact it can read. */
 export const factOf = (value: unknown): Evidence | null => {
   if (!isRecord(value)) return null
@@ -211,7 +219,8 @@ export const factOf = (value: unknown): Evidence | null => {
           isFilled(value['verdict']) &&
           isId(value['by']) &&
           isSha(value['at']) &&
-          (value['against'] === undefined || isListOf(value['against'], AGAINST_LIMIT, isSha))
+          (value['against'] === undefined || isListOf(value['against'], AGAINST_LIMIT, isSha)) &&
+          (value['reviewTarget'] === undefined || isReviewTarget(value['reviewTarget']) && (value['reviewTarget'] as { head: string }).head === value['at'])
         )
       case 'pr':
         return (

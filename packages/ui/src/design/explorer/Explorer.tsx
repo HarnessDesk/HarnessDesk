@@ -35,6 +35,7 @@ const DashboardSurface = lazy(() => import('../surfaces/surfaces').then((m) => (
 const ConversationSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationSurface })))
 const ConversationMapDenseSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationMapDenseSurface })))
 const ConversationMapPreviewOpenSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationMapPreviewOpenSurface })))
+const GitGatewaySurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GitGatewaySurface })))
 const GitSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GitSurface })))
 const GroupSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GroupSurface })))
 const PanelsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.PanelsSurface })))
@@ -207,6 +208,9 @@ const SURFACES = [
     about:
       'The left bar on a busy desk: one repository cloned once per Team is one project, whichever clone holds the conversation; a second repository and a folder with no remote keep rows of their own; twelve deleted folders are not projects and are said in one quiet line at the end, with a menu that forgets them. A conversation an agent named after its own summary is named by what the person asked; a Team\'s two seats, which nobody typed to, are named by their jobs. The project\'s ⋯ menu holds its capture state — the row says only which project it is. This tab shows that fixture, on a store of its own; the shared preview is a different desk.',
     render: ProjectsSurface,
+  },
+  {
+    id: 'git-gateway', title: 'Git gateway', about: 'The shipped approvals, records and Git write controls.', render: GitGatewaySurface,
   },
   {
     id: 'git',

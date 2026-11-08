@@ -19,7 +19,9 @@ export const RunWorkspace = ({ inspector, ...view }: WorkspaceProps) => {
   const tab = view.flow ? view.view ?? kept : 'timeline'
   const selectView = (next: RunViewTab) => { if (view.view === undefined) keep(next); view.onView?.(next) }
   useTopBarView(owner, {
-    verb: { label: 'Stop run…', disabled: view.stopRefusal ?? (inspector.input.execution.state !== 'running'
+    // A Run that finished on its own has nothing left to stop; a stopped or stopping one keeps the verb, refused,
+    // because stopping is what happened to it.
+    verb: inspector.input.execution.state === 'settled' ? undefined : { label: 'Stop run…', disabled: view.stopRefusal ?? (inspector.input.execution.state !== 'running'
       ? 'This Run is not running' : !view.onStop ? 'Stopping this Run is unavailable here' : false), run: () => view.onStop?.() },
     view: view.unified ? undefined : { label: tab === 'flow' ? 'Flow' : 'Timeline', content: close => <Menu close={close}>
       <MenuItem label="Timeline" selected={tab === 'timeline'} onSelect={() => { selectView('timeline'); close() }} />

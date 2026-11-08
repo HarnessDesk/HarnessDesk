@@ -83,14 +83,16 @@ test("the installed copy answers, and the registry's npx line becomes the fallba
     ),
   })
   const config = store.configs()[0]!
+  const owner = {}
+  service.register(config.id, owner)
 
-  assert.deepEqual(await service.launchFor(config), {
+  assert.deepEqual(await service.launchFor(config, 'start', owner), {
     command: BIN,
     args: ['--acp'],
     version: '1.0.84-5',
   })
 
-  const info = await service.describe(config)
+  const info = await service.describe(config, undefined, owner)
   assert.ok(info)
   assert.equal(info.chosen?.path, BIN)
   assert.equal(info.chosen?.channelLabel, 'Homebrew')

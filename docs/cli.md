@@ -450,7 +450,7 @@ Needs the **read** tier.
 
 - `--project PATH`: Include this project’s own skill and MCP folders. Symbolic links are followed. Defaults to the Git repository containing the current folder; outside a repository, only user scope is read.
 - `--kind skill|mcp`: Show only skills or only MCP servers.
-- `--issues`: Show only entries the Library identifies as having a problem.
+- `--issues`: Show only entries Customize identifies as having a problem.
 
 **With `--json`**
 

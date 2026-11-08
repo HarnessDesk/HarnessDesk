@@ -463,6 +463,8 @@ test('the current Run ending makes its Team need a person, while continued histo
     proof.port.executions = () => [{ ...old, state: 'stalled', end }]
     assert.equal((await proof.plane.view('g1')).activity, 'needs-you', `${end.kind} needs a person`)
   }
+  proof.port.executions = () => [{ ...old, state: 'stopped', end: { kind: 'stopped', by: 'desk' } }]
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'a run the desk stopped is not still working')
   const next = { ...old, id: 'next', continues: 'old', state: 'running', end: undefined } as FlowExecution
   const current = proof.store.read('g1')
   await proof.store.save({ ...current, goal: { ...current.goal, revision: 2 },
@@ -895,4 +897,15 @@ test('goal/seen uses a future news hint only to trigger a host-timed write', asy
   at = 30
   proof.port.unreadAt = () => 25
   assert.equal((await plane.seen('g1')).lastSeenAt, 30, 'later host news is not hidden by the future hint')
+})
+
+test('a fresh reserved successor is queued even when an older execution is stopped', async () => {
+  const proof = await rig()
+  const document = proof.store.read('g1')
+  await proof.store.save({ ...document, goal: { ...document.goal, revision: 1, origin: { kind: 'flow', run: 'old' } },
+    flowReservation: { run: 'next', operation: 'start' } }, 0)
+  proof.port.executions = () => [{ id: 'old', goal: 'g1', state: 'stopped', end: { kind: 'stopped', by: 'desk' }, rounds: [], operations: [] } as unknown as FlowExecution]
+  const view = await proof.plane.view('g1')
+  assert.equal(view.activity, 'needs-you', 'legacy activity keeps its existing derivation')
+  assert.equal(view.stage, 'queued', 'preparation belongs to the reserved successor, not its predecessor')
 })

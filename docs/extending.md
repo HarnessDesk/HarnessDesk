@@ -73,7 +73,7 @@ never runs half-wired.
 | `ctx.browser` | A real browser in the DevTools protocol — see [browser control](browser-control.md) |
 | `ctx.editor` | The file the person is looking at — show it, mark it, edit it |
 | `ctx.team` | The shared board and messages between conversations |
-| `ctx.forge` | The seat a publication is signed as, and the record of it in the conversation |
+| `ctx.forge` | Signing and transcript publication (`forge.publish`); host-executed push, PR, review and comment writes (`forge.write`): “Push branches and open, update and merge pull requests through HarnessDesk, as you, recorded in the project's Git record.” |
 | `ctx.ios` | The iOS Simulator, via `simctl` |
 | `ctx.android` | Android devices and emulators, via `adb` |
 | `ctx.workspace` | The root the call runs in, and its git branch when that is the open project |
@@ -96,6 +96,7 @@ permissions: {
   android: false,
   editor: false,
   team: false,
+  forge: false,
   secrets: ['MY_API_KEY'],
 }
 ```
@@ -103,6 +104,23 @@ permissions: {
 Built-in plugins are held to their manifests exactly like third-party ones. That
 is deliberate: a permission model only stays correct if the code you ship every
 day runs through it.
+
+An installed plugin runs in a process of its own, started for it alone, with a
+short allowlist of environment variables rather than the host's. The host knows
+which plugin is asking from the pipe a request arrives on, not from anything the
+request says, and it holds each plugin to the manifest the person agreed to at
+install: if the manifest on disk changes afterwards, the plugin does not start
+until it is installed again. A plugin that crashes or hangs takes down only its
+own process; the host restarts it with the config it had. Hooks from different
+plugins run one at a time, in priority order, and a hook whose process cannot
+answer denies. Where the runtime allows it, the process is also confined: it
+cannot read outside its own directory, write any file, open a connection or
+start a program on its own, so `ctx.fs`, `ctx.http`, `ctx.shell` and
+`ctx.android` are the only way to reach them, and the host serves each call.
+A plugin package may not contain a symbolic link that leads outside it, and
+an installed plugin with one does not start.
+[Plugin isolation](plugin-isolation.md) is the full design, including what
+confinement does not cover.
 
 During a tool call or context resolution, the host admits the calling
 conversation to a checkout and supplies it through the invocation scope; tool
@@ -236,13 +254,73 @@ So the child's ids are namespaced (`child:c2`) at the supervisor merge, and
 every cross-boundary dispatch resolves `namespace/name` against the registry
 *as it is now*.
 
-**Engines live in the plugin host, not in plugins.** Chrome-over-CDP, simctl
+**Engines belong to the host, not to plugins.** Chrome-over-CDP, simctl
 and adb are engines a plugin *uses* through `ctx`, each behind its own
 manifest permission with its own install-time sentence ("Control the iOS
 Simulator on this machine"). They share one discipline in
 `packages/cordis-host/src/device-exec.ts`: `execFile` only, mandatory timeouts,
 PNG-to-data-URL screenshots — a hung device must never hang a turn, and every
 screenshot rides the already-proven image-result pipeline.
+
+The iOS capability's `diagnose()` (`ios_diagnose`) checks the selected Xcode,
+license, first-launch components, iOS SDK and simulator runtimes with read-only,
+bounded probes. It respects `DEVELOPER_DIR` and never switches Xcode, accepts a license or installs
+components. A failed service query stays a service failure, rather than being
+reported as a missing runtime.
+
+Device operations take an optional UUID `udid` from `ios_devices`. Booting
+requires an exact identifier from that inventory. Operations on a booted device
+require exactly one when `udid` is omitted; with several, the refusal lists
+their identifiers. Each tool keeps
+its chosen device for the action and the screenshot that follows.
+`boot(udid, { openWindow: false })` boots without opening the Simulator window;
+the default still opens it. `screenshot(udid?)` remains a PNG data URL, while
+`frame(udid?)` returns `{ udid, frameId, width, height, mimeType, url }`. Dimensions
+are the original PNG's pixels in its captured orientation, with the origin at
+the top left. `frameId` is an opaque capture identity bound to that device,
+boot generation and image geometry. Screenshot tools put those facts beside
+the image. `rotation` records the measured interface rotation in clockwise quarter
+turns when the runtime reports it. Input refuses unknown or changed geometry.
+
+`interact(action, udid?)` serializes a complete action and its resulting frame on
+one host-owned engine. `tap()` remains a compatibility wrapper. The simulator
+plugin uses `interact()` for tap, long press, swipe, timed drag, pinch, clockwise
+rotation gestures, text, keys and hardware buttons. Coordinates, distances and
+radii are original screenshot pixels; optional `frameId` rejects a changed boot
+or display geometry. Captures by other callers do not invalidate it.
+Durations are 1–10000ms; drag paths contain 2–600 points, start at zero and have
+strictly increasing times. Key counts are 1–100. All input tools require edit.
+
+The repository-built `hd-ios-control` helper uses versioned NDJSON and Xcode 27's
+DTUHID service with a liveness round trip. Native input does not move the macOS pointer or
+use a window. Xcode selection is read, never changed. If DTUHID is unavailable
+or no helper was built, taps alone retain the previous `cliclick` window path:
+it moves the pointer, requires Simulator's window and refuses multiple booted
+devices. Other input tools remain unavailable there. Installed plugins forward typed requests over extension protocol
+16; the parent verifies its invocation ID and the plugin's consented grant before
+calling the same engine. Plugins cannot choose a native executable, symbol or
+service name.
+
+Installed plugins may call `ctx.ios` only during a live tool, command, hook or
+context invocation. Calls from `apply()` or a timer outside that invocation are
+refused; the parent checks the invocation lifetime and the grant it recorded when
+the person installed the plugin. Each installed plugin runs in a process of its
+own, so a grant is the plugin's alone: another plugin installed beside it never
+widens or blocks it, and a manifest rewritten after installation grants nothing.
+
+Text requires an observed US QWERTY guest keyboard and supports letters, digits, spaces and newlines through
+HID and reports `hid-us-layout`; other characters are refused. It does not use
+the host clipboard. Software-keyboard visibility, device rotation and deterministic
+locking return explicit refusals because their native state changes are not yet
+verified. `side` requests the physical side button and may lock or wake the device.
+
+`getAppearance(udid?)` and `setAppearance('light' | 'dark', udid?)` use
+`simctl ui` and read back after setting; `unsupported` and `unknown` stay
+visible instead of claiming the requested appearance was applied. Their tools
+are `ios_get_appearance` and `ios_set_appearance`. The setter tool returns
+`{ requested, observed, applied }`; `applied` is true only when the read-back
+state matches the request. Diagnosis and appearance reads have the read ceiling; appearance writes have edit. All these methods
+require only the existing `ios: true` manifest permission.
 
 ### Context and composer chips
 
@@ -612,10 +690,12 @@ Five things worth knowing:
 
 ### The forge plane
 
-`ctx.forge` is what the desk adds around a git forge a plugin reaches on its
-own. The Git plugin talks to GitHub with the person's `gh` under its `shell`
-grant — that is deliberate, and it is where the credential stays — and asks
-the desk for the two things a shell cannot know:
+`ctx.forge` signs and records publications and executes writes through the
+host's pinned Git gateway. The built-in Git plugin's forge reads still use
+the person's `gh` under its `shell` grant. Those reads can reach the person's
+write-capable gh login: credential isolation is incomplete until reads move
+behind the host in a later round. The built-in plugin's writes are host-only.
+The desk also supplies what a shell cannot know:
 
 ```ts
 // Which agent, on which model, at which effort, made this tool call.
@@ -632,6 +712,8 @@ await ctx.forge.publish(
 const { via, login, available, reason } = await ctx.forge.identity(scope)
 ```
 
+`ctx.forge.associatedPullRequest(scope)` reads the live agent conversation's successful PR creations from the complete verified Git record in its pinned repository. It returns `{ status: 'found', number, repository }`, `{ status: 'none' }`, `{ status: 'ambiguous' }`, or `{ status: 'unavailable' }`. The host supplies caller identity; the read accepts no repository or identity arguments and requires the existing forge grant and live invocation. A missing pin or changed destination is refused. The result grants no permission to write. Creations without a recorded number still require explicit selection; existing records are left unchanged.
+
 Three things worth knowing:
 
 - **Every verb rides the invocation it was called from**, so `seat`, `publish`
@@ -645,9 +727,47 @@ Three things worth knowing:
 - **Null signs nothing.** A call the desk cannot place — no conversation
   behind it, or a host with no forge plane — gets no seat, and a signature
   built from a guess would be a false one. Say so in the result instead.
-- **Requires `forge: true`**, which is described to the person as “Sign pull
-  requests, reviews and comments for the conversation, and put what it published in the
-  transcript”. The reach itself is `shell`'s.
+- **Grants:** `forge: true` retains publish-only consent: “Sign pull requests,
+  reviews and comments for the conversation, with its Team name, and put what
+  it published in the transcript”. `forge: { publish: true, write: true }` also
+  grants host-executed writes: “Push branches and open, update and merge pull
+  requests through HarnessDesk, as you, recorded in the project's Git record.”
+  The write verbs are `push`, `pullRequest.create`, `pullRequest.update`,
+  `pullRequest.merge`, `review` and `comment`. `repository`, `record` and
+  `attribute` accept either grant. `repository(scope)` returns the approved
+  pin or null; reads
+  preceding a write must refuse without a pin and bind `gh` to that pin. The
+  host derives the requester from the live invocation and the destination
+  from the project's approved pin; neither is a tool argument.
+  Write execution and the gateway's one-shot credential configuration stay
+  with the host; they are stripped from plugin-shell environments. This does
+  not remove the shell's access to the person's own gh login, as described
+  above. `shell` remains the Git plugin's capability for reads and local
+  upstream configuration. Commands record the person as requester; context
+  resolvers cannot call write verbs. Gateway approvals have their own wait,
+  keep child invocations alive while pending, and report timeout explicitly.
+
+The write API is invocation-scoped:
+
+```ts
+await ctx.forge.push({ branch, sha, expect: 'create' }, scope)
+await ctx.forge.pullRequest.create({ head: branch, base, title, body, draft }, scope)
+await ctx.forge.pullRequest.update({ number, title, body }, scope)
+await ctx.forge.pullRequest.merge({ number, head: reviewedSha, method: 'squash' }, scope)
+await ctx.forge.review({ number, event: 'comment', body }, scope)
+await ctx.forge.comment({ subject: 'issue', number, body }, scope)
+const entries = await ctx.forge.record({ branch, limit: 50 }, scope)
+const requester = await ctx.forge.attribute({ branch, sha }, scope)
+```
+
+The repository is the host's approved project pin, never an argument to these
+verbs. For an unpinned project, `git_push` proposes its origin and asks the
+person to approve and pin it. The tool derives the current checkout HEAD,
+refuses default/protected bases, sets a local upstream only when requested,
+and publishes a branch row after the host reports success. A plugin cannot
+replace that requester with a commit author. An unmatched head is `outside`.
+The built-in Git plugin's shell capability remains for reads and local
+upstream metadata; publishing mutations use `forge.write`.
 
 `ForgeSeat` (and `ForgeSeatInfo` across the child boundary) carries `agent`,
 `version`, `model`, `effort`, `thinking` and `label`, plus nullable `role`,
@@ -746,8 +866,8 @@ on disk, the manifest file is the manifest.
 
 ### Installation and development
 
-Install it from **Settings → Plugins → Add plugin**. Two install sources
-exist, each recording its provenance so Settings can badge it: a **local
+Install it from **Customize › Plugins → Add plugin**. Two install sources
+exist, each recording its provenance so Customize can badge it: a **local
 path** and an **npm** package name. The manifest is read and its requested
 grants are shown *before* any code is imported or run; npm packages are
 fetched with `npm pack`, so package install scripts never run. Installation
@@ -755,9 +875,16 @@ copies the directory into `~/.harnessdesk/plugins/<id>` (or
 `$HARNESSDESK_PLUGINS`) and records where it came from.
 
 **The development loop:** edit your plugin where it lives, then press
-**Update from source** on its card in Settings → Plugins. The copy is
+**Update from source** in the More menu of its page in Customize › Plugins
+(offered for a plugin installed from a local path). The manifest in your
+folder is read and shown, as for a first install; once you agree, the copy is
 refreshed and the module reloaded — imports are cache-busted, so the new code
 is really the code that runs.
+
+What is installed is what was shown. The dialog carries back the digest of
+the manifest it displayed, the copy is checked against it before it replaces
+the installed one, and a manifest that changed in between is refused. That
+digest is what the host records as agreed to.
 
 [`examples/browser-plugin`](../examples/browser-plugin) is all of the above as
 one working plugin — install it by path and read it side by side with this
@@ -778,16 +905,16 @@ privileged path:
 
 | Plugin | Engine | What it adds |
 | --- | --- | --- |
-| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `pr_create`, `pr_update`, `pr_review`, `pr_comment`, `pr_view`, `pr_checks`, `pr_merge`, `issue_view` and `issue_comment` through `gh`, signed for the conversation's seat and recorded in it |
+| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `git_push` and the PR/comment writes through the host's pinned gateway, signed for the conversation's seat and recorded in it; `pr_view`, `pr_checks` and `issue_view` read through `gh` |
 | files | `ctx.fs` | read and list within the workspace (read-only &mdash; see [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)) |
-| search | `ctx.fs` | content and filename search |
+| search | `ctx.shell` | content and filename search, through ripgrep (`rg`) in the workspace |
 | task list | — | `todo_write` / `todo_read` for an agent whose runtime has no plan tool of its own; the sidebar's Tasks panel is the app's and is read from the conversation, not from here |
 | team | `ctx.team` | shared task board tools and cross-conversation messaging; the "Team board" context chip |
 | checkpoints | `ctx.shell` | record and list recoverable working-tree snapshots; provide the person's recovery command |
 | guardrails | hooks | repeated-identical-call escalation, destructive-command checks |
 | web | `ctx.http` | fetch a page as text |
 | browser | `ctx.browser` (CDP) | open, look, click, type, read the page as refs, console, network, and any DevTools method |
-| iOS simulator | `ctx.ios` (simctl) | devices, boot, install, launch, screenshot, tap, open URL |
+| iOS simulator | `ctx.ios` (simctl) | setup diagnosis, devices, boot, install, launch, terminate, screenshot, headless input, open URL, appearance |
 | Android | `ctx.android` (adb) | devices, install, launch, screenshot, tap, key, text, logcat |
 | tests | `ctx.shell` | `run_tests` with the framework detected, structured pass/fail; the `/test` command |
 
@@ -888,6 +1015,10 @@ documents every member):
   `AgentSession`: `settings()`, `send`, `steer`, `interrupt`,
   `respondToApproval`, `options()`, `setOption`, `setTitle`,
   `updateSettings`, and `close`.
+- `archiveSession` / `deleteSession` — history lifecycle, required even when
+  you keep no archive: they are only called when `capabilities.archiveHistory`
+  / `capabilities.deleteHistory` say so, and a runtime that declares no
+  archive may throw from `archiveSession`.
 - `getAccount` / `getRateLimits` — return empty rather than inventing: an
   account-less runtime returns `{ accounts: [], signInMethods: [] }` and
   declares `capabilities.account: false`.
@@ -921,14 +1052,14 @@ implement:
 
 | Surface | Capability | What it is |
 | --- | --- | --- |
-| `login` / `cancelLogin` / `logout` | `account` | Sign-in flows the shell can drive (`browser`, `deviceCode`) or only describe (`external`). Completion arrives as an `account/loginCompleted` event, never a return value. |
+| `login` / `cancelLogin` / `logout` | `account` | Sign-in flows the shell can drive (`browser`, `deviceCode`), collect a pasted secret for (`apiKey`, kept by the credential broker and never sent back to the renderer), or only describe (`external`). Completion arrives as an `account/loginCompleted` event, never a return value. |
 | `files` (`RuntimeFiles`) | — | Your backend's own view of the filesystem, used for `@` search and reads. **It is a view, not a sandbox**: the host confines paths to open workspaces before your code sees them. |
 | `processes` (`RuntimeProcesses`) | — | Sandboxed interactive processes, if your backend can host them. The host builds its terminals on this. |
 | `tasks` (`RuntimeTasks`) | `backgroundTasks` | The agent's long-running background tasks that outlive the turn. See [background tasks](background-tasks.md). |
 | `extensions` (`RuntimeExtensions`) | `extensionStore`, `mcp` | Your backend's plugin catalogue, app directory, MCP servers, config import. HarnessDesk runs no store of its own. |
 | `rollback` / `compact` / `setMemoryMode` / `review` | `undo`, `compaction`, `memory`, `review` | Conversation verbs. |
 | `listSkills` / `setSkillEnabled` / `listHooks` | `skills`, `hooks` | Reusable instructions and configured hooks. |
-| `archiveSession` / `deleteSession` / `setTitle` / `setGoal` | `archiveHistory`, `deleteHistory`, `nameHistory`, `goals` | History lifecycle and standing session objectives. |
+| `AgentSession.setTitle` / `AgentSession.setGoal` | `nameHistory`, `goals` | A conversation's name and its standing objective. `setTitle` is a required session member; `nameHistory` says whether the name reaches the runtime's own history. `archiveSession` / `deleteSession` (required, above) are gated the same way by `archiveHistory` and `deleteHistory`. |
 
 Declare `pluginTools: true` when HarnessDesk's plugin tools reach this runtime's
 sessions via the tool gateway.

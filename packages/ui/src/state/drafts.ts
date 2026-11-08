@@ -129,6 +129,8 @@ export class Drafts {
   readonly #entries = new Map<SessionKey, { live?: Draft; recoverable: RecoverableDraft[] }>()
   readonly #forgotten = new Set<SessionKey>()
   readonly #recoverableListeners = new Set<() => void>()
+  #revision = 0
+  get revision(): number { return this.#revision }
   readonly #storage: StorageLike | null
   readonly #onMemoryOnly?: () => void
   #nextId = 0
@@ -271,6 +273,7 @@ export class Drafts {
   }
 
   #emitRecoverableChange(): void {
+    this.#revision++
     for (const listener of this.#recoverableListeners) listener()
   }
 
@@ -287,8 +290,12 @@ export class Drafts {
   /** Keep what is typed now. Empty drafts delete the mirror synchronously. */
   setLive(key: SessionKey, draft: Draft): void {
     if (this.#forgotten.has(key)) return
+    const isEmpty = empty(draft)
+    // An empty write with no live draft still flushes the mirror, but does not
+    // change the draft state that transcript recovery fences protect.
+    if (!isEmpty || this.#entries.get(key)?.live) this.#revision++
     const entry = this.#entry(key)
-    if (empty(draft)) {
+    if (isEmpty) {
       delete entry.live
       this.#writeImmediately()
     } else {

@@ -1,3 +1,4 @@
+import { splitSessionKey } from '@harnessdesk/protocol'
 import {
   Fragment,
   createContext,
@@ -7,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react'
 
@@ -40,6 +42,7 @@ import {
   AttachmentMedia,
   Bubble,
   BubbleContent,
+  Banner,
   Button,
   Card,
   CardViewport,
@@ -56,7 +59,7 @@ import {
   MiddleTruncate,
   Lightbox,
   ListRowDetail,
-  Message,
+  Message, TranscriptAssistantMessage,
   MessageContent,
   MessageFooter,
   Note,
@@ -121,7 +124,7 @@ import {
 import { transcriptToolTitle } from '../lib/transcript-tool-title'
 import { surfaceFor } from '../lib/notice-policy'
 import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
-import { isAgentMessageSource, splitContextContent, wrapContext } from '../lib/context-envelope'
+import { LEAD_MESSAGE_PREFIX, isLeadMessageSource, leadMessageKey, leadMessageWords, isAgentMessageSource, splitContextContent, wrapContext } from '../lib/context-envelope'
 import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
 import { Markdown } from './Markdown'
 import { Publication } from './Publication'
@@ -378,8 +381,8 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
   const unavailable = sessionUnavailable(useSnapshot(), useActiveSession())
   const copyFailed = useCopyFailed()
   return (
-    <MessageFooter align="end" className="gap-(--hd-space-0-5)">
-      {when && <Text as="span" role="meta" numeric className="mr-(--hd-space-1-5)">{when}</Text>}
+    <MessageFooter align="end">
+      {when && <Text as="span" role="meta" numeric>{when}</Text>}
       <span data-message-actions="user" className={styles.actions}>
         <CopyButton text={text} label="Copy this message" onError={copyFailed} />
         {!unavailable && <Button
@@ -480,7 +483,7 @@ const UserText = ({ text }: { text: string }) => {
       {overflowed && (
         <Button
           variant="quiet" size="sm"
-          className={`${styles.bubbleToggle} mt-(--hd-space-1)`}
+          className={styles.bubbleToggle}
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
         >
@@ -491,8 +494,24 @@ const UserText = ({ text }: { text: string }) => {
   )
 }
 
+const EMPTY_LEAD_SENT: readonly string[] = []
+const noLeadSubscription = () => () => {}
+/** Only an exact envelope recorded by the host earns the sender label. */
+const useLeadSentKeys = (id: string | null): ReadonlySet<string> => {
+  const store = useStore()
+  const sent = useSyncExternalStore(store.lead?.subscribe ?? noLeadSubscription, () => store.lead?.state.chats.find(chat => chat.id === id)?.sent ?? EMPTY_LEAD_SENT)
+  return useMemo(() => new Set(sent), [sent])
+}
+
 const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number }) => {
   const { injections, text } = splitContextContent(item.content)
+  const key = useSessionKey(), identity = key ? splitSessionKey(key) : null
+  const id = identity ? `${identity.runtime}:${identity.id}` : null
+  const leadKeys = useLeadSentKeys(id)
+  const isLead = (block: { label: string; text: string }) =>
+    isLeadMessageSource(block.label) && leadKeys.has(leadMessageKey(id ?? '', wrapContext(block.label, block.text)))
+  const leadBlocks = injections.filter(isLead)
+  const folded = injections.filter(block => !isLead(block))
   const attachments = item.content.filter((part) => part.type !== 'text')
   const images = imagesOf(item)
   const singleImage = images.length === 1
@@ -503,9 +522,9 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
        option rather than something `align="end"` did silently, since the
        room's `ChannelMessage` also aligns "start" and keeps a different look. */
     <Message align="end" rhythm="transcript">
-      {(injections.length > 0 || (item.context?.length ?? 0) > 0) && (
+      {(folded.length > 0 || (item.context?.length ?? 0) > 0) && (
         <div style={{ alignSelf: 'stretch' }}>
-          {injections.map((injection, index) => (
+          {folded.map((injection, index) => (
             <ContextInjection key={index} label={injection.label} text={injection.text} />
           ))}
           {/* Peeled off by the adapter, because the shape of the wrapper is
@@ -587,12 +606,18 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
           })}
         </div>
       )}
+      {leadBlocks.map((block, index) => (
+        <MessageContent key={`lead-${index}`} align="end" data-lead-message="">
+          <Text role="meta" ink="secondary">Sent by {block.label.slice(LEAD_MESSAGE_PREFIX.length)}</Text>
+          <UserText text={leadMessageWords(block.text)} />
+          <UserMessageFooter text={leadMessageWords(block.text)} at={item.startedAt ?? sentAt} />
+        </MessageContent>
+      ))}
       {text.length > 0 && (
         // The surface and its footer, in the same MessageContent the room's
         // own body and trouble line stand in — genuine structure, not a
-        // second box. `items-end` keeps both pinned to the row's own right
-        // edge; the gap replaces the row's own, so the rhythm holds.
-        <MessageContent className="items-end gap-(--hd-space-1-5)">
+        // second box. The content owns the sent message's alignment and rhythm.
+        <MessageContent align="end">
           <UserText text={text} />
           <UserMessageFooter text={text} at={item.startedAt ?? sentAt} />
         </MessageContent>
@@ -687,9 +712,7 @@ const AssistantMessage = ({
 }) => (
   /* Same rhythm option as `UserMessage` above: 6px each way, this row's own
      value for the transcript's answer. */
-  <Message align="start" rhythm="transcript">
-    <Bubble variant="ghost">
-      <Text as="div" role="prose" {...(item.phase === 'commentary' ? { ink: 'secondary' as const } : {})}>
+  <TranscriptAssistantMessage muted={item.phase === 'commentary'}>
         <Markdown text={item.text} />
         {/* Still writing: the system's running mark, the one the inspector's
             running rows and the header's status wear. */}
@@ -700,9 +723,7 @@ const AssistantMessage = ({
         )}
         {/* No actions here: they sit once at the end of the turn (TurnTail), for
             the whole answer, rather than under every paragraph of it. */}
-      </Text>
-    </Bubble>
-  </Message>
+  </TranscriptAssistantMessage>
 )
 
 const Reasoning = ({ item }: { item: ReasoningItem }) => {
@@ -1411,6 +1432,7 @@ const Notice = ({ item }: { item: NoticeItem }) => {
   if (item.kind && surfaceFor(snapshot.noticePolicy, item.kind) === null) return null
   const text = sanitizeText(snapshot.home ? item.text.split(`${snapshot.home}/`).join('~/') : item.text)
   const count = item.count && item.count > 1 ? ` ×${item.count}` : ''
+  if (item.kind === 'git:outside') return <Banner tone="warning">{text}{count}</Banner>
   const long = text.length > 180 || text.split('\n').length > 4
   const warning = item.kind === 'conversation:warning' || item.kind === 'runtime:warning'
   // Kind, never a phrase in authored text, decides which notices are housekeeping.

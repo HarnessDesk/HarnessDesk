@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 
 import { describeStrip, type StripMeter, type StripRest } from '../lib/plan-strip'
-import { describeLane, formatAge, formatMoney } from '../lib/usage'
-import { useActiveSession, useSnapshot } from '../state/context'
+import { describeLane, formatAge, formatMoney, formatWhen } from '../lib/usage'
+import { useAccountLabel, useActiveSession, useSnapshot } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { RosterIcon, SignInIcon } from './Icons'
 import { WideMenu, Popover } from '../design'
@@ -58,6 +58,7 @@ export const PlanMeters = ({
         activeRuntime: snapshot.activeRuntime,
         sessionRuntime: session?.runtime ?? null,
         now,
+        hideAddresses: snapshot.hideAccountAddresses,
       }),
     [
       snapshot.runtimes,
@@ -68,6 +69,7 @@ export const PlanMeters = ({
       snapshot.activeRuntime,
       session?.runtime,
       now,
+      snapshot.hideAccountAddresses,
     ],
   )
 
@@ -113,7 +115,12 @@ export const PlanMeters = ({
   )
 }
 
-const meterTitle = (view: StripMeter): string => `${view.title}${view.lane.remainingPercent === 0 ? ' · out of quota' : ''}${view.lane.shortCountdown ? ` · resets in ${view.lane.shortCountdown}` : ''}`
+// A spent meter says when it is back, as its figure does; the headline's own reset can come before another window's.
+const meterTitle = (view: StripMeter, now: number): string => {
+  if (view.unread || view.onCredits) return view.title
+  if (view.lane.remainingPercent === 0) return `${view.title} · out of quota${view.backAt !== null && view.backAt > now ? ` · back ${formatWhen(view.backAt, now)}` : ''}`
+  return `${view.title}${view.lane.shortCountdown ? ` · resets in ${view.lane.shortCountdown}` : ''}`
+}
 
 const Meter = ({
   view,
@@ -126,11 +133,13 @@ const Meter = ({
   /** An out-of-quota agent this conversation is not using: no bar, just when. */
   promoted?: boolean
   onOpen: () => void
-}) => (
+}) => {
+  const label = useAccountLabel()
+  return (
     <Popover
       panelWidth="wide" icons="all"
-      title={meterTitle(view)}
-      aria-label={meterTitle(view)}
+      title={meterTitle(view, now)}
+      aria-label={meterTitle(view, now)}
       drop="down"
       align="right"
       label={
@@ -144,8 +153,9 @@ const Meter = ({
         >
           <RuntimeMark runtime={view.info} size={14} />
           {/* A promoted chip's whole content is the countdown, so a full red
-              track beside it would only say the same thing twice. */}
-          {!promoted && (
+              track beside it would only say the same thing twice. A balance
+              that decided has no window to draw: the figure is the debt. */}
+          {!promoted && !view.onCredits && (
             <Progress
               className={styles.stripProgress}
               value={view.lane.remainingPercent}
@@ -164,7 +174,7 @@ const Meter = ({
       }
     >
       {close => <WideMenu close={close} title={view.name}
-        items={[{ id: 'open', label: view.name, icon: <RuntimeMark runtime={view.info} size={16} />, badge: view.report.plan || undefined, hint: view.report.account || undefined, trailing: 'Open', onSelect: onOpen }]}
+        items={[{ id: 'open', label: view.name, icon: <RuntimeMark runtime={view.info} size={16} />, badge: view.report.plan || undefined, hint: view.report.account ? label(view.runtime, view.report.account) : undefined, trailing: 'Open', onSelect: onOpen }]}
         facts={view.report.lanes.map(raw => {
           const lane = describeLane(raw, now, view.report.lanes)
           return { id: lane.id, name: lane.title, percent: lane.remainingPercent, countdown: lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`, countdownTitle: lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined, tone: toneOf(lane.tone) }
@@ -172,7 +182,8 @@ const Meter = ({
         footer={[view.report.spend?.todayCost != null ? `${formatMoney(view.report.spend.todayCost, view.report.spend.currency)} today` : null, view.report.source.label, formatAge(view.report.fetchedAt, now)].filter(Boolean).join(' · ')}
       />}
     </Popover>
-)
+  )
+}
 
 /**
  * Every other agent, in the space of a word.

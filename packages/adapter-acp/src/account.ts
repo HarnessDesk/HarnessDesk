@@ -137,10 +137,11 @@ export class CliAccount {
     }
   }
 
-  async login(): Promise<LoginStart> {
+  async login(onStarted?: (loginId: string) => void): Promise<LoginStart> {
     const spec = this.#commands.login
     if (!spec) throw new Error('This agent declares no sign-in command.')
     const loginId = randomUUID()
+    onStarted?.(loginId)
     const prompt = spec.pasteCode?.trim() ? spec.pasteCode : null
     const rejection = prompt !== null && spec.pasteCodeRejected?.trim() ? spec.pasteCodeRejected : null
     const child = (this.seams.spawn ?? spawn)(spec.command, [...(spec.args ?? [])], {

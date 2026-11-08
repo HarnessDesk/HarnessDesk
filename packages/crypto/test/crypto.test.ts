@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 import {
   E2eeError, FRAME_DATA, TokenError, acceptHandshake, b64u, checkChallenge, fromB64u, generatePushKey, generateSigningIdentity, handshakeDeviceMessage, handshakeEnrollMessage,
   idFromPub, makeChallenge, openPushJson, randomBytes, readU64be, relayDeskProofMessage, sealPushJson, signToken, signingIdentityFromPkcs8,
-  startPhoneHandshake, utf8, verifyEd25519, verifyToken, webDeskProofMessage, webDeskRegisterProofMessage,
+  startPhoneHandshake, utf8, verifyEd25519, verifyToken, webDeskProofMessage, webDeskRegisterProofMessage, webDeskLinkProofMessage,
 } from '../src/index.js'
 
 // The rejection carries the named fields, whatever else the error holds.
@@ -342,6 +342,10 @@ describe('challenge', () => {
     const desk = await generateSigningIdentity()
     const session = await desk.sign(webDeskProofMessage('id', 'c'))
     assert.equal(await verifyEd25519(desk.pub, session, webDeskRegisterProofMessage('id', 'c')), false)
+    assert.equal(await verifyEd25519(desk.pub, session, webDeskLinkProofMessage('id', 'c')), false)
+    const link = await desk.sign(webDeskLinkProofMessage('id', 'c'))
+    assert.equal(await verifyEd25519(desk.pub, link, webDeskLinkProofMessage('id', 'c')), true)
+    assert.equal(await verifyEd25519(desk.pub, link, webDeskProofMessage('id', 'c')), false)
     const register = await desk.sign(webDeskRegisterProofMessage('id', 'c'))
     assert.equal(await verifyEd25519(desk.pub, register, webDeskRegisterProofMessage('id', 'c')), true)
     assert.equal(await verifyEd25519(desk.pub, register, webDeskProofMessage('id', 'c')), false)

@@ -13,6 +13,7 @@ export * from './plan.js'
 export * from './tasks.js'
 export * from './user-context.js'
 export * from './session.js'
+export * from './session-label.js'
 export * from './loadout.js'
 export * from './repo-key.js'
 export * from './lane-environment.js'
@@ -54,6 +55,9 @@ export * from './intake.js'
 export * from './question-wait.js'
 export * from './authoring.js'
 export * from './client-surface.js'
+export * from './lead.js'
+export * from './lead-recovery.js'
+export * from './phone.js'
 export {
   bareToolName, toolWords, wireNameOf, toolSentences, isPlanTool, toolSentence,
   shortestUniquePathLabels, toolsOfPlugin, BOARD_TOOL_PHRASES, boardToolPhrase,
@@ -66,3 +70,17 @@ export { parseSeat, seatSpec } from './flow-seat.js'
 export * from './notices.js'
 
 export { sessionIndexCursorOf, sessionIndexCompare } from './session-index-cursor.js'
+
+export type * from './forge.js'
+export * from './git-steer.js'
+
+export * from './goal-worker-approval.js'
+export * from './digest.js'
+
+export * from './lead-stage.js'
+
+export type * from './ios.js'
+
+export * from './canonical-transcript.js'
+
+export * from './pending-transcript.js'

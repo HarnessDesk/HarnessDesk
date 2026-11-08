@@ -483,13 +483,10 @@ export interface PluginPermissions {
    */
   readonly team: boolean
   /**
-   * Publish to the git forge as the desk, via `ctx.forge`: the seat of the
-   * calling conversation for a signature, and the record of what was
-   * published, drawn in the transcript. The forge itself is reached through
-   * the person's own `gh`, which the plugin runs with its `shell` grant; this
-   * grant is for what the desk adds around it.
+   * Sign and record publications with `publish`, and execute host-owned writes with `write`.
+   * `true` retains the original publish-only grant. Destinations and credentials belong to the host.
    */
-  readonly forge: boolean
+  readonly forge: boolean | { readonly publish?: boolean; readonly write?: boolean }
   readonly secrets: readonly string[]
 }
 

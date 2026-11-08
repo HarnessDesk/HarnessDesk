@@ -435,3 +435,18 @@ test('runtime information after an answer stays visible outside the work fold', 
   expect(view.answer).toEqual([answer])
   expect(view.trailing).toEqual([notice])
 })
+
+test('gateway publications remain visible outside the work fold and do not hide a final answer', () => {
+  const publication = item('publication', 'p')
+  const answer = item('assistantMessage', 'a', { phase: 'final' })
+  const view = splitTurn(turn([item('command', 'c'), answer, publication]))
+  expect(view.work.map(one => one.id)).toEqual(['c'])
+  expect(view.answer).toEqual([answer])
+  expect(view.trailing).toEqual([publication])
+})
+
+test('final Running row uses the same unwrapping as steering for escaped login commands', () => {
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
+  const script = ['git', 'push', 'origin', 'fix/checkout-retry'].map(quote).join(' ')
+  expect(activityLabel(item('command', 'c', { command: '/bin/zsh -l -c ' + quote(script) }))).toBe('Running git push origin fix/checkout-retry')
+})

@@ -84,7 +84,7 @@ it('keeps the way into a historical card\'s evidence when its only fact is a dif
   await act(async () => root.render(<StoreProvider store={store}><CommitProvenance root="/work/project" sha={supplied.sha} value={supplied} /></StoreProvider>))
   const entry = host.querySelector('button[aria-label^="What the desk observed on #7"]')
   expect(entry).not.toBeNull()
-  expect(entry?.textContent).toBe('no changes')
+  expect(entry?.textContent).toBe('Observed')
   expect(host.textContent).not.toContain('no longer has evidence')
 })
 

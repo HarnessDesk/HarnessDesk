@@ -53,3 +53,13 @@ test('the optional words come from their own sets, or the row would fall back wi
   assert.equal(isForgeReference({ ...sound, additions: 'many' }), false)
   assert.equal(isForgeReference({ ...sound, title: 7 }), false)
 })
+
+test('branch publications have a ref and exact head, with no required number; merged is an action', () => {
+  const branch = { ...sound, kind: 'branch', number: undefined, ref: 'feature/widgets', sha: 'a'.repeat(40), previousSha: null }
+  assert.equal(isForgeReference(branch), true)
+  assert.equal(isForgeReference({ ...branch, sha: 'a'.repeat(41) }), false)
+  assert.equal(isForgeReference({ ...branch, previousSha: 'bad' }), false)
+  assert.equal(isForgeReference({ ...branch, ref: undefined }), false)
+  assert.equal(isForgeReference({ ...sound, number: undefined }), false)
+  assert.equal(isForgeReference({ ...sound, action: 'merged' }), true)
+})

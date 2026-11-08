@@ -177,8 +177,8 @@ Navigate to **Settings › Runtimes › [runtime]** to view its **Install** sect
 - **Runtime home and authentication:** Displays the runtime's home directory,
   environment variable overrides (such as `OPENCLAW_STATE_DIR` or
   `CLAUDE_CONFIG_DIR`), and sign-in instructions or terminal login commands.
-- **Roster view:** The runtime list groups runtimes under "Needs attention",
-  "Not answered yet" and "Ready", shows account counts when present, and
+- **Roster view:** The runtime list groups runtimes under "Needs you",
+  "Not checked yet" and "Ready", shows account counts when present, and
   names a state on the row only where its group does not already say it.
   Runtimes needing no accounts omit redundant status text. A failed account
   read keeps the last answer, and only the runtimes still failing are asked
@@ -218,6 +218,11 @@ Measured across runtime CLIs, installer packages, and help outputs on
 | Claude Code | `claude-acp` bridge | — | npm `@anthropic-ai/claude-code`, `~/.local/bin/claude`; `claude update` | `~/.claude` (`CLAUDE_CONFIG_DIR`) | `claude auth login` in browser |
 | Cursor | `cursor-acp` bridge | — | `~/.local/bin/cursor-agent`; `cursor-agent update` | `~/.cursor` | `cursor-agent login` (with `NO_OPEN_BROWSER=1`) |
 | Codex | `codex app-server` | 0.145.0 | brew `codex`, npm `@openai/codex`, `~/.local/bin/codex` | `~/.codex` (`CODEX_HOME`) | Browser sign-in, device code, or `codex login --with-api-key` |
+| Devin † | `devin acp` | — | install script from devin.ai → `~/.local/bin/devin` or `~/.devin/bin/devin`; `devin update` | `~/.devin` | `devin auth login` in browser |
+
+† Devin was added to the catalogue after the measurements above; its row is
+read from its entry in `packages/server/src/installs/known-agents.ts`, not from
+a sitting, and that entry is where it is kept current.
 
 *(Note: DeepSeek Harness is a template on its own ACP server, `dsh --profile
 acp`, and reads its key from `~/.dsh/.credentials.yaml`. See
@@ -343,8 +348,9 @@ On 2026-08-22, two investigations demonstrated why static catalogues fail:
   `~/.codex/config.toml`, HarnessDesk silently substituted the fallback
   catalogue default.
 - **Claude Code catalogue:** The official
-  `@agentclientprotocol/claude-agent-acp` bridge (0.79.0) bundles Agent SDK
-  0.3.274 and can expose the installed Claude Code catalogue through the
+  `@agentclientprotocol/claude-agent-acp` bridge (0.79.0 at the time, bundling
+  Agent SDK 0.3.274; the versions pinned now are in
+  `packages/claude-acp/package.json`) can expose the installed Claude Code catalogue through the
   bridge. HarnessDesk still respects `CLAUDE_CODE_EXECUTABLE` so the bridge
   can drive an external Claude binary capable of declaring its current model
   set rather than silently relying on a stale embedded catalogue.
@@ -535,8 +541,8 @@ A person with four runtimes installed has four accounts to keep alive, and the
 one that is signed out is rarely the one in front of them. So sign-in is a
 **roster, not a modal for the current runtime**: every registered runtime
 down the left with its state, the one selected on the right with the way in.
-Below the roster sits the public ACP registry, where new agents can be added
-in one click.
+The public ACP registry, where new agents can be added in one click, is on
+the **Add a runtime** page, behind **Browse more…** under the templates.
 
 There are four flow shapes, and the page knows the shapes rather than any
 vendor — a runtime declares which one it has, and the right control appears:
@@ -587,6 +593,8 @@ running reaches the next process, not the running one. Storing now signals the
 runtime to restart immediately to pick it up, and reports what happened: *"Key
 stored. DeepSeek Harness restarted with it."* A turn in flight is never killed;
 in that case the interface reports that the key will apply on the next start.
+When an ACP runtime is not ready, storing a key does not restart it; the interface
+says it can pick the key up on its next start.
 
 Unlike a catalogue refresh this restarts even when sessions are open and the
 runtime cannot resume them. A runtime missing its key fails every turn, so a

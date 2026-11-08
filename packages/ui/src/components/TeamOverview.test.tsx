@@ -295,7 +295,7 @@ it('wraps a compact Agent role line as well as its work sentence',()=>{
 it('puts compact Agent facts on the name line so its second line has room to read',()=>{
  vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({width:320} as DOMRect)
  render([row('Alpha',{state:'working',doing:'Edited the retry message.'})])
- expect(box.querySelector('[data-slot="list-row-title"]')?.textContent).toContain('Working')
+ expect(box.querySelector('[data-slot="list-row-heading-facts"]')?.textContent).toContain('Working')
  expect(box.querySelector('[data-slot="list-row-trail"]')?.textContent??'').not.toContain('Working')
 })
 
@@ -311,10 +311,10 @@ it('chooses Agents layout from the allocation inside the reading inset at the un
  vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function(this:HTMLElement) {
   return {width:this.matches('[aria-label="Seats"]')?752:800} as DOMRect
  })
- const observer={observe:(target:Element)=>{measured=target},unobserve:()=>{},disconnect:()=>{}}
+ const observer={observe:(_target:Element)=>{},unobserve:()=>{},disconnect:()=>{}}
  vi.stubGlobal('ResizeObserver',class {
-  constructor(callback:ResizeObserverCallback){resize=callback}
-  observe=observer.observe
+  constructor(private callback:ResizeObserverCallback){}
+  observe=(target:Element)=>{if(target.matches('[aria-label="Seats"]')) { measured=target; resize=this.callback }}
   unobserve=observer.unobserve
   disconnect=observer.disconnect
  })

@@ -48,13 +48,20 @@ place's name changes one line rather than three patterns.
 
 ### The title block
 
-A page's head closes on a hairline with a short mark in the accent at its
-start (`PageHead`, `DetailHead`): the rule under the title on a drawing sheet.
-The name of a place is set off from what is on it by one line rather than a box
-or a band of colour, and the mark is the only place the accent appears on a page
-that the reader did not put there. Its colours and measures are the
-`--hd-title-rule*` tokens, so a foundation retunes the mark, or sets its width
-to 0 to drop it, without touching the pattern.
+A page names itself in the page role, on its content edge, one bar tall so the
+title centres on the wordmark's line: `PageOptions`' `title`
+(`design/patterns/PageOptions.tsx`), which sets it as `Text role="page"` with
+the page's primary choice and verb at the right. A band of the page's body is
+named by `SectionHead` (`design/patterns/Settings.tsx`) in the section role,
+and a subject drilled into by `SectionHead level="label"`. The design
+explorer's **Page and subject type** board (`head` in
+`design/explorer/boards.tsx`) draws the set.
+
+The title block is type alone. The hairline with an accent mark that once
+closed a page's head — drawn by the retired `PageHead` and `DetailHead` and
+tuned by the `--hd-title-rule*` tokens — went with them; neither the parts nor
+the tokens exist now, and the audit's retired-component list refuses the parts
+in a screen.
 
 ### The accent
 
@@ -180,8 +187,10 @@ bottom hairline is additional to its content inset.
 | Pane's reading column | reading · 24px | `PaneColumn inset="reading"` | The pane owns the gutter before the reading measure; scrollbar reservation is additional layout space. A floating composer's bottom reserve is clearance, not a surface inset. |
 | Bar and navigation rail | bar · 8px | `--hd-bar-pad`, `--hd-rail-inset` | The bar owns the control-box edge; `--hd-bar-ink` includes the control's own inset for labels. Native window controls may add clearance. |
 
-Floating composer clearance follows the dock's full border-box height,
+Removing the dock clears its root clearance variable. Floating composer clearance follows the dock's full border-box height,
 including padding and borders, so a spacing change keeps the last message clear.
+The observer follows the mounted dock, releasing a detached element and measuring
+its replacement when returning to a conversation.
 
 An approval's outer edge uses the dialog tier in an overlay and the card
 tier when docked beside a composer. Its warning mark hangs before the text
@@ -234,8 +243,8 @@ are doing; screens do not invent a new spelling for the same job:
 | role | spelling | what wears it |
 | --- | --- | --- |
 | wordmark | 20 / semibold | the product name beside its mark |
-| page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
-| section | 16 / semibold | a page band's heading (Teams, Agents, Library, Plugins, Dashboard and detail-page bands) — below the page title, above a subject (#1122) |
+| page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail page's head on it too: a detail page adds its mark and its owner chip, never a size of its own |
+| section | 16 / semibold | a page band's heading (Teams, Agents, Customize, Dashboard and detail-page bands) — below the page title, above a subject (#1122) |
 | group label | 13 / medium, secondary ink | the word over a group — a card of rows, a rail's list or a Settings form (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | member | 14 / medium | the name of someone — an agent at work or a person — beside its face: a chat's sender, a member named inside a sentence (`MemberName`); `--hd-member-weight` owns the weight |
@@ -311,6 +320,13 @@ agent card and the transcript's small tags — are the burn-down.
 
 Settings names each page with a visible h1 in the page role, above its
 description. Its bar carries no title, so the name is shown once.
+
+A Team page heads its body the same way: `PaneTabsRow title` puts the Team's
+name as the h1 with the page's actions — Findings, Review stopped Run, the
+view's verb such as Stop run… — at its end on one bar-tall line, and the
+Team's tabs on their own line below it. A page says what it is and what it can
+do before the views it has. The bar keeps its subject menu, so the Team is
+named twice: by the bar that owns its menu, and by the page that owns its head.
 
 A page title is the wordmark's type, and it stands on the wordmark's line.
 `PageOptions` makes the titled head one bar tall (`--hd-bar-h`), the sidebar
@@ -447,6 +463,15 @@ members at once — never switches, which act the moment they flip. A field
 that may be left empty says `optional` at its label's end rather than in the
 label.
 
+`Segmented` is a design-system pattern (`design/patterns/Settings.tsx`) and the
+patterns compose it freely — the left column's Explorer filter, the agent card,
+`SegmentedReadout`. A screen under `components/`, `slots/` or `panels/` does
+not render it directly: it is on the audit's `RETIRED_COMPONENTS`, so each such
+use counts in the "Frame parts a screen still draws" burn-down, which may only
+fall. A screen
+that wants the short choice takes a `NativeSelect` or `ChoiceList`, or a
+pattern that composes `Segmented` for it.
+
 A dialog, a confirm, a menu or a popover that holds focus never wears the
 focus ring round itself; the controls inside keep theirs. A dialog focuses its
 first field when it has one, and otherwise its own surface.
@@ -486,7 +511,7 @@ ground reads thin.
 | --- | --- | --- | --- |
 | `--hdp-alias-label-primary` | `rgb(25, 27, 30)` | `rgb(229, 231, 234)` | anything a person reads: titles, rows, prose, values |
 | `--hd-secondary-foreground` | `rgb(49, 49, 49)` | `rgb(224, 224, 224)` | structure and explanation: section headings, hints, blurbs, icons beside a label |
-| `--hd-muted-foreground` | `rgb(71, 71, 71)` | `rgb(208, 208, 208)` | facts at the edge of a row: counts, times, keyboard hints |
+| `--hd-muted-foreground` | `rgb(107, 107, 107)` | `rgb(156, 156, 156)` | facts at the edge of a row: counts, times, keyboard hints |
 | `--hd-disabled-foreground` | about `rgb(147, 147, 147)` | `rgb(107, 107, 107)` | disabled popup labels, icons and trailing values; refusal reasons stay secondary |
 
 In components, reach for the semantic tokens `--hd-foreground`,
@@ -496,9 +521,10 @@ palette's quietest label tier and measures about 3:1 against popup surfaces.
 
 The three ordinary ink levels have to read as three, not two. Secondary uses
 the existing grey-800 step in light mode and grey-200 in dark mode; muted uses
-grey-750 and grey-300. These steps preserve the distinction from primary and
-between secondary and muted, while keeping both lower tiers on their existing
-palette ramps. The contrast test measures the semantic tokens on the app's real
+grey-600 and grey-500. Muted used to sit one step from secondary (grey-750 and
+grey-400), close enough that a count read as a second tier of prose; it now
+sits a clear step further out, still above AA on every ground it is set on.
+These steps keep both lower tiers on their existing palette ramps. The contrast test measures the semantic tokens on the app's real
 text grounds in both themes. Disabled ink is a separate state: clearly fainter
 than an enabled label, while remaining legible on the popup surface.
 
@@ -585,6 +611,9 @@ a code block.
 The popup-wall frame contract checks every menu it opens for width limits,
 plate and content insets, one-line trailing values, label uniqueness, and a
 consistent icon policy. The rule applies equally in light and dark themes.
+It is captured once and checked many times: each wall destination is
+rendered once at each width and read in both themes, and the rules in
+`e2e/ui-system/frame-contract-popup-rules.ts` run over that reading in Node.
 
 ## The second line
 
@@ -981,6 +1010,34 @@ narrow, each key rises over its value and the action keeps the end. An account's
 sign-in, plan, credential and default are one card; so should be an Agent's
 file, ceiling, skills, servers and brief.
 
+**A rail's facts can be icon rows.** `SummaryList keys="icon"` draws each key
+as its `SummaryItem icon` in a 16px column, the name kept for a screen reader
+and on hover, so a rail reads as a column of values: the session rail's agent,
+ceiling, folder, branch and context, and a Team's Run. A value that cannot be
+read without its name says what it is missing ("Time not recorded", not "Not
+recorded"), and a fact that needs its name at all ("Requested ceiling", "No
+progress") stays in a keyed list — the Run's record details keep their keys.
+
+**A page earns the rail by registering one.** A destination page has no work
+subject, so the shell draws a rail column for it only when the page registers
+details under its own owner (`useWorkDetails('destination:<kind>', …)`) and puts
+`PageRailToggle` in its bar — only under `PageRailHost`, which the Workbench
+provides, so a page mounted outside the shell shows no toggle with nothing to
+toggle; the open state is kept per page and, like the
+session rail, stands open until closed. The Lead page is the first: Goal, Plan,
+Workers and Spend, in the same `ToolSection` cards the session rail uses.
+
+**A status is a word, not a pill.** A state, a plan or a kind on a row's label
+line, at a panel row's or a list row's end, as a fact's value, as a section's
+value or in an account head reads as a word: those slots provide `ChipLook`
+`quiet`, and a `Chip` there draws its ink alone. A word that judges nothing —
+Default, Pro, Revoked, Your branch — is in fact ink, and so is the word of a
+ready state, whose dot already says it is all right; only a tone that is data
+(running, needs you, failed, done) keeps its colour. An explicit `variant`
+wins over the slot, and a `tint` keeps its pill, because an identity is not a
+status. A chip in a screen's own body opts in with `variant="quiet"`; the
+Team overview, the Lead page and the Flow step rows do.
+
 **A wrapped control lands by what it is.** When a row is too narrow for its
 control beside the title, the control drops under it. A compact control — a
 switch, a button, a chip, a select, a `RowValue numeric` amount — keeps the
@@ -1026,6 +1083,37 @@ one grouped surface. The 12px stack rule replaces the earlier 8px page
 label-to-content and child-to-child entries in the page rhythm table above;
 the 32px space between page sections remains.
 
+## Surfaces: Cards and Sheet
+
+The app draws its groups one way by default and offers a second as a
+foundation, so every screen gets both without a screen naming either.
+
+**Cards** is the default (`tokens.css`). A group of settings rows, a section of
+the right panel and an object on a page (an account, a plan, a Seat) are each
+one card: the main ground, the strong hairline, the 10px corner. Labels in the
+main column and in Settings sit on the same 40px edge. The left column keeps
+its plate; its search field is framed, not filled.
+
+**Sheet** (`tokens.sheet.css`, `body[data-hd-surface='sheet']`) lays the same
+groups flat. Rows stand on the page's text edge with a hairline between them
+and no box; right-panel sections are split by one hairline instead of being
+spaced as cards; the left column takes the page's ground and only its edge
+hairline separates it. An object stays boxed — `Card`'s default and its
+`plate` (the files card under an answer, a transcript item, a timeline step):
+it is a thing on a page, not a group of rows.
+
+The overlay only redefines the `--hd-card-*`, `--hd-panel-card-*`,
+`--hd-sidebar-plate`, `--hd-sidebar-edge` and `--hd-left-search-*` tokens. A
+border Sheet removes stays transparent rather than gone, so every inset the
+frame contract measures is the same in both. Everything both share — the left
+row, group labels, the page head, the composer, menus, dialogs — is not named
+there and cannot drift. Settings › Appearance › Surface writes the
+preference; the preview's `surface` dial and the frame wall's `?surface=`
+parameter show either.
+
+A rail section head puts its chevron after the label, in fact ink. Open has no
+fill; only hover fills the head.
+
 ## The rules
 
 The UI consistency programme (#831) decided nine rules. Each used to be
@@ -1041,7 +1129,8 @@ difference is a deliberate interface choice; the sections below say which.
 ### Names
 
 Every element wearing a name role — `Text role=…` (`design/patterns/
-Settings.tsx`) or `PageHead`'s own title — computes one of the pairs the
+Settings.tsx`), which a page title (`PageOptions`) and `SectionHead` both
+draw through — computes one of the pairs the
 "Named text roles" table above states: wordmark and page at 20/600, section at
 16/600, subject and member at 14/500, row at 13/500, navigation and
 muted at 13/400. Section is the one name role at 16px; section, wordmark and
@@ -1161,7 +1250,7 @@ A navigation row is at least `--hd-nav-h` tall wherever it appears, and
 every row of one kind stands at one height. There are three kinds:
 
 - the sidebar's session row (`components/SessionTree.tsx`);
-- the settings and usage rail row (`AppWindow.tsx`'s `WindowNavItem` and `WindowNavIdentity`);
+- the settings and usage rail row (`LeftColumnRow`, `design/patterns/LeftColumn.tsx`);
 - a dropdown menu item (`design/ui/dropdown-menu.tsx`).
 
 The sidebar and settings/usage rails share `LeftColumnRow` and its 32px button,
@@ -1356,7 +1445,10 @@ When adding a control, row or surface to HarnessDesk:
 - The code face marks a face, never a size. `.mono` sets `font-family` and
   nothing else, so a row whose title happens to be an identifier stays the size
   of the rows around it.
-- Table, list and settings faces centre on the whole row. Other icon leads
+- Table, list and settings faces centre on the whole row. A ListRow with
+  `subtitleLayout="below"` centres its face on the name-and-controls heading;
+  its description and metadata span the inner width beneath that heading.
+  Other icon leads
   belong on the first text line, not centred against
   the title *and* its description.
 - A single line is centred in its container. In a notice, tile, text, actions
@@ -1583,8 +1675,10 @@ utility in a `className` (or a `className:` key in an object literal, or a
 bare `cn`/`clsx`/`cx` call), resolved through a variant prefix, the important
 marker, a template literal, a ternary, an array joined with `.join(' ')`, or
 one hop through a named import to the `const` that actually declares it —
-`LibraryActions.tsx`'s `SWITCH_TRACK`, imported by `Library.tsx` too, counts
-once, at its definition, not once per file that reaches for it; and a key in
+a class constant one screen exports and another imports (the shape
+`LibraryActions.tsx`'s since-removed `SWITCH_TRACK` had, which
+`script/gates.test.mjs` keeps as its fixture) counts once, at its definition,
+not once per file that reaches for it; and a key in
 an inline `style` object, including a `{ color }` shorthand, a `['color']`
 computed key, and a `satisfies CSSProperties` assertion, both branches of a
 conditional read. A class name cannot say whether `.head` is a title bar, a
@@ -1622,11 +1716,12 @@ entirely outside `design/` forwarding a name back out — is followed to
 wherever the name is actually declared before its consumers are counted. A
 part imported by *another design part* inherits that part's own resolved
 reach, cycles guarded, rather than stopping at the design file that happens
-to import it directly — `RailSection` has one direct screen importer
-(Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
-and `AppWindowRailScroll`, which the app's shared window shell mounts for
-Settings, the Agents window and more, so `RailSection` reads as several areas
-rather than Sidebar's alone. A CSS-module class is charged to a single-area
+to import it directly. The case that taught it: `RailSection` once had one
+direct screen importer (Sidebar.tsx), but the since-retired `AppWindow.tsx`
+also composed it into `AppWindowRailTop` and `AppWindowRailScroll`, which the
+app's shared window shell then mounted for Settings, the Agents window and
+more, so `RailSection` had to read as several areas rather than Sidebar's
+alone. A CSS-module class is charged to a single-area
 export only when nothing else in the module — another export, or a local
 helper neither exports — also reaches for it: `Settings.tsx`'s `RowMark`
 alone draws `.rowMark`, but `Row` and `RowButton` in the same file draw it
@@ -1759,8 +1854,9 @@ simply unable to see:
   generic primitive picked up a first caller, and stopping consumer
   resolution at the nearest design file — rather than following it into
   whatever *that* file's own exports reach — read `RailSection` as
-  Sidebar's alone when `AppWindow.tsx` also composes it into parts the
-  app's shared window shell mounts for Settings and the Agents window too.
+  Sidebar's alone when `AppWindow.tsx` (since retired) also composed it into
+  parts the app's shared window shell then mounted for Settings and the
+  Agents window too.
   Restricting the charge to `design/patterns/` and resolving through
   design-to-design use, cycles guarded, closed both; the baseline rose from
   480 to 607.
@@ -1799,8 +1895,9 @@ simply unable to see:
   registry's own session view beside Conversation *and* docked by
   TeamRoomPane, two different places, so it wrongly folded into `room`
   (`ApprovalDialog.module.css [room]`, 48 findings). And composition within
-  one file was never followed at all: `Dialog` composes `DialogBody` and
-  `DialogSubhead` in the same `ModalDialog.tsx`, with no import needed, so
+  one file was never followed at all: `Dialog` composed `DialogBody` and
+  `DialogSubhead` (since removed) in the same `ModalDialog.tsx`, with no
+  import needed, so
   their reach read as SkillPage.tsx's alone instead of the ~46 screens
   `Dialog` itself reaches (`ModalDialog.module.css [settings]`, 9 findings).
   A registry or `app/` mount now counts as its own host area, but only
@@ -1850,7 +1947,9 @@ conversations whose process is no longer held.
 
 The Run strip uses the Team chat's live line, including a kept answer's way
 on and a pending release. A Seat's face centres on the whole row, or its first cell including the name
-and role.
+and role. In a narrow ListRow with `subtitleLayout="below"`, the face centres
+on the name-and-controls heading instead: the description spans the row below
+it, without pulling the face away from the name's line.
 
 Attention summaries use ListRow's wrapping sentence slot, so questions and
 approval reasons arrive whole even in a narrow pane. Recorded usage is read
@@ -1918,8 +2017,8 @@ allow it; a refused row shows nothing, so one sentence is not repeated down ever
 check row of an ended Run, and the inspector is where the reason is read.
 The `run-view` catalogue board mounts the production component for every Run
 state, a check with two attempts, empty and failed reads, a long timeline, and
-the narrow pane. The header's `Segmented` switch offers the Flow beside the
-timeline; the Flow drawing below is its other half.
+the narrow pane. The top bar's view menu (`RunWorkspace.tsx`) offers the Flow
+beside the timeline; the Flow drawing below is its other half.
 
 The `timeline-cards` board extends that execution data view with a round's
 recorded cards: two or three across when the column fits, a list beyond three
@@ -1932,8 +2031,8 @@ area are gated, and a removed or moved slot makes the exemption stale.
 
 ### The Run inspector
 
-A selected timeline row opens recorded detail in `PanelFrame`, `PanelTools`
-and `PanelBody`, with the same section labels as other inspectors. Cards show
+A selected timeline row opens recorded detail in `PanelFrame`, `PanelBody`
+and `PanelFooter`, with the same section labels as other inspectors. Cards show
 Input, Handoff, Findings, Review and recorded Seat cost; Open the conversation
 is last. A check shows its command, recorded folder, timeout, exit mapping and
 latest evidence output. A person’s step shows its sentence and declared
@@ -2014,8 +2113,11 @@ A Run lays its recorded state over this same drawing. `FlowStepSurface` keeps
 done badges at the upper right and durations and repeat counts at the lower
 left. Current work has a breathing ring and a Working chip; its doing line
 sits beneath the card, with room reserved inside the canvas. A waiting person
-has the warning ring and Needs you. `FlowFaces` uses the marks of the actual
-Seats, overlapping when several occupy a round. Unreached steps and routes
+has the warning ring and Needs you. A step's mark in `FlowGraph` is the face
+of the Seat that holds it; a step that opens several Seats at once draws as a
+fanned stack of cards, under the step kind's own mark labelled with the
+count ("2 seats"), and the step
+list's `FlowStepRow` sets each Seat's face side by side. Unreached steps and routes
 are dashed and quiet; travelled routes have the accent and a soft glow, and
 a loop records how often its rule fired. `FlowBaton` glides along the incoming
 curve, keeping its phase on snapshot updates and waiting for the faded end
@@ -2188,8 +2290,8 @@ highlighted shape, and clicking a card does the same. Back occupies the quiet
 footer slot on its next step, and the one-line consequence sits in the header.
 Choice cards keep the neutral row and menu plates in resting, hovered and
 selected states. Their icon tiles and checks use neutral ink; the accent stays
-on the keyboard focus ring and primary action. AppWindow, popups and the
-command palette keep their own surface contracts.
+on the keyboard focus ring and primary action. Popups and the command
+palette keep their own surface contracts.
 
 ## Command palette
 
@@ -2384,3 +2486,91 @@ Chats folder pick explains the conflicting opened project in the picker's
 description and a Settings note. Project lists omit managed chats. The composer
 refreshes repository facts on mount before deciding whether to show its worktree
 control; an unread recent-folder entry cannot permanently hide that control.
+
+## Lead is a conversation
+
+Lead and a session share ConversationShell, ConversationThread, ConversationDock,
+ConversationComposerFrame and the same top-bar registration. LeadMessage uses Items;
+assistant decision prose uses the same TranscriptAssistantMessage frame as Items.
+The empty state is ConversationEmptyState holding one LeadGreeting: the
+LeadAvatar, a title at the section step (16), one secondary sentence at 14, and
+an action only when something must come first (Open folder… with no folder open).
+Until settings load the disc is empty and the title is "Hi there". The Lead's
+presence word is drawn in the sidebar row and the bar only when it is not at
+rest; Ready and No folder open stay in the status popover. The chosen name
+occupies the title slot and composer placeholder.
+The tools slot holds the rail toggle (`PageRailToggle`) and the settings glyph opening Settings › Lead;
+the rail is LeadDetails, and the allowance lives on its Spend card, not under the composer.
+Active goals outside terminal predecessor waits use ComposerTrack name="send":
+Stop occupies the session's composer corner, with Send inboard when a message is typed.
+
+LeadContract is borderless assistant prose. Its plan uses LeadPlanFlow: an ordered
+Timeline diagram with one node per step, responsible role words, decorative
+connectors and a final Approve to start node. Acceptance checks, allowance/folder
+meta and the separate-approval fine print follow the diagram. Long labels wrap;
+accessible reading order includes each step once. Its result
+uses compact qualified statuses, reason prose and separately attributed spend.
+No internal ids or revision facts render. Decisions use the canonical docked
+ApprovalDialog and its keyboard policy, pending states, proceed actions and
+focusable surface. The thread retains a one-word decided state. Window revision
+and digest fences, the page-wide decision lock and explicit focus return remain.
+Automatic plan arrivals never move composer focus; explicit navigation focuses
+the dock. A visible decision has no duplicate plan banner. When its plan is absent,
+the dock states that a decision is needed without offering an action.
+
+Recurring plans add a neutral Repeats chip, a How it repeats block and a per-run allowance. Runs on recurring plans/results opens the existing Settings › Lead list. A task's Runs view composes Row, Rows, Text and Button for its next slot, bounded history and Pause, Resume, Stop and Run once now controls; an Approved once chip distinguishes saved approval from a legacy scheduled request. History reasons wrap and unknown spend is omitted.
+
+Second look is informational LeadContract prose with three host-supplied facts, Said, Found and Did. At 80% is another informational entry, using the warning Text tone for the known dollar total and cap. Neither enters the approval dock. Raise limit… uses the canonical Dialog with Row/Input fields and a direct Apply action. It changes caps under the person's authority without an approval card, and explains that a stopped goal stays stopped. Preview scenes repeating-plan, settings-runs, second-look and allowance-warning cover both themes.
+Refusal, Resume and renewal banners share ComposerNoticeStack with the decision
+controls, using the session's gap above the composer. Renewal's banner states
+only the earlier expiry time, once. An idle dock has
+no empty reading-measure or form-stack wrapper. Unavailable and unverifiable
+predecessor notices explain whether the previous result was not accepted or
+cannot be confirmed, and name the Lead to message to change the plan or stop
+the goal. Their action is Stop goal, opening ConfirmDialog with the consequence
+that files and worktrees are left as they are. Other active goal phases offer
+Stop in the composer's send track. The composer continues with the person's new instructions;
+once a goal is accepted, declined or stopped it accepts a new one. Both waits have synthetic preview scenes in both themes.
+
+The thread ends with at most one quiet line, TurnWorkLive, so a goal that is working
+or that was stopped is never silent. "Planning…" shows while a request runs and no plan
+is on the table; while the goal runs it names the step, of how many, and the runs it
+has started ("Step 1 of 2 · Repair the parser · 1 run", "no runs yet" before the first).
+Both come from the window's `progress` and `requestInFlight`, which the host reads from
+the journal. After the person's Stop, which makes no stopped card, the settled form says
+"This goal was stopped."; a stop the person did not make names its reason in the same line
+("…at its round allowance", "…because HarnessDesk couldn't confirm what the workers spent"). The line is absent while a plan, a result or a wait is for the
+person to answer, beside a card that already says the Lead stopped, and when the window
+cannot trust its projection. Frames `planning`, `running` and `stopped` show it in
+both themes. A plan card says what a step's seats do in role words ("write, then
+review"), never a runtime or a model, and money is shown in whole cents.
+
+Settings › Lead uses canonical Section, Rows, Row, Input and Button patterns,
+ordered Name, Provider key, Allowances, Permissions, Triggers. LeadNameChoice composes the
+existing two-choice control, labelled Lead identity under the Name section.
+A neutral Lead placeholder precedes the stored name. Name changes save immediately; authority widening
+shows a waiting sentence and Open to the conversation decision. The uncontrolled
+password input is emptied before its exclusive request, even when refused.
+There is no settings dialog or inset Rows variant. LeadAvatar is the sole slot
+for future Dex/Lex artwork and uses the shared round identity tile and type tokens.
+
+Lead result summaries include only the assertion kinds in the approved contract,
+on one meta line. Acceptance previews carry passed evidence for the full contract.
+The renewal banner owns the expiry time; the message asks for renewed approval.
+Settings preview bodies shrink with a short viewport and scroll while each group
+stays whole. Only the active conversation mounts a dock; retained drafts survive.
+
+The result dock offers Open changes, Decline, Accept, and Accept and open PR.
+The fourth choice carries the same revision, digest and page-wide pending lock.
+A push result explains its publication effect; branch-ownership prose explains
+an outside push or rewrite and offers Reclaim branch. A hand-back-limit wait
+uses the same LeadContract prose and a short reason. Untrusted summaries and
+findings pass through Markdown's sanitizer.
+
+A followed PR shows its linked number, qualified check and review state, and an
+ownership chip (Your branch or Automatic repairs). Its strip says Following;
+repair wording appears only while the latest hand-back is running. Event origin
+is a small linked From line on the goal. Settings Triggers has independent
+Checks failed and Review comment switches under Follow my pull requests, on by
+default. Open a goal when lists only project Lead targets using their preview
+summary; a row opens the returned project trigger file. It cannot edit or arm.

@@ -1,3 +1,6 @@
+import type { DispatchAdmission } from '../dispatch-admission.js'
+import type { HarnessDeskAccount } from '../harnessdesk-account.js'
+import type { GitGateway } from '../git-gateway/index.js'
 import type { ConversationLoadouts } from '@harnessdesk/protocol'
 import type { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import type {
@@ -103,10 +106,12 @@ import type { AttachmentResolution, ResolvedAttachment } from '../attachments/ca
  * is a handler nobody can test alone.
  */
 export interface HostContext {
+  readonly gitGateway: GitGateway
   readonly options: HostOptions
   readonly registry: SessionRegistry
   readonly state: StateStore
   readonly logger: Logger
+  readonly harnessDeskAccount: HarnessDeskAccount
   readonly credentials: CredentialBroker
   readonly audit: AuditLog
   readonly loadouts: {
@@ -141,6 +146,39 @@ export interface HostContext {
   readonly sessionWorktrees: import('../session-worktrees.js').SessionWorktrees
   readonly worktrees: Worktrees
   readonly team: Team
+  /** The phone link's controls; refuses with `phone-link-unavailable` where the link is not running. */
+  readonly phone: Omit<import('../phone-link.js').PhoneLinkControl, 'onChange'>
+  /** Redacted, phone-sized projections of sessions, Teams and spend; what a paired phone may read of the desk's work. */
+  readonly phoneWorkspace: Pick<import('../phone-workspace.js').PhoneWorkspace, 'sessionsList' | 'teamsList' | 'dashboardRead'>
+  /** The phone's projected work, ordinary session controls and approval answers. */
+  readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'sessionsList' | 'sessionStart' | 'sessionSend' | 'stop' | 'threadRead' | 'approvalDecide' | 'teamWrap'>
+  /** Person-owned controls, reachable from the window only. */
+  readonly leadChatControl: {
+    reset(): Promise<import('@harnessdesk/protocol').LeadChatControlList>
+    list(): Promise<import('@harnessdesk/protocol').LeadChatControlList>
+    takeOver(id: string): Promise<import('@harnessdesk/protocol').LeadChatControlList>
+    handBack(id: string): Promise<import('@harnessdesk/protocol').LeadChatControlList>
+  }
+  readonly leadChats: Pick<import('../lead/chats.js').LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop'>
+  leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
+  leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
+  leadThreadSend(params: HostParams<'lead/thread/send'>): Promise<HostResult<'lead/thread/send'>>
+  leadCardDecide(params: HostParams<'lead/card/decide'>): Promise<HostResult<'lead/card/decide'>>
+  leadApprovalRevoke(params: HostParams<'lead/approval/revoke'>): Promise<HostResult<'lead/approval/revoke'>>
+  leadActionPerform(params: HostParams<'lead/action/perform'>): Promise<HostResult<'lead/action/perform'>>
+  leadSettingsRead(): Promise<HostResult<'lead/settings/read'>>
+  leadSettingsUpdate(params: HostParams<'lead/settings/update'>): Promise<HostResult<'lead/settings/update'>>
+  leadStop(params: HostParams<'lead/stop'>): Promise<HostResult<'lead/stop'>>
+  leadResume(params: HostParams<'lead/resume'>): Promise<HostResult<'lead/resume'>>
+  leadSteer(params: HostParams<'lead/steer'>): Promise<HostResult<'lead/steer'>>
+  leadRepeatControl(params: HostParams<'lead/repeat/control'>): Promise<HostResult<'lead/repeat/control'>>
+  leadBudgetRaise(params: HostParams<'lead/budget/raise'>): Promise<HostResult<'lead/budget/raise'>>
+  leadSpendLimitSet(params: HostParams<'lead/spendLimit/set'>): Promise<HostResult<'lead/spendLimit/set'>>
+  leadScheduleRead(): Promise<HostResult<'lead/schedule/read'>>
+  leadScheduleUpdate(params: HostParams<'lead/schedule/update'>): Promise<HostResult<'lead/schedule/update'>>
+  leadMemoryRead(): Promise<HostResult<'lead/memory/read'>>
+  leadMemoryUpdate(params: HostParams<'lead/memory/update'>): Promise<HostResult<'lead/memory/update'>>
+  readonly leadStarts?: Pick<import('../lead/budgets.js').LeadBudgets, 'validateStart'>
   readonly flows: Flows
   /** Previews a flow, non-executing, and mints the one token `flow/start-goal` redeems. */
   readonly flowPreviews: FlowPreviews
@@ -293,6 +331,8 @@ export interface HostContext {
     ids(): Set<string>
     /** The runtime's own `info` overlaid with what the host knows about it. */
     infoOf(runtime: AgentRuntime): RuntimeInfo
+    /** The captured registration behind this runtime, if it still owns the id. */
+    installOwner(runtime: AgentRuntime): AgentRuntime | undefined
     /** Runtimes whose usage the person has not switched off. */
     metered(): readonly AgentRuntime[]
     /** The runtime's extension plane, or a refusal that names the runtime. */
@@ -324,6 +364,13 @@ export interface HostContext {
     live(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly route?: ResolvedModelRoute }): Promise<AgentSession>
     /** The host's record of a conversation, or a refusal. */
     record(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): SessionRecord
+    prepareReopenTranscript(runtime: RuntimeId, id: SessionId): Promise<void>
+    prepareEviction(params: HostParams<'session/prepare-eviction'>): Promise<HostResult<'session/prepare-eviction'>>
+    cacheSnapshot(params: HostParams<'session/cache-snapshot'>): HostResult<'session/cache-snapshot'>
+    conflictOwners(runtime: RuntimeId, id: SessionId): readonly string[]
+    discardConflictOwners(owners: readonly string[]): void
+    /** Establish a base only when the current full record exactly matches the saved row. */
+    noteReconciled(record: SessionRecord, read: Session): void
     /** A full read, enriched from the host's own transcript where the backend's is thin. */
     read(runtime: AgentRuntime, id: SessionId): Promise<Session>
     /** Joins a live handle to the registry and announces it. */
@@ -416,7 +463,7 @@ export interface HostContext {
   }
 
   readonly ceilings: {
-    answerHeld(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): boolean
+    answerHeld(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision, delivering?: () => void): boolean
     settleHeld(runtime: string, sessionId: string): void
   }
 
@@ -428,7 +475,7 @@ export interface HostContext {
      * is not one of those, so the answer goes to the live turn as usual.
      * Throws a sentence, the question kept, when it is and cannot be heard now.
      */
-    answerStopped(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<boolean>
+    answerStopped(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision, delivering?: () => void): Promise<boolean>
   }
 
   readonly queue: {
@@ -437,6 +484,7 @@ export interface HostContext {
     /** Sends the next queued message, if the conversation is idle and the queue is not held. */
     drain(record: SessionRecord): Promise<void>
     nextId(): string
+    retiredPersonSeat(record: SessionRecord): string | null
     /** Replaces one queued message in place, refusing stale or currently delivering ids. */
     update(record: SessionRecord, id: string, input: readonly UserContent[]): void
     /**
@@ -452,7 +500,8 @@ export interface HostContext {
      * inside `sessions.dispatch` passes the conversation it was handed as `held`: the send is that dispatch, and the
      * Wrap fence is not asked a second time.
      */
-    sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession): Promise<TurnId>
+    sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession, effectStarted?: () => void,
+      admitLive?: DispatchAdmission<AgentSession>, personSeat?: string | null): Promise<TurnId>
   }
 
   readonly accounts: {

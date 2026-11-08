@@ -19,7 +19,7 @@ It configures the third way of cooperating in
 .harnessdesk/
   flows/
     fix-and-review.yml
-    race.yml
+    comparison.yml
 ```
 
 In the repository it serves, which is a decision rather than a detail. A flow
@@ -346,7 +346,7 @@ A flow with an error offers no way to start it.
 
 ## Running one
 
-Start a room (**New → A room**), name it, and choose a flow. The dry run is
+Start a Team (**New Team…**, ⇧⌘N) and choose a flow. The dry run is
 shown before the button that runs it.
 
 <p align="center">
@@ -576,10 +576,10 @@ role-order rows as a view default.
 places a shape among the shipped choices, and `contexts` names which starts
 (a plain project, a branch, a pull request, a diff, a working-tree diff) it
 accepts — absence of either is never a refusal, only the absence of an
-opinion. `packages/server/flows/` sets `order: 1`–`6` on
-`independent-review`, `fan-out`, `comparison`, `staged-relay`, `investigation`
-and `alignment`, each of which starts from a plain project only, as does
-`review-pr`;
+opinion. `packages/server/flows/` sets `order: 0` on `fix-and-review` and
+`order: 1`–`6` on `independent-review`, `fan-out`, `comparison`,
+`staged-relay`, `investigation` and `alignment`, each of which starts from a
+plain project only, as does `review-pr`;
 `mechanical-contest` stays an unordered custom starting point. A branch, a
 pull request, a diff or the working tree is offered `review`: three
 read-only specialists, and nothing that opens with an edit step. Its
@@ -688,8 +688,8 @@ Stop and its cleanup retries interrupt only that Run's checks; a later Run on
 the same Team keeps working.
 
 A role's own file no longer carries an Agent's brief, answers or ceiling —
-those come from the resolved Agent named in `uses:`, the same one Settings ›
-Agents lists. Every agent role needs `uses:` to name at least one Agent.
+those come from the resolved Agent named in `uses:`, the same one the Agents
+window lists. Every agent role needs `uses:` to name at least one Agent.
 `seats:` is optional and supplies seat specs (`runtime=model/effort+`) for
 those Agents: one Agent can be paired with a list of seats to open one card
 per seat, or a list of Agents can be paired with zero or one seat to open one
@@ -1063,9 +1063,10 @@ asks for one Agent and two explicit, isolated seats, substitutes them into
 the effective `comparison` catalogue entry's own designated Agent role (a
 plain `layout: { race: <role id> }` marker, never an engine-read execution
 type), and previews and starts that complete source exactly the way any
-other flow does. `packages/server/flows/` ships eight such starting points —
-`comparison`, `fan-out`, `independent-review`, `staged-relay`,
-`investigation`, `alignment`, `mechanical-contest`, `review-pr` — as ordinary,
+other flow does. `packages/server/flows/` ships ten such starting points —
+`fix-and-review`, `comparison`, `fan-out`, `independent-review`,
+`staged-relay`, `investigation`, `alignment`, `mechanical-contest`,
+`review-pr`, `review` — as ordinary,
 editable files over the same three step kinds; no shape's id ever reaches the
 engine.
 

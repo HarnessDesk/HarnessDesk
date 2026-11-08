@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import {
   DEFAULT_TRIGGER_BUDGET,
   TRIGGER_DEFAULTS,
+  TRIGGER_EVENTS,
   TRIGGER_SOURCES,
   type TriggerDefinition,
   type TriggerField,
@@ -56,4 +57,10 @@ test('a definition carries no command, environment, ceiling or free-form templat
   const noCeiling: 'ceiling' extends keyof TriggerDefinition ? true : false = false
   const noEnv: 'env' extends keyof TriggerDefinition ? true : false = false
   assert.deepEqual([nothingElse, noCommand, noCeiling, noEnv], [true, false, false, false])
+})
+
+
+test('the allowed PR event vocabulary includes opt-ins while defaults remain opened and pushed', () => {
+  assert.deepEqual(TRIGGER_EVENTS['pull-request'], ['opened', 'pushed', 'checks-failed', 'review-commented'])
+  assert.deepEqual(TRIGGER_DEFAULTS['pull-request'].events, ['opened', 'pushed'])
 })

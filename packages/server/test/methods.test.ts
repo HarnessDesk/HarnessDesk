@@ -64,6 +64,8 @@ test('opening in a folder without runtime board tools sends a session-linked not
     sessions: {
       attach: async () => session,
       read: async (_runtime: unknown, id: string) => ({ ...session, id, cwd: id === 's2' ? join(root, 'resumed') : root }),
+      noteReconciled: () => {},
+      prepareReopenTranscript: async () => {},
     },
     registry: {
       forReopen: () => null,
@@ -805,6 +807,7 @@ test('a message on an idle conversation is sent; on a working one it is queued a
       },
       queue: {
         nextId: () => 'q-1',
+        retiredPersonSeat: () => null,
         push: (entry: unknown) => announced.push(entry),
         busy: (entry: { session: { status: { type: string } } }) => entry.session.status.type !== 'idle',
         sendNow: async (_entry: unknown, input: unknown) => {

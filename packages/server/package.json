@@ -19,14 +19,19 @@
     "@harnessdesk/adapter-acp": "workspace:*",
     "@harnessdesk/adapter-codex": "workspace:*",
     "@harnessdesk/agent-inventory": "workspace:*",
+    "@harnessdesk/client": "workspace:*",
     "@harnessdesk/codex": "workspace:*",
     "@harnessdesk/cordis-host": "workspace:*",
     "@harnessdesk/extension-host": "workspace:*",
+    "@harnessdesk/lead": "workspace:*",
     "@harnessdesk/mcp-tools": "workspace:*",
+    "@harnessdesk/phone-link": "workspace:*",
     "@harnessdesk/plugins": "workspace:*",
     "@harnessdesk/protocol": "workspace:*",
     "@harnessdesk/responses-gateway": "workspace:*",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "@harnessdesk/contract": "workspace:*",
+    "@harnessdesk/crypto": "workspace:*"
   },
   "devDependencies": {
     "@types/ws": "^8.18.2",

@@ -222,6 +222,16 @@ test('a selection narrows the deal to the named specs and refuses a name that is
   assert.throws(() => selectedSpecs(root, JSON.stringify(['e2e/ui-system/not-a-spec.spec.ts'])), /not specs of e2e\/ui-system: not-a-spec\.spec\.ts/)
 })
 
+test('Lead real-host and flag-off specs are both selectable in each browser matrix', () => {
+  const names = ['lead-hidden.spec.ts', 'lead.spec.ts']
+  const selection = JSON.stringify(names.map(name => `e2e/ui-system/${name}`))
+  assert.deepEqual(selectedSpecs(root, selection), names)
+  for (const matrix of ['full', 'pr']) {
+    const dealt = plan(names, recordedSeconds(root, matrix), 2).flatMap(shard => shard.specs).sort()
+    assert.deepEqual(dealt, names, matrix)
+  }
+})
+
 test('the command line deals a selection across the shards the selection needs, and counts them', () => {
   const selection = JSON.stringify(['e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/rules.spec.ts'])
   assert.equal(withEnv({ UI_SYSTEM_SPECS: selection }, '--count').stdout.trim(), '1')
@@ -270,6 +280,7 @@ test('the pattern skips a dark geometry case and nothing else', () => {
   assert.ok(!skips.test(title('frame-contract-popup-menus', 'a case that names no theme')))
   assert.ok(!skips.test(title('frame-contract-menus', 'S22 disabled popup rows share one ink in dark')), 'a colour spec reads both themes')
   assert.ok(!skips.test(title('frame-contract-tools', 'tools in dark')), 'a colour spec reads both themes')
+  assert.ok(!skips.test(title('frame-contract-dashboard', 'today ring fits in dark')), 'the heatmap ring reads both themes')
   assert.ok(!skips.test(title('row-box', 'rows in dark')), 'only the frame specs are on the pull-request matrix')
   assert.ok(!skips.test(title('flow-canvas', 'edges in dark')), 'only the frame specs are on the pull-request matrix')
   assert.ok(skips.test(title('frame-contract-menus-extra', 'in dark')), 'a spec that merely starts like a colour spec is a different spec')

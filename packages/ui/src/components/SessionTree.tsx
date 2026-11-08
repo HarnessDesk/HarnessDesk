@@ -39,7 +39,7 @@ import { folderName, groupByProject, groupHolding, isWorktreeSession, migratedRo
 import { firstAsk, indexedSessionLabel } from '../lib/sessions'
 import { seatLabelsOf } from '../lib/seat-names'
 import { captureForRoot } from '../lib/provenance'
-import { teamSeats, hasConversation, seatDisplayName } from '../lib/team-seats'
+import { teamSeats, hasConversation, seatDisplayName, numberRepeatedSeatLabels } from '../lib/team-seats'
 import { goalRunOf } from '../lib/goal-run'
 import { goalName } from '../lib/goals'
 import { selectedProjectRowIndex } from '../lib/sidebar-project-selection'
@@ -47,7 +47,7 @@ import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
 import { panes } from '../state/layout'
 
 import { useSnapshot, useSnapshotSelector, useStore } from '../state/context'
-import type { AppSnapshot } from '../state/store'
+import type { AppSnapshot, AppStore } from '../state/store'
 import {
   ArchiveIcon,
   AgentIcon,
@@ -557,6 +557,13 @@ const RoomRow = ({ room, state, news, open, onToggle, overview, historyByKey, me
     ? { kind: 'mark', icon: <SidebarMenuState label={attention} tone={waiting ? 'warning' : 'info'} state={waiting ? 'limit' : 'new'} compact />, label: attention }
     : running && !open ? { kind: 'mark', icon: <Spinner size="sm" aria-hidden />, label: 'Working' } : undefined
   const displayMembers = seats.filter(hasConversation).map(seat => ({ record: records.get(seat.record.id), nickname: seat.name, runtimeName: snapshot.runtimes.find(one => one.id === seat.record.session.runtime)?.presentation.name }))
+  const labelOf = new Map(seats.flatMap(seat => {
+    const row = seatRows.get(seat.record.id)
+    if (!row) return []
+    const runtime = seat.record.session ? snapshot.runtimes.find(one => one.id === seat.record.session!.runtime) : undefined
+    return [[seat.record.id, { label: seatDisplayName(records.get(seat.record.id), row.name, runtime?.presentation.name, displayMembers), openedAt: seat.record.openedAt }] as const]
+  }))
+  const labels = numberRepeatedSeatLabels([...labelOf].map(([id, one]) => ({ id, ...one })))
   return <div data-region="team-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
     <LeftColumnRow ref={rowRef} label={name} icon={<TeamIcon size={16} />} selected={selected && !suppressSelection}
       onContextMenu={event => { rowRef.current?.focus({ preventScroll: true }); menu.open(event) }}
@@ -580,7 +587,7 @@ const RoomRow = ({ room, state, news, open, onToggle, overview, historyByKey, me
       const summary = seat.key ? historyByKey.get(String(seat.key)) : undefined
       const canOpen = hasConversation(seat) && Boolean(live || summary || seat.record.openedAt > 0)
       const record = records.get(seat.record.id)
-      const label = seatDisplayName(record, row.name, runtime?.presentation.name, displayMembers)
+      const label = labels.get(seat.record.id) ?? row.name
       const status = live?.status ?? summary?.status
       const error = status?.type === 'error' ? status.message ?? 'Failed' : live && traceOf(live, false) === 'failed' ? 'Failed' : null
       const working = row.state === 'working' || Boolean(seat.key && snapshot.tasks.get(seat.key)?.some(task => task.state === 'running'))
@@ -1073,6 +1080,23 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
 export const useProjectGroups = (options: { searching?: boolean } = {}): ProjectGroup[] =>
   useProjectList(options).groups
 
+// Project folders are enough to resolve aliases; session summaries must not
+// be retained by a long-lived action.
+const projectToggleAction = (store: Pick<AppStore, 'getSnapshot' | 'setListPrefs' | 'toggleCollapsed'>, projects: readonly { root: string; folders: readonly string[] }[]): ((key: string) => void) => key => {
+  const project = projects.find(one => one.root === key)
+  const stored = store.getSnapshot().listPrefs.collapsed
+  // Resolve aliases even when filtering or pending history prevents migration.
+  if (project && stored.some(root => root !== key && project.folders.includes(root))) {
+    store.setListPrefs({ collapsed: stored.filter(root => !project.folders.includes(root)) })
+  } else store.toggleCollapsed(key)
+}
+
+/** A bound action carries only the store and folder names, not a render's snapshot. */
+const foldProjects = (store: Pick<AppStore, 'setProjectsCollapsed'>, roots: readonly string[], collapsed: boolean): void =>
+  store.setProjectsCollapsed(roots, collapsed)
+const projectFoldAction = (store: Pick<AppStore, 'setProjectsCollapsed'>, roots: readonly string[], collapsed: boolean): (() => void) =>
+  foldProjects.bind(null, store, roots, collapsed)
+
 export const SessionTree = ({ now, searching = false, filter = '', searchEmptyState = null, suppressSelection = false }: {
   now: number
   searching?: boolean
@@ -1127,15 +1151,10 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
     store.setListPrefs({ pinned: [...pinned], collapsed: [...folded] })
   }, [groups, listIsWhole, snapshot.listPrefs.collapsed, snapshot.listPrefs.pinned, store])
 
-  const toggle = useCallback((key: string) => {
-    const group = groups.find(one => one.root === key)
-    const stored = store.getSnapshot().listPrefs.collapsed
-    // An explicit action can resolve this project's aliases even while the
-    // whole-list migration is waiting for history or a filter to clear.
-    if (group && stored.some(root => root !== key && group.folders.includes(root))) {
-      store.setListPrefs({ collapsed: stored.filter(root => !group.folders.includes(root)) })
-    } else store.toggleCollapsed(key)
-  }, [groups, store])
+  const toggle = useMemo(
+    () => projectToggleAction(store, groups.map(({ root, folders }) => ({ root, folders: [...folders] }))),
+    [groups, store],
+  )
 
   const teamKeys = useMemo(() => new Set([...snapshot.teams.values()].flatMap(team =>
     teamSeats(snapshot.goals.get(team.id), team, goalRunOf(team.id, snapshot.goals.get(team.id), snapshot.flowExecutions))
@@ -1355,8 +1374,8 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
   }, [activeGroup, activeKey, activeTeam, collapsed, far, liftedKeys, noFolderGroup, othersOpen, roomsByProject, snapshot.goals, snapshot.flowExecutions, store, toggle])
 
   const anyOpen = groups.some((group) => !collapsed.has(group.root))
-  const toggleAll = useCallback(
-    () => store.setProjectsCollapsed(groups.flatMap(group => anyOpen ? [group.root] : group.folders), anyOpen),
+  const toggleAll = useMemo(
+    () => projectFoldAction(store, groups.flatMap(group => anyOpen ? [group.root] : group.folders), anyOpen),
     [anyOpen, groups, store],
   )
 

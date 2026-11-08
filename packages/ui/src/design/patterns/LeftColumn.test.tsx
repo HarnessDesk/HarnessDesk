@@ -222,3 +222,10 @@ test('a card prefix shares the full-width label slot while its text keeps intrin
   expect(container.querySelector('[data-left-mark-prefix]')?.parentElement).toBe(label)
   expect(label.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent).toBe('Writer')
 })
+
+test('the seat owns an inset slot directly above its hairline', () => {
+  mount(<LeftColumnSeat above={<div data-sign-in-notice>Finish in your browser</div>} menu={<button>Seat</button>} settingsOpen={false} onSettings={() => {}} />)
+  const notice = container.querySelector('[data-left-seat-above]')!
+  expect(notice.querySelector('[data-sign-in-notice]')).not.toBeNull()
+  expect(notice.nextElementSibling?.getAttribute('data-rule')).toBe('top')
+})

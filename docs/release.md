@@ -173,11 +173,21 @@ paths, real email addresses or credential shapes (it reuses the detector in
 never the value), and supports `--dry-run` to inspect the body and command
 before posting.
 
-It is a safety net on top of a human read, not a replacement for one. Known
-limits: names and handles are not machine-checked, an all-lowercase
-value after a weak key name (token, session id) reads as prose and is not recognised as a secret, and a determined
-evasion (look-alike characters, a bespoke encoding) can get past a pattern check. The
-poster reads the text before posting.
+It is a safety net on top of a human read, not a replacement for one. It also
+checks an opaque high-entropy token on a line by itself and an existing
+secret-named field followed immediately by a value on the next line. Exact
+40- and 64-character hexadecimal lines in longer text are exempt from the
+new line check because they commonly represent hashes; secrets of those
+shapes can pass it. The existing whole-body check still applies. Generated
+identifiers or ordinary words after strong field names can be refused; review
+and reword or use a placeholder when appropriate.
+
+Known limits include arbitrary inline opaque tokens and multiline blocks,
+lowercase prose-like values after weak keys (token, session id), values under
+four characters, unrecognized abbreviated or non-English field names,
+look-alike characters and bespoke encodings. Names and handles, and private
+repository, host or customer names, are not machine-checked. The poster reads
+the text before posting.
 
 **Prove the merge changed nothing**, so the build below doesn't have to wait
 on CI to finish before it can start:
@@ -187,7 +197,7 @@ git rev-parse <branch-sha>^{tree}
 git rev-parse origin/main^{tree}
 ```
 
-Equal trees mean the squash merge changed no bytes — what CI is checking and
+Equal trees mean the merge commit changed no bytes — what CI is checking and
 what you're about to build and sign are the same tree.
 
 After the release PR is merged, use its merged result on `main` for all build,
@@ -281,3 +291,36 @@ notes generated from commit titles are a different, worse document than the
 one `CHANGELOG.md` already curated. `script/release.mjs` automates the parts
 that are pure mechanics and worth getting byte-identical every run —
 nothing more.
+
+
+## Native simulator helper
+
+`build:node` ends by building `hd-ios-control` from
+`packages/cordis-host/native/ios-control`. Non-macOS hosts skip it; source builds
+without full Xcode warn and stay usable. Packaging requires a successful build
+for its selected architecture. `packages/desktop/script/before-pack.mjs` also preserves the
+existing pinned Lead runtime preparation. `HARNESSDESK_NO_DOWNLOADS=1` refuses
+packing if that verified Lead cache is absent.
+
+The resource is `Contents/Resources/native/ios/hd-ios-control`, listed in
+`build.mac.binaries` so the normal release signs it with the app identity and
+hardened runtime. Apple frameworks are loaded from installed Xcode, never copied.
+The packaged smoke first requires that resource to be the only helper in the
+bundle, then runs its `--version` without a simulator. The unsigned uniqueness
+check is shared with release verification; smoke adds no iOS signing or team check.
+`verify-artifacts` mounts each validated DMG read-only, checks the helper's
+architecture, nested signature, matching signing team and hardened-runtime flag,
+then executes its `--probe` to load the installed Xcode frameworks.
+
+On the release machine, inspect each artifact's helper architecture with `lipo`,
+verify its nested signature with `codesign --verify --strict`, and test dynamic
+framework loading and simulator input from the signed, notarized app. The ad-hoc
+`pack` and `smoke` checks do not establish Developer ID or notarized compatibility.
+No library-validation exception is added for this helper.
+
+The release verification machine must have Xcode 27 or newer selected in
+Settings › Locations › Command Line Tools. It also needs Rosetta installed to
+execute the x64 helper's `--probe` on Apple silicon. Artifact verification checks
+that the signed resource is the only helper in the bundle. If detach fails,
+verification retries once and retains the mount rather than removing a mounted
+volume; detach the reported verification mount before removing its empty folder.

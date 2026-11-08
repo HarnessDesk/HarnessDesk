@@ -40,24 +40,26 @@ them into one protocol would give up both properties.
 
 ## The packages
 
-Twenty-two packages make up the repository:
+Twenty-four packages make up the repository:
 
 | Package | Role | Allowed imports |
 | --- | --- | --- |
 | `packages/protocol` | Domain vocabulary, wire methods, validators | Zero dependencies |
 | `packages/contract` | Schemas for the cloud wire: ids, tokens, pairing offers, relay frames, the account API. See [open-and-hosted.md](open-and-hosted.md) | `zod` |
 | `packages/crypto` | The cloud wire's cryptography: keys, handshake and framing, signed tokens, push sealing, test vectors | Zero dependencies (WebCrypto) |
+| `packages/phone-link` | Desk identity, phone enrollment and encrypted LAN sessions | `contract`, `crypto`, `ws`, Node built-ins |
 | `packages/desktop` | Electron shell, Keychain broker, packaging, the command-line launcher | `server`, `claude-acp`, `cursor-acp`, `cli`, `mcp-tools` |
 | `packages/client` | Transport-independent client calls and events; local I/O in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
+| `packages/lead` | Portable Lead contracts and injected management ports | `protocol`, `client`; only the exact child.ts and supervisor.ts entries under its src directory may import their allowlisted Node modules and the client's Node entry; the core has no ambient machine or network authority |
 | `packages/cli` | The `harnessdesk` command line over the client library; the app bundles it and installs a launcher for it, and `docs/cli.md` is its reference, generated from its command table | `client`, `protocol` |
 | `packages/ui` | Renderer: AppStore snapshots, slot layout, panels | `protocol`, `client/views` (browser context only, no `node:*`) |
-| `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, adapters, `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools` |
+| `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, `client/node`, adapters, `codex` (wiring in `bootstrap.ts` only), `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools`, `ws` |
 | `packages/adapter-codex` | Native Codex adapter for `codex app-server` | `protocol`, `codex` |
 | `packages/codex` | Generated Codex JSON-RPC protocol client | Zero dependencies |
 | `packages/adapter-acp` | ACP adapter driving stdio peers | `protocol`, `transport-acp` |
 | `packages/transport-acp` | ACP line framing and transport | Zero dependencies |
-| `packages/claude-acp` | Bundled Claude Code ACP bridge | `@agentclientprotocol/claude-agent-acp`, `@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/sdk` |
-| `packages/cursor-acp` | Bundled Cursor ACP bridge for `cursor-agent` | Zero runtime dependencies |
+| `packages/claude-acp` | Bundled Claude Code ACP bridge | `protocol`, `@agentclientprotocol/claude-agent-acp`, `@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/sdk`, `@modelcontextprotocol/sdk`, `zod` |
+| `packages/cursor-acp` | Bundled Cursor ACP bridge for `cursor-agent` | `protocol` |
 | `packages/adapter-testkit` | Conformance suite for any `AgentRuntime` | `protocol` |
 | `packages/cordis-host` | In-process extension kernel, capability gates | `protocol`, `@deepseek-ai/cordis` |
 | `packages/extension-protocol`| Versioned IPC contract for child plugin host | `protocol` |
@@ -149,6 +151,127 @@ original error. This uses the control behavior present in the supported
 
 ## The host
 
+### The git gateway
+
+`packages/server/src/git-gateway/` is the shared publication engine for the
+Lead and the Git plugin's `ctx.forge` writes. `HostContext.gitGateway` exposes
+it to wire handlers; plugins receive the forge capability, never the engine,
+its executor or a credential. The host derives the requester from the live
+invocation. A tool cannot choose another conversation or repository.
+
+**Executors.** Pushes copy an exact reviewed commit and tree from the worker's
+object store into a private, host-owned bare mirror under `git-gateway/` in
+host state. The mirror's configuration disables hooks, checks transferred
+objects and permits HTTPS; pushes carry explicit refspecs and leases. Worker
+remotes, URL rewrites, credential helpers, askpass programs and hooks do not
+choose the destination or run with the host's credential. A one-shot helper
+consults the person's Git credential configuration outside every checkout,
+then falls back to `gh auth git-credential`. Forge mutations run `gh` from the
+host state directory with the pinned repository, explicit `--repo` or API
+paths and prompting disabled. PR creation, update, merge, review and comments
+use this executor. A recorded gateway continuation can satisfy the plugin’s
+preliminary publication check even when the checkout’s upstream ref is stale;
+the host still verifies the actual remote head before opening the PR. Merge is bound to the reviewed head and the existing
+required-check gate. A Flow's automatic PR merge also requires the host's
+recorded review of the pinned repository, PR number, head, destination ref and
+destination tip. The gateway rechecks that tuple and the live authority before
+launch; this is a preflight, not an atomic lease on GitHub's base branch.
+Unbound older reviews remain readable but need a fresh PR review to authorize
+that merge. An interrupted or queued merge remains unresolved until the PR is
+observed merged, and cannot be silently resubmitted. An open, unqueued snapshot
+cannot prove that an earlier request has stopped; a person may need to inspect
+or complete it externally.
+An unpinned project's explicit GitHub origin can still supply an informational
+PR review; adding a pin later does not promote that earlier review.
+The mutation queue is per host gateway. Another host or an external client
+does not share that queue, so this is not cross-process exactly-once merging.
+
+The gateway clears proxy environment variables and uses its own Git
+configuration. It does not fall back to global/system Git proxy configuration
+or desktop proxy settings. A network requiring one can refuse publication.
+Forge reads still run through the Git plugin's shell grant and can reach the
+person's write-capable `gh` login; this implementation isolates the gateway's
+credential path, not all ambient credentials available to an agent.
+
+**Pins.** An origin URL is a proposal until the person approves the first push
+for a project. `git-pins.json` in host state stores the canonical project root,
+repository, approving requester and time. Later writes use that pin; changing
+a checkout's origin cannot change it. A mismatching origin refuses a write.
+First branch pushes and rewrites ask; continuations on a branch the same
+conversation created and still owns can proceed without another push card.
+A steering approval substitutes for the first-push question only when its
+repository, branch and SHA match. A rewrite still asks. Agents cannot push a
+default or protected base branch.
+
+**The git record.** `git-record/<owner>__<name>.ndjson` in host state holds
+append-only entries: `id`, `prev`, operation, repository, optional branch/PR
+number/head/previous head/lease, requester, approval, optional redacted
+`steeredFrom`, timestamp and outcome/reason. Requesters are sessions, Lead
+goals, the person or `outside`. Operations are `push`, `pr.create`,
+`pr.update`, `pr.merge`, `pr.comment`, `pr.review`, `issue.comment` and
+`observed`. An intent is flushed before the effect; its outcome is appended
+with the same id before returning. Writes are serialized per repository.
+Each physical line's `prev` hashes the preceding line, including its newline;
+rotated segments retain the chain and a separately flushed anchor remembers
+the tail and line count. Damage is inspectable but cannot authorize a write
+or attribution. This detects damaged history, not a malicious same-user
+rewrite of every state file.
+
+Recovery reads unfinished intents. It compares a pending push with the remote
+head, records a matching result as reconciled, and leaves an unavailable
+remote pending for a later attempt. Forge mutations are never replayed after
+an uncertain crash: they become interrupted failures because the host cannot
+prove that the forge did not already accept them. Lead adoption still needs
+a successful push for the exact repository, branch, SHA and requester through
+`hasSucceededPush`; an intent or a caller's incomplete journal is insufficient.
+
+**Attribution and observation.** `attribute(repository, branch, sha)` credits
+only a successful gateway push in intact history. A fetched head without
+that proof gets an `observed` entry with `requester.kind = outside`; commit
+authors are not evidence of who pushed. A receipt from an own-git command
+only triggers a remote read: its exit code never proves a head was written.
+Both these observations and person-allowed own-git observations honor
+`recordOutside`; gateway writes are always recorded. PR lifecycle keeps
+following checks and reviews after an outside change releases branch
+authority. Only the existing head-bound reclaim decision restores it.
+
+**Steering.** The three layers share the protocol parser: per-conversation
+PATH stand-ins, native approvals or the bridge's pre-tool callback, and
+completed command observation. Login-shell scripts are unwrapped without
+execution. The zsh installer sources the user's normal profile files and
+restores PATH after login profiles. Profile files run with the user’s original
+`ZDOTDIR`, and `HISTFILE` defaults there. The shim remains the shell’s
+`ZDOTDIR` between profiles so steering survives login PATH resets; system
+startup code that uses it for completion caches can place those caches in
+the stand-in directory. Known reads take a shell fast path;
+non-write verbs pass through, and aliases are read from real git configuration.
+Aliases expanding to writes use the same parser; opaque shell aliases and
+unsupported mutations refuse in Ask and Always modes.
+An unreachable steering socket refuses a write. Shells carry a separate
+steering-only caller token, rejected by the general tool and MCP maps; real
+binary children do not inherit the desk tool tokens. A disconnected caller
+cancels its held card before invocation. Forge body files are read only after
+admission, as bounded regular files confined to the checkout, with nonblocking
+opens and a 64 KiB cap. Recorded command text omits bodies and URL userinfo.
+
+`gitWrites.steer` defaults to `ask`; `redirect` and `off` correspond to Always
+and Never. `gitWrites.projects[root]` overrides the global choice, with
+`inherit` as the default. An installed stand-in and Claude callback consult
+the host's current mode, so switching to Never releases an open conversation.
+Successful native pushes still observe the pinned remote when outside recording
+is enabled, without a steering question or outside-write banner.
+A conversation opened with Never has no installation; enabling steering needs
+a new conversation. Generic ACP has no negotiated per-session process-
+environment channel, so steering currently requires an isolated worker
+process per conversation even for normally shared peers. That lifecycle cost
+remains explicit until such a channel is measured and supported.
+
+The renderer reads `git/record/list` and `git/record/attribute`; roots are
+confined to admitted workspaces. List pages collapse intent/outcome pairs to
+the latest state, include All/Outside/Refused counts and use an id cursor.
+A PR's page includes its branch pushes and outside observations. There is no
+record notification: branch/PR publications and window focus refetch it.
+
 ### Insight reads
 
 Insight is a host-owned, pull-only plane over the ledger's agent-owned source
@@ -166,6 +289,34 @@ sample.
 
 `packages/server` owns everything that must not live in a browser:
 
+- **HarnessDesk account** (`harnessdesk-account.ts`) — a separate host service
+  owns the desk's Ed25519 identity, browser approval polling, renewable desk
+  session and account metadata. The renderer uses `account/*` and
+  `account/changed`, never the cloud contract or a credential. The desktop
+  supplies its existing keystore cipher and `shell.openExternal`; this account
+  refuses the standalone host's plaintext fallback. Each cloud origin has its
+  own `account-<origin hash>.sealed` file containing only encrypted key,
+  pending approval, session and cached account data, excluded from backups.
+  A readable legacy `account.sealed` migrates to its recorded origin. Opaque
+  or unreadable storage is preserved and blocks replacement sign-in.
+  Cancellation and startup use the saved key to revoke approved but
+  unfinished sign-ins, best effort; neither cleanup signs the renderer in.
+  `account/delete` deletes the cloud account with the desk session, then clears
+  this origin's sealed identity through the same path as sign-out and emits
+  `account/changed`. A 401 on deletion or session renewal clears the identity
+  too, allowing a retry after a lost success response. Other failures keep the
+  local identity; there is no local-only account deletion.
+  Account pictures are bounded host-fetched raster data from public HTTPS
+  addresses; the renderer retains its self/data/blob image policy. Desk name
+  and the phone-access preference live in ordinary preferences.
+  `HARNESSDESK_CLOUD_URL` selects an HTTPS origin (default
+  `https://app.harnessdesk.app`; HTTP loopback is allowed for local rigs).
+  Polling and metadata refresh stop with the host. Cancel fences queued and
+  in-flight approval work. The `harnessdesk://` protocol only focuses the app;
+  it never authenticates a desk. The account also hands the phone link what
+  the relay needs — a desk session that names the relay and carries its own
+  token, a signature of the relay's challenge, and one-time invites — without
+  the desk key leaving it.
 - **Account reads** — host calls through a registered runtime share one
   in-flight read per account generation, including its lifecycle waits. Callers
   receive an error after ten seconds. A deadline cannot cancel the adapter, so retries
@@ -221,14 +372,27 @@ sample.
   agent interactions, such as command executions"; Cursor keeps nothing
   readable; ACP replay is lossy. The host's copy is what a reopened
   conversation shows, enriched with tokens remembered across restarts.
-  Closed, quiet conversations retain only metadata and reopen state in the
-  registry. Their bodies, watched-turn ids, write queues, fingerprints and
-  insight contexts leave memory after a successful SQLite save. A failed save
-  keeps the body; a read or reopen overtaking the save keeps its newer state.
+  Closed, quiet conversations can retain only metadata and reopen state in the
+  registry. Releasing a body requires an exact SQLite write, independent
+  readback and unchanged record authority; a successful write alone is not
+  permission to discard it. Failed, partial or conflicting writes keep their
+  observed material protected. New generations cannot replace an older
+  generation's unacknowledged body. Host recovery descriptors have a separate
+  8 MiB logical serialized budget; a failed reservation keeps the body loaded.
   Reading a closed conversation returns its full durable transcript without
   retaining the body in the next sync. Working conversations keep their live
   bodies, approvals and queued input. Removed workspace folders are excluded
   from capture and roster watches when the project set next reconciles.
+  The renderer targets at most 128 eligible bodies or 8 MiB of their canonical
+  UTF-8 turns. Only hidden, closed, quiet, unowned bodies with matching Host
+  snapshot and durability receipts are eligible. Mounted views, drafts,
+  requests, approvals, queues and uncertain material stay protected and may
+  exceed these soft targets. Receipts bind Host epoch, record generation,
+  revision, notification sequence and body identity. Gaps and stale replies
+  cannot authorize unloading. Restoration uses an authoritative Host snapshot
+  without starting an agent. These budgets do not cap process RSS, all
+  metadata or protected pending activity, and a receipt cannot guarantee
+  storage remains available after it was issued.
 - **Approvals and the permission engine** — one policy, applied before any
   backend's own question reaches the user, and one append-only audit log
   (`audit.ndjson`).
@@ -321,6 +485,8 @@ sample.
   The host persists display observations in `runtime-cache.json` beside `state.json`,
   without credentials. Launch starts only the default runtime, in the background.
   Idle health preserves learned capabilities, models, account and cached history;
+  ordinary extra Codex account slots retain their row without a credential file, and
+  their prior account observation is unverified after their process stops.
   new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
   retain their live sessions. Opening
   or addressing the conversation resumes its own history; wrap, release and
@@ -403,6 +569,15 @@ when it is this server's HTTP origin or one explicitly supplied through
 token gates. The packaged window, development window and native rigs load
 the server's own origin; the UI's standalone dev server has no host proxy.
 
+Managed chat roots are host-owned in-memory state. `app/state/get` and
+`app/state/set` include a `chatsFolderRootsSnapshot` with an opaque StateStore
+lifetime epoch and monotonic revision; `chats/rootsChanged` broadcasts only that
+snapshot when roots change. It includes allocated and canonical spellings, not
+other preferences. A backup import can replace the roots. State changes precede
+disk persistence, so a failed write still publishes the in-memory snapshot while
+the initiating request fails; it does not promise durability. Clients discard
+older snapshots within an epoch and refresh on reconnect.
+
 The wire is a token-gated loopback WebSocket. `packages/protocol/src/wire.ts`
 declares every method with its params and result, `wire-validators.ts` checks
 every inbound frame before the host sees it, and one module under
@@ -472,7 +647,7 @@ starts remove only their own empty allocation, preserving anything written there
 
 A plugin is a manifest and an `apply` function. It receives **capabilities**
 (`ctx.fs`, `ctx.http`, `ctx.shell`, `ctx.browser`, `ctx.editor`, `ctx.team`,
-`ctx.ios`, `ctx.android`), never primitives, and each consults the permission
+`ctx.forge`, `ctx.ios`, `ctx.android`), never primitives, and each consults the permission
 gate at the point of use. Built-in plugins are held to their manifests too —
 that is the only way the model stays exercised. See [extending.md](extending.md).
 
@@ -521,11 +696,19 @@ Three rules the live runs taught, all load-bearing:
 
 ### Process isolation
 
-Installed plugin code runs in a supervised child process
-(`packages/extension-host`) behind a versioned IPC contract
-(`packages/extension-protocol`). A plugin calling `process.exit` kills only
-that process; a spinning plugin is killed from the healthy side; hooks in a
-dead host fail closed. Built-in plugins run in-process on the same API.
+Each installed plugin runs in a supervised process of its own
+(`packages/extension-host`), bound to that one plugin at its handshake, behind a
+versioned IPC contract (`packages/extension-protocol`). A separate installer
+process inspects, installs and removes packages and never loads plugin code.
+The pipe is the plugin's identity: the host stamps every request with the
+plugin it came from, keeps only that plugin's entry in the snapshot the process
+reports, and takes its identity and permissions from the manifest the person
+agreed to, held in a consent record outside the plugins directory
+(`packages/cordis-host/src/plugin-consent.ts`). A plugin calling `process.exit` kills
+only its own process; a spinning plugin is killed from the healthy side; hooks
+run across processes in priority order, and one whose process is down denies.
+Built-in plugins run in-process on the same API. `docs/plugin-isolation.md` is
+the design.
 
 ## The renderer
 
@@ -583,7 +766,7 @@ These only exist because no vendor owns the desk:
   collaborating on one repository. The host coordinates intent claims, prevents
   overlapping file edits, and routes attributed, quarantined messages across
   conversations with loop guards.
-- **Skill and MCP inventory** (`packages/agent-inventory`, Settings › Library).
+- **Skill and MCP inventory** (`packages/agent-inventory`, Customize).
   Scans skills and MCP server definitions across all installed agents without
   booting them. Translates configurations across agent dialects via a canonical
   specification, generates unified diff previews, takes automatic file backups,
@@ -669,6 +852,16 @@ second runtimes and kernels adapters rather than rewrites:
     `packages/protocol` never import `@harnessdesk/contract` or
     `@harnessdesk/crypto`; the host holds the keys, and the window reads state
     over the wire ([what is open, and what is hosted](open-and-hosted.md)).
+12. **The renderer reaches the client library only through its views.**
+    `packages/ui` imports `@harnessdesk/client/views` and nothing else of
+    `packages/client`, by name or by path; transports stay outside the window.
+13. **The client library keeps its transport in one entry.** `packages/client`
+    imports `@harnessdesk/protocol` and its own core; `src/views` imports only
+    `protocol` and its own files; only `packages/client/src/node.ts` imports `ws` and Node
+    built-ins, and no core module re-exports it.
+14. **The command line stands on the client library.** `packages/cli` imports
+    `@harnessdesk/client`, `@harnessdesk/protocol` and its own command
+    modules, nothing else.
 
 See [AGENTS.md](../AGENTS.md) for the maintainer rules and
 [extending.md](extending.md) for how to add a runtime adapter or plugin.
@@ -677,6 +870,148 @@ See [AGENTS.md](../AGENTS.md) for the maintainer rules and
 
 The host owns a `ProvenancePlane` beside the evidence plane. It registers open projects, reads admitted Git metadata through a private Git view and journals observations beneath the evidence project's folder. Metadata watches and polling enqueue bounded work; startup resumes durable catch-up. Neither a turn nor a Git action waits for capture. History reads one bounded batch of indexed provenance beside its ordinary Git log.
 
+Each provenance journal has a 64 MiB replay and append budget. Before decoding
+an oversized journal, bounded streaming recovery can remove obsolete checkpoint
+cursors; it replaces the file only after validating the complete history and
+confirming the retained output fits. Append-time compaction can recover space
+when the whole incoming transaction needs space. External file changes have a
+separate reload refusal; damage and filesystem failures remain storage errors.
+If retained observations still exceed the budget, only that project's
+capture stops. Saved observations are preserved, capture controls remain usable,
+and backups explicitly report refused projects while including healthy ones
+([why](decisions.md#provenance-journals-recover-within-a-bounded-storage-budget)).
+
 Capture does bounded work, and none when nothing it reads has changed. The reader checks the repository's metadata once for a batch of reads, at the batch's first read, and keeps what Git says about an object id (its type, a commit's parents, the patch between two commits) but never an answer about a missing object and never past a failed check. A reconcile pass is skipped while the commits, ref moves, facts and Seats it reads are as it last left them; it reads at most 128 ranges, eight to a batch with a turn for the event loop after each, and leaves the rest for the next pass. A range it could not read waits for something to change and never starts a pass by itself. A scan that found nothing new writes no checkpoint, and the checkpoint in force is read without reading those it superseded, so an idle desk's journal stops growing. The private view is a folder in the state directory: it is removed when its reader closes, when an admission is abandoned and when the process exits, and at startup the plane sweeps those in its own state folder that nothing owns ([why](decisions.md#provenance-capture-does-bounded-work-and-leaves-nothing-behind)).
 
 An association needs a locally observed diff fact, a matching checkout and a compatible Seat lifetime. Reconciliation adds links to immutable original observations; it does not move checks or reviews to a rewritten commit. Capture preferences belong to this machine, default to on, and are shared by a project's linked checkouts.
+
+## Lead child runtime
+
+The host's schedule file is the single store for legacy scheduled requests and approved repeats. An approved repeat stores its digest-bound acceptance contract, per-run caps, pause state and at most 12 run records. The model may propose a timetable in a plan's frozen scope but cannot create or control a repeat. Only a person's plan decision or Settings edit creates one. Host slot handling coalesces missed calendar slots, records busy or paused slots as skipped without a queue, and holds quiet-hour work. Each admitted run gets fresh contract/step identities, logical goal, budget and 24-hour start consent; live project admission, policy, seats, independent review and source revisions are rechecked. Failure returns a plan card. Goal termination fills its run outcome and known spend and rounds.
+
+Second looks are host observations recorded in the Lead journal, projected as informational cards and fenced by the stop's identity. The host uses forge state for explicit issue/pull-request blockers and desk evidence for required checks, never model guesses. Recovery resumes an owned run using the existing Flow recovery/repair boundary and budget admission. Steers use the existing worker channel and cannot count as person-run check evidence. The wake gate consumes a handled stop once; a failure retains the ordinary person wait.
+
+At a new goal, second-look and allowance-warning records join the existing bounded read-only card history at their original journal positions, without a person choice. Replay and checkpoints retain that history. The thread's budget includes the current logical goal id; the renderer fences limit controls to it, and the serialized journal writer refuses raises after acceptance or decline.
+
+The budget projection decides the 80% step only for known Lead plus worker spend. One journaled informational card per reached dollar cap carries the observed total, and a desk conversation message narrows completion to the approved scope without changing standing instructions. The person-only direct caps raise shares journal serialization and preserves the stop latch. Repeat control and caps raise are absent from the Lead client door. Paired phones use the same thread projection and separate read/run/answer tiers; their exact JSON is in [the phone Lead contract](../packages/phone-link/lead.md). The relay transports opaque frames and has no Lead method dispatch.
+
+Lead's ordinary conversation and reviewed Flow authority are separate. The narrow `lead/chat/*` client methods list, read, start, message and stop ordinary sessions in the host's selected canonical project. `LeadChats` checks live project membership, actual session cwd, desk and project policy, recovery and budget admission independently of the child. Starts use `PhoneWork.startInProject`, sharing the desk's saved session defaults, creation and unconfirmed-first-send behavior. Replies use the ordinary queue; stops use the existing interrupt path. No tool changes permissions or answers approvals. Reviewed Flow starts still require their own approved contract and held preview.
+
+Cancellation admission, journal replay and recovery share one classification: Flow stop, intent abandon and ordinary chat Stop. An uncertain chat start/send receives a host-written recovery report without a Flow lookup or a claimed failure. Only empty, uncontested legacy reconciliation bookkeeping with no Flow or budget binding may be retired. The attempt remains uncertain and fences management in the old goal; explicit person Stop followed by a separate person message may replace it after existing recovery, cleanup and allowance fences settle. Automatic input cannot replace that uncertain request. A private checkpointed acknowledgement records the person Stop independently of automatic allowance stops; old checkpoints default to unacknowledged.
+
+Chat reads retain the provider's 12,000-byte result bound and disclose two separate omission counts: `omittedSourceTurns` for raw transcript turns excluded before phone projection, and `omittedPhoneEntries` for projected entries excluded by the result bound. Phone projection metadata remains nonserialized; `truncated` also covers shortened text and fold steps.
+
+The host also keeps `<state>/lead/chat-control.json`: at most 64 chats per canonical project and 32 envelope
+keys per chat, with a `lead` or `person` holder. The keys verify message
+provenance and confer no authority. Lists project global person holds onto matching selected-project chat ids; Hand back releases every project key for that id in one durable write, while a newer take-over keeps its fence. Sends, stops and queued deliveries recheck
+the person's hold in the host. `lead/chats/control`, `lead/chats/resetControl`, `lead/chat/takeOver` and
+`lead/chat/handBack` are window-only methods. The phone's `workspace/thread/read`
+projects verified words in the `you` turn's `text`, with `lead: { name: string }`
+for its historical sender, and optional thread `leadChatHolder: 'lead' | 'person'`.
+An absent holder means the host has no Lead-managed chat record. Window control lists distinguish `problem: { kind: 'invalid' | 'transient' | 'unavailable', message: string, retryable?: boolean }`: corrupt data or permanent record-access failures need explicit reset; repeated retryable failures set `retryable: true`, offer Try again before Reset, and keep probing and healing on a successful read; transient failures permit retry; an unavailable selected project requires restoring its folder or access permissions. This does not change the phone wire.
+
+The host stores at most 64 tracked chat ids in the Lead state folder’s `chats.json` watch file. Meaningful host-stage transitions and bounded, scrubbed incident observations produce `lead/chat/changed` notifications. Host recovery persists at most 64 incidents in `incidents.json`, schedules provider-reset or bounded backoff timers without a Lead request, and journals attributed retries through the ordinary chat-send path. Waiting retries remain working. An exhausted or non-retryable incident supplies eligible workspace-start candidates to the existing structured ask. A person-chosen move reserves one new chat, validates the live candidate and source holder, and carries the host-built original-message and bounded progress handoff; it never archives the source. The private client door rechecks project scope and current read authority, and supplies a bounded tracked-state baseline on subscription so a disconnected completion is observable. The Lead loop coalesces those changes, reads relevant conversations as untrusted observations, and reports only meaningful results or decisions. Ordinary sessions retain ordinary spend; they do not become approved Flow runs or consume its round accounting.
+
+The optional Lead child runs with `--permission --no-allow-net --no-addons
+--preserve-symlinks` and read grants for its own packages. Which binary runs it
+is decided by a capability probe (`probeLeadRuntime` in
+`packages/lead/src/supervisor.ts`): each candidate starts the real child entry
+with exactly those flags and environment, in probe mode, so it loads the
+child's whole module graph and then tries a loopback TCP connect to a listener
+the host owns. The probe code lives in the two Lead entries the layering rule
+already allows process and network authority; it adds no third. A refusal by the permission
+model (`ERR_ACCESS_DENIED`) passes; a connect that goes through, a rejected
+flag, a crash, a version other than the one claimed, or no answer within ten
+seconds fails, with a short reason. The result is cached per binary path and
+version for the host's lifetime.
+
+The desktop offers two candidates, in order (`packages/desktop/electron/lead-runtime.mjs`):
+its own Electron runtime, run as Node, and a Node 26 LTS shipped in
+`Contents/Resources/lead-node` for this child alone. The bundled binary is
+downloaded at pack time from nodejs.org, checked against a pinned SHA-256, and
+signed with the app. The child's read grants cover only its named dependency
+packages, both in package-local `node_modules` and enclosing directories where
+packaging hoists them. The packaged smoke also starts the real restricted child
+and asks it to shut down, checking dependency loading beyond the network probe.
+A standalone host offers only itself. With no candidate
+passing, the settings projection carries `unavailable: runtime` and
+`unavailableReason`; the UI shows both, disables the composer and Send, and
+refuses Restart, and the host logs the reason once. The supervisor never
+starts an unrestricted child instead.
+
+The desk reaches the child as one connected socket. The child asks for it over
+a Node IPC channel, receives it as a handle, and both sides close the channel:
+Node 26 refuses a socket built on an inherited descriptor above 2 without a
+network grant. CI jobs that exercise the child or its permission probe use
+Node 26.
+
+Lead is off by default and enabled at startup with `HARNESSDESK_LEAD=1`.
+
+## Independent LAN phone pairing
+
+`HARNESSDESK_PHONE_LINK=1` starts `startPhoneLink` from the desktop shell;
+the standalone host also accepts `--phone-link`. Settings › Phone reads
+`phone/state`, obtains a code with `phone/pairing`, and allows, denies or
+revokes devices through `phone/*`. The account service is not involved.
+The separate `phone-link/` identity and device registry survive restarts;
+enrollment offers do not. A code works once for ten minutes. The person
+approves the phone before its Read, Run and Answer grants take effect.
+`PHONE_POLICY` allowlists the phone's methods and event topics; renderer file
+and general settings methods are outside that surface. The LAN listener is
+closed with the host.
+
+With the account signed in and Reachable from your phone on, `RelayLink`
+(`packages/phone-link/src/relay.ts`) holds one outbound socket to the relay
+room the desk session names. Each phone the relay announces becomes the same
+`PhoneEndpoint` a LAN socket would, with the relay's linked device id as the
+key it must prove; the relay only carries the encrypted frames, and only the
+relay's own token (`relayToken`) goes to it. Each socket owns its phones,
+heartbeat and send pacing, so a late close of an old one touches nothing in
+use. The link heartbeats, reconnects with full jitter, renews a refused token once, and
+stops for a replaced desk or a second refusal until the person turns Reachable
+off and on. A socket that never says `ready` is dropped and tried again, and an
+account that names no relay token leaves the link off (`RelayUnavailableError`).
+`phone/state` reports the link's state and each phone's route
+(nearby or through the account), and `phone/pairing` adds an account invite
+when it can make one and the link is still trying. A phone removed on the desk is
+refused at once; its account link is removed when the account can be reached
+(`relay-unlinks.json`, saved before the phone is removed).
+
+The phone's `workspace/read` snapshot carries capabilities, Teams and recent
+sessions, and its usage. Every `PhoneWorkItem` carries the host's `stage` and
+`stageReason`: `you-answer`, `you-review`, `you-blocked`, `working`, `queued`
+or `idle`. Phones must count and sort by stage, with the three `you-*` stages
+waiting on the person; they must not re-derive attention. Older desks omit
+stage, so phones fall back to the unchanged `phase` field. See the
+[phone Lead contract](../packages/phone-link/lead.md). Each signed-in account is one allowance row with the
+standing the desk's own screens show (`usageStandingOf`), its windows as "left"
+fractions, and reset, back and run-out times as epoch milliseconds the phone
+counts down to; a source's error is scrubbed and the account is never sent.
+`workspace/sessions/list` pages the same session index for active
+and archived conversations, so the recent snapshot is not a limit on what a
+phone can show. The native client follows those pages and refreshes them on
+workspace changes. `workspace/session/start`, `workspace/session/send` and
+`workspace/stop` require Run and reach the ordinary session creation, turn
+dispatch and interrupt paths. They do not change a conversation's permissions
+or model. A new session uses the desk's selected runtime, or one of the ready
+agents the snapshot lists in `agents` (default first, each with its own
+models), and may select a model and effort from that agent's reported
+catalogue; project names resolve
+only to admitted folders, and ambiguous names are refused. Archived sessions
+are readable; their mutations and Team-owned session ids are refused. Approval
+decisions retain the separate Answer grant and the existing approval path.
+`workspace/team/wrap` needs Run, as stopping does, and wraps only a Team the Lead started
+whose result the person accepted, once every card on it is finished or
+dropped; the desk writes the receipt from the board, and wrapping keeps every
+branch. The Lead itself never wraps. A Lead's Team row carries the plan
+`step` it was started for, `canWrap` once that wrap would be taken (never while
+a posting of its findings the pull request could not confirm waits on the desk), and
+`relayed` while one of its seats waits on an approval the Lead puts to the
+person as its own card, so the phone lists that wait once. An accepted
+goal's Teams stay the Lead's when it starts the next goal (the Lead state keeps
+the last 64, with their steps), so they can still be wrapped later; and a Lead
+change rebuilds the phone's workspace, which is published only when a row moved.
+
+The account request inventory in [data-boundaries.md](data-boundaries.md#harnessdesk-account--only-after-you-choose-sign-in)
+names each endpoint, payload and trigger. Account sign-out/deletion clear the
+origin's sealed identity; they do not clear the LAN device registry.

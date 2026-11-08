@@ -18,6 +18,8 @@ import { parseFlowPolicy } from '../flow-policy.js'
 import { REVIEW_OWN_GOAL } from '../flow-execution.js'
 import { GOAL_TAKEN } from '../goals/operations.js'
 import { isRevisionName } from '../git-revision.js'
+import { canonicalRepository } from '../git-gateway/record.js'
+import { repositoryOf } from '../findings/publication.js'
 import { readShapeLayout } from './model.js'
 import { projectCheckCommand } from './project-check.js'
 
@@ -48,6 +50,9 @@ export interface TargetFacts {
   readonly branch: string | null
   readonly pr: number | null
   readonly base: string | null
+  readonly baseRef?: string
+  readonly repository?: string
+  readonly reviewBound?: false
   readonly head: string | null
   /** A sha256 of the diff's bytes (and, for a working tree, its untracked files' contents), or null. */
   readonly diff: string | null
@@ -58,7 +63,7 @@ export interface ContextPort {
   /** Git in `root`, as one argument vector. Throws when git exits non-zero. */
   git(root: string, args: readonly string[]): Promise<string>
   /** A pull request in the project, read through the person's own forge client; null when there is none. */
-  pullRequest(root: string, number: number): Promise<{ readonly head: string; readonly base: string; readonly headRef: string } | null>
+  pullRequest(root: string, number: number): Promise<{ readonly head: string; readonly base: string; readonly headRef: string; readonly baseRef: string; readonly repository: string; readonly state?: 'open' | 'closed' | 'merged'; readonly url?: string; readonly bound?: boolean } | null>
 }
 
 export interface FrontDoorPort {
@@ -132,13 +137,18 @@ export async function resolveContext(port: ContextPort, context: StartContext): 
       const pr = await port.pullRequest(root, context.number)
       if (!pr) throw new Error(`There is no pull request #${context.number} in this project.`)
       if (!FULL_SHA.test(pr.head) || !FULL_SHA.test(pr.base)) throw new Error(`Pull request #${context.number} could not be read to its commits.`)
+      if (!isRevisionName(pr.baseRef)) throw new Error(`Pull request #${context.number} has no readable destination branch.`)
+      await port.git(root, ['check-ref-format', '--branch', pr.baseRef])
       // Its Seats work at its head, each in a checkout cut from it, so that commit has to be here already.
       if (await commitOf(port, root, pr.head).catch(() => null) !== pr.head) {
         throw new Error(`Pull request #${context.number}’s head commit is not in this project yet. Fetch it, then review it again.`)
       }
+      if (await commitOf(port, root, pr.base).catch(() => null) !== pr.base) {
+        throw new Error(`Pull request #${context.number}’s destination commit is not in this project yet. Fetch it, then review it again.`)
+      }
       return {
-        kind: 'pull-request', label: `pull request #${context.number}`, branch: isRevisionName(pr.headRef) ? pr.headRef : null,
-        pr: context.number, base: pr.base, head: pr.head, diff: null, dirty: false,
+        kind: 'pull-request', label: `pull request #${context.number}${pr.bound === false ? ' (repository not pinned; this review cannot authorize an automatic merge)' : ''}`, branch: isRevisionName(pr.headRef) ? pr.headRef : null,
+        pr: context.number, base: pr.base, baseRef: pr.baseRef, repository: pr.repository, ...(pr.bound === false ? { reviewBound: false as const } : {}), head: pr.head, diff: null, dirty: false,
       }
     }
     case 'diff': {
@@ -172,11 +182,11 @@ export async function resolveContext(port: ContextPort, context: StartContext): 
 export const startTarget = (facts: TargetFacts): FlowStartTarget | null =>
   facts.kind === 'project'
     ? null
-    : { kind: facts.kind, label: facts.label, base: facts.base, head: facts.head, pr: facts.pr, dirty: facts.dirty }
+    : { kind: facts.kind, label: facts.label, base: facts.base, head: facts.head, pr: facts.pr, dirty: facts.dirty, ...(facts.baseRef ? { baseRef: facts.baseRef } : {}), ...(facts.repository ? { repository: facts.repository } : {}), ...(facts.reviewBound === false ? { reviewBound: false as const } : {}) }
 
 /** The canonical form a token binds: key order fixed. */
 export const factsKey = (facts: TargetFacts): string =>
-  JSON.stringify([facts.kind, facts.label, facts.branch, facts.pr, facts.base, facts.head, facts.diff, facts.dirty])
+  JSON.stringify([facts.kind, facts.label, facts.branch, facts.pr, facts.repository ?? null, facts.reviewBound ?? null, facts.base, facts.baseRef ?? null, facts.head, facts.diff, facts.dirty])
 
 /** What one bound input takes from a resolved target; null when this kind of start has none. */
 const boundValue = (facts: TargetFacts, value: ShapeBindingValue): string | null => {
@@ -269,18 +279,22 @@ export async function previewStart(port: FrontDoorPort, input: FrontDoorPreviewI
 // --------------------------------------------------------------- host reads
 
 /** The host's own git and forge reads, bounded, argument vectors only. */
-export const hostContextPort = (gh: (args: readonly string[], cwd: string) => Promise<{ readonly stdout: string; readonly exitCode: number }>): ContextPort => ({
+export const hostContextPort = (gh: (args: readonly string[], cwd: string) => Promise<{ readonly stdout: string; readonly exitCode: number }>, pinned: (root: string) => Promise<string | null>, proposed: (root: string) => Promise<string | null> = async () => null): ContextPort => ({
   git: async (root, args) => (await readGit(root, ['--no-optional-locks', ...args], { timeout: 20_000, maxBuffer: 16 * 1024 * 1024 })).stdout,
   pullRequest: async (root, number) => {
-    const read = await gh(['pr', 'view', String(number), '--json', 'number,headRefOid,baseRefOid,headRefName'], root)
+    const pin = await pinned(root)
+    const proposal = pin ?? await proposed(root)
+    if (!proposal) throw new Error('This project has no readable GitHub origin. Add an origin and start the review again.')
+    const repository = canonicalRepository(proposal)
+    const read = await gh(['pr', 'view', String(number), '--repo', `github.com/${repository}`, '--json', 'number,state,headRefOid,baseRefOid,headRefName,baseRefName,url'], root)
     if (read.exitCode !== 0) return null
-    try {
-      const value = JSON.parse(read.stdout) as { number?: unknown; headRefOid?: unknown; baseRefOid?: unknown; headRefName?: unknown }
-      if (value.number !== number || typeof value.headRefOid !== 'string' || typeof value.baseRefOid !== 'string') return null
-      return { head: value.headRefOid, base: value.baseRefOid, headRef: typeof value.headRefName === 'string' ? value.headRefName : '' }
-    } catch {
-      return null
-    }
+    let value: { number?: unknown; state?: unknown; headRefOid?: unknown; baseRefOid?: unknown; headRefName?: unknown; baseRefName?: unknown; url?: unknown }
+    try { value = JSON.parse(read.stdout) as typeof value } catch { return null }
+    if (!value || value.number !== number || !['OPEN', 'CLOSED', 'MERGED'].includes(String(value.state)) || typeof value.headRefOid !== 'string' || typeof value.baseRefOid !== 'string' || typeof value.baseRefName !== 'string') return null
+    if (!FULL_SHA.test(value.headRefOid) || !FULL_SHA.test(value.baseRefOid) || !isRevisionName(value.baseRefName)) return null
+    if (typeof value.url !== 'string' || repositoryOf(value.url, number)?.toLowerCase() !== repository) throw new Error('The pull request belongs to another repository.')
+    if (await pinned(root) !== pin || !pin && await proposed(root) !== repository) throw new Error('The project repository changed while the pull request was read.')
+    return { head: value.headRefOid, base: value.baseRefOid, headRef: typeof value.headRefName === 'string' ? value.headRefName : '', baseRef: value.baseRefName, repository, state: String(value.state).toLowerCase() as 'open' | 'closed' | 'merged', url: value.url, bound: !!pin }
   },
 })
 

@@ -1,3 +1,4 @@
+import { LeadAvatarSpecimen, LeadContractSpecimen, LeadPlanFlowSpecimen } from '../../preview/frames-lead'
 import { flowModel } from '../../lib/flow-model'
 import { PagePreview } from '../../preview/page-preview'
 import { InfoCardBody, SubjectActionsMenu } from '..'
@@ -63,6 +64,7 @@ import { OverviewStrip, type StripMetric } from '../../components/usage/Overview
 import {
   AgentIcon,
   BranchIcon,
+  ClockIcon,
   CostIcon,
   ExtensionIcon,
   FolderIcon,
@@ -71,6 +73,7 @@ import {
   CommentIcon,
   SearchIcon,
   ShieldAlertIcon,
+  ShieldIcon,
   SideBySideIcon,
   TeamIcon,
   TerminalIcon,
@@ -810,6 +813,21 @@ const ListBoard = () => (
               subtitle="Waiting on approval because the socket runner is still holding the port from its last failed attempt."
               wrapSubtitle
               trail={<Progress value={19} tone="warning" className="w-24" />}
+            />
+            <ListRow
+              lead={<AvatarStack members={[AGENTS[0]!]} />}
+              title="Review the changes"
+              subtitle="Waiting for the workspace checks before the next review."
+              wrapSubtitle
+              subtitleLayout="below"
+              trail={<Chip tone="neutral">Waiting</Chip>}
+            />
+            <ListRow
+              data-catalog-case="compact-below-sparse"
+              density="compact"
+              subtitleLayout="below"
+              lead={<Avatar><AvatarFallback>JD</AvatarFallback></Avatar>}
+              title="Sparse compact row"
             />
             <ListRow size="sm" nav title="Board" />
             <ListRow size="sm" nav selected title="Chat" />
@@ -1610,7 +1628,7 @@ const ChartKitBoard = () => {
         <div className="flex flex-wrap items-center gap-2">
           <PaceBadge status="conserving" margin={14} word="conserving" />
           <PaceBadge status="onPace" margin={1} word="on pace" />
-          <PaceBadge status="overPace" margin={-33} word="over pace" tone="warning" />
+          <PaceBadge status="overPace" margin={-33} word="overspending" tone="warning" />
           <PaceBadge status="spent" word="spent" tone="danger" />
         </div>
       </Case>
@@ -3114,6 +3132,12 @@ const TOOLBODY_CATALOG_VARIANTS = ['light', 'dark'] as const
 const TOOLBODY_CATALOG_SIZES = ['default'] as const
 const TOOLBODY_CATALOG_STATES = ['default', 'empty', 'populated', 'editing'] as const
 export const ToolBodyBoard = () => <div data-catalog-variants={TOOLBODY_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={TOOLBODY_CATALOG_SIZES.join(' ')} data-catalog-states={TOOLBODY_CATALOG_STATES.join(' ')}>
+  <ToolBody><ToolSection label="Run" value={<Chip tone="info">Running</Chip>}><SummaryList surface="panel" keys="icon" aria-label="Icon rows">
+    <SummaryItem label="Agent" kind="name" icon={<AgentIcon />}>Writer 1</SummaryItem>
+    <SummaryItem label="Ceiling" icon={<ShieldIcon />}><Chip tone="neutral">Read · Held</Chip></SummaryItem>
+    <SummaryItem label="Branch" kind="path" icon={<BranchIcon />}>feature/長いブランチ名</SummaryItem>
+    <SummaryItem label="Elapsed" icon={<ClockIcon />}>Time not recorded</SummaryItem>
+  </SummaryList></ToolSection></ToolBody>
   <ToolBody><ToolSection label="Conversation"><SummaryList surface="panel">
     <SummaryItem label="Folder" kind="path">/work/storefront/packages/interface-with-a-long-name</SummaryItem>
     <SummaryItem label="Branch" kind="path">feature/長いブランチ名</SummaryItem>
@@ -3287,6 +3311,16 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Delta',
     about: 'A change, with its sign said in colour as well as in punctuation.',
     render: DeltaBoard,
+  },
+  { id: 'lead-avatar', title: 'Lead avatar', about: 'Dex and Lex at each place they are drawn: sidebar, turn, bar, popover, picker.', render: LeadAvatarSpecimen },
+  {
+    id: 'lead-plan-flow', title: 'Lead plan flow', about: 'The plan in reading order, with responsible roles and approval before work.', render: LeadPlanFlowSpecimen,
+  },
+  {
+    id: 'lead-contract',
+    title: 'Lead contract',
+    about: 'Assistant prose and the shared docked approval surface.',
+    render: LeadContractSpecimen,
   },
   {
     id: 'plan-card',

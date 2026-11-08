@@ -143,7 +143,7 @@ export const LIBRARY_OPTIONS: readonly OptionDoc[] = [
 /** Extra filters that belong to one Library command. */
 export const LIBRARY_ISSUES_OPTION: OptionDoc = {
   flag: '--issues',
-  description: 'Show only entries the Library identifies as having a problem.',
+  description: 'Show only entries Customize identifies as having a problem.',
 }
 export const LIBRARY_TEXT_OPTION: OptionDoc = {
   flag: '--text',

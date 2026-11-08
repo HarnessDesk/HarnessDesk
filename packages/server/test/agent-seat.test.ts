@@ -2964,6 +2964,9 @@ test('through the host: once the candidate is being deleted, a window that asks 
       return true
     },
   )
+  await assert.rejects(harness.host.call('approval/respond', { runtime: runtimeId('seatfake'), sessionId: candidate.id,
+    approvalId: 'fixture-request' as never, decision: { type: 'option', optionId: 'yes' } }),
+    (error: any) => error.approvalNotDelivered === true && /being removed/.test(error.message))
   deleting.open()
 
   await assert.rejects(seating, (error: Error) => {

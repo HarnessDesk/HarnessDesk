@@ -42,7 +42,8 @@ for (const theme of WALL_THEMES) {
         // invent one merely to match a conversation's row count.
         await expect(body.locator('[aria-label="Conversation facts"] dt')).toHaveText(['Runtime', 'Folder', 'Branch', 'Context'])
       } else expect(keyWidths).toHaveLength(5)
-      for (const width of keyWidths) expect(width).toBe(FRAME.summaryKey.panel)
+      // The facts are icon rows: each key is its glyph's width.
+      for (const width of keyWidths) expect(width).toBe(FRAME.summaryKey.icon)
       await page.evaluate(async () => { await document.fonts.ready })
       await page.screenshot({ path: `output/frame-wall/B3-details-${state}-1440-${theme}.png` })
       await page.setViewportSize({ width: 720, height: 900 })
@@ -85,7 +86,8 @@ for (const theme of WALL_THEMES) {
   test(`ToolBody catalogue in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/design.html?view=tool-body&theme=${theme}`)
-    await expect(page.locator('[data-slot="tool-body"]')).toHaveCount(2)
+    // Icon-row facts, then the two keyed bodies.
+    await expect(page.locator('[data-slot="tool-body"]')).toHaveCount(3)
     await page.evaluate(async () => { await document.fonts.ready })
     await page.screenshot({ path: `output/frame-wall/B3-toolbody-catalogue-${theme}.png`, fullPage: true })
   })

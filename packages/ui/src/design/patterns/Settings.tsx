@@ -13,7 +13,7 @@ import { cn } from '../../lib/utils'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
-import { dotTone as dotToneClass, inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
+import { ChipLook, dotTone as dotToneClass, inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import { GroupLabel } from '../ui/group-label'
 import { useInPageSection } from '../ui/section'
 import { ChoiceRow, choiceListClass, dialogSectionStackClass, dialogStackClass, FieldsetLegend, stepRadio, useDialogForm } from './DialogForm'
@@ -133,7 +133,12 @@ type ChipBaseProps = {
   /** Leave clipped words to a surrounding labelled hover card. */
   autoTitle?: boolean
   size?: 'default' | 'sm'
-  /** Quiet keeps the tone and type, without a pill or horizontal padding. */
+  /**
+   * Quiet keeps the tone and type, without a pill or horizontal padding: the
+   * status word. A neutral word takes fact ink. Absent, the chip follows the
+   * slot it stands in (`ChipLook`): a word on a label line, a panel row's end,
+   * a fact's value or a section's value; a pill everywhere else.
+   */
   variant?: 'default' | 'outline' | 'quiet'
   /**
    * A count the chip leads with — `count={3}` and `copies differ` read as
@@ -228,16 +233,18 @@ export const Chip = (props: ChipProps) => {
     title,
     autoTitle = true,
     size = 'default',
-    variant = 'default',
     count,
     showZero = false,
     dotTone,
     dotPulse = false,
     dotShape,
   } = props
+  const look = useContext(ChipLook)
   if (count === 0 && !showZero) return null
   const state = props.state
   const tint = props.tint
+  /* In a word slot (`ChipLook`) a judged chip is its word; a tint keeps its pill. */
+  const variant = props.variant ?? (tint ? 'default' : look)
   const emphasis = props.emphasis
   const requestedTone = props.tone ?? ((stale || unknown) && state ? READINESS_TONE[state] : undefined)
   /* An unknown fact claims no judgement. A stale pass no longer vouches for
@@ -960,7 +967,7 @@ const RowTitle = ({ kind, title, chip }: { kind: 'setting' | 'record'; title: Re
     {kind === 'record'
       ? <Clipped data-slot={chip ? 'row-title-name' : undefined} className={cx(styles.rowClippedTitle, Boolean(chip) && styles.rowTitleName)}>{title}</Clipped>
       : chip ? <span data-slot="row-title-name" className={styles.rowTitleName}>{title}</span> : title}
-    {chip ? <span className={styles.rowTitleChip} data-slot="row-title-chip">{chip}</span> : null}
+    {chip ? <span className={styles.rowTitleChip} data-slot="row-title-chip"><ChipLook.Provider value="quiet">{chip}</ChipLook.Provider></span> : null}
   </span>
 )
 
@@ -1019,10 +1026,10 @@ export const Row = ({
     </span>
     {control ? reserveChevronSlot ? (
       <span className={styles.rowEnd} data-slot="row-end">
-        <span className={styles.rowCtl} data-slot="row-ctl">{control}</span>
+        <span className={styles.rowCtl} data-slot="row-ctl"><ChipLook.Provider value="quiet">{control}</ChipLook.Provider></span>
         <span className={styles.rowChev} data-slot="row-chevron-space" aria-hidden="true" />
       </span>
-    ) : <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
+    ) : <span className={styles.rowCtl} data-slot="row-ctl"><ChipLook.Provider value="quiet">{control}</ChipLook.Provider></span> : null}
   </div>
 )
 
@@ -1126,7 +1133,7 @@ export const RowButton = ({
           end on either line. */}
       {control || (chevron && !fold && !action) ? (
         <span className={styles.rowEnd}>
-          {control ? <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
+          {control ? <span className={styles.rowCtl} data-slot="row-ctl"><ChipLook.Provider value="quiet">{control}</ChipLook.Provider></span> : null}
           {chevron && !fold && !action ? (
             <span className={styles.rowChev}>
               <ChevronIcon size={ROW_CHEVRON} />
@@ -1251,19 +1258,30 @@ export const RowChoice = ({
  * a face a later build added, a picture it keeps — draws the house mark. It is
  * not dropped: keeping what it cannot draw is the profile's job
  * (`lib/profile.ts`), so a later build finds it where it left it.
+ *
+ * A signed-in account may supply `pictureDataUrl` independently of the local
+ * avatar. Only host-provided PNG, JPEG or WebP data is displayed; remote
+ * URLs are refused. Pictures fall back to the house mark when they cannot
+ * load, without changing the local profile.
  */
 export const Face = ({
   avatar,
+  pictureDataUrl,
   size,
   className,
 }: {
-  readonly avatar: unknown
+  readonly avatar?: unknown
+  /** An account raster supplied by the host, never a remote URL. */
+  readonly pictureDataUrl?: string | null
   /** The tile's edge in px; absent, the tile fills its box. */
   readonly size?: number
   readonly className?: string
 }) => {
-  const src = avatarSrc(avatar)
-  const picture = src ? <img className={styles.avatarPicture} src={src} alt="" draggable={false} /> : null
+  const accountPicture = pictureDataUrl && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(pictureDataUrl) ? pictureDataUrl : null
+  const source = accountPicture ?? avatarSrc(avatar)
+  const [failedPicture, setFailedPicture] = useState<string | null>(null)
+  const src = source === failedPicture ? null : source
+  const picture = src ? <img className={styles.avatarPicture} src={src} alt="" draggable={false} referrerPolicy="no-referrer" onError={() => setFailedPicture(src)} /> : null
   return (
     <span
       className={className ? `${styles.avatar} ${className}` : styles.avatar}
@@ -1274,7 +1292,7 @@ export const Face = ({
       aria-hidden="true"
     >
       {picture ? (
-        hasAvatarPlate(avatar)
+        !accountPicture && hasAvatarPlate(avatar)
           ? <span className={styles.avatarPicturePlate} data-slot="face-picture-plate" data-crop="">{picture}</span>
           : picture
       ) : (
@@ -1465,6 +1483,25 @@ export const Monogram = ({ children, className }: { children: ReactNode; classNa
 /** Compact facts whose dot separators belong to the role, not to each caller. */
 export const MetaList = ({ children, className, ink = 'secondary' }: { children: ReactNode; className?: string; ink?: 'secondary' | 'muted' }) => (
   <span data-slot="meta-list" className={cx(styles.metaList, ink === 'muted' && styles.metaListMuted, className)}>{children}</span>
+)
+
+/**
+ * A row's second line when the row owns a short list — an agent's accounts —
+ * as one line per item instead of "the first and 2 more". Each line is a name
+ * that gives way at its end and the facts after it, which keep their width;
+ * a list long enough to need a fold is a page's, not a row's.
+ */
+export const DescLines = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span data-slot="desc-lines" className={cx(styles.descLines, className)}>{children}</span>
+)
+
+/** One line of `DescLines`: a mark, the name, then what is true of it. */
+export const DescLine = ({ mark, name, children, title }: { mark?: ReactNode; name: ReactNode; children?: ReactNode; title?: string }) => (
+  <span data-slot="desc-line" className={styles.descLine} title={title}>
+    {mark}
+    <span data-slot="desc-line-name" className={styles.descLineName}>{name}</span>
+    {children}
+  </span>
 )
 
 /** Inline parts of one value, wrapped together with the shared chip gap. */

@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AccountStatus, RuntimeInfo, UsageLane, UsageReport } from '@harnessdesk/protocol'
 
-import { describeTray } from './tray'
+import { describeTray, startTrayUpdates } from './tray'
 
 /**
  * What the menu bar says with no window open.
@@ -58,6 +58,51 @@ const tray = (over: Partial<Parameters<typeof describeTray>[0]> = {}) =>
     ...over,
   })
 
+describe('tray update lifetime', () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
+
+  it('publishes immediately, refreshes from the clock, and stops after cleanup', () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOON)
+    const publish = vi.fn()
+    vi.stubGlobal('harnessdesk', { setTraySummary: publish })
+    const input = { runtimes: [runtime('agent', 'Agent')], usage: [report('agent', [lane({ id: 'session', usedPercent: 17, resetsAt: NOON + 3 * HOUR })])],
+      accountsByRuntime: { agent: signedIn }, accountPrefs: {}, health: null, activeRuntime: null, hideAddresses: false } as Parameters<typeof startTrayUpdates>[0]
+    const stop = startTrayUpdates(input)
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(publish).toHaveBeenLastCalledWith(describeTray({ ...input, now: NOON }))
+    vi.advanceTimersByTime(60_000)
+    expect(publish).toHaveBeenCalledTimes(2)
+    expect(publish).toHaveBeenLastCalledWith(describeTray({ ...input, now: NOON + 60_000 }))
+    stop?.()
+    vi.advanceTimersByTime(120_000)
+    expect(publish).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not start a timer outside the desktop', () => {
+    vi.useFakeTimers(); vi.stubGlobal('harnessdesk', undefined)
+    const input = { runtimes: [], usage: [], accountsByRuntime: {}, accountPrefs: {}, health: null, activeRuntime: null, hideAddresses: false }
+    expect(startTrayUpdates(input)).toBeUndefined()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('replaces the old timer when the tray inputs change', () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOON)
+    const publish = vi.fn()
+    vi.stubGlobal('harnessdesk', { setTraySummary: publish })
+    const input = { runtimes: [runtime('first', 'First')], usage: [], accountsByRuntime: {}, accountPrefs: {}, health: null, activeRuntime: null, hideAddresses: false }
+    const stopFirst = startTrayUpdates(input)
+    expect(publish.mock.lastCall?.[0].agents[0].name).toBe('First')
+    stopFirst?.()
+    const stopSecond = startTrayUpdates({ ...input, runtimes: [runtime('second', 'Second')] })
+    expect(publish.mock.lastCall?.[0].agents[0].name).toBe('Second')
+    vi.advanceTimersByTime(60_000)
+    expect(publish).toHaveBeenCalledTimes(3)
+    expect(publish.mock.lastCall?.[0].agents[0].name).toBe('Second')
+    stopSecond?.()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
 describe('describeTray', () => {
   it('puts the agent with least left in the menu bar', () => {
     const summary = tray({
@@ -89,7 +134,7 @@ describe('describeTray', () => {
       accountsByRuntime: { claude: signedIn, codex: signedOut } as never,
       usage: [report('claude', [lane({ id: 'weekly', usedPercent: 10 })])],
     })
-    expect(summary.agents[1]).toMatchObject({ id: 'codex', detail: 'Needs sign-in', needsSignIn: true })
+    expect(summary.agents[1]).toMatchObject({ id: 'codex', detail: 'Sign in needed', needsSignIn: true })
   })
 
   it('does not call an agent needing sign-in before it has answered who is signed in', () => {
@@ -101,7 +146,7 @@ describe('describeTray', () => {
       accountsByRuntime: { claude: signedIn } as never,
       usage: [report('claude', [lane({ id: 'weekly', usedPercent: 10 })])],
     })
-    expect(summary.agents[1]).toMatchObject({ id: 'codex', needsSignIn: false, detail: 'Not answered yet' })
+    expect(summary.agents[1]).toMatchObject({ id: 'codex', needsSignIn: false, detail: 'Not checked yet' })
   })
 
   it('names the account when two agents share a display name, as the strip does', () => {
@@ -147,6 +192,19 @@ describe('describeTray', () => {
       ],
     })
     expect(summary.agents[0]?.name).toBe('OpenAI Codex · olivia@acme.dev')
+  })
+
+  it('names the account without its address while addresses are hidden', () => {
+    const summary = tray({
+      runtimes: [runtime('codex', 'OpenAI Codex')],
+      accountsByRuntime: { codex: signedIn } as never,
+      usage: [
+        report('codex', [lane({ id: 'weekly', usedPercent: 42 })], { account: 'olivia@acme.dev' }),
+        report('codex', [lane({ id: 'weekly', usedPercent: 88 })], { account: 'sam@acme.dev' }),
+      ],
+      hideAddresses: true,
+    })
+    expect(summary.agents[0]?.name).toBe('OpenAI Codex · olivia')
   })
 
   it('has nothing to add to a shared name when the reading carries no account', () => {

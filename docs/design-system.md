@@ -15,6 +15,13 @@ works on the sign-in screen, in a dialog, and in the design explorer alike.
   Patterns     ./patterns — typed HarnessDesk presentation contracts
   Screens      product code, which composes these and adds nothing shared
 
+Active goals use ComposerTrack name="send", with Send inboard of Stop when a message is typed.
+Stop occupies the session's composer corner and opens the same ConfirmDialog.
+Terminal predecessor waits use a Banner with a Stop goal action in ComposerNoticeStack.
+Its sentence explains whether the previous result was not accepted or cannot
+be confirmed, and names the Lead to message to change the plan or stop the goal.
+Stop goal uses ConfirmDialog, explaining that files and worktrees are left as they are.
+
 Changes flow down and never up. A screen may not reach sideways into
 another screen; that is what `pnpm design:audit` checks.
 
@@ -89,7 +96,7 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hd-chart-heat-2` | `color-mix(in srgb, rgb(52, 88, 240) 46%, rgb(245, 245, 245))` |
 | `--hd-chart-heat-3` | `color-mix(in srgb, rgb(52, 88, 240) 70%, rgb(245, 245, 245))` |
 | `--hd-chart-heat-4` | `rgb(52, 88, 240)` |
-| `--hd-chart-heat-not-scanned` | `repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(71, 71, 71) 45%, rgb(255, 255, 255)) 2px 3px )` |
+| `--hd-chart-heat-not-scanned` | `repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(107, 107, 107) 45%, rgb(255, 255, 255)) 2px 3px )` |
 | `--hd-danger` | `rgb(228, 68, 62)` |
 | `--hd-danger-dim` | `rgba(228, 68, 62, 0.12)` |
 | `--hd-success` | `rgb(65, 189, 111)` |
@@ -114,6 +121,8 @@ Five hues that identify a thing rather than judge it — which account, which ag
 
 | token | value |
 | --- | --- |
+| `--hd-lead-dex-ground` | `rgb(227, 235, 251)` |
+| `--hd-lead-lex-ground` | `rgb(36, 49, 79)` |
 | `--hd-tint-blue-fill` | `rgba(91, 126, 237, 0.14)` |
 | `--hd-tint-blue-ink` | `rgb(69, 99, 198)` |
 | `--hd-tint-blue-edge` | `rgba(91, 126, 237, 0.55)` |
@@ -442,8 +451,11 @@ A navigation column is its own small design system, and shadcn treats it as one:
 | `--hd-sidebar` | `rgb(249, 249, 249)` |
 | `--hd-sidebar-foreground` | `rgb(27, 27, 27)` |
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
-| `--hd-sidebar-muted-foreground` | `rgb(71, 71, 71)` |
+| `--hd-sidebar-muted-foreground` | `rgb(107, 107, 107)` |
 | `--hd-sidebar-border` | `rgba(9, 12, 17, 0.05)` |
+| `--hd-sidebar-edge` | `transparent` |
+| `--hd-left-search-fill` | `transparent` |
+| `--hd-left-search-edge` | `rgba(9, 12, 17, 0.12)` |
 | `--hd-sidebar-hover` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-sidebar-width` | `256px` |
 | `--hd-sidebar-width-icon` | `48px` |
@@ -480,6 +492,10 @@ A block of related settings on a page. The reference's account-settings cards ar
 
 | token | value |
 | --- | --- |
+| `--hd-card-fill` | `rgb(255, 255, 255)` |
+| `--hd-card-border` | `rgba(9, 12, 17, 0.12)` |
+| `--hd-card-divider` | `rgba(9, 12, 17, 0.05)` |
+| `--hd-card-radius` | `10px` |
 | `--hd-inset-dense` | `8px` |
 | `--hd-inset-row` | `12px` |
 | `--hd-inset-card` | `16px` |
@@ -513,7 +529,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-scrim` | `rgba(7, 9, 14, 0.28)` |
 | `--hd-external-canvas` | `rgb(255, 255, 255)` |
 | `--hd-secondary-foreground` | `rgb(49, 49, 49)` |
-| `--hd-tertiary-foreground` | `rgb(71, 71, 71)` |
+| `--hd-tertiary-foreground` | `rgb(107, 107, 107)` |
 | `--hd-disabled-foreground` | `color-mix(in srgb, rgb(177, 177, 177) 80%, rgb(27, 27, 27))` |
 | `--hd-sidebar-plate` | `rgb(249, 249, 249)` |
 | `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
@@ -541,10 +557,10 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-inset` | `8px` |
 | `--hd-label-space` | `` |
-| `--hd-card-fill` | `` |
-| `--hd-card-border` | `` |
-| `--hd-card-divider` | `` |
-| `--hd-card-radius` | `` |
+| `--hd-card-fill` | `rgb(255, 255, 255)` |
+| `--hd-card-border` | `rgba(9, 12, 17, 0.12)` |
+| `--hd-card-divider` | `rgba(9, 12, 17, 0.05)` |
+| `--hd-card-radius` | `10px` |
 | `--hd-composer-ring` | `` |
 | `--hd-control-h-lg` | `<cycle>` |
 | `--hd-seg-trim` | `calc(2px * 2)` |
@@ -555,11 +571,10 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-ring-width` | `2px` |
 | `--hd-ring-offset` | `2px` |
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
-| `--hd-card-fill` | `` |
+| `--hd-card-fill` | `rgb(255, 255, 255)` |
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-left-row-h` | `calc(32px + 2px)` |
 | `--hd-left-row-gap` | `0px` |
-| `--hd-left-menu-gap` | `8px` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-field-h` | `32px` |
 | `--hd-btn-h` | `32px` |
@@ -600,6 +615,9 @@ The right panel is a stack of cards on the left column's ground: a piece of work
 | `--hd-panel-card-pad-y` | `10px` |
 | `--hd-panel-card-pad-x` | `12px` |
 | `--hd-panel-card-radius` | `10px` |
+| `--hd-panel-card-fill` | `rgb(255, 255, 255)` |
+| `--hd-panel-card-border` | `rgba(9, 12, 17, 0.12)` |
+| `--hd-panel-card-rule` | `transparent` |
 | `--hd-panel-head-h` | `20px` |
 | `--hd-panel-row-h` | `28px` |
 
@@ -1064,6 +1082,15 @@ rather than passed. The rest of this page is judgement; this part is enforced.
 `packages/ui/src/design/primitives/Banner.tsx`
 
 Placement owners set the size once for all notices in their slot.
+`inset` keeps a notice off a rail or panel edge by the shared compact inset.
+
+### `Banner`
+
+`packages/ui/src/design/primitives/Banner.tsx`
+
+A notice card with the shared icon, body and action policy.
+`layout="stack"` keeps icon and title together, with full-width copy and
+naturally wrapping actions beneath them; ordinary notices stay inline.
 
 ### `BannerAction`
 
@@ -1413,6 +1440,36 @@ The rule is in one file, so the eleventh confirm cannot get it wrong by
 copying the tenth.
 A live update that removes the opener or disables confirmation can request
 `focusCancel`, moving focus to the keeping verb while the question stays open.
+
+### `ConversationShell`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+The shared session window frame, independent of its transcript source.
+
+### `ConversationThread`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+A transcript keeps the session's reading gutter and measured dock clearance.
+
+### `ConversationDock`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+The same floating composer and approval dock in every conversation.
+
+### `TranscriptAssistantMessage`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+Assistant prose has one rendering frame, shared with Items.
+
+### `ConversationComposerFrame`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+One composer frame; notices and attachments keep their existing DOM positions.
 
 ### `CopyButton`
 
@@ -1811,7 +1868,7 @@ The chosen policy stays inspectable while its full catalogue is folded away.
 
 `packages/ui/src/design/patterns/FlowCards.tsx`
 
-A policy thumbnail reads the full canvas's topology, with one fixed viewport and unscaled, end-truncated role labels.
+A policy thumbnail reads the full canvas's topology in a fixed viewport, with end-truncated role labels that scale with the drawing when it must fit.
 
 ### `FlowCardGrid`
 
@@ -1847,7 +1904,7 @@ Read an agent-authored line as safe words, the same way the Flow drawing does.
 
 `packages/ui/src/design/patterns/FlowStepRow.tsx`
 
-A recorded step or Seat state, toned once for the Flow list and main Run Timeline. Unknown outcomes stay neutral.
+A recorded step or Seat state, toned once for the Flow list and main Run Timeline: a word, coloured only when the state is data. Unknown outcomes stay neutral, in fact ink.
 
 ### `FlowStepRow`
 
@@ -1887,6 +1944,75 @@ minute-by-minute countdowns cannot leave the card holding an older fact.
 
 Works outside a group too; only grouped readings contribute to its card.
 
+### `LeadAskOptions`
+
+`packages/ui/src/design/patterns/LeadAskOptions.tsx`
+
+The composer is the free-text answer; settled choices remain readable without controls.
+
+### `LeadAvatar`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+The Lead's face on its character's disc. Below 28px an expression does not
+read, so the small places draw the neutral face and the presence word beside
+it says the state; the popover and the picker draw the mood. Never animated.
+Before the name is known the disc is drawn empty — a glyph there reads as a
+broken image, and the name arrives with the first read.
+
+### `LeadNameChoice`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+Who runs the desk: two picture cards. A name is an immediate preference; this control never grants authority.
+
+### `LeadTurn`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+A Lead line: a face column every line keeps, so the text aligns, and the face itself only on a turn's first line.
+
+### `LeadGreeting`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+The empty Lead conversation as one composition: the face, who it is in the
+scale's 16, what it does in a sentence, and — only when something must come
+first — the one action that does it. A screen supplies the words and the
+action, never the layout.
+
+### `LeadIdentity`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+Who the Lead is and where it stands, at the head of its status popover.
+
+### `LeadLineNote`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+A note that belongs to the person's line above it, at that line's trailing edge.
+
+### `LeadSlot`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+Names a block for tests and tools without adding a box of its own to the layout it sits in.
+
+### `leadRoleWord`
+
+`packages/ui/src/design/patterns/LeadPlanFlow.tsx`
+
+A plan role in the words the Lead uses everywhere: what the worker does, never which runtime does it.
+
+### `LeadPlanFlow`
+
+`packages/ui/src/design/patterns/LeadPlanFlow.tsx`
+
+An approved plan's linear flow in reading order. The Timeline owns the
+decorative connectors; role labels describe responsibility without naming
+a runtime. Labels are text, wrap whole, and cannot introduce markup.
+
 ### `LeftColumnTop`
 
 `packages/ui/src/design/patterns/LeftColumn.tsx`
@@ -1896,7 +2022,8 @@ region around every control. The row has no separator hairline beneath it;
 the column's own spacing marks the transition to its brand row. The mode
 switch takes the reserved right edge and is absent in Settings. Gapless
 controls preserve full targets beside the native corner at the default
-width; when history no longer fits, the main bar carries both arrows.
+width; a standing column hands folded history to the main bar, while a
+floating drawer keeps it in its own second row.
 Its compact cells use the shared switcher appearance.
 
 ### `LeftColumnSeat`
@@ -1904,6 +2031,7 @@ Its compact cells use the shared switcher appearance.
 `packages/ui/src/design/patterns/LeftColumn.tsx`
 
 A quiet account row closes the column beneath a full-width hairline.
+An optional notice above it uses the column's shared inset.
 
 ### `LeftColumnExplorerHead`
 
@@ -2012,19 +2140,14 @@ remove the body's inset. `reading` is an inset document or facts column.
 
 One same-height footer band, with an optional quiet link at the left and actions at the right.
 
-### `Dialog`
+### `modalSurfaceClass`
 
 `packages/ui/src/design/patterns/ModalDialog.tsx`
 
-The application dialog pattern: Base UI owns focus, dismissal, stacking,
-the portal and accessibility; this layer owns HarnessDesk's header, body,
-footer and measured sizes.
-
-The body is a form stack (`DialogForm`) unless it is `flush`: its children
-are 16px apart, a `SectionHead` in it is a legend on the group it names,
-and a `Rows` radio group of `RowChoice` rows is a compact `ChoiceList`.
-The body keeps its 24px inset in every layout. A `flush` body is a list and
-is not a form, so it keeps the page's parts inside that inset.
+The surface `Dialog` wears — its width, its ceiling, a head and a body
+that scrolls — for a sheet that composes `DialogContent` itself because it
+needs what `Dialog` does not take (an embedded, non-modal specimen), so it
+is drawn the same and moves with it.
 
 ### `NoticeCard`
 
@@ -2041,13 +2164,15 @@ A message about the conversation it sits over, fastened to the top of that
 conversation's composer — the control it is about. A calm bar the
 composer's own width: the tone is in the tile, the words wrap, and the
 action sits at the right as a small button, moving below the copy in a
-narrow container.
+narrow container. An optional secondary action keeps the primary choice
+prominent while retaining a distinct alternative in the same action group.
 
 ### `ComposerNoticeStack`
 
 `packages/ui/src/design/patterns/Notices.tsx`
 
-The composer notices, stacked over the composer they are about.
+The composer notices and decision controls, stacked over the composer they
+are about. Sessions and Lead share this gap; an empty stack takes no space.
 
 ### `ComposerTail`
 
@@ -2183,6 +2308,15 @@ uses the page role on the content edge, with the primary choice and verb
 on the right. Search and secondary choices follow at the page stack gap;
 long titles and menu choices wrap within the page.
 
+### `PageTitle`
+
+`packages/ui/src/design/patterns/PageOptions.tsx`
+
+A page's name as its h1 and what the page can do at its end, on one line as
+tall as the bar, so the title stands on the sidebar wordmark's line.
+`PageOptions` heads a page with it; a pane heads its tabs with it
+(`PaneTabsRow title`).
+
 ### `PageRecordViews`
 
 `packages/ui/src/design/patterns/PageRecords.tsx`
@@ -2212,6 +2346,12 @@ Row actions and portalled menus never activate the record; the title is its keyb
 Tabs under a pane's top bar keep the reading gutter and a small vertical
 step. Tabs yield and scroll; their current view and action stay beside them.
 
+With a `title` the pane has a head: its name as the page's h1, with the
+controls at its end on one bar-tall line, and the tabs on their own line
+below. A page says what it is and what it can do before the views it has.
+The head declares the page inset: its h1 stands on the pane's gutter while
+the cards under it keep their own inner column.
+
 ### `useComposerHeightVar`
 
 `packages/ui/src/design/patterns/PaneColumn.tsx`
@@ -2227,7 +2367,9 @@ carries it, not to a sibling), and `dock` is the element to measure —
 typically the strip holding the bars and the composer together. A screen
 wires the two refs to its own markup; the observing and the `setProperty`
 call are this hook's alone. Observe the border box so padding and border
-changes update the same full height that offsetHeight measures.
+changes update the same full height that offsetHeight measures. The callback
+ref follows conditional docks: release the previous observer when the dock
+leaves, clear the root clearance, then measure and observe the new element when it mounts.
 
 ### `ReadingMeasure`
 
@@ -2579,6 +2721,11 @@ a face a later build added, a picture it keeps — draws the house mark. It is
 not dropped: keeping what it cannot draw is the profile's job
 (`lib/profile.ts`), so a later build finds it where it left it.
 
+A signed-in account may supply `pictureDataUrl` independently of the local
+avatar. Only host-provided PNG, JPEG or WebP data is displayed; remote
+URLs are refused. Pictures fall back to the house mark when they cannot
+load, without changing the local profile.
+
 ### `Clipped`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -2655,6 +2802,21 @@ Initials inside a row's neutral mark. They identify the thing without becoming i
 
 Compact facts whose dot separators belong to the role, not to each caller.
 
+### `DescLines`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A row's second line when the row owns a short list — an agent's accounts —
+as one line per item instead of "the first and 2 more". Each line is a name
+that gives way at its end and the facts after it, which keep their width;
+a list long enough to need a fold is a page's, not a row's.
+
+### `DescLine`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+One line of `DescLines`: a mark, the name, then what is true of it.
+
 ### `InlineParts`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -2683,7 +2845,11 @@ Account ring colours, keeping the selected mark and current tint callback.
 
 `packages/ui/src/design/patterns/SettingsRowMenu.tsx`
 
-A Settings record's actions: its name and distinguishing location, with destructive removal.
+A Settings record's actions: its name and distinguishing location, its
+place in an order when the list is one (an agent's accounts, used first to
+last), and destructive removal. A move that cannot happen — the first row
+moving up — is drawn and refused rather than missing, so the menu keeps its
+shape from row to row.
 
 ### `SidebarMenuState`
 
@@ -2776,6 +2942,14 @@ A row with nothing to read — no usage reported, a sign-in needed — passes
 and the reset's columns, so it starts where the bars do in the rows above
 rather than straight after its name, and the name column stays one width.
 
+### `LeadContract`
+
+`packages/ui/src/design/patterns/lead-contract.tsx`
+
+A decision's details are ordinary assistant prose; its controls live in the dock.
+Explicit navigation scrolls these details and focuses the dock. An absent plan
+offers only a needed-decision sentence, with no action that cannot reach it.
+
 ## Known drift
 
 The app predates this system. These are the places it has not caught up, counted
@@ -2809,8 +2983,8 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 4 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
-| `pageMeasureInScreen` | 17 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2038 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `pageMeasureInScreen` | 16 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
+| `screenLayout` | 1997 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
 ## Screens against the standard
 

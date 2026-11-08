@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { destinationForSettings } from './settings-destination'
 import { resolveSection } from '../components/Settings'
 
 /**
@@ -100,4 +101,9 @@ describe('the Settings route split', () => {
     })
     expect(offenders).toEqual([])
   })
+})
+
+it('Lead settings are routable only with the host capability', () => {
+  expect((destinationForSettings as any)('lead', null, true)).toEqual({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } })
+  expect(destinationForSettings('lead')).toEqual(destinationForSettings('unknown'))
 })

@@ -30,9 +30,10 @@
  * FAKE_CLAUDE_LOG names a file that receives one line per spawn and exit,
  * so a test can see a replaced process actually go away.
  */
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import readline from 'node:readline'
+import { spawn as spawnShell } from 'node:child_process'
 
 const argv = process.argv.slice(2)
 const flag = (name) => {
@@ -592,10 +593,18 @@ rl.on('line', (line) => {
       case 'mcp_status':
         respond({ mcpServers: JSON.parse(process.env.FAKE_CLAUDE_MCP_STATUS ?? '[]') })
         return
-      case 'set_permission_mode':
+      case 'set_permission_mode': {
+        const failureFile = process.env.FAKE_CLAUDE_PERMISSION_MODE_FAILURE_FILE
+        if (failureFile && existsSync(failureFile)) {
+          if (readFileSync(failureFile, 'utf8') === 'once') rmSync(failureFile)
+          log(`permission-mode refused session=${sessionId}`)
+          refuse('fixture permission-mode refusal')
+          return
+        }
         permissionMode = request.mode ?? permissionMode
         respond({})
         return
+      }
       case 'set_model':
         model = request.model ?? model
         respond({})
@@ -615,6 +624,15 @@ rl.on('line', (line) => {
     send(message)
     log('echoed user')
     const text = textOf(message.message).trim()
+    if (text === 'bridge wait for steer') { narrate('waiting for direction'); return }
+    if (text.startsWith('git-steer-run ')) {
+      const request = JSON.parse(text.slice('git-steer-run '.length)), quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
+      const child = spawnShell('/bin/zsh', ['-lc', [request.binary, ...request.args].map(quote).join(' ')], { cwd: process.cwd(), env: process.env })
+      let output = ''
+      child.stdout.on('data', data => { output += data }); child.stderr.on('data', data => { output += data })
+      child.on('close', () => reply(output))
+      return
+    }
     if (text.startsWith('permission ')) {
       void permissionTurn(JSON.parse(text.slice('permission '.length)))
       return

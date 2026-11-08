@@ -12,7 +12,7 @@ import type { SeatRecord } from '@harnessdesk/protocol'
 import type { EvidencePlane } from '../src/evidence/plane.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { admitProject, gitReader, type GitReader } from '../src/provenance/git.js'
-import { ProvenanceJournal, readCheckpoint, writeCheckpoint, type JournalEntry } from '../src/provenance/journal.js'
+import { ProvenanceJournal, ProvenanceJournalChangedError, readCheckpoint, writeCheckpoint, type JournalEntry } from '../src/provenance/journal.js'
 import { Coalesced, RefObserver, type WorkerCheckpoint } from '../src/provenance/observer.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
 import { makeRepo, scriptedGit } from './fixtures/provenance-repo.js'
@@ -984,4 +984,43 @@ test('a failed parent read retries the ancestry of an appended tip on the same o
   observer.request([tip])
   await observer.idle()
   assert.equal(reads.length, count, 'only a successful scan can cache completed ancestry')
+})
+
+
+test('an observer reports external journal changes separately from the storage budget', async (t) => {
+  const repo = await makeRepo()
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  const git = gitReader(handle)
+  const journal = new ProvenanceJournal(join(repo.stateDir, 'observations.ndjson'))
+  t.mock.method(journal, 'read', async () => { throw new ProvenanceJournalChangedError() })
+  const problems: string[] = []
+  const observer = new RefObserver({ git, journal, watch: noWatch, pollMs: 0,
+    problem: (_kind, reason) => problems.push(reason), changed: () => {} })
+  t.after(() => observer.close())
+  await observer.start(handle, null)
+  await observer.idle()
+  assert.deepEqual(problems, ['journal-changed'])
+})
+
+
+for (const code of ['ENOSPC', 'EACCES']) test(`an observer stops for a durable journal ${code} failure`, async (t) => {
+  const repo = await makeRepo()
+  const head = await repo.commitTree(null, { one: 'one' }, 'head')
+  await repo.git('update-ref', 'refs/heads/main', head)
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  const git = gitReader(handle)
+  const file = join(repo.stateDir, 'refused.ndjson')
+  const journal = new ProvenanceJournal(file)
+  const open = fs.open
+  t.mock.method(fs, 'open', async (...args: Parameters<typeof fs.open>) => {
+    if (args[0] === file && args[1] === 'a') throw Object.assign(new Error('Fixture storage failure'), { code })
+    return open(...args)
+  })
+  const problems: { kind: string; reason: string }[] = []
+  const observer = new RefObserver({ git, journal, watch: noWatch, pollMs: 0,
+    problem: (kind, reason) => problems.push({ kind, reason }), changed: () => {} })
+  t.after(() => observer.close().catch(() => {}))
+  await observer.start(handle, null)
+  await observer.idle()
+  assert.ok(problems.some(problem => problem.kind === 'stopped' && problem.reason === 'storage-failed'))
 })

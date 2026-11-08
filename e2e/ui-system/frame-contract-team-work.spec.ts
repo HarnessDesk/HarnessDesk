@@ -28,10 +28,12 @@ for (const theme of WALL_THEMES) {
       else {
         await expect(icon).toBeVisible()
         expect(await icon.evaluate(node => node.closest('[data-slot="top-bar"]'))).toBeNull()
+        // The control sits on the page head with the Team's name; the tabs follow below.
+        expect(await icon.evaluate(node => node.closest('[data-page-head]') !== null)).toBe(true)
         const tabs = (await main.getByRole('tablist', { name: 'Team views', exact: true }).boundingBox())!
         const control = (await icon.boundingBox())!
-        expect(Math.abs(control.y - tabs.y)).toBeLessThanOrEqual(1)
-        expect(control.x).toBeGreaterThanOrEqual(tabs.x + tabs.width)
+        expect(control.y + control.height).toBeLessThanOrEqual(tabs.y)
+        expect(control.x).toBeGreaterThanOrEqual(tabs.x)
       }
       await expect(page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true })).toHaveCount(0)
       await expect(page.locator('[data-slot="view-bar"]')).toHaveCount(0)

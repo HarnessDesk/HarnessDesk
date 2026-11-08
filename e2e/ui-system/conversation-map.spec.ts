@@ -13,7 +13,7 @@ import { expect, test } from '@playwright/test'
 
 const overflow = async (page: import('@playwright/test').Page) => {
   await page.evaluate(() => {
-    const scroller = document.querySelector('[data-frame-id="conversation-composer"] [class*="scroll_"]') as HTMLElement | null
+    const scroller = document.querySelector('[data-frame-id="conversation-composer"] [data-slot="conversation-thread"]') as HTMLElement | null
     if (!scroller) throw new Error('no transcript scroller in the preview')
     scroller.style.height = '150px'
     scroller.style.maxHeight = '150px'
@@ -41,7 +41,7 @@ test('a dash goes to the half of the turn it previewed', async ({ page }) => {
     // Put the scroller somewhere else first, or "it did not move" and "it moved
     // to the right place" are the same observation.
     await page.evaluate(() => {
-      const scroller = document.querySelector('[data-frame-id="conversation-composer"] [class*="scroll_"]') as HTMLElement
+      const scroller = document.querySelector('[data-frame-id="conversation-composer"] [data-slot="conversation-thread"]') as HTMLElement
       scroller.scrollTop = scroller.scrollHeight
     })
     await marks.nth(index).click()
@@ -49,7 +49,7 @@ test('a dash goes to the half of the turn it previewed', async ({ page }) => {
     await expect
       .poll(async () =>
         page.evaluate((want) => {
-          const scroller = document.querySelector('[data-frame-id="conversation-composer"] [class*="scroll_"]') as HTMLElement
+          const scroller = document.querySelector('[data-frame-id="conversation-composer"] [data-slot="conversation-thread"]') as HTMLElement
           const target = scroller.querySelector(`[data-part="${want}"]`) as HTMLElement | null
           if (!target) return 'no target'
           const offset = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top
@@ -364,7 +364,7 @@ test('the rail keeps out of a transcript that has nowhere to go', async ({ page 
   // nothing to navigate and the rail would be decoration.
   expect(
     await page.evaluate(() => {
-      const scroller = document.querySelector('[data-frame-id="conversation-composer"] [class*="scroll_"]') as HTMLElement
+      const scroller = document.querySelector('[data-frame-id="conversation-composer"] [data-slot="conversation-thread"]') as HTMLElement
       return scroller.scrollHeight - scroller.clientHeight
     }),
   ).toBeLessThanOrEqual(1)
@@ -394,7 +394,7 @@ for (const width of [640, 760, 1440]) {
     await expect(rail(page)).toBeVisible()
 
     const read = () => page.evaluate(() => {
-      const scroller = document.querySelector('[data-frame-id="conversation-composer"] [class*="scroll_"]') as HTMLElement
+      const scroller = document.querySelector('[data-frame-id="conversation-composer"] [data-slot="conversation-thread"]') as HTMLElement
       const text = Math.min(
         ...[...scroller.querySelectorAll<HTMLElement>('[data-part] > *')]
           .map((one) => one.getBoundingClientRect())

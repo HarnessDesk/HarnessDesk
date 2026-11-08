@@ -8,6 +8,7 @@
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "references": [
     { "path": "../protocol" },
+    { "path": "../client" },
     { "path": "../agent-inventory" },
     { "path": "../codex" },
     { "path": "../adapter-codex" },
@@ -18,6 +19,10 @@
     { "path": "../responses-gateway" },
     { "path": "../mcp-tools" },
     { "path": "../plugins" },
-    { "path": "../adapter-testkit" }
+    { "path": "../adapter-testkit" },
+    { "path": "../lead" },
+    { "path": "../phone-link" },
+    { "path": "../contract" },
+    { "path": "../crypto" }
   ]
 }

@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { chooseTool, readToolIntents, setToolOpen, toolOf, settleConversationTool } from './frame-tools'
-import { toggleWorkRail, swapWorkPane, workRailOpen, workPaneExpanded } from './workbench'
+import { toggleWorkRail, togglePageRail, pageRailOpen, swapWorkPane, workRailOpen, workPaneExpanded } from './workbench'
 
 test('the rail is independent of the selected pane and remembered per subject', () => {
   const before = emptyWorkbench()
@@ -132,4 +132,15 @@ test('Conversation admission requires Editor and exactly its live main subject',
   expect(admitted.main).toBe(main)
   expect(admitted.right.root).toBe(workbench.right.root)
   expect(admitted.frameTools[`session:${session}`]).toEqual({ tool: 'conversation', mode: 'conversation', open: true })
+})
+
+test('a page rail stands open until closed, leaves the work rail alone and survives a restart', () => {
+  const before = emptyWorkbench()
+  expect(pageRailOpen(before, 'lead')).toBe(true)
+  const closed = togglePageRail(before, 'lead')
+  expect(pageRailOpen(closed, 'lead')).toBe(false)
+  expect(pageRailOpen(closed, 'settings')).toBe(true)
+  expect(workRailOpen(closed)).toBe(workRailOpen(before))
+  expect(pageRailOpen({ ...closed, frameTools: readToolIntents(JSON.parse(JSON.stringify(closed.frameTools))) }, 'lead')).toBe(false)
+  expect(pageRailOpen(togglePageRail(closed, 'lead'), 'lead')).toBe(true)
 })

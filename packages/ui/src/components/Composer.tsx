@@ -23,11 +23,10 @@ import {
   ComposerChip,
   ComposerChips,
   ComposerDropHint,
-  ComposerDock,
+  ConversationComposerFrame,
   ComposerGap,
   ComposerTrack,
   ComposerSend,
-  ComposerShell,
   ComposerText,
   ComposerTools,
   Dialog,
@@ -40,6 +39,7 @@ import {
   MenuLabel,
   Text,
 } from '../design'
+import { LeadChatNotice } from './LeadChatNotice'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { HoldingMessagesChip, RoomMessagesHeld } from './RoomMessaging'
 import { ComposerNoticeStack } from '../design'
@@ -90,7 +90,7 @@ import {
   TeamIcon,
   TerminalIcon,
 } from './Icons'
-import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
+import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl, chooseProjectForDraft, type ProjectFolderChoice } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import { draftsOf, NEW_SESSION_DRAFT_KEY, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
@@ -214,7 +214,7 @@ type Trigger =
 // Every incarnation of the new-session draft shares one submission hold.
 const draftSubmissions = new WeakMap<ReturnType<typeof useStore>, object>()
 
-export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Promise<boolean> }) => {
+export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderChoice }) => {
   const store = useStore()
   const messagesHeld = useContext(RoomMessagesHeld)
   const snapshot = useSnapshot()
@@ -1108,7 +1108,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
         : undefined
 
   return (
-    <ComposerDock>
+    <ConversationComposerFrame before={<>
       <Slot name="composer.row" />
       {/* What stops a turn here, and what an Agent in this conversation is
           waiting on you to decide — on the composer it is about, never over
@@ -1116,6 +1116,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
       <ComposerNoticeStack>
         <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`composer:${mount?.id ?? 'unmounted'}`} />
         <ComposerNotices />
+        {session && key && <LeadChatNotice runtime={session.runtime} sessionId={session.id} />}
         {storedRecoverable.map(({ key: ownerKey, item }) => (
           <ComposerNotice
             key={`stored-${ownerKey}-${item.id}`}
@@ -1139,14 +1140,31 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
           />
         )}
       </ComposerNoticeStack>
-      <ComposerShell
-        className={`${styles.shell} ${styles.anchor}`}
-        {...(dragging ? { 'data-dropping': '' } : {})}
-        onDragEnter={onDragEnter}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-      >
+      </>} shell={{
+        ...(dragging ? { 'data-dropping': '' } : {}),
+        onDragEnter, onDragOver, onDragLeave, onDrop,
+      }} after={<>
+      {preview != null && images[preview] && (
+        <Lightbox
+          images={images.map((image) => ({ url: image.path, name: image.name }))}
+          index={preview}
+          onClose={() => setPreview(null)}
+        />
+      )}
+      {refPrompt && (
+        <RefPrompt
+          label={refPrompt.label}
+          placeholder={refPrompt.chip?.prompt ?? ''}
+          hint={refPrompt.chip?.description}
+          onCancel={() => setRefPrompt(null)}
+          onConfirm={(ref) => {
+            addContext(refPrompt, ref)
+            setRefPrompt(null)
+            textarea.current?.focus()
+          }}
+        />
+      )}
+      </>}>
         {dragging && (
           <ComposerDropHint>
             <ImageIcon size={18} />
@@ -1303,7 +1321,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
                 {chipProviders.map(provider => <MenuItem key={provider.id} icon={contextChipIcon(provider.chip?.icon, provider.form)} label={`${provider.label}${provider.chip?.prompt ? '…' : ''}`} title={provider.chip?.description} onSelect={() => { if (provider.chip?.prompt) setRefPrompt(provider); else addContext(provider) }} />)}
                 <MenuLabel>Project</MenuLabel>
               </>}
-              <MenuItem icon={<FolderOpenIcon size={16} />} label="Change project folder…" onSelect={onChooseProject} />
+              <MenuItem icon={<FolderOpenIcon size={16} />} label="Change project folder…" onSelect={() => chooseProjectForDraft(store, onChooseProject)} />
             </Menu>}
           </Popover>
           </ComposerTrack>
@@ -1372,28 +1390,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
           )}
           </ComposerTrack>
         </ComposerTools>
-      </ComposerShell>
-      {preview != null && images[preview] && (
-        <Lightbox
-          images={images.map((image) => ({ url: image.path, name: image.name }))}
-          index={preview}
-          onClose={() => setPreview(null)}
-        />
-      )}
-      {refPrompt && (
-        <RefPrompt
-          label={refPrompt.label}
-          placeholder={refPrompt.chip?.prompt ?? ''}
-          hint={refPrompt.chip?.description}
-          onCancel={() => setRefPrompt(null)}
-          onConfirm={(ref) => {
-            addContext(refPrompt, ref)
-            setRefPrompt(null)
-            textarea.current?.focus()
-          }}
-        />
-      )}
-    </ComposerDock>
+    </ConversationComposerFrame>
   )
 }
 

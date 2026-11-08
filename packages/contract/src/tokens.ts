@@ -13,6 +13,13 @@ export const DeskTokenClaims = z.object({
 })
 export type DeskTokenClaims = z.infer<typeof DeskTokenClaims>
 
+/**
+ * The same desk claims under a type of their own, for the relay alone: the account API refuses it, so the
+ * relay is never handed a credential the rest of the account would accept.
+ */
+export const RelayDeskTokenClaims = DeskTokenClaims.extend({ typ: z.literal('relay-desk') })
+export type RelayDeskTokenClaims = z.infer<typeof RelayDeskTokenClaims>
+
 export const PhoneTicketClaims = z.object({
   typ: z.literal('phone'),
   kid: z.string().min(1).max(32),

@@ -11,7 +11,7 @@ it('E7 install and confirm use shared Dialog slots with no title icon and footer
   const box = document.createElement('div'); document.body.append(box)
   const root = createRoot(box), close = vi.fn()
   const request = vi.fn(async (method: string) => method === 'plugin/inspect'
-    ? { id: 'sample', name: 'Sample plugin', description: 'Synthetic permissions example.', permissions: ['Read workspace files'], alreadyInstalled: true }
+    ? { id: 'sample', name: 'Sample plugin', description: 'Synthetic permissions example.', permissions: ['Read workspace files'], alreadyInstalled: true, manifestDigest: 'a'.repeat(64) }
     : undefined)
   const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, transport: { request }, loadPlugins: vi.fn(), notice: vi.fn() } as unknown as AppStore
   try {
@@ -33,7 +33,29 @@ it('E7 install and confirm use shared Dialog slots with no title icon and footer
     expect(dialog.textContent).toContain('will be replaced')
     expect([...footer.querySelectorAll('button')].map(button => button.textContent)).toEqual(['Install and enable', 'Back'])
     await act(async () => [...footer.querySelectorAll('button')].find(button => button.textContent === 'Install and enable')!.click())
-    expect(request).toHaveBeenCalledWith('plugin/install', { specifier: '/work/plugins/sample' })
+    expect(request).toHaveBeenCalledWith('plugin/install', { specifier: '/work/plugins/sample', manifestDigest: 'a'.repeat(64) })
+    expect(close).toHaveBeenCalledOnce()
+  } finally { await act(async () => root.unmount()); box.remove() }
+})
+
+it('updating from source reads the new manifest first and installs only what was shown', async () => {
+  const box = document.createElement('div'); document.body.append(box)
+  const root = createRoot(box), close = vi.fn(), notice = vi.fn()
+  const request = vi.fn(async (method: string) => method === 'plugin/inspect'
+    ? { id: 'sample', name: 'Sample plugin', permissions: ['Read workspace files', 'Run commands'], alreadyInstalled: true, manifestDigest: 'b'.repeat(64) }
+    : undefined)
+  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, transport: { request }, loadPlugins: vi.fn(), notice } as unknown as AppStore
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><InstallPlugin source="/work/plugins/sample" onClose={close} /></StoreProvider>))
+    const dialog = document.querySelector('[role="dialog"]')!
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(request).toHaveBeenCalledWith('plugin/inspect', { specifier: '/work/plugins/sample' })
+    expect(dialog.textContent).toContain('Update from source')
+    expect(dialog.textContent).toContain('Run commands')
+    const footer = dialog.querySelector('[data-slot="dialog-footer"]')!
+    await act(async () => [...footer.querySelectorAll('button')].find(button => button.textContent === 'Install and enable')!.click())
+    expect(request).toHaveBeenLastCalledWith('plugin/install', { specifier: '/work/plugins/sample', manifestDigest: 'b'.repeat(64) })
+    expect(notice).toHaveBeenCalledWith('info', 'Sample plugin updated from /work/plugins/sample.')
     expect(close).toHaveBeenCalledOnce()
   } finally { await act(async () => root.unmount()); box.remove() }
 })

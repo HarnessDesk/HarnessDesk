@@ -1,0 +1,7 @@
+{
+  "id": "deferred",
+  "name": "Plugin whose hook runs late",
+  "version": "1.0.0",
+  "main": "./index.js",
+  "permissions": {}
+}

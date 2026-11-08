@@ -1,6 +1,6 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
 export type CatalogVariant = 'bar' | 'chips' | 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'document' | 'summary' | 'start' | 'end' | 'bare'
-export type CatalogSize = 'stack' | 'default' | 'wrap' | 'xs' | 'sm' | 'control' | 'lg' | 'compact' | 'large' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-label' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
+export type CatalogSize = 'stack' | 'default' | 'wrap' | 'xs' | 'sm' | 'control' | 'lg' | 'compact' | 'large' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-label' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs' | 'turn' | 'header' | 'popover' | 'picker'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
 type CatalogSymbolAxes = Readonly<Record<string, {
@@ -169,8 +169,8 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'spark', 'stepper', 'timeline', 'timeline-cards', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'TerminalShellTabs', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
-  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowExample', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
-  'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
+  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'QrCode', 'FlowExample', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
+  'LeadAvatar', 'ConversationShell', 'lead-contract', 'LeadPlanFlow', 'LeadAskOptions', 'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
   'SettingsRowMenu', 'HeaderStatusGroup', 'SelectionAction',
 ])
 
@@ -181,6 +181,11 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   CustomizeTabs: ['chips'],
+  LeadAvatar: ['default'],
+  ConversationShell: ['default'],
+  'lead-contract': ['default'],
+  LeadAskOptions: ['default'],
+  LeadPlanFlow: ['default'],
   CommandPalette: ['default'],
   SignInRail: ['default'],
   DashboardBands: ['light', 'dark'],
@@ -292,6 +297,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   TurnWork: ['default'],
   Notices: ['default', 'plain'],
   Checklist: ['default'],
+  QrCode: ['default'],
   timeline: ['default'],
   'timeline-cards': ['default'],
   FlowExample: ['default'],
@@ -314,6 +320,11 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   CustomizeTabs: ['selected', 'unselected'],
+  LeadAvatar: ['default'],
+  ConversationShell: ['default'],
+  'lead-contract': ['default', 'loading'],
+  LeadAskOptions: ['default', 'loading'],
+  LeadPlanFlow: ['default'],
   CommandPalette: ['default'],
   SignInRail: ['default'],
   DashboardBands: ['default', 'empty', 'unknown', 'long-title'],
@@ -424,6 +435,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   TurnWork: ['default', 'expanded'],
   Notices: ['default', 'populated', 'empty', 'warning', 'recoverable', 'memory-only', 'image-warning', 'error', 'open', 'closed'],
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
+  QrCode: ['default'],
   timeline: ['default', 'active', 'inactive', 'success', 'warning', 'error'],
   'timeline-cards': ['default', 'selected', 'populated'],
   FlowExample: ['default', 'working', 'needs-you', 'success', 'disabled'],
@@ -459,6 +471,7 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
 )
 Object.assign(SIZES, {
   CustomizeTabs: ['sm'],
+  LeadAvatar: ['navigation', 'turn', 'header', 'popover', 'picker'],
   FlowCards: ['compact', 'large'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
@@ -480,6 +493,11 @@ Object.assign(SIZES, {
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   CustomizeTabs: 'packages/ui/src/panels/customize-navigation.tsx',
+  'LeadAvatar': 'packages/ui/src/components/LeadPage.tsx',
+  'ConversationShell': 'packages/ui/src/components/Conversation.tsx',
+  'lead-contract': 'packages/ui/src/components/LeadCards.tsx',
+  LeadPlanFlow: 'packages/ui/src/components/LeadCards.tsx',
+  LeadAskOptions: 'packages/ui/src/components/LeadCards.tsx',
   SignInRail: 'packages/ui/src/components/SignIn.tsx',
   DashboardBands: 'packages/ui/src/components/Usage.tsx',
   LibraryMatrix: 'packages/ui/src/components/Library.tsx',
@@ -532,6 +550,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
   Notices: 'packages/ui/src/components/Notices.tsx',
   Checklist: 'packages/ui/src/components/TaskPanel.tsx',
+  QrCode: 'packages/ui/src/components/PhoneSettings.tsx',
   FlowExample: 'packages/ui/src/components/FlowsWindow.tsx',
   FlowGraph: 'packages/ui/src/components/RunFlow.tsx',
   FlowCards: 'packages/ui/src/components/FlowsWindow.tsx',
@@ -552,6 +571,11 @@ Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sideba
 Object.assign(PATTERN_CONSUMER, { ComposerTrack: 'packages/ui/src/components/ComposerControls.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  'LeadAvatar': 'packages/ui/src/preview/frames-lead.tsx',
+  'ConversationShell': 'packages/ui/src/preview/frames-lead.tsx',
+  'lead-contract': 'packages/ui/src/preview/frames-lead.tsx',
+  LeadPlanFlow: 'packages/ui/src/preview/frames-lead.tsx',
+  LeadAskOptions: 'packages/ui/src/preview/frames-lead.tsx',
   BoardCard: 'packages/ui/src/design/explorer/board-card-example.tsx',
   CommandPalette: 'packages/ui/src/preview/frames-transcript.tsx',
   SignInRail: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -585,6 +609,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   ApprovalDialog: 'packages/ui/src/design/explorer/boards.tsx',
   Notices: 'packages/ui/src/design/explorer/boards.tsx',
   Checklist: 'packages/ui/src/design/explorer/boards.tsx',
+  QrCode: 'packages/ui/src/design/explorer/boards.tsx',
   FlowExample: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FlowGraph: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FlowCards: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -685,7 +710,7 @@ const UI_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'timeline': ['Timeline', 'TimelineItem'],
   'toast': ['Toaster', 'toast'],
   'toggle-group': ['ToggleGroup', 'ToggleGroupItem', 'toggleVariants'],
-  'tone': ['dotTint', 'dotTone', 'inkTint', 'inkTone', 'ringTint', 'softTint', 'softTone', 'solidTint', 'tintFor', 'tintForRuntimeBrand', 'tintsFor'],
+  'tone': ['ChipLook', 'dotTint', 'dotTone', 'inkTint', 'inkTone', 'ringTint', 'softTint', 'softTone', 'solidTint', 'tintFor', 'tintForRuntimeBrand', 'tintsFor'],
   'tool-pane': ['ToolPane', 'ToolPaneActivity', 'ToolPaneActivityMark', 'ToolPaneBar', 'ToolPaneBody', 'ToolPaneDocumentTab', 'ToolPaneEmptyState', 'ToolPaneGuest', 'ToolPaneHeader', 'ToolPaneHeaderDivider', 'ToolPaneMessage', 'ToolPaneNotice', 'ToolPaneStage', 'ToolPaneTabIcon', 'ToolPaneTabViewport', 'ToolPaneToolGroup'],
   'tooltip': ['Tooltip', 'TooltipContent', 'TooltipTrigger'],
 }
@@ -709,6 +734,11 @@ const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
 
 const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   CustomizeTabs: ['CustomizeTabs'],
+  'lead-contract': ['LeadContract'],
+  LeadPlanFlow: ['LeadPlanFlow'],
+  LeadAskOptions: ['LeadAskOptions'],
+  'LeadAvatar': ['LeadAvatar', 'LeadNameChoice', 'LeadIdentity', 'LeadLineNote', 'LeadSlot', 'LeadTurn', 'LeadGreeting'],
+  'ConversationShell': ['ConversationShell', 'ConversationThread', 'ConversationDock', 'ConversationComposerFrame', 'TranscriptAssistantMessage'],
   'ActionError': ['ActionError'],
   'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],
   'AgentCatalogue': ['AgentCatalogue', 'AgentCatalogueCard', 'AgentCatalogueSources'],
@@ -716,6 +746,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'Change': ['ChangeStats', 'FileState', 'PatchHeader'],
   'ChannelMessage': ['ChannelMessage', 'ChannelNotice', 'ChannelSignal'],
   'Checklist': ['Checklist', 'ChecklistItem'],
+  'QrCode': ['QrCode'],
   'CodeBlock': ['CodeBlock'],
   'CommandPalette': ['CommandPaletteControls', 'CommandPaletteDivider', 'CommandPaletteEmpty', 'CommandPaletteFooter', 'CommandPaletteKeyHint', 'CommandPalettePanel', 'CommandPaletteResult', 'CommandPaletteResults', 'CommandPaletteSearch'],
   'ComparisonDecision': ['ComparisonDecision'],
@@ -746,7 +777,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'Lightbox': ['Lightbox'],
   'MainDestination': ['DestinationBody', 'MainDestination'],
   'Menu': ['ContextMenu', 'IssueMark', 'Menu', 'MenuAccountGroup', 'MenuAccountRow', 'MenuItem', 'MenuLabel', 'MenuNote', 'MenuSeparator', 'MenuToggle', 'Submenu', 'useContextMenu', 'useMenuClose'],
-  'ModalDialog': ['Dialog', 'DialogBody', 'DialogFooter', 'DialogHead'],
+  'ModalDialog': ['Dialog', 'DialogBody', 'DialogFooter', 'DialogHead', 'modalSurfaceClass'],
   'Notices': ['ComposerNotice', 'ComposerNoticeStack', 'ComposerTail', 'InboxPanel', 'NoticeCard', 'NoticeStrip', 'showToast'],
   'Page': ['Page', 'PageColumns', 'PageStack'],
   'PageControls': ['PageControls', 'PageExplanation', 'PreservedText', 'ShortcutKeys'],
@@ -761,7 +792,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'RefusedAction': ['RefusedAction'],
   'SeatList': ['SeatList'],
   'SelectionAction': ['SelectionAction'],
-  'Settings': ['AccountMark', 'Chip', 'Clipped', 'CodeText', 'DetailMark', 'Dot', 'Face', 'Field', 'FileButton', 'FormStack', 'InlineParts', 'Keycap', 'MetaList', 'Monogram', 'NavigationGroupHeader', 'NavigationList', 'Note', 'NoteList', 'Row', 'RowButton', 'RowChoice', 'RowInput', 'RowValue', 'Rows', 'Search', 'SectionHead', 'Segmented', 'SegmentedReadout', 'Spinner', 'Text', 'TextMark'],
+  'Settings': ['AccountMark', 'Chip', 'Clipped', 'CodeText', 'DescLine', 'DescLines', 'DetailMark', 'Dot', 'Face', 'Field', 'FileButton', 'FormStack', 'InlineParts', 'Keycap', 'MetaList', 'Monogram', 'NavigationGroupHeader', 'NavigationList', 'Note', 'NoteList', 'Row', 'RowButton', 'RowChoice', 'RowInput', 'RowMark', 'RowValue', 'Rows', 'Search', 'SectionHead', 'Segmented', 'SegmentedReadout', 'Spinner', 'Text', 'TextMark'],
   'SettingsChoices': ['AccentChoices', 'PictureChoices', 'RingChoices'],
   'SettingsRowMenu': ['SettingsRowMenu'],
   'SidebarMenuState': ['SidebarMenuState'],
@@ -777,6 +808,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
 }
 
 const PATTERN_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
+  'LeadAvatar': { 'LeadAvatar': { 'size': ['navigation', 'turn', 'header', 'popover', 'picker'] } },
   'FlowCards': { 'FlowCardGrid': { 'size': ['compact', 'large'] } },
   'Menu': { 'MenuLabel': { 'size': ['default', 'compact'] } },
   'Notices': { 'ComposerTail': { 'variant': ['default', 'plain'] }, 'InboxPanel': { 'size': ['icon-sm', 'icon-xs'] } },
@@ -790,6 +822,10 @@ export const CATALOG_EXPORT_EXEMPTIONS = [
   {
     export: 'packages/ui/src/design/patterns/AgentCard.tsx#AgentCardModeContext',
     reason: 'AgentCardModeContext carries the card presentation mode; the registered AgentCard renders its full and facts-only anatomy.',
+  },
+  {
+    export: 'packages/ui/src/design/patterns/LeadPlanFlow.tsx#leadRoleWord',
+    reason: 'leadRoleWord maps a plan role to its word without rendering; the registered LeadPlanFlow shows those words on its worker rows.',
   },
   {
     export: 'packages/ui/src/design/ui/dialog.tsx#renderShellSlot',
@@ -908,6 +944,11 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['LeadAvatar', 'lead-avatar', 'The chosen Lead character on its disc, one size per place'],
+  ['ConversationShell', 'conversation', 'The session and Lead share their window, transcript and floating composer dock'],
+  ['LeadPlanFlow', 'lead-plan-flow', 'Ordered plan steps and responsible roles on the shared timeline, ending in approval'],
+  ['LeadAskOptions', 'lead-contract', 'Short decision options, a recommended pick and quiet settled answers'],
+  ['lead-contract', 'lead-contract', 'Lead decision prose in the shared transcript, with docked session approvals'],
   ['CommandPalette', 'conversation', 'Fixed search surface, title-led results and a keyboard-hint footer'],
   ['DashboardBands', 'dashboard-bands', 'Recorded plan, spend and activity readings through canonical page blocks'],
   ['MainDestination', 'main-destination', 'Retained work and visited pages share one main region'],
@@ -951,6 +992,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
   ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
   ['Checklist', 'checklist', 'A runtime plan: steps to do, under way and done'],
+  ['QrCode', 'qr-code', 'A scannable code drawn from the text it carries, dark on light in either theme'],
   ['FlowCanvas', 'flow-canvas', 'A lazy, controlled plan canvas: pan, zoom, selection, edits and read-only Run state slots'],
   ['FlowExample', 'flow-example', 'Local finite policy illustrations with explicit playback and person pauses'],
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
@@ -995,6 +1037,7 @@ export const CANONICAL_PATTERN_MODULES = [
  * it, and it is the exemption the check looks for.
  */
 export const PRODUCT_SURFACES = [
+  ['surface.git-gateway', 'git-gateway', 'Push and steering approvals, publication rows, outside heads, PR and project records, Git write preferences', 'packages/ui/src/components/GitRecord.tsx', false, 'packages/ui/src/components/ProjectPage.tsx', 'GitGatewaySurface'],
   ['surface.team-start', 'team-start', 'New Team picker, roles and shape options', 'packages/ui/src/components/FrontDoor.tsx', false, 'packages/ui/src/app/App.tsx', 'TeamStartSurface'],
   ['surface.run-again', 'run-again', 'Fresh Run preview from recorded inputs and editable seating', 'packages/ui/src/components/RunAgain.tsx', false, 'packages/ui/src/components/TeamRoomPane.tsx', 'RunAgainSurface'],
   ['surface.flow-brief', 'flow-brief', 'Flow Brief paragraphs and capped text-file import', 'packages/ui/src/components/FlowStart.tsx', false, 'packages/ui/src/components/NewSessionChoice.tsx', 'FlowBriefSurface'],

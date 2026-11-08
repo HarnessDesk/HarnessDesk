@@ -62,9 +62,9 @@ for (const adapter of ['acp', 'codex'] as const) {
   test(`${adapter} restores observations without a process and replaces them live`, async t => {
     const dir = await mkdtemp(join(tmpdir(), 'hd-runtime-cache-'))
     const spawns = join(dir, 'spawns')
-    const make = (): AgentRuntime => adapter === 'acp'
+    const make = (generation = 1): AgentRuntime => adapter === 'acp'
       ? new AcpRuntime({ id: 'cached', name: 'Cached', command: process.execPath, args: [peer], env: { FAKE_ACP_START_DELAY_MS: '100', FAKE_ACP_SPAWNS: spawns } })
-      : new CodexRuntime({ id: runtimeId('cached'), name: 'Cached', binaryPath: codex, clientName: 'test', env: { HOME: dir, CODEX_HOME: dir } })
+      : new CodexRuntime({ id: runtimeId('cached'), name: 'Cached', binaryPath: codex, clientName: 'test', env: { HOME: dir, CODEX_HOME: dir, HARNESSDESK_CODEX_GENERATION: String(generation) } })
     let host = makeHost(dir, [new FakeRuntime(), make()])
     t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
     await host.start()
@@ -80,7 +80,8 @@ for (const adapter of ['acp', 'codex'] as const) {
       try { return JSON.parse(await readFile(join(dir, 'runtime-cache.json'), 'utf8')).runtimes.cached.models?.length > 0 } catch { return false }
     })
     await host.dispose()
-    const restored = make()
+    // The fixture otherwise reuses the first fake thread id after each process restart.
+    const restored = make(2)
     host = makeHost(dir, [new FakeRuntime(), restored])
     await host.start()
     assert.equal(restored.health().state, 'idle')
@@ -200,6 +201,63 @@ test('a token handed through sign-in never reaches the display cache', async t =
   const text = await readFile(join(dir, 'runtime-cache.json'), 'utf8')
   assert.ok(!text.includes(token))
   assert.ok(!text.includes('SYNTHETIC_KEY'))
+})
+
+test('a key stored during a held ACP startup is reported as deferred until a later start', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-key-start-receipt-'))
+  const gate = join(dir, 'release'), entered = join(dir, 'entered'), auth = join(dir, 'auth')
+  const id = runtimeId('keyed')
+  const keyName = 'HD_1770_SYNTHETIC_KEY'
+  let host: Host
+  const runtime = new AcpRuntime({ id, name: 'Keyed', command: process.execPath, args: [peer],
+    env: { FAKE_ACP_START_GATE: gate, FAKE_ACP_START_ENTERED: entered, FAKE_ACP_START_KEY_NAME: keyName,
+      FAKE_ACP_EXPECT_KEY: 'synthetic-final', FAKE_ACP_AUTH_LOG: auth, FAKE_ACP_AUTH_METHODS: JSON.stringify([{ id: 'api-key', name: 'Key' }]),
+      FAKE_ACP_AUTH_NEEDS_ENV: JSON.stringify({ 'api-key': keyName }) },
+    secrets: [{ env: keyName, label: 'Synthetic key', optional: true, acpMethod: 'api-key' }],
+    resolveSecret: env => host.credentials.peek(CredentialBroker.secretName(id, env)),
+  })
+  host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), catalogRefreshMs: 0, idleStopMs: 0, retryDelaysMs: [],
+    credentialCipher: { protection: 'synthetic', encrypt: value => Buffer.from(value), decrypt: value => value.toString() } })
+  host.register(new FakeRuntime())
+  host.register(runtime)
+  t.after(async () => { await writeFile(gate, 'release'); await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  await host.start()
+  const idle = await host.call('runtime/apiKey/store', { runtime: id, methodId: `apiKey:${keyName}`, value: 'synthetic-idle' })
+  const idleClear = await host.call('runtime/apiKey/clear', { runtime: id, methodId: `apiKey:${keyName}` })
+  assert.equal(idle.applied, 'deferred', 'an idle runtime did not restart')
+  assert.equal(idleClear.applied, 'deferred', 'clearing an idle runtime did not restart')
+  const opening = host.call('session/create', { runtime: id, options: { cwd: dir } })
+  let receipt: Awaited<ReturnType<typeof host.call<'runtime/apiKey/store'>>>
+  let cleared: Awaited<ReturnType<typeof host.call<'runtime/apiKey/clear'>>>
+  let latest: Awaited<ReturnType<typeof host.call<'runtime/apiKey/store'>>>
+  try {
+    await waitFor(async () => { try { return (await readFile(entered, 'utf8')).length > 0 } catch { return false } })
+    assert.equal(runtime.health().state, 'starting')
+    const first = JSON.parse((await readFile(entered, 'utf8')).trim()) as { pid: number; keyPresent: boolean }
+    assert.equal(first.keyPresent, false, 'the actual child was spawned without the stored key')
+    receipt = await host.call('runtime/apiKey/store', { runtime: id, methodId: `apiKey:${keyName}`, value: 'synthetic-old' })
+    cleared = await host.call('runtime/apiKey/clear', { runtime: id, methodId: `apiKey:${keyName}` })
+    latest = await host.call('runtime/apiKey/store', { runtime: id, methodId: `apiKey:${keyName}`, value: 'synthetic-final' })
+  } finally {
+    await writeFile(gate, 'release')
+    await opening
+  }
+  const firstEntries = (await readFile(entered, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { pid: number; keyPresent: boolean })
+  assert.equal(firstEntries.length, 1, 'storing the key did not silently restart the child')
+  await assert.rejects(readFile(auth, 'utf8'), { code: 'ENOENT' })
+  const opened = await opening
+  await host.call('session/close', { runtime: id, sessionId: opened.id })
+  const later = await host.call('runtime/refreshCatalog', { runtime: id })
+  assert.equal(later.refreshed, true, 'an explicit later start, without storing the key again')
+  await waitFor(async () => { try { return (await readFile(auth, 'utf8')).includes('api-key') } catch { return false } })
+  const entries = (await readFile(entered, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { pid: number; keyPresent: boolean; matchesExpected: boolean })
+  assert.equal(entries.length, 2)
+  assert.notEqual(entries[1]!.pid, firstEntries[0]!.pid)
+  assert.equal(entries[1]!.keyPresent, true, 'the explicitly restarted child received the key')
+  assert.equal(entries[1]!.matchesExpected, true, 'the latest stored key, not an earlier value, reached the child')
+  assert.equal(receipt!.applied, 'deferred', 'the first store must not claim that a restart happened')
+  assert.equal(cleared!.applied, 'deferred')
+  assert.equal(latest!.applied, 'deferred')
 })
 
 test('adapter-owned refresh starts are measured again, including the first live model probe', async t => {

@@ -93,6 +93,7 @@ test('only folders allocated by the host become chat roots, including after a re
   await restarted.load()
   assert.deepEqual((await dispatch({ ...ctx, state: restarted }, 'app/state/get', {}))['chatsFolderRoots'], [...new Set([created[0]!, await realpath(created[0]!)])])
   await assert.rejects(dispatch(ctx, 'app/state/set', { patch: { managedChatFolders: [folder] } }), /maintained by the host/)
+  await assert.rejects(dispatch(ctx, 'app/state/set', { patch: { chatsFolderRootsSnapshot: {} } }), /maintained by the host/)
 })
 
 test('refuses chats locations containing known projects, including aliases, without changing the setting', async () => {

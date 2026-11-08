@@ -63,7 +63,9 @@ export const pluginMethods = {
 
   'plugin/inspect': (ctx, params) => ctx.extensions().inspectPlugin(params.specifier),
 
-  'plugin/install': async (ctx, params) => ({ pluginId: await ctx.extensions().installPlugin(params.specifier) }),
+  'plugin/install': async (ctx, params) => ({
+    pluginId: await ctx.extensions().installPlugin(params.specifier, params.manifestDigest),
+  }),
 
   'plugin/uninstall': async (ctx, params) => {
     await ctx.extensions().uninstallPlugin(params.pluginId)

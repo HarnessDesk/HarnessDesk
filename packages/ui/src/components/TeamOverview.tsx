@@ -30,7 +30,7 @@ const words = (value: string): string => {
 const stateWords = { 'needs-you': 'Needs you', unread: 'Unread', working: 'Working', idle: 'Idle' } as const
 const SeatState = ({ row }: { row: SeatRow }) => row.state === 'idle' || row.state === 'unread'
   ? <span data-slot="seat-state" data-resting><Text role="meta">{row.done ? 'Done' : stateWords[row.state]}</Text></span>
-  : <span data-slot="seat-state"><Chip tone={row.state === 'needs-you' ? 'warning' : 'info'}>{stateWords[row.state]}</Chip></span>
+  : <span data-slot="seat-state"><Chip variant="quiet" tone={row.state === 'needs-you' ? 'warning' : 'info'}>{stateWords[row.state]}</Chip></span>
 const costTitle = (row: SeatRow, metered?: boolean): string => row.cost === null
   ? 'Recorded usage is unavailable'
   : `${row.cost.estimated ? 'Estimated. ' : ''}${row.cost.unit === 'money'
@@ -143,10 +143,10 @@ export const TeamOverview = ({ attention, uncheckedDone = 0, onBoard, onTask, mo
               <div className="flex flex-wrap items-center gap-2">
                 <span>{onRun ? <Button variant="link" size="inline-link" onClick={onRun}><Text role="subject">{words(runName)}</Text></Button> : <Text role="subject">{words(runName)}</Text>}</span>
                 {!statusLine && (runNeedsYou || run.needsYou || run.state === 'stalled' || run.state === 'running'
-                  ? <Chip tone={runNeedsYou || run.needsYou || run.state === 'stalled' ? 'warning' : evidenceWait ? 'neutral' : 'info'}>{runNeedsYou || run.needsYou ? 'Needs you' : evidenceWait ? 'Waiting' : runWords[run.state]}</Chip>
+                  ? <Chip variant="quiet" tone={runNeedsYou || run.needsYou || run.state === 'stalled' ? 'warning' : evidenceWait ? 'neutral' : 'info'}>{runNeedsYou || run.needsYou ? 'Needs you' : evidenceWait ? 'Waiting' : runWords[run.state]}</Chip>
                   : <Text role="meta">{run.state === 'stopped' && [...stoppedCards.values()].some(row => row.status === 'Stopping') ? 'Stopping' : runWords[run.state]}</Text>)}
-                {statusLine && evidenceWait && !findingsWait && !runNeedsYou && !run.needsYou && <Chip tone="neutral">Waiting</Chip>}
-                {publication && <Chip tone={publication.tone}>{publication.label}</Chip>}
+                {statusLine && evidenceWait && !findingsWait && !runNeedsYou && !run.needsYou && <Chip variant="quiet" tone="neutral">Waiting</Chip>}
+                {publication && <Chip variant="quiet" tone={publication.tone}>{publication.label}</Chip>}
               </div>
               <div className="flex flex-wrap gap-3">
                 {progress ? <Text role="meta">{progress}</Text> : run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${stepName(words(run.role))}` : ''}</Text>}
@@ -203,8 +203,9 @@ export const TeamOverview = ({ attention, uncheckedDone = 0, onBoard, onTask, mo
             <ListRows>
               {rows.map(row => (
                 <ListRow key={row.seat} data-seat={row.seat} interactive={opens(row)} className="relative isolate" onClick={opens(row) ? event => { if (event.currentTarget.contains(event.target as Node) && !(event.target as Element).closest('button')) onOpen?.(row.seat) } : undefined} lead={face(row)}
-                  title={<div className="flex min-w-0 items-center justify-between gap-2"><span className="min-w-0 flex-1">{openName(row)}</span><span className="inline-flex shrink-0 items-center gap-2">{seatState(row)}{showCost && <Cost row={row} metered={metered?.get(row.seat)} />}</span></div>}
-                  subtitle={unavailableReason(row) ?? (row.done ? role(row) : doing(row, true) ?? role(row))} wrapSubtitle trail={opens(row) ? <ChevronIcon /> : undefined} />
+                  title={openName(row)}
+                  headingFacts={<>{seatState(row)}{showCost && <Cost row={row} metered={metered?.get(row.seat)} />}</>}
+                  subtitle={unavailableReason(row) ?? (row.done ? role(row) : doing(row, true) ?? role(row))} wrapSubtitle subtitleLayout="below" trail={opens(row) ? <ChevronIcon /> : undefined} />
               ))}
             </ListRows>
           ) : (

@@ -2,9 +2,12 @@ import { extendedArgs } from './installs/args.js'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, sep } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { packagedPath } from '@harnessdesk/client/node'
+
+export { packagedPath } from '@harnessdesk/client/node'
 
 import { whichOnPath } from './installs/which.js'
 
@@ -38,13 +41,6 @@ import type { InstallService } from './installs/service.js'
  */
 
 const run = promisify(execFile)
-
-/** `app.asar` cannot be spawned from; the unpacked twin can. See `bootstrap`. */
-const ASAR = `${sep}app.asar${sep}`
-
-/** The same path, as a process that is not Electron would have to open it. */
-export const packagedPath = (entry: string): string =>
-  entry.includes(ASAR) ? entry.replace(ASAR, `${sep}app.asar.unpacked${sep}`) : entry
 
 /** A sibling package's entry point, named where it landed on disk. */
 const siblingEntry = (relative: string): string =>
@@ -528,6 +524,8 @@ export class AgentDirectory {
     private readonly options: {
       readonly store: AgentRegistryStore
       readonly build: (config: AcpAgentConfig) => AgentRuntime
+      /** Bootstrap can skip a stored row when another runtime already owns its id. */
+      readonly ownsRuntime?: (id: RuntimeId | string) => boolean
       /** The usage sources this agent's CLI earns, if any. See `localUsageFor`. */
       readonly usageFor: (config: AcpAgentConfig) => AgentUsageBinding | null
       /**
@@ -751,7 +749,7 @@ export class AgentDirectory {
   }
 
   owns(id: RuntimeId | string): boolean {
-    return this.options.store.has(String(id))
+    return this.options.store.has(String(id)) && (this.options.ownsRuntime?.(id) ?? true)
   }
 
   /** Deletes one version of a download the desk made; nothing else. */

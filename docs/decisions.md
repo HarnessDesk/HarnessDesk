@@ -7,6 +7,87 @@ the rule is the last line of its section.
 
 ---
 
+## One host table says who work waits on — 2026-11-05
+
+Lead threads, ordinary chats and Teams carry a deterministic stage from the
+closed, ordered table in `packages/protocol/src/lead-stage.ts`. First match
+wins: a person's decision takes precedence over concurrent work, and each
+kind ends with an idle catch-all. Phone counts and the Lead's observations
+read that host stage, so each surface answers the same question. The model
+never computes it: prose cannot decide who owes an action, and a new wait
+reason requires an explicit classification. Legacy phone phase and line
+fields remain for older phones; newer phones fall back to phase only when an
+older desk omits stage.
+
+An owned Team's stage wakes the Lead only when `isWaitingOnYou(stage)`
+changes, or when the Team goes from `working` or `queued` to `idle`.
+`working` ↔ `queued` and changes among the three `you-*` stages stay quiet.
+The fingerprint uses the same attention and completion distinctions; a quiet
+transition updates its baseline without consuming other changed evidence.
+
+## Groups are cards by default, and a sheet is a foundation — 2026-11-01
+
+The app-frame canvas drew every left-menu mode twice: Cards, where each group
+of settings rows, each right-panel section and each object on a page is one
+card on the main ground, and Sheet, where the same groups lie flat on one page
+with a hairline between rows. The owner chose Cards as the default and Sheet as
+the choice beside it. Cards changes the least of what was already drawn — the
+same rows, one edge and one corner — and Sheet suits a person who wants fewer
+boxes. Sheet is a token overlay (`tokens.sheet.css`), not a second set of
+screens, so neither can drift from the other: a screen that names a surface is
+wrong. The same pass took the extra 12px off the Settings column, so its labels
+share the main column's edge, and moved fact ink one step further from prose
+(grey-600 light, grey-500 dark) so counts and times no longer read as a second
+tier of prose.
+
+**Rule:** a screen never branches on the surface; what differs between Cards
+and Sheet is a `--hd-card-*`, `--hd-panel-card-*` or sidebar token in
+`tokens.sheet.css`.
+
+## Transcript cache limits yield to recovery evidence — 2026-11-01
+
+The renderer starts with soft targets of 128 eligible bodies and 8 MiB of
+canonical UTF-8 turns. The Host separately reserves at most 8 MiB of logical
+recovery descriptors. Count and bytes answer different workloads; neither is
+a limit on process memory or an empirically optimal working set. Active,
+mounted, drafted, partial, in-flight or uncertain content can exceed them.
+
+A closed body leaves memory only after exact storage verification and
+independent readback, with current owner, generation, revision and sequence
+checks on both sides. A turns hash does not cover richer Session metadata.
+The cache compares that metadata separately and preserves local mutation
+fences. Missing events, conflicting replay or an older pending generation
+retain their observed data until reconciliation is proved; item counts and
+newer numeric cursors are not that proof. A receipt is a point-in-time fact,
+not a promise against later storage failure or forced exit.
+
+**Rule:** refuse unloading when recovery or ownership is uncertain; never
+discard protected content merely to meet a cache target.
+
+## A self-hosted runner takes work only while it is shown to be up — 2026-10-30
+
+The organisation's hosted runners run twenty jobs at once. A full run is over
+thirty, so its browser shards waited three to ten minutes for a slot while the
+project's own Linux machine, paid for by the hour it is on, sat idle: no job
+named it.
+
+The first job, `CI runners`, asks whether one of that machine's runners is
+online and sends the typecheck and gates jobs there if so. Those two start at
+once and take minutes, so they free two hosted slots for the shards. A job
+sent to a runner that is down waits in the queue for a day rather than moving,
+so every doubt answers "hosted": no `RUNNER_STATUS_TOKEN` secret (forks never
+get one), a pull request from another repository, any failure to ask, or less
+than half an hour before the machine's scheduled stop (`SELF_HOSTED_UNTIL`).
+Jobs that start later in a run, like the bookkeeping checks, stay hosted for
+the same reason: the machine may have stopped by the time they are created.
+
+The pick is made once per run. "Re-run failed jobs" keeps it, so after the
+machine has stopped, re-run a failed typecheck or gates job with "Re-run all
+jobs", which asks again.
+
+**The rule:** a job reaches a self-hosted runner only through a pick made at
+the start of the run that defaults to the hosted runner.
+
 ## Customize is the shared capability destination — 2026-10-21
 
 Skills, MCP and Plugins share one Customize entrance and a common section navigation. Existing Library and Plugins destination identities remain valid for saved history, command links and capability detail pages. Settings' skill-management requests open Customize, scoped to the active runtime; Hooks retains a separate Settings page. Runtime-owned commands not covered by the scanned inventory remain browsable in Customize, under the active runtime’s name, with their enable switches and composer action. A different runtime scope never borrows the active runtime’s commands. Legacy command detail routes remain readable; the obsolete Settings list route replaces itself in navigation rather than leaving a redirect in Back history.
@@ -18,11 +99,11 @@ Skills default to two-column catalogue cards. The title and a bounded descriptio
 
 ## A skill opens as a page, not a sheet — 2026-10-17
 
-A skill has enough definition and evidence to read as a destination: the definition is a card on the left, while loaded runtimes, recorded source and copies, files and cost stay in cards on the right. Back returns to the Library and history retains the route. Findings sit above the columns, and More keeps the less frequent copy actions; writes still open reviewed plans. This keeps the skill consistent with other details and gives long definitions the page’s scroll owner rather than two constrained dialog lanes. MCP retains its existing dialog. **Rule:** a detail is a page with a way back; dialogs are for confirming.
+A skill has enough definition and evidence to read as a destination: the definition is a card on the left, while loaded runtimes, recorded source and copies, files and cost stay in cards on the right. Back returns to Customize (then the Library) and history retains the route. Findings sit above the columns, and More keeps the less frequent copy actions; writes still open reviewed plans. This keeps the skill consistent with other details and gives long definitions the page’s scroll owner rather than two constrained dialog lanes. MCP retains its existing dialog. **Rule:** a detail is a page with a way back; dialogs are for confirming.
 
 ## What the Library changed has its own page, and every write says so in a toast with no Undo — 2026-10-17
 
-The Library keeps its cards for finding skills. Changes made here is a separate
+Customize (then the Library) keeps its cards for finding skills. Changes made here is a separate
 view of the same destination, reached from More and from a write's View changes
 toast. The audit read covers 90 days, with local-day groups, search and filters.
 Restore remains a previewed plan and is offered only for completed backed-up writes.
@@ -49,6 +130,11 @@ weight or foundation token is added.
 
 ## First launch offers installed runtimes — 2026-10-16
 
+> Superseded in part by [First run always has a text box](#first-run-always-has-a-text-box--2026-10-16):
+> its decision 8 removes the history-source copy and the
+> `presentation.historySource` field this entry reads. What follows is the
+> record of the offer as it was first chosen.
+
 The first empty conversation uses the Add a runtime page's machine catalogue
 to offer installed agents that have not been registered. Each is one compact
 name and Add button. Detection runs once per window, after the pane draws,
@@ -70,19 +156,24 @@ registered runtime names come from `RuntimeInfo.presentation`.
 
 The native corner consumes 78px of the sidebar's top row. The default 256px
 column fits four full 28px controls and the mode switch when the controls
-give up their gaps. At smaller widths, both history arrows move to the main
-bar's lead, returning when the sidebar has room. Their rendered fold owns
-the handoff, so native corner reservations and live seam drags agree.
+give up their gaps. At smaller widths, a standing sidebar moves both arrows to
+the main bar, returning them when it has room. Their rendered fold owns the
+handoff, so native corner reservations and live seam drags agree.
 
-**The rule:** the sidebar's history arrows never fold away without a visible
-pair in the main bar. Control targets keep their design-system size.
+**The rule:** a standing sidebar hands folded history arrows to the main bar.
+A floating drawer keeps them in a second header row when they do not fit,
+because the covered main bar is inert. Control targets keep their design-system size.
 
 ## Browser CI is bounded on a pull request and complete before landing — 2026-10-15
+
+> Superseded by [Ordinary pull requests run core CI; integration runs in the full tier](#ordinary-pull-requests-run-core-ci-integration-runs-in-the-full-tier--2026-10-16):
+> ordinary pull requests no longer run browser shards at all. What follows is
+> the record of the bounded selection, which `check:push` still uses locally.
 
 A measured UI pull request took 79 minutes end to end: sixteen browser shards
 ran for 14–27 minutes and waited 5–29 minutes for runners. Browser work used
 about 340 of 373 runner-minutes. A widely rendered stylesheet can reach nearly
-all 224 specs, so an impact map alone cannot bound that cost.
+all 224 specs at the time, so an impact map alone cannot bound that cost.
 
 Ordinary pull requests keep edited specs and the most specific impact selections
 within four shards, using the existing light geometry matrix and duration
@@ -99,6 +190,10 @@ as the required checks, so an old full result cannot stand in for a newer
 bounded run.
 
 **Rule:** bounded green is feedback, and only full green is landing evidence.
+
+> Narrowed by [CI is dealt from manifests and measurements, not hand-carved jobs](#ci-is-dealt-from-manifests-and-measurements-not-hand-carved-jobs--2026-10-30):
+> outside main and development the full tier reads every spec in the
+> pull-request theme matrix.
 
 ## Team seats nest under their Team, and running rows spin — 2026-10-18 (owner)
 
@@ -196,6 +291,9 @@ refresh that value. A content-box observer missed an 84px padding increase
 without updating the transcript reserve. The Side by side browser contract
 waits for the measured reserve, then checks both scroll position and the final
 answer's visible bounds as the dock grows and shrinks.
+Conditional docks use a callback ref held in state: detaching releases the old
+observer and clears the root clearance variable; mounting a replacement measures
+and observes its border box.
 
 ## Round is someone, square is a thing
 
@@ -662,8 +760,10 @@ the same file.
 The alternatives were a copy of the command line in a system folder, which
 needs an administrator and goes stale at the next update, and a package-manager
 install, which puts a second copy of the program beside the app and has to be
-kept in step with it. Windows has no launcher yet: its door is a named pipe and
-its installer is a change of its own.
+kept in step with it. Windows has no launcher yet, and no door either: the
+host does not open the client door on Windows at all (`openClientDoor` in
+`packages/server/src/client-door.ts`), so a launcher there waits on a door of
+its own first, and its installer is a change of its own.
 
 **The rule:** the app puts its command line on a person's PATH with one file in a
 folder they own; it never overwrites a file that is not its own, never edits a
@@ -931,7 +1031,8 @@ directory with an immutable configuration snapshot. Included and global settings
 flattened into that snapshot; include paths and the repository's filter
 definitions are omitted. Global and system includes are evaluated from the
 repository's folder, so a conditional include for that repository applies;
-only those two scopes contribute filter definitions, with other Git environment
+an `onbranch` include selects using the repository's HEAD. Only those two scopes
+contribute filter definitions, with other Git environment
 configuration removed. The filters the person's own configuration defines are
 the one thing added: they are read apart from repository configuration by the
 `--system` and `--global` scopes alone (the system file only where `GIT_CONFIG_NOSYSTEM` would let git read it), and a file that is not
@@ -1231,6 +1332,14 @@ defaulted:
   stays — and the window marks the key spent, so this sidebar stands aside when
   one is open over it.
 
+**Today's numbers.** The figures above are the ones the entry was written
+against. The line has since moved off the desktop window's minimum (still
+720px, `minWidth` in `packages/desktop/electron/main.mjs`) to a fixed 1000px
+(`FRAME.fold.sidebarFloats` in `packages/ui/src/design/frame.ts`), and the
+sidebar is 256px wide by default, so the desktop app floats its sidebar below
+1000px even at its ordinary zoom. The first bullet's reasoning no longer
+holds; the other two, and the rule, do.
+
 **The rule:** a window too narrow for a column covers the conversation rather
 than squeezing it, and only when asked.
 
@@ -1264,9 +1373,20 @@ conversation at 398px, never the 400 it promised. So a 240px sidebar and a
 280px panel keep their column from 922px; at 900px the sidebar floats and the
 conversation keeps 619px beside the panel; from 680px down the panel covers it.
 
+**Today's numbers.** The arithmetic above is the measurement this entry was
+written against. `packages/ui/src/design/frame.ts` now holds the figures: the
+sidebar is 256px, the right panel 400px (320–640), and the reading column's
+floor is 480px (`FRAME.main.min`, still exported as `MIN_READING`). Both lines
+are one fixed width, 1000px (`FRAME.fold.sidebarFloats` and
+`FRAME.fold.panelFloats`), rather than a sum of the drawn widths: below it the
+sidebar floats and a drawn panel covers the conversation; above it the panel
+is clamped so the conversation keeps 480px, yielding only as far as the
+panel's 320px minimum needs. The 1px seam is still counted. The order of the
+rule holds: the panel narrows before the work does.
+
 **The rule:** navigation gives way before the thing being consulted, and the
 thing being consulted before the work; the work never stands beside anything
-narrower than 400px.
+narrower than its reading floor (now 480px).
 
 ## Capabilities are negotiated, not normalised
 
@@ -1400,16 +1520,12 @@ instructions, a bridge's system-prompt append, the MCP server's
 `instructions` — never through the conversation, and the sentence names the
 tools rather than the line.
 
-*Not done here:* an agent that reaches for `gh pr create` itself, ignoring
-the sentence, opens an unsigned pull request that the transcript does not
-record. Watching its commands for the verb would catch it, at the cost of
-tying the feature to one CLI; the honest fix is the same one the vendors
-made, which is to make the desk's way the easy way. A GitHub App the desk
-installs later is a second way to reach the forge (`ForgeIdentity.via`), and
-changes nothing above it.
-
-**The rule:** the party that publishes writes the signature; the desk
-publishes.
+*Not done here originally:* native-command steering and host-owned write
+execution. The reach described above was the plugin's shell; that part is
+superseded by [Every git write goes through one gateway, and the host holds
+the credential](#every-git-write-goes-through-one-gateway-and-the-host-holds-the-credential).
+Seat signatures and transcript publications remain the plugin's presentation
+contract.
 
 ## Agent publications name the writer and the role
 
@@ -1526,6 +1642,35 @@ Capture's record of where it is, the checkpoint, says what is new or says nothin
 The private view capture reads through is a folder in the state directory. Whoever makes one removes it on every path they control (the reader closing, an admission abandoned half way, the process exiting), and at startup the views no live handle owns are swept, which is all that can be done about a process that was killed. A view's name carries its process id, so one desk never sweeps a view another running process is using.
 
 **The rule:** capture does bounded work, and none when nothing it reads has changed; it keeps only what Git cannot contradict and writes only what is new; and a view it makes is removed by whoever made it, or by the next start.
+
+## Provenance journals recover within a bounded storage budget
+
+Provenance replay and appends have a 64 MiB journal budget. Line-bounded
+streaming still retained every decoded historical observation: a multi-gigabyte
+journal could exhaust the desktop heap during checksum or serialization.
+Before decoding an oversized journal, a bounded streaming pass validates its
+records and removes only superseded checkpoint cursors into a temporary file.
+Replacement happens only after complete validation and only if the retained
+history fits the budget. Historical observations are never pruned. Append-time
+compaction makes room only when the incoming record or complete checkpoint
+would exceed the budget and obsolete cursors can free enough space. The complete
+checkpoint is sized before any part is written, so compaction never renumbers
+part IDs in flight. Near-limit appends that still fit do no forced compaction.
+External file growth is not overwritten by compaction of an older in-memory view.
+A changed file has a separate refusal and reload guidance; it is never described
+as a size limit or exported as a size-refused project. Damage and filesystem
+failures keep their storage failure semantics. Parsing and replacement each use
+one shared path, including the source identity check immediately before rename.
+
+If retained observations still exceed the budget, capture stops for that project
+and its original history stays in place. Capture can be turned off; Retry tries
+recovery again. Backup reports size-refused projects in `omittedProjects` while
+including healthy projects; restore counts refused entries without spending
+the admission budget available to the remaining projects. A limit or changed-file
+refusal during an append skips the rest of that project immediately, avoiding
+repeated compaction attempts while other projects wait. Export tracks exact
+serialized bytes incrementally, including omission metadata and JSON framing. This is a per-journal input bound, not an aggregate heap
+guarantee or a history retention policy.
 
 ## Passive provenance starts at the project and Seat window
 
@@ -1865,6 +2010,28 @@ marker line of the desk's own, any comment whose first line is exactly such a
 marker (the reconciliation rule, never a looser match) is skipped in every
 mode, and the id of every comment the desk posts is remembered across a
 restart, so a comment whose marker was edited away is still the desk's.
+
+## A PR review binds the destination as well as the head
+
+A reviewer receives the exact PR head and current destination ref and tip.
+An automatic merge needs that same host-observed tuple in its review evidence;
+older unbound reviews remain readable but cannot authorize it. The serialized
+gateway checks the tuple again before submission, while retaining the existing
+head and CI checks. GitHub does not offer this path an atomic base-tip lease,
+so a destination can still move after the last read. A queued or uncertain
+merge is kept unresolved rather than silently submitted again. An open,
+unqueued snapshot cannot prove that an earlier request will not still complete;
+without a merged observation, a person may need to inspect or complete it
+outside the app.
+The current CLI process boundary cannot reliably distinguish a definite server
+rejection from a lost response. Even a CLI-reported rejection can therefore
+remain unresolved and require that outside inspection or completion.
+The host serializes its own gateway's attempts; another host or external client
+can race it, so neither the journal nor a read-back is an exactly-once lease.
+A later direct person turn may request manual approval after its prior Flow Seat
+has closed. Its live turn and owner must still match at submission; a fresh Host
+has no invocation lease surviving from the previous process and must observe a
+new direct person turn rather than infer one from a default cause.
 
 ## The front door's shapes are ordinary files, and its two clicks are a property of the dry run, not a wizard
 
@@ -3124,10 +3291,16 @@ revision, sequence and open-card checks apply to both paths.
 
 ## A runtime wears the face shape — 2026-10-05
 
+> Superseded in part by [Round is someone, square is a thing](#round-is-someone-square-is-a-thing):
+> faces are now round by default and square when chosen (`--hd-face-radius`
+> in `tokens.css`). A runtime still wears the face shape.
+
 The owner chose the face shape for runtimes: a runtime is who does the work
 in these lists, and one meaning keeps one shape everywhere. Settings,
 setup, Add a runtime, gateway rows and the runtime card all follow the
-person's Faces setting — square corners by default, round when chosen.
+person's Faces setting. At the time, square corners were the default and round
+was chosen; the superseding decision above makes round the default and square
+the choice.
 Accounts keep their rings; plugins, skills, files and sections keep their
 square tiles.
 
@@ -3162,13 +3335,15 @@ those columns; at a 720px Settings window, the list is 378px wide and Skill
 had only 95px including insets. At a 900px window the list is 558px wide;
 even balancing the remaining description measure left a two-word line.
 
-Below 600px of list-container width, Library therefore uses the table family's
+Below 600px of list-container width, the skill list (now Customize's, then the
+Library's) therefore uses the table family's
 list rows: name and command on the title line, a two-line wrapped description,
 state on the meta line, and whole loading faces and the chevron in the trail.
 The definition keeps the full description one click away. At 600px the table
 has about 293px of identity text beside those trailing facts; the identity
 cell also keeps a 192px floor. This reads the container, like Teams, so both
-the standalone Library and the Settings page respond to their own space.
+the standalone Library and the Settings skills page it then had responded to
+their own space; Customize's list does the same.
 
 In that earlier Library repair, the header's markup, relevant PageHead styles
 and Settings reading measure were unchanged from main; its narrow blurb was
@@ -3454,6 +3629,15 @@ a method forbidden by the last effective configuration. Descriptors are rebuilt
 by the adapter; without an observed policy it offers no invented method. A live
 read replaces the recorded policy along with the account display fields.
 
+An ordinary extra Codex account's saved row is retained even when its home has no
+credential file: a file's absence does not establish that another credential
+store is empty. The host does not probe extra agents at startup to decide.
+Its restored or idle account observation is unverified until a live read.
+Explicit removal persists the row change before stopping its exact owner; if
+the identity is unknown it neither signs out nor purges the credential home.
+This preserves ambiguous accounts and can leave an unfinished row until the
+person removes it. It does not establish isolation between provider stores.
+
 Automatic catalogue refresh skips idle agents. An explicit refresh is intent and
 still starts one through the host. File-based usage meters and process-cost
 observations keep their passive reads. Resuming a conversation or opening a Seat
@@ -3657,6 +3841,7 @@ The owner chose D4 A+B: **Open a folder…** in an empty composer and
 Projects. D5 A keeps a finished Team under its project, with the attention
 dot labelled **Ready to wrap**, until it is wrapped; the gone-folder rule
 still applies. D11 A removes Agents and Plugins counts from sidebar rows
+(Plugins has since moved into Customize, which has no sidebar count either)
 and keeps those totals on their pages; the Flows row, added since, follows the
 same rule, so only Dashboard's attention count remains. Part 2 item 8 earns
 **Most used** only from recorded Flow starts; fresh desks list unused Flows
@@ -3737,7 +3922,7 @@ they fold with the toolbar when it runs out.
 
 ## A fetched skill is reviewed as a bundle before installing — 2026-10-16
 
-The Library's Add from GitHub flow pins a public repository revision and lets
+Customize's (then the Library's) Add from GitHub flow pins a public repository revision and lets
 the person choose skills and destination agents before the ordinary plan.
 The plan lists every carried file and lets runnable or binary fetched files
 be read as plain text. Those incoming files require an explicit acknowledgement
@@ -3780,6 +3965,10 @@ shape before a second page uses it; it adds no new tone, token or page behavior.
 
 ## First run always has a text box — 2026-10-16
 
+> Superseded in part by [Conversations can start without a project](#conversations-can-start-without-a-project--2026-10-16):
+> decision 3 is reversed; Send no longer waits for a folder picker. The other
+> decisions stand.
+
 Issue [#1720](https://github.com/HarnessDesk/HarnessDesk/issues/1720) found that
 a fresh desk replaced its text box with a folder button. The owner chose:
 
@@ -3818,7 +4007,7 @@ scratch folder, agent registration or sign-in policy is introduced.
 
 ## Updates are checked when asked and reviewed file by file — 2026-10-16
 
-The Library checks recorded repository origins only when the person asks.
+Customize (then the Library) checks recorded repository origins only when the person asks.
 It shows the most actionable result on the row and the pinned and newer commits
 on the sheet. Recorded origins remain visible before a check. Review fetches
 each distinct source once and plans each runtime copy at the fetched commit,
@@ -3883,6 +4072,10 @@ square and Kimi's white K takes `currentColor`; tests require each fix to still
 find what it removes, so an upstream redraw fails a test instead of shipping.
 
 ## Reviewed changes collect on development; every merge to main is a release — 2026-10-16
+
+> Superseded in part by [Development pushes run the browser specs their change reaches](#development-pushes-run-the-browser-specs-their-change-reaches--2026-10-16):
+> a development push now runs the bounded browser selection as well as the
+> core checks. The branch and release model stand.
 
 CI and the account's job cap became the bottleneck: approved changes waited
 hours for a batch. From the next release, reviewed changes land offline on a
@@ -3954,6 +4147,10 @@ The menu-state preview shows rest, pointer and keyboard states in both themes;
 [the interface](interface.md#menus-and-row-focus) records the behavior and
 [the design guide](design.md) records its shared styling.
 ## Navigation and choices stay usable while runtime reads settle — 2026-10-16
+
+> Superseded in part by [Customize is the shared capability destination](#customize-is-the-shared-capability-destination--2026-10-21):
+> Settings no longer lists Skills; skill management opens Customize. The
+> stable-route rule still holds for the rows Settings keeps.
 
 Settings always lists Skills and Extensions. A runtime may call its skills
 commands and may have no extensions, but those facts describe its page and
@@ -4086,6 +4283,10 @@ fresh allocation.
 
 ## The Library's skills page is cards under filter chips — 2026-10-16
 
+> Superseded by [Customize is the shared capability destination](#customize-is-the-shared-capability-destination--2026-10-21):
+> the skills page is now Customize's, its chips are All and Needs attention
+> with the rest under Filter, and Matrix is the Runtime comparison view.
+
 Skills open as compact cards with All, Needs you, One runtime and Nobody chips. Chips count all listed skills, while search, state filters and Agent declarations narrow together. Cards carry the runtime reach strip and at most one problem line; Matrix and the skill page retain the detailed comparison. Add skill groups the three existing ways to bring in a skill. MCP keeps its current page. Catalogue banners appear under Needs you even when that chip reads 0: banners describe the catalogue, while chips count skills.
 
 ToggleGroup gained a `chips` variant, and BoardCard gained `marks`, `finding`, `detailLines` and a grid. Keeping this shape costs maintaining those shared contracts and both views over the same filtered rows, using the existing finding and update selectors. Toolbar owns the controls row. Choices remain local to the viewer, history stays at the foot, and empty regions carry a short title without a description.
@@ -4168,3 +4369,1101 @@ not built; the desktop's cloud code will stay behind one seam so that remains
 possible, and the renderer never imports the wire (`pnpm layering`).
 
 **Rule:** the client holds no service secret and the service trusts nothing the client says.
+
+
+## Desktop account sign-in uses explicit browser approval and host polling — 2026-10-24
+
+The desktop now connects through the shared cloud contract. This supersedes
+this document's earlier PKCE/redirect proposal for the desktop: the host
+signs a challenge with its own Ed25519 key, opens the system browser, and
+shows the same short code as the approval page. The signed-in person must
+approve the named desk. A forwarded URL cannot silently link a desk.
+
+Only the host holds the polling secret, private key and desk session. The
+browser keeps its own session; neither side receives the other's secret.
+After approval the host proves its key again to obtain a renewable desk
+session. An OS `harnessdesk://` launch is only a focus hint and carries no
+account data. The desktop's existing keystore cipher protects keys, tokens
+and cached profile data, with no plaintext development fallback for this
+account. Ordinary local work and agent sign-in remain independent of it.
+
+The seat and Settings › Account show the HarnessDesk identity separately
+from agent accounts. Signing out revokes only this desk and its phone links;
+linked-phone removal uses the desk's scoped authority. The Reachable from
+your phone switch was first only a preference; the relay transport that makes it
+work is recorded under "Phones away from home reach the desk through the account
+relay" (2026-11-01). LAN pairing remains separately capability-gated in Phone settings.
+
+## Lead window controls have bounded consent, requests and retries — 2026-10-18
+
+Plan approval grants 24 hours of consent from the host clock. This bounds how long
+one person click can authorize paid work within the held policy and budget. The
+window projection carries the expiry and stops offering Resume after it lapses.
+A fresh plan decision renews expired consent; Resume cannot extend consent.
+The renewal transition below preserves the approved scope and admitted work.
+
+Each window continuation requests at most 4,096 output tokens. This keeps the
+up-front reservation and one response bounded, including when a provider could
+accept a larger request. Budget admission still decides whether it fits.
+
+The journal retains the newest 4,096 send receipts in admission order. Recent
+retries return the first receipt without appending; an evicted key is a new send.
+Eviction is part of the reducer, so recovery preserves exactly the same window.
+
+A credential update is exclusive, so a key write cannot succeed before another
+category refuses. Policy and budget caps may change together under one revision
+fence. Both changes are validated and their cards checked for combined projection
+fit on the journal queue before either is appended; each widening still has its
+own reviewable card. This supersedes the earlier one-category authority rule.
+
+The supervisor gives a send a 180-second deadline. Three transport attempts of
+30 seconds and two retry waits of at most 30 seconds fit below it. On expiry the
+host kills the child through the existing exit path, records in-flight dispatches
+as uncertain and parks for a person instead of leaving controls behind a paid
+request. The short control journal queue never awaits that request.
+
+
+## Lead consent renewal preserves the approved contract — 2026-10-18
+
+When the host clock reaches plan consent expiry, the journal re-offers the
+approved plan as the next revision of the same card. Its contract, digest,
+original journal position and admitted steps stay unchanged. The renewal event
+is durable and replayable; repeated reads do not produce duplicate offers.
+Terminal, budget-stopped and recovery-blocked threads do not offer renewal.
+
+The window receives `decide-plan`, never an unusable Resume. Only a fresh
+revision-and-digest-bound Approve grants another 24 hours. Renewal preserves
+run identities, consumed rounds, reported spend and any tighter caps applied
+since the original approval. It cannot replay a start or restore an older
+allowance. Stale clicks still refuse. A declined renewal is recorded once for that consent
+expiry and is not immediately re-offered by the next read. The bounded per-card
+revision limit also applies to renewal. When another revision would exceed it,
+or its replacement cannot fit the projection, renewal creates a fresh plan card id
+with the same contract digest and leaves the old card decided. Other renewal
+failures leave the last durable projection readable, including Settings and key
+removal. A full 64-card table blocks renewal and records one durable
+`lead-renewal-blocked` wait, so the banner explains why no decision is offered.
+Repeated reads append nothing further. A terminal phase closes pending renewal cards.
+
+
+New journals keep each card's first journal sequence separately from its local
+revision counter, so replacement preserves its inline position. Checkpoints from
+before this field retain only card order, not exact interleaving with messages;
+their cards share the retained suffix’s last message position (or one when it is
+empty). Stable journal rendering puts the message first, then all saved cards in
+their original order, before every new message. Synthetic positions never extend
+beyond the checkpoint sequence. New writes and full journal replay retain exact
+positions. This supersedes the earlier maximum-plus-index migration, which could
+interleave saved cards with new messages.
+
+Policy saves compare mode and rules structurally, ignoring revision alone. An edit
+that leaves effective authority unchanged is still stored as a tightening; only
+equal values are a no-op. Widening and mixed edits still require a decision card.
+An authority-neutral edit intentionally bumps the policy revision, making a
+pending plan card stale and requiring replanning.
+
+## Lead is a named conversation with settings in Settings — 2026-10-18
+
+Lead uses the session window's shared shell, thread, Items messages, composer,
+empty state and top-bar registration. Its decisions are assistant prose with
+the question and actions in the same docked ApprovalDialog a session uses.
+The old bordered decision cards and settings dialog are retired. All window-only
+authority, revision/digest fences, consent renewal and credential rules remain.
+
+There is one Lead. Its host-journaled name is Dex or Lex, default Dex, with one
+LeadAvatar artwork slot. Choosing a name never widens or tightens authority;
+its system prompt names it without changing its tools or allowances. Name,
+Provider key, Allowances and Permissions live in capability-gated Settings › Lead.
+A widening save links back to the conversation for the person's decision.
+Bounded decision messages retain the chosen state after the dock is dismissed.
+Name-only writes return a closed name receipt without resolving a provider key
+or applying a stale-revision refusal. They grant no fresh thread or authority
+facts; every full read and notification projection still runs the public scan.
+
+The shared floating dock uses the sticky elevation token (10), replacing the
+session's former literal elevation (5). Both conversations now follow that same
+stacking contract. The composer frame is shared, and only the active conversation
+mounts its decision dock. Programmatic decision focus keeps the session's
+half-second typed-through guard; a deliberate pointer press clears it through
+the next focus event or half a second, whichever comes first. Lead's banners
+and decisions share the session's ComposerNoticeStack and composer gap.
+
+Lead is a conversation root for design accounting too. Its component-owned
+message renderer and session Items stay in the same measured screen family.
+
+
+## A person can stop the Lead goal and begin another — 2026-10-18
+
+Stop goal is a revision-fenced window operation. It first records the journal's
+stop latch, then ends the Lead request process and stops its owned Flow runs
+through the existing stop path. It never merges, publishes, pushes or removes
+worktrees. The confirmation states that files and worktrees are left as they are.
+Terminal predecessor waits put this action in their banner; other active phases
+put it beside settings in the top bar.
+
+The next explicit message starts a new logical goal only after cancellation is
+acknowledged, all provider reservations have settled and recovery has no pending
+or contested attempt. The previous goal's full budget ledger remains in the
+checkpoint, including unknown spend; new consent and a new plan are required.
+The bounded checkpoint retains 64 completed goal ledgers and refuses a further
+reset rather than discarding accounting. Old messages and decision receipts stay
+in the conversation. A budget stop on a goal still running cannot be cleared by
+sending a message: the person stops the goal first. From 2026-10-22 any finished
+goal, accepted, declined or stopped for any reason, begins the next one behind
+the same fences. Before, only a cancelled goal could, so a thread whose goal was
+accepted, or stopped at its allowance, refused every message for good.
+
+## A Lead plan that could never be accepted is refused before its card — 2026-10-22
+
+A plan is frozen only after each step's seats are checked the way its start will
+check them: the same held preview a start redeems must hold every seat at its
+role's ceiling, and the reviewer's provider must be readable and different from
+the implementer's. Either failure parks the Lead with its own reason
+(`lead-plan-unseatable`, `lead-plan-not-independent`) and offers no Approve card.
+Before this, a live sitting approved a plan with the same agent on both seats; the
+implementer committed and the review never opened, because the Flow's review
+must be independent and the desk could not show it was. The person had approved
+work that could never reach a result to accept. The refusal crosses the child
+boundary as a code, like an oversized card, so the Lead process stays live.
+
+
+## A Lead plan is a flow in its conversation, and trigger consent stays in the project — 2026-10-24
+
+The approved plan is read in execution order through LeadPlanFlow, composing the
+existing Timeline and its decorative connectors. Each step names responsibility
+in role words, followed by Approve to start. No graph library or parallel plan
+list owns a second reading order. The same pattern is exported, catalogued and
+shown in the design explorer. Acceptance checks and limits remain below it.
+
+The person can Accept and open PR from a reviewed result. The existing card
+decision, revision/digest fence and shared pending lock own that fourth choice.
+Push and branch-ownership requests use the same machinery; their prose states
+why publication or reclaim needs the person. A followed PR keeps its linked
+number, check/review status and ownership chip visible. Repair wording belongs
+only to an active hand-back round. Event origin remains a small linked fact.
+
+Triggers is a Settings Lead section: machine follow preferences have two
+independent switches, both on by default. Project declarations remain files,
+listed only when opens.lead is true and described by lead.summary from preview.
+Opening a row opens the actual returned file; listing it grants no arm or edit
+authority. There is no unsupported messaging-service row.
+
+Publication preflight validates the real person gates without answering them.
+The final journaled decision answers them only after publication completes;
+otherwise the board change could invalidate the very card authorizing the push.
+Writer-queue guards also ignore delayed child result invalidation during
+publication and an old acceptance wait after the goal enters following. Origin
+metadata carries the event action and repository subject; delivery identity stays
+in the private origin key. The offline rig covers these races and ordering.
+
+A delayed child refresh cannot replace or restore the result protected by a
+publication that has started, including completion before its final decision.
+The expected stale offer returns through IPC without ending the management
+child. A new validated hand-back starts a fresh no-progress window; total round
+limits, existing findings and stops remain in force. Person acceptance does not
+consume the repair's chance to produce new evidence before independent review.
+
+Host shutdown preserves a repair already waiting for CI as well as prepared or
+running hand-backs. Its published head and unanswered acceptance round must
+survive restart so a later green observation can offer the reviewed result.
+Preparing a same-Team repair retires the owned run's earlier terminal observation
+before the host opens its next round. Recovery then retains that authorized
+reopening instead of contesting it as foreign work. Shutdown freezes usage reads
+before their sources disappear; a new host rebuilds those readings before it can
+admit work.
+## Every git write goes through one gateway, and the host holds the credential
+
+`Detached default PR selection belongs to the creating conversation.` When a detached conversation omits a PR number, view, checks, review and comment select only its intact successful creation records in the current pinned repository. Every recorded candidate is fetched explicitly and must retain its creation head; exactly one open match is required. Ambiguous or unavailable evidence requires an explicit number. Selection survives a host restart for the same runtime/session and does not transfer to another conversation. Attached and explicit selection retain their existing meaning, and detached PR updates remain refused. The host and repository remain pinned through the associated reads; lookup grants no write authority. The journal snapshot is serialized with repository work; network reads do not hold up other repository writes, and an interrupted caller schedules no further candidates after its current bounded read.
+
+The git-gateway design reverses the shell-reach part of
+[A pull request is published through the desk](#a-pull-request-is-published-through-the-desk-and-the-desk-signs-it).
+A worker controls its checkout's remotes, URL rewrites, hooks and credential
+configuration. Running a publication command there as the person lets worker
+configuration select where the person's authority goes. One host engine now
+serves Lead and Git plugin writes: it imports reviewed objects into a private
+mirror, pushes to a host pin with a lease, and runs forge writes from host
+state. Credentials are consulted by a host helper outside the worker. The
+plugin retains signature composition and transcript references, through its
+`forge: { publish, write }` capability. Ambient forge reads still use `shell`
+and the person's gh login; moving the gateway credential is not a claim that
+all agent-shell credentials have been isolated.
+
+Steering needs three layers because no runtime guarantees a pre-execution
+look at every native command. PATH stand-ins catch ordinary shell commands;
+login-shell parsing and zsh profile shims preserve that route on the measured
+surface. Native approvals and the Claude bridge's pre-tool callback supply
+another opportunity. Completed concrete commands report afterward what
+the earlier layers did not see. These are tested against fake runtimes, including a real login
+shell and the bridge's SDK callback, not real vendor endpoints.
+Generic ACP steering currently isolates a worker per conversation because the
+protocol has no negotiated per-session shell environment; preserving caller
+identity takes precedence over process sharing until that channel exists.
+
+An outside head is never attributed. A commit's author is not its pusher,
+and a command's exit code is not proof that a particular SHA reached a
+particular remote. Only an intact successful gateway entry supports
+attribution. Person-allowed own git triggers observation of the pinned remote
+and remains outside. The outside-recording switch covers those observations
+as well as other fetched outside heads; gateway writes remain recorded.
+
+Five decisions settle it:
+
+- **D1:** Ask each time is the steering default.
+- **D2:** New branches and every rewrite ask; owned fast-forward updates can
+  proceed without another push question. A matching steering approval can
+  also approve the first push, but never silently approve a rewrite.
+- **D3:** The host executes every gateway write and holds its credential
+  path. Plugins receive forge verbs, not an executor.
+- **D4:** The first approved push pins the repository per project; a worker
+  origin cannot replace it.
+- **D5:** A global setting has a per-project override.
+
+The record journals before effects and hash-chains its physical lines. It is
+kept in host state, not in a worker-controlled checkout. Interrupted forge
+writes are not replayed blindly; recovered pushes require the matching remote
+head and a recorded successful outcome before the Lead can adopt them.
+
+
+## Lead probes its child runtime, and the desktop bundles a Node LTS for it — 2026-10-26
+
+Lead's restricted child runs with `--permission --no-allow-net` and must never
+start with network access. Which runtime runs it is decided by a capability
+probe, not a version number: each candidate is started with the Lead's exact
+flags and environment and tries a loopback TCP connect. Only a refusal by the
+permission model (`ERR_ACCESS_DENIED`) passes; a connect that goes through, a
+rejected flag, a crash, a mismatched version or a timeout fails with a short
+reason, which the settings projection carries as `unavailableReason`, the
+conversation shows, and the host logs once. Results are cached per binary path
+and version.
+
+**Why a probe.** A major-version check says what a release promised, not what
+this binary does: Electron's Node, a distribution's build and a future release
+can each differ from upstream at the same major. The probe asks the one
+question the Lead depends on, network blocked by the permission model, of the
+binary that will run it, and its answer is also the reason shown when it fails.
+
+**Why a bundled LTS.** On the desktop the child ran under Electron's own Node
+(`ELECTRON_RUN_AS_NODE`), and Electron 42 ships Node 24, which rejects
+`--no-allow-net`. The app therefore carries an exact Node 26 release for this
+child alone, fetched from nodejs.org at pack time, checked against a SHA-256
+pinned in `packages/desktop/electron/lead-runtime.mjs`, and signed with the app.
+Electron's own runtime is still probed first; the bundled copy is used only
+when it fails, and goes away once the minimum supported Electron passes. Node 26
+becomes LTS on 2026-10-28 and is supported until 2029-04, which covers the
+releases the app will ship before Electron's Node catches up.
+
+**Why not Node 25.** It has reached end of life. Bundling or testing on it would
+pin the app to a runtime that receives no further fixes.
+
+**The desk handoff.** Node 26 refuses a socket built on an inherited descriptor
+above 2 without a network grant, so the desk no longer arrives as fd 3: the
+child asks over a Node IPC channel, receives the connected socket as a handle,
+and both sides close the channel. Anything else on that channel ends the child.
+
+CI exercises the child and its probe with Node 26. The package's Node 22.19
+floor remains unchanged and other CI jobs exercise Node 22.
+
+**Rule:** gate the Lead's child on the probe's answer for the binary that will
+run it, never on a version number; never start it on a runtime that failed.
+
+## Account identity and LAN phone pairing have separate lifetimes — 2026-10-25
+
+The account service stores a sealed identity per service origin and signs in
+through explicit browser approval of a named desk and matching code. Account
+sign-out revokes this desk; account deletion removes the account after its own
+confirmation. Both clear the local sealed identity only on the documented
+success or revoked-credential paths. Offline deletion keeps it for retry.
+
+LAN pairing uses `phone-link/`, a code that works once for ten minutes and
+approval on the desk. Settings › Phone is present only when that service is
+enabled. Pairing needs no account link; account sign-out and deletion leave
+that registry intact. Reachable from your phone opens the relay connection
+only while signed in (2026-11-01). These separate lifetimes keep each
+operation within the connection the person chose.
+
+## Phone sessions page the desk index and reuse its controls — 2026-10-27
+
+A live audit of a populated desk found 198 active ordinary conversations but
+only 80 in the phone's workspace snapshot. The native phone had no way to ask
+for the next page. The snapshot also advertised ordinary-session start, reply
+and stop as unavailable, even though their native surfaces already existed.
+
+Keep the compact snapshot for capabilities, Teams and recent work, and page
+the index separately for complete active and archived session coverage. A
+workspace change invalidates those pages. The phone fences refreshes by the
+connected desk, retaining its last good copy on a temporary read failure.
+Team-owned sessions stay with their Team; archived conversations are readable
+without acquiring mutation authority.
+
+The three ordinary-session controls reuse host session creation, turn send
+and interrupt, under the phone's Run grant. They never open the general
+renderer wire or grant a new permission level. Hidden composer defaults must
+not overwrite a conversation's model or permissions. Starting follows the
+desk's selected runtime and resolves a displayed project name only among
+admitted folders; a name that identifies two folders refuses instead of
+guessing. Answer remains a separate grant for approval decisions.
+
+## Lead is one conversation and ordinary tasks use ordinary chats — 2026-10-28
+
+The owner asked for a Lead that feels like a single ongoing chat and manages other chats, using Dot, Duet and Muse as product references. The previous unconditional plan-first instruction turned even a screenshot request into reviewed software work. Repeated proposals failed seat or review-independence checks; Resume repeated the same request, while the phone hid both reasons behind a generic wait.
+
+Lead now answers directly and uses narrow project-scoped ordinary chat operations for simple delegated tasks. A reviewed plan remains available when software work needs formal independent review and acceptance. Its approval, held permissions, consent, budget and publication boundaries remain in place; ordinary session delegation does not claim that review or borrow its authority. Ordinary chat spend remains separate from the reviewed-run allowance, explained in its controls.
+
+The host checks every ordinary chat against canonical project membership, actual cwd, current policy and recovery. Starting uses saved session settings; queued replies, interrupts and approval handling remain the existing session paths. The child receives no shell, file, permission-setting, approval-answering or publication primitive. One durable allow attempt admits each ordinary mutation, and the host consumes it once, including refused admission. Trusted host receipts distinguish a preflight refusal with no effect from a genuinely uncertain dispatch; only the former permits a fresh corrected attempt. Other chat transcripts remain untrusted observations. Listings and recent transcript reads also have an encoded byte budget; partial reads report omitted turns instead of becoming tool refusals. Queued Lead messages retain their project and policy guard through to the actual send, including after a reopen; a changed target pauses the queue.
+
+Tracked chat state transitions are metadata, scoped and reauthorized by the client door. A bounded subscription baseline covers changes during a disconnect, and the model's wake gate coalesces them. Conversations are not Flow runs and never appear as fabricated reviewed results. Setup failures show the change needed and leave chat usable; transient interruptions may offer Resume. A new message includes trusted feedback about the prior rejected plan so that the model can correct it. Direct conversation turns do not park an unrelated approved plan for failing to start it.
+
+The screen, composer and navigation stay familiar. An ordinary active reply has its own Stop control; a finished reply leaves no planning banner. This supersedes the universal plan-first behavior, not the reviewed workflow's admission rules.
+
+## An earned description can take a narrow row's full width — 2026-10-29
+
+In the narrow Team Overview, the face and trailing control left a descriptive
+line with too little reading width. `ListRow` now offers `subtitleLayout="below"`:
+the face, name and control share a centred heading, followed by a description
+across the row's inner width. Narrow Overview seats use this composition for
+their role, work or unavailable reason. The shared list catalogue shows the
+same option. The face centres on the heading, keeping it beside the name even
+when the description wraps; ordinary rows retain whole-row centring. Metadata
+follows the description at full width, and both row sizes keep a line gap.
+The browser regression measures visible word ranges at 240, 280
+and 320px preview viewports in both themes, including clipping and overflow.
+
+## CI is dealt from manifests and measurements, not hand-carved jobs — 2026-10-30
+
+Measured over 200 CI runs (2026-10-21 to 10-30, 42,000 runner minutes), and
+the failure logs of the 128 jobs that failed in them:
+
+- **Every pull request waited on one file.** The Lead end-to-end file's 31
+  cases ran in series for 21-29 minutes while every other job finished in
+  eleven. Profiled locally, 65% of a case was the host starting git: about
+  12,000 processes in 94 seconds, mostly re-asking which repository the same
+  few folders belong to, and re-reading one commit's checks file 313 times.
+  The host now asks `rev-parse` once instead of three times, reuses a
+  checkout identity it has just read for that same folder, keeps a project
+  answer for a second while its folder is still where it was, and keeps reads
+  of immutable objects. The same case went from 116 to 64 seconds; the desk a
+  person runs does the same work less often. The largest source left was every
+  evidence reader asking where each fact's branch stands. A branch's tip is now
+  asked again only once a file its ref is kept in has changed — the loose ref,
+  `packed-refs` or a reftable list, marked by `stat` and trusted only once it
+  has been still for longer than a filesystem tick — and how two commits stand
+  is kept per repository (`evidence/tips.ts`). That case now starts about
+  4,250 git processes in about 55 seconds, against about 6,300 in 64.
+- **Node tests are one manifest.** `script/node-tests.mjs` names each group —
+  unit, Node end-to-end, retention, the Lead's, the Lead's end-to-end — with its
+  per-file deadline and runtime, and deals the files into jobs of about five
+  minutes by `script/node-test-durations.json`. Verify, `pnpm test`,
+  `check:push` and CI read it; the `find … ! -path …` list kept in three copies
+  is gone. The Lead end-to-end cases are four files. Every job reports with
+  `spec`: on Node 22 the default TAP output left 19 failed jobs in nine days
+  without the failing test named anywhere in the last 5,000 lines of the log.
+- **The full tier's two themes and its recording belong to main and
+  development.** Every one of the 21 dark-theme failures of a geometry spec
+  in those nine days came with the same case failing in light, and a
+  recording made on a batch branch, a `full-ci` run or the release pull
+  request was never saved (only main and development keep the map). Those
+  runs still read every spec, in the pull-request matrix, on the built pages:
+  14 shards instead of 17 instrumented ones. The nightly run and main pushes
+  keep both themes and the recording.
+- **A tree is proven once.** A batch head's full run tested the merge of its
+  branch into `development`; squash-landed onto a `development` that had not
+  moved, the push is that same tree, and it ran the reached browser specs
+  again (40 pushes, 2,000 runner minutes in nine days); a release pull
+  request's full run and the `main` push after it did the same at 480 minutes
+  each. A full run that passes every part, the whole browser suite and native
+  smoke included, now uploads a `proven-tree-<tree>` artifact, and a push to
+  `main` or `development` whose tree has one from this repository's own
+  branches runs core CI only. The nightly run never reads a proof.
+- **CI runs the dealt UI unit suite.** A related selection took as long on one
+  runner as the four dealt shards (p50 4.8 against 5.1 minutes, p90 8.7
+  against 6.7). Local `check:push` still uses it, where a laptop is the cost.
+
+**Rule:** a job's contents come from a manifest and the last measurement, never
+from a list in the workflow; a check that never finds anything another check
+does not is measured, then removed from the place it costs most.
+
+> Superseded in part by [A checkout root's project answer stands while what git reads to give it is unchanged](#a-checkout-roots-project-answer-stands-while-what-git-reads-to-give-it-is-unchanged--2026-10-31):
+> the one-second window is gone; a folder can join or leave a repository
+> without moving.
+
+## Full CI label admission — 2026-10-30
+
+A label worker rechecks the live pull request and can reuse a matching PR run
+created no earlier than the latest full-ci label application only when that run
+has generated a matching full-tier marker. A queued or running marker counts
+while its workflow is active; a completed marker must have succeeded. If a
+matching active run has not generated a tier marker, the worker waits up to six
+ten-second intervals for selection, refreshing runs and jobs each time. API
+calls add their own time; an API failure still fails immediately. A bounded or
+inactive run does not earn that wait, and an exhausted wait keeps the normal
+dispatch. The final live PR check still follows the wait. This avoids admitting
+an old or bounded event snapshot; the marker is admission evidence, not a claim
+that CI passed. A push
+can still move the branch after the recheck, so this is not atomic deduplication.
+Events have second-resolution timestamps; a labeled and unlabeled event in the
+same second are ambiguous, so the worker treats removal as latest and dispatches.
+The same-repository-only `pull_request` workflow checks out the immutable event
+merge commit (`github.sha`) so its helper is present before the PR is merged.
+This keeps the existing fork condition and actions write permission; it does not
+use `pull_request_target` or expand the workflow's trust boundary.
+
+## A click on a result the Lead took back is made when that same result returns — 2026-10-31
+
+The Lead withdraws every undecided result as soon as an observation that may
+change it arrives ("invalidate first"), and restores or re-offers it once it
+has read the desk again. A person's click that landed in between was refused
+(`lead-card-stale`, `lead-card-decided`), though the result came back exactly
+as it was. With the host's reads faster, the Lead publication end-to-end cases
+hit that window on most runs; a person hits it as an accept that fails for no
+reason they can see.
+
+The fence stays: nothing is decided while a result is withdrawn. The journal
+remembers, in memory only, which results an invalidation took back while
+undecided. A refused click on one of those waits, outside the controls queue,
+for that same card — same id and revision, so the same contract and evidence —
+to be offered again, then is made on it; a new revision, the card gone, or no
+return within `LEAD_REOFFER_WAIT_MS` (fifteen seconds) is refused as before. A
+card a person decided is never waited for, and a click whose publication began
+is never made twice: an invalidation is fenced while a publication is in
+flight. Not invalidating on quiet events was rejected: whether an event
+changes a result is only known after the read the fence exists to wait for.
+
+The same refusal came from a second writer. Once a repair's CI passes, the
+host offers the result itself; the Lead loop, not having offered that card,
+offered an identical one at the next revision (only the summary line and
+bookkeeping revisions differed), so a click on the host's card was refused.
+The loop now takes a stored result whose contract, evidence and spend are
+exactly what it read as the current result — unless it has itself seen that
+card stand for other evidence, so a result taken back while its evidence
+moved away and back is still offered afresh.
+
+**Rule:** a refusal says something changed; when nothing did, the click stands.
+
+## A checkout root's project answer stands while what git reads to give it is unchanged — 2026-10-31
+
+The one-second window `projectOf` kept an answer for, on the folder's real
+path alone, was wrong: a folder can join or leave a repository without
+moving. A lane folder torn down mid-read, or a directory a checkout is then
+made in, kept its old answer, and the Lead publication end-to-end cases
+decided a result card against it and were refused (`lead-card-stale`,
+`lead-card-decided`) — in CI on most runs once the reads around them got
+faster. The window was removed (`4081d37`); only callers asking at once share
+an answer.
+
+Asking afresh every time put `projectOf` back at about a fifth of a Lead
+run's git processes. A folder that is the root of a checkout of its own (a
+project, or a Team's worktree) now keeps its answer while a stat mark reads
+the same, and the mark is read on every call: the folder; its `.git`, a
+directory or a `gitdir:` file read whole; that git directory and its
+`commondir`; the common directory with the configuration that can move or
+empty its working tree (`config`, `config.worktree`); and the answer's own
+`<root>/.git`. Directories and pointers are marked by identity and text, a
+configuration file by identity, size and times, and one changed within
+`RACY_MS` of the read vouches for nothing — the parts and the rule are the
+ones `tips.ts` marks a branch tip with. The folder's side is read before git
+answers and must agree after, so a checkout made meanwhile is not marked as
+it was. A subfolder, a folder in no repository and a folder that has gone are
+asked every time. `repositoryRoot` no longer asks for the origin it discarded.
+
+Measured on the Lead end-to-end case `the model gets one standing text…`,
+with every git process counted: without a cache, `projectOf` started about
+4,600 of its 7,800 git processes and the case took 90–97 seconds; with the
+mark, it started 26 of 3,300, in 65–69 seconds.
+
+The faster host also showed the Lead publication cases racing the Lead
+itself: the Lead withdraws a result on every desk event that may change it and
+offers it again, so a click on a result card read a moment earlier was
+refused. That is a person's race too, and is fixed in the Lead, not the test
+([a click on a result the Lead took back](#a-click-on-a-result-the-lead-took-back-is-made-when-that-same-result-returns--2026-10-31)).
+
+**Rule:** an answer about the filesystem stands on a mark of exactly what was
+read to give it, read again on every use, never on time or a path alone; a
+mark too new to tell the next change from is no mark.
+
+## The popup contracts are captured once and checked many times — 2026-10-31
+
+The 73 `frame-*` contract specs took about 414 of 653 recorded test-minutes in
+the full matrix and 103 of 270 in the pull-request matrix
+(`e2e/ui-system/durations*.json`). The eight `frame-contract-popup-*` specs
+were the largest family, 7,600 and 1,240 seconds. Each of their tests opened
+one wall destination at one width in one theme and measured its popups. Of the
+3.3 seconds a test took on built pages, opening the preview was about 2.2:
+every test's fresh context fetched and ran the 9.8 MB bundle again. Measuring
+was 0.2–0.5 seconds of round trips, and a dark test rendered the same geometry
+a second time.
+
+They are now captured once and checked many times:
+
+- **One render per destination and width.** A test takes a batch of up to ten
+  destinations at one width through one page, so the bundle stays in the HTTP
+  cache and a load takes 0.8–1.4 seconds. Nothing else carries over between
+  destinations: an init script empties local and session storage as each
+  document starts (the app writes drafts on `pagehide`, so clearing before
+  navigating is not enough), and the app keeps nothing in IndexedDB or
+  cookies. The preview fixture's route turns the cache off, so it is installed
+  only for a destination whose document asks for the local preview, which is
+  then staged again with it.
+- **One read per theme.** `frame-contract-popup-snapshot.ts` reads every
+  visible popup in one evaluate, then switches the page to dark in place (the
+  body attribute, `color-scheme` and the emulated media, with colour
+  transitions finished) and reads again. A destination with no popup has
+  nothing to read in dark and is not switched.
+- **The rules are pure functions.** `frame-contract-popup-rules.ts` holds the
+  C10 assertions with their messages and runs over each reading in Node. The
+  four locator helpers other frame specs call now read a surface once and call
+  the same rules, so there is one copy of each. `popup-contract-rules.spec.ts`
+  breaks each fact of a synthesised snapshot, 90 cases, and expects the rule
+  to name it; it starts no browser.
+- **A failure still names its destination and width.** A batch carries on past
+  a failing destination, attaches that destination's snapshot, and fails at the
+  end naming each one. The width stays a dimension of its own.
+
+What licenses it was measured on built pages, two workers:
+
+- A reused page reads what a fresh context reads: 576 of 576 destination-widths
+  produced identical snapshots.
+- The switched page reads what a dark load reads: 135 of 135 popup readings
+  were identical. `popup-theme-switch.spec.ts` keeps six destinations, one of
+  every popup kind and ink, on that comparison.
+- The rules catch what the live checks caught: 20 CSS mutations of plates,
+  rows, labels, hints, icons, separators, groups, notes, trailing values,
+  chevrons, info cards and inks, across the 45 popup destinations at 1440, and
+  the unmutated page. Old and new failed on exactly the same destinations in
+  945 of 945 cases; every mutation was caught by both.
+- Time, the popup family: the pull-request matrix went from 1,596 to 1,000
+  test-seconds (809 to 509 seconds of wall time) while gaining the dark ink
+  it never read; the full matrix's light and dark runs, 3,232 test-seconds,
+  are the same 1,000.
+
+Geometry is now read in light in every matrix; the 2026-10-30 measurement found
+dark geometry caught nothing light did not. Dark ink is read from a switched
+page rather than a dark load, which holds while the theme is CSS: a popup that
+chose its colours in script would break `popup-theme-switch.spec.ts` first.
+The durations tables scale the family's recorded times by these local ratios
+until CI records them.
+
+**Rule:** a frame family is migrated by giving its rules pure functions over a
+reading, proving each fails as the live check did, and adding its reads to the
+same visit. The families that open the same wall destinations (the leads, page
+layout and navigation) are next, and are where one visit per destination pays
+most.
+
+## The non-work window leads are captured once too — 2026-10-31
+
+The B10 lead contract — a non-work page titles itself in its content column,
+and the bar's fixed lead carries exactly the window's controls — was the
+next-largest frame family: 4,277 recorded test-seconds in the full matrix and
+805 in the pull-request matrix, over three window states (sidebar hidden at
+1440, 720, sidebar standing at 1440). Each of its 456 tests loaded two
+documents in a fresh context: the work conversation, for the place origin
+every non-work lead is held to, then the destination.
+
+It now runs the way the popup contracts do
+(`frame-snapshot-batch.ts`, shared by both families):
+
+- The work conversation's origin is read once per batch of ten
+  destinations, and each destination once, through one page.
+- `frame-contract-leads-snapshot.ts` reads the lead. The live check waited
+  before most assertions — for a title to leave the bar, the lead to gain its
+  buttons, a long title to find its room — and each wait is kept under the
+  same condition and deadline; only the assertion moved, to
+  `frame-contract-leads-rules.ts`. `expectLead`, which the B6 work leads
+  still call live, reads and checks through the same rule.
+- It is geometry, so it reads light only, in every matrix: the decision of
+  2026-10-31 above, accepted by the owner for this family as well.
+- `lead-contract-rules.spec.ts` breaks each fact of a synthesised reading,
+  21 cases, and expects the rule to name it.
+
+Measured on built pages, two workers:
+
+- A reused page read what the old test's fresh context read (the
+  conversation first, then the destination): 228 of 228 destination-states
+  and 12 of 12 batch references were identical.
+- Old and new failed on exactly the same destinations in 1,140 of 1,140
+  cases, over the unmutated page and CSS mutations of the title's column edge
+  (caught at 70 destinations in each state), a hidden title (70), a missing
+  Back control (50; Settings carries none) and the bar's height (the 26
+  Settings pages).
+- The branch that holds a bar title to the work origin and its title room is
+  reached by no destination today — all 76 title themselves in a column, six
+  of them canvases — so neither version asserted it on the live app, and
+  mutations of the place and the title changed nothing in either. Its rule is
+  held by the synthesised cases alone, and runs when a destination reaches it.
+- Time: from 1,070 test-seconds (the old light half, what a pull request
+  read) and 2,116 (both themes) to 368; wall time for the whole family went
+  from 1,067 seconds to 190. The durations tables scale the recorded times by
+  these ratios until CI records them.
+
+## Repeating Lead work keeps the approved contract, one run at a time — 2026-10-30
+
+Recurring work should not need the same plan approval every week. A repeat therefore lives in the existing schedule store, carrying the approved digest-bound contract and per-run caps. The repeat field belongs to the approval scope. Each slot mints fresh goal, contract and step identities, budget and consent, and rechecks the same project, policy, source and seat constraints as a person-approved start. A changed fact returns a plan card with its reason. Legacy Settings tasks retain their plan-per-run behavior. Publishing, merging and deleting keep their own consent on every run.
+
+A slot is skipped when paused or while work remains open; it never queues. Missed slots while asleep coalesce to one run on wake, held by quiet hours. Stop retains history, and Run once now requires an idle Lead. The last 12 run records include the terminal outcome and known spend. A second schedule store, replaying every missed slot, carrying old consent into a new run and giving the Lead repeat controls were rejected because each would make either ownership or authority less clear.
+
+## A worker stop can receive one host second look — 2026-10-30
+
+A named issue or pull request may have cleared since a worker stopped, and a completion claim can lack check evidence after its last edit. The host may act once on such a stop using facts it can prove. A cleared blocker resumes owned work through the existing recovery path within the same approved step and allowance. Missing evidence produces a steer on the existing worker path. One journaled Second look entry records Said, Found and Did; a failed or inapplicable intervention leaves the ordinary person wait. The wake gate does not reawaken the model for a handled stop.
+
+Model-inferred blockers, repeated retries, a second start of an already started step and counting worker output as a required person-run check were rejected. They would confuse claims with evidence or add authority. The untrusted Said text is bounded and sanitized when rendered.
+
+## The last fifth of a Lead allowance finishes the approved plan — 2026-10-30
+
+Known Lead and worker spend reaching 80% produces a journaled At 80% entry with the observed figure and unchanged hard stop. A desk conversation message tells the Lead to finish only what its approved plan needs and leave additional review asks in the result. Standing instructions remain stable throughout the goal. A higher dollar cap re-arms the warning for its own threshold. Unknown, stale, partial and ambiguous spend produce no warning figure.
+
+Raise limit… is a person-only direct caps update in the shared Dialog. It can increase dollars, rounds or both and preserves an existing stop latch. The raise belongs to its goal: the next goal starts from the caps in force before it, and a fresh approval of a stopped repeat turns that repeat back on. A second Lead approval card for the person's own choice, changing the standing prompt mid-goal, estimating unknown spend and automatically clearing a stopped goal were rejected: none is needed to make the remaining allowance useful.
+
+
+## Worker approvals can be remembered for one Lead goal — 2026-10-31
+
+“Yes for this goal” is a person's decision through the authenticated window or
+paired-phone answer path. The host persists an exact key bound to the goal-start
+sequence and approved contract. Child RPC and worker clients have no save or
+revoke operation; the worker-approval permission floor remains in place.
+
+Commands never receive a reusable key because repository configuration and gitfile indirection can make even read-looking commands execute worker-controlled programs. A check before execution cannot prevent a worker changing that configuration or indirection between the check and the run.
+
+File rules match one exact absolute path for an add or update under the approved
+project. The closed source/document extension allowlist is: `c`, `cc`, `cpp`,
+`cxx`, `h`, `hpp`, `cs`, `fs`, `go`, `rs`, `java`, `kt`, `swift`, `m`, `mm`,
+`py`, `rb`, `php`, `js`, `jsx`, `ts`, `tsx`, `css`, `scss`, `sass`, `less`,
+`html`, `htm`, `vue`, `svelte`, `md`, `mdx`. XML, Kotlin scripts and SVG are
+excluded because they commonly define builds or carry executable content. JSON,
+YAML, TOML, lockfiles and shell scripts are also outside this list.
+
+Eligibility is checked on the path relative to the approved project, allowing a
+project itself to live below a dot folder. Every relative segment must be plain printable ASCII (U+0020–U+007E). This prevents Unicode-equivalent instruction and build names from borrowing a source-file key on filesystems that fold those names. The key, checkpoint admission and fresh path check enforce it; the project root itself may contain Unicode or dot folders. No relative segment may start with a
+dot, or name a `script`, `scripts`, `bin` or `hooks` directory (case insensitive).
+Basenames use the lowercase rc-file pattern `^\.?[a-z0-9_-]*rc(\.[a-z]+)?$`, except short ordinary source stems of the form `<letter>rc` (such as `src.ts` and `arc.ts`). This exception follows the explicitly required source-file acceptance cases, which the general rc pattern also matches. Basenames also refuse `*.local.*`, `*.conf.*`, `conf.py`, `*.config.*`,
+`*.setup.*`, `*.workspace.*`, `*-config.*`, `gatsby-*`, `*.gradle*`, `ember-cli-build.js`, `sitecustomize.py`, `usercustomize.py`, `*.gemspec`,
+`*.podspec`, `package.json`, `Makefile`, `Dockerfile`, `pom.xml`, `Package.swift`,
+`build.*`, `setup.py`, `setup.cfg`, `conftest.py`, `noxfile.py`, `tasks.py`,
+`fabfile.py`, `manage.py`, `Rakefile`, `Gemfile`, `Podfile`, `CMakeLists.txt` and
+`meson.build`. Agent instructions (`AGENT.md`, `AGENTS.md`, their dotted variants,
+`CLAUDE.md`, `GEMINI.md`, `WARP.md`, `QWEN.md`, `CRUSH.md`, `INSTRUCTIONS.md`, `RULES.md`, `SKILL.md`,
+`copilot-instructions.md`, `CONVENTIONS.md`) are refused in any case. Ordinary
+names such as `resource.ts`, `source.ts`, `profile.ts`, `profile.test.ts`, `profile.spec.ts`, `profile.component.ts`, `profile.service.ts` and `file.utils.ts` remain eligible. Runner stems are explicit: `gulpfile`, `gruntfile`, `jakefile`, `pnpmfile`, `brocfile`, `noxfile`, `rakefile`, `taskfile`, `dangerfile`, `cakefile`, `guardfile`, `makefile` and `webpackfile`, followed by zero or more alphabetic dotted variants and a `js`, `ts`, `mjs` or `cjs` extension, are refused (case insensitive). This includes `gulpfile.babel.js` without treating every source name ending in `file` as a runner. The implementation
+is `LEAD_APPROVAL_FILE_EXTENSIONS` and `safeFile` in
+`packages/protocol/src/goal-worker-approval.ts`.
+
+Only regular existing files with one hard link, or new files with an existing
+regular directory parent, qualify. Symbolic links below the project root,
+multiple paths, deletion, movement and root grants do not qualify. The host
+rechecks paths and link counts at each use; a background process can still swap
+a link after the check and before the runtime applies the change.
+
+Tool permissions match the exact trusted `flowBoardTool.tool` in the closed read
+set: `list_intents`, `get_context`, `get_team_status`, `review_candidates`,
+`list_findings`. Permission summaries cannot prove tool identity. Rationale,
+extra grant facts of any kind, filesystem/network scope, gateway questions and
+held requests exclude reusable keys. Extra permissions and network context are
+normalized to labeled display facts on the ordinary approval card and on the
+Lead's complete one-time request. Questions, elicitations and stdin never get a
+key. Targets and paths containing Unicode control, format or line/paragraph
+separator characters are refused.
+
+Audit traffic never enters the conversation message window or the Lead's prompt.
+Each rule keeps its exact acknowledged-answer count; file rules separately keep
+newest-first entries containing the answer number and exact diff (including an
+empty diff). Each diff is limited to the card's 8,000 characters. History retains
+at most eight entries and 32 KiB of UTF-8 JSON per rule, with a 256 KiB goal-wide
+cap; oldest entries drop first and never change the count. Tool rules retain no
+diffs. Revocation disables matching and moves the rule to read-only revoked history, retaining its entries under the same bounds and shared 128-rule limit. Terminal decisions and a new goal clear both active and revoked history. An unfenced contract change also clears them; a fenced contract change retains revoked history and the audit wait. A renewed grant for the same target has a new id.
+
+The conversation derives one host notice line per active used rule, updating it
+in place with its count. View changes belongs to the saved rule's row and
+opens retained entries newest first in the shared Dialog. These values pass the
+transcript text sanitizer and never appear as assistant prose. A dispatch intent containing the exact bounded request is journaled before answering, and admission is checked again after that write. Acknowledgement writes history and count, clears the intent and restores the prior phase. An unmatched intent persists across checkpoint and journal replay as `waiting-for-user` with `lead-worker-audit-failed`; neither another automatic answer nor Resume can bypass it. The person inspects the worker changes and revokes the uncertain rule through the Answer-tier path before Resume can continue. A response failure also leaves the intent uncertain, without claiming an allowed answer or incrementing its count. A failed writer must first be restarted; the durable intent retains the fence. Live revokes of missing or already revoked ids fail without an append, while historical replay remains lenient.
+
+Strict checkpoint loading drops structurally valid but obsolete rules with one
+host removal notice, rather than refusing the whole checkpoint. Other malformed
+state remains an error. Former command keys are recognized only for removal;
+legacy use records retain counts without inventing missing diffs. Retained
+round-one diff notices migrate into file history and leave the message window.
+Journal authentication checks the original stored record before migration.
+
+Saved approvals and read-only revoked history use a plain Rows/Row list; revoked rows show a Revoked chip and keep their diff reader without a Revoke control. Active rows use secondary Revoke controls and the
+dock's shared busy state. Revocation and automatic admission share the journal
+writer queue. Entering Following ends all saved authority by moving active rules
+to revoked history. A dispatch present at that boundary becomes an uncertain
+history entry and latches `workerAuditWait`; a later repair must ask again.
+Accepted, declined, stopped and fresh or repeated goals discard active rules and
+history. An unfenced approved contract change does the same. A fenced contract
+change retires every key, retains uncertain diffs (including their original
+contract digest) and orphan receipts, and keeps the audit-failed wait. A pending plan suspends automatic
+answers. Strict journal and checkpoint parsers retain only the closed keys;
+obsolete keys are removed rather than widened or reinterpreted.
+
+A durable worker-approval dispatch keeps the live phase while its answer is in flight. Its own acknowledgement or proven cancellation resolves it. Any other journal record following that unresolved dispatch proves the answer was unacknowledged and records the audit wait, even when Revoke removes the dispatch. Reopen/checkpoint loading applies the same fence when the dispatch is the final record. Resume after Revoke is therefore a durable person decision, and older dispatch/revoke/resume journals remain readable. File rules that become ineligible retain inert metadata and bounded audit history, so a historical unfinished dispatch still exposes its uncertain diff. A checkpoint that already discarded the key retains a bounded host observation and private dispatch receipt; a matching acknowledgement or cancellation clears the uncertainty, while the person may inspect and Resume an unacknowledged observation.
+
+The reducer applies `fenceLeadWorkerDispatch` before any non-settling successor
+of an unresolved intent and after every later record. Live answers, the disk
+writer, replay and checkpoints share that function, including repair hand-backs
+that reach passive following. Following retains audit history; terminal person
+decisions and a new goal retire it. New revoke records carry `auditFailed: true`
+when they remove an uncertain intent, retaining an explicit Resume requirement
+through same-contract renewal. Unmarked historical revokes retain the old renewal
+semantics, so a start admitted by a valid older journal remains readable.
+Repair refreshes compare the fenced state before appending and are idempotent.
+Neither a plan proposal nor approving its revised contract resolves a worker
+audit. Known acknowledgement or proven non-delivery settles its own pending
+intent; once authority has retired, Resume continues after inspection. An orphan
+requires the explicit Resume action, never implicit resumption by ordinary chat.
+Terminal decisions and a new goal end the audit wait. All non-read,
+non-cancellation execution remains refused until the wait has resolved.
+
+## Lead message provenance is verified and chat control belongs to the person — 2026-10-30
+
+A sender label is text anyone can type. The host composes the Lead envelope and
+records its exact digest; only a matching record earns `Sent by <name>`. An
+unknown envelope stays folded context. Failing closed loses a label, not a
+boundary. The envelope keeps the name at send time, so a later rename never
+rewrites an old sender.
+
+The host checks chat holders at Lead send and stop admission and at queue
+delivery. A prompt is advice; a host refusal enforces the person's decision.
+Take over removes waiting Lead messages and preserves the person's queue.
+A message already dispatched to the agent may finish, as with the person's
+ordinary queue. A take-over installed during admission wins before dispatch. Hand back sends nothing and the Lead reads
+the chat on its next activity wake.
+
+Only the button takes over. A person's message is not a hand-over: they can add
+a word to the Lead's work without ending its hold. The composer stays usable
+under either holder. These controls grant no permissions, approval answers or
+Flow authority.
+
+The host keeps up to 32 verified envelope keys per chat. Older Lead messages
+fall back to the folded “Lead message from …” context block. On the phone, a
+mixed message containing both Lead context and ordinary user content drops the
+Lead label rather than attributing the whole message to the Lead.
+
+A chat the Lead starts is named by the first line of the Lead's words, not by
+its envelope label: the label is the same on every chat the Lead opens, so a
+list of them read "Lead message from Lex" five times. The label stays the name
+only when the Lead sent no words; headings, bullets and emphasis marks are
+dropped and the title is clipped at 200 characters. The phone's session list
+marks a chat whose holder is the Lead as the Lead's (`startedBy: 'lead'`, `by`
+its name). That is the holder, not who opened it: a person's own chat the Lead
+sends a follow-up to is held by the Lead until Take over, the same fact the
+desk's composer notice shows, and a chat the person took over reads as theirs
+again. The Lead is told that a new chat's first line is its title, so it opens
+a brief with a short task name rather than with context.
+
+Control records retain up to 64 chats per project; person holds are never
+evicted. An invalid record fails closed for every Lead send,
+stop and queued delivery until the person confirms **Reset chat control** in
+the composer notice. That explicit reset clears all projects' holds and
+verification keys; no read or Lead operation repairs the record. Missing
+records alone mean no holds. While the host runs, a synchronous in-memory
+person hold survives disk failures and is checked at the actual dispatch
+boundary. Control reads are passive and never construct the Lead or select a
+project. Temporary I/O failures refuse the operation without latching invalid state; the window offers Try again and retries once, retaining the known holder controls. Stale project roots retain their records without blocking available projects only when a redirected root resolves outside the selected project. A redirect into the selected project or any descendant latches invalid: otherwise its old record key could hide a person hold from dispatch. Missing, ENOTDIR, ELOOP, EACCES and EPERM stale roots remain retained without blocking other projects. Chat ids are globally unique: a person hold under any project key fences dispatch and holder lookup for that chat, including pending in-memory holds. The selected project’s list projects that global holder without changing its verification keys or copying another project’s record. Hand back durably releases every project key for the chat together; only pending holds at or before that request’s epoch are released, so a newer take-over stays fenced and is persisted by its queued write. Only a chat in the host’s chat list can gain a person hold before its first Lead record. Cancelled waiting Lead messages are noted in the Lead thread immediately after the hold is saved, before a follow-up read.
+
+Lead verification keys bind the exact envelope to its runtime and chat id.
+Receipts from another chat, and older unbound digests, never earn a sender
+label; those messages remain folded context. Phone projection uses the same
+chat-bound verification without changing its wire fields.
+
+Invalid control content requires explicit reset. Transient I/O failures refuse
+that operation and allow a later retry. Corrupt content or permanent control-record access failures (including EACCES and EPERM) latch invalid and offer explicit Reset. Three consecutive retryable read failures from any caller report a resettable unreadable state with the additive window flag `retryable: true`, but never latch the corrupt-record fence: every subsequent call still tries the disk. This state keeps holder controls, offers Try again before secondary Reset, and gets one automatic retry even if the initial transient retry was used. Truly corrupt records retain Reset without automatic retries. The next successful read clears both the consecutive-failure count and that state without changing the record or its holds. Recovery through Lead or phone reads also clears the published window warning. The selected project being unavailable is a distinct `unavailable` problem: restore that folder and its access permissions, then retry; Reset cannot repair the project and is not offered. Both failure kinds keep dispatch closed, including its synchronous check.
+Records for deleted project folders remain intact without blocking another
+project. A person can hold a chat before its first Lead record when the host chat list admits its real cwd into the canonical selected project, including a symlink alias. Take over
+persists and publishes the hold before attempting its cancellation notice;
+notice failures are logged. A Lead instruction still in admission when the
+person takes over is cancelled on refusal, freeing the person's queued replies
+and preventing replay after Hand back.
+
+## Phones away from home reach the desk through the account relay — 2026-11-01
+
+A phone off the desk's network needs a path, and the account service already
+runs a relay room per desk. The desk holds one outbound socket to it while it
+is signed in and Reachable from your phone is on, which is off until the person
+turns it on. The relay is not trusted with content: each phone it announces
+runs the same end-to-end session as a LAN phone, pinned to the desk key from
+the pairing code. What holds against the relay itself is that pin, the secret
+inside the pairing code, and Allow this phone?, which a new phone still waits
+for. The device check is narrower: a phone must prove the key the relay says
+the account linked, which stops a ticket being used by another phone, and
+refuses it before the pairing code is spent.
+
+The relay is handed a credential of its own. The desk session carries two
+tokens, and the one the relay sees is typed for the relay alone and refused by
+the account API, so a relay, or anything that logs its traffic, never holds one
+the rest of the account would accept.
+
+The link's behaviour follows what each failure means. A close for a replaced
+desk or a revoked one stops it, and only the person turning Reachable off and
+on starts it again, so two copies of a desk never fight over the room. A
+refused token is renewed once; refused again, it stops. Any other drop
+reconnects with full jitter, and the window says "Can't reach HarnessDesk" only
+after three failures in a row, so waking from sleep does not flash a warning.
+Silence is probed three times before a socket that looks open is dropped. The
+backoff starts over only after a socket has stayed up a while, so a relay that
+admits the desk and drops it again does not make it reconnect in a loop. The
+relay meters each socket and closes it over a frame it does not allow, which
+would drop every phone at once; the desk paces its frames under that meter and
+lets go of only the phone whose message is too large.
+
+Removing a phone on the desk refuses it at once from the local registry; its
+account link is removed when the account can be reached, from a small outbox
+that survives a restart. The outbox is written before the phone is removed, so
+a removal that cannot be recorded fails as a whole instead of leaving a link
+nothing will remove. The pairing code carries a one-time invite when one
+can be made, and falls back to a same-network code when it cannot, so the
+account is never in the way of pairing. A desk whose relay has stopped (replaced,
+refused, or an account that names no relay) gives a same-network code only: a
+phone away could not reach it, or would reach the copy that took its room.
+
+The account key and the phone-link key stay separate: the first names the desk
+to the account and signs the relay's challenge; the second is the one the
+phone pins for the encrypted session.
+
+
+## An empty Lead page shows Dex and the folder step — 2026-11-03
+
+With Lead on and no folder open, the host refuses `lead/thread/read` and
+`lead/settings/read` with `lead-project-missing`: it builds the Lead journal only
+once it has a project. The page used to wait for a name that never came — a
+grey disc holding "…" in the sidebar, the bar, the popover and the middle, a
+greeting floating above a warning banner, and an open rail with nothing in it.
+
+The store now records that refusal as `projectMissing`, cleared by the first
+projection. A journal always starts as Dex, so before one exists the page shows
+Dex's face and name; the stored `name` stays null, so nothing that writes or
+gates on the setting changes, and Switch to Lex says to open a folder first.
+The middle is one LeadGreeting pattern (face, a 16 title, a 14 sentence, and
+Open folder… only when it must come first), so the dock no longer repeats the
+step as a warning. The rail gets one Goal line saying what it will hold and
+what comes first. A word on every row at rest is noise, so the presence word
+leaves the sidebar row and the bar while the Lead is Ready or has no folder,
+and stays in the status popover. An empty disc replaces "…" for the moment
+before settings arrive. A chosen name with an empty thread now greets rather
+than leaving a blank page.
+
+
+## Paired phones can review bounded output and changes — 2026-11-03
+
+The owner approved command output and diff lines reaching a paired phone on
+2026-11-03 so a person can review a change away from the desk. A file count and
+a command title cannot show whether the work is right. The existing encrypted
+Read lane now includes scrubbed command tails and unified diff hunks.
+
+Command tails keep at most the last 40 lines, 300 characters per line and 8 KB
+per step. Hunks keep at most 400 lines per file and 1,500 per turn, each line
+capped at 300 characters; added and removed totals remain complete. Paths
+become project paths, and the transcript scrub removes addresses and
+key-shaped strings. Any cut marks the in-process projection truncated. Binary
+or absent diffs have no hunks; added-file content becomes numbered add lines.
+The complete thread is capped at 512 KB of serialized JSON, retaining recent
+entries and shortening a recent change if necessary to fit beneath the relay
+frame ceiling. HarnessDesk context injections are omitted; only
+host-verified Lead envelopes contribute Lead words and attribution.
+
+
+## Lead acceptance stays internal and distinguishes a broken check from broken code — 2026-11-05
+
+A timeout, interrupted run or null exit produced no verdict. It needs a check
+again through the existing person action, not a code repair. Missing facts and
+stale or incomplete facts remain distinct internally so Lead can ask for the
+right observation. Only a recorded negative verdict enters a repair brief;
+passed assertions stay out, and errored checks are named separately.
+
+An approval with hedged prose cannot support done. A short, closed phrase list
+on the host checks whole words outside backtick code. This is a deterministic
+acceptance rule, not another model's judgment of the first model. Reviews must
+approve only what they verified and request changes for what they could not.
+The exact recipe-1 source remains available for old plans and stored runs;
+new plans use recipe-2.
+
+The gate is internal: there are no Evidence or Rounds screens. The person's
+report gets its how to verify line from passed assertions' recorded evidence,
+never the model's confidence. Internal failure reasons are not rendered as
+person-facing prose. A failed result may offer at most one general, sourced
+Remember: lesson; an errored check teaches no lesson about the code.
+
+
+## Lead questions offer choices; delegation keeps the person's words — 2026-11-05
+
+A decision carries two to four short options and a recommended pick so it is
+answerable with a tap on the desk or phone. The composer remains available for
+another answer. Only the latest unanswered ask is live; older choices are a
+record. A confident, already authorized action needs no question. Work the
+Lead notices outside the person's request is offered with a recommended start
+option and waits for the person; there is no backlog.
+
+The host appends the person's original messages below a delegated chat's brief.
+The model selects message ids, never re-types their words. This keeps wording
+and scope intact, rejects references outside the current journal window, and
+refuses an oversized brief plus quotes instead of silently losing context.
+Stored proactive reports without options remain readable.
+
+
+## Delegated chat recovery follows the provider's clock, then the person's choice — 2026-11-05
+
+The host owns recovery timers because a quota reset is a provider observation,
+not a model decision. Waiting buys no Lead turn and reserves no allowance.
+A Lead-held chat gets at most two automatic continues per incident: the reached
+window's reset plus a small jitter, or one minute then five minutes when there
+is no future reset or the failure is transient. Credits, other failures,
+authentication, version and sandbox refusals ask immediately. A later successful turn clears
+the incident. An adapter that reports no error code is classified as failed
+and asks immediately; the host does not guess a retry category. A waiting chat
+remains working, never done.
+
+The bounded host record persists its due time and claims an attempt before
+sending through the ordinary attributed, journaled chat path. Restart restores
+one timer; an already claimed but unconfirmed send asks instead of replaying.
+Explicit Lead stop, disable, project change and person take-over cancel retries;
+closing the desk preserves the wait, as does changing the Lead key or another
+non-stop lifecycle interruption. Temporary retry admission failures back off,
+then ask after the bound; a busy worker defers without using an attempt. A
+past reset uses the backoff rather than spending both retries immediately.
+No recovery transition changes policy, caps, saved approvals or publication
+authority.
+
+After the bound, an incident observation wakes the Lead once per meaningful
+change. The existing structured ask offers retry, move to an eligible agent,
+or stop; credit exhaustion recommends moving when another agent fits. Moving
+needs the person's tap or typed answer because the reset clock grants no
+permission to change who does their work. The host requires a person message
+newer than the incident and the current goal start: consent counts only the
+person's own messages. The host records person, automatic, or scheduled source
+at send time and keeps the revision with the incident, so a same-millisecond
+answer still has a strict order. Asked incidents expire with the goal. A chosen
+reset retry re-arms the host timer through chat_send's retryAt reset selector;
+it never sends immediately into the limit. A fresh automatic generation, for
+either a plain send or a reset wait, needs a newer answer: consent counts only
+the person's own messages. Without one, an explicit reset retry is refused;
+a plain send remains ordinary and a failure asks again directly. Every
+new failed turn can wake again. Interrupts settle recovery as stopped, and
+a refused admission rolls an unstarted renewal back. A skipped terminal
+observation retires its cancelled wait, and a queued renewal discarded before
+sending is stopped. Message source is required at append time. Live worker approvals
+remain visible during waits and retries.
+The host validates the live workspace start roster, reserves one move, and
+builds the new first message from the brief, the original first message (including the person's verbatim words), and
+a bounded recent transcript/file digest, preserving any explicitly selected
+verbatim quotes as well. A creation refused before any chat exists releases
+the move claim and requires a fresh answer before another move: consent
+counts only the person's own messages. Candidate admission runs before
+creation; a first message refused before dispatch is reported as not started.
+The empty new chat stays available on the desk and is never returned as the
+moved chat. The existing ordinary removal paths cannot prove that nobody
+has begun using it across their asynchronous cleanup; guarded discard only
+covers the host's separate Seat allocations, so recovery does not reuse it.
+Once the first message starts, its id is returned even if saving the receipt
+fails, and the durable claim still prevents a duplicate move. It leaves the
+old chat intact. Agent configuration and credentials remain in the agents'
+own worlds.
+
+
+## 2026-11-07 — Simulator input belongs to the host
+
+Simulator input uses a source-built Swift/Objective-C helper and Xcode 27 DTUHID,
+confirmed by a liveness round trip before any action. A port lookup alone can
+succeed while the guest discards events. The helper dynamically loads the installed
+Apple frameworks, which are never redistributed. When DTUHID is unavailable
+(including Xcode below 27 or a source build without the helper), taps alone retain
+the previous measured-window `cliclick` path. That path fronts Simulator, moves
+the desktop pointer and refuses multiple booted devices. New input tools refuse
+there. An interrupted gesture or helper crash never falls back or replays queued
+input through another transport.
+
+One host engine serializes input and capture per device. Installed plugins use
+invocation-bound, manifest-checked parent requests, rather than spawning their
+own native process. Screenshot pixels are transformed through measured display
+orientation; missing/stale geometry and out-of-bounds contacts are refused.
+Native interruption ends the current gesture and releases contacts and modifiers
+without waiting for guest acknowledgement. Each connection first clears both
+contacts. Frame identities authenticate a geometry epoch: another caller's
+capture does not invalidate them, but an observed size, rotation or boot change
+does. Native and installed-plugin IPC deadlines scale with validated bounded work; the parent holds the invocation only while the bounded native call is active.
+
+Keyboard show/hide, device rotation and deterministic lock are explicit refusals
+until the requested guest state can be observed and verified. A physical power
+button is not a deterministic lock setter. Text currently reports US-layout HID
+insertion and refuses characters requiring an unverified Unicode method.
+
+The desktop's beforePack hook preserves preparation of the pinned Lead Node and
+requires a helper for the target architecture. The helper is copied as an extra
+resource and listed in mac.binaries for nested signing. Source builds without
+Xcode stay usable; input reports the missing prerequisite. Release signing and
+notarization remain the release machine's separate gate.
+
+## 2026-11-07 — Installed simulator authority requires shared consent
+
+Installed plugins share one child process, which cannot attribute a simulator
+request to an individual resident. The parent offers invocation tokens and
+forwards simulator calls only when every enabled resident declares `ios: true`
+and still holds its stored grant. It keeps a conservative installed-plugin census,
+accepts disabling only through parent-issued operations, and blocks forwarding
+during resident changes; a child snapshot alone cannot establish shared consent.
+Built-in plugins run in the parent kernel and retain their own capability gates.
+Per-plugin process isolation would lift this shared-consent requirement.
+*Superseded by "Installed plugins run one to a process" below: each process
+holds one plugin, so its simulator authority is its own consented grant.*
+Missing shared consent withholds simulator authority rather than the invocation:
+tools, commands, hooks and context providers still run, and a non-secret per-owner
+refusal marker makes `ctx.ios` explain the constraint without exposing a bearer.
+
+Every forwarded simulator method uses a deadline derived from the engine's
+subprocess limits and sequential steps, with delivery margin for IPC. The parent
+holds the invocation while any such call is active and aborts its engine signal
+on expiry. Simulator subprocesses and diagnostic probes consume that signal;
+queued mutations check it before starting, so an expired invocation cannot begin
+another mutation after its predecessor finishes.
+
+## Installed plugins run one to a process
+
+*2026-11-07.* Each installed plugin runs in its own process, and the host
+attributes everything that process asks for to that plugin, by the pipe it
+arrived on. [plugin-isolation.md](plugin-isolation.md) is the design.
+
+**Why.** One process shared by every installed plugin survives a crash, but
+it cannot tell its plugins apart. Every request comes out of the same pipe,
+so the plugin making it has to say who it is. And whatever the host tells one
+plugin, every plugin in that process can read. Per-call claims and tokens can
+narrow that, but they cannot close it: inside one process there is nothing
+to bind a claim to. A process per plugin gives the host something it can
+know rather than be told, which is which pipe a frame came in on.
+
+**The rule:**
+- **Identity comes from the channel.** A request from a plugin process never
+  names a plugin.
+- **Authority comes from the record.** The record is the manifest the person
+  agreed to at install, kept by the host outside the plugins directory, plus
+  the grants they gave in Settings. A plugin whose manifest on disk no longer
+  matches its record does not start until the person agrees again.
+- **The conversation comes from the lease.** The lease is the host's record
+  of the call it started, scoped to that one pipe.
+
+A change that reads any of the three from a plugin's message is wrong,
+however well it validates the value.
+
+**What it costs.** A runtime per plugin in memory, and one round trip more
+for each brokered capability. Installed plugins also cannot share Cordis
+services with each other; cooperation goes through the host's attributed
+planes instead. Built-in plugins stay in the host process: they are the
+repository's own reviewed code, on the same API and the same gate.
+
+**Layers.** Attribution and authority are about what the host does, so they
+hold for every plugin, confined or not. Confinement under Node's permission
+model is what keeps a plugin from reaching the machine without asking the
+host, and Node describes that model as a seat belt against accidental reach,
+not a defence against code written to escape it. A plugin that escapes it, or
+runs where no confining runtime passed the probe, has the user account's own
+access. The host says so in the plugin host's status rather than implying
+otherwise, and an operating-system sandbox per plugin process is the layer
+planned after it.
+
+**Confinement, as built.** A confined process reads its own code and its
+plugin's directory and nothing else, so everything it once did for itself
+with the disk, the network or a program moved to the host: `ctx.fs`,
+`ctx.http`, `ctx.shell` and `ctx.android` are served there, workspace roots
+are resolved there once, and a browser page is placed there. The runtime is
+the first of the Lead's candidates whose probe refuses a connection, a read
+outside the grants and a spawn; with none, the plugin runs unconfined and
+the host's stats say why, rather than refusing to run a plugin the person
+installed. Two gaps are left in the open, not papered over: `process.kill`
+is outside Node's model, and Node follows a symbolic link past the grants.
+The second is closed at the one door a package comes through: the installer
+refuses a package with a link that leads outside it.

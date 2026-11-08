@@ -44,7 +44,7 @@ const SPEC = /\.spec\.[cm]?[jt]sx?$/
 // whole suite carries more per shard and takes about 22 minutes. A selection
 // needs fewer runners; each unnecessary shard repeats that setup.
 export const SHARD_SECONDS = 1500
-export const MAX_SHARDS = 16
+export const MAX_SHARDS = 17
 
 // Two workers share the recorded load; headroom checks allow 120 seconds of setup.
 export function plannedWallSeconds(load, setupSeconds = 120) {

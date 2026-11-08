@@ -7,6 +7,11 @@ No family or metric is overridden in the specimen. These are synthetic
 fixtures, not a signed-in desk. This is browser rendering evidence; Windows
 and the full native app were not measured.
 
+> Since this sitting the catalogue board has been renamed: the PageHead/DetailHead
+> board is now **Page and subject type** (`head` in
+> `packages/ui/src/design/explorer/boards.tsx`), and it still mounts the same
+> `CjkSpecimen`. The measurements below are as recorded on 2026-10-03.
+
 For each language, the document lang and sample lang match. The collector
 uses DOM.querySelector and CSS.getPlatformFontsForNode over CDP, with a
 separate span for each glyph. Each returned glyphCount is 1. All four

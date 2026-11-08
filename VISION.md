@@ -172,9 +172,13 @@ already agreed to. Those live in
 [`docs/data-boundaries.md`](docs/data-boundaries.md), one section per lane, and
 that document is where a reader checks what is true today.
 
-**Almost none of this is built.** It is written here because the shape is
-decided, and because a promise about servers is worth more before there is a
-server than after.
+**Most of this is not built.** The one part that is: work that begins from
+an event, on this machine — a project's committed triggers for a pull
+request, an issue or a schedule, which run nowhere until a person arms them
+(the Triggers section of [`docs/flows.md`](docs/flows.md)). Nothing runs after
+the lid closes, there is no hosted lane, and webhooks are undecided. The rest
+is written here because the shape is decided, and because a promise about
+servers is worth more before there is a server than after.
 
 ---
 

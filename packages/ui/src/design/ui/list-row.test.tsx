@@ -3,6 +3,39 @@ import { expect, it } from 'vitest'
 
 import { ListRow, ListRowDetail } from './list-row'
 
+it('keeps the default description and metadata in the original content column', () => {
+  const host = document.createElement('div')
+  host.innerHTML = renderToStaticMarkup(<ListRow lead={<span>face</span>} title="Alpha" subtitle="Reviewer" meta={<span data-example="meta">Progress</span>} trail={<button>Open</button>} />)
+  const row = host.firstElementChild!
+  const content = row.querySelector('[data-slot="list-row-content"]')!
+  expect(row.hasAttribute('data-subtitle-layout')).toBe(false)
+  expect(row.querySelector('[data-slot="list-row-heading"]')).toBeNull()
+  expect([...row.children].map(child => child.getAttribute('data-slot'))).toEqual(['list-row-lead', 'list-row-content', 'list-row-trail'])
+  expect(content.querySelector('[data-slot="list-row-subtitle"]')?.textContent).toBe('Reviewer')
+  expect(content.querySelector('[data-example="meta"]')?.textContent).toBe('Progress')
+})
+
+for (const size of ['sm', 'default'] as const) {
+  for (const density of ['comfortable', 'compact'] as const) {
+    it(`gives a below description and metadata the whole ${size} ${density} row width`, () => {
+      const host = document.createElement('div')
+      host.innerHTML = renderToStaticMarkup(<ListRow as="button" interactive size={size} density={density} subtitleLayout="below" lead={<span>face</span>} mark={<span>unread</span>} title="Alpha" subtitle="Reviewer" meta={<span data-example="meta">Progress</span>} trail={<span>Open</span>} />)
+      const row = host.firstElementChild!
+      const heading = row.querySelector('[data-slot="list-row-heading"]')!
+      const description = row.querySelector('[data-slot="list-row-subtitle"]')!
+      const metadata = row.querySelector('[data-example="meta"]')!.parentElement!
+      expect(row.querySelectorAll('[data-example="meta"]')).toHaveLength(1)
+      expect(metadata.parentElement).toBe(row)
+      expect(row.tagName).toBe('BUTTON')
+      expect(row.getAttribute('type')).toBe('button')
+      expect(row.getAttribute('data-subtitle-layout')).toBe('below')
+      expect([...heading.children].map(child => child.getAttribute('data-slot'))).toEqual(['list-row-lead', 'list-row-mark', 'list-row-content', 'list-row-trail'])
+      expect([...row.children]).toEqual([heading, description, metadata])
+      expect(description.className).toContain('mt-(--hd-table-line-gap)')
+    })
+  }
+}
+
 it('lets an earned sentence wrap instead of cutting it into a caption', () => {
   const markup = renderToStaticMarkup(
     <ListRow
@@ -208,4 +241,14 @@ it('gives wrapping compact copy the dense inset and keeps unwrapped rows tight',
   }
   expect(renderToStaticMarkup(<ListRow density="compact" title="Review" />)).toContain('py-px')
   expect(renderToStaticMarkup(<ListRow size="sm" wrapTitle title="Review" />)).toContain('py-1.5')
+})
+
+it('renders adaptive facts once and leaves the original row contract alone', () => {
+  const host = document.createElement('div')
+  host.innerHTML = renderToStaticMarkup(<ListRow subtitleLayout="below" title="Alpha" headingFacts={<><span>Working</span><span>8 turns</span></>} subtitle="Reviewer" trail={<span>Open</span>} />)
+  const row = host.firstElementChild!
+  expect(row.querySelectorAll('[data-slot="list-row-heading-facts"]')).toHaveLength(1)
+  expect(row.querySelector('[data-slot="list-row-heading-facts"]')?.textContent).toBe('Working8 turns')
+  expect(row.querySelector('[data-slot="list-row-heading-facts"]')?.parentElement?.getAttribute('data-slot')).toBe('list-row-heading')
+  expect(row.querySelector('[data-slot="list-row-subtitle"]')?.parentElement).toBe(row)
 })

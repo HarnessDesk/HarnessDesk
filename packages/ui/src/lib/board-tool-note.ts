@@ -1,4 +1,16 @@
-import { FLOW_BOARD_TOOL_NAMES, type Approval } from '@harnessdesk/protocol'
+import { DESK_TOOL_CEILINGS, FLOW_BOARD_TOOL_NAMES, toolWords, type Approval } from '@harnessdesk/protocol'
+
+const DESK_TOOLS = new Set(Object.values(DESK_TOOL_CEILINGS).flatMap(Object.keys))
+
+/**
+ * A permission summary that names one of the desk's own tools, in words. Agents title the request with the wire
+ * name — `mcp__harnessdesk__git_log`, or `git_log (harnessdesk MCP Server)` — which is how they call it, not what
+ * it does. Only the server's name vouches for it, so the sentence says "the harnessdesk server", not HarnessDesk.
+ */
+export const permissionSummary = (summary: string): string => {
+  const tool = (/^mcp__harnessdesk__([a-z0-9_]+)$/.exec(summary) ?? /^([a-z0-9_]+) \(harnessdesk MCP Server\)$/.exec(summary))?.[1]
+  return tool && DESK_TOOLS.has(tool) ? `Use the harnessdesk server's ${toolWords(tool)} tool` : summary
+}
 
 /**
  * The board tool a permission request names, when it is one of the desk's own. The docked approval and the

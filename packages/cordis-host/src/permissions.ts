@@ -282,9 +282,10 @@ export class PermissionGate {
     }
   }
 
-  assertForge(): void {
-    if (!this.permissions.forge) {
-      throw new PermissionDenied('forge', 'this plugin cannot sign for a conversation or record what it published')
+  assertForge(write = false): void {
+    const grant = this.permissions.forge
+    if (write ? typeof grant !== 'object' || grant.write !== true : grant !== true && !(typeof grant === 'object' && (grant.publish === true || grant.write === true))) {
+      throw new PermissionDenied(write ? 'forge.write' : 'forge', 'this plugin cannot sign for a conversation or record what it published')
     }
   }
 

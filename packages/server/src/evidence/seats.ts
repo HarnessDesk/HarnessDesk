@@ -142,6 +142,8 @@ export class SeatBook {
     return this.#byId.get(id) ?? null
   }
 
+  projectFor(id: SeatId): string | null { return this.#projects.get(id) ?? null }
+
   all(): readonly SeatRecord[] {
     return [...this.#byId.values()]
   }

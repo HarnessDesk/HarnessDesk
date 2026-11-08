@@ -706,6 +706,8 @@ export interface PublishingRun {
 }
 
 export interface PublicationsPort {
+  /** Host-owned runs whose reviews must remain on the desk, regardless of preferences. */
+  localOnly?(run: string): boolean
   /** One step inside `run`'s own queue, with its publication journal. */
   journal<T>(run: string, step: (journal: PublicationJournal) => Promise<T>): Promise<T>
   /** Every run with a publication journaled, and the Goal it is on. */
@@ -836,7 +838,7 @@ export class Publications implements FindingPublisher {
       const goal = this.#port.goal(now.goal)
       const plan = planRound({
         run, round, goal: now.goal, project, cards: closing.cards, findings: ledger.records, facts,
-        preference: goal?.preference, sources: this.#sources(ledger.records, facts), now: this.#port.now(),
+        preference: this.#port.localOnly?.(run) ? false : goal?.preference, sources: this.#sources(ledger.records, facts), now: this.#port.now(),
         summary: this.#port.summary?.(run) ?? false,
         reviews: closing.reviews ?? false,
       })
@@ -864,6 +866,12 @@ export class Publications implements FindingPublisher {
    * Goal queue is held while it runs, and a run holding its own queue may be
    * waiting for that Goal queue to seat a card.
    */
+  /** Whether `gaps` would list anything: the same snapshot read, without the sentences. */
+  unsettled(goal: string): boolean {
+    return this.#port.runs().some((one) => one.goal === goal &&
+      Object.values(this.#port.snapshot(one.run)?.ops ?? {}).some((entry) => UNSETTLED.has(entry.state)))
+  }
+
   async gaps(goal: string): Promise<readonly string[]> {
     const out: string[] = []
     for (const { run } of this.#port.runs().filter((one) => one.goal === goal)) {
@@ -1135,7 +1143,7 @@ export class Publications implements FindingPublisher {
       if (!closing) continue
       const plan = planRound({
         run, round: kept.round, goal: snapshot.goal, project, cards: closing.cards, findings: ledger.records, facts,
-        preference: goal.preference, sources: this.#sources(ledger.records, facts), now: this.#port.now(),
+        preference: this.#port.localOnly?.(run) ? false : goal.preference, sources: this.#sources(ledger.records, facts), now: this.#port.now(),
         summary: this.#port.summary?.(run) ?? false,
         reviews: closing.reviews ?? false,
       })
@@ -1242,6 +1250,10 @@ export class Publications implements FindingPublisher {
 
   /** Record an intake hold without turning it into a pause only a person can clear. */
   async #dispatch(run: string, key: string, goal: string): Promise<boolean> {
+    if (this.#port.localOnly?.(run)) {
+      await this.#transition(run, key, ['prepared'], entry => ({ ...entry, state: 'skipped', reason: 'Lead reviews stay on the desk.', dispatchHeld: undefined }))
+      return false
+    }
     const gate = await this.#port.beforeDispatch?.(goal) ?? { ok: true }
     const entry = await this.#read(run, key)
     if (entry?.state !== 'prepared' || (entry.reason !== null && !entry.dispatchHeld)) return false
@@ -1325,7 +1337,9 @@ export class Publications implements FindingPublisher {
         },
         send: async () => {
           stage = 'send'
-          sent = await this.#port.forge.send(await current(), ready!.body, ready!.placement === 'inline' ? ready!.anchor : null)
+          const entry = await current()
+          if (this.#port.localOnly?.(run)) throw new NotStarted()
+          sent = await this.#port.forge.send(entry, ready!.body, ready!.placement === 'inline' ? ready!.anchor : null)
           return sent.comment
         },
         finish: async (comment) => {
@@ -1436,7 +1450,9 @@ export class Publications implements FindingPublisher {
         },
         send: async () => {
           stage = 'send'
-          landed = await forge.publishSummary!(this.#summaryInput(await current(), snapshot.goal))
+          const entry = await current()
+          if (this.#port.localOnly?.(run)) throw new NotStarted()
+          landed = await forge.publishSummary!(this.#summaryInput(entry, snapshot.goal))
           return -1
         },
         finish: async (which) => {

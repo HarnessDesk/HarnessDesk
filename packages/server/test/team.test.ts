@@ -2767,6 +2767,8 @@ test('get_team_status offers the names agent_message accepts', async (t) => {
   assert.ok(said.includes('Gemini'), 'the Gemini member is offered by name')
   assert.ok(said.includes('Opus'), 'the Opus member is offered by name')
   assert.ok(!said.includes('(untitled)'), 'no member is offered as "(untitled)"')
+  const name = team.stateFor(room).name
+  if (name.trim()) assert.ok(said.startsWith(`Team: ${name.trim()}\n`), 'a Seat reading its board learns what the Team is for')
 
   // And those names are the board's own, so `agent_message` accepts them.
   const named = Object.values(team.stateFor(room).nicknames ?? {})
@@ -4994,4 +4996,17 @@ test('wire rooms measure deleted roots on list and events without persisting the
   assert.equal(Object.hasOwn(stored, 'folderGone'), false)
   await mkdir(root)
   assert.equal(team.stateFor(room.id).folderGone, false)
+})
+
+test('a Seat that lists the board before its order arrives reads what the Team is for', async (t) => {
+  // A Lead worker read only list_intents inside its brief's turn, saw a card
+  // titled "Implement the approved goal" with no requirement, and answered
+  // disagree: the Goal's sentence was in get_team_status alone.
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  team.renameRoom(room, 'Add a one-line comment at the top of README.md')
+  await team.addIntent({ title: 'Implement the approved goal' }, codex)
+  const said = await team.board(codex)
+  assert.ok(said.startsWith('Team: Add a one-line comment at the top of README.md\n'), said)
+  assert.match(said, /#1 open — Implement the approved goal/)
 })

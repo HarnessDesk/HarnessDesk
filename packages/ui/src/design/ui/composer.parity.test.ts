@@ -2,6 +2,7 @@ import { expect, it } from 'vitest'
 
 import composerCss from '../../components/Composer.module.css?raw'
 import conversationComposer from '../../components/Composer.tsx?raw'
+import frame from '../patterns/ConversationShell.tsx?raw'
 import composerSystem from './composer.tsx?raw'
 import foundation from '../foundation/tokens.css?raw'
 
@@ -13,8 +14,7 @@ import foundation from '../foundation/tokens.css?raw'
 
 it('the conversation composer composes every shared composer role', () => {
   for (const role of [
-    'ComposerDock',
-    'ComposerShell',
+    'ConversationComposerFrame',
     'ComposerText',
     'ComposerTools',
     'ComposerGap',
@@ -24,6 +24,7 @@ it('the conversation composer composes every shared composer role', () => {
   ]) {
     expect(conversationComposer).toContain(`<${role}`)
   }
+  for (const role of ['ComposerDock', 'ComposerShell']) expect(frame).toContain(`<${role}`)
 })
 
 it('the feature stylesheet keeps only placement and truncation', () => {

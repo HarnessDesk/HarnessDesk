@@ -1,4 +1,7 @@
+import { GitGatewayFrames } from './frames-git-gateway'
+import { LeadFrames } from './harness'
 import './update-bridge'
+import { HarnessDeskAccountPreview } from './harnessdesk-account-fixture'
 import { Issue1675Frames } from './issue-1675-fixture'
 import { ConversationDefaultsPreview } from './defaults-fixture'
 import { LibraryUpdateFrames } from './frames-library-updates'
@@ -8,7 +11,7 @@ import { FlowsDestinationFixture } from './flows-destination-fixture'
 import { RepositoryStatesPreview } from './repository-states'
 import { RepositoryMenuRepairsPreview } from './repository-menu-repairs'
 import { WorkspaceRecoveryPreview } from './workspace-recovery'
-import { CurrentPagePreview } from './page-preview'
+import { CurrentPagePreview, PagePreview } from './page-preview'
 import { DashboardDestinationFixture } from './dashboard-destination-fixture'
 import { SettingsPreview as Settings, RuntimesPreview as RuntimesSection, WorkspacesPreview as WorkspacesSection } from './settings-pages'
 import { FRAME } from '../design'
@@ -72,7 +75,7 @@ import { type Section } from '../components/Settings'
 import { type DashboardView } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
 
-import { SIGN_IN_SCENES, SIGN_IN_SELECTED, runtimesSeed, signInSeed, type SignInScene } from './signin-fixture'
+import { SIGN_IN_SCENES, SIGN_IN_SELECTED, accountPoolSeed, runtimesSeed, signInSeed, type SignInScene } from './signin-fixture'
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { BoardListFrames } from './frames-board-list'
@@ -137,11 +140,12 @@ import { InapplicableActionsFrames } from './frames-inapplicable-actions'
 import { RunInspectorFrames } from './frames-run-inspector'
 import { ReviewPublicationFrames } from './frames-review-publication'
 import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
-import { TeamOverviewFrames } from './frames-team-overview'
+import { overviewPreviewStore, TeamOverviewFrames, TeamOverviewPreview } from './frames-team-overview'
 import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
 import { SideBySideFrames, ComparisonVerdictPreview, TileBrowserFrames } from './frames-side-by-side'
 import { AgentBriefFrames } from './frames-agent-brief'
 import { HeaderStatusFrames } from './frames-header-status'
+import { LeadChatFrames } from './frames-lead-chat'
 import { ReadCeilingFrames } from './frames-read-ceiling'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
@@ -150,6 +154,7 @@ import '../styles/app.css'
 import { installOverlayScrollbarTracking } from '../styles/overlay-scrollbars'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
+const SHOW_NARROW_OVERVIEW = new URLSearchParams(window.location.search).get('team-overview') === 'narrow'
 /* A second full `<Conversation>` duplicates every ambient header element —
    the plan strip, its "other agents" trigger — which is exactly what broke
    the composer frames above before they were gated the same way. Only on
@@ -226,8 +231,12 @@ if (new URLSearchParams(window.location.search).get('findings') === 'seat') {
  * reads is unchanged (#1313). This file is the page's one entry, loaded once
  * whatever URL names it, so the `store` it holds is the one the page mounts
  * its frames on. `e2e/ui-system/trajectory-layout.spec.ts` is the caller.
+ * The focused Overview mounts its own store and has no gallery conversation
+ * or folderless sidebar, so its hook exposes only that mounted store.
  */
-;(window as unknown as { __hdPreview: unknown }).__hdPreview = { store, sessionKey: PREVIEW_SESSION_KEY, sidebarFolderlessStore }
+;(window as unknown as { __hdPreview: unknown }).__hdPreview = SHOW_NARROW_OVERVIEW
+  ? { store: overviewPreviewStore() }
+  : { store, sessionKey: PREVIEW_SESSION_KEY, sidebarFolderlessStore }
 // The roster and chat share the real name role; populate this Goal's chat
 // with the existing rig messages so both treatments can be read together.
 previewMutable.patch({
@@ -508,7 +517,7 @@ const SignInPreview = ({ scene, onClose }: { scene: SignInScene; onClose: () => 
   const own = useMemo(() => previewStore(signInSeed(scene)), [scene])
   return (
     <StoreProvider store={own}>
-      <SignIn runtime={SIGN_IN_SELECTED[scene]} onClose={onClose} />
+      <SignIn runtime={SIGN_IN_SELECTED[scene]} roster onClose={onClose} />
     </StoreProvider>
   )
 }
@@ -518,7 +527,9 @@ const SignInPreview = ({ scene, onClose }: { scene: SignInScene; onClose: () => 
 const RuntimesPreview = () => {
   const own = useMemo(() => {
     // `?key-scene=` puts DeepSeek's key where one of the sign-in scenes does.
-    const scene = new URLSearchParams(window.location.search).get('key-scene')
+    const query = new URLSearchParams(window.location.search)
+    if (query.get('accounts') === 'pool') return previewStore(accountPoolSeed())
+    const scene = query.get('key-scene')
     return previewStore(runtimesSeed(SIGN_IN_SCENES.find((one) => one === scene)))
   }, [])
   return (
@@ -659,6 +670,12 @@ const Preview = () => {
           value={snapshot.corners}
           options={['default', 'square', 'round'] as const}
           onChange={(next) => store.setCorners(next)}
+        />
+        <Dial
+          label="surface"
+          value={snapshot.surface}
+          options={['cards', 'sheet'] as const}
+          onChange={(next) => store.setSurface(next)}
         />
         <Dial
           label="faces"
@@ -1194,6 +1211,7 @@ const Preview = () => {
       <TranscriptFrames />
       <PanelFrames />
       <CoverageFrames />
+      <GitGatewayFrames />
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
       {new URLSearchParams(window.location.search).has('run-inspector') && <RunInspectorFrames />}
       {new URLSearchParams(window.location.search).has('flow-graph') && <FlowGraphFrames />}
@@ -1227,6 +1245,7 @@ const TablesPreview = () => {
   useTheme()
   return <div className="bg-background p-4 text-foreground"><Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame></div>
 }
+
 
 const PublicationPreview = () => {
   useTheme()
@@ -1284,7 +1303,9 @@ createRoot(container).render(
     <SceneSteps />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('guides-fix') ? <GuidesFixPreview />
+        {SHOW_NARROW_OVERVIEW ? <TeamOverviewPreview /> : new URLSearchParams(window.location.search).has('desk-account') ? <HarnessDeskAccountPreview /> : new URLSearchParams(window.location.search).has('lead-synthetic') ? <LeadFrames />
+          : new URLSearchParams(window.location.search).has('lead-chat') ? <LeadChatFrames />
+          : new URLSearchParams(window.location.search).has('guides-fix') ? <GuidesFixPreview />
           : new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
           : new URLSearchParams(window.location.search).has('flows-page')
@@ -1321,6 +1342,8 @@ createRoot(container).render(
           ? <SettingsNavigationProbe />
           : new URLSearchParams(window.location.search).has('conversation-defaults')
           ? <ConversationDefaultsPreview />
+          : new URLSearchParams(window.location.search).has('git-gateway')
+          ? <GitGatewayFrames selected={new URLSearchParams(window.location.search).get('git-gateway')} />
           : new URLSearchParams(window.location.search).has('library-updates')
           ? <LibraryUpdateFrames />
           : new URLSearchParams(window.location.search).has('library-github')

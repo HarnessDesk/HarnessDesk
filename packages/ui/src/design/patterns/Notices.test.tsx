@@ -280,3 +280,13 @@ it('offers a plain composer tail without applying the tinted child strip policy'
  expect(host.querySelector('[data-slot="composer-tail"]')?.getAttribute('data-variant')).toBe('plain')
  expect(noticeCss).toContain(".tail[data-slot='composer-tail']:not([data-variant='plain']) > *")
 })
+
+it('offers a primary and a secondary composer action in the canonical action group', async () => {
+  const retry = vi.fn(), reset = vi.fn()
+  await act(() => root.render(<ComposerNotice message={{ id: 'read-error', title: 'Chat control could not be read.', action: { label: 'Try again', onSelect: retry } }} secondaryAction={{ label: 'Reset chat control', onSelect: reset }} />))
+  expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent)).toEqual(['Try again', 'Reset chat control'])
+  await act(() => button('Try again').click())
+  await act(() => button('Reset chat control').click())
+  expect(retry).toHaveBeenCalledOnce()
+  expect(reset).toHaveBeenCalledOnce()
+})

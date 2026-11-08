@@ -29,11 +29,43 @@ for (const theme of ['light', 'dark'] as const) {
     await open(page, theme, 'settings')
     await page.getByRole('button', { name: 'Change…', exact: true }).click()
     await page.getByRole('button', { name: 'Open “demo”', exact: true }).click()
-    await expect(page.getByRole('dialog')).toContainText('Chats folder contains an opened project.')
+    const refusal = page.getByText('Chats folder contains an opened project.', { exact: true })
+    await expect(refusal).toHaveCount(1)
+    await expect(page.getByRole('dialog').getByText('Chats folder contains an opened project.', { exact: true })).toBeVisible()
     await frame(page, `refusal-${theme}`)
     await page.getByRole('button', { name: 'Cancel', exact: true }).click()
-    await expect(page.getByText('Chats folder contains an opened project.', { exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(refusal).toHaveCount(0)
+    await expect(page.getByText('Chats folder', { exact: true })).toBeVisible()
+    expect(await page.evaluate(() => (window as unknown as { chatsStore: { getSnapshot: () => { chatsFolder: string } } }).chatsStore.getSnapshot().chatsFolder)).toBe('/demo/chats')
     await frame(page, `settings-${theme}`)
+    await page.getByRole('button', { name: 'Change…', exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await expect(refusal).toHaveCount(0)
+    // Hold this picker request so its refusal arrives after the picker closes.
+    await page.evaluate(() => {
+      const fixture = window as unknown as { chatsStore: { transport: { request: (method: string, params: unknown) => Promise<unknown> } }; rejectChats?: () => void }
+      const transport = fixture.chatsStore.transport
+      const original = transport.request.bind(transport)
+      transport.request = (method, params) => method === 'app/state/set'
+        ? new Promise((_resolve, reject) => { fixture.rejectChats = () => reject(new Error('Late chats refusal')) })
+        : original(method, params)
+    })
+    await page.getByRole('button', { name: 'Open “demo”', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => typeof (window as unknown as { rejectChats?: () => void }).rejectChats)).toBe('function')
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await page.evaluate(() => (window as unknown as { rejectChats: () => void }).rejectChats())
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByText('Late chats refusal', { exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Change…', exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await expect(page.getByText('Late chats refusal', { exact: true })).toHaveCount(0)
+    await expect(refusal).toHaveCount(0)
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    expect(await page.evaluate(() => {
+      const { chatsFolder, chatsFolderProblem } = (window as unknown as { chatsStore: { getSnapshot: () => { chatsFolder: string; chatsFolderProblem: string | null } } }).chatsStore.getSnapshot()
+      return { chatsFolder, chatsFolderProblem }
+    })).toEqual({ chatsFolder: '/demo/chats', chatsFolderProblem: null })
   })
 
   test(`Settings lists projects while omitting managed chats in ${theme}`, async ({ page }) => {

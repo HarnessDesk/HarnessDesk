@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { parseFlowPolicy } from '../../../server/dist/src/flow-policy.js'
+import writeAndReviewSource from '../../../server/flows/fix-and-review.yml?raw'
 import { EDIT_TEAM_START_POLICY } from './front-door-edit-fixture'
 import { SEAT_ATTACHMENTS } from './frames-team-start'
 import { TEAM_START_POLICIES, TEAM_START_SOURCES } from './team-start-fixture'
@@ -17,10 +17,8 @@ it('the Start frame’s seats cover every line under a seat', () => {
 })
 
 it('shows the shipped Write and review policy in every current New Team specimen', () => {
-  const parsed = parseFlowPolicy(TEAM_START_SOURCES['fix-and-review']!)
-  expect(parsed.problems).toEqual([])
-  expect(parsed.document?.format).toBe('agents')
-  if (parsed.document?.format !== 'agents') throw new Error('Expected a current policy')
-  expect(TEAM_START_POLICIES['fix-and-review']).toEqual(parsed.document.flow)
-  expect(EDIT_TEAM_START_POLICY).toEqual(parsed.document.flow)
+  // The host's team-start-fixture test holds this data to its shipped parser.
+  // This suite only needs the preview data, even before the host is built.
+  expect(TEAM_START_SOURCES['fix-and-review']).toBe(writeAndReviewSource)
+  expect(EDIT_TEAM_START_POLICY).toBe(TEAM_START_POLICIES['fix-and-review'])
 })

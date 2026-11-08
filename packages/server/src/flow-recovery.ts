@@ -4,6 +4,8 @@ import { compileFlowPolicy, overrideFlowSeats, parseFlowPolicy } from './flow-po
 import { flowRevision, sourceDigest, type StoredFlowExecution } from './flow-execution.js'
 import { findingJournalOf } from './findings/journal.js'
 import { publicationOf } from './findings/publication.js'
+import { isRevisionName } from './git-revision.js'
+import { canonicalRepository } from './git-gateway/record.js'
 
 /**
  * What a run read back at launch may do next, and why not when it may not.
@@ -154,6 +156,11 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   if (start !== undefined && start !== 'front-door') bad('has an unknown start')
   if (raw['requireHeld'] !== undefined && raw['requireHeld'] !== true) bad('has an unreadable held-seat policy')
   if (start === 'front-door' && raw['requireHeld'] !== true) bad('was started from the front door and no longer says its Seats must hold their ceilings')
+  const lead = raw['lead']
+  if (lead !== undefined && (!object(lead) || raw['requireHeld'] !== true ||
+    !['logicalGoalId', 'contractDigest', 'startId', 'stepId'].every(key => text(lead[key]) && lead[key] !== '') ||
+    !/^[a-f0-9]{64}$/.test(String(lead['contractDigest'])) ||
+    lead['base'] !== undefined && (!text(lead['base']) || !/^[a-f0-9]{40,64}$/.test(lead['base'])))) bad('has unreadable Lead authority')
   const reserving = raw['reserving']
   if (reserving !== undefined && (!object(reserving) || !text(reserving['goal']) || !reserving['goal'] || !integer(reserving['revision']))) {
     bad('names a Goal reservation it cannot describe')
@@ -164,8 +171,17 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   const target = raw['target']
   if (target !== undefined) {
     const sha = (value: unknown): boolean => typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)
+    const repository = (value: unknown): boolean => {
+      if (typeof value !== 'string') return false
+      try { return canonicalRepository(value) === value } catch { return false }
+    }
     if (start !== 'front-door' || !object(target) || !['branch', 'pull-request', 'diff', 'working-diff'].includes(String(target['kind'])) ||
       !text(target['label']) || !(target['base'] === null || sha(target['base'])) || !(target['head'] === null || sha(target['head'])) ||
+      (target['baseRef'] !== undefined && (typeof target['baseRef'] !== 'string' || !isRevisionName(target['baseRef']))) ||
+      (target['repository'] !== undefined && !repository(target['repository'])) ||
+      (target['reviewBound'] !== undefined && (target['reviewBound'] !== false || target['kind'] !== 'pull-request')) ||
+      ((target['baseRef'] === undefined) !== (target['repository'] === undefined)) ||
+      (target['repository'] !== undefined && (target['kind'] !== 'pull-request' || !sha(target['base']) || !sha(target['head']) || !integer(target['pr']) || Number(target['pr']) < 1)) ||
       !(target['pr'] === null || integer(target['pr'])) || typeof target['dirty'] !== 'boolean' ||
       (target['kind'] === 'working-diff') !== (target['head'] === null)) {
       bad('names a start target it cannot describe')
@@ -270,6 +286,8 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
     if (!object(intake) || !text(intake['key']) || !/^[0-9a-f]{64}$/.test(String(intake['key'])) || !text(intake['trigger']) ||
       !text(intake['closureDigest']) || typeof intake['dispatchHeld'] !== 'boolean' ||
       !(intake['holdGeneration'] === undefined || (integer(intake['holdGeneration']) && intake['holdGeneration'] >= 0)) ||
+      !(intake['supersessionKey'] === undefined || (text(intake['supersessionKey']) && /^[0-9a-f]{64}$/.test(String(intake['supersessionKey'])))) ||
+      !(intake['supersededThrough'] === undefined || (integer(intake['supersededThrough']) && intake['supersededThrough'] >= 0)) ||
       !(again === null || (object(again) && text(again['role']) && text(again['title'])))) bad('has trigger bookkeeping it cannot describe')
   }
   const compiled = raw['compiled']

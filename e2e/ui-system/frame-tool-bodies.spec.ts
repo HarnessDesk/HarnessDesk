@@ -121,7 +121,7 @@ for (const theme of ['light', 'dark'] as const) {
     const panel = page.locator('[data-frame-region="rail"]')
     await expect(panel).toBeVisible()
     const edges = await panel.evaluate(element => {
-      // The whole disclosure target starts at the row edge; its chevron precedes the label text.
+      // The whole disclosure target starts at the row edge; its chevron follows the label text.
       const label = element.querySelector('[data-slot="tool-section"] [data-slot="tool-section-fold"]')!
       const fact = element.querySelector('[data-slot="summary-item"] dt')!
       return [label, fact].map(node => node.getBoundingClientRect().left - element.getBoundingClientRect().left)

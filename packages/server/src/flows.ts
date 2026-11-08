@@ -322,6 +322,18 @@ export class Flows implements TeamFlows {
     await this.#executions?.wakeEvidence(goal)
   }
 
+  restartLeadStopped(runId: string, stopKey: string): Promise<FlowRoundState> {
+    if (!this.#executions) throw new Error('lead-second-look-unavailable')
+    return this.#executions.restartLeadStopped(runId, stopKey)
+  }
+  prepareLeadRepair(op: { readonly runId: string; readonly teamId: string; readonly key: string; readonly round: number; readonly detail?: string }): Promise<FlowRoundState> {
+    if (!this.#executions) throw new Error('lead-repair-unavailable')
+    return this.#executions.prepareLeadRepair(op)
+  }
+  releaseLeadRepair(op: { readonly runId: string; readonly key: string }): Promise<void> {
+    if (!this.#executions) throw new Error('lead-repair-unavailable')
+    return this.#executions.releaseLeadRepair(op)
+  }
   openRound(run: string, then: FlowThen, cause: { key: string; evidence: readonly string[] }): Promise<FlowRoundState> {
     if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
     return this.#executions.openRound(run, then, cause)
@@ -348,9 +360,9 @@ export class Flows implements TeamFlows {
   }
 
   /** Phase 8, host-only: a new head stops the old one's work. See `FlowExecutions.supersedeTriggered`. */
-  supersedeTriggered(run: string, why: string, next: 'round' | 'person'): Promise<void> {
+  supersedeTriggered(run: string, why: string, next: 'round' | 'person', key: string): Promise<boolean> {
     if (!this.#executions) throw new Error('Trigger runs are not available on this desk.')
-    return this.#executions.supersedeTriggered(run, why, next)
+    return this.#executions.supersedeTriggered(run, why, next, key)
   }
 
   /** Phase 8, host-only: a pause or the daily cap holds a trigger's run. See `FlowExecutions.holdTriggered`. */
@@ -410,6 +422,12 @@ export class Flows implements TeamFlows {
     return this.#executions.previewCheck(run, card)
   }
 
+  /** Host-only ownership facts; never returned by a wire method. */
+  leadRuns(): readonly StoredFlowExecution[] {
+    return (this.#executions?.runs() ?? []).flatMap(run => { const stored = this.#executions!.stored(run.id); return stored?.lead ? [stored] : [] })
+  }
+  isLeadManaged(run: string): boolean { return this.#executions?.stored(run)?.lead !== undefined }
+
   storedRun(run: string): { readonly source: string; readonly vars: Readonly<Record<string, string>>; readonly compiled: CompiledFlow } | null {
     const stored = this.#executions?.stored(run)
     return stored ? { source: stored.source, vars: stored.vars, compiled: stored.compiled } : null
@@ -424,6 +442,10 @@ export class Flows implements TeamFlows {
   /** A person review step's current predecessor subjects, bound to its run and open card. */
   personReviewBinding(run: string, card: number): ReturnType<FlowExecutions['personReviewBinding']> {
     return this.#executions?.personReviewBinding(run, card) ?? Promise.resolve(null)
+  }
+
+  personReviewAdmitted(goal: string, card: number, round: number): boolean {
+    return this.#executions?.personReviewAdmitted(goal, card, round) ?? false
   }
 
   personReviewCandidates(run: string, card: number): Promise<readonly ReviewCandidate[]> {
@@ -555,6 +577,18 @@ export class Flows implements TeamFlows {
       if (run.room === goal && (run.state === 'running' || run.state === 'stalled')) this.stop(run.id, why)
     }
     await this.#writes
+  }
+
+  isMergeStep(room: string, card: number, target: { readonly number: number; readonly head: string }): boolean {
+    return this.#executions?.isMergeStep(room, card, target) ?? false
+  }
+
+  isGuardedMergeStep(room: string, card: number): boolean {
+    return this.#executions?.isGuardedMergeStep(room, card) ?? false
+  }
+
+  mergeAuthority(room: string, card: number, target: { readonly repository: string; readonly number: number; readonly head: string }) {
+    return this.#executions?.mergeAuthority(room, card, target) ?? Promise.resolve(null)
   }
 
   bindingOf(room: string, intent: number): { readonly session: { readonly runtime: string; readonly sessionId: string } | null } | null {

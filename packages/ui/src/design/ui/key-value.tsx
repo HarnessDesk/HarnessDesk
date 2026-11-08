@@ -1,6 +1,7 @@
 import type * as React from 'react'
 import { createContext, useContext, type CSSProperties } from 'react'
 import { FRAME } from '../frame'
+import { ChipLook } from './tone'
 
 import { cn } from '@/lib/utils'
 
@@ -257,43 +258,65 @@ const KeyValueRow = ({
  * Narrow (under 28rem of card), the key rises onto its own line above the
  * value, and the action keeps the row's end beside the value, as a wrapped
  * `Row` control does.
+ *
+ * **Icon rows.** `keys="icon"` draws each key as its `icon` — a folder, a
+ * branch, a clock, a cost — in a 16px column, with the label still the term a
+ * screen reader announces and the title on hover. It is for facts whose value
+ * says what it is once the icon names its kind ("harnessdesk", "Round 2 of
+ * 4", "12m"); a fact that needs its name to be read ("Requested ceiling",
+ * "No progress") keeps a key column. A value is a word slot: a state chip in
+ * it reads as its word (`ChipLook`).
  */
 const SummarySurface = createContext<'card' | 'panel'>('card')
-const SummaryList = ({ className, children, surface = 'card', style, ...props }:
-  React.ComponentProps<'dl'> & { surface?: 'card' | 'panel' }) => <SummarySurface.Provider value={surface}>
+const SummaryKeys = createContext<'label' | 'icon'>('label')
+const SummaryList = ({ className, children, surface = 'card', keys = 'label', style, ...props }:
+  React.ComponentProps<'dl'> & {
+    surface?: 'card' | 'panel'
+    /** `icon`: each item's `icon` stands in the key column, its label kept for a screen reader and the title. */
+    keys?: 'label' | 'icon'
+  }) => <SummarySurface.Provider value={surface}><SummaryKeys.Provider value={keys}>
   <div data-slot="summary-list" className={cn('@container/summary min-w-0', className)}>
-    <dl data-slot="summary-card" data-surface={surface}
-      style={{ ...style, ...(surface === 'panel' ? { '--summary-key': `${FRAME.summaryKey.panel}px` } : {}) } as CSSProperties}
+    <dl data-slot="summary-card" data-surface={surface} data-keys={keys}
+      style={{ ...style, ...(surface === 'panel' ? { '--summary-key': keys === 'icon' ? 'var(--hd-space-4)' : `${FRAME.summaryKey.panel}px` } : {}) } as CSSProperties}
       className={cn('group/summary m-0 grid min-w-0 overflow-hidden text-(length:--hd-text-sm) leading-(--hd-line-sm)',
         surface === 'panel'
-          ? 'grid-cols-[var(--summary-key)_minmax(0,1fr)_auto] gap-x-(--hd-bar-gap) px-(--hd-inset-row) border-0 bg-transparent'
+          ? cn('grid-cols-[var(--summary-key)_minmax(0,1fr)_auto] px-(--hd-inset-row) border-0 bg-transparent', keys === 'icon' ? 'gap-x-(--hd-space-2)' : 'gap-x-(--hd-bar-gap)')
           : 'grid-cols-[auto_minmax(0,1fr)_auto] rounded-[var(--hd-card-radius,var(--hd-radius-lg))] border-0 shadow-[inset_0_0_0_var(--hd-border-width)_var(--hd-card-border,var(--hd-border))] bg-[var(--hd-card-fill,var(--hd-card))] @max-md/summary:grid-cols-[minmax(0,1fr)_auto]')}
       {...props}>{children}</dl>
   </div>
-</SummarySurface.Provider>
+</SummaryKeys.Provider></SummarySurface.Provider>
 /* The text's padding when the card holds an action: half of what a small
    button stands above a line of text, so the line sits on the button's centre. */
 const ON_ACTION_LINE =
   'group-has-[[data-slot=summary-action]]/summary:py-[calc((var(--hd-btn-h-sm)_-_var(--hd-line-sm))_/_2)]'
 
-const SummaryItem = ({ className, label, children, note, noteKind = 'text', action, numeric = false, kind = 'text', ...props }:
+const SummaryItem = ({ className, label, icon, children, note, noteKind = 'text', action, numeric = false, kind = 'text', ...props }:
   Omit<React.ComponentProps<'div'>, 'children'> & {
     label: React.ReactNode; children: React.ReactNode; note?: React.ReactNode; action?: React.ReactNode
+    /** The key's glyph in a `keys="icon"` list; the label stays the announced term. */
+    icon?: React.ReactNode
     numeric?: boolean; kind?: 'text' | 'path' | 'name'
     /** `path` gives a one-line note its middle to lose, as `kind` does the value: for a hash or a path, never a sentence. */
     noteKind?: 'text' | 'path'
   }) => {
   const panel = useContext(SummarySurface) === 'panel'
+  const iconKey = useContext(SummaryKeys) === 'icon' && icon != null
   return <div data-slot="summary-item" {...(numeric ? { 'data-numeric': '' } : {})}
     {...(kind === 'path' ? { 'data-kind': 'path' } : {})}
     className={cn('col-span-full grid grid-cols-subgrid gap-y-(--hd-space-0-5)',
       panel ? 'py-(--hd-space-2) border-b-(length:--hd-border-width) border-(--hd-border) last:border-b-0' : 'p-(--hd-inset-row) gap-x-(--hd-space-6) border-b-(length:--hd-border-width) border-[color:var(--hd-card-divider,var(--hd-border))] last:border-b-0', className)} {...props}>
-    <dt className={cn(KEY_CLASS, !panel && 'min-w-20 @max-md/summary:col-span-full @max-md/summary:pb-0!', !panel && ON_ACTION_LINE)}>{label}</dt>
+    {iconKey
+      /* The glyph sits on the value's first line: one line box tall, centred in it. */
+      ? <dt data-slot="summary-icon" title={typeof label === 'string' ? label : undefined}
+          className={cn(KEY_CLASS, 'box-content flex h-(--hd-line-sm) items-center [&_svg]:size-4 [&_svg]:shrink-0', !panel && '@max-md/summary:col-span-full @max-md/summary:pb-0!', !panel && ON_ACTION_LINE)}>
+          <span aria-hidden="true" className="contents">{icon}</span><span className="sr-only">{label}</span>
+        </dt>
+      : <dt className={cn(KEY_CLASS, !panel && 'min-w-20 @max-md/summary:col-span-full @max-md/summary:pb-0!', !panel && ON_ACTION_LINE)}>{label}</dt>}
     <dd className="col-span-2 m-0 grid min-w-0 grid-cols-subgrid">
       <div data-slot="summary-value" className={cn('min-w-0 break-words text-(--hd-foreground)',
         numeric ? panel ? 'text-left tabular-nums' : 'text-right tabular-nums' : 'text-left',
         action == null && 'col-span-2', !panel && ON_ACTION_LINE)}>
-        {valueOf(children, kind)}
+        <ChipLook.Provider value="quiet">{valueOf(children, kind)}</ChipLook.Provider>
         {note != null && <p data-slot="summary-note" className="m-0 mt-(--hd-space-0-5) text-left text-(--hd-secondary-foreground)">{valueOf(note, noteKind)}</p>}
       </div>
       {action != null && <div data-slot="summary-action" className="col-start-2 flex min-w-0 items-start justify-end gap-(--hd-space-2)">{action}</div>}

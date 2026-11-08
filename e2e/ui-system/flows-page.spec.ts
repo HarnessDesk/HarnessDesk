@@ -5,6 +5,41 @@ const tools = (page: Page) => page.getByRole('group', { name: 'Flow tools', exac
 const sourceField = (page: Page) => page.getByRole('textbox', { name: 'Source', exact: true })
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`unavailable folders leave the Flow gallery usable · ${theme}`, async ({ page }, testInfo) => {
+    await page.goto(`/preview.html?flows-page=unavailable&theme=${theme}`)
+    const surface = frame(page)
+    const notice = surface.locator('[data-slot="alert"]')
+    await expect(notice).toHaveCount(1)
+    await expect(notice).toContainText('Flows could not be read from 20 project folders.')
+    await expect(surface.getByRole('alert')).toHaveCount(0)
+    await expect(surface.getByText('ENOENT', { exact: false })).toHaveCount(0)
+    const card = surface.getByRole('button', { name: 'Open Write and review', exact: true })
+    await expect(card).toBeInViewport()
+    await expect(surface.getByRole('button', { name: 'New Flow', exact: true })).toBeEnabled()
+    await expect(surface.getByLabel('Flow origin').locator('option')).toHaveCount(3)
+    await page.screenshot({ path: testInfo.outputPath(`unavailable-folders-${theme}.png`) })
+    await page.setViewportSize({ width: 720, height: 900 })
+    await expect(surface.getByRole('button', { name: 'Open Just a Team', exact: true })).toBeInViewport()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath(`unavailable-folders-${theme}-narrow.png`) })
+    await surface.getByRole('button', { name: 'Folder details', exact: true }).click()
+    await expect(surface.getByText("realpath '/work/removed-20'", { exact: false })).toBeVisible()
+    await surface.getByRole('button', { name: 'Folder details', exact: true }).click()
+    await card.click()
+    await expect(surface.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled()
+  })
+
+  test(`unavailable folders cannot be used for a new Flow or Team · ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?flows-page=all-unavailable&theme=${theme}`)
+    const surface = frame(page)
+    await expect(surface.locator('[data-slot="alert"]')).toContainText('Flows could not be read from 20 project folders.')
+    await expect(surface.getByRole('button', { name: 'New Flow', exact: true })).toBeDisabled()
+    await expect(surface.getByRole('button', { name: 'New Flow', exact: true })).toHaveAttribute('title', 'No project folder could be read.')
+    await expect(surface.getByRole('button', { name: 'Open Just a Team', exact: true })).toBeDisabled()
+    await expect(surface.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
+    await expect(surface.getByText('Open a project folder to build or start a Flow.', { exact: true })).toHaveCount(0)
+  })
+
   test(`catalogue keeps its title in the body and the Flow subject in the bar · ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.goto(`/preview.html?flows-page=list&theme=${theme}`)

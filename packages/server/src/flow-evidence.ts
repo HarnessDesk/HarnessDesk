@@ -10,6 +10,7 @@ import {
   type FlowRoundState,
   type ReviewCandidate,
   type ReviewInput,
+  type ReviewTargetBinding,
   type SeatId,
 } from '@harnessdesk/protocol'
 
@@ -100,6 +101,7 @@ export interface FlowSubject {
   readonly round: number
   readonly checkout: { readonly cwd: string; readonly branch: string | null }
   readonly at: string
+  readonly reviewTarget?: ReviewTargetBinding
   /** Agent name that held the attempt, used by a person's candidate chooser. */
   readonly holder?: string
 }
@@ -145,6 +147,7 @@ export interface FactChoice {
   readonly fresh: boolean
   /** Null when it is not a verdict yet: CI still running, a pull request still open when another state is wanted. */
   readonly passed: boolean | null
+  readonly reviewTarget?: ReviewTargetBinding
 }
 
 /**
@@ -155,10 +158,11 @@ export interface FactChoice {
  */
 export function chooseFact(
   facts: readonly FactChoice[],
-  scope: { readonly question: string; readonly at: string },
+  scope: { readonly question: string; readonly at: string; readonly reviewTarget?: ReviewTargetBinding },
 ): { readonly state: 'pass' | 'fail'; readonly fact: FactChoice } | { readonly state: 'missing' } {
   const latest = facts.filter((fact) => fact.question === scope.question && fact.at === scope.at).at(-1)
   if (!latest || !latest.fresh || latest.passed === null) return { state: 'missing' }
+  if (scope.reviewTarget && !sameReviewTarget(scope.reviewTarget, latest.reviewTarget)) return { state: 'missing' }
   return { state: latest.passed ? 'pass' : 'fail', fact: latest }
 }
 
@@ -257,14 +261,14 @@ const choicesFor = (guard: FlowEvidenceGuard, context: FlowEvidenceContext): Fac
     // A Seat's own `run_check` informs its review and is never a rule's evidence, for or against (#1082).
     if (fact.kind === 'check' && fact.advisory) continue
     const fresh = view.freshness.state === 'fresh'
-    const one = (question: string, at: string, passed: boolean | null): void => { out.push({ id: record.id, question, at, fresh, passed }) }
+    const one = (question: string, at: string, passed: boolean | null, reviewTarget?: ReviewTargetBinding): void => { out.push({ id: record.id, question, at, fresh, passed, reviewTarget }) }
     if ('check' in guard && fact.kind === 'check' && fact.run === guard.check) {
       one('check', fact.at, checkPassed(fact) && fact.counted !== false)
     } else if ('ci' in guard && fact.kind === 'ci') {
       const verdict = ciVerdict(fact.checks)
       one('ci', fact.at, verdict === 'passed' ? true : verdict === 'running' ? null : false)
     } else if ('review' in guard && fact.kind === 'review') {
-      one(`review:${fact.by}`, fact.at, fact.verdict === guard.review)
+      one(`review:${fact.by}`, fact.at, fact.verdict === guard.review, fact.reviewTarget)
     } else if ('pr' in guard && fact.kind === 'pr') {
       const settledOther = fact.state !== guard.pr && fact.state !== 'open'
       one(`pr:${fact.number}`, fact.head, fact.state === guard.pr ? true : settledOther || guard.pr === 'open' ? false : null)
@@ -319,7 +323,7 @@ const reviewChoice = (answer: string, context: FlowEvidenceContext, subjects: re
     ? context.reviewers.map((seat) => `review:${seat}`)
     : [...new Set(choices.map((one) => one.question))]
   if (required.length === 0) return { state: 'waiting', reason: WAITING_REVIEW }
-  const verdictsAt = (subject: FlowSubject) => required.map((question) => chooseFact(choices, { question, at: subject.at }))
+  const verdictsAt = (subject: FlowSubject) => required.map((question) => chooseFact(choices, { question, at: subject.at, reviewTarget: subject.reviewTarget }))
   const chosen = subjects.filter((subject) => verdictsAt(subject).some((one) => one.state === 'pass'))
   if (chosen.length > 1) return { state: 'waiting', reason: AMBIGUOUS_REVIEWS }
   if (chosen.length === 0) {
@@ -443,6 +447,8 @@ export interface ReviewSubjectPort {
   bindingFor(intent: number, scope: TeamCallScope): Promise<ReviewBinding | null>
   /** Null unless this run's open card is a person step whose next rule requires a review. */
   personBindingFor?(run: string, card: number): Promise<ReviewBinding | null>
+  /** Re-observe a held PR target, including after a person card has closed. */
+  currentTarget?(goal: string, target: ReviewTargetBinding): Promise<boolean | string>
   /** This Goal's raw facts, each already carrying its computed freshness. */
   facts(goal: string): Promise<readonly EvidenceView[]>
   /**
@@ -456,6 +462,10 @@ export interface ReviewSubjectPort {
 }
 
 const CANDIDATE_TTL_MS = 10 * 60_000
+const movedCandidate = (bound: ReviewBinding, held: HeldCandidate): string =>
+  bound.unsettled?.find(one => one.card === held.candidate.card)?.why ?? bound.refusal ?? 'That candidate has moved on. Ask for review candidates again.'
+const targetProblem = (result: boolean | string | undefined): string | null =>
+  result === true ? null : typeof result === 'string' ? result : 'That candidate has moved on. Ask for review candidates again.'
 
 /** Valid stable evidence identity for a person reviewer; person decisions have no runtime Seat. */
 export const PERSON_REVIEWER_ID: SeatId = '00000000-0000-4000-8000-000000000001'
@@ -482,7 +492,12 @@ interface HeldCandidate {
 /** A SHA alone cannot preserve a candidate after its checkout changed branches. */
 const stillOffered = (subject: FlowSubject, held: HeldCandidate): boolean =>
   subject.card === held.candidate.card && subject.at === held.candidate.at &&
+  sameReviewTarget(subject.reviewTarget, held.candidate.reviewTarget) &&
   subject.checkout.cwd === held.checkout.cwd && subject.checkout.branch === held.checkout.branch
+
+const sameReviewTarget = (a: ReviewTargetBinding | undefined, b: ReviewTargetBinding | undefined): boolean =>
+  a === undefined || b === undefined ? a === b :
+    a.repository === b.repository && a.number === b.number && a.head === b.head && a.baseRef === b.baseRef && a.baseTip === b.baseTip
 
 /** Server-only: the plugin bridge's two hooks land here, never in protocol. */
 export interface FlowReviewPort {
@@ -526,14 +541,12 @@ export class FlowReview implements FlowReviewPort {
     const bound = await this.#port.bindingFor(intent, scope)
     if (!bound) return false
     const facts = await this.#port.facts(bound.goal)
-    return facts.some(
-      (view) =>
-        view.record.fact.kind === 'review' &&
-        view.record.fact.by === bound.seat &&
-        view.record.card?.id === intent &&
-        view.record.round === bound.round &&
-        !view.record.restored,
-    )
+    return facts.some((view) => {
+      const fact = view.record.fact
+      return fact.kind === 'review' && fact.by === bound.seat && view.record.card?.id === intent &&
+        view.record.round === bound.round && !view.record.restored &&
+        bound.subjects.some(subject => subject.at === fact.at && sameReviewTarget(subject.reviewTarget, fact.reviewTarget))
+    })
   }
 
   /**
@@ -562,11 +575,13 @@ export class FlowReview implements FlowReviewPort {
     const out: ReviewCandidate[] = []
     for (const subject of bound.subjects) {
       if (!current.subjects.some((one) => one.card === subject.card && one.at === subject.at &&
+        sameReviewTarget(one.reviewTarget, subject.reviewTarget) &&
         one.checkout.cwd === subject.checkout.cwd && one.checkout.branch === subject.checkout.branch)) continue
       const evidence = candidateEvidence(facts, subject)
       const id = mintId()
       const candidate: ReviewCandidate = {
         id, card: subject.card, at: subject.at, branch: subject.checkout.branch, evidence,
+        ...(subject.reviewTarget ? { reviewTarget: subject.reviewTarget } : {}),
         ...(subject.holder ? { holder: subject.holder } : {}),
       }
       this.#candidates.set(id, {
@@ -584,12 +599,16 @@ export class FlowReview implements FlowReviewPort {
     const bound = await this.#port.personBindingFor?.(run, card)
     if (!bound) return []
     const facts = await this.#port.facts(bound.goal)
+    const current = await this.#port.personBindingFor?.(run, card)
+    if (!current || current.goal !== bound.goal || current.seat !== bound.seat || current.round !== bound.round) return []
     const out: ReviewCandidate[] = []
     for (const subject of bound.subjects) {
+      if (!current.subjects.some(one => one.card === subject.card && one.at === subject.at && sameReviewTarget(one.reviewTarget, subject.reviewTarget) && one.checkout.cwd === subject.checkout.cwd && one.checkout.branch === subject.checkout.branch)) continue
       const evidence = candidateEvidence(facts, subject, true)
       const id = mintId()
       const candidate: ReviewCandidate = {
         id, card: subject.card, at: subject.at, branch: subject.checkout.branch, evidence,
+        ...(subject.reviewTarget ? { reviewTarget: subject.reviewTarget } : {}),
         ...(subject.holder ? { holder: subject.holder } : {}),
       }
       this.#candidates.set(id, {
@@ -658,7 +677,9 @@ export class FlowReview implements FlowReviewPort {
         view.record.round === held.round &&
         !view.record.restored,
       )
-      if (existing?.record.fact.kind === 'review' && existing.record.fact.at === held.candidate.at && existing.record.fact.verdict === verdict) {
+      if (existing?.record.fact.kind === 'review' && existing.record.fact.at === held.candidate.at && existing.record.fact.verdict === verdict &&
+          sameReviewTarget(existing.record.fact.reviewTarget, held.candidate.reviewTarget)) {
+        if (held.candidate.reviewTarget) { const why = targetProblem(await this.#port.currentTarget?.(goal, held.candidate.reviewTarget)); if (why) throw new Error(why) }
         return existing.record
       }
       if (existing) throw new Error('A different verdict is already recorded for this card. Reopen it in a new round to change it.')
@@ -671,7 +692,7 @@ export class FlowReview implements FlowReviewPort {
       throw new Error('That candidate is no longer being offered. Ask for review candidates again.')
     }
     if (!bound.subjects.some((one) => stillOffered(one, held))) {
-      throw new Error('That candidate has moved on. Ask for review candidates again.')
+      throw new Error(movedCandidate(bound, held))
     }
     const facts = await this.#port.facts(bound.goal)
     const existing = facts.find((view) =>
@@ -681,21 +702,26 @@ export class FlowReview implements FlowReviewPort {
       view.record.round === bound.round &&
       !view.record.restored,
     )
-    if (existing?.record.fact.kind === 'review' && (existing.record.fact.at !== held.candidate.at || existing.record.fact.verdict !== verdict)) {
+    if (existing?.record.fact.kind === 'review' && (existing.record.fact.at !== held.candidate.at || existing.record.fact.verdict !== verdict || !sameReviewTarget(existing.record.fact.reviewTarget, held.candidate.reviewTarget))) {
       throw new Error('A different verdict is already recorded for this card. Reopen it in a new round to change it.')
     }
     if (beforeRecord) {
       await beforeRecord(held.candidate)
       // Git verification can yield while a Run stops or an attempt advances.
       const fresh = await this.#port.personBindingFor?.(run, card)
-      if (!fresh || fresh.round !== bound.round || !fresh.subjects.some(one => stillOffered(one, held))) {
+      if (!fresh || fresh.round !== bound.round) {
         throw new Error('This step or its attempt changed while verifying the merge. Nothing was recorded.')
       }
+      if (!fresh.subjects.some(one => stillOffered(one, held))) throw new Error(fresh.unsettled?.find(one => one.card === held.candidate.card)?.why ?? fresh.refusal ?? 'This step or its attempt changed while verifying the merge. Nothing was recorded.')
     }
+    if (held.candidate.reviewTarget) { const why = targetProblem(await this.#port.currentTarget?.(goal, held.candidate.reviewTarget)); if (why) throw new Error(why) }
+    const fresh = await this.#port.personBindingFor?.(run, card)
+    if (!fresh || fresh.round !== bound.round) throw new Error('That candidate has moved on. Ask for review candidates again.')
+    if (!fresh.subjects.some(one => stillOffered(one, held))) throw new Error(movedCandidate(fresh, held))
     if (existing?.record.fact.kind === 'review') return existing.record
     const record: EvidenceRecord = {
       id: mintId(),
-      fact: { kind: 'review', verdict, by: bound.seat, at: held.candidate.at },
+      fact: { kind: 'review', verdict, by: bound.seat, at: held.candidate.at, ...(held.candidate.reviewTarget ? { reviewTarget: held.candidate.reviewTarget } : {}) },
       card: { board: bound.goal, id: card },
       checkout: { cwd: held.checkout.cwd, branch: held.checkout.branch },
       seat: null,
@@ -753,12 +779,13 @@ export class FlowReview implements FlowReviewPort {
       throw new Error('That candidate is no longer being offered. Ask for review candidates again.')
     }
     if (!bound.subjects.some((one) => stillOffered(one, held))) {
-      throw new Error('That candidate has moved on. Ask for review candidates again.')
+      throw new Error(movedCandidate(bound, held))
     }
     const record: EvidenceRecord = {
       id: mintId(),
       fact: {
         kind: 'review', verdict: input.verdict, by: bound.seat, at: held.candidate.at,
+        ...(held.candidate.reviewTarget ? { reviewTarget: held.candidate.reviewTarget } : {}),
         ...(against?.length ? { against } : {}),
       },
       card: { board: bound.goal, id: input.intent },
@@ -779,8 +806,9 @@ export class FlowReview implements FlowReviewPort {
       throw new Error('You do not hold this card, so no review can be recorded against it.')
     }
     if (!current.subjects.some((one) => stillOffered(one, held))) {
-      throw new Error('That candidate has moved on. Ask for review candidates again.')
+      throw new Error(movedCandidate(current, held))
     }
+    if (held.candidate.reviewTarget) { const why = targetProblem(await this.#port.currentTarget?.(bound.goal, held.candidate.reviewTarget)); if (why) throw new Error(why) }
     const outcome = await this.#port.append(bound.goal, record)
     if (outcome.outcome === 'conflict') {
       throw new Error('A different verdict is already recorded for this card. Reopen it in a new round to change it.')

@@ -30,6 +30,7 @@ import {
   ComposerNotice,
   Checklist,
   ChecklistItem,
+  QrCode,
   ComposerNoticeStack,
   ComposerTail,
   InboxPanel,
@@ -786,7 +787,7 @@ const FaceBoard = () => (
     </div>
     </Specimen>
     <p className={styles.rule}>
-      A person is a face; an account is a ring. A face is square unless the person chose round (the Faces dial
+      A person is a face; an account is a ring. A face is round unless the person chose square (the Faces dial
       above), and its corner follows that choice at every size. The tile is the shared avatar primitive — one
       plate, one hairline — its corner stepping up as it grows, and the house mark for any face this build
       does not ship: the third tile is an id no build has.
@@ -840,6 +841,14 @@ const ChecklistBoard = () => (
           <ChecklistItem state="done">Ship it</ChecklistItem>
         </Checklist>
       </div>
+    </Case>
+  </div>
+)
+
+const QrCodeBoard = () => (
+  <div className={styles.stack}>
+    <Case label="a pairing link, dark on light whatever the theme">
+      <QrCode text="harnessdesk://pair?c=preview" label="Pairing code" />
     </Case>
   </div>
 )
@@ -2309,6 +2318,12 @@ export const BOARDS: Board[] = [
     title: 'Checklist',
     about: 'A runtime\u2019s plan, in the Tasks panel and the transcript: the mark says the state, centred on the step\u2019s first line.',
     render: ChecklistBoard,
+  },
+  {
+    id: 'qr-code',
+    title: 'QrCode',
+    about: 'A code a phone scans, drawn from its text: dark modules on a light ground in either theme, because that is all a scanner reads.',
+    render: QrCodeBoard,
   },
   {
     id: 'notices',

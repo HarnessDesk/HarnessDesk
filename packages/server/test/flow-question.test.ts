@@ -766,3 +766,12 @@ test('Stop during an answer handback refuses delivery without sending a new orde
     assert.equal(stopped.keptAnswer, undefined, 'terminal Stop does not retain an answer for another turn')
   } finally { release(); e.rig.files.save = save }
 })
+
+test('a stopped question refused before settlement proves its answer was not delivered', E2E, async t => {
+  const a = await stoppedOnAQuestion(t), sent = a.sent.length
+  const refusal = Error('fixture gate refused before settlement')
+  t.mock.method(a.d.host.flowsPlane, 'answerQuestion', async () => { throw refusal })
+  await assert.rejects(answerIt(a), (error: any) => error === refusal && error.approvalNotDelivered === true)
+  assert.equal(a.sent.length, sent)
+  assert.equal(hasQuestion(a), true)
+})

@@ -30,11 +30,13 @@ import {
 
 import { FsService, HttpService, ShellService, WorkspaceService } from './capabilities.js'
 import { BrowserService, setBrowserSettings, type BrowserSettings } from './browser.js'
+import { inForgeInvocation } from './forge-invocation.js'
 import { runBrowserInvocation, type BrowserIdentity } from './browser-scopes.js'
 import { EditorService } from './editor.js'
 import { TeamService } from './team.js'
 import { ForgeService } from './forge.js'
 import { IosService } from './ios.js'
+import type { IosCapability } from './ios-types.js'
 import { AndroidService } from './android.js'
 import { install, inspect, listInstalled, loadInstalled, uninstall } from './installer.js'
 import { describePermissions } from './manifest.js'
@@ -97,6 +99,7 @@ export interface KernelLogger {
 }
 
 export interface KernelOptions {
+  readonly iosEngine?: IosCapability
   readonly logger?: KernelLogger
   /** Plugins listed here run fully trusted. Reserved for HarnessDesk's own features. */
   readonly trusted?: readonly string[]
@@ -117,7 +120,7 @@ interface Loaded {
   provides: string[]
 }
 
-const mergePermissions = (
+export const mergePermissions = (
   requested: Partial<PluginPermissions> | undefined,
 ): PluginPermissions => ({
   workspace: { ...NO_PERMISSIONS.workspace, ...requested?.workspace },
@@ -221,7 +224,7 @@ export class ExtensionKernel implements CapabilityRegistry {
     })
     this.#install(class extends IosService {
       constructor(ctx: Context) {
-        super(ctx, runtime)
+        super(ctx, runtime, options.iosEngine ? { engine: options.iosEngine } : {})
       }
     })
     this.#install(class extends AndroidService {
@@ -248,6 +251,11 @@ export class ExtensionKernel implements CapabilityRegistry {
 
   setWorkspace(state: WorkspaceState): void {
     this.#runtime.setWorkspace(state)
+  }
+
+  /** See `ContributionStore.resolveRoots`: a confined process's parent resolving what it cannot. */
+  resolveWorkspaceRoots(resolved: Readonly<Record<string, { readonly from: string; readonly to: string }>>): void {
+    this.#store.resolveRoots(resolved)
   }
 
   /**
@@ -461,7 +469,7 @@ export class ExtensionKernel implements CapabilityRegistry {
       // open one) and `ctx.shell`. With several Teams open, a relative read resolved against the open folder read
       // another Team's files.
       const execute = () => this.#runtime.withContextWorkspace(workspaceRoot, () =>
-        inShellWorkspace(workspaceRoot, () => asActor('agent', () => entry.executor!(args, scope))), admission.enterCheckout)
+        inShellWorkspace(workspaceRoot, () => asActor('agent', () => inForgeInvocation(owner, scope, () => entry.executor!(args, scope)))), admission.enterCheckout)
       return identity ? await runBrowserInvocation(identity, execute) : await execute()
     } catch (error) {
       if (error instanceof PermissionDenied) {
@@ -503,6 +511,28 @@ export class ExtensionKernel implements CapabilityRegistry {
     return { decision: 'allow' }
   }
 
+  /**
+   * One hook, by id. A plugin host that runs one plugin per process cannot
+   * order hooks across plugins itself, so the host orders them and asks each
+   * process for one verdict at a time. A hook that throws or overruns is
+   * skipped, exactly as in `runHooks`.
+   */
+  async runHook(id: ContributionId, invocation: HookInvocation): Promise<HookVerdict> {
+    const hook = this.#store.list('hook', invocation.scope).find((entry) => entry.id === id)
+    const handler = hook ? this.#store.get(hook.id)?.hook : undefined
+    if (!hook || !handler) return { decision: 'allow' }
+    try {
+      const verdict = await withTimeout(handler(invocation), hook.timeoutMs)
+      if (!verdict || verdict.decision === 'allow') return { decision: 'allow' }
+      return verdict.decision === 'deny'
+        ? { decision: 'deny', reason: verdict.reason }
+        : { decision: 'ask', reason: verdict.reason }
+    } catch (error) {
+      this.#logger.warn?.('hook failed; treating as allow', { event: hook.event, error: String(error) })
+      return { decision: 'allow' }
+    }
+  }
+
   async resolveContext(query: ScopeQuery): Promise<readonly { label: string; text: string }[]> {
     const admission = await this.#shellScope(query)
     const { scope } = admission
@@ -515,8 +545,8 @@ export class ExtensionKernel implements CapabilityRegistry {
       if (!resolver) continue
       try {
         // Scope every workspace capability to the host-admitted checkout, never the caller's hint.
-        const text = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
-          Promise.resolve(inShellWorkspace(workspaceRoot, () => resolver(Object.freeze({ ...scope })))), admission.enterCheckout), 5_000)
+        const text = await inForgeInvocation(String(contribution.owner), scope, () => withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
+          Promise.resolve(inShellWorkspace(workspaceRoot, () => resolver(Object.freeze({ ...scope })))), admission.enterCheckout), 5_000))
         if (typeof text === 'string' && text.trim().length > 0) {
           out.push({ label: contribution.label, text })
         }
@@ -546,8 +576,8 @@ export class ExtensionKernel implements CapabilityRegistry {
        Nothing offers it out of scope now, and this is the half that does not
        depend on the caller having asked the right question. */
     if (!scopeApplies(entry.contribution.scope, scope)) return null
-    const value = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
-      Promise.resolve(inShellWorkspace(workspaceRoot, () => entry.resolver!(scope, ref))), admission.enterCheckout), 30_000)
+    const value = await inForgeInvocation(String(entry.contribution.owner), scope, () => withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
+      Promise.resolve(inShellWorkspace(workspaceRoot, () => entry.resolver!(scope, ref))), admission.enterCheckout), 30_000))
     if (typeof value === 'string') return { label: entry.contribution.label, text: value }
     return {
       label: entry.contribution.label,
@@ -564,7 +594,7 @@ export class ExtensionKernel implements CapabilityRegistry {
     try {
       // A command is a person: they typed it, or pressed a control that names
       // it. An agent's slash commands go to the agent, never here.
-      await asActor('human', () => handler(argument, scope))
+      await asActor('human', () => inForgeInvocation(String(found.owner), scope, () => handler(argument, scope)))
     } catch (error) {
       // A command that exists and fails is not "unhandled" — it failed, and
       // the person who typed it deserves the reason, named.
@@ -595,6 +625,7 @@ export class ExtensionKernel implements CapabilityRegistry {
     source: PluginSource
     permissions: readonly string[]
     alreadyInstalled: boolean
+    manifestDigest: string
   }> {
     const pkg = await inspect(specifier)
     const manifest = pkg.manifest
@@ -606,12 +637,17 @@ export class ExtensionKernel implements CapabilityRegistry {
       source: manifest.source ?? { kind: 'local', path: pkg.directory },
       permissions: describePermissions(mergePermissions(manifest.permissions)),
       alreadyInstalled: this.#plugins.has(manifest.id),
+      manifestDigest: pkg.manifestDigest,
     }
   }
 
-  /** Installs and loads in one step; the consent decision happened already. */
-  async installPlugin(specifier: string): Promise<string> {
-    const installed = await install(specifier)
+  /**
+   * Installs and loads in one step; the consent decision happened already,
+   * over the manifest whose digest is `manifestDigest`, and a package whose
+   * manifest is no longer that one is refused.
+   */
+  async installPlugin(specifier: string, manifestDigest: string): Promise<string> {
+    const installed = await install(specifier, manifestDigest)
     // Replacing an existing plugin means unloading the old one first, or two
     // revisions of the same id would both be live.
     if (this.#plugins.has(installed.id)) await this.unload(installed.id)
@@ -623,6 +659,25 @@ export class ExtensionKernel implements CapabilityRegistry {
   async uninstallPlugin(pluginId: string): Promise<void> {
     await this.unload(pluginId)
     await uninstall(pluginId)
+  }
+
+  /**
+   * Loads exactly one installed plugin, the one this process was started for.
+   * A directory whose manifest names another id is refused: the host chose
+   * the plugin, and the directory does not get to change its mind.
+   */
+  async loadInstalledPlugin(directory: string, expectedId: string, permissions?: PluginPermissions): Promise<void> {
+    // Asked again after a restart's own load: once is enough, and a reload
+    // would hand the plugin a new instance mid-invocation.
+    if (this.#plugins.has(expectedId)) return
+    const definition = await loadInstalled(directory)
+    if (definition.manifest.id !== expectedId) {
+      throw new Error(`${directory} holds ${JSON.stringify(definition.manifest.id)}, not ${JSON.stringify(expectedId)}.`)
+    }
+    // When the host says what the plugin may do, that is what it may do: the
+    // host checked those permissions against what the person agreed to, and
+    // the manifest on disk may have changed since.
+    await this.load(permissions ? { ...definition, manifest: { ...definition.manifest, permissions } } : definition)
   }
 
   /** Loads everything already installed. Called once at startup. */

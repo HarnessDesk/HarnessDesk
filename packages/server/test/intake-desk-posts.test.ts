@@ -1,15 +1,29 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+
+
 
 import { ExtensionKernel, setForgeEngine, type ForgeEngine } from '@harnessdesk/cordis-host'
 import { gitPlugin } from '@harnessdesk/plugins'
 import type { TriggerArmPreview, TriggerHistoryPage } from '@harnessdesk/protocol'
 
 import { makeRepo } from './fixtures/evidence-desk.js'
+import { iso, sha } from './fixtures/intake-forge.js'
 import { commitTriggers, intakeDesk, type IntakeDesk } from './fixtures/intake-host.js'
+
+const unavailableWrites = {
+  associatedPullRequest: async () => ({ status: 'none' as const }),
+  repository: async () => 'acme/widgets',
+  push: async () => { throw new Error('No gateway in this fixture') },
+  pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
+  review: async () => { throw new Error('No gateway in this fixture') },
+  comment: async () => { throw new Error('No gateway in this fixture') },
+  record: async () => [], attribute: async () => 'outside' as const,
+}
 
 /*
  * The desk posts to the forge as the same account a trigger is armed with,
@@ -66,6 +80,8 @@ const tools = (t: { after(fn: () => void | Promise<void>): void }, d: IntakeDesk
     else process.env['GH_FAKE_HOME'] = before.home
   })
   const engine: ForgeEngine = {
+    ...unavailableWrites,
+    comment: async args => ({ repository: 'acme/widgets', output: execFileSync(join(root, 'gh'), [args.subject === 'issue' ? 'issue' : 'pr', 'comment', String(args.number), '--body', args.body], { cwd: root, encoding: 'utf8' }).trim() }),
     seat: async () => null,
     identity: async () => ({ via: 'gh', login: 'jane-doe', available: true, reason: null }),
     // The host's own plane: it names no open conversation here, so only its first step — telling intake — lands.
@@ -159,4 +175,38 @@ test('a record of desk posts the desk cannot read is kept as it is, never overwr
   // The marker still guards the post meanwhile.
   onForge(d, 5, posted)
   assert.deepEqual((await outcomes(d)).get('5'), ['skipped', 'This comment was posted by this desk, so it does not fire a trigger.'])
+})
+
+
+test('remembered PR review ids survive restart and cannot consume a person’s review event', E2E, async (t) => {
+  const repo = await makeRepo('hd-desk-review-')
+  await commitTriggers(repo, `- id: reviews
+  on: pull-request
+  events: [review-commented]
+  opens: { flow: review-pr }
+`)
+  const first = await intakeDesk({ repo })
+  t.after(() => first.stop())
+  await first.host.intakePlane.deskPosted({ kind: 'review', action: 'posted', repo: 'acme/widgets', number: 1,
+    url: 'https://github.com/acme/widgets/pull/1#pullrequestreview-9000', title: null, state: null, author: null,
+    additions: null, deletions: null, files: null, excerpt: null, via: 'gh', signature: null })
+  await first.stop()
+  const d = await intakeDesk({ repo, stateDir: first.stateDir })
+  t.after(() => d.stop())
+  const at = d.clocks.wall
+  d.forge.pulls.push({ number: 1, head: sha('a'), state: 'open', created: at - 1000, updated: at - 1000 })
+  d.forge.permissions.set('jane-doe', { id: 7, permission: 'write' })
+  const preview = await d.host.call('trigger/preview', { root: repo.dir, id: 'reviews' }) as TriggerArmPreview
+  await d.host.call('trigger/arm', { root: repo.dir, id: 'reviews', token: preview.token! })
+  d.forge.pulls[0]!.reviews = [
+    { id: 9000, commit_id: sha('a'), body: 'Marker edited away.', state: 'COMMENTED', submitted_at: iso(at + 1000), user: { id: 7, login: 'jane-doe' } },
+    { id: 9001, commit_id: sha('a'), body: '<!-- harnessdesk:post -->\nA desk review.', state: 'COMMENTED', submitted_at: iso(at + 1000), user: { id: 7, login: 'jane-doe' } },
+  ]
+  for (let i = 0; i < 3; i += 1) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
+  let history = await d.host.call('trigger/history', { root: repo.dir, id: 'reviews' }) as TriggerHistoryPage
+  assert.deepEqual(history.items, [], 'neither exact markers nor remembered publication ids can fire')
+  d.forge.pulls[0]!.reviews!.push({ id: 9002, commit_id: sha('a'), body: 'A person asks.', state: 'COMMENTED', submitted_at: iso(at + 2000), user: { id: 7, login: 'jane-doe' } })
+  for (let i = 0; i < 3; i += 1) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
+  history = await d.host.call('trigger/history', { root: repo.dir, id: 'reviews' }) as TriggerHistoryPage
+  assert.deepEqual(history.items.map((one) => one.outcome), ['fired'])
 })

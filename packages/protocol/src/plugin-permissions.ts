@@ -48,8 +48,11 @@ export const describePermissions = (permissions: PluginPermissions): string[] =>
   }
   // What the grant adds is the desk's part — the seat and the record — not
   // the reach, which is the shell's and gh's; the sentence names the part.
-  if (permissions.forge) {
+  if (permissions.forge === true || typeof permissions.forge === 'object' && permissions.forge.publish) {
     out.push('Sign pull requests, reviews and comments for the conversation, with its Team name, and put what it published in the transcript')
+  }
+  if (typeof permissions.forge === 'object' && permissions.forge.write) {
+    out.push("Push branches and open, update and merge pull requests through HarnessDesk, as you, recorded in the project's Git record.")
   }
   if (permissions.workspace.read) out.push('Read files in the open project')
   if (permissions.workspace.write) out.push('Change files in the open project')

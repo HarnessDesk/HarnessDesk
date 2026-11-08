@@ -6,7 +6,7 @@ import { agentGroups } from '../lib/accounts'
 import { agentReadiness } from './SettingsAgents'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import { ArchiveIcon, BellIcon, ExtensionIcon, FolderIcon, GlobeIcon, KeyboardIcon,
-  HistoryIcon, ResourceIcon, RouteIcon, ServerIcon, ShieldIcon, SlidersIcon, SparkIcon, ThemeSystemIcon } from './Icons'
+  LeadIcon, MobileIcon, HistoryIcon, ResourceIcon, RouteIcon, ServerIcon, ShieldIcon, SlidersIcon, SparkIcon, ThemeSystemIcon, UserIcon } from './Icons'
 
 export interface SettingsNavEntry {
   readonly id: Section
@@ -27,8 +27,10 @@ export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): rea
   const scoped = (page: string) => `${page} belongs to ${runtime.presentation.name}, the runtime the active conversation is with.`
   return [
     { label: 'Preferences', entries: [
+      { id: 'profile', label: 'Account', icon: <UserIcon size={16} />, keywords: ['sign in', 'sign out', 'phone', 'linked phones', 'reachable', 'desk name', 'rename', 'pair', 'name', 'picture'] },
+      ...(snapshot.leadAvailable ? [{ id: 'lead' as const, label: 'Lead', icon: <LeadIcon size={16} />, keywords: ['dex', 'lex', 'allowances', 'provider key', 'permissions'] }] : []),
       { id: 'general', label: 'General', icon: <SlidersIcon size={16} />, keywords: ['backup', 'restore', 'export', 'diagnostics', 'support', 'data', 'sync', 'account', 'transcripts', 'this mac'] },
-      { id: 'appearance', label: 'Appearance', icon: <ThemeSystemIcon size={16} />, keywords: ['theme', 'dark', 'light', 'system', 'interface', 'desk', 'studio', 'palette', 'blueprint', 'editorial', 'accent', 'colour', 'color', 'corners', 'radius', 'faces', 'avatar shape', 'round', 'font', 'text size', 'line numbers', 'wrap', 'indent', 'tab', 'density', 'sort', 'code editor'] },
+      { id: 'appearance', label: 'Appearance', icon: <ThemeSystemIcon size={16} />, keywords: ['theme', 'dark', 'light', 'system', 'interface', 'desk', 'studio', 'palette', 'blueprint', 'editorial', 'accent', 'colour', 'color', 'corners', 'radius', 'surface', 'cards', 'sheet', 'faces', 'avatar shape', 'round', 'font', 'text size', 'line numbers', 'wrap', 'indent', 'tab', 'density', 'sort', 'code editor'] },
       { id: 'notifications', label: 'Notifications', icon: <BellIcon size={16} />, keywords: ['banner', 'message', 'mute', 'silence', 'alert', 'stop showing', 'remind', 'finished turns', 'failures', 'approvals', 'needs you', 'quota', 'rate limit', 'macos'] },
       { id: 'shortcuts', label: 'Keyboard shortcuts', icon: <KeyboardIcon size={16} />, keywords: ['keys', 'bindings', 'command', 'new session', 'open folder', 'close pane', 'sidebar', 'changes', 'palette', 'send', 'new line'] },
     ] },
@@ -46,7 +48,8 @@ export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): rea
       { id: 'extensions' as const, label: 'Extensions', icon: <ExtensionIcon size={16} />, title: scoped('Extensions'), keywords: ['mcp', 'servers', 'apps', 'connect', 'marketplace', 'install'] },
     ] },
     { label: 'Access', entries: [
-      { id: 'permissions', label: 'Permissions', icon: <ShieldIcon size={16} />, keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network', 'ceiling', 'ceilings', 'held', 'asked', 'clients', 'command-line', 'answer'] },
+      { id: 'permissions', label: 'Permissions', icon: <ShieldIcon size={16} />, keywords: ['git', 'push', 'pull request', 'gateway', 'record', 'approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network', 'ceiling', 'ceilings', 'held', 'asked', 'clients', 'command-line', 'answer'] },
+      ...(snapshot.phoneLink ? [{ id: 'phone' as const, label: 'Phone', icon: <MobileIcon size={16} />, keywords: ['pair', 'qr', 'code', 'mobile', 'devices', 'allow', 'remove'] }] : []),
       { id: 'browser', label: 'Browser', icon: <GlobeIcon size={16} />, keywords: ['pane', 'chrome', 'links', 'window', 'profile', 'cookies', 'logins', 'browsing data'] },
     ] },
   ]

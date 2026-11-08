@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { allItems, type Session } from '@harnessdesk/protocol'
-import { SummaryList, SummaryItem, ToolBody, ToolBodySections, ToolFooterSuppressed, ToolSection, Checklist, ChecklistItem, ToolProse, ToolFold, Chip, InlineParts, BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '../design'
+import { SummaryList, SummaryItem, ToolBody, ToolBodySections, ToolFooterSuppressed, ToolSection, Checklist, ChecklistItem, ToolProse, ToolFold, Chip, BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '../design'
+import { AgentIcon, BranchIcon, FolderIcon, ShieldIcon, UsageIcon } from '../components/Icons'
 import { useSnapshot, useRuntime } from '../state/context'
 import { useSeatAgent } from '../state/seat-agent'
 import { ceilingTitle, seatCeilingOf } from '../lib/ceilings'
@@ -33,17 +34,16 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
   const agents = new Set((session ? allItems(session) : []).flatMap(item => item.type === 'subagent' ? item.members.map(member => member.sessionId) : [])).size
   return <ToolBody><ToolBodySections><ToolFooterSuppressed>
     <ToolSection label={session ? 'Conversation' : 'Starts in'} fold value={context?.fill ? `${context.fill.percent}% full` : branch ?? agentName} action={session ? <DropdownMenu icons="none"><DropdownMenuTrigger render={<BoardMenuButton aria-label="Conversation actions" />} /><DropdownMenuContent align="end"><DropdownMenuItem label="Export as Markdown" onClick={() => { downloadMarkdown(exportFilename(session), sessionToMarkdown(session)); store.notice('info', 'Session exported as Markdown.') }} /></DropdownMenuContent></DropdownMenu> : undefined}>
-      <SummaryList surface="panel" aria-label="Conversation facts">
-        <SummaryItem kind="name" label={seated?.name ? 'Agent' : 'Runtime'}>{agentName}</SummaryItem>
-        {shown && <SummaryItem label="Ceiling"><InlineParts>
-          <Chip size="sm" tone="neutral" title={ceilingTitle(shown.ceiling, shown.note)}>{ceilingWords(shown.ceiling.level)}</Chip>
-          <Chip size="sm" tone="neutral" title={ceilingTitle(shown.ceiling, shown.note)}>{shown.ceiling.hold === 'held' ? 'Held' : 'Asked, not held'}</Chip>
-        </InlineParts></SummaryItem>}
-        <SummaryItem label="Folder" kind="name" action={placeAction}>
+      <SummaryList surface="panel" keys="icon" aria-label="Conversation facts">
+        <SummaryItem kind="name" label={seated?.name ? 'Agent' : 'Runtime'} icon={<AgentIcon />}>{agentName}</SummaryItem>
+        {shown && <SummaryItem label="Ceiling" icon={<ShieldIcon />}>
+          <span title={ceilingTitle(shown.ceiling, shown.note)}>{`${ceilingWords(shown.ceiling.level)} · ${shown.ceiling.hold === 'held' ? 'Held' : 'Asked, not held'}`}</span>
+        </SummaryItem>}
+        <SummaryItem label="Folder" icon={<FolderIcon />} kind="name" action={placeAction}>
           {cwd ?? 'Not chosen'}
         </SummaryItem>
-        {branch && <SummaryItem label="Branch" kind="path">{branch}</SummaryItem>}
-        <SummaryItem label="Context">{context?.fill ? `${context.fill.percent}% full` : context?.total ? `${formatTokens(context.total.totalTokens)} tokens` : context ? 'Window not reported' : 'No usage yet'}</SummaryItem>
+        {branch && <SummaryItem label="Branch" icon={<BranchIcon />} kind="path">{branch}</SummaryItem>}
+        <SummaryItem label="Context" icon={<UsageIcon />}>{context?.fill ? `${context.fill.percent}% full` : context?.total ? `${formatTokens(context.total.totalTokens)} tokens` : context ? 'Window not reported' : 'No usage yet'}</SummaryItem>
       </SummaryList>
       {session && (!shown || !branch) && <ToolProse variant="note">
         {!shown && <>Permission level not reported for this {session ? 'conversation' : 'draft'}.</>}

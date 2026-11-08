@@ -5,8 +5,8 @@
 ## What it is
 
 A small ring in the composer toolbar, left of the model name, that fills as
-the conversation fills the model's context window. Hovering it says how full;
-clicking it opens a panel with the numbers behind it — what is in context,
+the conversation fills the model's context window. Its accessible label says
+how full; clicking it opens a card with the numbers behind it — what is in context,
 what the last turn cost, what the session has spent, and (for metered agents)
 how much of the plan's usage allowance is left.
 
@@ -136,37 +136,45 @@ cumulative.
 
 ## The control
 
-**Trigger.** A 16px ring, conic-gradient over a masked disc (CSS, no
-`<svg>` — the icon rule applies). Fill colour follows the fill: accent to
-70%, warning to 90%, danger above. Title when context is known: "Context
-window 66% full — 171K of 258K tokens". When the window is unknown (Cursor):
-"1.3K tokens this session — Cursor Agent does not report its context window".
-Absent until the session has any usage; a fresh conversation has nothing to
-say.
+**Trigger.** A ring button in the composer, labelled *Usage* — a 16px
+`ProgressRing` (12px when the toolbar folds), a CSS conic gradient over a
+masked disc rather than an `<svg>`, because it is a meter, not a glyph. Fill
+colour follows the fill: brand to 70%, warning to 90%, danger above. Its
+accessible label is the card's title: "Context window 66% full — 171K of 258K
+tokens" when the window is known; when it is not (Cursor), "1.3K tokens this
+session — Cursor Agent does not report its context window". The control is
+always drawn: before the session has any usage the ring is empty and the card
+has one row, *Status — No usage yet*.
 
-**Panel** (drops up, aligned right, like the controls beside it):
+**Card** (an `InfoCard`, opening above and aligned to the end, like the
+controls beside it), titled as above:
 
-1. *Context window* — the ring at 28px, "66% full", "171K of 258K tokens in
-   context", and a linear bar in the same tone. When the size is unknown:
-   the dashed ring and "*Agent* does not report its context window size."
-2. *What is in context* (between 1 and 3 for runtimes that report it) — its
-   own bar, a row per segment with its share and (for tool schemas) its count,
-   and a note naming who priced it and saying plainly that an approximate
-   composition will not match the figure above.
-3. *Last turn* — input (with the cached share or cache verdict), output,
-   thinking (reasoning). Only rows with a value.
-4. *This session* — total tokens (with an "out" count hint), cost when the
-   runtime prices it, and delegated tokens (shown as a percentage share of
-   the session) when work was handed to child agents.
-5. *Plan usage* — one row per rolling window from `RateLimits.windows`
-   (label, percent left, reset hint), through the same `describeLimits` the
-   sidebar footer uses. Drawn as what remains — "76% left" and "resets in 2h"
-   — with a bar filling to the remaining percentage. Only for the active,
-   metered runtime.
-6. A footer line naming who reported it: "Reported by Codex."
+1. A *Context window* meter reading "66% full", in the fill's tone — only
+   when the window is known.
+2. *Context* — "171K of 258K tokens", then *Full* — "66%". When the size is
+   unknown, one row instead: *Context — Window size unknown*, with the note
+   "*Agent* does not report its context window size."
+3. The last turn: *Input* (its note is the cache verdict, such as "87%
+   cached" or "cold cache"), *Output*, and *Thinking* only when reasoning
+   tokens were reported.
+4. *Session tokens* (with an "N out" note), *Cost* when the runtime prices
+   the session, and *Delegated* — with its share of the session — when work
+   was handed to child agents.
+5. *What is in context* (between 1 and 3, for runtimes that report it) — its
+   own bar, a row per segment with its share and (for tool schemas) its item
+   count, naming who priced it and whether the composition is approximate,
+   which will not match the figure above.
+6. *Plan usage* — one row per rolling window from `RateLimits.windows`,
+   through the same `describeLimits` the sidebar footer uses, drawn as what
+   remains: "76% left", with the countdown and reset time as its note. Only
+   for a metered runtime that is the active one.
+7. Notes: the cache verdict's explanation when there is one, and a line
+   naming who reported it — "Reported by Codex."
 
-Every figure on the panel comes from `session.usage` or `snapshot.limits`.
-The panel holds no state of its own.
+Only rows with a value are drawn (`packages/ui/src/components/ContextUsage.tsx`).
+
+Every figure on the card comes from `session.usage` or `snapshot.limits`.
+The card holds no state of its own.
 
 ## What each agent actually reports
 
@@ -191,7 +199,9 @@ does, so what reaches the panel is the real mapping.
 | Survives a restart | ✅ | ✅ | — *no transcript to survive* | ✅ |
 
 Each panel below is the real one, photographed in the app with the rest of the
-window hidden.
+window hidden on 2026-08-24 — before the card took its current layout, so the
+pictures show the older panel ("Context window unknown" is now the row
+*Context — Window size unknown*); the figures are what the survey read.
 
 **Codex** — the only agent with plan usage, and the only one reporting
 thinking tokens separately. No composition: it cannot say what the context is
@@ -200,8 +210,10 @@ baseline-adjusted percentage.
 
 ![The Codex context panel: 20% full, 55.2K of 272K tokens, last turn 54K in at 74% cached, 1.8K out, 600 thinking, 55.8K this session, and 5-hour and Weekly plan usage bars](images/ring-codex.png)
 
-**Claude Code** — the only agent that prices the session, and the highest
-cache share. Its per-item loadout is read at conversation start with summary
+**Claude Code** — of these four fakes the only one that sent a cost (DeepSeek
+Harness prices only when its meter does; among the agents added since,
+OpenCode reports session cost too — [usage-dashboard.md](usage-dashboard.md)),
+and the highest cache share. Its per-item loadout is read at conversation start with summary
 detail and estimated sizes, without model token-count calls. That record does
 not feed the ring's composition.
 
@@ -234,7 +246,7 @@ ring and a sentence instead of a guess.
 Three things the survey settled that the code had only asserted:
 
 - **Cursor's dashed ring is the feature working.** "Context window unknown"
-  plus a plain sentence naming the agent, with the token rows it *does* send
+  (today's card: "Window size unknown") plus a plain sentence naming the agent, with the token rows it *does* send
   still shown below. An agent that says less loses the ring, not the panel.
 - **DSH's composition obeys its own rules under real rendering.** The panel
   drew `System prompt 700 · 14%` and `Tool schemas (15) 4.3K · 86%` — shares

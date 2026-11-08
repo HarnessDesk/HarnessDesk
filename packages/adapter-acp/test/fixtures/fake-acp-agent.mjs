@@ -70,7 +70,7 @@ const recordOpen = (method, sessionId, cwd, meta) => {
     // carried a Seat's filter — the one fact a test of "never unfiltered" needs.
     const filtered = process.env.FAKE_ACP_ATTACHMENTS === '1' ? { filtered: Boolean(meta?.harnessdesk?.attachments) } : {}
     const ceiling = process.env.FAKE_ACP_READ_CEILING === '1' ? { ceiling: meta?.harnessdesk?.ceiling ?? null } : {}
-    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered, ...ceiling })}\n`)
+    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered, ...ceiling, ...(method === 'session/fork' ? { _meta: meta ?? null } : {}) })}\n`)
   }
 }
 const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
@@ -124,7 +124,7 @@ lifetime({ type: 'bridge' })
 const cancelled = new Set()
 
 const newSession = (id0, cwd) => {
-  const id = id0 ?? `acp-session-${Date.now().toString(36)}-${++sessionCounter}`
+  const id = id0 ?? `acp-session-${process.pid}-${Date.now().toString(36)}-${++sessionCounter}`
   const state = {
     id,
     // Where the conversation ran. A real agent stores this and hands it back
@@ -286,6 +286,29 @@ const runPrompt = async (id, params) => {
   const say = (chunk) =>
     update(state.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk } })
 
+  if (text === 'wait for steer') {
+    state.waitingPrompt = id
+    say('waiting')
+    return
+  }
+  if (process.env.FAKE_ACP_GOALS && text.startsWith('/goal ')) {
+    const objective = text.slice(6)
+    update(state.id, { sessionUpdate: 'session_info_update', _meta: { jetbrains: { air: { goal: objective === 'clear' ? null : { objective, status: 'active', controlMethod: '_session/goal' } } } } })
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text.startsWith('git-steer-run ')) {
+    const request = JSON.parse(text.slice('git-steer-run '.length)), command = [request.binary, ...request.args].join(' ')
+    update(state.id, { sessionUpdate: 'tool_call', toolCallId: 'git-write', title: command, kind: 'execute', status: 'in_progress', rawInput: { command } })
+    const child = spawn(request.binary, request.args, { cwd: state.cwd, env: process.env })
+    let output = ''
+    child.stdout.on('data', data => { output += data }); child.stderr.on('data', data => { output += data })
+    child.on('close', code => {
+      update(state.id, { sessionUpdate: 'tool_call_update', toolCallId: 'git-write', status: code === 0 ? 'completed' : 'failed', rawOutput: { stdout: output, exitCode: code } })
+      reply(id, { stopReason: 'end_turn' })
+    })
+    return
+  }
   if (text.includes('run a tool in this session')) {
     const { execFileSync } = await import('node:child_process')
     say(execFileSync('/bin/pwd', { cwd: state.cwd, encoding: 'utf8' }).trim())
@@ -428,6 +451,11 @@ const runPrompt = async (id, params) => {
   if (text.startsWith('ceiling permission ')) {
     const input = JSON.parse(text.slice('ceiling permission '.length))
     const toolCall = input.toolCall ?? input
+    // The fork fixture's native guard uses only the ceiling actually received.
+    if (process.env.FAKE_ACP_READ_CEILING === '1' && state.forkCeiling === 'read' && ['edit', 'execute'].includes(toolCall.kind)) {
+      say('denied.')
+      return reply(id, { stopReason: 'end_turn' })
+    }
     const { outcome } = await request('session/request_permission', {
       sessionId: state.id, toolCall,
       ...(input._meta ? { _meta: input._meta } : {}),
@@ -1012,6 +1040,19 @@ const handleTaskPrompt = (state, text) => {
 
 const handlers = {
   initialize: async (id, params) => {
+    // Hold a real spawned process after its environment was captured, without
+    // recording the synthetic key itself. The test releases the gate on disk.
+    const startGate = process.env.FAKE_ACP_START_GATE
+    if (startGate) {
+      const keyName = process.env.FAKE_ACP_START_KEY_NAME
+      if (process.env.FAKE_ACP_START_ENTERED) {
+        appendFileSync(process.env.FAKE_ACP_START_ENTERED, `${JSON.stringify({ pid: process.pid, keyPresent: Boolean(keyName && process.env[keyName]), matchesExpected: Boolean(keyName && process.env[keyName] === process.env.FAKE_ACP_EXPECT_KEY) })}\n`)
+      }
+      if (!existsSync(startGate)) await new Promise(resolve => {
+        const watcher = watch(dirname(startGate), () => { if (existsSync(startGate)) { watcher.close(); resolve() } })
+        if (existsSync(startGate)) { watcher.close(); resolve() }
+      })
+    }
     const startDelay = Number(process.env.FAKE_ACP_START_DELAY_MS ?? 0)
     if (startDelay > 0) await new Promise(resolve => setTimeout(resolve, startDelay))
     // The refusals from the agent's side: a client that offers fs or terminal is a
@@ -1033,7 +1074,7 @@ const handlers = {
         loadSession: Boolean(STORE) && !RESUME_ONLY,
         // FAKE_ACP_NO_IMAGES=1 plays an agent that cannot look at pictures.
         promptCapabilities: { image: process.env.FAKE_ACP_NO_IMAGES !== '1' },
-        sessionCapabilities: { ...(STORE && !NO_LIST ? { list: {}, resume: {} } : {}),
+        sessionCapabilities: { ...(process.env.FAKE_ACP_FORK === '1' ? { fork: {} } : process.env.FAKE_ACP_FORK === 'null' ? { fork: null } : {}), ...(STORE && !NO_LIST ? { list: {}, resume: {} } : {}),
           ...(process.env.FAKE_ACP_NO_CLOSE ? {} : { close: {} }) },
         /* `{}` is the only yes; `null` is a no that is spelled out rather
            than omitted, and both are on the wire. */
@@ -1044,10 +1085,13 @@ const handlers = {
         : [
             { id: 'device', name: 'Sign in on the agent side', description: 'Run the agent login.' },
           ],
-      ...(TASKS || DELETES || ATTACHMENTS || process.env.FAKE_ACP_LOADOUT_FILE || process.env.FAKE_ACP_READ_CEILING === '1'
+      ...(TASKS || DELETES || ATTACHMENTS || process.env.FAKE_ACP_LOADOUT_FILE || process.env.FAKE_ACP_READ_CEILING === '1' || process.env.FAKE_ACP_STEER || process.env.FAKE_ACP_GOALS || process.env.FAKE_ACP_ENVIRONMENT
         ? {
             _meta: {
+              ...(process.env.FAKE_ACP_STEER ? { steering: { supported: true } } : {}),
+              ...(process.env.FAKE_ACP_GOALS ? { jetbrains: { air: { goal: { version: 1, controlMethod: '_session/goal', actions: ['set', 'clear'] } } } } : {}),
               harnessdesk: {
+                ...(process.env.FAKE_ACP_ENVIRONMENT ? { sessionEnvironment: true } : {}),
                 ...(process.env.FAKE_ACP_LOADOUT_FILE ? { sessionLoadout: true } : {}),
                 // Handshake only; the bundled bridge tests native enforcement.
                 ...(process.env.FAKE_ACP_READ_CEILING === '1' ? { readCeiling: true } : {}),
@@ -1085,20 +1129,35 @@ const handlers = {
     if (!known.includes(params?.methodId)) return fail(id, `unknown auth method ${String(params?.methodId)}`)
     // FAKE_ACP_AUTH_NEEDS_ENV={"<method>":"<VAR>"} refuses a method whose
     // variable is not in this process's environment — Antigravity's
-    // `gemini-api-key`, which reads GEMINI_API_KEY (#1760) — and
-    // FAKE_ACP_AUTH_LOG=<file> records every method it accepted, so a test
-    // reads a switch that took, not one that was merely asked for.
+    // `gemini-api-key`, which reads GEMINI_API_KEY (#1760). The auth log
+    // records requests after that check, before any gate or refusal; it is
+    // not evidence that the peer applied the method.
     const needs = process.env.FAKE_ACP_AUTH_NEEDS_ENV ? JSON.parse(process.env.FAKE_ACP_AUTH_NEEDS_ENV)[params?.methodId] : undefined
     if (needs && !process.env[needs]) {
       return fail(id, `The ${needs} environment variable must be set in the environment the ACP server is launched from.`)
     }
     if (process.env.FAKE_ACP_AUTH_LOG) appendFileSync(process.env.FAKE_ACP_AUTH_LOG, `${params?.methodId}\n`)
+    if (process.env.FAKE_ACP_AUTH_KEY_MATCH_FILE) appendFileSync(process.env.FAKE_ACP_AUTH_KEY_MATCH_FILE, `${process.env.HD_FAKE_KEY === process.env.FAKE_ACP_AUTH_EXPECTED_KEY ? 'match' : 'other'}\n`)
     const answer = () => {
+      if (params?.methodId === 'api-key' && process.env.FAKE_ACP_REFUSE_KEY_FILE && existsSync(process.env.FAKE_ACP_REFUSE_KEY_FILE)) return fail(id, 'key switch refused')
       if (process.env.FAKE_ACP_AUTH_FAILS === '1') return fail(id, 'the browser flow was refused. Try again.')
+      if (process.env.FAKE_ACP_AUTH_MODE_FILE) writeFileSync(process.env.FAKE_ACP_AUTH_MODE_FILE, params.methodId)
       // Signed in, so the sessions this agent was refusing now open.
       signedOut = false
       delete process.env.FAKE_ACP_AUTH_REQUIRED
-      reply(id, {})
+      // This gate holds only the response: the mode is already applied.
+      const replyGate = process.env.FAKE_ACP_AUTH_REPLY_GATE
+      if (replyGate) {
+        const timer = setInterval(() => {
+          if (existsSync(replyGate)) { clearInterval(timer); reply(id, {}) }
+        }, 10)
+      } else reply(id, {})
+    }
+    if (process.env.FAKE_ACP_AUTH_GATE) {
+      const timer = setInterval(() => {
+        if (existsSync(process.env.FAKE_ACP_AUTH_GATE)) { clearInterval(timer); answer() }
+      }, 10)
+      return
     }
     const wait = Number(process.env.FAKE_ACP_AUTH_MS ?? 0)
     if (wait > 0) setTimeout(answer, wait)
@@ -1112,8 +1171,15 @@ const handlers = {
     if (!LOGS_OUT) return fail(id, 'Method not found: logout')
     if (process.env.FAKE_ACP_LOGOUT_FAILS === '1') return fail(id, 'the keychain refused to give up the token')
     signedOut = true
+    if (process.env.FAKE_ACP_AUTH_MODE_FILE) writeFileSync(process.env.FAKE_ACP_AUTH_MODE_FILE, 'out')
     reply(id, {})
   },
+  // An ordered peer round-trip for the auth/session interleaving test.
+  'test/auth-barrier': (id) => {
+    if (process.env.FAKE_ACP_AUTH_OBSERVE_FILE) reply(id, {})
+    else fail(id, 'test barrier unavailable')
+  },
+  'test/crash': () => { process.exit(1) },
   'session/close': async (id, params) => {
     if (process.env.FAKE_ACP_NO_CLOSE) return fail(id, 'close is unsupported')
     if (process.env.FAKE_ACP_CLOSE_SILENT) return
@@ -1126,6 +1192,7 @@ const handlers = {
       helpers.delete(params.sessionId)
     }
     sessions.delete(params.sessionId)
+    if (process.env.FAKE_ACP_CLOSES) appendFileSync(process.env.FAKE_ACP_CLOSES, `${params.sessionId}\n`)
     lifetime({ type: 'close', sessionId: params.sessionId })
     reply(id, {})
   },
@@ -1160,7 +1227,11 @@ const handlers = {
       send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Gemini API key is missing or not configured.' } })
       return
     }
-    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed || signedOut) {
+    const savedMode = process.env.FAKE_ACP_AUTH_MODE_FILE && existsSync(process.env.FAKE_ACP_AUTH_MODE_FILE) ? readFileSync(process.env.FAKE_ACP_AUTH_MODE_FILE, 'utf8') : null
+    if (process.env.FAKE_ACP_AUTH_OBSERVE_FILE && params?.cwd === process.env.FAKE_ACP_AUTH_OBSERVE_CWD) {
+      appendFileSync(process.env.FAKE_ACP_AUTH_OBSERVE_FILE, `${savedMode ?? 'none'}\n`)
+    }
+    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed || signedOut || savedMode === 'out' || (savedMode === 'api-key' && !process.env.HD_FAKE_KEY)) {
       send({
         jsonrpc: '2.0',
         id,
@@ -1221,6 +1292,8 @@ const handlers = {
             // The per-model form: this model thinks harder than the session
             // option can say, and says so in ACP's extension slot.
             _meta: {
+              ...(process.env.FAKE_ACP_STEER ? { steering: { supported: true } } : {}),
+              ...(process.env.FAKE_ACP_GOALS ? { jetbrains: { air: { goal: { version: 1, controlMethod: '_session/goal', actions: ['set', 'clear'] } } } } : {}),
               harnessdesk: {
                 effortLevels: [
                   { id: 'brief', label: 'Brief' },
@@ -1313,6 +1386,78 @@ const handlers = {
     state.options[params.configId] = params.value
     reply(id, null)
     update(state.id, { sessionUpdate: 'config_option_update', configOptions: configOptionsOf(state) })
+  },
+  'session/fork': async (id, params) => {
+    const source = sessions.get(params.sessionId) ?? readStore()[params.sessionId]
+    if (process.env.FAKE_ACP_FORK_ERROR) {
+      const gate = process.env.FAKE_ACP_FORK_GATE
+      if (gate) recordOpen('session/fork/refused', params.sessionId, params.cwd, params._meta)
+      while (gate && !existsSync(gate)) await new Promise(resolve => setTimeout(resolve, 10))
+      return fail(id, 'fork refused')
+    }
+    if (!source || process.env.FAKE_ACP_FORK !== '1') return fail(id, 'fork unavailable')
+    const state = newSession(undefined, params.cwd)
+    state.options = { ...state.options, ...source.options }
+    if (ATTACHMENTS && params._meta?.harnessdesk?.attachments) attachmentsBySession.set(state.id, params._meta.harnessdesk.attachments.input)
+    state.forkCeiling = params._meta?.harnessdesk?.ceiling
+    recordOpen('session/fork', state.id, params.cwd, params._meta)
+    if (STORE) {
+      const store = readStore()
+      store[state.id] = { ...store[params.sessionId], sessionId: state.id, cwd: params.cwd, options: state.options, turns: store[params.sessionId]?.turns ?? [], updatedAt: new Date().toISOString() }
+      writeStore(store)
+    }
+    const gate = process.env.FAKE_ACP_FORK_GATE
+    // A disk gate gives the test control without consuming a native watcher.
+    while (gate && !existsSync(gate)) await new Promise(resolve => setTimeout(resolve, 10))
+    reply(id, { sessionId: state.id, configOptions: configOptionsOf(state) })
+  },
+  '_session/steering': (id, params) => {
+    const state = sessions.get(params.sessionId)
+    if (!state || !process.env.FAKE_ACP_STEER) return fail(id, 'steering unavailable')
+    if (params._meta?.steering?.idleBehavior !== 'promptRequired') return fail(id, 'host must own the idle fallback')
+    if (process.env.FAKE_ACP_STEER === 'goal-failure-race' && state.waitingGoal !== undefined) {
+      fail(state.waitingGoal, 'the earlier goal turn failed')
+      state.waitingGoal = undefined
+      return reply(id, { outcome: 'promptRequired', reason: 'noRunningTurn' })
+    }
+    const original = state.waitingPrompt
+    state.waitingPrompt = undefined
+    if (!original || process.env.FAKE_ACP_STEER === 'race') {
+      if (original) reply(original, { stopReason: 'end_turn' })
+      return reply(id, { outcome: 'promptRequired', reason: 'noRunningTurn' })
+    }
+    update(state.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: params.prompt.map(block => block.text ?? '').join(' ') } })
+    reply(id, { outcome: 'injected' })
+    reply(original, { stopReason: 'end_turn' })
+  },
+  '_session/goal': (id, params) => {
+    if (!process.env.FAKE_ACP_GOALS) return fail(id, 'goals unavailable')
+    if (process.env.FAKE_ACP_GOAL_REQUESTS) appendFileSync(process.env.FAKE_ACP_GOAL_REQUESTS, `${JSON.stringify(params)}\n`)
+    const state = sessions.get(params.sessionId)
+    if (process.env.FAKE_ACP_GOALS === 'race' && state.waitingPrompt !== undefined) {
+      reply(state.waitingPrompt, { stopReason: 'end_turn' })
+      state.waitingPrompt = undefined
+      // A goal can find that its running prompt ended and start its own prompt.
+      // Let the host process the first reply before this continuation arrives.
+      setTimeout(() => {
+        update(state.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'structured goal continuation' } })
+        if (process.env.FAKE_ACP_GOAL_LIFECYCLE === 'pending') state.waitingGoal = id
+        else reply(id, {})
+      }, 30)
+      update(params.sessionId, { sessionUpdate: 'session_info_update', _meta: { jetbrains: { air: { goal: { objective: params.objective, status: 'active', controlMethod: '_session/goal' } } } } })
+      return
+    }
+    update(params.sessionId, { sessionUpdate: 'session_info_update', _meta: { jetbrains: { air: { goal: params.action === 'clear' ? null : { objective: params.objective, status: 'active', controlMethod: '_session/goal' } } } } })
+    if (process.env.FAKE_ACP_GOAL_LIFECYCLE) {
+      const state = sessions.get(params.sessionId)
+      state.waitingGoal = id
+      if (process.env.FAKE_ACP_GOAL_LIFECYCLE === 'fail') setImmediate(() => {
+        state.waitingGoal = undefined
+        fail(id, 'the accepted goal turn failed')
+      })
+      return
+    }
+    reply(id, {})
   },
   'session/prompt': (id, params) => void runPrompt(id, params),
   'session/list': (id, params) => {
@@ -1425,6 +1570,13 @@ const handlers = {
   },
   'session/cancel': (_id, params) => {
     cancelled.add(params.sessionId)
+    const state = sessions.get(params.sessionId)
+    if (state?.waitingGoal !== undefined) {
+      const goal = state.waitingGoal
+      state.waitingGoal = undefined
+      // The real bridge drops its inner prompt's cancelled stop reason.
+      reply(goal, {})
+    }
   },
 }
 

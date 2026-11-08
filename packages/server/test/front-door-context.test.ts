@@ -56,8 +56,18 @@ const shape = (binding: 'head' | 'base' | 'branch' | 'pr', contexts: string) => 
 
 type Gh = (args: readonly string[], cwd: string) => Promise<{ stdout: string; exitCode: number }>
 
+test('an unpinned project can review a host-observed origin explicitly without earning merge authority', async () => {
+  const root = await repository(), head = await git(root, 'rev-parse', 'HEAD'), calls: readonly string[][] = []
+  const gh: Gh = async (args) => { (calls as string[][]).push([...args]); return { stdout: JSON.stringify({ number: 7, state: 'OPEN', headRefOid: head, baseRefOid: head, headRefName: 'feature', baseRefName: 'main', url: 'https://github.com/acme/widgets/pull/7' }), exitCode: 0 } }
+  const context = (hostContextPort as any)(gh, async () => null, async () => 'acme/widgets')
+  const facts = await resolveContext(context, { kind: 'pull-request', root, number: 7 })
+  assert.ok(calls[0]!.includes('--repo') && calls[0]!.includes('github.com/acme/widgets'))
+  assert.equal(facts.head, head)
+  assert.equal((facts as any).reviewBound, false)
+})
+
 const frontDoor = (gh: Gh = async () => ({ stdout: '', exitCode: 1 }), confine: (root: string) => Promise<void> = async () => {}) => {
-  const context = hostContextPort(gh)
+  const context = hostContextPort(gh, async () => 'acme/widgets')
   const previews = new FlowPreviews({
     confine,
     agents: async () => [reviewer],
@@ -206,16 +216,16 @@ test('host resolves PR without following input URL', async () => {
   const calls: [readonly string[], string][] = []
   const gh: Gh = async (args, cwd) => {
     calls.push([args, cwd])
-    return { stdout: JSON.stringify({ number: 7, headRefOid: head, baseRefOid: head, headRefName: 'feature' }), exitCode: 0 }
+    return { stdout: JSON.stringify({ number: 7, state: 'OPEN', headRefOid: head, baseRefOid: head, headRefName: 'feature', baseRefName: 'main', url: 'https://github.com/acme/widgets/pull/7' }), exitCode: 0 }
   }
   const { port } = frontDoor(gh, async (candidate) => { if (candidate !== root) throw new Error(`${candidate} is outside every open workspace.`) })
   const preview = await previewStart(port, { context: { kind: 'pull-request', root, number: 7 }, source: shape('pr', 'pull-request'), vars: {} })
   assert.ok(preview.flow.token, JSON.stringify(preview.flow.problems))
   assert.deepEqual(preview.vars, { subject: '7' })
   assert.equal(preview.target.label, 'pull request #7')
-  assert.deepEqual(calls, [[['pr', 'view', '7', '--json', 'number,headRefOid,baseRefOid,headRefName'], root]])
+  assert.deepEqual(calls, [[['pr', 'view', '7', '--repo', 'github.com/acme/widgets', '--json', 'number,state,headRefOid,baseRefOid,headRefName,baseRefName,url'], root]])
   // A forge that answers for another pull request is not believed.
-  const liar = frontDoor(async () => ({ stdout: JSON.stringify({ number: 8, headRefOid: head, baseRefOid: head }), exitCode: 0 }))
+  const liar = frontDoor(async () => ({ stdout: JSON.stringify({ number: 8, state: 'OPEN', headRefOid: head, baseRefOid: head }), exitCode: 0 }))
   await assert.rejects(previewStart(liar.port, { context: { kind: 'pull-request', root, number: 7 }, source: shape('pr', 'pull-request'), vars: {} }), /There is no pull request #7/)
   // A folder that is not open here is refused before the forge or git is asked anything.
   calls.length = 0
@@ -225,6 +235,54 @@ test('host resolves PR without following input URL', async () => {
 })
 
 const REVIEW = readFileSync(join(builtinFlowRoot(), 'review.yml'), 'utf8')
+
+test('a pull-request preview cannot start after its destination branch changes at the same tip', async () => {
+  const root = await repository()
+  const head = await git(root, 'rev-parse', 'HEAD')
+  let baseRef = 'main'
+  const gh: Gh = async () => ({ stdout: JSON.stringify({ number: 7, state: 'OPEN', headRefOid: head, baseRefOid: head, headRefName: 'feature', baseRefName: baseRef, url: 'https://github.com/acme/widgets/pull/7' }), exitCode: 0 })
+  const { port, ctx, started } = frontDoor(gh)
+  const source = shape('pr', 'pull-request')
+  const preview = await previewStart(port, { context: { kind: 'pull-request', root, number: 7 }, source, vars: {} })
+  assert.ok(preview.flow.token, JSON.stringify(preview.flow.problems))
+  baseRef = 'release'
+  await assert.rejects(flowMethods['flow/start-goal'](ctx, { root, source, token: preview.flow.token!, sentence: preview.sentence, vars: preview.vars }), /Review the dry run again/)
+  assert.deepEqual(started, [], 'no review starts on an unseen target branch')
+})
+
+test('a pull-request preview refuses a forge answer for another repository', async () => {
+  const root = await repository()
+  const head = await git(root, 'rev-parse', 'HEAD')
+  const gh: Gh = async () => ({ stdout: JSON.stringify({ number: 7, state: 'OPEN', headRefOid: head, baseRefOid: head, headRefName: 'feature', baseRefName: 'main', url: 'https://github.com/other/widgets/pull/7' }), exitCode: 0 })
+  const { port } = frontDoor(gh)
+  await assert.rejects(previewStart(port, { context: { kind: 'pull-request', root, number: 7 }, source: shape('pr', 'pull-request'), vars: {} }), /repository/)
+})
+
+test('a base-only advance invalidates a review preview even when its merge-base is unchanged', async () => {
+  const root = await repository()
+  const head = await git(root, 'rev-parse', 'feature')
+  const firstBase = await git(root, 'rev-parse', 'main')
+  let base = firstBase
+  const gh: Gh = async () => ({ stdout: JSON.stringify({ number: 7, state: 'OPEN', headRefOid: head, baseRefOid: base, headRefName: 'feature', baseRefName: 'main', url: 'https://github.com/acme/widgets/pull/7' }), exitCode: 0 })
+  const { port, ctx, started } = frontDoor(gh)
+  const source = shape('pr', 'pull-request')
+  const preview = await previewStart(port, { context: { kind: 'pull-request', root, number: 7 }, source, vars: {} })
+  assert.ok(preview.flow.token)
+  await writeFile(join(root, 'base-only.txt'), 'new base\n')
+  await git(root, 'add', 'base-only.txt')
+  await git(root, 'commit', '-q', '-m', 'base advance')
+  base = await git(root, 'rev-parse', 'main')
+  assert.equal(await git(root, 'merge-base', head, base), firstBase)
+  await assert.rejects(flowMethods['flow/start-goal'](ctx, { root, source, token: preview.flow.token!, sentence: preview.sentence, vars: preview.vars }), /Review the dry run again/)
+  assert.deepEqual(started, [])
+})
+
+test('a pull-request review refuses a missing destination commit object', async () => {
+  const root = await repository()
+  const head = await git(root, 'rev-parse', 'HEAD')
+  const { port } = frontDoor(async () => ({ stdout: JSON.stringify({ number: 7, state: 'OPEN', headRefOid: head, baseRefOid: 'f'.repeat(40), headRefName: 'feature', baseRefName: 'main', url: 'https://github.com/acme/widgets/pull/7' }), exitCode: 0 }))
+  await assert.rejects(previewStart(port, { context: { kind: 'pull-request', root, number: 7 }, source: shape('pr', 'pull-request'), vars: {} }), /destination commit is not in this project/)
+})
 
 test('a branch review hands its run the head, the base and the pull request it resolved, and the folder it works in', async () => {
   const root = await repository()
@@ -284,7 +342,7 @@ test('a review of a committed change starts a Goal of its own, and a pull reques
   assert.equal(reuse.flow.token, null)
   assert.ok(reuse.flow.problems.some((one) => one.text === REVIEW_OWN_GOAL))
   const absent = 'f'.repeat(40)
-  const remote = frontDoor(async () => ({ stdout: JSON.stringify({ number: 9, headRefOid: absent, baseRefOid: await git(root, 'rev-parse', 'HEAD'), headRefName: 'elsewhere' }), exitCode: 0 }))
+  const remote = frontDoor(async () => ({ stdout: JSON.stringify({ number: 9, state: 'OPEN', headRefOid: absent, baseRefOid: await git(root, 'rev-parse', 'HEAD'), headRefName: 'elsewhere', baseRefName: 'main', url: 'https://github.com/acme/widgets/pull/9' }), exitCode: 0 }))
   await assert.rejects(
     previewStart(remote.port, { context: { kind: 'pull-request', root, number: 9 }, source: shape('pr', 'pull-request'), vars: {} }),
     /Pull request #9’s head commit is not in this project yet\. Fetch it/,

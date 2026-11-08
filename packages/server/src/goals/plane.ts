@@ -1,3 +1,4 @@
+import { teamLeadStage } from '../work-stage.js'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
@@ -290,7 +291,10 @@ export class GoalPlane {
       ?? executions.find((one) => one.id === origin)
       ?? (named === null ? executions.at(-1) : undefined)
     const currentSeats = new Set(current?.rounds.flatMap(round => round.seats) ?? [])
-    const endingNeedsYou = current?.end?.kind === 'unrouted' || current?.end?.kind === 'budget' || current?.end?.kind === 'stalled'
+    // An ending the desk chose (a cap, a stall, a stop for unconfirmed spend) leaves the Team to its person;
+    // without one the Team read as working on a run nothing was running.
+    const endingNeedsYou = current?.end?.kind === 'unrouted' || current?.end?.kind === 'budget' || current?.end?.kind === 'stalled' ||
+      (current?.state === 'stopped' && current.end?.kind === 'stopped' && current.end.by === 'desk')
     const placements = board.intents.map((intent) => {
       const step = flowStepOf(intent, run, executions)
       return placeCard({
@@ -305,9 +309,10 @@ export class GoalPlane {
       })
     })
     const dependencies = document.goal.dependsOn.flatMap((id) => this.store.standing(id) ? [this.store.read(id).goal] : [])
+    const personNeedsYou = this.port.held(id) || members.some((seat) => this.port.waits(seat.session)) ||
+      placements.some((one) => one.column === 'needs' && one.why !== 'nothing checked')
     const activity = document.restored ? null : activityOf(document.goal, {
-      needsYou: endingNeedsYou || this.port.held(id) || members.some((seat) => this.port.waits(seat.session)) ||
-        placements.some((one) => one.column === 'needs' && one.why !== 'nothing checked'),
+      needsYou: endingNeedsYou || personNeedsYou,
       busy: problem !== null || members.some((seat) => this.port.busy(seat.session)) ||
         placements.some((one) => one.column === 'review') ||
         (evidence?.cards.some((card) => card.running.length > 0) ?? false),
@@ -315,8 +320,14 @@ export class GoalPlane {
       cards: board.intents,
       dependencies,
     })
+    // A reservation may name a successor that has no execution yet. Its
+    // predecessor's ending still feeds legacy activity, but is not this start.
+    const stageRun = document.flowReservation ? executions.find(run => run.id === document.flowReservation!.run) ?? null : current ?? null
+    const stageActivity = !document.restored && document.flowReservation && !stageRun && !personNeedsYou ? 'working' : activity
+    const { stage, reason: stageReason } = teamLeadStage({ goal: document.goal, activity: stageActivity,
+      ...(document.flowReservation ? { reservation: { run: document.flowReservation.run } } : {}) }, stageRun)
     return {
-      goal: document.goal,
+      stage, stageReason, goal: document.goal,
       lastSeenAt: document.lastSeenAt ?? 0,
       readyAt: document.readyAt ?? Math.max(document.goal.updatedAt, ...board.intents.map(card => card.updatedAt)),
       uncheckedDone: placements.filter((one, index) => board.intents[index]?.state === 'done' && one.column === 'needs' && one.why === 'nothing checked').length,

@@ -1,3 +1,5 @@
+import { LEAD_STAGES } from './lead-stage.js'
+import { parseLeadApprovalRevoke, parseLeadRepeatControl, parseLeadBudgetRaise, parseLeadSpendLimitSet, parseLeadActionInput, parseLeadCardDecision, parseLeadEmpty, parseLeadResume, parseLeadSettingsUpdate, parseLeadSteerInput, parseLeadScheduleUpdate, parseLeadMemoryUpdate, parseLeadThreadSend } from './lead.js'
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import { AUTHORING_AGENT_LIMIT, SHAPE_LAYOUT_SIZE_LIMIT, type AgentFieldEdit, type AuthoringTarget, type StartContext, type WritableAuthoringTarget } from './authoring.js'
 import type { ApprovalDecision } from './approval.js'
@@ -34,6 +36,7 @@ import {
 } from './validate.js'
 import type { EditorEvent } from './editor.js'
 import type { FlowPermission, FlowSeat, FlowThen } from './flow.js'
+import { flowSeatValidator } from './flow-seat.js'
 import type { FlowAgentRole, FlowEvidenceGuard, FlowPolicy, FlowPolicyRole, FlowPolicyRule } from './flow-policy.js'
 import type { UserContent } from './items.js'
 import type { LibraryIntent, LibraryPlannedOp } from './library.js'
@@ -58,6 +61,25 @@ const nonNegativeSafeInteger: Validator<number> = (value, path = '') => {
     throw new ValidationError(path, 'expected a non-negative safe integer')
   }
   return number
+}
+
+const phoneText = (max: number): Validator<string> => (value, path = '') => {
+  const text = isString(value, path)
+  if (!text.trim() || text.length > max) throw new ValidationError(path, `expected non-empty text up to ${max} characters`)
+  return text
+}
+
+const phonePageLimit: Validator<number> = (value, path = '') => {
+  const limit = isNumber(value, path)
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ValidationError(path, 'expected an integer from 1 to 100')
+  return limit
+}
+
+/** Phone controls accept only choices that the surface actually exposes. */
+const phoneShape = <T extends Record<string, unknown>>(fields: { [K in keyof T]: Validator<T[K]> }): Validator<T> => (value, path = '') => {
+  const source = isObject(value, path)
+  for (const key of Object.keys(source)) if (!Object.hasOwn(fields, key)) throw new ValidationError(path, 'unexpected phone control field')
+  return shape(fields)(source, path)
 }
 
 export const userContentValidator: Validator<UserContent> = taggedUnion('type', {
@@ -179,18 +201,6 @@ const noColonRuntime: Validator<string> = (value, path = '') => {
 }
 const planRuntime = atMost(200, noColonRuntime)
 const planAccount = atMost(256, isFilled)
-
-/**
- * A seat as a map — `{ runtime, model, effort, thinking }` — the shape a seat
- * spec parses to. Checked field by field because it is handed to the seating
- * as it arrives, and a seat's runtime is what names the conversation opened.
- */
-const flowSeatValidator = shape({
-  runtime: isFilled,
-  model: optional(isString),
-  effort: optional(isString),
-  thinking: optional(isBoolean),
-}) as Validator<FlowSeat>
 
 /**
  * The permissions a seating may grant. Keyed by `FlowPermission`, so a fourth
@@ -401,7 +411,7 @@ const goalCitation = goalShape({
 
 const goalValidators = {
   'client/hello': goalShape({ client: goalShape({ name: atMost(64, isFilled), version: atMost(64, isFilled) }), protocol: isNumber, pid: optional(isNumber) }),
-  'client/subscribe': goalShape({ topics: arrayOf(literalUnion('runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews')), scope: optional(goalShape({ team: optional(goalId), run: optional(isFilled), project: optional(atMost(4096, isFilled)) })) }),
+  'client/subscribe': goalShape({ topics: arrayOf(literalUnion('runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews', 'chats')), scope: optional(goalShape({ team: optional(goalId), run: optional(isFilled), project: optional(atMost(4096, isFilled)) })) }),
   'flow/executions': goalShape({ team: optional(goalId), project: optional(atMost(4096, isFilled)), active: optional(isBoolean) }),
   'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
   'goal/read': goalShape({ goal: goalId }),
@@ -792,6 +802,7 @@ const triggerSlug: Validator<string> = (value, path = '') => {
 const triggerOpensValidator: Validator<TriggerDefinition['opens']> = (value, path = '') => {
   const record = isObject(value, path)
   const keys = Object.keys(record)
+  if (keys.length === 1 && keys[0] === 'lead' && record['lead'] === true) return { lead: true }
   if (keys.length !== 1 || (keys[0] !== 'flow' && keys[0] !== 'agent')) throw new ValidationError(path, 'expected { flow: id } or { agent: id }')
   const key = keys[0] as 'flow' | 'agent'
   const id = triggerSlug(record[key], `${path}.${key}`)
@@ -800,6 +811,7 @@ const triggerOpensValidator: Validator<TriggerDefinition['opens']> = (value, pat
 const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
   const record = isObject(value, path)
   const kind = record['kind']
+  if (!Array.isArray(record['events']) || record['events'].length === 0 || new Set(record['events']).size !== record['events'].length) throw new ValidationError(`${path}.events`, 'expected a nonempty list without duplicates')
   if (kind === 'schedule') {
     const events = flowWordList(1, literalUnion('tick'))(record['events'], `${path}.events`)
     const everyMinutes = goalInteger(1)(record['everyMinutes'], `${path}.everyMinutes`)
@@ -807,7 +819,7 @@ const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
     return { kind: 'schedule', events: ['tick'] as const, everyMinutes }
   }
   if (kind === 'pull-request') {
-    return { kind: 'pull-request', events: flowWordList(2, literalUnion('opened', 'pushed'))(record['events'], `${path}.events`) }
+    return { kind: 'pull-request', events: flowWordList(4, literalUnion('opened', 'pushed', 'checks-failed', 'review-commented'))(record['events'], `${path}.events`) }
   }
   if (kind === 'issue') {
     return { kind: 'issue', events: flowWordList(3, literalUnion('labelled', 'closed', 'commented'))(record['events'], `${path}.events`) }
@@ -844,6 +856,7 @@ const triggerDefinitionValidator: Validator<TriggerDefinition> = goalShape({
 }) as Validator<TriggerDefinition>
 const triggerDefinitionsValidator: Validator<TriggerDefinition[]> = (value, path = '') => {
   const definitions = arrayOf(triggerDefinitionValidator)(value, path)
+  if (definitions.some(one => 'lead' in one.opens && one.again !== null)) throw new ValidationError(path, 'A Lead trigger drafts a plan for approval and cannot name again.')
   if (definitions.length > 64) throw new ValidationError(path, 'expected at most 64 triggers')
   return definitions
 }
@@ -987,7 +1000,83 @@ const planBudgetInputValidator = shape({
   currency: isString,
 })
 
+const phoneTier = literalUnion('read', 'run', 'answer')
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
+  'account/status': shape({}),
+  'account/signIn': shape({}),
+  'account/openSignIn': shape({}),
+  'account/cancel': shape({}),
+  'account/delete': shape({}),
+  'account/signOut': shape({ localOnly: optional(isBoolean) }),
+  'account/unlinkPhone': shape({ deviceId: (value, path = '') => {
+    const id = isString(value, path)
+    if (!/^[A-Za-z0-9_-]{21}[AQgw]$/.test(id)) throw new ValidationError(path, 'expected a device id')
+    return id
+  } }),
+  'account/renameDesk': shape({ name: (value, path = '') => {
+    const name = isString(value, path).trim()
+    if (!name || name.length > 80) throw new ValidationError(path, 'expected a name of 1 to 80 characters')
+    return name
+  } }),
+  'account/setReachable': shape({ reachable: isBoolean }),
+
+  'phone/state': parseLeadEmpty,
+  'phone/pairing': parseLeadEmpty,
+  'phone/allow': shape({ id: isString, tiers: optional(arrayOf(phoneTier)) }),
+  'phone/deny': shape({ id: isString }),
+  'phone/revoke': shape({ device: isString }),
+  'phone/sessions/list': shape({ state: optional(literalUnion('running', 'needs-you', 'done', 'archived')), limit: optional(isNumber), cursor: optional(isString) }),
+  'phone/teams/list': shape({ limit: optional(isNumber) }),
+  'phone/dashboard/read': shape({ range: optional(literalUnion('today', '7d', '30d')) }),
+  'workspace/read': parseLeadEmpty,
+  'workspace/sessions/list': phoneShape({ archived: optional(isBoolean), cursor: optional(phoneText(2048)), limit: optional(phonePageLimit) }),
+  'workspace/session/start': phoneShape({ text: phoneText(32_000), project: optional(phoneText(120)), agent: optional(phoneText(120)), model: optional(phoneText(300)), effort: optional(literalUnion('low', 'medium', 'high', 'extra')) }),
+  'workspace/session/send': phoneShape({ id: phoneText(300), text: phoneText(32_000) }),
+  'workspace/stop': phoneShape({ id: phoneText(300) }),
+  'workspace/thread/read': shape({ id: isString }),
+  'workspace/team/wrap': phoneShape({ team: phoneText(300) }),
+  'workspace/approval/decide': shape({ id: isString, session: isString, allow: isBoolean, scope: optional(literalUnion('once', 'session')) }),
+  'lead/chat/list': phoneShape({ cursor: optional(phoneText(2048)), limit: optional((value, path = '') => {
+    const limit = isNumber(value, path)
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new ValidationError(path, 'expected an integer from 1 to 50')
+    return limit
+  }) }),
+  'lead/chat/read': phoneShape({ id: phoneText(300) }),
+  'lead/chat/start': phoneShape({ text: phoneText(16_384), agent: optional(phoneText(300)), moveFrom: optional(phoneText(300)), quote: optional((value, path = '') => {
+    const ids = arrayOf((value, at = '') => {
+      const id = phoneText(256)(value, at)
+      if (!/^[A-Za-z0-9._:/@-]+$/.test(id)) throw new ValidationError(at, 'expected a message id')
+      return id
+    })(value, path)
+    if (ids.length < 1 || ids.length > 3 || new Set(ids).size !== ids.length) throw new ValidationError(path, 'expected 1 to 3 unique message ids')
+    return ids
+  }), effectId: optional(phoneText(256)) }),
+  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384), retryAt: optional(literalUnion('reset')), effectId: optional(phoneText(256)) }),
+  'lead/chats/resetControl': parseLeadEmpty,
+  'lead/chats/control': parseLeadEmpty,
+  'lead/chat/takeOver': phoneShape({ id: phoneText(300) }),
+  'lead/chat/handBack': phoneShape({ id: phoneText(300) }),
+
+  'lead/chat/stop': phoneShape({ id: phoneText(300), effectId: optional(phoneText(256)) }),
+  'lead/thread/read': parseLeadEmpty,
+  'lead/thread/send': parseLeadThreadSend,
+  'lead/card/decide': parseLeadCardDecision,
+  'lead/approval/revoke': parseLeadApprovalRevoke,
+  'lead/action/perform': parseLeadActionInput,
+  'lead/settings/read': parseLeadEmpty,
+  // This parser admits only dex/lex for name; the owner keeps credentials exclusive.
+  'lead/settings/update': parseLeadSettingsUpdate,
+  'lead/stop': parseLeadResume,
+  'lead/resume': parseLeadResume,
+  'lead/steer': parseLeadSteerInput,
+  'lead/wakes/read': parseLeadEmpty,
+  'lead/repeat/control': parseLeadRepeatControl,
+  'lead/budget/raise': parseLeadBudgetRaise,
+  'lead/spendLimit/set': parseLeadSpendLimitSet,
+  'lead/schedule/read': parseLeadEmpty,
+  'lead/schedule/update': parseLeadScheduleUpdate,
+  'lead/memory/read': parseLeadEmpty,
+  'lead/memory/update': parseLeadMemoryUpdate,
   'provenance/commits': shape({ root: provenanceRoot, shas: provenanceShas }),
   'provenance/status': shape({ root: provenanceOptionalRoot }),
   'provenance/capture': shape({ root: provenanceRoot, enabled: isBoolean }),
@@ -1137,6 +1226,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'backup/export': isObject,
   'backup/import': shape({ backup: isObject }),
   'session/loadout': shape({ session: isString, runtime: optional(isString) }),
+  'session/prepare-eviction': shape({ runtime: isString, sessionId: isString, identity: atMost(64, isString) }),
+  'session/cache-snapshot': shape({ runtime: isString, sessionId: isString }),
   'session/read': shape({ runtime: isString, sessionId: isString }),
   'session/create': shape({ runtime: isString, options: withoutHostOnly(shape({ cwd: optional(isString) })) }),
   'session/resume': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
@@ -1491,6 +1582,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     digest: optional(isString),
   }),
 
+  'git/record/list': shape({ root: isString, branch: optional(isString), number: optional(goalInteger(1)), view: optional(literalUnion('all', 'outside', 'refused')), limit: optional(goalInteger(1)), before: optional(isString) }),
+  'git/record/attribute': shape({ root: isString, branch: isString, sha: isString }),
   'git/status': shape({ root: isString }),
   'git/branches': shape({ root: isString }),
   'git/checkout': shape({ root: isString, branch: isString, create: optional(isBoolean) }),
@@ -1562,7 +1655,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'plugin/setEnabled': shape({ pluginId: isString, enabled: isBoolean }),
   'plugin/configure': shape({ pluginId: isString, config: isObject }),
   'plugin/inspect': shape({ specifier: isString }),
-  'plugin/install': shape({ specifier: isString }),
+  'plugin/install': shape({ specifier: isString, manifestDigest: isString }),
   'plugin/uninstall': shape({ pluginId: isString }),
   'capability/list': shape({
     kind: literalUnion('tool', 'hook', 'context', 'command', 'ui', 'agent', 'resource'),
@@ -1609,6 +1702,27 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 }
 
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]
+
+const incidentObservation: Validator<import('./lead.js').LeadChatIncidentObservation> = shape({
+  chatId: atMost(300, isFilled), kind: literalUnion('quota', 'credits', 'transient', 'failed'), attempts: nonNegativeSafeInteger,
+  firstAt: nonNegativeSafeInteger, lastAt: nonNegativeSafeInteger, turnId: optional(atMost(300, isFilled)),
+  resetsAt: (v, p) => v === null ? null : nonNegativeSafeInteger(v, p),
+  lastError: shape({ code: literalUnion('auth', 'credits', 'rateLimit', 'versionGate', 'sandboxDenied', 'network', 'interrupted', 'runtimeUnavailable', 'protocol', 'unknown'), message: atMost(300, isString) }),
+  state: literalUnion('waiting-reset', 'retrying', 'asked', 'moved', 'stopped', 'cleared'), movedTo: optional(atMost(300, isFilled)),
+  candidates: (v, p) => { const list = arrayOf(shape({ key: atMost(300, isFilled), name: atMost(80, isFilled) }))(v, p)
+    if (list.length > 8) throw new ValidationError(p ?? '', 'too many recovery candidates')
+    return list },
+})
+const leadChatChangedParamsValidator: Validator<Extract<WireNotification, { method: 'lead/chat/changed' }>['params']> =
+  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), stage: optional(literalUnion(...LEAD_STAGES)), incident: optional(incidentObservation) })
+
+/** State-only wake signal; never accepts transcript content as an event. */
+export const parseLeadChatChangedParams = (
+  raw: unknown,
+): Extract<WireNotification, { method: 'lead/chat/changed' }>['params'] => {
+  const { id, project, state, stage, incident } = leadChatChangedParamsValidator(raw, 'notification.params')
+  return { id, project, state, stage, ...(incident ? { incident } : {}) }
+}
 
 const sessionRemovedParamsValidator: Validator<Extract<WireNotification, { method: 'session/removed' }>['params']> =
   shape({

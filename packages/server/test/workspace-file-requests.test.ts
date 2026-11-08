@@ -305,6 +305,20 @@ test('a stalled nested root holds its own files while a read elsewhere in the ou
   }
 })
 
+test('a stalled outer root walk holds the outer root even when the target has a nested root', async (t) => {
+  const dir = await scratch(t)
+  const outer = join(dir, 'outer')
+  const inner = join(outer, 'inner')
+  await mkdir(inner, { recursive: true })
+  const disk = holdDisk(dir, (read, path) => read === 'realpath' && path === outer)
+  try {
+    assert.ok(volumeDidNotAnswer(await confine(join(inner, 'file'), [outer, inner], { deadlineMs: 30 }).catch((error: unknown) => error)))
+    const count = disk.calls.length
+    assert.ok(volumeDidNotAnswer(await confine(join(outer, 'other'), [outer], { deadlineMs: 1000 }).catch((error: unknown) => error)))
+    assert.equal(disk.calls.length, count)
+  } finally { disk.release(); disk.restore() }
+})
+
 test('a root stays held until every call left behind on it has come back', { timeout: 30_000 }, async (t) => {
   const dir = await scratch(t)
   const root = join(dir, 'project')

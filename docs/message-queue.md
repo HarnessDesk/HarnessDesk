@@ -10,9 +10,9 @@ order you typed them. What is waiting shows in a strip above the composer,
 where you can reorder it, edit it, or throw it away before it goes.
 
 Before this, pressing Enter mid-turn attempted to steer into the running turn.
-Only Codex supports steering; agents connected over ACP — the Agent Client
-Protocol (Claude Code, Cursor, and DeepSeek Harness) — refuse input while
-working and reject steering. Because the composer had already cleared its text
+Only Codex supports steering; every agent connected over ACP — the Agent
+Client Protocol, which carries the rest of the roster, Claude Code and Cursor
+among them — refuses input while working and rejects steering. Because the composer had already cleared its text
 and chips by then, a message typed while the agent worked was **destroyed**
 and replaced by an error toast.
 
@@ -110,10 +110,12 @@ runtime's declared capability rather than its name:
 | State | Placeholder |
 | --- | --- |
 | New session | *Describe a task to start a session — / for commands, @ for files* |
+| Conversation still opening | *Opening the conversation — you can keep typing* |
 | Idle existing conversation | *Type a reply — / for commands, @ for files* |
 | Busy, agent can steer | *Type the next message — ↵ queues it, ⌘↵ adds it to this turn* |
 | Busy, agent cannot | *Type the next message — it is sent when this turn ends* |
 | Messages waiting (queue held or idle) | *Adds to the 1 message already waiting* / *Adds to the N messages already waiting* |
+| A wrapped Team's conversation | *This Team is wrapped* |
 
 **Stop and Queue sit side by side** while a turn runs: Stop takes the corner
 position where Send was, and the Queue button appears inboard of it as soon as
@@ -189,13 +191,13 @@ and editing never changes the composer or its draft.
 - `packages/protocol/src/events.ts` — `session/queue`, the whole list replacing
   the previous one.
 - `packages/protocol/src/wire.ts` — `turn/queue`, `turn/queue/cancel`,
-  `turn/queue/move`, `turn/queue/flush`, `turn/queue/clear`, and `queues` on the
-  `sync` notification.
+  `turn/queue/update`, `turn/queue/move`, `turn/queue/flush`,
+  `turn/queue/clear`, and `queues` on the `sync` notification.
 - `packages/server/src/registry.ts` — `SessionRecord.queue` and its mutators;
   `QUEUE_LIMIT` (25), `QUEUE_CHAR_LIMIT` (100,000).
 - `packages/server/src/methods/turns.ts` — handlers for `turn/queue`,
-  `turn/queue/cancel`, `turn/queue/move`, `turn/queue/flush`,
-  `turn/queue/clear`.
+  `turn/queue/cancel`, `turn/queue/update`, `turn/queue/move`,
+  `turn/queue/flush`, `turn/queue/clear`.
 - `packages/server/src/host.ts` — `#drain`, `#queueBusy`, `#sendNow`, holding
   on uncompleted turns, and holding on runtime detach.
 - `packages/ui/src/lib/queue.ts` — `describeQueued`, `queuedLabel`.
@@ -208,7 +210,7 @@ and editing never changes the composer or its draft.
 
 - **Enter queues; it does not steer.** Steering is a real feature and it kept
   its shortcut (⌘↵ / Ctrl+↵), but it cannot be what the *default* key does
-  when three of the four agents refuse it. Offered by capability, never by
+  when every runtime without `capabilities.steer` refuses it. Offered by capability, never by
   brand.
 - **The composer uses one path for sending**, idle or busy. The host decides
   whether it waits — it sends at once on an idle conversation — so the

@@ -271,27 +271,35 @@ test('every seeded camera agent stays on its scripted process even with real CLI
   assert.equal(configs.length, 12)
   const openCode = configs.find(agent => agent.brand === 'opencode')
   assert.ok(openCode)
-  assert.equal(await service.launchFor(openCode), null, 'the row must not be replaced with installed OpenCode')
+  let lookups = 0
+  const knowledgeFor = service.knowledgeFor.bind(service)
+  service.knowledgeFor = config => { lookups++; return knowledgeFor(config) }
   // config.mjs resolves `WORK` through any symlink in its own path (macOS's
   // `/var` and `/tmp` are themselves symlinks to `/private/var`/`/private/tmp`
   // — #904), so a seeded conversation's `cwd` carries the resolved prefix even
   // though this test's own `directory` is the as-given, pre-resolution one.
   const work = realpathSync(join(directory, 'work'))
   for (const agent of configs) {
+    const runtime = new AcpRuntime({ ...agent, resolveLaunch: occasion => service.launchFor(agent, occasion, runtime) })
+    service.register(agent.id, runtime)
     assert.equal(service.knowledgeFor(agent), undefined, `${agent.id} must not inherit vendor stores or launch policy`)
-    assert.equal(await service.launchFor(agent), null)
+    let before = lookups
+    assert.equal(await service.launchFor(agent, 'start', runtime), null, agent === openCode ? 'the row must not be replaced with installed OpenCode' : agent.id)
+    assert.equal(lookups, before + 1, `${agent.id} launch must reach knowledge lookup under its live owner`)
     assert.equal(agent.command, 'node')
     assert.deepEqual(agent.args, [join(root, 'script/shots/agent.mjs')])
     const sessions = Object.values(JSON.parse(readFileSync(agent.env.SHOT_STORE, 'utf8')))
     assert.ok(sessions.every(session => session.cwd.startsWith(work + '/')))
-    const runtime = new AcpRuntime({ ...agent, resolveLaunch: occasion => service.launchFor(agent, occasion) })
     try {
+      before = lookups
       await runtime.start()
+      assert.ok(lookups > before, `${agent.id} runtime callback must reach knowledge lookup`)
       const listed = await runtime.listSessions()
       assert.deepEqual(listed.data.map(session => session.id).sort(), sessions.map(session => session.sessionId).sort())
       assert.ok(listed.data.every(session => session.cwd.startsWith(work + '/')))
     } finally {
       await runtime.dispose()
+      service.forget(agent.id)
     }
   }
   assert.equal(probes, 0, 'the rig must never even inspect installed vendor CLIs')

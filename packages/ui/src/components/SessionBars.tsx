@@ -1,7 +1,7 @@
 import { Alert, Button, ChangeStats, Chip, CodeText, FileState, InlineParts, PaneColumn, Spinner, Text, type Tone } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
-import { allItems, currentTurn, type FileChangeItem, type Session } from '@harnessdesk/protocol'
+import { allItems, currentTurn, unwrapGitCommand, type FileChangeItem, type Session } from '@harnessdesk/protocol'
 
 import { elapsedSince } from '../lib/clock'
 import { totalsByFile, type FileTotal } from '../lib/turn-view'
@@ -143,8 +143,8 @@ export const JobsBar = () => {
         <div key={item.id} className={styles.job}>
           {!waiting.includes(item) && <Spinner size="sm" tone="brand" aria-hidden />}
           <Text role="meta" className={styles.jobIcon}><TerminalIcon size={12} /></Text>
-          <Text role="meta" className={styles.jobCommand} title={item.command}>
-            <CodeText>{item.command}</CodeText>
+          <Text role="meta" className={styles.jobCommand} title={unwrapGitCommand(item.command)}>
+            <CodeText>{unwrapGitCommand(item.command)}</CodeText>
           </Text>
           <Text role="meta" numeric className={styles.jobElapsed}>{waiting.includes(item) ? 'Waiting for approval' : elapsed(item.startedAt, now)}</Text>
         </div>

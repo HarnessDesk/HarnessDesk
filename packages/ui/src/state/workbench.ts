@@ -1040,6 +1040,12 @@ export const toggleWorkRail = (workbench: Workbench): Workbench => {
   return { ...workbench, frameTools: { ...workbench.frameTools, [subject]: { ...intent, railOpen: shown,
     ...(rightPanelDrawn(workbench) && intent.tool !== 'conversation' ? { railWithTool: shown } : {}) } } }
 }
+/** A page has no work subject, so its rail is kept under `page:<kind>` beside
+ * the subjects' intents; like the session rail, it stands open until closed. */
+const pageRailKey = (page: string) => `page:${page}`
+export const pageRailOpen = (workbench: Workbench, page: string): boolean => workbench.frameTools[pageRailKey(page)]?.railOpen !== false
+export const togglePageRail = (workbench: Workbench, page: string): Workbench => ({ ...workbench, frameTools: { ...workbench.frameTools,
+  [pageRailKey(page)]: { tool: 'details', mode: 'details', open: false, railOpen: !pageRailOpen(workbench, page) } } })
 export const workPaneExpanded = (workbench: Workbench): boolean => {
   const subject = fixedSubject(workbench.main)
   return rightPanelDrawn(workbench) && subject !== null && workbench.frameTools[subject]?.expanded === true
@@ -1053,16 +1059,16 @@ export const swapWorkPane = (workbench: Workbench): Workbench => {
 }
 
 export const workRailFloats = (workbench: Workbench, windowWidth: number, standingSidebar: number): boolean =>
-  workRailOpen(workbench) && windowWidth - standingSidebar - (rightPanelDrawn(workbench) && !rightPanelOverlays(workbench, windowWidth) ? effectiveRightWidth(workbench, windowWidth, standingSidebar) : 0) < FRAME.main.min + FRAME.infoCard.width
+  workRailOpen(workbench) && railFloatsBeside(windowWidth - standingSidebar - (rightPanelDrawn(workbench) && !rightPanelOverlays(workbench, windowWidth) ? effectiveRightWidth(workbench, windowWidth, standingSidebar) : 0))
+
+/** Whether an open rail floats: the column it would share cannot hold the reading minimum beside it. A page's rail and a work pane's use the same line. */
+export const railFloatsBeside = (column: number): boolean => column < FRAME.main.min + FRAME.infoCard.width
 
 /**
  * Whether the sidebar has to give up its column: a window under
- * `FRAME.fold.sidebarFloats`, or one where it, a drawn right panel and `MIN_READING` do
- * not fit side by side.
- *
- * The sidebar's own width counts even while its column is put away, so
- * toggling it never moves the line; and only committed sizes are read, so a
- * seam mid-drag cannot cross it under the pointer. A zoom answers visibility
+ * `FRAME.fold.sidebarFloats`. The line is the window's width alone, so
+ * toggling the sidebar or dragging a seam never moves it; above it the right
+ * panel is clamped to keep `MIN_READING` instead. A zoom answers visibility
  * by itself and is left out.
  */
 export const sidebarCannotHaveColumn = (_workbench: Workbench, windowWidth: number): boolean =>
@@ -1234,15 +1240,15 @@ export const cornerArea = (workbench: Workbench, sidebarShown: boolean, windowWi
 /**
  * The narrowest window that always gives the sidebar a column.
  *
- * It is the desktop window's own minimum (`minWidth` in the shell's
- * `electron/main.mjs`), so the desktop app at its ordinary zoom only ever
- * loses the column to `MIN_READING` below. A browser goes narrower — a phone,
- * a tab dragged thin — and so does the desktop app zoomed in, whose window is
- * measured in CSS pixels and is then narrower than it looks. Below the line a
- * 240px column left the conversation 135px: a composer wrapping its
- * placeholder a word to a line and a header whose title was one pixel wide.
- * So below it the sidebar floats over the conversation instead of standing
- * beside it.
+ * It is `FRAME.fold.sidebarFloats` (1000px), wider than the desktop window's
+ * own minimum (720px, `minWidth` in the shell's `electron/main.mjs`), so the
+ * desktop app floats its sidebar in a narrow window even at its ordinary zoom.
+ * A browser goes narrower still — a phone, a tab dragged thin — and so does
+ * the desktop app zoomed in, whose window is measured in CSS pixels. When the
+ * line sat at 720px, a 240px column below it left the conversation 135px: a
+ * composer wrapping its placeholder a word to a line and a header whose title
+ * was one pixel wide. So below it the sidebar floats over the conversation
+ * instead of standing beside it.
  */
 export const NARROW_WINDOW = FRAME.fold.sidebarFloats
 
@@ -1250,10 +1256,12 @@ export const NARROW_WINDOW = FRAME.fold.sidebarFloats
  * The narrowest conversation that stands beside anything.
  *
  * A wide window could still squeeze it: at 720px a 240px sidebar and a 280px
- * right panel left 198px. So the sidebar gives up its column first
- * (`sidebarCannotHaveColumn`), and only then does the right panel cover the
- * conversation (`rightPanelOverlays`) — navigation before the thing being
- * consulted, and that before the work. See docs/decisions.md.
+ * right panel once left 198px. Today it is `FRAME.main.min` (480px): below
+ * `FRAME.fold` (1000px) the sidebar floats (`sidebarCannotHaveColumn`) and a
+ * drawn right panel covers the conversation (`rightPanelOverlays`); above it
+ * the panel is clamped to keep this floor (`effectiveRightWidth`), yielding
+ * only as far as the panel's own minimum needs — the thing being consulted
+ * gives way before the work. See docs/decisions.md.
  */
 export const MIN_READING = FRAME.main.min
 
@@ -1312,7 +1320,7 @@ export const sidebarPlacement = (state: {
  * find their panes where they left them, not an empty window with a note about
  * a new layout engine. A malformed document costs the layout, never the window.
  */
-export const readWorkbench = (raw: unknown, windowHeight = 900): Workbench | null => {
+export const readWorkbench = (raw: unknown, windowHeight = 900, leadAvailable = false): Workbench | null => {
   if (typeof raw !== 'object' || raw === null) return null
   const record = raw as Record<string, unknown>
 
@@ -1349,7 +1357,7 @@ export const readWorkbench = (raw: unknown, windowHeight = 900): Workbench | nul
   }
 
   const workbench: Workbench = {
-    navigation: readDestinationHistory(record['navigation'], navigationFor(main).current),
+    navigation: readDestinationHistory(record['navigation'], navigationFor(main).current, leadAvailable),
     frameTools: readToolIntents(record.frameTools), toolOwners, frameSubjects,
     sidebar: readDock('sidebar', record['sidebar'], windowHeight),
     main,

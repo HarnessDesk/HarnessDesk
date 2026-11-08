@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createDefaultHost, loadBuiltinPlugins, loginShellPath, packagedPath, recordCrash, serve, openClientDoor } from '@harnessdesk/server'
+import { createDefaultHost, loadBuiltinPlugins, loginShellPath, packagedPath, recordCrash, serve, openClientDoor, startPhoneLink } from '@harnessdesk/server'
 import electronUpdater from 'electron-updater'
 
 import { createInlineBrowserEngine } from './browser-engine.mjs'
@@ -14,13 +14,15 @@ import { downloadOutcome, remember, uniqueName } from './downloads.mjs'
 import { respondToCrash } from './crash-policy.mjs'
 import { attachQuitSignals } from './quit-signals.mjs'
 import { attachAppUpdates, attachAppUpdateBridge } from './app-updates.mjs'
-import { loadMainWindow } from './main-window.mjs'
+import { attachAppProtocol, loadMainWindow } from './main-window.mjs'
 import { MENU_LABEL, createCommandLineTool, targetOf } from './cli-install.mjs'
 import { decide, relevant } from './notifications.mjs'
 import { createIntakeNotifier } from './intake-notifications.mjs'
 import { createDockIconSetter, defaultIconPath } from './dock-icon.mjs'
 import { menuBarItemDecision, readMenuBarPreference, writeMenuBarPreference } from './menu-bar-policy.mjs'
 import { trayMenuTemplate } from './tray-menu.mjs'
+import { leadEnabled } from './lead-feature.mjs'
+import { leadRuntimes } from './lead-runtime.mjs'
 
 import { readWindowState, writeWindowState } from './window-state.mjs'
 import { isAppNavigation } from './navigation.mjs'
@@ -105,6 +107,7 @@ let aboutWindow = null
 let tray = null
 let running = null
 let clientDoor = null
+let phoneLink = null
 let host = null
 let logger = null
 let extensions = null
@@ -112,17 +115,7 @@ let extensions = null
 let updateMenuItem = null
 const appUpdateBridge = attachAppUpdateBridge({ ipcMain, currentWindow: () => mainWindow, currentMenu: () => updateMenuItem })
 
-if (!app.requestSingleInstanceLock()) {
-  // A second launch should focus the window that already exists, not race it
-  // for the same host port and state file.
-  app.quit()
-}
-
-app.on('second-instance', () => {
-  if (!mainWindow) return
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.focus()
-})
+const primaryInstance = attachAppProtocol({ app, currentWindow: () => mainWindow })
 
 const pickDirectory = async () => {
   const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
@@ -650,9 +643,16 @@ const watchDownloads = (guestSession, profile) => {
 
 const start = async () => {
   const bootstrap = createDefaultHost({
+    leadEnabled: leadEnabled(process.env),
+    // This app's runtime first, then the bundled or fetched Node; the Lead probes each candidate.
+    leadRuntimes: leadRuntimes({ execPath: process.execPath, versions: process.versions, resourcesPath: process.resourcesPath, packaged: app.isPackaged, arch: process.arch }),
     stateDir,
     version: app.getVersion(),
     browserEngine,
+    ...(app.isPackaged ? { iosHelperPath: join(process.resourcesPath, 'native/ios/hd-ios-control') } : {}),
+    // The host pins the service origin and sign-in path before calling this.
+    // Cloud sign-in always leaves the embedded pane for the system browser.
+    accountOpenExternal: url => shell.openExternal(url),
     // At-rest protection for stored credentials comes from the OS —
     // safeStorage keys live in the macOS Keychain. This is the only file in
     // the repository allowed to touch a keystore API; CI enforces that.
@@ -693,6 +693,12 @@ const start = async () => {
 
   running = await serve({ host, logger, uiRoot, port: 0 })
   clientDoor = await openClientDoor({ host, logger, home: stateDir, hostVersion: app.getVersion() })
+  // Opt-in while the phone link is tested on this machine: the LAN listener and
+  // the pairing page exist only when the desk is started with it.
+  if (process.env['HARNESSDESK_PHONE_LINK'] === '1') {
+    phoneLink = await startPhoneLink(host, logger, { home: stateDir, port: Number(process.env['HARNESSDESK_PHONE_PORT'] ?? 0),
+      includeLoopback: process.env['HARNESSDESK_PHONE_LOOPBACK'] === '1', account: host.phoneRelayAccount() })
+  }
   logger.info('desktop shell ready', { url: running.url })
 
   // macOS notifications for the moments worth leaving another app for: a
@@ -914,7 +920,7 @@ ipcMain.on('harnessdesk:tray-summary', (_event, summary) => {
   tray.setContextMenu(buildTrayMenu())
 })
 
-app.whenReady().then(start).catch((error) => {
+if (primaryInstance) app.whenReady().then(start).catch((error) => {
   dialog.showErrorBox('HarnessDesk could not start', String(error?.stack ?? error))
   app.quit()
 })
@@ -933,6 +939,8 @@ app.on('before-quit', async (event) => {
   event.preventDefault()
   const closingDoor = clientDoor
   clientDoor = null
+  const closingPhone = phoneLink
+  phoneLink = null
   const closing = running
   const closingHost = host
   const closingExtensions = extensions
@@ -941,6 +949,7 @@ app.on('before-quit', async (event) => {
   extensions = null
   try {
     await closingDoor?.close()
+    await closingPhone?.close()
     await closing?.close()
     await closingHost?.dispose()
     await closingExtensions?.dispose()

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -28,13 +28,14 @@ const BRIDGE = fileURLToPath(new URL('../src/main.js', import.meta.url))
 const FAKE = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url))
 const WORKDIR = scratch('claude-acp-')
 
-const make = (extra: Record<string, string> = {}, toolServer?: AcpAgentConfig['toolServer']): AcpRuntime =>
+const make = (extra: Record<string, string> = {}, toolServer?: AcpAgentConfig['toolServer'], logger?: AcpAgentConfig['logger']): AcpRuntime =>
   new AcpRuntime({
     id: 'claude-code',
     name: 'Claude Code',
     command: process.execPath,
     args: [BRIDGE],
     ...(toolServer ? { toolServer, trustsBridgeProvenance: true } : {}),
+    ...(logger ? { logger } : {}),
     env: {
       HOME: scratch('claude-home-'),
       CLAUDE_CODE_EXECUTABLE: FAKE,
@@ -221,12 +222,16 @@ test('the bridge uses the official Claude ACP package contract', () => {
   }
   assert.deepEqual(manifest.dependencies, {
     '@harnessdesk/protocol': 'workspace:*',
-    '@agentclientprotocol/claude-agent-acp': '0.85.1',
-    '@agentclientprotocol/sdk': '1.7.0',
-    '@anthropic-ai/claude-agent-sdk': '0.3.288',
+    '@agentclientprotocol/claude-agent-acp': '0.101.0',
+    '@agentclientprotocol/sdk': '2.4.0',
+    '@anthropic-ai/claude-agent-sdk': '0.3.318',
     '@modelcontextprotocol/sdk': '1.32.0',
-    zod: '4.6.5',
+    zod: '4.6.7',
   })
+  const official = JSON.parse(readFileSync(new URL('../../node_modules/@agentclientprotocol/claude-agent-acp/package.json', import.meta.url), 'utf8')) as { dependencies: Record<string, string> }
+  for (const name of ['@agentclientprotocol/sdk', '@anthropic-ai/claude-agent-sdk', 'zod'] as const) {
+    assert.equal(manifest.dependencies?.[name], official.dependencies[name], `${name} matches the official bridge pin`)
+  }
   assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@zed-industries/claude-code-acp'), false)
 })
 
@@ -1237,6 +1242,121 @@ const answered = (text: string): Record<string, unknown> => ({
   type: 'assistant',
   message: { role: 'assistant', content: [{ type: 'text', text }] },
 })
+
+test('the bundled bridge routes negotiated steering into the running SDK turn', async t => {
+  const runtime = make()
+  t.after(() => runtime.dispose())
+  const tape = record(runtime)
+  await runtime.start()
+  assert.equal(runtime.info.capabilities.steer, true)
+  const session = await runtime.createSession({ cwd: WORKDIR })
+  const turn = await session.send([{ type: 'text', text: 'bridge wait for steer' }])
+  await tape.until(event => event.type === 'item/started' && event.sessionId === session.id)
+  await session.steer([{ type: 'text', text: 'follow the new direction' }])
+  await tape.until(event => event.type === 'turn/completed' && event.sessionId === session.id && event.turn.id === turn)
+  assert.equal(tape.events.filter(event => event.type === 'turn/started').length, 1)
+  assert.match(JSON.stringify((await runtime.readSession(session.id)).turns), /follow the new direction/)
+})
+
+test('the bundled bridge routes goal controls and reports their state', async t => {
+  const runtime = make()
+  t.after(() => runtime.dispose())
+  const tape = record(runtime)
+  await runtime.start()
+  assert.equal(runtime.info.capabilities.goals, true)
+  const session = await runtime.createSession({ cwd: WORKDIR })
+  assert.ok(session.setGoal)
+  await session.setGoal('finish this fixture')
+  await tape.until(event => event.type === 'session/goal' && event.goal?.objective === 'finish this fixture')
+  await tape.until(event => event.type === 'turn/completed' && event.sessionId === session.id)
+  await session.setGoal(null)
+  await tape.until(event => event.type === 'session/goal' && event.goal === null)
+  await tape.until(event => event.type === 'turn/completed' && tape.events.filter(one => one.type === 'turn/completed' && one.sessionId === session.id).length === 2)
+  const goalTurns = (await runtime.readSession(session.id)).turns
+  assert.equal(goalTurns.length, 2, 'idle goal commands own their turn lifecycle')
+  assert.deepEqual(goalTurns.map(turn => turn.status), ['completed', 'completed'])
+  const turn = await session.send([{ type: 'text', text: 'bridge wait for steer' }])
+  await tape.until(event => event.type === 'item/started' && event.turnId === turn)
+  await session.setGoal('finish the running fixture')
+  await tape.until(event => event.type === 'session/goal' && event.goal?.objective === 'finish the running fixture')
+  await tape.until(event => event.type === 'turn/completed' && event.turn.id === turn)
+  assert.equal((await runtime.readSession(session.id)).turns.length, 3, 'a running goal update stays in its existing turn')
+})
+
+test('the bundled bridge forks stored history with the source read ceiling already enforced', async t => {
+  const config = scratch('claude-fork-config-')
+  const sourceId = '11111111-1111-4111-8111-111111111111'
+  const userUuid = '22222222-2222-4222-8222-222222222222'
+  storedSession(config, sourceId, WORKDIR, [
+    { ...said('remember this fixture'), uuid: userUuid, parentUuid: null },
+    { ...answered('remembered'), uuid: '33333333-3333-4333-8333-333333333333', parentUuid: userUuid },
+  ])
+  const runtime = make({ CLAUDE_CONFIG_DIR: config })
+  t.after(() => runtime.dispose())
+  const tape = record(runtime)
+  await runtime.start()
+  assert.equal(runtime.info.capabilities.fork, true)
+  const source = await runtime.resumeSession((await runtime.listSessions()).data.find(row => String(row.id) === sourceId)!.id, { requestedCeiling: 'read' })
+  const fork = await runtime.forkSession(source.id)
+  assert.notEqual(fork.id, source.id)
+  assert.ok(fork.options().some(option => option.id === 'autocompact'), 'forks retain the wrapper controls')
+  assert.match(JSON.stringify((await runtime.readSession(fork.id)).turns), /remember this fixture/)
+  assert.equal(await ask(runtime, fork, 'permission {"tool":"Write","input":{"file_path":"/tmp/denied.txt","content":"denied"}}', tape), 'native guard denied.')
+  assert.equal(tape.events.filter(event => event.type === 'approval/requested').length, 0)
+})
+
+for (const failure of ['once', 'always'] as const) {
+  test(`a read fork returns its persisted id after permission-mode failure ${failure} and safely resumes before writing`, async t => {
+    const config = scratch('claude-fork-failure-config-')
+    // Avoid upstream's optional Auto-mode fallback synchronization: the
+    // refusal must hit the wrapper's mandatory post-creation enforcement.
+    writeFileSync(join(config, 'settings.json'), JSON.stringify({ permissions: { defaultMode: 'default' } }))
+    const state = scratch('claude-fork-failure-state-')
+    const log = join(scratch('claude-fork-failure-log-'), 'spawns.log')
+    const failureFile = join(state, 'permission-mode-failure')
+    const sourceId = '11111111-1111-4111-8111-111111111111'
+    const userUuid = '22222222-2222-4222-8222-222222222222'
+    storedSession(config, sourceId, WORKDIR, [
+      { ...said('remember this fixture'), uuid: userUuid, parentUuid: null },
+      { ...answered('remembered'), uuid: '33333333-3333-4333-8333-333333333333', parentUuid: userUuid },
+    ])
+    const warnings: string[] = []
+    const runtime = make({
+      CLAUDE_CONFIG_DIR: config, CLAUDE_ACP_STATE_DIR: state,
+      FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_PERMISSION_MODE_FAILURE_FILE: failureFile,
+    }, undefined, { debug: (message, details) => {
+      if (message === 'agent stderr') warnings.push(String((details as { line?: unknown })?.line ?? ''))
+    } })
+    t.after(() => runtime.dispose())
+    const tape = record(runtime)
+    await runtime.start()
+    const source = await runtime.resumeSession((await runtime.listSessions()).data.find(row => String(row.id) === sourceId)!.id, { requestedCeiling: 'read' })
+    writeFileSync(failureFile, failure)
+    const fork = await runtime.forkSession(source.id)
+    assert.notEqual(fork.id, source.id, 'the created branch is returned even when enforcing its live mode fails')
+    assert.equal(JSON.parse(readFileSync(join(state, 'options.json'), 'utf8'))[fork.id]?.ceiling, 'read')
+    await assert.rejects(runtime.connectionFor(fork.id).request('session/set_mode', { sessionId: fork.id, modeId: 'bypassPermissions' }), error => /read ceiling/.test(String(error) + JSON.stringify(error)))
+    const originalPid = new RegExp(`spawn (\\d+) .*resume=${fork.id}`).exec(readFileSync(log, 'utf8'))?.[1]
+    assert.ok(originalPid)
+    if (failure === 'always') {
+      await assert.rejects(runtime.connectionFor(fork.id).request('session/resume', { sessionId: fork.id, cwd: WORKDIR, mcpServers: [] }), error => /fixture permission-mode refusal/.test(String(error) + JSON.stringify(error)))
+      // A failed explicit resume must not leave an unguarded prompt path.
+      await ask(runtime, fork, 'permission {"tool":"Write","input":{"file_path":"/tmp/denied.txt","content":"denied"}}', tape)
+      const turn = (await runtime.readSession(fork.id)).turns.at(-1)!
+      assert.equal(turn.status, 'failed')
+      assert.match(turn.error?.message ?? '', /fixture permission-mode refusal/)
+      rmSync(failureFile)
+    }
+    assert.equal(await ask(runtime, fork, 'permission {"tool":"Write","input":{"file_path":"/tmp/denied.txt","content":"denied"}}', tape), 'native guard denied.')
+    assert.equal(tape.events.filter(event => event.type === 'approval/requested').length, 0)
+    const deadline = Date.now() + 5_000
+    while (!readFileSync(log, 'utf8').includes(`exit ${originalPid}`) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
+    const activity = readFileSync(log, 'utf8')
+    assert.ok(activity.includes(`exit ${originalPid}`), 'the failed live query is released')
+    assert.ok(activity.split('\n').filter(line => line.startsWith('spawn ') && line.includes(`resume=${fork.id}`)).length >= 2, 'the next prompt opens a new guarded query')
+    assert.match(warnings.join('\n'), /fork.*read ceiling.*fixture permission-mode refusal/)
+  })
+}
 
 const textIn = (item: AgentItem): string =>
   item.type === 'userMessage'

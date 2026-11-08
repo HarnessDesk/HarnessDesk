@@ -278,6 +278,8 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
   // The wire names are off until asked for. They are the answer on exactly two
   // screens; everywhere else they teach a vocabulary nobody needs.
   const [wire, setWire] = useState(false)
+  const [updating, setUpdating] = useState<string | null>(null)
+  const localSource = plugin.identity.source.kind === 'local' ? plugin.identity.source.path ?? null : null
   const counts = contributionCounts(plugin)
   const grants = describePermissions(plugin.permissions)
   const byKind = useMemo(() => {
@@ -292,15 +294,16 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
     <>
       <DestinationBar place={plugin.identity.name}
         more={close => <>
-          {plugin.identity.source.kind === 'local' && plugin.identity.source.path && <MenuItem
+          {localSource && <MenuItem
             label="Update from source" icon={<RetryIcon size={16} />}
-            title={`Reinstall from ${plugin.identity.source.path}`}
-            onSelect={() => { void store.updatePluginFromSource(plugin); close() }} />}
+            title={`Reinstall from ${localSource}`}
+            onSelect={() => { setUpdating(localSource); close() }} />}
           {plugin.identity.source.kind !== 'builtin' && <MenuItem label="Uninstall" icon={<TrashIcon size={16} />} danger
             onSelect={() => { void store.uninstallPlugin(plugin.identity.id); onBack(); close() }} />}
         </>} />
       <PageOptions title={plugin.identity.name}><Toolbar><Button variant="ghost" size="sm" onClick={onBack}>Back to Plugins</Button>{pluginGlyph(plugin, 16)}</Toolbar></PageOptions>
       {plugin.identity.description && <PageExplanation>{plugin.identity.description}</PageExplanation>}
+      {updating && <InstallPlugin source={updating} onClose={() => setUpdating(null)} />}
       <Rows><Row
         title={stateLabel(plugin.state)}
         {...(plugin.identity.source.kind === 'builtin' ? { titleChip: <Chip tone="neutral">Built in</Chip> } : {})}

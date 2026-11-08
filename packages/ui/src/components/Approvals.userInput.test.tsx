@@ -192,6 +192,17 @@ it.each([
   expect(container.textContent).not.toContain('wants to use HarnessDesk')
 })
 
+it.each([
+  ['mcp__harnessdesk__git_log', "Use the harnessdesk server's Git log tool"],
+  ['find_files (harnessdesk MCP Server)', "Use the harnessdesk server's Find files tool"],
+  ['mcp__other__git_log', 'mcp__other__git_log'],
+  ['mcp__harnessdesk__edit_file', 'mcp__harnessdesk__edit_file'],
+])('words a desk tool the agent names by its wire name, and leaves any other title as sent: %s', (summary, shown) => {
+  mount(boardApproval(summary, SESSION_SET), info)
+  expect(container.textContent).toContain(shown)
+  if (shown !== summary) expect(container.textContent).not.toContain(summary)
+})
+
 it('allows selecting multiple options and toggling selections when multiSelect is true (#380)', () => {
   const approval: Approval = {
     id: 'user-input-1',

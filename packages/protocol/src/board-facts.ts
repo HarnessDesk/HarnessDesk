@@ -157,20 +157,32 @@ export const evidenceForCard = (intent: Intent, intents: readonly Intent[], evid
   const own = evidence?.cards.find(one => one.card === intent.id)
   const diff = own?.facts.find(one => one.record.fact.kind === 'diff')?.record
   if (!diff || diff.fact.kind !== 'diff' || !diff.checkout) return own
+  const { to } = diff.fact
+  const checkout = diff.checkout
   const facts = [...(own?.facts ?? [])]
+  const retries = new Map<EvidenceView, CardEvidence['running'][number]>()
   for (const check of intents) {
     if (!check.dependsOn.includes(intent.id) || flowStepOf(check, run, executions)?.kind !== 'check') continue
-    for (const view of evidence?.cards.find(one => one.card === check.id)?.facts ?? []) {
+    const source = evidence?.cards.find(one => one.card === check.id)
+    for (const view of source?.facts ?? []) {
       const record = view.record
       if (record.fact.kind !== 'check' || record.restored || record.fact.advisory || record.fact.at !== diff.fact.to ||
         record.checkout?.cwd !== diff.checkout.cwd || record.checkout.branch !== diff.checkout.branch) continue
       const name = record.fact.name
+      const retry = source?.running.find(one => one.name === name && one.target && one.target.at === to &&
+        one.target.cwd === checkout.cwd && one.target.branch === checkout.branch)
+      if (retry) retries.set(view, retry)
       const previous = facts.findIndex(one => one.record.fact.kind === 'check' && one.record.fact.name === name)
       if (previous < 0) facts.push(view)
       else if (facts[previous]!.record.observedAt < record.observedAt) facts[previous] = view
     }
   }
-  return { card: intent.id, facts, running: own?.running ?? [] }
+  const running = [...(own?.running ?? [])]
+  for (const fact of facts) {
+    const retry = retries.get(fact)
+    if (retry && !running.some(one => one.name === retry.name)) running.push(retry)
+  }
+  return { card: intent.id, facts, running }
 }
 
 const settled = (evidence: CardEvidence | undefined, step?: FlowStep | null): Placement => {

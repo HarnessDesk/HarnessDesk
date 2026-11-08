@@ -173,14 +173,15 @@ const DRIVER_COMMANDS: ReadonlySet<string> = new Set(['clean', 'smudge', 'proces
 const switchedOn = (value: string | undefined): boolean =>
   value !== undefined && (/^(true|yes|on)$/i.test(value) || (/^[+-]?\d+$/.test(value) && Number(value) !== 0))
 
-/** What `git config --global` and `--system` say when the person has no such file, or git cannot look for one. */
-const NO_CONFIG_FILE = /unable to read config file '.*': (No such file or directory|Not a directory|Permission denied)|\$HOME not set/
+/** What Git says when an explicitly selected config file is absent. */
+const NO_CONFIG_FILE = /unable to read config file '.*': No such file or directory/
 
 /**
  * The filter definitions in the person's own configuration, which are the only
  * ones an automatic read or checkout may run. They are read apart from the
  * repository by the `--system` and `--global` scopes alone, with its folder
- * as the working directory so conditional includes can match it. Nothing in
+ * as the working directory so conditional includes can match it; onbranch includes
+ * select using the repository HEAD. Nothing in
  * the repository configuration can add to them or stand in front of them.
  * The system file is skipped when the environment says git would skip it too,
  * and a file that is not there is no definition. Any other failure fails the read.
@@ -203,9 +204,7 @@ const userFilters = async (cwd: string, options: ReadOptions): Promise<Trusted> 
       })).stdout
     } catch (error) {
       const { code, stderr } = error as { code?: unknown; stderr?: unknown }
-      if (code === 1 && typeof stderr === 'string' && stderr.trim() === '') continue
-      // A wrapper can report Git's missing-file result as its own exit 1.
-      if ((code === 128 || code === 1) && typeof stderr === 'string' && NO_CONFIG_FILE.test(stderr)) continue
+      if (code === 128 && typeof stderr === 'string' && NO_CONFIG_FILE.test(stderr)) continue
       throw error
     }
     for (const setting of settingsOf(listed)) {

@@ -1,5 +1,30 @@
 # Scripted Flow scene
 
+## Native phone session verification
+
+```sh
+pnpm build:node
+pnpm --filter @harnessdesk/ui build
+node script/shots/phone-session-rig.mjs
+```
+
+This fixture starts a real host and encrypted phone listener over a scripted
+runtime, in a fresh temporary state folder. Its 198 active and 12 archived
+placeholder sessions exercise pages beyond the recent snapshot. Open the
+printed desktop URL and pairing link locally. Valid fixture enrollments are
+allowed automatically; this does not change any existing desk or phone grant.
+
+Ordinary messages finish with `PHONE_SESSION_OK`. A message containing
+`PHONE_HOLD` stays running until stopped, and `PHONE_APPROVAL` asks for a
+synthetic permission decision. The fixture records successful phone actions
+in its temporary `receipts.json`; inspect that alongside the phone's visible
+result. Terminating the fixture closes its listeners. No real agent, account,
+repository or vendor endpoint is used.
+
+`PHONE_REFUSE_START` and `PHONE_REFUSE_REPLY` refuse without creating or sending
+anything, for checking draft recovery. Archived fixture 011 refuses its body
+with an instruction to restore it on the desk, for checking read failures.
+
 ## README and site stills
 
 ```sh
@@ -229,3 +254,5 @@ done
 ```
 
 Every page passes `audit.mjs` before capture; read every coalesced frame before committing, as for the race.
+
+The native session rig binds its phone listener to loopback and keeps new chat folders inside its disposable state. `PHONE_REFUSE_FIRST_SEND` preserves a created session with an unconfirmed-message warning. Archived fixture 010 retains a pending approval for read-only UI verification.

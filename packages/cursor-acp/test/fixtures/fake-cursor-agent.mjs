@@ -170,7 +170,18 @@ const finish = (text) => {
   process.exit(0)
 }
 
-if (prompt.includes('slow')) {
+if (prompt.startsWith('git-steer-run ')) {
+  const request = JSON.parse(prompt.slice('git-steer-run '.length)), command = [request.binary, ...request.args].join(' ')
+  const call = { shellToolCall: { args: { command }, toolCallId: 'git-write' } }
+  out({ type: 'tool_call', subtype: 'started', call_id: 'git-write', tool_call: call, session_id: sessionId })
+  const child = spawn(request.binary, request.args, { cwd: process.cwd(), env: process.env })
+  let output = ''
+  child.stdout.on('data', data => { output += data }); child.stderr.on('data', data => { output += data })
+  child.on('close', code => {
+    out({ type: 'tool_call', subtype: 'completed', call_id: 'git-write', tool_call: { shellToolCall: { ...call.shellToolCall, result: { success: { stdout: output, exitCode: code } } } }, session_id: sessionId })
+    finish(output)
+  })
+} else if (prompt.includes('slow')) {
   // Emit one delta so the client sees a live turn, then stall until killed.
   out({ type: 'thinking', subtype: 'delta', text: 'pondering forever', session_id: sessionId, timestamp_ms: Date.now() })
   setTimeout(() => finish('finally'), 30_000)

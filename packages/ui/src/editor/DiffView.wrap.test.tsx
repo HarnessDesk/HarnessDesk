@@ -13,6 +13,14 @@ const DIFF = [
 ].join('\n')
 
 describe('DiffView wrapping', () => {
+  it('renders blank gutters for input-only lines and numbers real hunks', () => {
+    const markup = renderToStaticMarkup(<DiffView diff={'-old\n+new\n@@ -5 +7 @@\n-before\n+after'} options={false} />)
+    const rows = [...markup.matchAll(/<tr[^>]*>(.*?)<\/tr>/g)].map(match => [...match[1]!.matchAll(/<td[^>]*>(.*?)<\/td>/g)].map(cell => cell[1]))
+    expect(rows[0]?.slice(0, 2)).toEqual(['', ''])
+    expect(rows[1]?.slice(0, 2)).toEqual(['', ''])
+    expect(rows.at(-2)?.slice(0, 2)).toEqual(['5', ''])
+    expect(rows.at(-1)?.slice(0, 2)).toEqual(['', '7'])
+  })
   it('wraps by default in every pane', () => {
     expect(renderToStaticMarkup(<DiffView diff={DIFF} />)).toContain('data-wrap')
   })

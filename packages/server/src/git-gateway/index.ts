@@ -1,0 +1,559 @@
+import { execFile } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { promisify } from 'node:util'
+import type { ForgeAssociatedPullRequest, ReviewTargetBinding } from '@harnessdesk/protocol'
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
+import { GitRecord, canonicalRepository, validateRepository, isGitRequester, type GitApproval, type GitRecordEntry, type GitRecordQuery, type GitRequester, type SucceededPushQuery } from './record.js'
+import { GitPins } from './pins.js'
+import { observedReviewTarget, reviewTargetDiagnostic } from '../review-target-diagnostic.js'
+export { GitRecord, GitPins }
+export type { GitRequester, GitApproval, GitRecordEntry, GitRecordQuery, SucceededPushQuery } from './record.js'
+
+const execute = promisify(execFile)
+export interface GitTarget { readonly repository: string; readonly branch: string; readonly sha: string; readonly previousSha: string | null; readonly requester: GitRequester }
+export interface GitCheckout { readonly branch: string | null; readonly sha: string; readonly tree: string; readonly objectStore: string; readonly commonDir: string }
+export interface GitPush extends GitTarget {
+  /** A reviewed commit and tree, never a branch to resolve at execution time. */
+  readonly objectStore: string; readonly tree: string
+  readonly protectedBases?: readonly string[]
+  readonly approval?: GitApproval
+  /** A person approved this exact lease-bound rewrite. */
+  readonly allowRewrite?: boolean
+  readonly steeredFrom?: string
+}
+interface GitWrite { readonly beforeWrite?: () => Promise<void>; readonly beforeSpawn?: () => void; readonly reviewedTarget?: ReviewTargetBinding; readonly checkAuthority?: () => Promise<boolean>; readonly repository: string; readonly requester: GitRequester; readonly approval?: GitApproval; readonly steeredFrom?: string; readonly branch?: string; readonly number?: number; readonly sha?: string; readonly previousSha?: string | null; readonly lease?: string | null }
+export interface GitGatewayOptions {
+  readonly directory: string
+  readonly recordOutside?: () => boolean
+  readonly stateDirectory?: string
+  readonly gh?: (cwd: string, args: readonly string[], env: NodeJS.ProcessEnv) => Promise<{ stdout: string; stderr: string; exitCode: number }>
+  /** Fixture capability only; production always constructs the pinned HTTPS URL. */
+  readonly localRemote?: (repository: string) => string
+}
+/** Host-only executor. No worker, session or runtime receives this capability.
+ * Objects cross into a host-owned bare mirror; configuration and hooks never do.
+ * The durable intent precedes the effect, and the outcome precedes returning to
+ * a caller (in particular, a caller's own journal may lag this record on crash).
+ */
+export class GitGateway {
+  readonly #tails = new Map<string, Promise<unknown>>()
+  readonly gitRecord: GitRecord
+  readonly pins: GitPins
+  readonly #startup: Promise<void>
+  readonly #recoveries = new Map<string, Promise<void>>()
+  #initialization?: Promise<void>
+  readonly #env: NodeJS.ProcessEnv
+  readonly #hostConfig: Pick<NodeJS.ProcessEnv, 'GIT_CONFIG_GLOBAL' | 'GIT_CONFIG_SYSTEM'>
+  constructor(private readonly options: GitGatewayOptions) {
+    this.#hostConfig = { GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM: process.env.GIT_CONFIG_SYSTEM }
+    this.#env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_') &&
+      !['GH_REPO', 'GIT_ASKPASS', 'SSH_ASKPASS', 'ALL_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY', 'all_proxy', 'http_proxy', 'https_proxy'].includes(key)))
+    Object.assign(this.#env, { GH_HOST: 'github.com', GH_PROMPT_DISABLED: '1', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(resolve(options.directory), 'config'), GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_CEILING_DIRECTORIES: resolve(options.directory), GIT_ASKPASS: '', SSH_ASKPASS: '' })
+    // The credential helper uses this executable too. In a packaged desk it
+    // must run the helper script as Node rather than launch another app.
+    if (process.versions.electron) this.#env.ELECTRON_RUN_AS_NODE = '1'
+    this.gitRecord = new GitRecord(options.stateDirectory ?? options.directory)
+    this.pins = new GitPins(options.stateDirectory ?? options.directory)
+    this.#startup = this.#reconcile()
+    void this.#startup.catch(() => {})
+  }
+  async ready(): Promise<void> { await this.#startup; await Promise.all(this.#recoveries.values()) }
+  #queue<T>(repository: string, work: () => Promise<T>): Promise<T> {
+    try { repository = canonicalRepository(repository) } catch (error) { return Promise.reject(error) }
+    const result = (this.#tails.get(repository) ?? Promise.resolve()).then(async () => { await this.#startup; await this.#recoveries.get(repository); return work() })
+    const tail = result.catch(() => {}); this.#tails.set(repository, tail)
+    void tail.then(() => { if (this.#tails.get(repository) === tail) this.#tails.delete(repository) })
+    return result
+  }
+  async #validateWrite(target: GitWrite, op?: GitRecordEntry['op']): Promise<void> {
+    validateRepository(target.repository)
+    const value = target as GitWrite & { head?: string; method?: string; event?: string; title?: string; body?: string; base?: string; draft?: boolean; subject?: string }
+    const text = (input: unknown) => typeof input === 'string' && !input.includes('\0')
+    const invalid = () => { throw new Error('git-gateway-target-invalid') }
+    if (!isGitRequester(target.requester) ||
+      target.number !== undefined && (!Number.isSafeInteger(target.number) || target.number < 1)) invalid()
+    for (const branch of [target.branch, value.base]) if (branch !== undefined) {
+      if (!text(branch) || !branch || branch.startsWith('-')) invalid()
+      try { await execute('git', ['check-ref-format', `refs/heads/${branch}`], { env: this.#env, timeout: 10_000 }) } catch { invalid() }
+    }
+    for (const input of [value.title, value.body, target.steeredFrom]) if (input !== undefined && !text(input)) invalid()
+    for (const sha of [target.sha, target.previousSha, target.lease]) if (sha !== undefined && sha !== null && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha)) invalid()
+    if (value.title !== undefined && !value.title.trim() || value.draft !== undefined && typeof value.draft !== 'boolean') invalid()
+    if (target.approval !== undefined && target.approval !== null && (typeof target.approval !== 'object' || !['person', 'standing', 'ceiling', 'steered'].includes(target.approval.by) ||
+      target.approval.at !== undefined && (!Number.isSafeInteger(target.approval.at) || target.approval.at < 0))) invalid()
+    if (op && !['push', 'pr.create', 'observed'].includes(op) && target.number === undefined) invalid()
+    if (op === 'pr.create' && (!target.branch || value.title === undefined || value.body === undefined)) invalid()
+    if (op === 'pr.update' && value.title === undefined && value.body === undefined && value.base === undefined) invalid()
+    if (op === 'pr.merge' && (!text(value.head) || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.head!) || !['squash', 'merge', 'rebase'].includes(value.method!))) invalid()
+    if (op === 'pr.review' && (!['approve', 'request-changes', 'comment'].includes(value.event!) || value.body === undefined)) invalid()
+    if ((op === 'pr.comment' || op === 'issue.comment') && (!['pullRequest', 'issue'].includes(value.subject!) || value.body === undefined)) invalid()
+  }
+  async #validate(target: GitTarget): Promise<void> {
+    if (typeof target.sha !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(target.sha) || target.previousSha !== null && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(target.previousSha))
+      throw new Error('git-gateway-reviewed-sha-mismatch')
+    await this.#validateWrite(target)
+    if (!target.branch) throw new Error('git-gateway-target-invalid')
+  }
+  #init(): Promise<void> { return this.#initialization ??= this.#initialize() }
+  async #initialize(): Promise<void> {
+    await mkdir(this.options.directory, { recursive: true, mode: 0o700 })
+    await writeFile(join(this.options.directory, 'config'), '[core]\n\thooksPath = /dev/null\n[transfer]\n\tfsckObjects = true\n[protocol]\n\tallow = never\n[protocol "https"]\n\tallow = always\n', { mode: 0o600 })
+    // The one-shot helper reads the person's credentials outside every checkout.
+    // Remove the mirror's command-line config before consulting host git/gh.
+    const helper = `const {execFileSync}=require('node:child_process');
+const input=require('node:fs').readFileSync(0); if(process.argv[2]!=='get')process.exit(0);
+const env=Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('GIT_')));
+Object.assign(env,${JSON.stringify(this.#hostConfig)},{GIT_TERMINAL_PROMPT:'0',GIT_ASKPASS:'',SSH_ASKPASS:''});
+try { process.stdout.write(execFileSync('git',['-C',${JSON.stringify(resolve(this.options.directory))},'credential','fill'],{env,input,stdio:['pipe','pipe','pipe']})); }
+catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','get'],{env,input,cwd:${JSON.stringify(resolve(this.options.directory))},stdio:['pipe','pipe','pipe']})); } catch { process.exit(1); } }
+`
+    await writeFile(join(this.options.directory, 'credential.cjs'), helper, { mode: 0o600 })
+  }
+  #entry(op: GitRecordEntry['op'], target: GitWrite): Omit<GitRecordEntry, 'prev' | 'outcome'> {
+    const { repository, branch, number, sha, previousSha, lease, requester, steeredFrom } = target
+    return { id: randomUUID(), op, repository: canonicalRepository(repository), branch: typeof branch === 'string' ? branch : undefined,
+      number: Number.isSafeInteger(number) && number! >= 1 ? number : undefined, sha: typeof sha === 'string' ? sha : undefined,
+      previousSha: typeof previousSha === 'string' || previousSha === null ? previousSha : undefined,
+      lease: typeof lease === 'string' || lease === null ? lease : undefined, requester: isGitRequester(requester) ? requester : { kind: 'outside' },
+      approval: target.approval && typeof target.approval === 'object' && ['person', 'standing', 'ceiling', 'steered'].includes(target.approval.by) ? target.approval : null,
+      steeredFrom: typeof steeredFrom === 'string' ? steeredFrom : undefined, at: Date.now() }
+  }
+
+  #failure(error: unknown, op?: GitRecordEntry['op']): { outcome: 'refused' | 'rejected' | 'failed'; reason: string } {
+    const value = (error && typeof error === 'object' ? error : {}) as { message?: string; stdout?: string; stderr?: string }
+    const reason = value.message ?? String(error), output = `${reason} ${value.stdout ?? ''} ${value.stderr ?? ''}`
+    if (/remote rejected|hook declined|pre-receive hook declined/i.test(output)) return { outcome: 'refused', reason: output.trim() }
+    if (reason === 'git-gateway-owned-head-changed' || /\[rejected\][^\r\n]*\(stale info\)/i.test(value.stdout ?? '') ||
+      op === 'pr.merge' && /match.head|head.*changed/i.test(output)) return { outcome: 'rejected', reason }
+    if (/git-gateway-(reviewed-sha-mismatch|tree-invalid|branch-exists-not-owned|not-fast-forward|default-branch|protected-branch|target-invalid|repository-changed)/.test(reason) || /Pull request target changed or could not be verified|merge authority changed before submission/.test(reason))
+      return { outcome: 'refused', reason }
+    return { outcome: 'failed', reason }
+  }
+  async #effect<T>(entry: Omit<GitRecordEntry, 'prev' | 'outcome'>, work: () => Promise<T>, completed?: (result: T) => Pick<GitRecordEntry, 'number'>, submitted?: () => boolean): Promise<T> {
+    await this.gitRecord.append({ ...entry, outcome: 'intent' })
+    let result: T
+    try { result = await work() }
+    catch (error) {
+      await this.gitRecord.append({ ...entry, at: Date.now(), ...(entry.op === 'pr.merge' && submitted?.() ? { outcome: 'unknown' as const, reason: 'Merge submission outcome is unknown.' } : this.#failure(error, entry.op)) })
+      throw error
+    }
+    if (entry.op === 'pr.merge' && await this.#readMergeState(entry) !== 'merged') {
+      await this.gitRecord.append({ ...entry, at: Date.now(), outcome: 'unknown', reason: 'Merge may be queued or its outcome is unknown.' })
+      throw new Error('Merge may be queued or its outcome is unknown; reconcile before trying again.')
+    }
+    await this.gitRecord.append({ ...entry, ...completed?.(result), at: Date.now(), outcome: 'ok' })
+    return result
+  }
+  async #reconcile(): Promise<void> {
+    const repositories = new Map<string, GitRecordEntry[]>()
+    for (const entry of await this.gitRecord.pending()) {
+      const entries = repositories.get(entry.repository) ?? []
+      entries.push(entry); repositories.set(entry.repository, entries)
+    }
+    // Register recovery independently for each destination. A slow remote must
+    // not hold up writes to another repository, including during startup.
+    for (const [repository, entries] of repositories) {
+      const recovery = (async () => {
+        for (const entry of entries) {
+          if (entry.op === 'pr.merge') continue
+          // Forge writes have no remotely provable idempotency key. Never
+          // replay one: GitHub may have accepted it just before the crash.
+          let reconciled = false
+          if (entry.op === 'push' && entry.branch && entry.sha) {
+            try { reconciled = await this.#head(await this.#mirror(repository), repository, entry.branch) === entry.sha }
+            catch { continue /* Keep an unavailable push intent open for a later reconciliation. */ }
+          }
+          await this.gitRecord.append({ ...entry, at: Date.now(), outcome: reconciled ? 'ok' : 'failed', reason: reconciled ? 'reconciled' : 'interrupted' })
+        }
+      })()
+      this.#recoveries.set(repository, recovery)
+      void recovery.catch(() => {})
+    }
+  }
+  #url(repository: string): string { repository = canonicalRepository(repository); return this.options.localRemote?.(repository) ?? `https://github.com/${repository}.git` }
+  #config(local = false): string[] {
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
+    return ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'core.askPass=', '-c', 'transfer.fsckObjects=true', '-c', 'fetch.fsckObjects=true',
+      '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', ...(local ? ['-c', 'protocol.file.allow=always', '-c', 'protocol.http.allow=always'] : []),
+      '-c', 'credential.helper=', '-c', `credential.helper=!${quote(process.execPath)} ${quote(join(resolve(this.options.directory), 'credential.cjs'))}`,
+      '-c', 'gc.auto=0', '-c', 'maintenance.auto=false']
+  }
+  async #git(mirror: string | null, args: readonly string[], local = false): Promise<string> {
+    if (mirror && ['fetch', 'push', 'ls-remote'].includes(args[0] ?? '')) await this.#checkMirrorConfig(mirror)
+    const result = await execute('git', [...(mirror ? ['--git-dir', mirror] : []), ...this.#config(local), ...args],
+      { cwd: this.options.directory, env: this.#env, timeout: 120_000, maxBuffer: 4 * 1024 * 1024 })
+    return result.stdout.trim()
+  }
+  /** Metadata reads only: no config helper, filter, hook or worker command
+   * runs here. Keep this outside the mutation queue so a push's final guard can
+   * re-read the checkout while the gateway holds its own serialized executor. */
+  async inspectCheckout(cwd: string): Promise<GitCheckout> {
+    const read = async (args: readonly string[]) => (await execute('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, '-c', 'core.askPass=', ...args],
+      { env: { ...this.#env, GIT_CONFIG_GLOBAL: '/dev/null' }, timeout: 20_000, maxBuffer: 4 * 1024 * 1024 })).stdout.trim()
+    const [branch, identity] = await Promise.all([read(['symbolic-ref', '-q', '--short', 'HEAD']).catch(error => { if ((error as { code?: number }).code === 1) return null; throw error }),
+      read(['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', 'HEAD', 'HEAD^{tree}'])])
+    const [objectStore, commonDir, sha, tree] = identity.split('\n')
+    if (!objectStore || !commonDir || !sha || !tree || ![sha, tree].every(value => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value)))
+      throw new Error('git-gateway-checkout-unverifiable')
+    return { branch, sha, tree, objectStore, commonDir: await realpath(commonDir) }
+  }
+  async #mirror(repository: string): Promise<string> {
+    repository = canonicalRepository(repository)
+    await this.#init()
+    const mirror = join(resolve(this.options.directory), `${createHash('sha256').update(repository).digest('hex')}.git`)
+    try { await readFile(join(mirror, 'HEAD')) }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      await this.#git(null, ['init', '--bare', '--template=', mirror])
+      await writeFile(join(mirror, 'config'), this.#mirrorConfig, { mode: 0o600 })
+    }
+    this.#mirrorRepositories.set(mirror, repository)
+    return mirror
+  }
+  readonly #mirrorConfig = '[core]\n\trepositoryformatversion = 0\n\tbare = true\n\thooksPath = /dev/null\n'
+  async #checkMirrorConfig(mirror: string): Promise<void> {
+    if (await readFile(join(mirror, 'config'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error }) === this.#mirrorConfig) return
+    await writeFile(join(mirror, 'config'), this.#mirrorConfig, { mode: 0o600 })
+    // A mirror is host state. Record a change whose author the host cannot name.
+    const repository = this.#mirrorRepositories.get(mirror)
+    if (!repository) throw new Error('git-gateway-mirror-unknown')
+    await this.gitRecord.append({ id: randomUUID(), op: 'observed', repository, requester: { kind: 'outside' }, approval: null,
+      at: Date.now(), outcome: 'refused', reason: 'git-gateway-mirror-config-reset' })
+  }
+  readonly #mirrorRepositories = new Map<string, string>()
+  async #head(mirror: string, repository: string, branch: string): Promise<string | null> {
+    await this.#git(mirror, ['check-ref-format', `refs/heads/${branch}`])
+    const ref = `refs/heads/${branch}`, out = await this.#git(mirror, ['ls-remote', '--heads', this.#url(repository), ref], !!this.options.localRemote)
+    return out.split('\n').map(line => line.split(/\s+/)).find(([, name]) => name === ref)?.[0] ?? null
+  }
+  remoteHead(repository: string, branch: string, note?: Pick<GitRecordEntry, 'reason' | 'steeredFrom' | 'approval'>): Promise<string | null> {
+    return this.#queue(repository, async () => {
+      const sha = await this.#head(await this.#mirror(repository), repository, branch)
+      if (sha && this.options.recordOutside?.() !== false) await this.gitRecord.observe(repository, branch, sha, null, note)
+      return sha
+    })
+  }
+  /** Parse a checkout's origin only as a proposal; execution never follows it. */
+  async proposedRepository(cwd: string): Promise<string | null> {
+    const result = await execute('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, 'config', '--get', 'remote.origin.url'],
+      { env: { ...this.#env, GIT_CONFIG_GLOBAL: '/dev/null' }, timeout: 10_000 }).catch(error => {
+        if ((error as { code?: number }).code === 1) return { stdout: '' }; throw error
+      })
+    return this.#repositoryOfUrl(result.stdout.trim())
+  }
+  #repositoryOfUrl(url: string): string | null {
+    const match = /^(?:https:\/\/github\.com\/|ssh:\/\/(?:git@)?github\.com(?:-[a-zA-Z0-9.-]+)?\/|git@github\.com(?:-[a-zA-Z0-9.-]+)?:)([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(url)
+    return match?.[1] ? canonicalRepository(match[1]) : null
+  }
+  /** Effective origin includes checkout insteadOf rewrites, unlike the raw proposal. */
+  async originMatches(cwd: string, repository: string): Promise<boolean> {
+    if (await this.proposedRepository(cwd) !== repository) return false
+    const result = await execute('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, 'remote', 'get-url', 'origin'],
+      { env: { ...this.#env, ...this.#hostConfig, GIT_CONFIG_NOSYSTEM: undefined }, timeout: 10_000 })
+    return this.#repositoryOfUrl(result.stdout.trim()) === repository
+  }
+
+  /** Read-only preflight, using the same mirror and protected-branch guards as execution. */
+  assessPush(request: GitPush): Promise<{ readonly head: string | null; readonly fastForward: boolean }> {
+    return this.#queue(request.repository, async () => {
+      await this.#validate(request)
+      if (request.requester.kind === 'session') await this.#guardSessionPush(request)
+      const mirror = await this.#mirror(request.repository)
+      await this.#git(mirror, ['fetch', '--no-tags', '--no-write-fetch-head', '--', resolve(request.objectStore), request.sha], true)
+      const head = await this.#head(mirror, request.repository, request.branch)
+      if (head !== request.previousSha) throw new Error(head && request.previousSha === null ? 'git-gateway-branch-exists-not-owned' : 'git-gateway-owned-head-changed')
+      if (head === null) return { head, fastForward: false }
+      await this.#git(mirror, ['fetch', '--no-tags', '--', this.#url(request.repository), head], !!this.options.localRemote)
+      try { await this.#git(mirror, ['merge-base', '--is-ancestor', head, request.sha]); return { head, fastForward: true } }
+      catch (error) { if ((error as { code?: number }).code === 1) return { head, fastForward: false }; throw error }
+    })
+  }
+  async refuse(op: GitRecordEntry['op'], target: GitWrite, reason: string): Promise<void> {
+    await this.gitRecord.append({ ...this.#entry(op, target), outcome: 'refused', reason })
+  }
+  push(request: GitPush, options: { readonly reconcile?: boolean; readonly beforePush?: () => Promise<void> } = {}): Promise<{ pushed: boolean }> {
+    return this.#queue(request.repository, async () => {
+      request = { ...request, repository: canonicalRepository(request.repository) }
+      const entry = this.#entry('push', { ...request, lease: request.previousSha })
+      let journaled = false
+      try {
+        await this.#validate(request)
+        if (typeof request.objectStore !== 'string' || !request.objectStore || request.objectStore.includes('\0') ||
+          request.protectedBases !== undefined && (!Array.isArray(request.protectedBases) || request.protectedBases.some(branch => typeof branch !== 'string' || !branch)))
+          throw new Error('git-gateway-target-invalid')
+        for (const branch of request.protectedBases ?? []) await this.#validateWrite({ ...request, branch })
+        const mirror = await this.#mirror(request.repository), ref = `refs/heads/${request.branch}`
+        await this.#git(mirror, ['check-ref-format', ref])
+        if (request.requester.kind === 'session') await this.#guardSessionPush(request)
+        if (typeof request.tree !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(request.tree)) throw new Error('git-gateway-tree-invalid')
+        // Object intake never executes worker configuration or chooses a remote.
+        await this.#git(mirror, ['fetch', '--no-tags', '--no-write-fetch-head', '--', resolve(request.objectStore), request.sha], true)
+          .catch(error => { if (/not our ref|couldn.t find remote ref|not a valid|unadvertised object/i.test(String(error))) throw new Error('git-gateway-reviewed-sha-mismatch'); throw error })
+        if (await this.#git(mirror, ['rev-parse', `${request.sha}^{commit}`]) !== request.sha ||
+          await this.#git(mirror, ['rev-parse', `${request.sha}^{tree}`]) !== request.tree) throw new Error('git-gateway-reviewed-sha-mismatch')
+        await this.#git(mirror, ['fsck', '--strict', '--no-reflogs', request.sha])
+        const remote = await this.#head(mirror, request.repository, request.branch)
+        if (remote === request.sha && (request.previousSha === request.sha || options.reconcile)) {
+          // A started journal is not proof that Git pushed: recovery needs the
+          // durable success for this exact host requester.
+          if (this.hasSucceededPush(request)) return { pushed: false }
+          throw new Error(request.previousSha === null ? 'git-gateway-branch-exists-not-owned' : 'git-gateway-owned-head-changed')
+        }
+        if (request.previousSha === null && remote !== null) throw new Error('git-gateway-branch-exists-not-owned')
+        if (request.previousSha !== null) {
+          if (remote !== request.previousSha) throw new Error('git-gateway-owned-head-changed')
+          await this.#git(mirror, ['fetch', '--no-tags', '--', this.#url(request.repository), request.previousSha], !!this.options.localRemote)
+          try { await this.#git(mirror, ['merge-base', '--is-ancestor', request.previousSha, request.sha]) }
+          catch (error) {
+            if ((error as { code?: number }).code !== 1) throw error
+            if (!request.allowRewrite || request.approval?.by !== 'person') throw new Error('git-gateway-not-fast-forward')
+          }
+        }
+        await options.beforePush?.()
+        journaled = true
+        await this.gitRecord.append({ ...entry, outcome: 'intent' })
+        let pushError: unknown
+        try {
+          await this.#git(mirror, ['push', '--porcelain', `--force-with-lease=${ref}:${request.previousSha ?? ''}`, '--', this.#url(request.repository), `${request.sha}:${ref}`], !!this.options.localRemote)
+        } catch (error) { pushError = error }
+        if (pushError && ['rejected', 'refused'].includes(this.#failure(pushError).outcome)) {
+          await this.gitRecord.append({ ...entry, at: Date.now(), ...this.#failure(pushError) }); throw pushError
+        }
+        let head: string | null
+        try { head = await this.#head(mirror, request.repository, request.branch) }
+        catch {
+          // Verification can fail after receive-pack committed the ref. Retry
+          // once; if it is still unreadable only reconciliation can close it.
+          try { head = await this.#head(mirror, request.repository, request.branch) }
+          catch (error) { throw pushError ?? error }
+        }
+        if (head !== request.sha) {
+          const error = pushError ?? new Error('git-gateway-push-unverified')
+          await this.gitRecord.append({ ...entry, at: Date.now(), outcome: 'failed', reason: String(error) }); throw error
+        }
+        await this.gitRecord.append({ ...entry, at: Date.now(), outcome: 'ok' })
+        return { pushed: true }
+      } catch (error) {
+        if (!journaled) await this.gitRecord.append({ ...entry, ...this.#failure(error) })
+        throw error
+      }
+    })
+  }
+  async #guardSessionPush(request: GitPush): Promise<void> {
+    // A fixture bare repository has no forge. Its symbolic HEAD supplies the
+    // default branch; a fake gh, when provided, exercises forge protections.
+    if (this.options.localRemote && !this.options.gh) {
+      const branch = await this.#git(null, ['--git-dir', this.#url(request.repository), 'symbolic-ref', '--short', 'HEAD'], true)
+      if (request.branch === branch) throw new Error('git-gateway-default-branch')
+      if (request.protectedBases?.includes(request.branch)) throw new Error('git-gateway-protected-branch')
+      return
+    }
+    const repository = JSON.parse(await this.#gh(request.repository, ['repo', 'view', request.repository, '--json', 'nameWithOwner,url,defaultBranchRef'])) as { defaultBranchRef?: { name?: string } }
+    if (!repository.defaultBranchRef?.name) throw new Error('git-gateway-default-branch-unverifiable')
+    if (request.branch === repository.defaultBranchRef.name) throw new Error('git-gateway-default-branch')
+    if (request.protectedBases?.includes(request.branch)) throw new Error('git-gateway-protected-branch')
+    try {
+      const branch = JSON.parse(await this.#gh(request.repository, ['api', `repos/${request.repository}/branches/${encodeURIComponent(request.branch)}`])) as { protected?: boolean }
+      if (branch.protected === true) throw new Error('git-gateway-protected-branch')
+      if (branch.protected !== false) throw new Error('git-gateway-protected-branch-unverifiable')
+    } catch (error) {
+      if (!/HTTP 404|Not Found|Branch not found/i.test(String(error))) throw error
+    }
+  }
+  /** Fetch the observed head from the pinned destination, never a worker remote. */
+  isAncestor(repository: string, owned: string, observed: string): Promise<boolean> {
+    return this.#queue(repository, async () => {
+      if (![owned, observed].every(sha => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha))) throw new Error('git-gateway-sha-invalid')
+      const mirror = await this.#mirror(repository)
+      for (const sha of [owned, observed]) {
+        try { await this.#git(mirror, ['cat-file', '-e', `${sha}^{commit}`]) }
+        catch { await this.#git(mirror, ['fetch', '--no-tags', '--', this.#url(repository), sha], !!this.options.localRemote) }
+      }
+      try { await this.#git(mirror, ['merge-base', '--is-ancestor', owned, observed]); return true }
+      catch (error) { if ((error as { code?: number }).code === 1) return false; throw error }
+    })
+  }
+  attribute(repository: string, branch: string, sha: string): Promise<GitRequester | 'outside'> {
+    return this.#queue(repository, () => this.gitRecord.attribute(repository, branch, sha))
+  }
+  observe(repository: string, branch: string, sha: string, previousSha: string | null): Promise<void> {
+    return this.#queue(repository, async () => { if (this.options.recordOutside?.() !== false) await this.gitRecord.observe(repository, branch, sha, previousSha) })
+  }
+  hasSucceededPush(query: SucceededPushQuery): boolean { return this.gitRecord.hasSucceededPush(query) }
+  record(query: GitRecordQuery): Promise<GitRecordEntry[]> { return this.#queue(query.repository, () => this.gitRecord.list(query)) }
+  async associatedPullRequest(
+    repository: string,
+    caller: { readonly runtime: string; readonly sessionId: string },
+    signal?: AbortSignal,
+  ): Promise<ForgeAssociatedPullRequest> {
+    try {
+      signal?.throwIfAborted()
+      const pinned = canonicalRepository(repository)
+      const rows = await this.#queue(pinned, () => {
+        signal?.throwIfAborted()
+        return this.gitRecord.successfulPullRequests(pinned, caller)
+      })
+      const branches = new Map<number, Set<string>>()
+      for (const row of rows) {
+        const names = branches.get(row.number) ?? new Set<string>()
+        names.add(row.branch)
+        branches.set(row.number, names)
+      }
+      const matches: number[] = []
+      for (const [number, names] of branches) {
+        signal?.throwIfAborted()
+        const value: unknown = JSON.parse(await this.#gh(pinned, [
+          'pr', 'view', String(number), '--json', 'number,state,headRefName',
+        ]))
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return { status: 'unavailable' }
+        const pr = value as Record<string, unknown>
+        if (pr.number !== number || typeof pr.state !== 'string' || !['OPEN', 'CLOSED', 'MERGED'].includes(pr.state) ||
+            typeof pr.headRefName !== 'string' || pr.headRefName.trim() === '') return { status: 'unavailable' }
+        if (pr.state === 'OPEN' && names.has(pr.headRefName)) matches.push(number)
+      }
+      signal?.throwIfAborted()
+      if (matches.length === 0) return { status: 'none' }
+      if (matches.length > 1) return { status: 'ambiguous' }
+      return { status: 'found', number: matches[0]!, repository: pinned }
+    } catch {
+      return { status: 'unavailable' }
+    }
+  }
+  async #gh(repository: string, args: readonly string[], beforeSpawn?: () => void): Promise<string> {
+    repository = canonicalRepository(repository)
+    await this.#init()
+    const command = ['pr', 'issue'].includes(args[0] ?? '') ? [...args, '--repo', repository] : [...args]
+    beforeSpawn?.()
+    if (this.options.gh) {
+      const result = await this.options.gh(resolve(this.options.directory), command, this.#env)
+      if (result.exitCode !== 0) throw new Error(`git-gateway-forge-unavailable: ${result.stderr}`)
+      return result.stdout.trim()
+    }
+    return (await execute('gh', command, { cwd: this.options.directory, env: this.#env, timeout: 60_000, maxBuffer: 4 * 1024 * 1024 })).stdout.trim()
+  }
+  findPullRequest(target: GitTarget & { readonly number?: number }): Promise<string> {
+    return this.#queue(target.repository, async () => {
+      await this.#validate(target)
+      return this.#gh(target.repository, target.number === undefined ?
+        ['pr', 'list', '--head', target.branch, '--state', 'open', '--json', 'number,url,headRefName,headRefOid,body,isCrossRepository,headRepositoryOwner'] :
+        ['pr', 'view', String(target.number), '--json', 'number,title,state,url,body,headRefName,headRefOid,isCrossRepository,headRepositoryOwner,author,additions,deletions,changedFiles'])
+    })
+  }
+  pullRequestHeadRef(repository: string, number: number): Promise<string> {
+    return this.#queue(repository, async () => {
+      const pr = JSON.parse(await this.#gh(repository, ['pr', 'view', String(number), '--json', 'headRefName'])) as { headRefName?: string }
+      if (!pr.headRefName) throw new Error('The pull request head branch could not be read.')
+      return pr.headRefName
+    })
+  }
+  async #readMergeState(entry: Omit<GitRecordEntry, 'prev' | 'outcome'>): Promise<'open' | 'merged' | 'unknown'> {
+    if (!entry.number) return 'unknown'
+    const [owner, name] = canonicalRepository(entry.repository).split('/')
+    try {
+      const query = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){state merged mergeQueueEntry{id} autoMergeRequest{enabledAt}}}}'
+      const value: unknown = JSON.parse(await this.#gh(entry.repository, ['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${entry.number}`]))
+      if (!value || typeof value !== 'object' || 'errors' in value) return 'unknown'
+      const pr = (value as { data?: { repository?: { pullRequest?: Record<string, unknown> } } }).data?.repository?.pullRequest
+      if (!pr || !Object.hasOwn(pr, 'mergeQueueEntry') || !Object.hasOwn(pr, 'autoMergeRequest')) return 'unknown'
+      if (pr.state === 'MERGED' && pr.merged === true) return 'merged'
+      if (pr.state === 'OPEN' && pr.merged === false && pr.mergeQueueEntry === null && pr.autoMergeRequest === null) return 'open'
+    } catch { /* An unavailable or malformed read cannot settle a submission. */ }
+    return 'unknown'
+  }
+  async #reconcileMerge(entry: GitRecordEntry): Promise<'merged' | 'unknown'> {
+    const state = await this.#readMergeState(entry)
+    if (state === 'merged') {
+      await this.gitRecord.append({ ...entry, at: Date.now(), outcome: 'observed-merged', reason: 'The pull request is merged; the submitting client could not be confirmed.' })
+      return 'merged'
+    }
+    // An open, unqueued snapshot cannot prove an earlier request has stopped
+    // in flight. Keep the durable fence until the merge is observed.
+    return 'unknown'
+  }
+  async #checkReviewedTarget(target: GitWrite): Promise<void> {
+    const expected = target.reviewedTarget
+    const refused = (observed?: ReviewTargetBinding, unavailable?: string) => { throw new Error(expected ? reviewTargetDiagnostic(expected, observed, unavailable) : 'Pull request target changed or could not be verified. Start a fresh review.') }
+    if (!expected || !target.checkAuthority || expected.repository !== canonicalRepository(target.repository) || expected.number !== target.number || expected.head !== target.sha) refused()
+    if (!await target.checkAuthority!()) refused(undefined, 'review authority')
+    let pr: { number?: unknown; state?: unknown; url?: unknown; headRefOid?: unknown; baseRefName?: unknown; baseRefOid?: unknown } | null = null
+    try { pr = JSON.parse(await this.#gh(target.repository, ['pr', 'view', String(expected!.number), '--json', 'number,state,url,headRefOid,baseRefName,baseRefOid'])) }
+    catch { refused(undefined, 'pull request read') }
+    if (!await target.checkAuthority!()) refused(undefined, 'review authority')
+    const url = typeof pr?.url === 'string' ? /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/([1-9]\d*)$/i.exec(pr.url) : null
+    const observed = url && Number(url[2]) === pr!.number && ['OPEN', 'CLOSED', 'MERGED'].includes(String(pr!.state)) ? observedReviewTarget({ repository: url[1], number: pr!.number, head: pr!.headRefOid, baseRef: pr!.baseRefName, baseTip: pr!.baseRefOid }) : null
+    if (!pr! || pr!.number !== expected!.number || pr!.state !== 'OPEN' || typeof pr!.url !== 'string' || pr!.url.toLowerCase() !== `https://github.com/${expected!.repository}/pull/${expected!.number}` ||
+        pr!.headRefOid !== expected!.head || pr!.baseRefName !== expected!.baseRef || pr!.baseRefOid !== expected!.baseTip) {
+      if (observed && (pr?.state === 'CLOSED' || pr?.state === 'MERGED')) throw new Error(`Pull request is ${pr.state.toLowerCase()}. ${reviewTargetDiagnostic(expected!, observed)}`)
+      refused(observed ?? undefined, observed ? undefined : 'pull request read')
+    }
+    let branch: { name?: unknown; commit?: { sha?: unknown } } | null = null
+    try { branch = JSON.parse(await this.#gh(target.repository, ['api', `repos/${expected!.repository}/branches/${encodeURIComponent(expected!.baseRef)}`])) }
+    catch { refused(undefined, 'destination branch read') }
+    if (!await target.checkAuthority!()) refused(undefined, 'review authority')
+    if (!branch! || branch!.name !== expected!.baseRef || branch!.commit?.sha !== expected!.baseTip) {
+      const branchTarget = observedReviewTarget({ ...expected!, baseRef: branch?.name, baseTip: branch?.commit?.sha })
+      refused(branchTarget ?? undefined, branchTarget ? undefined : 'destination branch read')
+    }
+  }
+  #forgeWrite(op: GitRecordEntry['op'], target: GitWrite, args: readonly string[]): Promise<string> {
+    return this.#queue(target.repository, async () => {
+      const entry = this.#entry(op, target)
+      try { await this.#validateWrite(target, op) }
+      catch (error) { await this.gitRecord.append({ ...entry, ...this.#failure(error) }); throw error }
+      if (op === 'pr.merge') {
+        const pending = await this.gitRecord.unresolvedMerge(target.repository, target.number!)
+        if (pending) {
+          const state = await this.#reconcileMerge(pending)
+          if (state === 'unknown') throw new Error('An earlier merge is unresolved and may still complete. Inspect or complete it outside the app; the app will not submit another.')
+          if (state === 'merged') throw new Error('This pull request is already merged; no new merge was submitted.')
+        }
+        try { await target.beforeWrite?.() }
+        catch (error) { await this.gitRecord.append({ ...entry, ...this.#failure(error) }); throw error }
+        if (target.reviewedTarget) {
+          try { await this.#checkReviewedTarget(target) }
+          catch (error) { await this.gitRecord.append({ ...entry, outcome: 'refused', reason: error instanceof Error ? error.message : String(error) }); throw error }
+        }
+      }
+      let submitted = false
+      return this.#effect(entry, async () => {
+        if (op !== 'pr.merge') await target.beforeWrite?.()
+        else if (target.reviewedTarget && !await target.checkAuthority?.()) throw new Error(reviewTargetDiagnostic(target.reviewedTarget, undefined, 'review authority'))
+        if (op === 'pr.merge') {
+          await this.#init()
+          if (target.reviewedTarget && !await target.checkAuthority?.()) throw new Error(reviewTargetDiagnostic(target.reviewedTarget, undefined, 'review authority'))
+        }
+        return this.#gh(target.repository, args, () => { target.beforeSpawn?.(); submitted = true })
+      }, op === 'pr.create' ? output => {
+        const prefix = `https://github.com/${canonicalRepository(target.repository)}/pull/`
+        const url = output.split(/\r?\n/).map(line => line.trim()).find(line => line.toLowerCase().startsWith(prefix))
+        const numberText = url?.slice(prefix.length)
+        const number = numberText !== undefined && /^[1-9]\d*$/.test(numberText) ? Number(numberText) : NaN
+        return Number.isSafeInteger(number) && number > 0 ? { number } : {}
+      } : undefined, () => submitted)
+    })
+  }
+  createPullRequest(target: GitWrite & { readonly branch: string; readonly title: string; readonly body: string; readonly base?: string; readonly draft?: boolean }): Promise<string> {
+    return this.#forgeWrite('pr.create', target,
+      ['pr', 'create', '--head', target.branch, ...(target.base ? ['--base', target.base] : []), '--title', target.title, '--body', target.body, ...(target.draft ? ['--draft'] : [])])
+  }
+  updatePullRequest(target: GitWrite & { readonly number: number; readonly title?: string; readonly body?: string; readonly base?: string }): Promise<string> {
+    return this.#forgeWrite('pr.update', target, ['pr', 'edit', String(target.number),
+      ...(target.title === undefined ? [] : ['--title', target.title]), ...(target.body === undefined ? [] : ['--body', target.body]), ...(target.base === undefined ? [] : ['--base', target.base])])
+  }
+  mergePullRequest(target: GitWrite & { readonly number: number; readonly head: string; readonly method: 'squash' | 'merge' | 'rebase'; readonly body?: string }): Promise<string> {
+    return this.#forgeWrite('pr.merge', { ...target, sha: target.head },
+      ['pr', 'merge', String(target.number), `--${target.method}`, '--match-head-commit', target.head, ...(target.body === undefined ? [] : ['--body', target.body])])
+  }
+  comment(target: GitWrite & { readonly subject: 'pullRequest' | 'issue'; readonly number: number; readonly body: string }): Promise<string> {
+    return this.#forgeWrite(target.subject === 'pullRequest' ? 'pr.comment' : 'issue.comment', target,
+      [target.subject === 'pullRequest' ? 'pr' : 'issue', 'comment', String(target.number), '--body', target.body])
+  }
+  review(target: GitWrite & { readonly number: number; readonly event: 'approve' | 'request-changes' | 'comment'; readonly body: string }): Promise<string> {
+    return this.#forgeWrite('pr.review', target, ['pr', 'review', String(target.number), `--${target.event}`, '--body', target.body])
+  }
+  repository(repository: string): Promise<{ nameWithOwner: string; url: string; defaultBranchRef?: { name?: string } }> {
+    return this.#queue(repository, async () => JSON.parse(await this.#gh(repository, ['repo', 'view', canonicalRepository(repository), '--json', 'nameWithOwner,url,defaultBranchRef'])))
+  }
+}

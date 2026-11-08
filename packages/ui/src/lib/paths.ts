@@ -55,3 +55,59 @@ export const relativeTo = (path: string, root: string): string => {
 
   return matches ? normPath.slice(prefix.length) : path
 }
+
+/** A description of a reported spelling, not an access or filesystem check. */
+export type ReportedLocation = 'inside' | 'outside' | 'unknown'
+
+const lexicalAbsolute = (input: string): string | null => {
+  if (!input.trim() || input.startsWith('\\') || /[\x00-\x1f\x7f]/.test(input)) return null
+  const path = input.replace(/\\/g, '/')
+  if (path.startsWith('//')) return null
+  const drive = /^[a-zA-Z]:\//.exec(path)?.[0]
+  if (!drive && !path.startsWith('/')) return null
+  const prefix = drive ?? '/'
+  const parts: string[] = []
+  for (const part of path.slice(prefix.length).split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') {
+      if (!parts.length) return null
+      parts.pop()
+    } else parts.push(part)
+  }
+  return prefix + parts.join('/')
+}
+
+export const knownOpenRoots = (
+  workspaces: readonly { readonly path: string }[],
+  workspace: { readonly path: string } | null,
+  sessionCwds: Iterable<string>,
+  displayedCwd: string | null | undefined,
+): string[] => {
+  const candidates = [...workspaces.map(entry => entry.path), ...(workspace ? [workspace.path] : []), ...sessionCwds, ...(displayedCwd ? [displayedCwd] : [])]
+  return candidates.flatMap(path => { const normalized = lexicalAbsolute(path); return normalized === null ? [] : [normalized] })
+}
+
+export const reportedAbsolutePath = (path: string, cwd: string | null | undefined): string | null => {
+  if (!path.trim() || path.startsWith('\\') || /[\x00-\x1f\x7f]/.test(path)) return null
+  const spelling = path.replace(/\\/g, '/')
+  let absolute = lexicalAbsolute(path)
+  if (!absolute) {
+    if (spelling.startsWith('/') || /^[a-zA-Z]:/.test(spelling)) return null
+    const base = cwd ? lexicalAbsolute(cwd) : null
+    if (!base) return null
+    absolute = lexicalAbsolute(`${base.replace(/\/$/, '')}/${spelling}`)
+  }
+  return absolute
+}
+
+export const reportedLocation = (path: string, cwd: string | null | undefined, roots: readonly string[]): ReportedLocation => {
+  const absolute = reportedAbsolutePath(path, cwd)
+  const validRoots = roots.flatMap(root => { const normalized = lexicalAbsolute(root); return normalized === null ? [] : [normalized] })
+  if (!absolute || !validRoots.length) return 'unknown'
+  return validRoots.some(root => isPathInside(absolute!, root)) ? 'inside' : 'outside'
+}
+
+export const reportedPathsLocation = (paths: readonly string[], cwd: string | null | undefined, roots: readonly string[]): ReportedLocation => {
+  const locations = paths.map(path => reportedLocation(path, cwd, roots))
+  return locations.includes('outside') ? 'outside' : locations.includes('unknown') ? 'unknown' : 'inside'
+}

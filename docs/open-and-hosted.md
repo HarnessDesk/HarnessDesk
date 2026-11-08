@@ -1,92 +1,86 @@
 # What is open, and what is hosted
 
-HarnessDesk is a desktop app that runs on your machine. A phone can reach it
-from anywhere through a hosted service. This page says which side of that line
-each piece is on, and what the service can and cannot see.
+HarnessDesk runs the desktop and its host on this machine. Account sign-in is
+an optional connection to a hosted service. LAN phone pairing is a separate
+local connection and needs no account link.
 
-**Status.** The desktop does not connect to the hosted service yet, and
-nothing in the app sends anything to it. What exists today is the wire both
-sides share — the two packages named below — with their tests. Until sign-in
-ships, [data-boundaries.md](data-boundaries.md) stays exactly as written.
+## What this desktop implements
 
-## The client is open
+- **Account.** Settings › Account starts sign-in in the system browser, shows
+  the desk name and matching code, and polls for the person's approval. The
+  host proves its own key for a renewable desk session and reads account and
+  linked-phone metadata. Rename, linked-phone removal, sign-out and account
+  deletion use that session. The browser's account session stays in the browser.
+- **Stored identity.** The desktop's OS keystore cipher protects the private
+  desk key, pending approval, desk token and cached profile in a sealed file
+  per service origin, excluded from backups. Account sign-in requires encrypted
+  storage. The host fetches bounded raster pictures and supplies local image
+  data to the renderer.
+- **Local phone.** `HARNESSDESK_PHONE_LINK=1` starts the LAN listener.
+  Settings › Phone shows a code to scan on the same network; the desktop must
+  allow the phone. The local desk key and paired-device registry live under
+  `phone-link/`, independently of the account identity. Removing a phone ends
+  its connection and requires a new pairing.
+- **Lead.** `HARNESSDESK_LEAD=1` enables the optional planning conversation.
+  Its child needs a runtime whose permission model blocks the network; the
+  desktop app carries one, and a standalone host needs Node 26. A host keeps its journal
+  locally, sends bounded provider requests and manages local worker Flows.
+- **Git publication.** The host pins the repository and publishes through the
+  shared gateway. The local Git record retains approvals and outcomes; Git
+  objects, pull-request text and comments go to the selected forge.
 
-Everything the desktop will do with the service will be in this repository,
-under the MIT licence. None of it is built yet; this is the intent the wire
-below is shaped for:
+The account's Reachable from your phone switch, off until turned on, opens
+the desk's connection to the account relay, which carries end-to-end encrypted
+phone frames it cannot read. Signing in does not
+upload conversations or files, synchronize work or enable hosted execution.
+The full request inventory, payloads, timing, retention and sign-out behavior
+are in [data-boundaries.md](data-boundaries.md).
 
-- **Sign-in.** The app will be a public client: it will sign in through the
-  system browser with PKCE and a `harnessdesk://` redirect, and keep the
-  resulting token in the keychain. It will hold no client secret, because a
-  client that ships to every machine cannot keep one.
-- **The desk's identity.** Each desk will create its own Ed25519 key. Its id is
-  derived from the public key (that derivation is in `packages/crypto`), and
-  pairing a phone will be a QR code that carries that public key, so the phone
-  can check it is talking to the desk it scanned.
-- **Encryption.** The relay connection and push messages will be encrypted on
-  the desk, with keys the service never receives.
+## The open wire and the hosted service
 
-The protocol is open as well. `packages/contract` holds the schemas for ids,
-tokens, pairing offers, relay frames and the account API. `packages/crypto`
-holds the handshake, framing, token signing and push sealing, using WebCrypto
-only. `packages/crypto/test-vectors.json` fixes inputs to outputs; every
-implementation of the wire, including the phone's, must reproduce it. This
-repository's copy is the canonical one: the service carries a copy of both
-packages and checks that its files match the ones here byte for byte, so a
-change to the wire is made here first.
-Tokens carry a purpose (`typ`), a key id, and issue and expiry times, and the
-verifier states which purpose it expects; they carry no audience claim yet, so
-a token is accepted by every service that trusts its key id.
+The desktop integration and wire are in this repository under the MIT licence.
+`packages/contract` defines account, token, pairing and relay schemas;
+`packages/crypto` implements key proofs, handshakes, framing and push sealing.
+Its fixed test vectors describe the bytes an implementation must reproduce.
+The hosted service and phone application are outside this repository.
 
-## The service is hosted
+Building and launching the desktop does not configure the hosted account
+service. By default, account sign-in uses `https://app.harnessdesk.app`;
+`HARNESSDESK_CLOUD_URL` selects another HTTPS origin for a development launch.
+Each origin has its own encrypted desk identity. Use the intended environment
+explicitly; the desktop does not fall back to a different service on failure.
 
-The hosted service is closed source and runs three things:
+For local development against the staging account service, run
+`pnpm app:staging`. It uses a separate `~/.harnessdesk-staging` desk by
+default, with an Electron profile under that desk, so an already-running
+production app cannot intercept the launch.
+An explicit `HARNESSDESK_HOME` overrides that staging desk directory. To
+choose another service, set `HARNESSDESK_CLOUD_URL` explicitly when running
+`pnpm app`. Ordinary `pnpm app` and packaged builds keep the production default.
 
-- **Accounts and sign-in.** It issues tokens and checks that a desk owns the
-  key it names.
-- **The relay.** Desk and phone each open an outbound connection to it, and it
-  passes their frames to each other.
-- **Push.** It wraps a message the desk has already encrypted in a generic
-  notification and hands it to Apple.
+An HTTP 503 from `POST /v1/desk/challenge` means the service is unavailable.
+If its response says the service is not configured, the hosted environment
+needs its own database binding and signing/challenge secrets initialized by
+the service operator. A working static sign-in page does not establish that
+the account API is ready. Sign-in reports service errors separately from
+a request that could not reach the service; rebuilding or deleting local
+credentials cannot repair missing hosted configuration.
 
-The iOS app is closed as well.
-
-## What the service sees
-
-It sees ciphertext and what it needs to route it: account and device ids,
-public keys, message sizes and timing. It also sees what the account API
-carries in the clear, which is what the contract's schemas name and nothing
-more:
-
-- the desk's name, when it is registered or listed, and the name a phone gives
-  itself when it redeems an invite;
-- a phone's APNs token, its environment and the app's bundle id, when it
-  registers for push;
-- on each push, the device it is for, its priority and its collapse key, and the
-  size of the sealed message.
-
-It never sees a prompt, a reply, a file, a diff or a notification's text. The relay cannot open the frames it passes
-along, and the push gateway cannot open the message it wraps, because neither
-holds the keys.
-
-## Where secrets live
-
-Only on the server. The keys that sign tokens, the push credentials and the
-service's other secrets exist in the hosted service's configuration and
-nowhere in this repository or in the app. A desk holds its own private key and
-its sign-in token, in the keychain, and nothing that could act as the service.
-
-Because the client is public, the service cannot rely on the client behaving:
-every limit, check and expiry is enforced on the server.
+The account service receives the public key, desk name and signed proofs used
+for registration and renewal, then the authenticated account operations listed
+in [the request inventory](data-boundaries.md#harnessdesk-account--only-after-you-choose-sign-in).
+The private desk key and browser cookies are not sent in those requests.
+Relay and push schemas describe encrypted frames; the current desktop does
+not open that transport, so those schemas do not establish a live desktop lane.
 
 ## Where the code is
 
-| | |
+| Boundary | Source |
 | --- | --- |
-| `packages/contract` | Schemas for the wire — see [architecture.md](architecture.md#the-packages) |
-| `packages/crypto` | The cryptography of the wire, and its test vectors |
-| The desktop's cloud code | Not built yet. It will be one seam in the host, so it can move without touching the rest. The renderer never imports the wire: `pnpm layering` refuses it |
-| The hosted service | Not in this repository |
-
-[decisions.md](decisions.md#the-client-is-open-the-hosted-service-is-closed--2026-10-21)
-records why the line is drawn here.
+| Account host service | `packages/server/src/harnessdesk-account.ts`, exposed to the renderer through `account/*` |
+| Account pictures | `packages/server/src/account-picture.ts` |
+| Desktop encryption and external browser | `packages/desktop/electron/main.mjs` |
+| LAN phone transport and registry | `packages/phone-link` and `packages/server/src/phone-link.ts` |
+| Lead child and host integration | `packages/lead` and `packages/server/src/lead` |
+| Publication gateway | `packages/server/src/git-gateway` |
+| Shared schemas and cryptography | `packages/contract` and `packages/crypto` |

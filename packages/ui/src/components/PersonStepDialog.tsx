@@ -5,6 +5,10 @@ import { shortSha } from '../lib/git-refs'
 import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { useSnapshot, useStore } from '../state/context'
 
+const sameTarget = (a: ReviewCandidate['reviewTarget'], b: ReviewCandidate['reviewTarget']): boolean =>
+  a === undefined && b === undefined || !!a && !!b && a.repository === b.repository && a.number === b.number &&
+    a.head === b.head && a.baseRef === b.baseRef && a.baseTip === b.baseTip
+
 /** The Board and comparison shelf open the same person-step question and write the same recorded answer. */
 export const PersonStepDialog = ({ room, intent, role, mode, onClose }: {
   room: string
@@ -66,7 +70,7 @@ export const PersonStepDialog = ({ room, intent, role, mode, onClose }: {
       if (reviewDialog.mode === 'answer') await store.teamIntent(room, intent.id, 'done', undefined, reviewDialog.answer)
       else if (mergeAnswer) {
         const candidates = await store.flowReviewCandidates(reviewDialog.run, intent.id)
-        const fresh = candidates.find(one => one.card === selected?.card && one.at === selected.at && one.branch === selected.branch)
+        const fresh = candidates.find(one => one.card === selected?.card && one.at === selected.at && one.branch === selected.branch && sameTarget(one.reviewTarget, selected.reviewTarget))
         if (!fresh) throw new Error('This step or its attempt changed. Reopen the question before merging.')
         if (merge) await store.decideFlowReview(reviewDialog.run, intent.id, fresh.id, reviewDialog.answer, refs!.branch!, true)
         else await store.decideFlowReview(reviewDialog.run, intent.id, fresh.id, reviewDialog.answer, refs!.branch!)
@@ -90,7 +94,7 @@ export const PersonStepDialog = ({ room, intent, role, mode, onClose }: {
     performMerge={() => confirmReview(true)}
     onDone={() => setGitDialog(null)}
   />
-  if (gitDialog === 'diff' && root && refs?.headSha && selected) return <DiffRangeDialog root={root} from={refs.headSha} to={selected.at} onDone={() => setGitDialog(null)} />
+  if (gitDialog === 'diff' && root && selected && (selected.reviewTarget || refs?.headSha)) return <DiffRangeDialog root={root} from={selected.reviewTarget?.baseTip ?? refs!.headSha!} to={selected.at} onDone={() => setGitDialog(null)} />
 
   const disabled = (reviewDialog.mode === 'review' && !selected) || !reviewDialog.answer || reviewDialog.pending || record || (mergeAnswer && (!root || !refs?.branch || Boolean(gitError)))
   return (
@@ -144,8 +148,10 @@ export const PersonStepDialog = ({ room, intent, role, mode, onClose }: {
                           })}
                         </span>
                       )}
-                      desc={<span title={candidate.at}>{shortSha(candidate.at)} · {candidate.branch ?? 'detached'}</span>}
-                      truncateDesc
+                      desc={candidate.reviewTarget
+                        ? <span>{candidate.reviewTarget.repository} #{candidate.reviewTarget.number}: head {candidate.reviewTarget.head} against {candidate.reviewTarget.baseRef} at {candidate.reviewTarget.baseTip}; not an integrated merge tree</span>
+                        : <span title={candidate.at}>{shortSha(candidate.at)} · {candidate.branch ?? 'detached'}</span>}
+                      truncateDesc={!candidate.reviewTarget}
                       selected={reviewDialog.selected === candidate.id}
                       disabled={reviewDialog.pending}
                       onClick={() => setReviewDialog({ ...reviewDialog, selected: candidate.id, error: null })}
@@ -154,7 +160,8 @@ export const PersonStepDialog = ({ room, intent, role, mode, onClose }: {
                 })}
               </Rows>
             ))}
-        {mergeAnswer && selected && root && refs?.headSha && <Button variant="quiet" disabled={reviewDialog.pending} onClick={() => setGitDialog('diff')}>Show diff</Button>}
+        {selected?.reviewTarget && root && <Button variant="quiet" disabled={reviewDialog.pending} onClick={() => setGitDialog('diff')}>Compare reviewed commits</Button>}
+        {mergeAnswer && selected && !selected.reviewTarget && root && refs?.headSha && <Button variant="quiet" disabled={reviewDialog.pending} onClick={() => setGitDialog('diff')}>Show diff</Button>}
         {(reviewDialog.mode === 'answer' || role.outcomes.length > 1) && (
           <Rows role="radiogroup" aria-label="Answer">
             {role.outcomes.map((outcome) => (

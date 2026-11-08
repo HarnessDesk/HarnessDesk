@@ -300,7 +300,7 @@ const PATTERNS = [
  * characters and nothing else, and every named-shape rule read straight past
  * it. Source files do not look like this; secret files do.
  */
-const isBareCredentialFile = (content) => {
+export const isBareCredentialFile = (content) => {
   const value = content.trim()
   if (!/^[A-Za-z0-9+/=_-]{32,}$/.test(value)) return false
   return entropyPerChar(value) >= 3

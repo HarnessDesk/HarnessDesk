@@ -1,16 +1,57 @@
+import type { DispatchAdmission } from '../dispatch-admission.js'
 import { recordDeskInput, approvalId as makeApprovalId, sessionId as makeSessionId } from '@harnessdesk/protocol'
 
-import type { MethodsUnder } from './context.js'
+import type { AgentSession, HostParams, HostResult } from '@harnessdesk/protocol'
+import type { HostContext, MethodsUnder } from './context.js'
+
+/** Host callers may scope the actual handle after dispatch reopens it. */
+export async function sendTurn(ctx: HostContext, params: HostParams<'turn/send'>,
+  admitLive?: DispatchAdmission<AgentSession>, person = false, effectStarted?: () => void): Promise<HostResult<'turn/send'>> {
+  // An unopened conversation is resolved by dispatch; it cannot have earned a
+  // person-turn marker at admission. Do not force it open just to take a snapshot.
+  const existing = person ? ctx.registry.get(params.runtime, params.sessionId) : undefined
+  const held = existing?.live ? existing : undefined
+  const personSeat = held ? ctx.queue.retiredPersonSeat(held) : null
+  const turnId = await ctx.sessions.dispatch(params, live => {
+    const record = ctx.sessions.record(params)
+    if (held && record !== held) throw new Error('The conversation changed before its message could be sent.')
+    return ctx.queue.sendNow(record, recordDeskInput(params.input), live, effectStarted, admitLive, personSeat)
+  })
+  return { turnId: String(turnId) }
+}
+
+/** Shared ordinary queue dispatch. Only host callers can supply the effect receipt. */
+export async function queueTurn(ctx: HostContext, params: HostParams<'turn/queue'>, effectStarted?: () => void,
+  admitLive?: DispatchAdmission<AgentSession>, person = false): Promise<HostResult<'turn/queue'>> {
+  ctx.sessions.assertDispatchable(params)
+  const record = ctx.sessions.record(params)
+  const personSeat = person ? ctx.queue.retiredPersonSeat(record) : null
+  if (admitLive && record.live) {
+    await admitLive(record.live)
+    ctx.sessions.assertDispatchable(params)
+    if (ctx.sessions.record(params) !== record) throw new Error('The conversation changed before its message could be queued.')
+  }
+  // Nothing to wait for: send it. A queue on an idle conversation would
+  // sit until some future turn ended, which is not what "send" means.
+  // `busy` counts a send still on its way to the agent, so two messages
+  // typed in the same breath cannot both go straight out — the second
+  // waits behind the first, which is what the person meant by typing it.
+  if (!ctx.queue.busy(record) && record.queue.messages.length === 0) {
+    await ctx.queue.sendNow(record, recordDeskInput(params.input), undefined, effectStarted, admitLive, personSeat)
+    return { queuedId: null, sent: true }
+  }
+  admitLive?.assertDispatch?.()
+  const message = ctx.registry.enqueue(record, ctx.queue.nextId(), recordDeskInput(params.input), effectStarted, admitLive, personSeat ?? undefined)
+  ctx.queue.push(record)
+  return { queuedId: message.id, sent: false }
+}
 
 /**
  * What happens inside a conversation: turns, the message queue that waits for
  * one to end, the agent's background tasks, and the answer to an approval.
  */
 export const turnMethods = {
-  'turn/send': async (ctx, params) => {
-    const turnId = await ctx.sessions.dispatch(params, live => ctx.queue.sendNow(ctx.sessions.record(params), recordDeskInput(params.input), live))
-    return { turnId: String(turnId) }
-  },
+  'turn/send': (ctx, params) => sendTurn(ctx, params, undefined, true),
 
   'turn/steer': async (ctx, params) => {
     await ctx.sessions.dispatch(params, live => live.steer(recordDeskInput(params.input)))
@@ -22,22 +63,7 @@ export const turnMethods = {
     return null
   },
 
-  'turn/queue': async (ctx, params) => {
-    ctx.sessions.assertDispatchable(params)
-    const record = ctx.sessions.record(params)
-    // Nothing to wait for: send it. A queue on an idle conversation would
-    // sit until some future turn ended, which is not what "send" means.
-    // `busy` counts a send still on its way to the agent, so two messages
-    // typed in the same breath cannot both go straight out — the second
-    // waits behind the first, which is what the person meant by typing it.
-    if (!ctx.queue.busy(record) && record.queue.messages.length === 0) {
-      await ctx.queue.sendNow(record, recordDeskInput(params.input))
-      return { queuedId: null, sent: true }
-    }
-    const message = ctx.registry.enqueue(record, ctx.queue.nextId(), recordDeskInput(params.input))
-    ctx.queue.push(record)
-    return { queuedId: message.id, sent: false }
-  },
+  'turn/queue': (ctx, params) => queueTurn(ctx, params, undefined, undefined, true),
 
   'turn/queue/cancel': (ctx, params) => {
     const record = ctx.sessions.record(params)
@@ -134,9 +160,17 @@ export const turnMethods = {
   },
 
   'approval/respond': async (ctx, params) => {
-    if (ctx.ceilings.answerHeld(params.runtime, params.sessionId, params.approvalId, params.decision)) return null
-    // A question whose turn its deadline already stopped: the answer reopens the Seat rather than going into that turn.
-    if (await ctx.questions.answerStopped(params.runtime, params.sessionId, params.approvalId, params.decision)) return null
+    // These host paths may settle an approval themselves. They mark entry into
+    // delivery, so only a failure before that boundary proves nothing was sent.
+    let delivering = false
+    const delivery = () => { delivering = true }
+    try {
+      if (ctx.ceilings.answerHeld(params.runtime, params.sessionId, params.approvalId, params.decision, delivery)) return null
+      if (await ctx.questions.answerStopped(params.runtime, params.sessionId, params.approvalId, params.decision, delivery)) return null
+    } catch (error) {
+      if (!delivering) throw Object.assign(error instanceof Error ? error : new Error('Approval preflight failed.'), { approvalNotDelivered: true })
+      throw error
+    }
     const sessionId = makeSessionId(params.sessionId), approvalId = makeApprovalId(params.approvalId)
     const assertPending = (): void => {
       if (!ctx.registry.hasApproval(params.runtime, sessionId, approvalId)) {
@@ -144,10 +178,19 @@ export const turnMethods = {
       }
     }
     // Stop can settle the host's copy even when the agent keeps its request.
-    assertPending()
-    const live = await ctx.sessions.live(params)
-    // Reopening may have overlapped the settlement; never send a stale decision.
-    assertPending()
+    const live = await (async () => {
+      try {
+        assertPending()
+        const live = await ctx.sessions.live(params)
+        // Reopening may have overlapped the settlement; never send a stale decision.
+        assertPending()
+        return live
+      } catch (error) {
+        // Host-only receipt: the runtime responder was never called. A responder
+        // rejection below cannot make this guarantee and must remain uncertain.
+        throw Object.assign(error instanceof Error ? error : new Error('Approval preflight failed.'), { approvalNotDelivered: true })
+      }
+    })()
     await live.respondToApproval(approvalId, params.decision)
     return null
   },

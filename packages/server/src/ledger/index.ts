@@ -276,8 +276,22 @@ export class Ledger {
     return read
   }
 
+  /**
+   * One root's usage from named sessions only: of the sessions' runtimes, the sources whose path carries one of
+   * their ids, and a database kind read whole as it always is. A meter that knows its sessions has no reason to
+   * read every transcript the machine touched since they opened, which on a busy machine is more than any budget,
+   * and an unread source is a gap that makes the meter's whole reading unknown.
+   */
+  async readSessions(query: InsightQuery, sessions: readonly { readonly runtime: string; readonly sessionId: string }[], options: { readonly signal?: AbortSignal } = {}): Promise<UsageDetail> {
+    const read = this.#insightRead.then(() => withCanonicalPaths(async () =>
+      this.#readInsight(query, {}, await this.#insightPass(query, options, this.#insightByteLimit, sessions))))
+    this.#insightRead = read.catch(() => undefined)
+    return read
+  }
+
   /** Every usage source over a query's range and runtime, read once for every root that shares them, within `budget` bytes. */
-  async #insightPass(query: InsightQuery, options: { readonly signal?: AbortSignal }, budget: number): Promise<InsightPass> {
+  async #insightPass(query: InsightQuery, options: { readonly signal?: AbortSignal }, budget: number,
+    sessions?: readonly { readonly runtime: string; readonly sessionId: string }[]): Promise<InsightPass> {
     if (!Number.isFinite(query.from) || !Number.isFinite(query.to) || query.from >= query.to) {
       throw new Error('Choose a valid Insight time range.')
     }
@@ -292,9 +306,12 @@ export class Ledger {
     const gaps: string[] = []
     let bytes = 0
     let targets: ScanTarget[] = []
-    const corpora = query.runtime === undefined
+    // A session id too short to be one would match the path of every source.
+    const named = sessions?.filter((session) => session.sessionId.length >= 8)
+    const corpora = (query.runtime === undefined
       ? this.#options.corpora
-      : this.#options.corpora.filter((corpus) => corpus.runtime === query.runtime)
+      : this.#options.corpora.filter((corpus) => corpus.runtime === query.runtime))
+      .filter((corpus) => !named || named.some((session) => session.runtime === corpus.runtime))
     for (const corpus of corpora) {
       try {
         targets.push(...await listTargets([corpus], {
@@ -314,6 +331,7 @@ export class Ledger {
         gaps.push('Recorded usage source could not be discovered.')
       }
     }
+    if (named) targets = targets.filter((target) => wholeFile(target.kind) || named.some((session) => session.runtime === target.runtime && target.path.includes(session.sessionId)))
     if (targets.length > 10_000) {
       gaps.push('Insight stopped before more than 10,000 source files. Choose a narrower range.')
       targets = targets.slice(0, 10_000)

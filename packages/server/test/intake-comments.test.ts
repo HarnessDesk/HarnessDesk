@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { TriggerArmPreview, TriggerHistoryPage } from '@harnessdesk/protocol'
+import type { TriggerArmPreview, TriggerDefinition, TriggerHistoryPage } from '@harnessdesk/protocol'
 
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { commitTriggers, intakeDesk, type IntakeDesk } from './fixtures/intake-host.js'
+import { commentRefusal } from '../src/intake/admission.js'
+import { factOf } from '../src/intake/store.js'
 import { sha } from './fixtures/intake-forge.js'
 
 /*
@@ -133,4 +135,18 @@ test('collaborators: a permission read that fails now keeps the comment and fire
   await d.host.intakePlane.tick()
   const page = await d.host.call('trigger/history', { root: d.repo.dir, id: 'talk' }) as TriggerHistoryPage
   assert.deepEqual(page.items.map((one) => one.outcome), ['fired'], 'replayed once the forge answers')
+})
+
+
+test('PR reviews require verified write access even for the arming account', () => {
+  const definition: TriggerDefinition = { id: 'review', on: { kind: 'pull-request', events: ['review-commented'] }, opens: { flow: 'review-pr' }, goal: ['pr'], again: null, dedupe: ['pr', 'head', 'event'], concurrency: 1, forks: 'never', budget: { usd: 5, rounds: 3, hours: 4, withoutProgress: 2 } }
+  const raw = { source: 'pull-request', project: '/work/project', repository: 'acme/widgets', subject: '1', event: 'a'.repeat(64), action: 'review-commented', at: 1, head: sha('a'), fork: false, title: 'Review', body: 'Please fix this.', url: null, trigger: null, author: 'b'.repeat(64), authorWrites: false, review: { id: 1, head: sha('a'), state: 'commented' } }
+  const fact = factOf(raw)
+  assert.ok(fact, 'stored normalized reviews survive restart')
+  assert.notEqual(commentRefusal(definition, fact, raw.author), null)
+  assert.notEqual(commentRefusal(definition, { ...fact, authorWrites: null }, raw.author), null)
+  assert.equal(commentRefusal(definition, { ...fact, authorWrites: true }, raw.author), null)
+  assert.notEqual(commentRefusal(definition, { ...fact, authorWrites: true, desk: true }, raw.author), null)
+  for (const review of [{ id: -1, head: sha('a'), state: 'commented' }, { id: 1, head: 'bad', state: 'commented' }, { id: 1, head: sha('a'), state: 'unknown' }]) assert.equal(factOf({ ...raw, review }), null)
+  assert.equal(factOf({ ...raw, action: 'checks-failed', review: undefined, check: { head: sha('a'), state: 'failed', total: -1 } }), null)
 })

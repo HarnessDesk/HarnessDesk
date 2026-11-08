@@ -122,6 +122,7 @@ const mount = (node: React.ReactNode, over: Partial<AppSnapshot> = {}) => {
     ...over,
   } as unknown as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async (method: string) => method === 'git/record/list' ? { repository: null, entries: [], counts: { all: 0, outside: 0, refused: 0 } } : {}) },
     subscribe: () => () => {},
     refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
@@ -244,7 +245,7 @@ it('a project’s checks follow its Agents, and a project with no checks file sh
   mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
   const sections = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
-  expect(sections).toEqual(['Agents', 'Checks', 'Provenance', 'Memory'])
+  expect(sections).toEqual(['Agents', 'Checks', 'Provenance', 'Git record', 'Git writes', 'Memory'])
   expect(container.querySelector('section[aria-label="Checks"]')?.textContent).toContain('pnpm verify')
 
   act(() => root.unmount())
@@ -302,7 +303,7 @@ it('plain project stays plain: no explicit memory use, no Memory section, no mem
   expect(memory?.querySelector('select')).toBeNull()
   // The section's label names it once; the row does not say "memory" again.
   expect(memory?.textContent).not.toMatch(/Project memory/)
-  expect((store as unknown as { transport?: { request: unknown } }).transport).toBeUndefined()
+  expect((store as unknown as { transport: { request: ReturnType<typeof vi.fn> } }).transport.request.mock.calls.every(([method]) => method !== 'goal/list')).toBe(true)
 })
 
 it('opening project memory reads it lazily, and an empty project says so honestly', async () => {

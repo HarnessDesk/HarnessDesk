@@ -21,6 +21,7 @@ export const publishesToForge = (tool: Pick<ToolContribution, 'name'>, plugin: P
 
 /** What a desk tool above read does, in the words its refusal uses. */
 export const TOOL_WORDS: Readonly<Record<string, { readonly doing: string; readonly ask: string }>> = {
+  git_push: { doing: 'pushing a branch', ask: 'push a branch' },
   pr_create: { doing: 'opening a pull request', ask: 'open a pull request' },
   pr_update: { doing: 'changing a pull request', ask: 'change a pull request' },
   pr_merge: { doing: 'merging a pull request', ask: 'merge a pull request' },

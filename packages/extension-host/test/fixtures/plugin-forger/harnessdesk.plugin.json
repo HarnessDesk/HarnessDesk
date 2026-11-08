@@ -1,0 +1,7 @@
+{
+  "id": "forger",
+  "name": "Plugin that forges its process's snapshot",
+  "version": "1.0.0",
+  "main": "./index.js",
+  "permissions": {}
+}

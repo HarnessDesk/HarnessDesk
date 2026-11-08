@@ -3,7 +3,7 @@ import { isAbsolute, join, normalize } from 'node:path'
 
 import type { ProvenanceBackup } from '@harnessdesk/protocol'
 
-import { digest, JOURNAL_LIMIT, object, ProvenanceJournal, validValue, type JournalKind } from './journal.js'
+import { digest, JOURNAL_LIMIT, object, ProvenanceJournal, ProvenanceJournalChangedError, ProvenanceJournalLimitError, validValue, type JournalKind } from './journal.js'
 
 export interface BackupPort {
   prepare?(project: string): Promise<void>
@@ -22,20 +22,36 @@ const projectPath = (value: unknown): value is string => typeof value === 'strin
 
 export const exportProvenance = async (port: BackupPort): Promise<ProvenanceBackup> => {
   const projects: { project: string; entries: unknown[] }[] = []
+  const omittedProjects: { project: string; reason: 'journal-limit-exceeded' }[] = []
   let count = 0
+  // The fixed wrapper includes both project-array brackets; each item is measured once.
+  let bytes = '{"version":1,"projects":[]}'.length
   for (const project of await port.projects()) {
-    const read = await port.journal(project).read()
+    let read
+    try { read = await port.journal(project).read() } catch (error) {
+      if (!(error instanceof ProvenanceJournalLimitError)) throw error
+      const omitted = { project, reason: 'journal-limit-exceeded' as const }
+      omittedProjects.push(omitted)
+      if (projects.length + omittedProjects.length > 100) throw new Error('provenance-backup-limit')
+      bytes += Buffer.byteLength(JSON.stringify(omitted)) +
+        (omittedProjects.length === 1 ? ',"omittedProjects":[]'.length : 1)
+      if (bytes > BYTES) throw new Error('provenance-backup-limit')
+      continue
+    }
     if (read.broken) throw new Error('provenance-journal-damaged')
     const entries = read.entries.filter((entry) => historical.has(entry.kind))
       .map(({ kind, value }) => ({ kind, value }))
     if (!entries.length) continue
-    projects.push({ project, entries })
+    const saved = { project, entries }
+    projects.push(saved)
     count += entries.length
-    if (projects.length > 100 || count > 50000 || Buffer.byteLength(JSON.stringify(projects)) > BYTES) {
+    if (projects.length + omittedProjects.length > 100 || count > 50000) {
       throw new Error('provenance-backup-limit')
     }
+    bytes += Buffer.byteLength(JSON.stringify(saved)) + (projects.length > 1 ? 1 : 0)
+    if (bytes > BYTES) throw new Error('provenance-backup-limit')
   }
-  return { version: 1, projects }
+  return { version: 1, projects, ...(omittedProjects.length ? { omittedProjects } : {}) }
 }
 
 /** The plane serializes imports with its project lifecycle; the journal deduplicates writes. */
@@ -58,9 +74,15 @@ export const importProvenance = async (
     }
     await port.prepare?.(project.project)
     const journal = port.journal(project.project)
-    const read = await journal.read()
+    let read
+    try { read = await journal.read() } catch (error) {
+      if (!(error instanceof ProvenanceJournalLimitError)) throw error
+      report.refused += project.entries.length
+      continue
+    }
     const ids = new Set(read.entries.map((entry) => `${entry.kind}:${(entry.value as { id: string }).id}`))
-    for (const entry of project.entries) {
+    for (let index = 0; index < project.entries.length; index += 1) {
+      const entry = project.entries[index]
       if (++count > 50000 || read.broken || !object(entry) || !historical.has(entry.kind as JournalKind) ||
         !validValue(entry.kind as JournalKind, entry.value) || Buffer.byteLength(JSON.stringify(entry)) > JOURNAL_LIMIT - 512) {
         report.refused += 1
@@ -79,7 +101,14 @@ export const importProvenance = async (
         await journal.append(kind, { id, restoredAt: now, data })
         ids.add(`${kind}:${id}`)
         report.restored += 1
-      } catch {
+      } catch (error) {
+        if (error instanceof ProvenanceJournalLimitError || error instanceof ProvenanceJournalChangedError) {
+          // A journal-wide refusal cannot be repaired by the next backup row.
+          // Keep the admission budget for healthy projects, too.
+          count -= 1
+          report.refused += project.entries.length - index
+          break
+        }
         report.refused += 1
       }
     }

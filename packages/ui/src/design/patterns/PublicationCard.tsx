@@ -1,6 +1,6 @@
 import type { ForgeReference } from '@harnessdesk/protocol'
 
-import { CommentIcon, IssueIcon, PullRequestIcon, ReviewIcon } from '@/components/Icons'
+import { BranchIcon, CommentIcon, IssueIcon, PullRequestIcon, ReviewIcon } from '@/components/Icons'
 import { softTone, type Tone } from '../ui/tone'
 
 /** A published change or check outcome that the interface can judge in a word. */
@@ -37,8 +37,9 @@ export const publicationVerb = (reference: ForgeReference): string => {
   // from what it happens to carry; a pull request is the default subject.
   const thing = reference.subject === 'issue' ? 'the issue' : 'the pull request'
   switch (reference.kind) {
+    case 'branch': return 'Pushed'
     case 'pullRequest':
-      return reference.action === 'updated' ? 'Updated the pull request' : reference.action === 'opened' ? 'Opened a pull request' : 'Pull request'
+      return reference.action === 'merged' ? 'Merged' : reference.action === 'updated' ? 'Updated the pull request' : reference.action === 'opened' ? 'Opened a pull request' : 'Pull request'
     case 'review':
       return 'Reviewed the pull request'
     case 'comment':
@@ -51,6 +52,7 @@ export const publicationVerb = (reference: ForgeReference): string => {
 /** The glyph for what was published: a pull request, a review, a comment, an issue. */
 export const KindGlyph = ({ kind, size = 14 }: { kind: ForgeReference['kind']; size?: number }) => {
   switch (kind) {
+    case 'branch': return <BranchIcon size={size} />
     case 'pullRequest':
       return <PullRequestIcon size={size} />
     case 'review':

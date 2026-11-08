@@ -5,11 +5,23 @@ import { join } from 'node:path'
 import { after as afterAll, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+
+
 import type { ForgeEngine, TeamEngine } from '@harnessdesk/cordis-host'
 import type { ContributionId, RuntimeId, SessionId } from '@harnessdesk/protocol'
 
 import type { SupervisedExtensionHost, SupervisedExtensionHostOptions } from '../src/index.js'
 import { childrenGone, childrenUp, Hosts } from './hosts.js'
+
+const unavailableWrites = {
+  associatedPullRequest: async () => ({ status: 'none' as const }),
+  repository: async () => 'acme/widgets',
+  push: async () => { throw new Error('No gateway in this fixture') },
+  pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
+  review: async () => { throw new Error('No gateway in this fixture') },
+  comment: async () => { throw new Error('No gateway in this fixture') },
+  record: async () => [], attribute: async () => 'outside' as const,
+}
 
 /**
  * Process isolation, exercised for real: third-party plugins run in a child
@@ -97,24 +109,24 @@ test('a plugin loaded in the child contributes tools the parent can call', async
   }
 })
 
-test('a plugin calling process.exit kills only the plugin host; callers fail fast and it recovers', async () => {
+test('a plugin calling process.exit kills only its own process; its caller fails fast, a bystander never notices, and it recovers', async () => {
   const harness = await start(['good', 'exit'])
   try {
     const began = Date.now()
     const dying = harness.host.invokeTool(harness.toolId('die'), {}, scope)
     const bystander = harness.host.invokeTool(harness.toolId('ping'), {}, scope)
 
-    // Both in-flight calls resolve to failures well inside the timeout: the
-    // exit is detected, not waited out.
+    // The dying call fails well inside the timeout: the exit is detected, not
+    // waited out. The other plugin runs in a process of its own and answers.
     const [dieResult, pingResult] = await Promise.all([dying, bystander])
     assert.equal(dieResult.ok, false)
     assert.match(String((dieResult as { error: string }).error), /exited/)
-    assert.equal(pingResult.ok, false)
+    assert.equal(pingResult.ok, true, JSON.stringify(pingResult))
     assert.ok(Date.now() - began < 1400, 'failure came from the exit, not the deadline')
 
     // This process is alive to make the next assertion, which is the point.
-    // The supervisor restarts the child and reloads what is installed.
-    await until(() => harness.host.plugins().some((plugin) => plugin.identity.id === 'good'))
+    // The supervisor restarts the plugin's process and reloads it.
+    await until(() => harness.host.plugins().some((plugin) => plugin.identity.id === 'exit' && plugin.state.type === 'active'))
     const recovered = await harness.host.invokeTool(harness.toolId('ping'), {}, scope)
     assert.equal(recovered.ok, true)
   } finally {
@@ -149,15 +161,27 @@ test('a host whose start fails is disposed, so no child is restarted behind the 
   // supervisor restarts a child it killed whether or not anyone is left who
   // wants it, so the host has to be disposed on the failure — and the child
   // it would have brought up is a healthy one that nothing ever ends.
-  await assert.rejects(start(['slow-once'], { invokeTimeoutMs: 400 }), /did not answer/)
+  //
+  // One plugin that fails to start does not fail the others' start: it is
+  // listed with the reason, and its process is disposed, not restarted.
+  // `slow-once` marks its first load by writing beside itself, which a
+  // confined process cannot do; the restart is what is under test here.
+  const harness = await start(['slow-once'], { invokeTimeoutMs: 400, confine: false })
+  try {
+    const listed = harness.host.plugins().find((plugin) => plugin.identity.id === 'slow-once')
+    assert.equal(listed?.state.type, 'failed')
+    assert.match(listed?.state.type === 'failed' ? listed.state.message : '', /did not answer/)
 
-  // The child the deadline killed is only just gone, and its replacement
-  // would come up a quarter of a second after that. Neither may be there.
-  await childrenGone()
-  const watched = Date.now() + 1500
-  while (Date.now() < watched) {
-    assert.equal(childrenUp(), 0, 'a plugin host child is running and no test owns it')
-    await new Promise((resolve) => setTimeout(resolve, 25))
+    // The child the deadline killed is only just gone, and its replacement
+    // would come up a quarter of a second after that. Neither may be there.
+    await childrenGone()
+    const watched = Date.now() + 1500
+    while (Date.now() < watched) {
+      assert.equal(childrenUp(), 0, 'a plugin host child is running and no test owns it')
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+  } finally {
+    await cleanup(harness)
   }
 })
 
@@ -369,6 +393,30 @@ test('a child plugin\'s browser tools drive the page the parent provides', async
   }
 })
 
+test("a command opens pages through the parent too, under an identity of its own", async () => {
+  // A confined process places every page through the parent, which answers
+  // only a live invocation. A tool call has always had one; a command now
+  // has its own, so a plugin's `/command` can open a page as its tools can.
+  const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
+  const store = join(dir, 'plugins')
+  await cp(join(FIXTURES, 'plugin-browser'), join(store, 'browserish'), { recursive: true })
+  const fake = fakeEngine()
+  const host = hosts.make('browser command', {
+    invokeTimeoutMs: 5_000,
+    env: { HARNESSDESK_PLUGINS: store },
+    browserEngine: fake.engine,
+  })
+  try {
+    await host.loadInstalledPlugins()
+    assert.equal(await host.runCommand('peek', 'http://fake/', scope), true)
+    assert.ok(fake.calls.includes('Page.navigate'), JSON.stringify(fake.calls))
+    assert.ok(fake.ensured() >= 1)
+  } finally {
+    await host.dispose()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('a team call rides its own invocation or is refused: the child cannot impersonate', async () => {
   // The child process is shared by every installed plugin, so the scope on a
   // `team/*` request is a claim, not a fact. The parent stands behind only
@@ -562,6 +610,7 @@ test('a plugin without the grant cannot ride a granted sibling’s armed scope',
 test('a forge call rides its own invocation or is refused; the identity needs no scope', async () => {
   const seats: unknown[] = []
   const engine: ForgeEngine = {
+    ...unavailableWrites,
     seat: async (callScope) => {
       seats.push(callScope)
       return { agent: 'Codex', version: null, model: 'GPT-5.4', effort: 'High', thinking: false, label: 'Codex GPT-5.4 · High', role: null, round: null, team: null }
@@ -644,6 +693,7 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
     raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
   }
   const forge: ForgeEngine = {
+    ...unavailableWrites,
     seat: async (callScope) => {
       seats.push(callScope)
       return { agent: 'Codex', version: null, model: null, effort: null, thinking: false, label: 'Codex', role: null, round: null, team: null }

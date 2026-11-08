@@ -8,7 +8,7 @@ import type { TriggerFact } from '@harnessdesk/protocol'
 import type { ArmedTrigger } from '../src/intake/consent.js'
 import { ForgeSource } from '../src/intake/forge.js'
 import { IntakeMonitor, intakeSources, SourceCursors } from '../src/intake/poll.js'
-import { armOf, Clocks, FakeForge, FakeTimers, Gate, settle, sha } from './fixtures/intake-forge.js'
+import { armOf, Clocks, FakeForge, FakeTimers, Gate, settle, sha, iso } from './fixtures/intake-forge.js'
 import { tempDir } from './scratch.js'
 
 /*
@@ -330,4 +330,51 @@ test('a label filter offers only the labelled issues it names', async () => {
   assert.deepEqual(r.offers.filter(([id]) => id === 'ready'), [['ready', 'labelled', '9']], 'one labelled issue, the one it names')
   assert.equal(r.offers.filter(([id]) => id === 'everything').length, 3, 'a trigger with no label reads every event it declares')
   await r.monitor.close()
+})
+
+
+test('an opt-in arm watches old PRs and failed delivery preserves supplemental work', async () => {
+  const r = rig()
+  const base = armOf('follow')
+  r.arms = [{ ...base, definition: { ...base.definition, on: { kind: 'pull-request', events: ['checks-failed'] } } }]
+  r.forge.pulls.push({ number: 1, head: sha('a'), state: 'open', created: ARMED - 3_600_000, updated: ARMED - 3_600_000 })
+  await r.monitor.baseline(r.arms[0]!)
+  r.forge.pulls[0]!.checks = [{ id: 1, head_sha: sha('a'), name: 'build', status: 'completed', conclusion: 'failure', completed_at: iso(ARMED + 1) }]
+  r.clocks.advance(MINUTE)
+  await r.monitor.tick(r.clocks.wall) // The check page is retained before the status page completes the aggregate.
+  const before = await cursorFile(r.home)
+  r.offerFails = () => true
+  r.clocks.advance(MINUTE)
+  await r.monitor.tick(r.clocks.wall)
+  assert.equal(await cursorFile(r.home), before, 'delivery failed before any supplemental watermark was committed')
+  r.offerFails = null
+  r.clocks.advance(2 * MINUTE)
+  await r.monitor.tick(r.clocks.wall)
+  assert.deepEqual(r.offers, [['follow', 'checks-failed', '1']])
+  await r.monitor.close()
+})
+
+test('host-owned PR watches poll without arms and deliver observations before advancing the cursor', async () => {
+  const forge = new FakeForge(), clocks = new Clocks(ARMED), timers = new FakeTimers()
+  const home = tempDir('hd-lead-watch-'), cursors = new SourceCursors(home)
+  forge.pulls = [{ number: 7, head: sha('a'), state: 'open', created: ARMED - 1, updated: ARMED - 1 }]
+  const watches = [{ project: '/project', repository: 'acme/widgets', number: 7, head: sha('a'), checks: true, reviews: true, since: ARMED }]
+  const observations: any[] = []
+  let refuse = true
+  const monitor = new IntakeMonitor({ armed: async () => [], watches: () => watches,
+    sources: intakeSources(new ForgeSource({ run: forge.runner, now: () => clocks.wall })), cursors,
+    offer: async () => { throw new Error('No project arm exists') },
+    deliver: async (_watch: unknown, batch: any) => { if (refuse) throw new Error('not durable yet'); observations.push(...batch.observations ?? []) },
+    wall: () => clocks.wall, monotonic: () => clocks.mono, timers } as any)
+  await monitor.start()
+  assert.equal(timers.live.size, 1)
+  await monitor.tick(clocks.wall)
+  clocks.advance(MINUTE)
+  await monitor.tick(clocks.wall)
+  assert.equal(observations.length, 0)
+  refuse = false
+  clocks.advance(2 * MINUTE)
+  await monitor.tick(clocks.wall)
+  assert.ok(observations.some(row => row.number === 7))
+  await monitor.close()
 })

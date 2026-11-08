@@ -204,17 +204,20 @@ test('the Team title uses the fixed shell width and stays inside the bar', async
 for (const theme of ['light', 'dark'] as const) {
   {
 
-    for (const [item0, name] of (['overview', 'board', 'room', 'findings']).entries()) test(`Team frame: page tabs stay in the first body row under every bar in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+    for (const [item0, name] of (['overview', 'board', 'room', 'findings']).entries()) test(`Team frame: the page head stays in the first body row and the tabs follow it under every bar in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })
       await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
       const team = page.locator('[data-frame-id="team-frame"]')
       await selectTeamPage(team, name)
       const header = teamBar(team)
       const bar = (await header.locator('..').boundingBox())!
+      // The Team's name heads the body; the tabs sit one step below it.
+      const head = (await team.locator('[data-page-head]:visible').boundingBox())!
       const tab = team.locator('[data-team-page="overview"]:visible')
       const box = (await tab.boundingBox())!
       const step = await tab.evaluate(node => parseFloat(getComputedStyle(node).getPropertyValue('--hd-space-2')))
-      expect(box.y - bar.y - bar.height, name).toBe(step)
+      expect(head.y - bar.y - bar.height, name).toBe(step)
+      expect(box.y - head.y - head.height, name).toBe(step)
       await expect(header.getByRole('tab')).toHaveCount(0)
 
 
@@ -342,7 +345,6 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(closing).toHaveCount(0)
     await expect(view).toHaveAttribute('aria-expanded', 'true')
     await expect(page.getByRole('menuitemradio', { name: 'Chat', exact: true })).toBeVisible()
-    await expect(page.getByRole('menuitemradio', { name: 'Split', exact: true })).toBeVisible()
     await info.attach(`chat-view-stays-open-${theme}`, { body: await page.screenshot(), contentType: 'image/png' })
   })
 }

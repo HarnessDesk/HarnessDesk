@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import { join } from 'node:path'
 import test from 'node:test'
 import { WebSocketServer } from 'ws'
-import { CLIENT_METHODS, clientTierFor } from '@harnessdesk/protocol'
+import { CLIENT_METHODS, PRIVATE_CLIENT_METHODS, clientTierFor } from '@harnessdesk/protocol'
 import { WireCallError } from '@harnessdesk/client'
 import { COMMANDS, FLAG_KEYS, GLOBAL_FLAG_KEYS, errorText, main, printPreview, sanitizeHuman, parseArgs, errorExit } from '../src/cli.js'
 import { EXIT_CODES, GLOBAL_OPTIONS, type OptionDoc } from '../src/reference.js'
@@ -46,12 +46,13 @@ test('preview prints attachment counts and indented refusal reasons with sanitiz
   assert.match(chunks.join(''), /skills runtime defaults  servers 0 load · 1 will not load/)
 })
 
-test('the executable command table covers exactly the declared client surface', () => {
+test('the executable command table covers exactly the public client surface', () => {
   assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'session show', 'run show', 'run stop', 'run wait', 'library list', 'library show', 'card show', 'card handoff', 'card answer', 'card abandon', 'waiting'])
-  const methods = new Set(COMMANDS.flatMap(command => [...command.methods]))
+  const methods = new Set<string>(COMMANDS.flatMap(command => [...command.methods]))
   for (const command of COMMANDS) for (const method of command.methods) { const tier = clientTierFor(method, 'action' in command ? { action: command.action } : undefined); assert.ok(tier === 'read' || tier === command.tier, `${command.name}: ${method}`) }
   for (const method of methods) assert.ok(Object.hasOwn(CLIENT_METHODS, method), method)
-  assert.deepEqual([...methods].sort(), Object.keys(CLIENT_METHODS).sort())
+  for (const method of Object.keys(PRIVATE_CLIENT_METHODS)) assert.equal(methods.has(method), false, `${method} stays private`)
+  assert.deepEqual([...methods].sort(), Object.keys(CLIENT_METHODS).filter(method => !Object.hasOwn(PRIVATE_CLIENT_METHODS, method)).sort())
 })
 
 test('library command arguments and option ownership are strict', () => {

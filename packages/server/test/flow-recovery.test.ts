@@ -8,7 +8,7 @@ import type { FlowExecution, SeatRecord } from '@harnessdesk/protocol'
 
 import { ExecutionFiles, FlowExecutions, sourceDigest, type FlowExecutionPort } from '../src/flow-execution.js'
 import { compileFlowPolicy, parseFlowPolicy } from '../src/flow-policy.js'
-import { recoveryOf } from '../src/flow-recovery.js'
+import { executionOf, recoveryOf } from '../src/flow-recovery.js'
 import { Flows, type FlowPort } from '../src/flows.js'
 import { Team, type TeamPeer } from '../src/team.js'
 import { findingsRig } from './fixtures/findings-rig.js'
@@ -20,6 +20,27 @@ const MISSING = 'This run’s Goal is missing. Restore its Goal before continuin
 const UNWRITABLE = 'This Goal cannot run work. Resolve its migration or start a new Goal.'
 const UNMATCHED = 'This run’s Seats could not be matched. Its work is kept; start a new run.'
 const UNCERTAIN = 'This check was interrupted. Inspect its effects, then choose Run again.'
+
+test('recovered PR target keeps a canonical repository and refuses a malformed persisted binding', async t => {
+  const head = 'a'.repeat(40), base = 'b'.repeat(40)
+  const rig = await goalRig(t, { reviewTarget: async () => ({ at: head, number: 7, reviewTarget: { repository: 'acme/widgets', number: 7, head, baseRef: 'main', baseTip: base } }) })
+  rig.heads.set('/repo', { at: head, dirty: false })
+  const entry = agent('reviewer', ['approve'])
+  const reviewer = { ...entry, definition: { ...entry.definition!, ceiling: 'read' as const, produces: ['review' as const] } }
+  const source = 'version: 2\nname: Review\nroles:\n  reviewer: { kind: agent, uses: reviewer, grant: read }\nseed: { role: reviewer, title: Review }\nrules: []\n'
+  const run = await rig.flows.startGoal({ root: '/repo', sentence: 'Review', source, sourcePath: null, compiled: rig.compile(source, [reviewer]), requireHeld: true,
+    target: { kind: 'pull-request', label: 'PR 7', pr: 7, head, base, repository: 'acme/widgets', baseRef: 'main', dirty: false },
+    authorization: { sourceDigest: sourceDigest(source), commandDigest: sourceDigest(''), approvedAt: 1, start: 'front-door' } })
+  const stored = JSON.parse(JSON.stringify(rig.executions.stored(run.id)))
+  assert.equal(executionOf(stored).target?.repository, 'acme/widgets')
+  stored.target.repository = '../foreign'
+  assert.throws(() => executionOf(stored), /start target/)
+  stored.target.repository = 'acme/widgets'
+  delete stored.target.baseRef
+  assert.throws(() => executionOf(stored), /start target/)
+  delete stored.target.repository
+  assert.equal(executionOf(stored).target?.pr, 7, 'legacy targets remain readable without inventing a tuple')
+})
 
 test('old run recovery never replays an uncertain check', async (t) => {
   const healthy = { terminal: false, goalExists: true, goalWritable: true, seatsMapped: true, uncertainCheck: false }

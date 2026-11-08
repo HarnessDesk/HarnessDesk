@@ -165,6 +165,24 @@ export class ContributionStore {
     }
   }
 
+  /**
+   * Workspace roots resolved by a process that could. A confined plugin
+   * process cannot resolve a path it has no grant for, so it registers the
+   * spelling, and its parent sends back what that spelling resolved to when
+   * the parent first saw it. A root moves only from the spelling it was
+   * registered under, once: a later answer finds a different root and is
+   * ignored, so retargeting a symlink cannot move a registered scope.
+   */
+  resolveRoots(resolved: Readonly<Record<string, { readonly from: string; readonly to: string }>>): void {
+    for (const [id, { from, to }] of Object.entries(resolved)) {
+      const entry = this.#byId.get(id)
+      const scope = entry?.contribution.scope
+      if (!entry || scope?.kind !== 'workspace' || scope.root !== from || from === to) continue
+      this.#byId.set(id, { ...entry, contribution: { ...entry.contribution, scope: { ...scope, root: to } } as CapabilityContribution })
+      this.#announceSoon(entry.contribution.owner)
+    }
+  }
+
   /** Drops everything an owner registered. Used when a plugin is disposed. */
   removeOwner(owner: PluginInstanceId): void {
     const owned = this.#byOwner.get(owner)

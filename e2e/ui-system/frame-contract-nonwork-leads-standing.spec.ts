@@ -1,30 +1,13 @@
-import { expect, test } from '@playwright/test'
-import { WALL_THEMES } from './frame-wall-destinations'
-import { openFrame } from './frame-contract-helpers'
+import { test } from '@playwright/test'
+import { B10_NONWORK_DESTINATIONS } from './frame-contract-helpers'
+import { checkNonworkLeads, leadBatchIds } from './frame-contract-leads-batch'
+import { batches } from './frame-snapshot-batch'
 import { useFrameContractEvidence } from './frame-contract-split-setup'
-import { windowBar, expectLead, expectQuietSettings, expectContentTitle, nonworkGroups } from './frame-contract-window-leads-helpers'
 
 useFrameContractEvidence()
 
-for (const theme of WALL_THEMES) for (const [group, destinations] of nonworkGroups.entries()) {
-  {
-
-    for (const [item0, destination] of (destinations).entries()) test(`B10 standing-column page titles follow their content measure in ${theme}${group === 0 ? '' : ` group ${group + 1}`} [item ${[item0].join('-')}]`, async ({ page }) => {
-      await openFrame(page, 'frame-wall=conversation', theme)
-      const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
-      await openFrame(page, destination.query, theme)
-      const bar = windowBar(page)
-      if (destination.id === 'e4-agent-detail') await expect(page.locator('[data-page-destination]:visible h1')).toHaveText('Code reviewer')
-      const settings = await page.locator('[data-page-destination="settings"]:visible').count() === 1
-      await expectLead(bar, 1440, settings, false)
-      if (settings) await expectQuietSettings(page, bar)
-      const bodyTitle = await expectContentTitle(page, bar)
-      if (!bodyTitle) {
-        const origin = (await bar.locator('[data-topbar="place"]').boundingBox())!.x
-        expect(Math.abs(origin - referenceX), `${destination.id}: origin ${origin}, work ${referenceX}`).toBeLessThanOrEqual(1)
-      }
-
-
-    })
-  }
+for (const destinations of batches(B10_NONWORK_DESTINATIONS, 10)) {
+  test(`B10 standing-column page titles follow their content measure: ${leadBatchIds(destinations)}`, async ({ page }) => {
+    await checkNonworkLeads(page, destinations, 'standing')
+  })
 }

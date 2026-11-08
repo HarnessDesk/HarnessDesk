@@ -65,7 +65,7 @@ export const SelectedFlow = ({ name, origin, policy, empty, loading = false, sho
     : <FlowMiniGraph policy={policy} empty={empty} />}</div>}
 </section>
 
-/** A policy thumbnail reads the full canvas's topology, with one fixed viewport and unscaled, end-truncated role labels. */
+/** A policy thumbnail reads the full canvas's topology in a fixed viewport, with end-truncated role labels that scale with the drawing when it must fit. */
 export const FlowMiniGraph = ({ policy, empty = false, previewSize = 'compact' }: { readonly policy?: FlowPolicy | null; readonly empty?: boolean; readonly previewSize?: 'compact' | 'large' }) => {
   const geometry = previewSize === 'large' ? LARGE_MINI : MINI
   const model = useMemo(() => policy ? flowModel(policy) : null, [policy])
@@ -88,7 +88,8 @@ export const FlowMiniGraph = ({ policy, empty = false, previewSize = 'compact' }
   // a drawing too big for the thumbnail is scaled about its centre to fit it.
   const grid = miniGrid(layout.nodes.map(node => ({ id: node.id, x: node.box.x, y: node.box.y })))
   const rowsOf = grid.rows, span = grid.span
-  const selfs = layout.edges.some(edge => edge.from === edge.to)
+  const selfSteps = new Set(layout.edges.filter(edge => edge.from === edge.to).map(edge => edge.from))
+  const selfs = selfSteps.size > 0
   const lift = rowsOf > 2 ? geometry.lift - 4 : geometry.lift
   const over = layout.edges.some(edge => { const a = grid.cells.get(edge.from), b = grid.cells.get(edge.to); return a && b && a.row === 0 && b.row === 0 && b.pos - a.pos > 1 })
   const under = layout.edges.some(edge => { const a = grid.cells.get(edge.from), b = grid.cells.get(edge.to); return a && b && a.row === rowsOf - 1 && b.row === rowsOf - 1 && edge.from !== edge.to && b.pos <= a.pos })
@@ -115,7 +116,7 @@ export const FlowMiniGraph = ({ policy, empty = false, previewSize = 'compact' }
     <g {...(fit < 1 ? { transform: `translate(${geometry.width / 2} ${geometry.height / 2}) scale(${fit}) translate(${-geometry.width / 2} ${-geometry.height / 2})` } : {})}>
       {layout.edges.map(edge => {
         const from = cells.get(edge.from), to = cells.get(edge.to)
-        const route = from && to ? miniRoute(from, to, lift) : null
+        const route = from && to ? miniRoute(from, to, lift, selfSteps.has(edge.to)) : null
         return <g key={edge.id} data-edge={edge.id} data-kind={edge.kind} className={styles.edge}>
           <title>{edgeWords(edge)}</title>
           {route && <><path d={route.path} /><polygon points={route.head} /></>}
@@ -197,11 +198,13 @@ const arrow = (tipX: number, tipY: number, dx: number, dy: number): string => {
 }
 
 /** One line between two steps of the grid: straight to a neighbour, round the steps in between for a skip or a loop, and square-cornered between rows. */
-const miniRoute = (from: MiniCell, to: MiniCell, lift: number): { readonly path: string; readonly head: string } => {
+const miniRoute = (from: MiniCell, to: MiniCell, lift: number, targetSelf: boolean): { readonly path: string; readonly head: string } => {
   if (from === to) {
-    // A step that returns to itself: a small arc off its right edge.
-    const x = from.x + from.w, out = MINI.selfOut, reach = from.h / 4
-    return { path: `M${x} ${from.cy - reach}C${x + out} ${from.cy - reach - 2} ${x + out} ${from.cy + reach + 2} ${x + MINI.head} ${from.cy + reach}`, head: arrow(x, from.cy + reach, -1, 0) }
+    // A self-loop stays between the top-edge skip lane and the forward arrow at mid-height.
+    const x = from.x + from.w, y = from.y, out = MINI.selfOut
+    const end = Math.min(out, from.h / 2 - MINI.head * 0.6 - 1.2)
+    // Continue beneath the arrowhead into the card; the card masks the inner part at rounded corners.
+    return { path: `M${x - out} ${y + 1}C${x + out} ${y + 1} ${x + out} ${y + end} ${x + MINI.head} ${y + end}H${x - MINI.head}`, head: arrow(x, y + end, -1, 0) }
   }
   if (from.row === to.row) {
     const forward = to.col > from.col
@@ -223,7 +226,10 @@ const miniRoute = (from: MiniCell, to: MiniCell, lift: number): { readonly path:
   }
   const right = to.col > from.col
   const x2 = right ? to.x : to.x + to.w
-  return { path: `M${from.cx} ${y1}V${to.cy}H${x2 - (right ? MINI.head : -MINI.head)}`, head: arrow(x2, to.cy, right ? 1 : -1, 0) }
+  // An arrow entering from the right sits below a self-loop on that edge.
+  const entryY = !right && targetSelf ? Math.min(to.cy + MINI.head, to.y + to.h - MINI.head) : to.cy
+  const connect = !right && targetSelf ? `H${x2 - MINI.head}` : ''
+  return { path: `M${from.cx} ${y1}V${entryY}H${x2 - (right ? MINI.head : -MINI.head)}${connect}`, head: arrow(x2, entryY, right ? 1 : -1, 0) }
 }
 
 /** Flow destinations and New Team pickers share one content-sized, responsive card grid. */

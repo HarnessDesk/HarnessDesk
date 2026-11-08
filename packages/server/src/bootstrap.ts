@@ -8,14 +8,14 @@ import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync
 import { AcpRuntime, geminiTrustsFolder, geminiTrustsFolderStatus, type AcpAgentConfig } from '@harnessdesk/adapter-acp'
 import { runtimeId, sessionId, type RuntimeInfo } from '@harnessdesk/protocol'
 import { CodexRuntime, CODEX_RUNTIME_ID } from '@harnessdesk/adapter-codex'
-import { ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessdesk/cordis-host'
+import { IosEngine, ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessdesk/cordis-host'
 import { SupervisedExtensionHost } from '@harnessdesk/extension-host'
 import { invokeForBridge, ToolGateway, type BridgeCaller } from './tool-gateway.js'
 import { GatedRegistry } from './ceilings/gate.js'
 import { attachmentGateway } from './attachments/wiring.js'
 import { builtinPlugins } from '@harnessdesk/plugins'
 
-import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
+import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig, type AccountSlot } from './accounts.js'
 import { AcpAccounts } from './acp-accounts.js'
 import { AcpRegistry } from './acp-registry.js'
 import { applyLoginShellPath } from './installs/shell-path.js'
@@ -199,11 +199,19 @@ export const TOKENLESS_BRIDGE_NOTICE =
   'and the board refuses them.'
 
 export interface BootstrapOptions {
+  /** Parsed once by the desktop shell; absent is disabled. */
+  readonly leadEnabled?: boolean
+  /** Test seam: a scripted provider for the Lead's model requests. */
+  readonly leadMessagesTransport?: HostOptions['leadMessagesTransport']
+  /** The desktop shell's candidates for the Lead's child, in order; absent is this host's own runtime. */
+  readonly leadRuntimes?: HostOptions['leadRuntimes']
   /** Injectable selection and filesystem probes for the opt-in macOS workaround. */
   readonly developerTools?: DeveloperToolsOptions
   readonly logLevel?: 'debug' | 'info' | 'warn' | 'error'
   /** How stored credentials are protected at rest; the desktop shell passes safeStorage. */
   readonly credentialCipher?: HostOptions['credentialCipher']
+  readonly accountOpenExternal?: HostOptions['accountOpenExternal']
+  readonly accountCloudUrl?: HostOptions['accountCloudUrl']
   readonly stateDir?: string
   readonly codexBinaryPath?: string | null
   readonly codexHome?: string | null
@@ -217,6 +225,7 @@ export interface BootstrapOptions {
    * user's Chrome; the desktop shell passes its own pane. See
    * `BrowserEngine` in `@harnessdesk/cordis-host`.
    */
+  readonly iosHelperPath?: string
   readonly browserEngine?: BrowserEngine
 }
 
@@ -263,12 +272,17 @@ export const createDefaultHost = (
   // different about them is the process: built-ins run in this one, everything
   // installed runs in the supervised plugin host child — third-party code never
   // shares a process with the window, the wire server, or a credential.
+  const iosEngine = new IosEngine(options.iosHelperPath ? { helperPath: options.iosHelperPath } : {})
   const extensions = new SupervisedExtensionHost(
-    new ExtensionKernel({ logger: logger.child('extensions') }),
+    new ExtensionKernel({ logger: logger.child('extensions'), iosEngine }),
     {
       logger: logger.child('plugin-host'),
+      iosEngine,
       // Installed plugins' browser tools reach the same page the built-ins do.
       ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),
+      // Each installed plugin's process runs under the Node permission model
+      // on the first of these that holds it there — the Lead's candidates.
+      ...(options.leadRuntimes ? { runtimes: options.leadRuntimes } : {}),
     },
   )
   // Every runtime sees the same capability surface; the gate consults the
@@ -295,24 +309,39 @@ export const createDefaultHost = (
     logger.child('accounts').info(message, details),
   )
   const codexHome = codexPrimaryHome(options.codexHome)
-  slots.pruneEmpty(CODEX_RUNTIME_ID)
-  // Then the ones that were finished, but as somebody the user is already
+  // A missing auth file cannot establish that a slot is empty: the agent may
+  // keep its credential elsewhere, or the slot may need to be signed in again.
+  // Retain it until the person explicitly removes it.
+  // Fold only the ones that were finished as somebody the user is already
   // signed in as. A second sign-in cannot be refused at the door in every
   // case — one may have been made by an older build, or by signing the same
   // account in again outside a flow we drive — so the roster is swept here
   // too, before any of it becomes a runtime with a row of its own.
   slots.pruneDuplicates(CODEX_RUNTIME_ID, codexHome)
   slots.relink(CODEX_RUNTIME_ID, codexHome)
+  // Only a slot whose exact runtime was registered owns its account metadata.
+  // A configured row skipped for a duplicate id must not describe the survivor.
+  type OwnedSlot = { slot: AccountSlot; runtime: CodexRuntime }
+  const codexSlots = new Map<string, OwnedSlot>()
+  // Pending slots are visible only to their own allocation during gateway setup.
+  const pendingCodexSlots = new Map<string, OwnedSlot>()
+  const codexSlotOf = (info: RuntimeInfo): AccountSlot | undefined => {
+    const owned = codexSlots.get(info.id)
+    return owned && host.ownsRuntime(owned.runtime) ? owned.slot : undefined
+  }
 
-  const codexAccount = (id: ReturnType<typeof runtimeId>, home: string): CodexRuntime =>
+  const codexAccount = (id: ReturnType<typeof runtimeId>, home: string, gateway: boolean): CodexRuntime =>
     new CodexRuntime({
       id,
       sharesHistory: true,
+      unverifiedIdleAccount: !gateway,
       clientName: 'harnessdesk',
       clientVersion: options.version ?? '0.1.0',
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: home,
       env: developerEnv,
+      gitEnvironment: (cwd, caller, path) => host.gitSteering.environment(cwd, caller, path).then(env => env ? { ...env, HD_TOOLS_SOCKET: toolSocketPath(stateDir) } : undefined),
+      onGitSession: (caller, session) => claimSteeringCaller(String(id))(caller, session),
       logger: logger.child(id),
       capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
@@ -320,18 +349,20 @@ export const createDefaultHost = (
 
   const accounts: AccountFactory = {
     canAdd: (info) => isCodex(info) || acpAccounts.canAdd(info.id),
-    slotOf: (info) => {
-      if (!isCodex(info)) {
+    slotOf: (info, allocation) => {
+      const pending = pendingCodexSlots.get(info.id)
+      const slot = pending && pending.runtime === allocation ? pending.slot : codexSlotOf(info)
+      if (info.id !== CODEX_RUNTIME_ID && !slot) {
         const slot = acpAccounts.slotOf(info.id)
         return slot ? { ...slot, asksName: true, ownSessions: true } : null
       }
-      const slot = slots.find(info.id)
       return slot
         ? {
             agent: slot.agent,
             home: slot.home,
             removable: true,
             gateways: true,
+            ...(!slot.gateway ? { forgetUnknown: true as const } : {}),
             ...(slot.gateway ? { gateway: { ...slot.gateway } } : {}),
           }
         : { agent: CODEX_RUNTIME_ID, home: codexHome, removable: false, gateways: true }
@@ -356,18 +387,65 @@ export const createDefaultHost = (
         if (local) host.bindUsage(runtimeId(config.id), local)
         return buildAcpRuntime(config)
       }
-      const agent = slots.find(info.id)?.agent ?? info.id
-      const slot = slots.add(agent, codexHome, stateDir, gateway)
-      return codexAccount(slot.id, slot.home)
+      const agent = codexSlotOf(info)?.agent ?? info.id
+      const slot = slots.add(agent, codexHome, stateDir, gateway, id =>
+        !host.hasRuntime(id) && !pendingCodexSlots.has(id) && agentRegistry.entry(id) === null)
+      try {
+        const runtime = codexAccount(slot.id, slot.home, !!slot.gateway)
+        pendingCodexSlots.set(slot.id, { slot, runtime })
+        return runtime
+      } catch (error) {
+        slots.remove(slot.id, true, slot)
+        throw error
+      }
+    },
+    commitAdd: (runtime) => {
+      const pending = pendingCodexSlots.get(runtime.info.id)
+      if (pending?.runtime !== runtime) return
+      codexSlots.set(runtime.info.id, pending)
+      pendingCodexSlots.delete(runtime.info.id)
+    },
+    rollbackAdd: async (runtime) => {
+      const owned = pendingCodexSlots.get(runtime.info.id) ?? codexSlots.get(runtime.info.id)
+      if (owned?.runtime !== runtime) return
+      try { slots.remove(runtime.info.id, true, owned.slot) } finally {
+        if (pendingCodexSlots.get(runtime.info.id)?.runtime === runtime) pendingCodexSlots.delete(runtime.info.id)
+        if (codexSlots.get(runtime.info.id)?.runtime === runtime) codexSlots.delete(runtime.info.id)
+      }
+    },
+    prepareRemove: (runtime) => {
+      const owned = codexSlots.get(runtime.info.id)
+      if (!owned || owned.runtime !== runtime || owned.slot.gateway) return null
+      const position = slots.positionOf(owned.slot)
+      slots.forgetDurably(runtime.info.id, owned.slot)
+      const releaseHome = slots.holdHome(owned.slot)
+      const finish = (purge: boolean, stopped: boolean) => {
+        // Keep an unknown credential home, or any home whose owner did not
+        // stop, protected from another removal for this host's lifetime.
+        if (purge && stopped) releaseHome()
+        if (codexSlots.get(runtime.info.id) !== owned) return
+        codexSlots.delete(runtime.info.id)
+        if (purge && !host.hasRuntime(runtime.info.id)) slots.purge(owned.slot)
+      }
+      return Object.assign(finish, { rollback: () => {
+        try { slots.restoreDurably(owned.slot, position) } finally { releaseHome() }
+      } })
     },
     remove: async (id) => {
+      // The host has unregistered the runtime. Its native ownership wins over
+      // an ignored ACP row, and ends even if persisting slot removal fails.
+      const owned = codexSlots.get(id)
+      if (owned) {
+        try { slots.remove(id, true, owned.slot) } finally { codexSlots.delete(id) }
+        return
+      }
       // An Antigravity account is a registry row, so it is forgotten by
       // `acp-accounts.ts` — which also moves its folder to the Trash.
       if (acpAccounts.slotOf(id)?.removable) {
         await acpAccounts.remove(id)
         return
       }
-      slots.remove(id)
+      throw new Error('This runtime has no registered extra account to remove.')
     },
     // Read off the credential rather than asked of Codex: `account/read`
     // answers an email and a plan, and one email can hold two ChatGPT
@@ -376,7 +454,7 @@ export const createDefaultHost = (
     // `auth.json` carries both.
     identityOf: (info) => {
       if (!isCodex(info)) return null
-      const slot = slots.find(info.id)
+      const slot = codexSlotOf(info)
       if (slot?.gateway) return null // Its key is the broker's, not a home's.
       return accountIdentity(slot?.home ?? codexHome)
     },
@@ -384,13 +462,13 @@ export const createDefaultHost = (
     // all that is left is telling this account's Codex to use it, which is a
     // file in a home only this module knows the shape of.
     prepare: async (id, resolved) => {
-      const slot = slots.find(id)
+      const slot = codexSlots.get(id)?.slot ?? pendingCodexSlots.get(id)?.slot
       if (!slot?.gateway) return
       writeGatewayConfig(slot.home, resolved.name, resolved.endpoint)
     },
   }
   const isCodex = (info: RuntimeInfo): boolean =>
-    info.id === CODEX_RUNTIME_ID || slots.find(info.id) !== null
+    info.id === CODEX_RUNTIME_ID || codexSlotOf(info) !== undefined
 
   // The tool gateway: plugin tools for out-of-process projections (the MCP
   // bridge ACP agents receive). Unix socket; filesystem permissions are the
@@ -404,6 +482,8 @@ export const createDefaultHost = (
   // cap the oldest mapping goes, and a call with a forgotten token is simply
   // unscoped, which is exactly what it was before the token existed.
   const callers = new Map<string, BridgeCaller>()
+  const steeringCallers = new Map<string, BridgeCaller>()
+  const claimSteeringCaller = (runtime: string) => (token: string, id: string) => { steeringCallers.set(token, bridgeCallerFor(host, runtime, id)); bounded(steeringCallers) }
   const bounded = <V>(map: Map<string, V>): void => {
     if (map.size > 2000) {
       const oldest = map.keys().next().value
@@ -432,6 +512,11 @@ export const createDefaultHost = (
   const mcpBackend = attachmentGateway(() => host, (token) => callers.get(token))
   const socketPath = toolSocketPath(stateDir)
   const gateway = new ToolGateway(socketPath, {
+    steerGit: async (caller, params, signal) => {
+      const scope = caller ? steeringCallers.get(caller) : undefined
+      if (!scope) return { action: 'done', ok: false, output: 'HarnessDesk: this git write has no conversation caller.' }
+      return host.gitSteering.handle(scope.runtime, scope.sessionId, params, signal)
+    },
     listTools: () => extensions.list('tool', {}),
     // Read at each bridge's handshake rather than fixed at start: whether
     // the sentence applies depends on which plugins are enabled right now.
@@ -452,8 +537,9 @@ export const createDefaultHost = (
       logger.warn('a tool bridge started from an agent configuration, not a conversation', { agent })
       runtime.emit({ type: 'notice', class: 'info', kind: 'runtime:warning', level: 'warning', message: TOKENLESS_BRIDGE_NOTICE })
     },
-    invokeByName: (namespace, name, args, caller) =>
-      invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
+    invokeByName: (namespace, name, args, caller) => caller && steeringCallers.has(caller)
+      ? Promise.resolve({ ok: false, error: 'A steering-only caller cannot invoke general tools.' })
+      : invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
         logger.debug(message, details),
       ),
     ...mcpBackend,
@@ -545,20 +631,26 @@ export const createDefaultHost = (
         : {}),
       ...(executable ? { executable } : {}),
       env: agentEnvironment(socketPath, agent.env, agent.id, developerEnv),
+      gitEnvironment: (cwd, caller, path) => host.gitSteering.environment(cwd, caller, path),
+      onGitSession: (caller, session) => claimSteeringCaller(agent.id)(caller, session),
       ...(toolServer
         ? { toolServer: { ...toolServer, onOpen: claimOpen(agent.id), onSession: claimCaller(agent.id) } }
         : {}),
       instructions: () => host.forgePlane.instructions(),
       logger: log,
       resolveSecret: (env) => host.credentials.peek(CredentialBroker.secretName(agent.id, env)),
-      resolveLaunch: (occasion) => installs.launchFor(agent, occasion),
-      resolveExecutable: (spec) => installs.executableFor(agent, spec),
+      resolveLaunch: (occasion) => installs.launchFor(agent, occasion, built),
+      resolveExecutable: (spec) => installs.executableFor(agent, spec, built),
     })
     acpRuntimes.set(agent.id, built)
     return built
   }
   const agents = new AgentDirectory({
     store: agentRegistry,
+    ownsRuntime: (id) => {
+      const runtime = acpRuntimes.get(String(id))
+      return runtime !== undefined && host.ownsRuntime(runtime)
+    },
     build: buildAcpRuntime,
     usageFor: (agent) =>
       localUsageFor(
@@ -572,6 +664,9 @@ export const createDefaultHost = (
   })
 
   const host: Host = new Host({
+    leadEnabled: options.leadEnabled === true,
+    ...(options.leadMessagesTransport ? { leadMessagesTransport: options.leadMessagesTransport } : {}),
+    ...(options.leadRuntimes ? { leadRuntimes: options.leadRuntimes } : {}),
     logger,
     accounts,
     agents,
@@ -588,6 +683,8 @@ export const createDefaultHost = (
       ? { catalogRefreshMs: Math.max(0, Number(process.env['HARNESSDESK_CATALOG_REFRESH_MINUTES']) || 0) * 60_000 }
       : {}),
     ...(options.credentialCipher ? { credentialCipher: options.credentialCipher } : {}),
+    ...(options.accountOpenExternal ? { accountOpenExternal: options.accountOpenExternal } : {}),
+    ...(options.accountCloudUrl ? { accountCloudUrl: options.accountCloudUrl } : {}),
     ...(options.pickDirectory ? { pickDirectory: options.pickDirectory } : {}),
     ...(options.revealPath ? { revealPath: options.revealPath } : {}),
     ...(options.trashPath ? { trashPath: options.trashPath } : {}),
@@ -621,6 +718,8 @@ export const createDefaultHost = (
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: options.codexHome ?? null,
       env: developerEnv,
+      gitEnvironment: (cwd, caller, path) => host.gitSteering.environment(cwd, caller, path).then(env => env ? { ...env, HD_TOOLS_SOCKET: toolSocketPath(stateDir) } : undefined),
+      onGitSession: (caller, session) => claimSteeringCaller(String(CODEX_RUNTIME_ID))(caller, session),
       logger: logger.child('codex'),
       capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
@@ -641,7 +740,9 @@ export const createDefaultHost = (
       })
       continue
     }
-    host.register(codexAccount(slot.id, slot.home))
+    const runtime = codexAccount(slot.id, slot.home, !!slot.gateway)
+    host.register(runtime)
+    codexSlots.set(slot.id, { slot, runtime })
   }
 
   void host.credentials.warm()

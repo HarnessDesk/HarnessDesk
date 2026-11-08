@@ -8,6 +8,7 @@
  */
 
 export {
+  LEAD_MESSAGE_NOTICE, LEAD_MESSAGE_PREFIX, isLeadMessageSource, leadMessageEnvelope, leadMessageKey, leadMessageSource, leadMessageWords,
   AGENT_MESSAGE_NOTICE,
   AGENT_MESSAGE_PREFIX,
   CONTEXT_OPEN,

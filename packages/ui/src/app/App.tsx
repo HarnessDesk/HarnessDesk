@@ -9,9 +9,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
-import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setTraySummary, setWindowTitle } from '../lib/desktop'
+import { useLeadName } from '../components/use-lead-name'
+import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setWindowTitle } from '../lib/desktop'
 import { sessionLabel, shortLabel } from '../lib/sessions'
-import { describeTray } from '../lib/tray'
+import { startTrayUpdates } from '../lib/tray'
 import { shortcutFor } from '../lib/shortcuts'
 import { effectiveWindowMode, requestAskInChat } from '../editor'
 import { fixedSubject } from '../state/workbench'
@@ -19,6 +20,7 @@ import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { Toaster } from '../design'
 import { Notices } from '../components/Notices'
+import { PhoneAsk } from '../components/PhoneSettings'
 import { CommandPalette } from '../components/CommandPalette'
 import { FolderPicker } from '../components/FolderPicker'
 import { FrontDoor } from '../components/FrontDoor'
@@ -63,6 +65,7 @@ export const App = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
+  const leadName = useLeadName()
   const editorAvailable = effectiveWindowMode('editor', snapshot.workbench) === 'editor'
   const editorSubject = editorAvailable ? fixedSubject(snapshot.workbench.main) : null
   useEffect(() => {
@@ -74,7 +77,7 @@ export const App = () => {
   if (libraryImport.project !== projectKey) setLibraryImport({ project: projectKey, intent: 0 })
   const libraryImportIntent = libraryImport.project === projectKey ? libraryImport.intent : 0
   const [foldersOpen, setFoldersOpen] = useState(false)
-  const folderChoice = useRef<((chosen: boolean) => void) | null>(null)
+  const folderChoice = useRef<{ readonly resolve: (chosen: boolean) => void; readonly preserveDraft: boolean } | null>(null)
   // The front door, opened on one project at a time — from the palette today,
   // and from any other place-scoped entry point that hands over its own
   // resolved `root` rather than opening a chooser of its own. `null` is
@@ -90,7 +93,7 @@ export const App = () => {
       openCustomizeSkills(store, store.getSnapshot().activeRuntime ?? '')
       return
     }
-    const target=destinationForSettings(section,focus)
+    const target=destinationForSettings(section,focus,store.getSnapshot().leadAvailable)
     openPage(target)
   },[openPage,store])
   const openAgents = useCallback((focus?:string)=>openPage({kind:'agents',id:focus??null}),[openPage])
@@ -113,13 +116,13 @@ export const App = () => {
   // dialog, as Claude Code and Codex do; the browser build, which has none,
   // gets the in-app picker. The picker is also the fallback should the
   // native dialog be unavailable, so no entry point can dead-end.
-  const chooseFolder = useCallback(async (): Promise<boolean> => {
+  const chooseFolder = useCallback(async (options: { readonly preserveDraft?: boolean } = {}): Promise<boolean> => {
     if (isDesktop()) {
-      try { return await store.pickWorkspace() } catch { /* Use the in-app picker below. */ }
+      try { return await (options.preserveDraft ? store.pickWorkspace({ preserveDraft: true }) : store.pickWorkspace()) } catch { /* Use the in-app picker below. */ }
     }
     return new Promise<boolean>(resolve => {
-      folderChoice.current?.(false)
-      folderChoice.current = resolve
+      folderChoice.current?.resolve(false)
+      folderChoice.current = { resolve, preserveDraft: options.preserveDraft === true }
       setFoldersOpen(true)
     })
   }, [store])
@@ -232,7 +235,7 @@ export const App = () => {
   // closing the window does not reopen it.
   useEffect(() => {
     if (!snapshot.settingsFor) return
-    openSettingsAt(resolveSection(snapshot.settingsFor), snapshot.settingsFocus)
+    openSettingsAt(resolveSection(snapshot.settingsFor, 'runtimes', snapshot.leadAvailable), snapshot.settingsFocus)
     store.askSettings(null)
   }, [snapshot.settingsFor, snapshot.settingsFocus, store, openSettingsAt])
 
@@ -271,32 +274,22 @@ export const App = () => {
    * a second source for the same number is a second number. What it says is
    * decided in `lib/tray.ts`; the shell only draws it.
    */
-  useEffect(() => {
-    if (!isDesktop()) return
-    const send = (): void =>
-      setTraySummary(
-        describeTray({
-          runtimes: snapshot.runtimes,
-          usage: snapshot.usage,
-          accountsByRuntime: snapshot.accountsByRuntime,
-          accountPrefs: snapshot.accountPrefs,
-          health: snapshot.health,
-          activeRuntime: snapshot.activeRuntime,
-          now: Date.now(),
-        }),
-      )
-    send()
-    // "resets in 3h" goes stale on its own, and the menu is opened hours after
-    // the last snapshot arrived. A minute is the resolution of what it says.
-    const timer = window.setInterval(send, 60_000)
-    return () => window.clearInterval(timer)
-  }, [
+  useEffect(startTrayUpdates.bind(null, {
+    runtimes: snapshot.runtimes,
+    usage: snapshot.usage,
+    accountsByRuntime: snapshot.accountsByRuntime,
+    accountPrefs: snapshot.accountPrefs,
+    health: snapshot.health,
+    activeRuntime: snapshot.activeRuntime,
+    hideAddresses: snapshot.hideAccountAddresses,
+  }), [
     snapshot.runtimes,
     snapshot.usage,
     snapshot.accountsByRuntime,
     snapshot.accountPrefs,
     snapshot.health,
     snapshot.activeRuntime,
+    snapshot.hideAccountAddresses,
   ])
 
   useEffect(() => {
@@ -359,8 +352,8 @@ export const App = () => {
   // conversation's label is the user's whole opening message, so it is
   // shortened here rather than left to overrun the menu.
   useEffect(() => {
-    setWindowTitle(session ? shortLabel(sessionLabel(session.title, session.preview, 'HarnessDesk')) : 'HarnessDesk')
-  }, [session?.title, session?.preview])
+    setWindowTitle(snapshot.workbench.navigation.current.kind === 'lead' ? leadName === 'lex' ? 'Lex' : leadName === 'dex' ? 'Dex' : 'Lead' : session ? shortLabel(sessionLabel(session.title, session.preview, 'HarnessDesk')) : 'HarnessDesk')
+  }, [session?.title, session?.preview, snapshot.workbench.navigation.current.kind, leadName])
 
   // One table decides which chords exist; this dispatches from it, and the
   // Keyboard shortcuts page prints the same rows. Two lists is the
@@ -387,7 +380,7 @@ export const App = () => {
 
   const [leftFilter, setLeftFilter] = useState('')
   const current=snapshot.workbench.navigation.current
-  const pageActive=current.kind!=='work' && isMainPage(current.kind)
+  const pageActive=current.kind!=='work' && isMainPage(current.kind, snapshot.leadAvailable)
   const settingsSection:Section|null=current.kind!=='settings'?null:current.route.kind==='section'?current.route.section
     :current.route.kind==='project'?'workspaces':current.route.kind==='skill'?'skills':'runtimes'
   const renderLeftColumn=()=><Sidebar active
@@ -428,10 +421,11 @@ export const App = () => {
           notices are drawn where they are about — the composer, the strip
           above the panes, the sidebar's foot — never floated over a pane. */}
       <Notices />
+      <PhoneAsk />
       <Toaster theme={theme} />
-      {foldersOpen && <FolderPicker onClose={(chosen = false) => {
+      {foldersOpen && <FolderPicker onChoose={async path => Boolean(await store.openWorkspace(path, { preserveDraft: folderChoice.current?.preserveDraft === true }))} onClose={(chosen = false) => {
         setFoldersOpen(false)
-        folderChoice.current?.(chosen)
+        folderChoice.current?.resolve(chosen)
         folderChoice.current = null
       }} />}
       {/* One mount for a dialog three places raise: the sidebar's worktree

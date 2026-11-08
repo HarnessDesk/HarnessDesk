@@ -33,7 +33,7 @@ test('tool bridge attributes and bounds each command', async (t) => {
     notify: async () => "",
     board: refused, addIntent: refused, claim: refused, claimNext: refused, awaitWork: refused, awaitMember: refused,
     conflicts: refused, complete: refused, commitWork: refused, runCheck: refused, release: refused, handoff: refused, status: refused, send: refused,
-    reviewCandidates: refused, recordReview: refused,
+    reviewCandidates: async () => [{ id: 'candidate-1', card: 3, at: 'a'.repeat(40), branch: 'feature', evidence: [], reviewTarget: { repository: 'acme/widgets', number: 7, head: 'a'.repeat(40), baseRef: 'main', baseTip: 'b'.repeat(40) } }], recordReview: refused,
     raiseFinding: async (input, scope) => { calls.push({ verb: 'raise', input, scope }); return view() },
     repairFinding: async (input, scope) => {
       calls.push({ verb: 'repair', input, scope })
@@ -57,6 +57,12 @@ test('tool bridge attributes and bounds each command', async (t) => {
     assert.ok(tool, `no tool ${name}`)
     return text(await kernel.invokeTool(tool.id, args, { runtime: 'fake', sessionId: 's1' } as never))
   }
+
+  const candidate = await run('review_candidates', { intent: 3 })
+  assert.match(candidate, /acme\/widgets/)
+  assert.ok(candidate.includes('a'.repeat(40)) && candidate.includes('b'.repeat(40)))
+  assert.match(candidate, /main/)
+  assert.match(candidate, /not an integrated merge tree/i)
 
   // The model names a Seat and a revision: the tool never passes either on.
   const raised = await run('raise_finding', {

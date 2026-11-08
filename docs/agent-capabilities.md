@@ -1,5 +1,26 @@
 # What each agent declares it can do
 
+> **Historical — a survey taken on 2026-08-23 and not re-run since.** It
+> records what four runtimes declared that day; it is not the current list.
+> The runtimes added after it — Gemini CLI, OpenClaw, OpenCode, Cline,
+> Hermes Agent, CodeBuddy Code, Kimi CLI, pi, Grok Build, GitHub Copilot,
+> Antigravity and Devin ([runtimes.md](runtimes.md)) — are not in it, and
+> neither are the `RuntimeCapabilities` fields added after it:
+> `sessionEnvironment`, `sourceTranscript`, `nativeServerSelection`,
+> `archiveHistory`, `nameHistory`, `deleteHistory`, `readableHistory`,
+> `instructions`, `backgroundTasks` and `perToolMcpApproval`. The current
+> source is the code: the interface in `packages/protocol/src/runtime.ts`,
+> and what each adapter answers — `packages/adapter-codex` for Codex,
+> `packages/adapter-acp/src/runtime.ts` for every ACP agent, which reads most
+> of its answers off the agent's `initialize` reply.
+>
+> One cell is known to read differently in the code now. The ACP adapter
+> declares `searchHistory` whenever an agent advertises
+> `sessionCapabilities.list`, and the Cursor bridge does
+> (`packages/cursor-acp/src/bridge.ts`), so Cursor now declares it. The
+> table keeps the ○ it measured; what Cursor's search does on a real desk
+> has not been recorded.
+
 Agents differ, and the interface is built to say so rather than to paper over
 it: a runtime **declares** its capabilities, and a control for something an
 agent cannot do is simply not drawn.
@@ -62,6 +83,29 @@ flow card through the per-session server, attributed to its own session.)
 Codex is the fullest column because it is the one HarnessDesk speaks to
 natively; everything else reaches it through ACP, which carries less. That is
 a property of the protocol, not a ranking of the agents.
+
+## Claude bridge capability update — 2026-11-06
+
+The historical table above retains its measured 2026-08-23 cells. With the
+bundled Claude Agent ACP bridge at 0.101.0, the current source declarations are:
+
+| Capability | Declared now | Negotiated contract |
+| --- | --- | --- |
+| `fork` | Yes | `agentCapabilities.sessionCapabilities.fork` → `session/fork` |
+| `steer` | Yes | `_meta.steering.supported` → `_session/steering` |
+| `goals` | Yes | `_meta.jetbrains.air.goal`, version 1 with set/clear → `_session/goal` |
+| `mcp`, `undo`, `compaction`, `memory`, `review`, `hooks`, `metered` | No | No advertised control matching these host capabilities |
+
+These declarations are covered by the scripted ACP peer tests in
+`packages/adapter-acp/test/session-capabilities.test.ts` and the bundled bridge
+fake-CLI tests in `packages/claude-acp/test/claude-acp.test.ts`. They establish
+wire behavior, forks on their source connection with shared worker lifetime,
+read-ceiling inheritance, visible branches after post-creation errors, steering
+completion races and structured goal controls during running turns; they are not a new live-agent survey. MCP
+status is available as `/mcp` chat output, and compaction as `/compact`, without
+claiming structured MCP management or an advertised compaction control. See
+[the bridge follow-ups](claude-agent-acp-follow-ups.md) for the source audit and
+remaining acceptance work.
 
 ## Ceiling controls added in phase 3
 

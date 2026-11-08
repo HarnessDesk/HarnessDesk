@@ -196,7 +196,7 @@ describe('shellCommandOf', () => {
 
   /** Unwrapping here would leave a command that no longer parses. */
   it('leaves the quotes when they are not the outermost pair', () => {
-    assert.equal(shellCommandOf(`/bin/zsh -lc 'echo 'hi' there'`), `'echo 'hi' there'`)
+    assert.equal(shellCommandOf(`/bin/zsh -lc 'echo 'hi' there'`), 'echo hi there')
   })
 })
 
@@ -250,4 +250,10 @@ describe('what a permission card says a board tool wants to do', () => {
   it('falls back to the identifier as lower-case words for a tool it has no phrase for, never the wire name', () => {
     assert.equal(boardToolPhrase('archive_everything'), 'archive everything')
   })
+})
+
+it('final command display shares recursive steering unwrapping and removes shell quote escapes', () => {
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
+  const script = ['git', 'push', 'origin', 'fix/checkout-retry'].map(quote).join(' ')
+  assert.equal(shellCommandOf('/bin/zsh -l -c ' + quote(script)), 'git push origin fix/checkout-retry')
 })

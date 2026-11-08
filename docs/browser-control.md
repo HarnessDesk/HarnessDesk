@@ -213,7 +213,8 @@ running inside the app, and starts Chrome otherwise.
 
 **Guest isolation.** `webviewTag` is on for the one window; guests get no
 preload and no Node (re-asserted in `will-attach-webview`), a partition of
-their own (`persist:harnessdesk-browser`), and only `http(s)`, `file` and
+their own (one per conversation or kept lane, `persist:harnessdesk-browser`
+for the default browser), and only `http(s)`, `file` and
 `about` sources. Guests carry `allowpopups`, because without it Chromium never
 consults the shell's window-open handler at all — and that handler is the
 whole mechanism: it denies every window and routes the URL to a tab here or
@@ -222,11 +223,16 @@ falls back to a sandboxed iframe, with Chrome behind the tools.
 
 ## The Browser pane
 
-The globe in the top-right of every conversation header — and *Open browser*
+The globe in the top-right of every conversation header — and *Show Browser*
 in the palette — opens the pane beside the conversation, with back, forward,
-reload and an address bar. There is one browser per profile: ordinary
-conversations share the default browser, while isolated lanes have their own.
-A Seat tile can display that profile's browser.
+reload and an address bar. Since 0.5.4 each conversation has a browser of its
+own — its own tabs, cookies and sign-ins, even when conversations share a
+checkout — and a kept isolated lane has one for the lane. The host names the
+profile from the conversation (`packages/server/src/host.ts`) and refuses one
+that no known conversation or kept lane owns; the shell maps it to a partition
+(`packages/desktop/electron/browser-scopes.mjs`). A browser with no
+conversation behind it uses the default one. A Seat tile can display its
+conversation's browser.
 
 **A tool can open it.** When an agent calls `browser_open` and no pane is open,
 the shell opens one and waits for the view to load; `browser_close` asks for it
@@ -342,8 +348,8 @@ built:
 | Open in default browser | hands the current URL to the OS |
 | Browser tools drive this tab | moves the driven mark to the tab on screen |
 | Open links in Browser pane | whether a page's `target=_blank` opens a tab here or leaves for the OS browser |
-| Persist sessions | whether guests use `persist:harnessdesk-browser` or an in-memory partition — cookies and logins, or none |
-| Clear browsing data | empties the persistent partition |
+| Persist sessions | whether a conversation's browser, and the default one, keep cookies and logins on disk or in memory only; a kept lane's browser is always kept |
+| Clear browsing data | empties this browser's partition — cookies, storage and caches |
 
 The menu takes the room under its trigger. A fixed 400px ceiling used to
 scroll this list with half the window empty beneath it, and the last three
@@ -398,6 +404,16 @@ Plugin tools reach an agent one of two ways, and neither is universal:
 | Codex | **yes** | dynamic tools at thread start |
 | Cursor | **yes** | a generated plugin directory, passed as `--plugin-dir` with `--approve-mcps` |
 | DeepSeek Harness | **yes** | takes the MCP server per session (DSH's own `dsh --profile acp`, since 0.1.2-alpha.1) |
+
+The table is the four agents whose routes were measured (below). Every other
+ACP agent is offered the same `harnessdesk` bridge when a session opens, and
+whether it takes it is the agent's own answer: one that refuses `mcpServers`
+still opens sessions, without the plugin tools, and the refusal is remembered
+until a different build answers (`packages/adapter-acp/src/runtime.ts`).
+OpenClaw is one that refuses ("ACP bridge mode does not support per-session MCP
+servers"), so it has no browser tools. For the rest, what reaches the model has
+not been recorded per agent; the runtime's `pluginTools` capability says only
+that the bridge was offered and not refused.
 
 **Cursor's route** (closed 2026-08-27): `cursor-agent` does not take an MCP
 server in the session request, but it takes a *plugin directory* on the

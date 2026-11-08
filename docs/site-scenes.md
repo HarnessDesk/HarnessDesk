@@ -76,6 +76,13 @@ exercises the build and preview in both themes, and checks controls, tooltips,
 internal wheel scrolling, live theme changes, reduced motion, square calendar
 cells, month-label bounds, iframe scaling and local-only requests. It also checks
 the focused views' size, unframed surface, scrolling and fit in every chart range
-and heatmap mode. Twelve frames (the full Dashboard's top, expanded accounts and
-year, plus the three focused views, all in light and dark) and `sheet.png` go to
-`.lead-out/site-scenes/`; keep `.lead-out/` in `.git/info/exclude`.
+and heatmap mode. Then it opens every other scene — the tour pages, the hero
+race and the two showcases — and checks each one's size, its own line of text,
+live theme changes and local-only requests. A frame per capture goes to
+`.lead-out/site-scenes/` with `sheet.png`: the full Dashboard's top, expanded
+accounts and year, the three focused views, and each other scene, all in light
+and dark — thirty with today's `SCENES` in `packages/ui/site-demo/scenes.ts`.
+Keep `.lead-out/` in `.git/info/exclude`.
+
+`node script/site-scenes.mjs --tour-only` skips the Dashboard scenes and their
+interaction proof, and checks and captures only the other scenes.

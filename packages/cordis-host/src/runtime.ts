@@ -134,6 +134,6 @@ export const ALL_PERMISSIONS: PluginPermissions = {
   android: true,
   editor: true,
   team: true,
-  forge: true,
+  forge: { publish: true, write: true },
   secrets: [],
 }

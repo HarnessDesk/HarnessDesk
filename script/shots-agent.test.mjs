@@ -102,3 +102,15 @@ test('a seeded conversation reopened and prompted keeps its name and the turns i
   assert.equal(await titleOf(ask, 'a'), 'a')
   assert.deepEqual(JSON.parse(readFileSync(store, 'utf8')).a.turns, [['What broke?', 'The 502 path.']])
 })
+
+test('new conversations never reuse a stored id after restarting the fake agent', async t => {
+  const { ask, store } = desk(t)
+  const saved = JSON.parse(readFileSync(store, 'utf8'))
+  saved['s-1'] = { sessionId: 's-1', cwd: '/w', title: 'Kept conversation', turns: [] }
+  writeFileSync(store, JSON.stringify(saved))
+  const first = await ask('session/new', { cwd: '/w' })
+  const second = await ask('session/new', { cwd: '/w' })
+  assert.notEqual(first.result.sessionId, 's-1')
+  assert.notEqual(first.result.sessionId, second.result.sessionId)
+  assert.equal(JSON.parse(readFileSync(store, 'utf8'))['s-1'].title, 'Kept conversation')
+})

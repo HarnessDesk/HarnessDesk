@@ -59,23 +59,23 @@ try {
     const accounts = page.getByRole('region', { name: 'What is left', exact: true })
     const year = page.getByRole('region', { name: 'When it ran', exact: true })
     const settle = async () => { await page.clock.runFor(64); await page.evaluate(() => new Promise(done => queueMicrotask(done))) }
-    const geometry = async () => {
+    const geometry = async (scrollingHeat = null) => {
       await expect(sceneBox).toHaveAttribute('data-site-scene', name)
-      const measured = await sceneBox.evaluate(box => {
+      const exception = scrollingHeat ? await scrollingHeat.elementHandle() : null
+      const measured = await sceneBox.evaluate((box, exception) => {
         const rect = box.getBoundingClientRect()
-        const bad = [...box.querySelectorAll('table, [data-section-head], [data-slot="chart-frame"], [role="group"]')].filter(node => {
+        const bad = [...box.querySelectorAll('table, [data-slot="section-head"], [data-slot="chart-frame"], [role="group"]')].filter(node => {
           const one = node.getBoundingClientRect()
-          return one.width && (one.x < rect.x || one.right > rect.right + 1)
+          return node !== exception && one.width && (one.x < rect.x || one.right > rect.right + 1)
         }).map(node => node.getBoundingClientRect().toJSON())
         return { width: rect.width, height: rect.height, scrollWidth: box.scrollWidth, pageWidth: document.documentElement.scrollWidth, pageHeight: document.documentElement.scrollHeight, bad }
-      })
+      }, exception)
       assert.deepEqual(measured, { width: scene.width, height: scene.height, scrollWidth: scene.width, pageWidth: scene.width, pageHeight: scene.height, bad: [] })
     }
     const scrollTo = async section => {
       await section.evaluate(node => {
         const box = node.closest('[data-site-scene]')
-        const heading = node.getAttribute('aria-label') === 'What is left' ? node.previousElementSibling : node
-        box.scrollTop += heading.getBoundingClientRect().top - box.getBoundingClientRect().top - 24
+        box.scrollTop += node.getBoundingClientRect().top - box.getBoundingClientRect().top - 24
       })
       await settle()
     }
@@ -97,21 +97,21 @@ try {
       await expect(year.locator('[data-state="not-scanned"]')).toHaveCount(0)
       await expect(accounts).toContainText('dev@example.com')
       await expect(accounts.locator('tbody > tr')).toHaveCount(6)
-      assert.ok(await breakdown.locator('[data-slot="section-name"]').evaluate(node => {
+      assert.ok(await breakdown.locator('[data-section-name]').evaluate(node => {
         const range = document.createRange()
         range.selectNodeContents(node)
         const title = range.getBoundingClientRect()
-        const controls = node.closest('[data-section-head]').querySelector('[role="radiogroup"]').getBoundingClientRect()
+        const controls = node.closest('[data-slot="section-head"]').querySelector('[role="radiogroup"]').getBoundingClientRect()
         return title.bottom <= controls.top + 1 || title.right <= controls.left + 1
       }), 'Breakdown title must fit without clipping')
       const before = await cost.innerHTML()
-      await cost.getByRole('radio', { name: 'Line', exact: true }).click()
-      await expect(cost.getByRole('radio', { name: 'Line', exact: true })).toHaveAttribute('aria-checked', 'true')
+      await cost.getByRole('combobox', { name: 'Bars or line' }).selectOption('line')
+      await expect(cost.getByRole('combobox', { name: 'Bars or line' })).toHaveValue('line')
       assert.notEqual(await cost.innerHTML(), before)
-      await breakdown.getByRole('radio', { name: 'by model', exact: true }).click()
+      await breakdown.getByRole('radio', { name: 'By model', exact: true }).click()
       await expect(breakdown).toContainText('claude-opus-5-5')
       await expect(breakdown).toContainText('Other · 34')
-      await cost.getByRole('radio', { name: 'Bars', exact: true }).click()
+      await cost.getByRole('combobox', { name: 'Bars or line' }).selectOption('bars')
       await settle()
       if (capture) await shot('top')
       // Hovering the actual plot shows its local day tooltip.
@@ -119,14 +119,14 @@ try {
       await plot.hover({ position: { x: 160, y: 70 } })
       await expect(cost.locator('[data-slot="chart-tip"]')).toBeVisible()
       await page.mouse.move(2, 2)
-      await breakdown.getByRole('radio', { name: 'by project', exact: true }).click()
+      await breakdown.getByRole('radio', { name: 'By project', exact: true }).click()
       await expect(breakdown).toContainText('storefront')
-      await breakdown.getByRole('radio', { name: 'by agent', exact: true }).click()
+      await breakdown.getByRole('radio', { name: 'By runtime', exact: true }).click()
       await expect(breakdown).toContainText('Claude Code')
       await cost.getByRole('radio', { name: '7d', exact: true }).click()
       await expect(cost).toContainText('Last 7 days')
       await cost.getByRole('radio', { name: '30d', exact: true }).click()
-      const firstAccount = accounts.getByRole('button', { name: /Details for shane/ })
+      const firstAccount = accounts.getByRole('button', { name: 'Details for dev@example.com', exact: true })
       await firstAccount.click()
       await expect(firstAccount).toHaveAttribute('aria-expanded', 'true')
       await expect(accounts).toContainText('Value')
@@ -144,40 +144,41 @@ try {
       await expect.poll(() => sceneBox.evaluate(box => box.scrollTop)).toBeGreaterThan(beforeWheel)
       assert.equal(await page.evaluate(() => scrollY), 0, 'Wheel must not scroll the parent page')
       await scrollTo(year)
-      await expect(year.getByRole('radio', { name: 'Year', exact: true })).toHaveAttribute('aria-checked', 'true')
+      await expect(year.getByRole('combobox', { name: 'Show by' })).toHaveValue('year')
       await expect(year).toContainText('141.6B')
-      await expect(year).toContainText('active of 365 scanned')
-      await expect(year).toContainText('streak · best 61')
-      const heat = year.getByRole('group', { name: 'Tokens or cost per day, this year', exact: true })
+      await expect(year).toContainText('365 days scanned')
+      await expect(year).toContainText('Streak · best 61')
+      const heat = year.getByRole('group', { name: 'Tokens or cost per day, last 12 months', exact: true })
       const cell = await heat.locator('[data-level]').first().boundingBox()
       assert.ok(Math.abs(cell.width - cell.height) <= 1, 'Calendar cells must stay square')
       const lastLabel = heat.locator(':scope > span[aria-hidden="true"]').last()
       const labelBounds = await lastLabel.boundingBox(), heatBounds = await heat.boundingBox()
       assert.ok(labelBounds.x + labelBounds.width <= heatBounds.x + heatBounds.width + 1, 'Final month label must fit')
       if (capture) await shot('year')
-      await year.getByRole('radio', { name: 'By agent', exact: true }).click()
+      await year.getByRole('combobox', { name: 'Show by' }).selectOption('agent')
       await expect(year.getByRole('group', { name: 'Tokens or cost per day, per runtime, last 13 weeks', exact: true })).toBeVisible()
-      await year.getByRole('radio', { name: 'By hour', exact: true }).click()
+      await year.getByRole('combobox', { name: 'Show by' }).selectOption('hour')
       await expect(year).toContainText('141.6B')
-      await year.getByRole('radio', { name: 'Calls', exact: true }).click()
-      await expect(year).toContainText('calls this year')
+      await year.getByRole('combobox', { name: 'Measure' }).selectOption('calls')
+      await expect(year).toContainText('Calls, last 12 months')
       await page.evaluate(() => postMessage({ type: 'visible', value: true }, '*'))
       await page.clock.fastForward(20_000)
-      await expect(year.getByRole('radio', { name: 'By hour', exact: true })).toHaveAttribute('aria-checked', 'true')
+      await expect(year.getByRole('combobox', { name: 'Show by' })).toHaveValue('hour')
       await page.evaluate(() => postMessage({ type: 'visible', value: false }, '*'))
-      await year.getByRole('radio', { name: 'Year', exact: true }).click()
-      await expect(year.getByRole('radio', { name: 'Year', exact: true })).toHaveAttribute('aria-checked', 'true')
+      await year.getByRole('combobox', { name: 'Show by' }).selectOption('year')
+      await expect(year.getByRole('combobox', { name: 'Show by' })).toHaveValue('year')
     }
-    const fit = async () => {
+    const fit = async (scrollingHeat = null) => {
       await geometry()
       const height = await sceneBox.evaluate(box => ({ content: box.scrollHeight, panel: box.clientHeight }))
       assert.ok(height.content <= height.panel, `${name} must fit without vertical scrolling: ${height.content} > ${height.panel}`)
-      assert.deepEqual(await sceneBox.locator('[role="group"]').evaluateAll(groups => groups.filter(group => group.scrollWidth > group.clientWidth + 1).map(group => group.getAttribute('aria-label'))), [], 'Plots must fit without horizontal scrolling')
+      const allowed = scrollingHeat ? await scrollingHeat.elementHandle() : null
+      assert.deepEqual(await sceneBox.locator('[role="group"]').evaluateAll((groups, exception) => groups.filter(group => group !== exception && group.scrollWidth > group.clientWidth + 1).map(group => group.getAttribute('aria-label')), allowed), [], 'Other plots must fit without horizontal scrolling')
     }
     const focusedPolish = async () => {
       const failures = await sceneBox.evaluate((box, name) => {
         const failures = []
-        const head = box.querySelector('[data-section-head]')
+        const head = box.querySelector('[data-slot="section-head"]')
         const background = getComputedStyle(head).backgroundColor
         if (background !== 'rgba(0, 0, 0, 0)' && background !== getComputedStyle(box).backgroundColor) failures.push('heading surface differs from view')
         if (name !== 'dashboard-limits') {
@@ -188,7 +189,7 @@ try {
         if (name === 'dashboard-activity') {
           const card = box.querySelector('[data-slot="chart-frame"]').getBoundingClientRect()
           if (Math.abs(card.bottom - (box.getBoundingClientRect().bottom - 20)) > 1) failures.push(`Activity card bottom ${card.bottom} must keep a 20px inset`)
-          const heat = box.querySelector('[aria-label="Tokens or cost per day, this year"]')
+          const heat = box.querySelector('[aria-label="Tokens or cost per day, last 12 months"]')
           const cell = heat.querySelector('[data-level]').getBoundingClientRect()
           if (cell.width < 10) failures.push(`year cells should grow to at least 10px, got ${cell.width}`)
           if (getComputedStyle(heat).gridTemplateColumns.split(' ').length !== 54) failures.push('year must keep all 53 weeks')
@@ -209,18 +210,51 @@ try {
       polishFailures.push(...failures.map(failure => `${name}/${theme}: ${failure}`))
     }
     const heatGeometry = async label => {
-      await fit()
+      const runtimeHeat = label === 'Tokens or cost per day, per runtime, last 13 weeks'
+      const heat = year.getByRole('group', { name: label, exact: true })
+      await fit(runtimeHeat ? heat : null)
       const frame = await year.locator('[data-slot="chart-frame"]').boundingBox()
       assert.ok(Math.abs(frame.y + frame.height - (scene.height - 20)) <= 1, 'Every Activity mode must keep the bottom inset')
       const facts = await year.locator('[data-slot="chart-card"]').first().evaluate(card => [...card.children].map(node => node.getBoundingClientRect().top))
       assert.ok(facts.every(top => Math.abs(top - facts[0]) <= 1), 'Activity stats must fit on one row')
-      const heat = year.getByRole('group', { name: label, exact: true })
       const bounds = await heat.boundingBox()
       assert.ok(bounds.x >= 20 && bounds.x + bounds.width <= scene.width - 20, 'Heatmap must keep the panel gutter')
       assert.ok(await heat.locator('[data-level]').evaluateAll(cells => cells.every(cell => {
         const rect = cell.getBoundingClientRect()
         return rect.width > 0 && Math.abs(rect.width - rect.height) <= 0.1
       })), 'Every heatmap cell must stay square')
+      if (runtimeHeat) {
+        const scroller = heat.locator('..')
+        const inspect = () => heat.evaluate(group => {
+          const scroller = group.parentElement, panel = group.closest('[data-site-scene]')
+          const style = getComputedStyle(scroller), view = scroller.getBoundingClientRect(), box = panel.getBoundingClientRect()
+          let untrapped = true
+          for (let node = scroller; node; node = node.parentElement) {
+            if (['contain', 'none'].includes(getComputedStyle(node).overscrollBehaviorX)) untrapped = false
+            if (node === panel) break
+          }
+          return { owned: ['auto', 'scroll'].includes(style.overflowX) && scroller.scrollWidth > scroller.clientWidth && untrapped, left: view.left, right: view.right, panelLeft: box.left, panelRight: box.right, columns: getComputedStyle(group).gridTemplateColumns.split(' ').length }
+        })
+        const state = await inspect()
+        assert.ok(state.owned, 'Runtime heatmap must have an owned, scrollable clip without an overscroll trap')
+        assert.ok(state.left >= state.panelLeft + 20 && state.right <= state.panelRight - 20, 'Runtime heatmap viewport must keep the panel gutter')
+        assert.equal(state.columns, 92, 'Runtime heatmap must retain its header and all 91 day columns')
+        // A disabled clip must fail the same ownership check, rather than silently exempt overflow.
+        await scroller.evaluate(node => { node.style.overflowX = 'hidden' })
+        assert.equal((await inspect()).owned, false, 'A disabled scroller must fail the ownership check')
+        await scroller.evaluate(node => { node.style.removeProperty('overflow-x') })
+        const viewport = await scroller.boundingBox()
+        await page.mouse.move(viewport.x + viewport.width / 2, viewport.y + viewport.height / 2)
+        await page.mouse.wheel(2000, 0)
+        await settle()
+        await expect.poll(() => scroller.evaluate(node => node.scrollLeft)).toBeGreaterThan(0)
+        assert.ok(await heat.evaluate(group => {
+          const scroller = group.parentElement, last = [...group.querySelectorAll('[data-level]')].at(-1)
+          const view = scroller.getBoundingClientRect(), cell = last.getBoundingClientRect()
+          return cell.right <= view.right + 1 && cell.left >= view.left - 1
+        }), 'Horizontal scrolling must reach the last day')
+        await geometry(heat)
+      }
       const labels = await heat.locator(':scope > span[aria-hidden="true"]').all()
       for (const label of labels) {
         const rect = await label.boundingBox()
@@ -240,11 +274,11 @@ try {
         await expect(cost.getByText('Rescan', { exact: true })).toHaveCount(0)
         await expect(cost).not.toContainText('days scanned')
         const before = await cost.innerHTML()
-        await cost.getByRole('radio', { name: 'Line', exact: true }).click()
-        await expect(cost.getByRole('radio', { name: 'Line', exact: true })).toHaveAttribute('aria-checked', 'true')
+        await cost.getByRole('combobox', { name: 'Bars or line' }).selectOption('line')
+        await expect(cost.getByRole('combobox', { name: 'Bars or line' })).toHaveValue('line')
         assert.notEqual(await cost.innerHTML(), before)
         await fit()
-        await cost.getByRole('radio', { name: 'Bars', exact: true }).click()
+        await cost.getByRole('combobox', { name: 'Bars or line' }).selectOption('bars')
         for (const range of [7, 90, 30]) {
           await cost.getByRole('radio', { name: `${range}d`, exact: true }).click()
           await expect(cost).toContainText(`Last ${range} days`)
@@ -256,10 +290,10 @@ try {
         await expect(cost.locator('[data-slot="chart-tip"]')).toBeVisible()
       } else if (name === 'dashboard-limits') {
         await fit()
-        await expect(accounts).toContainText('shane@harnessdesk.app')
-        await expect(accounts).toContainText('olivia@harnessdesk.app')
+        await expect(accounts).toContainText('dev@example.com')
+        await expect(accounts).toContainText('assistant@example.com')
         await expect(accounts.locator('tbody > tr')).toHaveCount(6)
-        const firstAccount = accounts.getByRole('button', { name: /Details for shane/ })
+        const firstAccount = accounts.getByRole('button', { name: 'Details for dev@example.com', exact: true })
         const before = await accounts.innerHTML()
         await firstAccount.click()
         await expect(firstAccount).toHaveAttribute('aria-expanded', 'true')
@@ -284,21 +318,21 @@ try {
       } else {
         await expect(year).toContainText('141.6B')
         await expect(year.locator('[data-state="not-scanned"]')).toHaveCount(0)
-        await heatGeometry('Tokens or cost per day, this year')
-        await year.getByRole('radio', { name: 'Cost', exact: true }).click()
-        await heatGeometry('Tokens or cost per day, this year')
+        await heatGeometry('Tokens or cost per day, last 12 months')
+        await year.getByRole('combobox', { name: 'Measure' }).selectOption('cost')
+        await heatGeometry('Tokens or cost per day, last 12 months')
         const before = await year.innerHTML()
-        await year.getByRole('radio', { name: 'By agent', exact: true }).click()
+        await year.getByRole('combobox', { name: 'Show by' }).selectOption('agent')
         assert.notEqual(await year.innerHTML(), before)
         await heatGeometry('Tokens or cost per day, per runtime, last 13 weeks')
-        await year.getByRole('radio', { name: 'By hour', exact: true }).click()
-        await heatGeometry('Tokens or calls by local weekday and hour, this year')
-        await year.getByRole('radio', { name: 'Calls', exact: true }).click()
-        await expect(year).toContainText('calls this year')
-        await heatGeometry('Tokens or calls by local weekday and hour, this year')
-        await year.getByRole('radio', { name: 'Year', exact: true }).click()
-        await year.getByRole('radio', { name: 'Tokens', exact: true }).click()
-        const heat = year.getByRole('group', { name: 'Tokens or cost per day, this year', exact: true })
+        await year.getByRole('combobox', { name: 'Show by' }).selectOption('hour')
+        await heatGeometry('Tokens or calls by local weekday and hour, last 12 months')
+        await year.getByRole('combobox', { name: 'Measure' }).selectOption('calls')
+        await expect(year).toContainText('Calls, last 12 months')
+        await heatGeometry('Tokens or calls by local weekday and hour, last 12 months')
+        await year.getByRole('combobox', { name: 'Show by' }).selectOption('year')
+        await year.getByRole('combobox', { name: 'Measure' }).selectOption('tokens')
+        const heat = year.getByRole('group', { name: 'Tokens or cost per day, last 12 months', exact: true })
         await heat.locator('[data-level]').last().hover()
         await expect(year.locator('[data-slot="chart-tip"]')).toBeVisible()
       }
@@ -319,18 +353,23 @@ try {
       await page.clock.runFor(600)
       await expect(sceneBox).toHaveAttribute('data-scene-motion', 'reduce')
       const control = name === 'dashboard-limits'
-        ? accounts.getByRole('button', { name: /Details for shane/ })
+        ? accounts.getByRole('button', { name: 'Details for dev@example.com', exact: true })
         : name === 'dashboard-activity'
-          ? year.getByRole('radio', { name: 'By agent', exact: true })
-          : cost.getByRole('radio', { name: 'Line', exact: true })
-      await control.click()
+          ? year.getByRole('combobox', { name: 'Show by' })
+          : cost.getByRole('combobox', { name: 'Bars or line' })
+      if (name === 'dashboard' || name === 'dashboard-spend') await control.selectOption('line')
+      else if (name === 'dashboard-activity') await control.selectOption('agent')
+      else await control.click()
       await page.evaluate(() => postMessage({ type: 'visible', value: false }, '*'))
       await page.clock.fastForward(60_000)
-      await expect(control).toHaveAttribute(name === 'dashboard-limits' ? 'aria-expanded' : 'aria-checked', 'true')
+      if (name === 'dashboard' || name === 'dashboard-spend') await expect(control).toHaveValue('line')
+      else if (name === 'dashboard-activity') await expect(control).toHaveValue('agent')
+      else await expect(control).toHaveAttribute('aria-expanded', 'true')
       if (name === 'dashboard') {
-        await breakdown.getByRole('radio', { name: 'by model', exact: true }).click()
+        await breakdown.getByRole('radio', { name: 'By model', exact: true }).click()
         await expect(breakdown).toContainText('claude-opus-5-5')
-      } else if (name !== 'dashboard-limits') await fit()
+      } else if (name === 'dashboard-activity') await heatGeometry('Tokens or cost per day, per runtime, last 13 weeks')
+      else if (name !== 'dashboard-limits') await fit()
     }
     assert.deepEqual(external, [], 'The embed made an external request')
     assert.deepEqual(errors, [], 'Scene errors')
@@ -357,7 +396,7 @@ try {
     // The Flows diagrams build themselves: some step or rule is not drawn yet while it plays.
     if (name === 'tour-flows') {
       await expect(page.locator('[data-flow-pending]').first()).toBeAttached()
-      const widths = await page.locator('[data-slot="flow-mini-graph"]').evaluateAll(graphs => graphs.map(graph => [...new Set([...graph.querySelectorAll('[data-step] rect')].map(rect => rect.getAttribute('width')))].length).filter(count => count > 0))
+      const widths = await page.locator('[data-slot="flow-mini-graph"]').evaluateAll(graphs => graphs.map(graph => [...new Set([...graph.querySelectorAll('[data-step] > rect')].map(rect => rect.getAttribute('width')))].length).filter(count => count > 0))
       assert.ok(widths.length > 0 && widths.every(count => count === 1), 'Every Flow card draws equal-width steps')
     }
     assert.deepEqual(await box.evaluate(node => ({ width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height, pageWidth: document.documentElement.scrollWidth })),
@@ -371,7 +410,26 @@ try {
     if (name === 'hero-race') {
       await page.getByRole('button', { name: 'Show sidebar' }).click()
       await expect(page.getByRole('button', { name: /Runner game comparison/ }).first()).toBeVisible()
-      await page.getByRole('button', { name: 'Hide sidebar' }).first().click()
+      const column = box.locator('[data-left-column]')
+      const hide = column.locator('button[aria-label="Hide sidebar"]')
+      await expect(column).toHaveAttribute('inert', '')
+      await expect(hide).toHaveCount(1)
+      await expect(column.locator('button').filter({ hasText: 'Runner game comparison' }).first()).toBeVisible()
+      const target = await hide.boundingBox()
+      assert.ok(target && target.width > 0 && target.height > 0, 'The inert control must be laid out')
+      await hide.evaluate(node => node.focus())
+      assert.equal(await hide.evaluate(node => document.activeElement === node), false, 'Inert controls must refuse keyboard focus')
+      await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2)
+      await expect(column).toHaveAttribute('inert', '')
+      await expect(hide).toHaveCount(1)
+      // Restage the initial scene for the frame; this is not a user close interaction.
+      await page.goto(`${buildOrigin}?view=${name}&theme=${theme}`)
+      await expect(box).toHaveAttribute('data-site-scene', name)
+      await expect(box).toContainText(TOUR_TEXT[name])
+      await expect(page.locator('body[data-hd-dark-theme]')).toHaveCount(theme === 'dark' ? 1 : 0)
+      await expect(page.getByRole('button', { name: 'Show sidebar' })).toBeVisible()
+      assert.deepEqual(await box.evaluate(node => ({ width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height, pageWidth: document.documentElement.scrollWidth })),
+        { width: scene.width, height: scene.height, pageWidth: scene.width })
     }
     const buffer = await page.screenshot()
     const file = join(out, `${name}-${theme}.png`)

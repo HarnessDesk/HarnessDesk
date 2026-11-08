@@ -925,7 +925,7 @@
     "weight": "400",
     "line": 20,
     "pad": "0 0 0 0",
-    "radius": 14
+    "radius": 10
   },
   "row/page-title-case/size/page": {
     "h": 17,
@@ -1069,7 +1069,7 @@
     "weight": "400",
     "line": 20,
     "pad": "0 0 0 0",
-    "radius": 14
+    "radius": 10
   },
   "tables/rows/size/compact": {
     "h": 270,
@@ -1077,7 +1077,7 @@
     "weight": "400",
     "line": 20,
     "pad": "0 0 0 0",
-    "radius": 14
+    "radius": 10
   },
   "tables/table/size/comfortable": {
     "h": 210,

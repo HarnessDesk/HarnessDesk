@@ -6,6 +6,8 @@ dist/
 .env.local
 packages/desktop/release/
 packages/desktop/vendor/
+# The Node bundled for the Lead child, fetched and checksummed at pack time.
+packages/desktop/.lead-node/
 packages/ui/dist/
 coverage/
 *.log
@@ -32,3 +34,11 @@ packages/ui/dist-e2e/
 # one at a time left `output/pr748-review/` addable, and an `add -A` took
 # 402 of them — screenshots included. The directory is the unit.
 output/
+
+# Local synthetic account rig state and visual evidence.
+/scratch/desktop-sign-in/
+/scratch/desktop-account/
+
+# Swift helper build products stay local.
+packages/cordis-host/native/ios-control/.build/
+packages/cordis-host/native/ios-control/.swiftpm/

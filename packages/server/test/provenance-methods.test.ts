@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, open, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -10,13 +10,32 @@ import type { EvidencePlane } from '../src/evidence/plane.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import type { HostContext } from '../src/methods/context.js'
 import { provenanceMethods } from '../src/methods/provenance.js'
+import { captureHealth } from '../src/provenance/health.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
+import { digest, JOURNAL_BYTE_LIMIT, ProvenanceJournal, ProvenanceJournalChangedError, ProvenanceJournalStorageError } from '../src/provenance/journal.js'
 import { makeRepo } from './fixtures/provenance-repo.js'
 import { Host, serve } from '../src/index.js'
 import { Logger } from '../src/log.js'
 import { StateStore } from '../src/state.js'
 import { tempDir } from './scratch.js'
 import { Client } from './fixtures/harness.js'
+
+const writeOversizedHistory = async (file: string): Promise<void> => {
+  const handle = await open(file, 'w')
+  let bytes = 0
+  let seq = 0
+  try {
+    while (bytes <= JOURNAL_BYTE_LIMIT) {
+      const body = { version: 1, seq: ++seq, kind: 'range', value: {
+        id: `range-${seq}`, from: 'a'.repeat(40), to: 'b'.repeat(40), commits: [],
+        patch: { stable: '', exact: '', files: [] }, seats: Array(14).fill('x'.repeat(4096)), ambiguous: false, at: 1,
+      } }
+      const line = `${JSON.stringify({ ...body, checksum: digest(body) })}\n`
+      await handle.write(line)
+      bytes += Buffer.byteLength(line)
+    }
+  } finally { await handle.close() }
+}
 
 const health: CaptureHealth = {
   project: '/work/project', enabled: false, state: 'stopped', reason: 'Capture is off on this machine.',
@@ -141,6 +160,40 @@ test('Host.call reaches the real built provenance context without starting a run
   }
 })
 
+test('an oversized capture history stops only that project and leaves account status usable', async () => {
+  const repo = await makeRepo()
+  const store = new EvidenceStore(join(repo.stateDir, 'evidence'))
+  const folder = store.folderOf(repo.dir)
+  await mkdir(folder, { recursive: true })
+  const file = join(folder, 'provenance.ndjson')
+  await writeOversizedHistory(file)
+  const originalSize = (await stat(file)).size
+  const host = new Host({ state: new StateStore(join(repo.stateDir, 'state.json')),
+    logger: new Logger('test', { level: 'error', console: false }), catalogRefreshMs: 0 })
+  try {
+    await host.start()
+    await host.call('workspace/open', { path: repo.dir })
+    const deadline = Date.now() + 10_000
+    let status: readonly CaptureHealth[] = []
+    while (Date.now() < deadline) {
+      status = await host.call('provenance/status', { root: repo.dir }).catch(() => [])
+      if (status[0]?.state === 'stopped') break
+      await delay(20)
+    }
+    assert.equal(status[0]?.reason, "This project's saved capture history reached its storage limit.")
+    assert.match(status[0]!.nextStep, /saved observations were kept/i)
+    assert.equal((await host.call('account/status', {})).status, 'signedOut')
+    const off = await host.call('provenance/capture', { root: repo.dir, enabled: false })
+    assert.equal(off.enabled, false)
+    assert.equal(off.reason, 'Capture is off on this machine.')
+    assert.equal((await host.call('provenance/status', { root: repo.dir }))[0]?.enabled, false)
+    const on = await host.call('provenance/capture', { root: repo.dir, enabled: true })
+    assert.equal(on.enabled, true)
+    assert.equal(on.state, 'stopped')
+    assert.equal((await stat(file)).size, originalSize)
+  } finally { await host.dispose() }
+})
+
 test('a linked-only workspace captures through its canonical project controls', async () => {
   const repo = await makeRepo()
   const head = await repo.commitTree(null, { 'work.ts': 'export const work = true\n' }, 'head')
@@ -228,4 +281,72 @@ test('relative provenance roots are refused by the wire and direct host calls', 
   await assert.rejects(host.call('provenance/retry', { root }), /not an absolute path/)
   await assert.rejects(host.call('provenance/seat', { root, seat: 'missing' }), /not an absolute path/)
   await assert.equal((await host.call('provenance/status', { root: linked }))[0]?.enabled, true)
+})
+
+
+test('restore reloads healthy projects after a size-refused project', async (t) => {
+  const first = await makeRepo()
+  const second = await makeRepo()
+  const store = new EvidenceStore(join(first.stateDir, 'evidence'))
+  const folder = store.folderOf(first.dir)
+  await mkdir(folder, { recursive: true })
+  await writeOversizedHistory(join(folder, 'provenance.ndjson'))
+  const plane = new ProvenancePlane({
+    evidence: { store, seats: { byId: () => null } } as unknown as EvidencePlane,
+    stateDir: first.stateDir, projects: () => [first.dir, second.dir], push: () => {}, log: () => {},
+  })
+  t.after(() => plane.close())
+  await plane.start()
+  const deadline = Date.now() + 10000
+  while ((await plane.status()).length < 2) {
+    assert.ok(Date.now() < deadline)
+    await delay(20)
+  }
+  const before = (await plane.status(second.dir))[0]!.revision
+  assert.deepEqual(await plane.restore({ version: 1, projects: [] }), { restored: 0, duplicate: 0, refused: 0 })
+  assert.ok((await plane.status(second.dir))[0]!.revision > before)
+  assert.equal((await plane.status(first.dir))[0]!.state, 'stopped')
+})
+
+
+test('capture health distinguishes an external journal change from its storage limit', () => {
+  const status = captureHealth({ ...health, enabled: true, fatal: true, issues: ['journal-changed'] })
+  assert.equal(status.state, 'stopped')
+  assert.equal(status.reason, 'Saved capture history changed outside this capture session.')
+  assert.equal(status.nextStep, 'Saved observations were kept. Retry capture to reload the current history.')
+})
+
+
+for (const failure of ['changed', 'storage']) test(`host capture controls publish a ${failure} journal refusal`, async (t) => {
+  const reason = failure === 'changed' ? 'Saved capture history changed outside this capture session.' : 'Capture could not save its observations.'
+  const repo = await makeRepo()
+  t.mock.method(ProvenanceJournal.prototype, 'read', async () => {
+    throw failure === 'changed' ? new ProvenanceJournalChangedError() : new ProvenanceJournalStorageError(new Error('Fixture storage failure'))
+  })
+  const host = new Host({ state: new StateStore(join(repo.stateDir, 'state.json')),
+    logger: new Logger('test', { level: 'error', console: false }), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  await host.start()
+  await host.call('workspace/open', { path: repo.dir })
+  const deadline = Date.now() + 10000
+  let status: readonly CaptureHealth[] = []
+  while (Date.now() < deadline) {
+    status = await host.call('provenance/status', { root: repo.dir }).catch(() => [])
+    if (status[0]?.reason === reason) break
+    await delay(20)
+  }
+  assert.equal(status[0]?.reason, reason)
+  const off = await host.call('provenance/capture', { root: repo.dir, enabled: false })
+  assert.equal(off.enabled, false)
+  const on = await host.call('provenance/capture', { root: repo.dir, enabled: true })
+  assert.equal(on.reason, reason)
+  assert.equal((await host.call('account/status', {})).status, 'signedOut')
+})
+
+
+test('a storage failure takes health precedence over journal limit or changed guidance', () => {
+  for (const journalIssue of ['journal-limit-exceeded', 'journal-changed']) {
+    const status = captureHealth({ ...health, enabled: true, fatal: true, issues: [journalIssue, 'storage-failed'] })
+    assert.equal(status.reason, 'Capture could not save its observations.')
+  }
 })

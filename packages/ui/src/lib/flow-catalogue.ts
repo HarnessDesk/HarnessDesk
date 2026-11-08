@@ -6,6 +6,12 @@ import { projectRootOf } from './projects'
 import { projectWorkspaces } from './chats'
 
 export interface CatalogueFlow { readonly root: string; readonly entry: FlowEntry }
+interface CatalogueResult {
+  readonly rows: readonly CatalogueFlow[]
+  readonly roots: readonly string[]
+  readonly loading: boolean
+  readonly problems: readonly { readonly root: string; readonly message: string }[]
+}
 
 /** Shared layers appear once; a project's same-named Flow remains its own file. */
 export const catalogueFlows = (lists: readonly { readonly root: string; readonly entries: readonly FlowEntry[] }[]): CatalogueFlow[] => {
@@ -69,28 +75,33 @@ const read = (store: AppStore, root: string): Promise<readonly FlowEntry[]> => {
 }
 
 /** Catalogue reads spend nothing and are retired when their destination or project set changes. */
-export const useFlowCatalogue = (active = true) => {
+export const useFlowCatalogue = (active = true): CatalogueResult & { readonly retry: () => void } => {
   const store = useStore(), snapshot = useSnapshot()
   const roots = [...new Set(projectWorkspaces([...(snapshot.workspace ? [snapshot.workspace] : []), ...snapshot.workspaces], snapshot.chatsFolderRoots).map(projectRootOf).filter((root): root is string => !!root))]
   const rootsKey = JSON.stringify(roots)
   const routeKey = JSON.stringify(snapshot.workbench.navigation.current)
-  const key = `${rootsKey}\0${routeKey}`
-  const [result, setResult] = useState<{ key: string; rows: readonly CatalogueFlow[]; loading: boolean; problems: readonly string[] }>({ key: '', rows: [], loading: true, problems: [] })
+  const [attempt, setAttempt] = useState(0)
+  const key = `${rootsKey}\0${routeKey}\0${attempt}`
+  const [result, setResult] = useState<CatalogueResult & { key: string }>({ key: '', rows: [], roots: [], loading: true, problems: [] })
   useEffect(() => {
     if (!active) return
     let live = true
-    setResult({ key, rows: [], loading: true, problems: [] })
     const requested = JSON.parse(rootsKey) as string[]
+    // Keep known project choices and an open trigger editor stable during a
+    // reread. Screens still wait for settlement before offering new work.
+    setResult(previous => ({ key, rows: [], roots: previous.roots.filter(root => requested.includes(root)), loading: true, problems: [] }))
     void Promise.allSettled(requested.map(root => read(store, root))).then(results => {
       if (!live) return
-      const lists: { root: string; entries: readonly FlowEntry[] }[] = [], problems: string[] = []
+      const lists: { root: string; entries: readonly FlowEntry[] }[] = [], problems: { root: string; message: string }[] = []
       results.forEach((result, index) => {
         if (result.status === 'fulfilled') lists.push({ root: requested[index]!, entries: result.value })
-        else problems.push(`${requested[index]!.split('/').at(-1)}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
+        else problems.push({ root: requested[index]!, message: result.reason instanceof Error ? result.reason.message : String(result.reason) })
       })
-      setResult({ key, rows: catalogueFlows(lists), loading: false, problems })
+      // Remembered folders can outlive their checkout. Only successful reads
+      // establish a project the gallery can offer for editing or starting.
+      setResult({ key, rows: catalogueFlows(lists), roots: lists.map(list => list.root), loading: false, problems })
     })
     return () => { live = false }
   }, [store, rootsKey, key, active])
-  return result.key === key ? { ...result, roots } : { rows: [], loading: true, problems: [], roots }
+  return { ...(result.key === key ? result : { rows: [], loading: true, problems: [], roots: result.roots.filter(root => roots.includes(root)) }), retry: () => setAttempt(value => value + 1) }
 }

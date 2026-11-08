@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DeviceId } from './ids.js'
 
 export const CloseCode = {
   BAD_FRAME: 4400,
@@ -45,7 +46,7 @@ const Conn = z.number().int().min(0).max(0xffffffff)
 /** relay -> desk, JSON text. */
 export const RelayToDesk = z.discriminatedUnion('t', [
   z.object({ t: z.literal('ready'), maxPhones: z.number().int(), maxFrame: z.number().int() }),
-  z.object({ t: z.literal('open'), conn: Conn, dev: z.string() }),
+  z.object({ t: z.literal('open'), conn: Conn, dev: DeviceId }),
   z.object({ t: z.literal('gone'), conn: Conn, code: z.number().int() }),
 ])
 export type RelayToDesk = z.infer<typeof RelayToDesk>

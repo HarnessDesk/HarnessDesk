@@ -46,6 +46,14 @@ export type CredentialWriter =
   | { readonly kind: 'agent'; readonly of: string }
   | { readonly kind: 'gateway' }
   | { readonly kind: 'endpoint' }
+  | { readonly kind: 'lead'; readonly provider: LeadCredentialProvider }
+
+/** Slice 1 has one provider. No agent credential is an implicit fallback. */
+export type LeadCredentialProvider = 'anthropic'
+export interface LeadCredentialStatus {
+  readonly configured: boolean
+  readonly protection: string
+}
 
 export interface CredentialInfo {
   readonly ref: string
@@ -89,6 +97,7 @@ interface StoredEntry {
    * union, because a newer host may record a kind this one has never heard of.
    */
   readonly writer?: string
+  readonly provider?: LeadCredentialProvider
   readonly blob: string
   /**
    * The cipher that wrote this blob, by its own name. The same file is read
@@ -151,6 +160,7 @@ export class CredentialBroker {
    * key` and classified as the agent's own. Review found it.
    */
   async store(name: string, value: string, writer: CredentialWriter): Promise<string> {
+    if (writer.kind === 'lead') throw new Error('Lead keys must use the provider lifecycle.')
     const trimmed = name.trim()
     if (trimmed.length === 0) throw new Error('A credential needs a name.')
     if (value.length === 0) throw new Error('An empty credential protects nothing; not stored.')
@@ -170,7 +180,62 @@ export class CredentialBroker {
 
   async delete(ref: string): Promise<void> {
     const entries = await this.#load()
+    if (entries.get(ref)?.writer === 'lead') throw new Error('Lead keys must use the provider lifecycle.')
     if (entries.delete(ref)) await this.#persist(entries)
+  }
+
+  #leadProvider(provider: LeadCredentialProvider): void {
+    if (provider !== 'anthropic') throw new Error('Unsupported Lead key provider.')
+  }
+
+  #leadProtection(): void {
+    if (this.#cipher.protection === plainCipher.protection) throw new Error('Lead key protection is unavailable. Configure the credential cipher.')
+  }
+
+  /** Renderer-safe projection: no key, reference, name, or decrypted value. */
+  async leadStatus(provider: LeadCredentialProvider): Promise<LeadCredentialStatus> {
+    this.#leadProvider(provider)
+    const entry = [...(await this.#load()).values()].find(one => one.writer === 'lead' && one.provider === provider)
+    return { configured: entry !== undefined, protection: entry?.protection ?? this.#cipher.protection }
+  }
+
+  /** The service stops its old child before calling either provider mutation. */
+  async storeLead(provider: LeadCredentialProvider, value: string): Promise<void> {
+    this.#leadProvider(provider)
+    this.#leadProtection()
+    if (value.length === 0) throw new Error('An empty Lead key is not stored.')
+    let blob: string
+    try { blob = this.#cipher.encrypt(value).toString('base64') }
+    catch { throw new Error('Lead key protection is unavailable. Configure the credential cipher.') }
+    const entries = await this.#load()
+    for (const [ref, entry] of entries) if (entry.writer === 'lead' && entry.provider === provider) entries.delete(ref)
+    entries.set(`cred_${randomBytes(9).toString('hex')}`, {
+      name: `lead:${provider}`, createdAt: Date.now(), writer: 'lead', provider,
+      blob, protection: this.#cipher.protection,
+    })
+    await this.#persist(entries)
+  }
+
+  async deleteLead(provider: LeadCredentialProvider): Promise<void> {
+    this.#leadProvider(provider)
+    const entries = await this.#load()
+    let changed = false
+    for (const [ref, entry] of entries) if (entry.writer === 'lead' && entry.provider === provider) {
+      entries.delete(ref)
+      changed = true
+    }
+    if (changed) await this.#persist(entries)
+  }
+
+  /** Host-only: deliver directly over framed child stdin, never through the wire. */
+  async resolveLead(provider: LeadCredentialProvider): Promise<string> {
+    this.#leadProvider(provider)
+    this.#leadProtection()
+    const entry = [...(await this.#load()).values()].find(one => one.writer === 'lead' && one.provider === provider)
+    if (!entry) throw new Error('No Lead key is configured for this provider.')
+    const value = this.#read(entry)
+    if (!value) throw new Error('Lead provider key is unavailable. Enter it again with the current protection.')
+    return value
   }
 
   /**
@@ -218,7 +283,7 @@ export class CredentialBroker {
    */
   peek(name: string): string | undefined {
     for (const entry of this.#entries?.values() ?? []) {
-      if (entry.name === name) return this.#read(entry)
+      if (entry.name === name && entry.writer !== 'lead') return this.#read(entry)
     }
     return undefined
   }
@@ -262,7 +327,7 @@ export class CredentialBroker {
     if (trimmed.length === 0) throw new Error('A credential needs a name.')
     if (value.length === 0) throw new Error('An empty credential protects nothing; not stored.')
     const entries = await this.#load()
-    for (const [ref, entry] of entries) if (entry.name === trimmed) entries.delete(ref)
+    for (const [ref, entry] of entries) if (entry.name === trimmed && entry.writer !== 'lead') entries.delete(ref)
     const ref = `cred_${randomBytes(9).toString('hex')}`
     entries.set(ref, {
       name: trimmed,
@@ -280,7 +345,7 @@ export class CredentialBroker {
     const entries = await this.#load()
     let changed = false
     for (const [ref, entry] of entries) {
-      if (entry.name === name) {
+      if (entry.name === name && entry.writer !== 'lead') {
         entries.delete(ref)
         changed = true
       }
@@ -291,6 +356,7 @@ export class CredentialBroker {
   async resolve(ref: string): Promise<string> {
     const entry = (await this.#load()).get(ref)
     if (!entry) throw new Error('That credential no longer exists. Add it again in Settings.')
+    if (entry.writer === 'lead') throw new Error('Lead keys must use the provider lifecycle.')
     const value = this.#read(entry)
     if (value === undefined) {
       throw new Error(

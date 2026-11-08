@@ -32,34 +32,47 @@ const backup = (evidence: BackupFile['evidence']): BackupFile => ({
 
 it('a restore counts what the desk observed beside everything else it added', () => {
   expect(restoredSentence(report())).toBe(
-    'Restored 2 runtimes, 1 Agent, 1 seat choice, 3 preferences, 4 conversations and 12 records of seats and work evidence.',
+    'Restored 2 runtime configurations, 1 Agent, 1 seat choice, 3 preferences, 4 conversations and 12 records of seats and work evidence.',
   )
   expect(count(1, 'record')).toBe('1 record')
 })
 
+it('describes a persisted-only agent as a runtime configuration, without claiming a runtime was restored', () => {
+  const sentence = restoredSentence(report({
+    agents: { restored: 1, skipped: 0 },
+    preferences: 0,
+    transcripts: { restored: 0, skipped: 0 },
+    agentFolders: { restored: 0, skipped: 0 },
+    seating: { restored: 0, skipped: 0 },
+    evidence: { restored: 0, duplicate: 0, refused: 0, failed: 0 },
+  }))
+  expect(sentence).toBe('Restored 1 runtime configuration, 0 Agents, 0 seat choices, 0 preferences, 0 conversations and 0 records of seats and work evidence.')
+  expect(sentence).not.toMatch(/restored \d+ runtimes?(?:,|\.|$)/i)
+})
+
 it('what was already here is counted once, evidence included', () => {
   expect(restoredSentence(report({ transcripts: { restored: 4, skipped: 1 }, evidence: { restored: 0, duplicate: 5, refused: 0, failed: 0 } }))).toBe(
-    'Restored 2 runtimes, 1 Agent, 1 seat choice, 3 preferences, 4 conversations and 0 records of seats and work evidence. 6 already here or newer, left alone.',
+    'Restored 2 runtime configurations, 1 Agent, 1 seat choice, 3 preferences, 4 conversations and 0 records of seats and work evidence. 6 already here or newer, left alone.',
   )
 })
 
 it('what a restore refused and what it could not write are said apart, never as already here', () => {
   expect(restoredSentence(report({ evidence: { restored: 3, duplicate: 0, refused: 2, failed: 1 } }))).toBe(
-    'Restored 2 runtimes, 1 Agent, 1 seat choice, 3 preferences, 4 conversations and 3 records of seats and work evidence. 2 records refused: this desk could not read them, or a backup may not write them here. 1 record could not be written.',
+    'Restored 2 runtime configurations, 1 Agent, 1 seat choice, 3 preferences, 4 conversations and 3 records of seats and work evidence. 2 records refused: this desk could not read them, or a backup may not write them here. 1 record could not be written.',
   )
 })
 
 it('an export counts the records it carries, and a backup from before evidence carries none', () => {
   expect(exportedSentence(backup([{ project: '/work/repo', seats: [{}, {}], facts: [{}] }]))).toBe(
-    'Exported 1 runtime, 0 Agents of yours, 0 conversations and 3 records of seats and work evidence.',
+    'Exported 1 runtime configuration, 0 Agents of yours, 0 conversations and 3 records of seats and work evidence.',
   )
   expect(exportedSentence(backup(undefined))).toBe(
-    'Exported 1 runtime, 0 Agents of yours, 0 conversations and 0 records of seats and work evidence.',
+    'Exported 1 runtime configuration, 0 Agents of yours, 0 conversations and 0 records of seats and work evidence.',
   )
 })
 
 it('an export that left out lines it could not read says so', () => {
   expect(exportedSentence(backup([{ project: '/work/repo', seats: [{}], facts: [{}], unreadable: 2 }]))).toBe(
-    'Exported 1 runtime, 0 Agents of yours, 0 conversations and 2 records of seats and work evidence. 2 records this build cannot read were left out.',
+    'Exported 1 runtime configuration, 0 Agents of yours, 0 conversations and 2 records of seats and work evidence. 2 records this build cannot read were left out.',
   )
 })

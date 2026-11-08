@@ -100,6 +100,8 @@ for (const height of [520, 720]) for (const theme of ['light', 'dark'] as const)
       import { Dialog as AuthoredDialog } from '/src/design/patterns/ModalDialog.tsx';
       import { Button as AuthoredButton } from '/src/design/ui/button.tsx';
       const authoredFrame = document.createElement('section');
+      // The preview fills the window and its controls overflow below it; pin the opener so none of them covers it.
+      authoredFrame.style.cssText = 'position: fixed; inset: auto 0 0 auto; z-index: 1';
       document.body.append(authoredFrame);
       const AuthoredFixture = () => {
         const [open, setOpen] = authoredReact.useState(false);
@@ -159,6 +161,8 @@ for (const height of [520, 900]) for (const theme of ['light', 'dark'] as const)
       const folderProblem = 'The chosen chats location contains an opened project: /work/' + 'nested-directory/'.repeat(45) + 'project';
       const folderFixtureFrame = document.createElement('section');
       folderFixtureFrame.setAttribute('aria-label', 'Folder refusal fixture');
+      // The preview fills the window and its controls overflow below it; pin the opener so none of them covers it.
+      folderFixtureFrame.style.cssText = 'position: fixed; inset: auto 0 0 auto; z-index: 1';
       document.body.append(folderFixtureFrame);
       const RefusedFolderFixture = () => {
         const [open, setOpen] = folderReact.useState(false);
@@ -313,7 +317,7 @@ for (const [where, width, height] of [
     await page.getByLabel('dialog').selectOption('sign in')
     const dialog = page.getByRole('dialog').first()
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole('group', { name: 'Connected', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('group', { name: 'Signed in', exact: true })).toBeVisible()
     await expect(dialog.locator('[data-slot="alert-content"]')).toBeVisible()
 
     const held = await dialog.evaluate(node => {

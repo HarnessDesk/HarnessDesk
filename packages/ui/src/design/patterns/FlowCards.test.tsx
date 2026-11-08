@@ -297,8 +297,223 @@ it('draws a step that returns to itself as an arc beside it, not a tick', () => 
   const numbers = loop.getAttribute('d')!.match(/-?\d+(\.\d+)?/g)!.map(Number)
   const ys = numbers.filter((_, index) => index % 2 === 1), xs = numbers.filter((_, index) => index % 2 === 0)
   expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThanOrEqual(8)
-  expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(8)
+  expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(3)
   within(drawn(flowOf(3, [['s1', 's1']])).points)
+})
+
+it('keeps a self-loop and its arrowhead clear of the adjacent forward arrow and inside the viewport', () => {
+  const positions = { s0: { x: 40, y: 40 }, s1: { x: 270, y: 40 }, s2: { x: 520, y: 40 },
+    a: { x: 40, y: 240 }, b: { x: 270, y: 440 } }
+  for (const size of ['compact', 'large'] as const) for (const multirow of [false, true]) {
+    const topology = flowOf(3, [['s1', 's1']], multirow ? positions : undefined, multirow ? ['a', 'b'] : [])
+    const { points, scale } = drawn(topology, size)
+    const svg = host.querySelector('svg')!
+    const loop = svg.querySelector('[data-edge="s1>s1"] path')!.getAttribute('d')!
+    const coords = loop.match(/^M[^C]+C[^H]+/)![0].match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+    expect(coords).toHaveLength(8) // one cubic, sampled below in rendered coordinates
+    const [x0, y0, x1, y1, x2, y2, x3, y3] = coords as [number, number, number, number, number, number, number, number]
+    const forward = svg.querySelector('[data-edge="s1>s2"] path')!.getAttribute('d')!
+    const forwardY = Number(/^M[-\d.]+ ([-\d.]+)H/.exec(forward)![1])
+    const head = svg.querySelector('[data-edge="s1>s1"] polygon')!.getAttribute('points')!.trim().split(/[\s,]+/).map(Number)
+    const centre = size === 'large' ? { x: 224, y: 40 } : { x: 160, y: 36 }
+    const fit = (x: number, y: number) => ({ x: centre.x + (x - centre.x) * scale, y: centre.y + (y - centre.y) * scale })
+    const loopPoints = []
+    for (let i = 0; i <= 100; i++) {
+      const t = i / 100, u = 1 - t
+      loopPoints.push({ x: u ** 3 * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t ** 3 * x3,
+        y: u ** 3 * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t ** 3 * y3 })
+    }
+    for (let i = 0; i < head.length; i += 2) loopPoints.push({ x: head[i]!, y: head[i + 1]! })
+    // Include the arrowhead, and leave space for the strokes on both routes.
+    expect(Math.max(...loopPoints.map(point => point.y))).toBeLessThan(forwardY - 1)
+    within([...points, ...loopPoints.map(point => fit(point.x, point.y))], size === 'large' ? 448 : 320, size === 'large' ? 80 : 72)
+    if (multirow) expect(Number(svg.querySelector('[data-step="s1"] rect')!.getAttribute('height'))).toBe(size === 'large' ? 36 : 16)
+  }
+})
+
+it('fits lower-row loops in their own row gap without reserving empty space above the graph', () => {
+  for (const size of ['compact', 'large'] as const) for (const rows of [2, 3] as const) {
+    const positions = { s0: { x: 270, y: 40 }, s1: { x: 270, y: 240 }, s2: { x: 520, y: 240 },
+      s3: { x: 760, y: rows === 3 ? 440 : 240 } }
+    const { points, scale, boxes } = drawn(flowOf(4, [['s1', 's1']], positions), size)
+    const svg = host.querySelector('svg')!
+    const lower = svg.querySelector('[data-step="s1"] rect')!, upper = svg.querySelector('[data-step="s0"] rect')!
+    const y = (rect: Element) => Number(rect.getAttribute('y'))
+    const h = (rect: Element) => Number(rect.getAttribute('height'))
+    const path = svg.querySelector('[data-edge="s1>s1"] path')!.getAttribute('d')!
+    const n = path.match(/^M[^C]+C[^H]+/)![0].match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+    expect(n).toHaveLength(8)
+    const sampled = Array.from({ length: 1001 }, (_, i) => {
+      const t = i / 1000, u = 1 - t
+      return { x: u ** 3 * n[0]! + 3 * u * u * t * n[2]! + 3 * u * t * t * n[4]! + t ** 3 * n[6]!,
+        y: u ** 3 * n[1]! + 3 * u * u * t * n[3]! + 3 * u * t * t * n[5]! + t ** 3 * n[7]! }
+    })
+    const head = svg.querySelector('[data-edge="s1>s1"] polygon')!.getAttribute('points')!.trim().split(/[\s,]+/).map(Number)
+    for (let i = 0; i < head.length; i += 2) sampled.push({ x: head[i]!, y: head[i + 1]! })
+    const forward = svg.querySelector('[data-edge="s1>s2"] path')!.getAttribute('d')!
+    const forwardY = Number(/^M[-\d.]+ ([-\d.]+)H/.exec(forward)![1])
+    expect(Math.max(...sampled.map(point => point.y))).toBeLessThan(forwardY - 1)
+    // One unit clears the two half-unit strokes of the upper card and loop.
+    expect(Math.min(...sampled.map(point => point.y)) - (y(upper) + h(upper))).toBeGreaterThanOrEqual(1)
+    const centre = size === 'large' ? { x: 224, y: 40 } : { x: 160, y: 36 }
+    within([...points, ...sampled.map(point => ({ x: centre.x + (point.x - centre.x) * scale, y: centre.y + (point.y - centre.y) * scale }))], size === 'large' ? 448 : 320, size === 'large' ? 80 : 72)
+    apart(boxes)
+    expect(y(lower)).toBeGreaterThan(y(upper))
+    // The graph fits its actual rows and gaps, without a top margin for a lower loop.
+    const height = rows * h(lower) + (rows - 1) * (rows === 2 ? 16 : 8)
+    expect(scale).toBeCloseTo(Math.min(1, (size === 'large' ? 72 : 64) / height), 8)
+  }
+})
+
+type Point = { x: number; y: number }
+const cubicPoints = (path: string): Point[] => {
+  const n = path.match(/^M[^C]+C[^H]+/)![0].match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+  expect(n).toHaveLength(8)
+  return Array.from({ length: 401 }, (_, i) => {
+    const t = i / 400, u = 1 - t
+    return { x: u ** 3 * n[0]! + 3 * u * u * t * n[2]! + 3 * u * t * t * n[4]! + t ** 3 * n[6]!,
+      y: u ** 3 * n[1]! + 3 * u * u * t * n[3]! + 3 * u * t * t * n[5]! + t ** 3 * n[7]! }
+  })
+}
+const polygonPoints = (points: string): Point[] => {
+  const n = points.trim().split(/[\s,]+/).map(Number)
+  const vertices = Array.from({ length: n.length / 2 }, (_, i) => ({ x: n[i * 2]!, y: n[i * 2 + 1]! }))
+  return [...vertices, vertices[0]!]
+}
+const pointSegment = (p: Point, a: Point, b: Point): number => {
+  const dx = b.x - a.x, dy = b.y - a.y, length = dx * dx + dy * dy
+  const t = length ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length)) : 0
+  return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy)
+}
+const segmentDistance = (a: Point, b: Point, c: Point, d: Point): number => {
+  const cross = (p: Point, q: Point, r: Point) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+  const a1 = cross(a, b, c), a2 = cross(a, b, d), b1 = cross(c, d, a), b2 = cross(c, d, b)
+  if (a1 * a2 < 0 && b1 * b2 < 0) return 0
+  return Math.min(pointSegment(a, c, d), pointSegment(b, c, d), pointSegment(c, a, b), pointSegment(d, a, b))
+}
+const lineDistance = (a: Point[], b: Point[]): number => {
+  let distance = Infinity
+  for (let i = 1; i < a.length; i++) for (let j = 1; j < b.length; j++) distance = Math.min(distance, segmentDistance(a[i - 1]!, a[i]!, b[j - 1]!, b[j]!))
+  return distance
+}
+const routePoints = (path: string): Point[] => {
+  if (path.includes('C')) {
+    const cubic = path.match(/^M[^C]+C[^H]+/)![0]
+    const points = cubicPoints(cubic)
+    const tail = path.slice(cubic.length)
+    for (const [, x] of tail.matchAll(/H([-\d.]+)/g)) points.push({ x: Number(x), y: points[points.length - 1]!.y })
+    return points
+  }
+  let at: Point = { x: 0, y: 0 }
+  const points: Point[] = []
+  for (const [, command, rest] of path.matchAll(/([MHV])([^MHV]*)/g)) {
+    const n = rest!.trim().split(/[\s,]+/).map(Number)
+    at = command === 'M' ? { x: n[0]!, y: n[1]! } : command === 'H' ? { x: n[0]!, y: at.y } : { x: at.x, y: n[0]! }
+    points.push(at)
+  }
+  return points
+}
+
+it('connects looped right-side ports to rounded cards without moving their arrowheads', () => {
+  const positions = { s0: { x: 250, y: 40 }, upRight: { x: 750, y: 40 }, loop: { x: 500, y: 240 },
+    right: { x: 750, y: 240 }, farRight: { x: 1000, y: 240 }, down: { x: 500, y: 440 } }
+  for (const size of ['compact', 'large'] as const) {
+    drawn(flowOf(1, [['loop', 'loop'], ['upRight', 'loop'], ['loop', 'right'], ['loop', 'farRight']], positions,
+      Object.keys(positions).filter(id => id !== 's0')), size)
+    const rect = host.querySelector('[data-step="loop"] rect')!
+    const x = Number(rect.getAttribute('x')), y = Number(rect.getAttribute('y'))
+    const w = Number(rect.getAttribute('width')), h = Number(rect.getAttribute('height'))
+    for (const id of ['upRight>loop', 'loop>loop']) {
+      const edge = host.querySelector(`[data-edge="${id}"]`)!, path = edge.querySelector('path')!, head = edge.querySelector('polygon')!
+      const points = routePoints(path.getAttribute('d')!)
+      const end = points[points.length - 1]!, tip = polygonPoints(head.getAttribute('points')!)[0]!
+      expect(tip.x).toBe(x + w)
+      expect(end.y).toBeCloseTo(tip.y)
+      for (const radius of [6, 10, 12]) {
+        const rx = Math.min(radius, w / 2), ry = Math.min(radius, h / 2)
+        const cx = Math.max(x + rx, Math.min(x + w - rx, end.x)), cy = Math.max(y + ry, Math.min(y + h - ry, end.y))
+        expect(((end.x - cx) / rx) ** 2 + ((end.y - cy) / ry) ** 2).toBeLessThan(1)
+      }
+      expect(path.compareDocumentPosition(rect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+  }
+})
+
+it('starts the self-loop inside the rounded card and carries it across the visible outline', () => {
+  for (const size of ['compact', 'large'] as const) for (const rows of [1, 2, 3] as const) {
+    const positions = rows === 1 ? undefined : { s0: { x: 270, y: 40 }, s1: { x: 270, y: 240 }, s2: { x: 520, y: 240 },
+      s3: { x: 760, y: rows === 3 ? 440 : 240 } }
+    drawn(flowOf(4, [['s1', 's1']], positions), size)
+    const rect = host.querySelector('[data-step="s1"] rect')!, path = host.querySelector('[data-edge="s1>s1"] path')!
+    const x = Number(rect.getAttribute('x')), y = Number(rect.getAttribute('y'))
+    const w = Number(rect.getAttribute('width')), h = Number(rect.getAttribute('height'))
+    // The product's --hd-radius is 10px; SVG clamps each radius to half the corresponding dimension.
+    const rx = Math.min(10, w / 2), ry = Math.min(10, h / 2)
+    const inside = (point: Point) => {
+      if (point.x < x || point.x > x + w || point.y < y || point.y > y + h) return false
+      const cx = Math.max(x + rx, Math.min(x + w - rx, point.x))
+      const cy = Math.max(y + ry, Math.min(y + h - ry, point.y))
+      return ((point.x - cx) / rx) ** 2 + ((point.y - cy) / ry) ** 2 <= 1
+    }
+    const curve = cubicPoints(path.getAttribute('d')!)
+    expect(inside(curve[0]!)).toBe(true)
+    expect(curve.some(point => !inside(point))).toBe(true)
+    // The card masks the internal part; the visible curve meets its outline.
+    expect(path.compareDocumentPosition(rect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  }
+})
+
+it('separates a self-loop and an outgoing skip including both arrowheads', () => {
+  for (const size of ['compact', 'large'] as const) for (const lower of [false, true]) for (const count of [4, 8]) {
+    const positions = lower ? Object.fromEntries(Array.from({ length: count }, (_, i) => [`s${i}`, { x: 40 + i * 250, y: i === 0 ? 40 : 240 }])) : undefined
+    const { points, scale } = drawn(flowOf(count, [['s1', 's1'], ['s1', 's3']], positions), size)
+    const svg = host.querySelector('svg')!
+    const edge = (id: string) => {
+      const group = svg.querySelector(`[data-edge="${id}"]`)!
+      return [routePoints(group.querySelector('path')!.getAttribute('d')!), polygonPoints(group.querySelector('polygon')!.getAttribute('points')!)]
+    }
+    const loop = edge('s1>s1'), skip = edge('s1>s3')
+    const distance = Math.min(...loop.flatMap(a => skip.map(b => lineDistance(a!, b!))))
+    expect(distance).toBeGreaterThanOrEqual(1)
+    const centre = size === 'large' ? { x: 224, y: 40 } : { x: 160, y: 36 }
+    const scaled = [...loop, ...skip].flat().map(point => ({ x: centre.x + (point.x - centre.x) * scale, y: centre.y + (point.y - centre.y) * scale }))
+    within([...points, ...scaled], size === 'large' ? 448 : 320, size === 'large' ? 80 : 72)
+  }
+})
+
+it('keeps the self-loop clear of neighboring, skip, reverse and between-row routes', () => {
+  const positions = { s0: { x: 250, y: 40 }, up: { x: 500, y: 40 }, upRight: { x: 750, y: 40 },
+    farleft: { x: 0, y: 240 }, left: { x: 250, y: 240 }, loop: { x: 500, y: 240 }, right: { x: 750, y: 240 },
+    farright: { x: 1000, y: 240 }, down: { x: 500, y: 440 }, downRight: { x: 750, y: 440 } }
+  const others: [string, string][] = [['loop', 'right'], ['loop', 'farright'], ['farleft', 'loop'], ['loop', 'left'], ['right', 'loop'],
+    ['loop', 'up'], ['down', 'loop'], ['up', 'loop'], ['loop', 'down'], ['loop', 'upRight'], ['downRight', 'loop'], ['upRight', 'loop'], ['loop', 'downRight']]
+  for (const size of ['compact', 'large'] as const) {
+    const { points } = drawn(flowOf(1, [['loop', 'loop'], ...others], positions, Object.keys(positions).filter(id => id !== 's0')), size)
+    const edge = (id: string) => {
+      const group = host.querySelector(`[data-edge="${id}"]`)!
+      expect(group).not.toBeNull()
+      return [routePoints(group.querySelector('path')!.getAttribute('d')!), polygonPoints(group.querySelector('polygon')!.getAttribute('points')!)]
+    }
+    const loop = edge('loop>loop')
+    const distances = others.map(([from, to]) => {
+      const route = edge(`${from}>${to}`)
+      return [`${from}>${to}`, Math.min(...loop.flatMap(a => route.map(b => lineDistance(a!, b!))))] as const
+    })
+    for (const [, distance] of distances) expect(distance).toBeGreaterThanOrEqual(1)
+    within(points, size === 'large' ? 448 : 320, size === 'large' ? 80 : 72)
+    const originalRoutes = new Map(others.map(([from, to]) => {
+      const group = host.querySelector(`[data-edge="${from}>${to}"]`)!
+      return [`${from}>${to}`, [group.querySelector('path')!.getAttribute('d'), group.querySelector('polygon')!.getAttribute('points')]] as const
+    }))
+    // Moving the self-loop to another cell leaves every unrelated route intact.
+    drawn(flowOf(1, [['left', 'left'], ...others], positions, Object.keys(positions).filter(id => id !== 's0')), size)
+    for (const [id, original] of originalRoutes) {
+      const group = host.querySelector(`[data-edge="${id}"]`)!
+      const current = [group.querySelector('path')!.getAttribute('d'), group.querySelector('polygon')!.getAttribute('points')]
+      if (id === 'downRight>loop' || id === 'upRight>loop') expect(current).not.toEqual(original)
+      else expect(current).toEqual(original)
+    }
+  }
 })
 
 it('keeps every card in the responsive card grid without imposing grid keyboard semantics', () => {

@@ -66,7 +66,8 @@ export const readPermissions = (value: unknown): PluginPermissions => {
     android: source['android'] === true,
     editor: source['editor'] === true,
     team: source['team'] === true,
-    forge: source['forge'] === true,
+    forge: source['forge'] === true ? true : isRecord(source['forge']) && (source['forge']['publish'] === true || source['forge']['write'] === true)
+      ? { publish: source['forge']['publish'] === true, write: source['forge']['write'] === true } : false,
     secrets: asStringArray(source['secrets']),
   }
 }

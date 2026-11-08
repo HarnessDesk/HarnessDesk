@@ -26,6 +26,7 @@ const agent = (id: string, name: string, tagline: string, over: Record<string, u
 const RUNTIMES: readonly RuntimeInfo[] = [
   agent('codex', 'Codex', 'Coding agent that reads, edits and runs code', {
     presentation: { name: 'Codex', tagline: 'Coding agent that reads, edits and runs code', configLocation: '~/.codex' },
+    slot: { agent: runtimeId('codex'), home: '/home/dev/.codex', removable: false, canAdd: true, gateways: true },
   }),
   agent('claude', 'Claude Code', 'Agentic coding in your terminal'),
   agent('cursor', 'Cursor', 'The agent from the Cursor editor'),
@@ -202,7 +203,7 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
 
 /**
  * The same roster for Settings › Runtimes, with one agent that did not start
- * as well — so the page's "Needs attention" group holds every kind of
+ * as well — so the page's "Needs you" group holds every kind of
  * attention at once: signed out, at a limit, and unavailable — and two that
  * have not answered yet. A scene says where DeepSeek's key already lives, for
  * the page that names where a key is read from.
@@ -229,3 +230,26 @@ export const runtimesSeed = (scene: SignInScene = 'refused'): Partial<AppSnapsho
     },
   },
 } as unknown as Partial<AppSnapshot>)
+
+/**
+ * Settings › Runtimes for an agent whose accounts take turns: the first Codex
+ * account is at its limit, the second has room, and the rule moved new
+ * sessions to it. `?accounts=pool` on the Runtimes preview.
+ */
+export const accountPoolSeed = (): Partial<AppSnapshot> => {
+  const seed = runtimesSeed() as AppSnapshot
+  const second = runtimeId('codex#2')
+  return {
+    ...seed,
+    activeRuntime: second,
+    accountsByRuntime: { ...seed.accountsByRuntime, [second]: { accounts: [oauth('dev@example.com', 'plus')], signInMethods: [] } },
+    usage: [...seed.usage, {
+      runtime: second,
+      account: 'dev@example.com',
+      plan: 'plus',
+      lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 38, windowMinutes: 10_080, resetsAt: Date.now() + 4 * 86_400_000 }],
+      reached: null,
+    }],
+    accountPools: { codex: { order: [runtimeId('codex'), second], whenOut: 'next' } },
+  } as unknown as Partial<AppSnapshot>
+}

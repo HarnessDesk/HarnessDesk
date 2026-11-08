@@ -46,6 +46,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
  * catches.
  */
 const CALLERS = ['packages/ui/src', 'packages/desktop/electron', 'packages/client/src', 'packages/cli/src']
+// The restricted native Lead child dispatches this closed tool map through the client.
+// It is an actual caller surface, not the host mapping methods back to itself.
+const LEAD_CALLER = 'packages/lead/src/tools.ts'
 
 /**
  * The methods no surface calls, and why each is allowed to stay that way.
@@ -55,6 +58,30 @@ const CALLERS = ['packages/ui/src', 'packages/desktop/electron', 'packages/clien
  * true, and those are worse than no claim at all.
  */
 const UNREACHED = {
+  'git/record/attribute':
+    'the raw attribution lookup is the pull half of the attribution already carried by git/record/list; the window reads those complete rows',
+  'phone/sessions/list':
+    'a paired phone is the caller, over the phone link: its allowlist is `PHONE_POLICY`, and the iOS app is outside the directories searched',
+  'phone/teams/list':
+    'likewise — the paired phone reads Teams through this projection, and the window already holds the full records',
+  'phone/dashboard/read':
+    'likewise — the paired phone reads spend and seats through this projection; the window has the usage dashboard itself',
+  'workspace/read':
+    'likewise — the paired phone asks for its snapshot of the work under this name, which the iOS app ships with; the window reads the planes themselves',
+  'workspace/sessions/list':
+    'likewise — the native phone pages active and archived sessions here; its Swift caller is outside the directories searched',
+  'workspace/session/start':
+    'likewise — the native phone starts an ordinary session here; the window uses session/create and turn/send',
+  'workspace/session/send':
+    'likewise — the native phone replies here; the window uses turn/send directly',
+  'workspace/stop':
+    'likewise — the native phone stops a turn here; the window uses turn/interrupt directly',
+  'workspace/thread/read':
+    'likewise — the paired phone reads one conversation through this redacted projection; the window opens the session itself',
+  'workspace/approval/decide':
+    'likewise — the paired phone answers an approval here; the window answers through `approval/respond`, which this calls',
+  'workspace/team/wrap':
+    'likewise — the native phone wraps a Team whose Lead result the person accepted; the window wraps through goal/preview and goal/wrap',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
 }
@@ -136,6 +163,22 @@ const isDispatch = (expression) =>
   (ts.isPropertyAccessExpression(expression) && (expression.name.text === 'request' ||
     (expression.name.text === 'call' && ts.isIdentifier(expression.expression) && expression.expression.text === 'client')))
 
+/** Only this one native tool table counts. Arbitrary method properties elsewhere
+ * are markers, not dispatches. Nonliteral or unknown aliases fail the gate. */
+const leadToolsIn = (node, methods) => {
+  let table = node.initializer
+  while (table && (ts.isAsExpression(table) || ts.isSatisfiesExpression(table) || ts.isParenthesizedExpression(table))) table = table.expression
+  if (!table || !ts.isObjectLiteralExpression(table)) throw new Error('LEAD_TOOLS must remain a closed literal map')
+  return table.properties.map(entry => {
+    if (!ts.isPropertyAssignment(entry) || !ts.isObjectLiteralExpression(entry.initializer)) throw new Error('Lead tool entries must remain closed literals')
+    const method = entry.initializer.properties.find(property => ts.isPropertyAssignment(property) &&
+      (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) && property.name.text === 'method')
+    if (!method || !ts.isStringLiteral(method.initializer) || !methods.includes(method.initializer.text))
+      throw new Error('Lead tool method must be one known literal host method')
+    return method.initializer.text
+  })
+}
+
 /** `sources` are texts, or `{ file, text }` so that each is parsed as what it is. */
 export const reachedBy = (methods, sources) => {
   const calls = new Set()
@@ -144,7 +187,10 @@ export const reachedBy = (methods, sources) => {
     const code = typeof source === 'string' ? withoutComments(source) : withoutComments(source.text, name, { strict: true })
     const kind = /\.tsx$/.test(name) ? ts.ScriptKind.TSX : /\.[cm]?jsx?$/.test(name) ? ts.ScriptKind.JS : ts.ScriptKind.TS
     const file = ts.createSourceFile(name, code, ts.ScriptTarget.Latest, true, kind)
+    const nativeLead = name.replaceAll('\\', '/').endsWith(LEAD_CALLER)
     const visit = (node) => {
+      if (nativeLead && ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === 'LEAD_TOOLS')
+        for (const method of leadToolsIn(node, methods)) calls.add(method)
       if (ts.isCallExpression(node) && isDispatch(node.expression)) {
         const first = node.arguments[0]
         if (first && ts.isStringLiteralLike(first)) calls.add(first.text)
@@ -172,6 +218,7 @@ if (isMain) {
     .filter((file) => !/\.test\.[cm]?[jt]sx?$/.test(file))
     .map((file) => ({ file, text: readFileSync(file, 'utf8') }))
 
+  sources.push({ file: join(root, LEAD_CALLER), text: readFileSync(join(root, LEAD_CALLER), 'utf8') })
   const reached = reachedBy(methods, sources)
   const unreached = methods.filter((method) => !reached.has(method))
 

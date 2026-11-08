@@ -64,8 +64,11 @@ describe('formatReset', () => {
   it('drops the day when the reset is today', () => {
     expect(formatReset(NOON + 3_600_000, NOON)).toBe('1:00 PM')
   })
-  it('names the day otherwise', () => {
-    expect(formatReset(NOON + 2 * 86_400_000, NOON)).toMatch(/^Mon \d{1,2}:\d{2} [AP]M$/)
+  it('names the weekday otherwise', () => {
+    expect(formatReset(NOON + 2 * 86_400_000, NOON)).toBe('Mon 12:00 PM')
+  })
+  it('keeps the weekday for a reset in another year', () => {
+    expect(formatReset(new Date('2025-08-22T13:00:00').getTime(), NOON)).toBe('Fri 1:00 PM')
   })
 })
 

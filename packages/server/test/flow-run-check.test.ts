@@ -16,7 +16,7 @@ import { evidenceGuard } from '../src/flow-evidence.js'
 import { RUN_CHECK_CLEAN, RUN_CHECK_PER_CARD, RUN_CHECK_PER_TURN } from '../src/flow-execution.js'
 import { Host, StateStore } from '../src/index.js'
 import { createDetached } from '../src/worktree.js'
-import { makeRepo, type Repo } from './fixtures/evidence-desk.js'
+import { makeRepo, until as waitFor, type Repo } from './fixtures/evidence-desk.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 import { silent } from './fixtures/harness.js'
@@ -559,11 +559,13 @@ else { writeFileSync('started-again', 'yes'); const timer = setInterval(() => { 
   const consent = await host.call('flow/preview', { root: goalRoot, source, retry: { run: run.id, card } }) as FlowPreview
   assert.ok(consent.token, JSON.stringify(consent.problems))
   assert.equal(consent.commands.length, 1)
-  const start = Date.now()
   const retried = await host.call('flow/check/retry', { run: run.id, card, token: consent.token! }) as FlowExecution
-  assert.ok(Date.now() - start < 2000, 'a 30-second check responds on launch')
+  // Preparation includes Git reads and durable writes. Prove the response
+  // precedes completion with the child's release gate, regardless of their latency.
   assert.equal(retried.state, 'running')
   assert.equal(retried.operations.find((one) => one.card === card && one.kind === 'check')!.state, 'started')
+  await waitFor(() => existsSync(join(repo.dir, 'started-again')) ? true : null, 'the retried check starts behind its release gate')
+  assert.equal(existsSync(join(repo.dir, 'release')), false, 'the response arrived before the check could finish')
   assert.equal((await readdir(join(stateDir, 'evidence', 'check-processes'))).length, 1)
   await assert.rejects(host.call('flow/check/retry', { run: run.id, card, token: consent.token! }), /changed/)
   /* The retry is still running and has recorded nothing, so the read lists the one result there is — as it was. */

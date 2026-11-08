@@ -17,6 +17,11 @@
  * with `ELECTRON_RUN_AS_NODE=1`, against that same throwaway desk: the very
  * thing the launcher written by "Install command-line tool…" does.
  *
+ * Last, the Node bundled for the Lead's child: it must be there, executable,
+ * signed with the app's identity, and pass the Lead's capability probe run by
+ * the probe code this build carries. The real restricted child must also load
+ * its packaged dependencies and handle shutdown, without a provider request.
+ *
  *   pnpm --filter @harnessdesk/desktop run pack
  *   pnpm --filter @harnessdesk/desktop run smoke   # [path/to/HarnessDesk.app]
  *
@@ -24,11 +29,14 @@
  * owns it. The script refuses a port that already answers, so it can never
  * judge somebody else's Electron.
  */
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
+
+import { verifyIosHelperUniqueness } from '../../../script/verify-ios-artifact.mjs'
+import { LEAD_NODE, LEAD_NODE_RESOURCE } from '../electron/lead-runtime.mjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 const PORT = Number(process.env['HD_SMOKE_CDP_PORT'] ?? 9271)
@@ -55,6 +63,18 @@ if (!existsSync(binary)) {
   fail(`no built app at ${appPath} — run \`pnpm --filter @harnessdesk/desktop run pack\` first`)
   process.exit(1)
 }
+
+// The actual bundled native executable, independent of a booted simulator or account.
+let iosHelper
+try { iosHelper = verifyIosHelperUniqueness(appPath) }
+catch (error) { fail(error.message); process.exit(1) }
+console.log('smoke: bundled iOS input helper is unique')
+const iosVersion = spawnSync(iosHelper, ['--version'], { encoding: 'utf8', timeout: 5000 })
+if (iosVersion.status !== 0) { fail('the bundled iOS input helper could not report its version'); process.exit(1) }
+try {
+  if (JSON.parse(iosVersion.stdout).protocolVersion !== 1) throw new Error('version')
+} catch { fail('the bundled iOS input helper has an incompatible protocol'); process.exit(1) }
+console.log('smoke: bundled iOS input helper protocol 1 answered')
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -241,6 +261,62 @@ try {
   console.log(
     `smoke: ok — the bundled command line ran on the app's own runtime and read this desk (host ${reported.hello.hostVersion})`,
   )
+
+  // The Node bundled for the Lead's child alone (electron/lead-runtime.mjs).
+  const leadNode = join(appPath, 'Contents/Resources', LEAD_NODE_RESOURCE)
+  if (!existsSync(leadNode)) {
+    throw new Error(`this build does not carry the Lead's Node at ${leadNode} — check build.beforePack and build.extraResources in packages/desktop/package.json`)
+  }
+  if ((statSync(leadNode).mode & 0o111) === 0) throw new Error(`the Lead's Node at ${leadNode} is not executable`)
+  const signing = (path) => {
+    const shown = spawnSync('codesign', ['--display', '--verbose=2', path], { encoding: 'utf8' })
+    if (shown.status !== 0) throw new Error(`codesign could not read ${path}: ${shown.stderr.slice(-300)}`)
+    return { team: /^TeamIdentifier=(.*)$/m.exec(shown.stderr)?.[1], runtime: /flags=0x[0-9a-f]*\([^)]*runtime[^)]*\)/.test(shown.stderr) }
+  }
+  const verified = spawnSync('codesign', ['--verify', '--strict', '--verbose=2', leadNode], { encoding: 'utf8' })
+  if (verified.status !== 0) throw new Error(`the Lead's Node is not validly signed — check build.mac.binaries: ${verified.stderr.slice(-300)}`)
+  const app = signing(appPath), node = signing(leadNode)
+  if (app.team !== node.team) throw new Error(`the Lead's Node is signed by ${node.team}, the app by ${app.team}`)
+  if (app.runtime) {
+    if (!node.runtime) throw new Error("the app has the hardened runtime and the Lead's Node does not")
+    const entitlements = spawnSync('codesign', ['--display', '--entitlements', '-', '--xml', leadNode], { encoding: 'utf8' })
+    if (!entitlements.stdout.includes('com.apple.security.cs.allow-jit')) {
+      throw new Error("the Lead's Node lacks the JIT entitlement V8 needs under the hardened runtime — check build.mac.entitlementsInherit")
+    }
+  }
+  console.log(`smoke: ok — the Lead's Node ${LEAD_NODE.version} is on disk, executable and signed with the app (team ${app.team})`)
+
+  const leadModule = [
+    'Contents/Resources/app.asar.unpacked/node_modules/@harnessdesk/lead/dist/src/supervisor.js',
+    'Contents/Resources/app.asar.unpacked/node_modules/@harnessdesk/server/node_modules/@harnessdesk/lead/dist/src/supervisor.js',
+  ].map((path) => join(appPath, path)).find((path) => existsSync(path))
+  if (!leadModule) throw new Error('this build does not carry the Lead supervisor under app.asar.unpacked')
+  // Import through the archive as the desktop does. Importing the unpacked file here hid a child entry
+  // that still pointed inside app.asar, which Electron can read but the bundled standalone Node cannot.
+  const hostLeadModule = leadModule.replace('app.asar.unpacked/', 'app.asar/')
+  const probeScript = join(home, 'lead-probe.mjs')
+  writeFileSync(probeScript, [
+    `const { probeLeadRuntime, leadChildArgs, leadChildEnv } = await import(${JSON.stringify(pathToFileURL(hostLeadModule).href)})`,
+    `const { encodeLeadFrame } = await import(${JSON.stringify(new URL('./child-ipc.js', pathToFileURL(hostLeadModule)).href)})`,
+    "const { spawnSync } = await import('node:child_process')",
+    'const args = leadChildArgs()',
+    "const paths = [args.at(-1), ...args.filter(arg => arg.startsWith('--allow-fs-read=')).map(arg => arg.slice('--allow-fs-read='.length))]",
+    "const archived = paths.find(path => path.includes('/app.asar/'))",
+    "if (archived) throw new Error(`the Lead entry or a read grant still points inside app.asar: ${archived}`)",
+    `const own = await probeLeadRuntime({ binary: process.execPath, version: process.versions.node, electron: true, label: "this app's runtime" })`,
+    `const bundled = await probeLeadRuntime({ binary: ${JSON.stringify(leadNode)}, version: ${JSON.stringify(LEAD_NODE.version)}, electron: false, label: 'the bundled runtime' })`,
+    `const loaded = spawnSync(${JSON.stringify(leadNode)}, args, { env: leadChildEnv(process.env, false), encoding: 'utf8', timeout: 10_000, input: Buffer.from(encodeLeadFrame({ version: 1, type: 'shutdown' })) })`,
+    "if (loaded.status !== 0) throw new Error(`the bundled Lead child could not load its dependencies or handle shutdown: ${(loaded.stderr || loaded.error?.message || `exit ${loaded.status}`).slice(-1500)}`)",
+    'process.stdout.write(JSON.stringify({ own, bundled, node: process.versions.node }))',
+  ].join('\n'))
+  // A freshly signed binary's first launch can wait on Gatekeeper; give it the app's own allowance.
+  const probed = spawnSync(binary, [probeScript], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: READY_MS })
+  if (probed.status !== 0) throw new Error(`the Lead probe did not run: ${(probed.stderr || probed.error?.message || '').slice(-500)}`)
+  const verdict = JSON.parse(probed.stdout)
+  console.log(`smoke: this app's runtime (Node ${verdict.node}) ${verdict.own.supported ? 'passes the Lead probe — the bundled Node is not needed' : `fails the Lead probe: ${verdict.own.reason}`}`)
+  if (!verdict.bundled.supported) throw new Error(`the bundled Node fails the Lead probe: ${verdict.bundled.reason}`)
+  console.log(`smoke: ok — the bundled Node ${LEAD_NODE.version} passes the Lead probe`)
+  console.log('smoke: ok — the restricted Lead child loads its packaged dependencies and handles shutdown')
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 } finally {

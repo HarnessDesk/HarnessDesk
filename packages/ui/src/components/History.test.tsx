@@ -299,3 +299,49 @@ it('retains the chosen agent and scroll when its destination leaves and returns'
   expect(box.querySelector('[data-history-scroll]')).toBe(viewport);expect(viewport.scrollTop).toBe(1200)
   expect(request.mock.calls.filter(call=>call[0]==='history/list').at(-1)).toEqual(['history/list',{pageSize:100,includeHidden:false,runtimes:[info.id]}])
 })
+
+it('keeps loaded history and scroll when chat ownership changes', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const rows = Array.from({ length: 100 }, (_, i) => row(`Row ${i}`))
+  const listing = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { cursor?: string }) => {
+    if (method !== 'history/list') return null
+    return params.cursor ? { data: [row('More')], nextCursor: null } : { data: rows, nextCursor: 'more' }
+  }) as never)
+  await act(async () => root.render(<StoreProvider store={store}><HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent} /></StoreProvider>))
+  const scroll = box.querySelector<HTMLDivElement>('[data-history-scroll]')!
+  Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 440 })
+  Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 4400 })
+  scroll.scrollTop = 4000
+  await act(async () => scroll.dispatchEvent(new Event('scroll', { bubbles: true })))
+  const before = listing.mock.calls.length
+  scroll.scrollTop = 4200
+  await act(async () => (store.transport as unknown as { handlers: { onNotification(value: unknown): void } }).handlers.onNotification({ method: 'chats/rootsChanged', params: { epoch: 'host', revision: 1, roots: ['/preview/project'] } }))
+  await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+  expect(store.getSnapshot().chatsFolderRoots).toEqual(['/preview/project'])
+  expect(scroll.scrollTop).toBe(4200)
+  expect(box.querySelector('table')?.getAttribute('aria-rowcount')).toBe('102')
+  expect(listing.mock.calls.length).toBe(before)
+  const options = [...box.querySelectorAll<HTMLOptionElement>('select[aria-label="Project"] option')].map(option => option.value)
+  expect(options).not.toContain('/preview/project')
+  input('Search history titles', 'changed')
+  await act(async () => {})
+  expect(scroll.scrollTop).toBe(0)
+})
+
+it.each(['chat only', 'ordinary row', 'workspace'] as const)('filters a nested managed chat by cwd while retaining %s project evidence', async evidence => {
+  const store = new AppStore('ws://localhost:0/')
+  const nested = '/work/project/chats/a'
+  const repo = { root: '/work/project', worktree: false }
+  const rows = [row('Nested chat', { cwd: nested, repo }), row('Other project', { cwd: '/other', repo: { root: '/other', worktree: false } })]
+  if (evidence === 'ordinary row') rows.push(row('Ordinary conversation', { cwd: '/work/project/src', repo }))
+  if (evidence === 'workspace') Object.assign(store.getSnapshot(), { workspaces: [{ path: '/work/project', name: 'Project', lastOpenedAt: 1, repo }] })
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'history/list' ? { data: rows, nextCursor: null } : null) as never)
+  await act(async () => root.render(<StoreProvider store={store}><HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent} /></StoreProvider>))
+  const options = () => [...box.querySelectorAll<HTMLOptionElement>('select[aria-label="Project"] option')].map(option => option.value)
+  expect(options()).toContain('/work/project')
+  await act(async () => (store.transport as unknown as { handlers: { onNotification(value: unknown): void } }).handlers.onNotification({ method: 'chats/rootsChanged', params: { epoch: 'host', revision: 1, roots: [nested] } }))
+  await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+  expect(options()).toContain('/other')
+  if (evidence === 'chat only') expect(options()).not.toContain('/work/project')
+  else expect(options()).toContain('/work/project')
+})

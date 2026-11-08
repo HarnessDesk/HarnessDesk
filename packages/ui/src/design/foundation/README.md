@@ -7,6 +7,11 @@ defines raw scales, semantic roles, and component contracts in that order.
 presets that override semantic aliases under existing `data-hd-*` selectors.
 They are not independent component themes.
 
+`tokens.sheet.css` is the one foundation overlay of that kind: the Sheet
+surface, keyed on `body[data-hd-surface='sheet']` and imported after the
+presets, redefines only the card, panel-card and left-column surface tokens.
+Cards, the default, is `tokens.css` itself.
+
 The application imports the cascade once, in `styles/app.css`: reset and raw
 palette, canonical tokens, preference presets, specialized bridges, and finally
 the Tailwind semantic-utility bridge. Product styles consume these values and

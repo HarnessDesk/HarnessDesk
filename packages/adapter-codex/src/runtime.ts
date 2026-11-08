@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { RuntimeLoadout, RuntimeLoadoutPart } from '@harnessdesk/protocol'
 import { realpathSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
@@ -133,6 +134,8 @@ export interface CodexRuntimeOptions {
    * account would show every Codex thread as many times as there are accounts.
    */
   readonly sharesHistory?: boolean
+  /** A saved account observation is not proof that an extra slot remains signed in. */
+  readonly unverifiedIdleAccount?: boolean
   readonly clientName?: string
   readonly clientVersion?: string
   readonly binaryPath?: string | null
@@ -158,6 +161,9 @@ export interface CodexRuntimeOptions {
    * person's own words. Nothing is sent for an empty answer.
    */
   readonly instructions?: () => string
+  /** Host-owned shell environment and caller association for this conversation. */
+  readonly gitEnvironment?: (cwd: string, caller: string, path?: string) => Promise<Readonly<Record<string, string>> | undefined>
+  readonly onGitSession?: (caller: string, sessionId: string) => void
   /**
    * How long a change to a thread's settings waits for Codex to say where it
    * landed (`thread/settings/updated`) once Codex has taken it, before the
@@ -208,6 +214,7 @@ const CAPABILITIES = {
   nameHistory: true,
   deleteHistory: 'erase',
   readableHistory: true,
+  startTimes: true,
   extensionStore: true,
   hooks: true,
   pluginTools: true,
@@ -298,6 +305,7 @@ export class CodexRuntime implements AgentRuntime {
   #idleStopped = true
   #discoveredFailure: RuntimeHealth | null = null
   #lastAccount: AccountStatus | null = null
+  #accountEpoch = 0
   #lastRateLimits: RateLimits | null = null
   #lastAccountActivity: AccountActivity | null = null
   #lastFeatures: CodexProtocol.v2.ExperimentalFeature[] = []
@@ -313,6 +321,7 @@ export class CodexRuntime implements AgentRuntime {
   readonly #id: RuntimeId
   readonly #name: string
   readonly #sharesHistory: boolean
+  readonly #unverifiedIdleAccount: boolean
   /** How long a thread's settings change waits for Codex's word on it; see `CodexSession.setOption`. */
   readonly #settleMs: number | undefined
   /** Source paths observed on native reads, creates and resumes. */
@@ -321,6 +330,8 @@ export class CodexRuntime implements AgentRuntime {
   readonly #codexHome: string | null
   /** Resolved once and refreshed on start; see `AgentRuntime.sessionStore`. */
   #sessionStore: string
+  readonly #gitEnvironment: CodexRuntimeOptions['gitEnvironment']
+  readonly #onGitSession: CodexRuntimeOptions['onGitSession']
   /** What Codex is started with, for reading which provider its sessions reach. */
   readonly #launch: { readonly env: Readonly<Record<string, string | undefined>>; readonly overrides: readonly string[] }
   /** Resolved on construction and refreshed on start, unknown until then; see `RuntimeInfo.provider`. */
@@ -328,9 +339,12 @@ export class CodexRuntime implements AgentRuntime {
   #providerRead: Promise<void>
 
   constructor(options: CodexRuntimeOptions = {}) {
+    this.#gitEnvironment = options.gitEnvironment
+    this.#onGitSession = options.onGitSession
     this.#id = options.id ?? CODEX_RUNTIME_ID
     this.#name = options.name ?? 'Codex'
     this.#sharesHistory = options.sharesHistory ?? false
+    this.#unverifiedIdleAccount = options.unverifiedIdleAccount ?? false
     this.#settleMs = options.settleMs
     this.#codexHome = options.codexHome ?? null
     this.#sessionStore = sessionStoreOf(this.#codexHome)
@@ -648,6 +662,7 @@ export class CodexRuntime implements AgentRuntime {
           label: effortLabel(option.reasoningEffort),
         })),
         supportsImages: model.inputModalities.includes('image'),
+        supportsFast: model.serviceTiers.some(tier => tier.id === 'priority'),
         isDefault: model.isDefault,
       }))
   }
@@ -746,15 +761,25 @@ export class CodexRuntime implements AgentRuntime {
   async getAccount(): Promise<AccountStatus> {
     const restoredAccount = this.health().state !== 'ready' ? this.#restored?.account : undefined
     if (restoredAccount) return {
-      accounts: restoredAccount.accounts,
+      accounts: this.#unverifiedIdleAccount ? [] : restoredAccount.accounts,
       signInMethods: signInMethods(null).filter(method => restoredAccount.signInFlows?.includes(method.flow)),
+      ...(this.#unverifiedIdleAccount ? { unchecked: true } : {}),
+    }
+    if (this.#idleStopped && this.#unverifiedIdleAccount && !this.#lastAccount) {
+      return { accounts: [], signInMethods: [], unchecked: true }
     }
     if (this.#idleStopped && !this.#everStarted) throw new Error('Account status is not known yet; start the runtime first.')
-    if (this.#idleStopped && this.#lastAccount) return this.#lastAccount
+    if (this.#idleStopped && this.#lastAccount) return this.#unverifiedIdleAccount
+      ? { accounts: [], signInMethods: this.#lastAccount.signInMethods, unchecked: true }
+      : this.#lastAccount
+    const epoch = this.#accountEpoch
     const [response, forced] = await Promise.all([
       this.#server.request('account/read', {}),
       this.#forcedLoginMethod(),
     ])
+    if (this.#unverifiedIdleAccount && epoch !== this.#accountEpoch) {
+      return { accounts: [], signInMethods: signInMethods(forced), unchecked: true }
+    }
     this.#lastAccount = { accounts: mapAccount(response.account), signInMethods: signInMethods(forced) }
     return this.#lastAccount
   }
@@ -806,6 +831,10 @@ export class CodexRuntime implements AgentRuntime {
 
   async logout(): Promise<void> {
     await this.#server.request('account/logout', undefined)
+    if (this.#unverifiedIdleAccount) {
+      this.#accountEpoch++
+      this.#lastAccount = null
+    }
   }
 
   /**
@@ -1204,6 +1233,7 @@ export class CodexRuntime implements AgentRuntime {
     const projection = new ToolProjection()
     const dynamicTools = this.#projectTools(projection, { workspaceRoot: options.cwd })
     const { start, after } = await this.#startParamsFor(options)
+    const gitCaller = await this.#steerStart(options.cwd, start)
     const response = await this.#server.request('thread/start', {
       cwd: options.cwd,
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
@@ -1218,6 +1248,7 @@ export class CodexRuntime implements AgentRuntime {
       environment: options.environment,
       runtimeServers: options.runtimeServers,
     })
+    if (gitCaller) this.#onGitSession?.(gitCaller, String(session.id))
     return this.#applyAfterStart(session, after)
   }
 
@@ -1244,16 +1275,14 @@ export class CodexRuntime implements AgentRuntime {
     const routed = route ? routeParams(route) : null
     const native = this.#runtimeServers.get(like.id)
     const selection = await this.#startParamsFor({ cwd: start.cwd, ...(native !== undefined ? { runtimeServers: native } : {}) })
+    const beside = { config: environment
+      ? codexEnvironmentConfig({ ...start.config, ...routed?.config, ...selection.start.config }, environment)
+      : { ...start.config, ...routed?.config, ...selection.start.config } }
+    const gitCaller = await this.#steerStart(start.cwd, beside)
     const response = await this.#server.request('thread/start', {
       ...start,
       ...(routed ? { modelProvider: routed.modelProvider } : {}),
-      ...(start.config || routed || environment || selection.start.config
-        ? {
-            config: environment
-              ? codexEnvironmentConfig({ ...start.config, ...routed?.config, ...selection.start.config }, environment)
-              : { ...start.config, ...routed?.config, ...selection.start.config },
-          }
-        : {}),
+      ...(Object.keys(beside.config).length > 0 ? beside : {}),
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
       ...this.#developerInstructions(),
     })
@@ -1263,6 +1292,7 @@ export class CodexRuntime implements AgentRuntime {
       environment,
       runtimeServers: native,
     })
+    if (gitCaller) this.#onGitSession?.(gitCaller, String(session.id))
     try {
       if (sandbox) await session.setSandbox(sandbox)
       for (const [id, value] of after) {
@@ -1304,6 +1334,7 @@ export class CodexRuntime implements AgentRuntime {
     if (existing) return existing
     options = await this.#nativeSelectionFolder(id, options)
     const { start, after } = await this.#startParamsFor(options)
+    const gitCaller = await this.#steerStart(options.cwd, start)
     let response: CodexProtocol.v2.ThreadResumeResponse
     try {
       response = await this.#resumeThread({
@@ -1330,6 +1361,7 @@ export class CodexRuntime implements AgentRuntime {
       environment: options.environment,
       runtimeServers: options.runtimeServers,
     })
+    if (gitCaller) this.#onGitSession?.(gitCaller, String(session.id))
     if (response.thread.status.type === 'active') {
       try { await session.recoverActiveTurn() }
       catch (error) { await session.close(); throw error }
@@ -1384,6 +1416,7 @@ export class CodexRuntime implements AgentRuntime {
     if (environment) options = { ...options, environment }
     options = await this.#nativeSelectionFolder(id, options)
     const { start, after } = await this.#startParamsFor(options)
+    const gitCaller = await this.#steerStart(options.cwd, start)
     const response = await this.#server.request('thread/fork', {
       threadId: id,
       ...(options.cwd ? { cwd: options.cwd } : {}),
@@ -1398,6 +1431,7 @@ export class CodexRuntime implements AgentRuntime {
       new ToolProjection(),
       { route: options.route ?? null, environment: options.environment, runtimeServers: options.runtimeServers },
     )
+    if (gitCaller) this.#onGitSession?.(gitCaller, String(session.id))
     if (history === null) this.#emit({
       type: 'notice', class: 'conversation', kind: 'conversation:fork', sessionId: session.id,
       level: 'warning', message: 'The branch was made, but its history could not be read. Choose it in the sidebar to load it.',
@@ -1426,9 +1460,19 @@ export class CodexRuntime implements AgentRuntime {
 
   /** Project configuration must be read in the source thread's folder on reopening. */
   async #nativeSelectionFolder(id: SessionId, options: Partial<SessionOptions>): Promise<Partial<SessionOptions>> {
-    if (options.runtimeServers === undefined || options.cwd) return options
+    if (options.runtimeServers === undefined && !this.#gitEnvironment || options.cwd) return options
     const { thread } = await this.#server.request('thread/read', { threadId: id, includeTurns: false })
     return { ...options, cwd: thread.cwd }
+  }
+
+  /** A fresh caller token for the shell of each opened conversation. */
+  async #steerStart(cwd: string | undefined, start: { config?: NonNullable<CodexProtocol.v2.ThreadStartParams['config']> }): Promise<string | undefined> {
+    if (!cwd || !this.#gitEnvironment) return undefined
+    const caller = randomUUID(), environment = await this.#gitEnvironment(cwd, caller, this.#launch.env['PATH'])
+    if (!environment) return undefined
+    const held = start.config?.['shell_environment_policy.set']
+    start.config = { ...start.config, 'shell_environment_policy.set': { ...(held && typeof held === 'object' && !Array.isArray(held) ? held : {}), ...environment } }
+    return caller
   }
 
   /** Resolves the one start-only option into bounded thread config overrides. */

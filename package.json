@@ -1,6 +1,6 @@
 {
   "name": "harnessdesk",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -42,15 +42,16 @@
   },
   "scripts": {
     "build": "pnpm run build:node && pnpm --filter @harnessdesk/ui run build",
-    "build:node": "tsc -b && node script/copy-fixtures.mjs && node script/prune-dist.mjs",
+    "build:node": "tsc -b && node script/copy-fixtures.mjs && node script/prune-dist.mjs && node script/build-ios-control.mjs",
     "build:e2e": "pnpm --filter @harnessdesk/ui run build:e2e",
     "clean": "rm -rf packages/*/dist",
     "typecheck": "tsc -b --noEmit && pnpm --filter @harnessdesk/ui run typecheck",
-    "test": "pnpm run build:node && bash -c \"node --test --test-timeout=120000 \\$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js')\" && node --test --test-timeout=120000 \"packages/server/dist/test/host-retention.test.js\" && node --test --test-timeout=600000 \"packages/server/dist/test/flow-host-evidence-*.test.js\" && node --test --test-timeout=600000 \"packages/server/dist/test/intake-*.test.js\" && node --test --test-timeout=600000 \"packages/cli/dist/test/e2e*.test.js\" && pnpm --filter @harnessdesk/ui run test && pnpm --filter @harnessdesk/desktop run test",
+    "test": "pnpm run build:node && node script/node-tests.mjs && pnpm --filter @harnessdesk/ui run test && pnpm --filter @harnessdesk/desktop run test",
     "test:gates": "node --test \"script/*.test.mjs\"",
     "dev": "pnpm run build && pnpm --filter @harnessdesk/desktop run dev",
     "serve": "pnpm run build && node packages/server/dist/src/bin.js",
     "app": "pnpm run build && pnpm --filter @harnessdesk/desktop run start",
+    "app:staging": "pnpm run build && HARNESSDESK_HOME=\"${HARNESSDESK_HOME:-$HOME/.harnessdesk-staging}\" HARNESSDESK_CLOUD_URL=https://app-staging.harnessdesk.app pnpm --filter @harnessdesk/desktop run start --user-data-dir=\"${HARNESSDESK_HOME:-$HOME/.harnessdesk-staging}/electron\"",
     "dist": "pnpm run build && pnpm --filter @harnessdesk/desktop run dist",
     "codex:protocol": "node script/generate-codex-protocol.mjs",
     "codex:drift": "node script/generate-codex-protocol.mjs --check",
@@ -82,12 +83,22 @@
   "pnpm": {
     "overrides": {
       "minimatch@>=10.0.0 <10.2.3": "^10.2.6",
-      "fast-uri@>=3.0.0 <3.1.6": "^3.1.7",
+      "fast-uri@>=3.0.0 <3.1.9": "^3.1.9",
       "qs@>=6.14.2 <6.16.0": "^6.16.0",
       "@xmldom/xmldom@>=0.9.0 <=0.9.11": "^0.9.12",
       "@xmldom/xmldom@>=0.7.0 <=0.8.14": "~0.8.15",
       "js-yaml@<4.3.2": "^4.3.2",
-      "hono@<4.13.5": "^4.13.5"
+      "hono@<4.13.5": "^4.13.5",
+      "undici@>=6.0.0 <6.29.1": "^6.29.1",
+      "undici@>=7.0.0 <7.30.1": "^7.30.1",
+      "undici@>=8.0.0 <8.12.2": "^8.12.2",
+      "body-parser@>=2.0.0 <2.4.0": "^2.4.0",
+      "ip-address@>=10.0.0 <10.7.4": "^10.7.4",
+      "source-map-js@>=1.0.0 <1.2.2": "^1.2.2",
+      "brace-expansion@>=1.0.0 <1.1.21": "^1.1.21",
+      "brace-expansion@>=2.0.0 <2.1.7": "^2.1.7",
+      "brace-expansion@>=5.0.0 <5.0.12": "^5.0.12",
+      "zod@>=4.0.0 <4.6.6": "4.6.6"
     },
     "patchedDependencies": {
       "@replit/codemirror-minimap@0.5.2": "patches/codemirror-minimap-0.5.2.patch"

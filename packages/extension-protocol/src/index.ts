@@ -1,6 +1,9 @@
+import type { IosCapability, IosInvocationAuthority } from '@harnessdesk/protocol'
+import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult } from '@harnessdesk/protocol'
 import type {
   CapabilityContribution,
   DecideFindingInput,
+  PluginPermissions,
   EditorEdit,
   EditorEvent,
   EvidenceRecord,
@@ -69,7 +72,20 @@ import type {
 // 9 adds `team/notify` — `{ scope, where, title, body?, task? }` — a message
 // from the calling conversation's Agent to the person, delivered by the host
 // to the inbox or that conversation's composer under the person's setting.
-export const EXTENSION_PROTOCOL_VERSION = 9
+// 10 adds the host-executed forge write verbs and Git record reads.
+// 12 adds the invocation-bound associated pull request read.
+// 13 adds host-owned, invocation-bound simulator capability requests.
+// 14 allows a non-secret per-owner refusal marker instead of an iOS bearer.
+// 15 carries the injected request-clock scale used by deadline tests.
+// 16 binds each plugin host process to exactly one installed plugin, runs
+//    hooks one at a time so the parent can order them across processes, and
+//    holds an install to the digest of the manifest the person was shown.
+// 17 serves a plugin's `ctx.fs`, `ctx.http`, `ctx.shell` and `ctx.android`
+//    from the parent, each call carrying the lease of the invocation it
+//    belongs to: the plugin's own process is held to no disk, network or
+//    program of its own. A confined process says so in `host/hello` and
+//    asks the parent for every browser placement, and for `browser/handoff`.
+export const EXTENSION_PROTOCOL_VERSION = 17
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -80,6 +96,8 @@ export interface InspectedPlugin {
   readonly source: PluginSource
   readonly permissions: readonly string[]
   readonly alreadyInstalled: boolean
+  /** The sha256 of the manifest bytes shown; `plugin/install` is held to it. */
+  readonly manifestDigest: string
 }
 
 /** Resource accounting the child reports about itself. */
@@ -89,6 +107,21 @@ export interface PluginHostStats {
   readonly activeHandles: number
   /** Tool invocations served per plugin instance since the child started. */
   readonly invocations: Readonly<Record<string, number>>
+  /**
+   * Each installed plugin's own process, when the figures above are a sum
+   * across them. A process answering for itself leaves this out.
+   */
+  readonly processes?: readonly {
+    readonly plugin: string
+    readonly pid: number
+    readonly rssBytes: number
+    readonly activeHandles: number
+    /**
+     * Whether the process runs under the Node permission model, and on which
+     * runtime; or why it does not (no runtime refused what the probe tried).
+     */
+    readonly confinement?: { readonly confined: true; readonly runtime: string } | { readonly confined: false; readonly reason: string }
+  }[]
 }
 
 /**
@@ -113,14 +146,31 @@ export interface PluginHostMethods {
   'host/hello': {
     params: {
       readonly protocolVersion: number
+      readonly requestTimeoutScale?: number
       /**
        * True when the parent has a browser page of its own to drive — the
        * desktop shell's pane. The child's `ctx.browser` then forwards to it
        * through `ChildToHostRequest`s instead of starting Chrome.
        */
       readonly inlineBrowser?: boolean
+      /**
+       * True when this process runs under the Node permission model and so
+       * cannot start Chrome or hand a URL to the OS: every placement is then
+       * served by the parent, and a hand-off to the default browser is asked
+       * for with `browser/handoff`. Implies `inlineBrowser`.
+       */
+      readonly confined?: boolean
       /** Where pages open, as the user has set it. See `browser/settings`. */
       readonly browser?: BrowserSettingsWire
+      /**
+       * The one installed plugin this process runs. Absent only for the
+       * installer process, which inspects, installs and removes packages and
+       * never imports plugin code. A process is bound once, by its parent; the
+       * plugin never names itself. `permissions` are the ones the host holds
+       * the plugin to; the process applies them rather than re-reading the
+       * manifest, which may have changed since the host checked it.
+       */
+      readonly plugin?: { readonly id: string; readonly directory: string; readonly permissions?: PluginPermissions }
     }
     result: { readonly protocolVersion: number; readonly pid: number }
   }
@@ -130,10 +180,16 @@ export interface PluginHostMethods {
    * been told would quietly open pages somewhere the user did not choose.
    */
   'browser/settings': { params: { readonly settings: BrowserSettingsWire }; result: null }
-  /** Loads every plugin in the on-disk store. Failures are per-plugin, reported as events. */
+  /**
+   * Loads the plugin this process was bound to in `host/hello`. A failure is
+   * the answer, so the parent can say why the plugin is not running.
+   */
   'plugins/loadInstalled': { params: Record<string, never>; result: null }
   'plugin/inspect': { params: { readonly specifier: string }; result: InspectedPlugin }
-  'plugin/install': { params: { readonly specifier: string }; result: { readonly id: string } }
+  'plugin/install': {
+    params: { readonly specifier: string; readonly manifestDigest: string }
+    result: { readonly id: string }
+  }
   'plugin/uninstall': { params: { readonly pluginId: string }; result: null }
   'plugin/setEnabled': {
     params: { readonly pluginId: string; readonly enabled: boolean }
@@ -144,11 +200,13 @@ export interface PluginHostMethods {
     result: null
   }
   'command/run': {
-    params: { readonly name: string; readonly argument: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly name: string; readonly argument: string; readonly scope: ScopeQuery; readonly browser?: { readonly invocation: string; readonly profile: string } }
     result: { readonly handled: boolean }
   }
   'tool/invoke': {
     params: {
+      readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>
+      readonly capabilityLease?: string
       readonly id: string
       readonly args: unknown
       readonly scope: ScopeQuery
@@ -156,19 +214,36 @@ export interface PluginHostMethods {
     }
     result: ToolResult
   }
-  'hooks/run': { params: { readonly invocation: HookInvocation }; result: HookVerdict }
+  'hooks/run': { params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly invocation: HookInvocation }; result: HookVerdict }
+  /**
+   * One hook, by its id in this process. The parent orders every installed
+   * plugin's hooks by priority and asks each process for one verdict at a
+   * time, so the first `deny` or `ask` decides across plugins as it does
+   * within one.
+   */
+  'hooks/runOne': { params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly id: string; readonly invocation: HookInvocation }; result: HookVerdict }
   'context/resolve': {
-    params: { readonly query: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly query: ScopeQuery; readonly browser?: { readonly invocation: string; readonly profile: string } }
     result: readonly { readonly label: string; readonly text: string }[]
   }
   /** One provider, because the user attached its chip. */
   'context/resolveOne': {
-    params: { readonly id: string; readonly ref?: string; readonly scope: ScopeQuery }
+    params: { readonly iosInvocations?: Readonly<Record<string, IosInvocationAuthority>>; readonly capabilityLease?: string; readonly id: string; readonly ref?: string; readonly scope: ScopeQuery; readonly browser?: { readonly invocation: string; readonly profile: string } }
     result: { readonly label: string; readonly text: string } | null
   }
   'workspace/set': {
     /** `admitted`: the open folder's checkouts as real paths (`WorkspaceState.admitted` in the kernel). */
     params: { readonly root: string | null; readonly branch: string | null; readonly admitted?: readonly string[] }
+    result: null
+  }
+  /**
+   * What workspace roots the plugin registered resolved to, by contribution
+   * id, as the parent resolved them when it first saw each. A confined
+   * process cannot resolve a path it has no grant for, so it keeps the
+   * spelling it was given until it is told.
+   */
+  'scopes/resolved': {
+    params: { readonly roots: Readonly<Record<string, { readonly from: string; readonly to: string }>> }
     result: null
   }
   'host/stats': { params: Record<string, never>; result: PluginHostStats }
@@ -213,7 +288,32 @@ export interface CdpEventWire {
  * child that pays for events no plugin ever reads. Draining on demand keeps
  * one direction and one buffer, and a turn that never asks costs nothing.
  */
+export type IosCall = { [M in keyof IosCapability]: { readonly method: M; readonly args: Parameters<IosCapability[M]> } }[keyof IosCapability]
+/**
+ * A plugin's own reach — files, the network, programs, Android devices — as
+ * the parent serves it. The child forwards each call with the lease of the
+ * invocation it runs in; the parent checks the call against the grants the
+ * person agreed to and runs it in that invocation's checkout. A lease the
+ * parent did not mint, or one whose invocation has ended, is background
+ * work, served in the open workspace as background work always was.
+ */
+export type CapabilityCall =
+  | { readonly kind: 'fs'; readonly method: 'read' | 'list' | 'exists'; readonly path?: string }
+  | { readonly kind: 'fs'; readonly method: 'write'; readonly path: string; readonly content: string }
+  | { readonly kind: 'http'; readonly url: string; readonly init?: CapabilityHttpInit }
+  | { readonly kind: 'shell'; readonly command: string; readonly args?: readonly string[]; readonly options?: { readonly cwd?: string; readonly timeoutMs?: number } }
+  | { readonly kind: 'android'; readonly method: string; readonly args: readonly unknown[] }
+
+export interface CapabilityHttpInit {
+  readonly method?: string
+  readonly headers?: Readonly<Record<string, string>>
+  readonly body?: string
+  readonly timeoutMs?: number
+}
+
 export interface ChildToHostMethods {
+  'capability/call': { params: { readonly lease?: string; readonly call: CapabilityCall }; result: unknown }
+  'ios/call': { params: { readonly invocation: string; readonly call: IosCall }; result: unknown }
   'browser/ensure': { params: { readonly invocation: string }; result: null }
   'browser/send': {
     params: {
@@ -226,6 +326,12 @@ export interface ChildToHostMethods {
   /** Everything the page has said since the last drain; the reading empties it. */
   'browser/events': { params: { readonly invocation: string }; result: readonly CdpEventWire[] }
   'browser/close': { params: { readonly invocation: string }; result: null }
+  /** A confined process's `browser_open` under the `system` placement: a web address only. */
+  'browser/handoff': { params: { readonly invocation: string; readonly url: string }; result: null }
+  /** A confined process's saved PDF (base64): the parent writes it, in a folder that lives as long as the process. */
+  'browser/savePdf': { params: { readonly invocation: string; readonly data: string; readonly name: string }; result: string }
+  /** A confined process's upload: the files among these the parent finds no file at. */
+  'browser/missing': { params: { readonly invocation: string; readonly paths: readonly string[] }; result: readonly string[] }
 
   /**
    * The editor plane — the same four shapes as the browser above, for the
@@ -280,6 +386,16 @@ export interface ChildToHostMethods {
    * someone else got first, a conflict — come back as sentences; only
    * transport and programming errors throw.
    */
+  'forge/push': { params: { readonly scope: TeamCallScope; readonly args: ForgePush }; result: ForgeWriteResult }
+  'forge/create': { params: { readonly scope: TeamCallScope; readonly args: ForgeCreate }; result: ForgeWriteResult }
+  'forge/update': { params: { readonly scope: TeamCallScope; readonly args: ForgeUpdate }; result: ForgeWriteResult }
+  'forge/merge': { params: { readonly scope: TeamCallScope; readonly args: ForgeMerge }; result: ForgeWriteResult }
+  'forge/review': { params: { readonly scope: TeamCallScope; readonly args: ForgeReview }; result: ForgeWriteResult }
+  'forge/comment': { params: { readonly scope: TeamCallScope; readonly args: ForgeComment }; result: ForgeWriteResult }
+  'forge/associatedPullRequest': { params: { readonly scope: TeamCallScope; readonly args: Record<string, never> }; result: ForgeAssociatedPullRequest }
+  'forge/repository': { params: { readonly scope: TeamCallScope; readonly args: Record<string, never> }; result: string | null }
+  'forge/record': { params: { readonly scope: TeamCallScope; readonly args: ForgeRecordQuery }; result: readonly ForgeGitEntry[] }
+  'forge/attribute': { params: { readonly scope: TeamCallScope; readonly args: ForgeAttribute }; result: ForgeRequester | 'outside' }
   'forge/seat': { params: { readonly scope: TeamCallScope }; result: ForgeSeatInfo | null }
   'forge/identity': { params: { readonly scope: TeamCallScope }; result: ForgeIdentityInfo }
   'forge/publish': {

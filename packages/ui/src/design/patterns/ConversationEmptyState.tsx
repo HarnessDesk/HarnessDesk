@@ -5,6 +5,8 @@ import { cn } from '@/lib/utils'
 /**
  * The empty state belonging to a conversation pane. It fills the pane by
  * default; `height="content"` keeps a following notice beside its words.
+ * Direct paragraphs keep the conversation's compact copy measure and carry
+ * no browser paragraph margin; screens supply words rather than layout.
  *
  * `row` is the one other shape this pane needs: a spinner beside its word
  * reads left to right, not stacked, while everything else here — a title
@@ -22,7 +24,7 @@ const ConversationEmptyState = ({
     data-direction={row ? 'row' : 'column'}
     data-height={height}
     className={cn(
-      'flex w-full items-center justify-center p-10 text-center text-(--hd-muted-foreground)',
+      'flex w-full items-center justify-center p-10 text-center text-(--hd-muted-foreground) [&>p]:m-0 [&>p]:max-w-md',
       height === 'pane' ? 'h-full' : 'h-auto',
       row ? 'flex-row gap-2' : 'flex-col gap-2.5',
       className,

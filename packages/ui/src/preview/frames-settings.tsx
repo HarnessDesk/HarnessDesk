@@ -3,7 +3,7 @@ import { StoreProvider } from '../state/context'
 import { capabilityListsStore } from './capability-lists-fixture'
 import { useState } from 'react'
 
-import { runtimeId, type AgentEntry } from '@harnessdesk/protocol'
+import { runtimeId, type AgentEntry, type PhoneLinkState, type PhonePairing } from '@harnessdesk/protocol'
 
 import { AgentNew } from '../components/AgentNew'
 import { ArchiveSection } from '../components/Archive'
@@ -16,6 +16,7 @@ import { SchemaForm } from '../components/SchemaForm'
 import { SetupDesk } from '../components/SetupDesk'
 import { UsageSection } from '../components/SettingsAgents'
 import { McpSheet } from '../components/McpSheet'
+import { PhoneSettings } from '../components/PhoneSettings'
 import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
 import { libraryColumnsFor, LIBRARY } from './harness'
@@ -55,6 +56,17 @@ const SCHEMA_FIXTURE = {
   },
   required: ['level'],
 } as const
+
+/** One paired phone and one waiting, with a code on screen; names are placeholders (AGENTS.md rule 13). */
+const PHONE_LINK_FIXTURE = {
+  enabled: true, deskName: 'Studio', deskId: 'desk-preview', port: 4455, relay: 'connected',
+  devices: [
+    { id: 'd1', name: 'Jane Doe’s phone', tiers: ['read', 'run', 'answer'], createdAt: 1, lastSeenAt: 3, route: 'account' },
+    { id: 'd3', name: 'Jane Doe’s iPad', tiers: ['read'], createdAt: 1, lastSeenAt: 3, route: 'nearby' },
+  ],
+  pending: [{ id: 'p1', name: 'Jane Doe’s tablet', deviceId: 'd2', requestedAt: 2 }],
+} as const satisfies PhoneLinkState
+const PHONE_PAIRING_FIXTURE = { url: 'harnessdesk://pair?c=preview-frame', expiresAt: Date.now() + 600_000, addresses: [], away: true } as const satisfies PhonePairing
 
 const DIALOG_OPTIONS = ['off', 'new agent', 'update ceiling', 'install plugin', 'MCP detail', 'plugins'] as const
 type DialogOption = (typeof DIALOG_OPTIONS)[number]
@@ -106,6 +118,12 @@ export const SettingsFrames = () => {
           </div>
         </Frame>
       )}
+      <Frame id="settings-phone" title="Settings › Phone">
+        <div className="p-4">
+          <PhoneSettings state={PHONE_LINK_FIXTURE} pairing={PHONE_PAIRING_FIXTURE} error={null} busy={false}
+            onPair={() => {}} onAllow={() => {}} onDeny={() => {}} onRevoke={() => {}} />
+        </div>
+      </Frame>
       <Frame id="settings-archive" title="Settings › Archive">
         <div className="p-4">
           <ArchiveSection />

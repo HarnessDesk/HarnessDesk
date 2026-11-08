@@ -187,6 +187,18 @@ it.each([
   } finally {act(()=>root.unmount());container.remove()}
 })
 
+it('a Run that settled on its own has no Stop verb at all', () => {
+  const store=runDockStore(), fixture=runFixture()
+  const container=document.createElement('div'),root=createRoot(container)
+  try {
+    act(()=>root.render(<StoreProvider store={store}><TopBarProvider>
+      <WorkViewControlsOutlet owner="" /><TopBarOutlet owner="" fallback={{place:'Recorded Run',more:()=>null}} />
+      <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={()=>{}} onStop={()=>{}} inspector={{input:{...fixture,execution:{...fixture.execution,state:'settled'}},seats:[]}} />
+    </TopBarProvider></StoreProvider>))
+    expect([...container.querySelectorAll('button')].some(one=>one.textContent==='Stop run…')).toBe(false)
+  } finally {act(()=>root.unmount());container.remove()}
+})
+
 it('the permanent Stop verb calls the parent’s existing consent opener', () => {
   const store=runDockStore(),fixture=runFixture(),onStop=vi.fn()
   const container=document.createElement('div'),root=createRoot(container)

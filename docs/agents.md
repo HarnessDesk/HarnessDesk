@@ -83,7 +83,7 @@ changes afterward, whatever the Agent's file does next. Reopening its
 conversation — after a restart, or when its agent restarts — re-applies that
 same filter; forking it is refused. What actually loaded
 — versus what was declared but refused, and why — is on the Seat's own name
-card and in the Library's Agent filter, read by the Seat's immutable id, not
+card and in Customize's Agent filter, read by the Seat's immutable id, not
 by the Agent's current name.
 
 A conversation on runtime defaults records the skills, servers, memory files
@@ -105,7 +105,7 @@ Names use 1–128 ASCII letters, digits, `_`, `:`, `@`, `/`, `.` or `-`.
 `runtime-servers: []` suppresses all native configured servers. A disabled server stays disabled, and an unknown
 name or unsupported runtime refuses the Seat before it opens.
 
-This is independent of `mcp:`, which selects reviewed Library attachments;
+This is independent of `mcp:`, which selects reviewed Customize attachments;
 its approval and readback contract still applies. Native selection is frozen
 in the Seat record and reapplied on resume. A Seat's fork is refused; start a
 new Seat to choose its servers. Internal side reviews inherit the selection.
@@ -134,8 +134,6 @@ A folder opened inside a repository reads its repository's Agents, and a linked 
 its own branch's, because a project keeps its Agents at the top of its
 checkout. The roster is read again whenever a file under any of the three
 places changes (`packages/server/src/agent-watch.ts`).
-
-<a id="the-nine-that-ship"></a>
 
 ## The ten that ship
 

@@ -10,13 +10,17 @@ const realNow = Date.now.bind(Date)
 const realTimeout = globalThis.setTimeout
 let now = realNow()
 Date.now = () => now
-mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+// Accelerate the idle reaper, leaving request deadlines and shutdown timers real.
+mock.timers.enable({ apis: ['setInterval'] })
 const pause = () => new Promise((resolve) => realTimeout(resolve, 20))
-const until = async (condition, what) => {
+const until = async (condition, what, reap = false) => {
   const deadline = realNow() + 5_000
   while (!await condition()) {
     assert.ok(realNow() < deadline, what)
-    await pause()
+    // A busy pass may only observe quietness on the next turn of the loop.
+    // Keep the reaper and its quiet-period clock moving until it can rest.
+    if (reap) await tick(11 * 60_000)
+    else await pause()
   }
 }
 const tick = async (ms = 1_000) => {
@@ -53,7 +57,7 @@ try {
   for (const seat of seats) await host.call('team/intent', { room: goal.goal.id, id: seat.card.id, action: 'done' })
   await tick()
   await tick(11 * 60_000)
-  await until(() => seats.slice(0, 3).every((seat) => seat.record.live === null), 'finished seats release their handles')
+  await until(() => seats.slice(0, 3).every((seat) => seat.record.live === null), 'finished seats release their handles', true)
   const firstChildren = await children()
   assert.equal(firstChildren.length, 4)
   await until(() => firstChildren.filter((child) => child.threadId !== active.session.id).every((child) => !running(child.pid)), 'finished-seat helpers exit while another seat works')
@@ -61,18 +65,18 @@ try {
   assert.ok(active.record.running.size > 0, 'release never stopped the working turn')
   assert.ok(active.record.live)
   assert.equal(await health(), 'ready')
+  await tick(11 * 60_000)
+  assert.ok(active.record.running.size > 0, 'the idle tick still sees a working turn')
   await host.call('turn/interrupt', { runtime, sessionId: active.session.id })
   await until(() => active.record.running.size === 0, 'working turn ended')
-  await tick()
-  await tick(11 * 60_000)
-  await until(() => active.record.live === null, 'last finished seat released')
+  await until(() => active.record.live === null, 'last finished seat released', true)
   // Match the Dashboard's cadence while released threads still retain helpers.
   for (let n = 0; n < 6; n++) {
     const usage = await host.call('usage/refresh', { runtime })
     assert.equal(usage[0]?.accountActivity?.lifetimeTokens, 4200, 'usage stays readable during rest')
     await tick(120_000)
   }
-  await until(async () => await health() === 'idle' && firstChildren.every((child) => !running(child.pid)), 'all finished-seat children exit')
+  await until(async () => await health() === 'idle' && firstChildren.every((child) => !running(child.pid)), 'all finished-seat children exit', true)
   const idleUsage = await host.call('usage/refresh', { runtime })
   assert.equal(idleUsage[0]?.accountActivity?.lifetimeTokens, 4200)
   assert.equal(await health(), 'idle', 'Dashboard polling does not restart released helpers')
@@ -86,7 +90,7 @@ try {
   assert.ok(history.nextCursor, 'the cached history has an unread page')
   const older = await host.call('session/list', { runtime, cursor: history.nextCursor })
   assert.ok(older.data.some((row) => row.id === 'thread-older'), 'an unread page is fetched instead of ending history')
-  const rest = async () => { await tick(); await tick(11 * 60_000); await until(async () => await health() === 'idle', 'runtime rests after a fresh read') }
+  const rest = async () => { await until(async () => await health() === 'idle', 'runtime rests after a fresh read', true) }
   await rest()
   const secondary = await host.call('session/list', { runtime, pageSize: 20 })
   assert.ok(secondary.data.some((row) => row.id === 'thread-2'), 'a new page size fetches real history')
@@ -124,10 +128,10 @@ try {
   await until(() => record.running.size === 0, 'Flow turn ended')
   await tick()
   await tick(11 * 60_000)
-  await until(() => record.live === null, 'Flow seat released')
+  await until(() => record.live === null, 'Flow seat released', true)
   await tick(11 * 60_000)
   const allChildren = await children()
-  await until(async () => await health() === 'idle' && allChildren.every((child) => !running(child.pid)), 'Flow resources released')
+  await until(async () => await health() === 'idle' && allChildren.every((child) => !running(child.pid)), 'Flow resources released', true)
   assert.ok((await host.call('goal/read', { goal: run.goal })).members.some((seat) => seat.closed === null), 'rest preserves membership')
   // Each runtime-backed surface can be the first operation after idle stop.
   const hooks = await host.call('runtime/hooks', { runtime, cwd: repo })
@@ -149,6 +153,10 @@ try {
   assert.equal(await health(), 'ready', 'the restarted terminal keeps the process alive')
   await host.call('terminal/close', { terminalId: terminal.terminalId })
   await rest()
+} catch (error) {
+  // A failed assertion must remain visible even if cleanup itself cannot finish.
+  process.stderr.write(`${error?.stack ?? error}\n`)
+  throw error
 } finally {
   mock.timers.reset()
   Date.now = realNow

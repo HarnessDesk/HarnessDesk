@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Button } from '../ui/button'
 import { Rows, Row, Text } from './Settings'
+import { ChipLook } from '../ui/tone'
 import { Section } from '../ui/section'
 import { Card, CardContent } from '../ui/card'
 import { SummaryList, SummaryItem } from '../ui/key-value'
@@ -28,7 +29,7 @@ export const DashboardColumns = ({ primary, secondary }: { readonly primary: Rea
 /** Plan readings share a responsive card grid. */
 export const DashboardAccounts = ({ accounts }: { readonly accounts: readonly ReactNode[] }) => <div className={styles.accounts}>{accounts}</div>
 export const DashboardAccountHead = ({ mark, name, agent, states }: { readonly mark?: ReactNode; readonly name: ReactNode; readonly agent?: ReactNode; readonly states: ReactNode }) =>
-  <CardContent><div className={styles.accountHead}>{mark && <span className={styles.mark}>{mark}</span>}<Text role="subject" truncate>{name}</Text>{agent && <Text role="meta" truncate>{agent}</Text>}<span className={styles.states}>{states}</span></div></CardContent>
+  <CardContent><div className={styles.accountHead}>{mark && <span className={styles.mark}>{mark}</span>}<Text role="subject" truncate>{name}</Text>{agent && <Text role="meta" truncate>{agent}</Text>}<span className={styles.states}><ChipLook.Provider value="quiet">{states}</ChipLook.Provider></span></div></CardContent>
 export const DashboardAccountBody = ({ children }: { readonly children: ReactNode }) => <CardContent><div className={styles.accountBody}>{children}</div></CardContent>
 export const DashboardAccountFoot = ({ source, age, actions, stale }: { readonly source: ReactNode; readonly age?: ReactNode; readonly actions?: ReactNode; readonly stale?: boolean }) =>
   <CardContent data-stale={stale ? '' : undefined}><Row kind="record" title={<Text role="meta" truncate>{source}</Text>} control={<>{age}{actions}</>} /></CardContent>

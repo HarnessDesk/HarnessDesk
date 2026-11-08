@@ -28,12 +28,19 @@ describe('plan card windows', () => {
     expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(1)
     expect(host.querySelectorAll('[data-slot="usage-meter-row"]')).toHaveLength(0)
   })
-  it('keeps the named window rows when there is more than one window', () => {
+  it('shows no figure or fill from a failed read, under its Unknown chip', () => {
+    const host = render({ ...report, error: { message: 'HTTP 503' } as UsageReport['error'] })
+    expect(host.textContent).toContain('Unknown')
+    expect(host.textContent).toContain('—')
+    expect(host.textContent).not.toContain('75%')
+    expect(host.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBeNull()
+  })
+  it('lists the windows the headline does not already say', () => {
     const host = render({ ...report, lanes: [
       { id: 'session', label: 'Session', usedPercent: 10, windowMinutes: 300, resetsAt: null },
       ...report.lanes,
     ] })
-    expect(host.querySelectorAll('[data-slot="usage-meter-row"]')).toHaveLength(2)
-    expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(3)
+    expect(host.querySelectorAll('[data-slot="usage-meter-row"]')).toHaveLength(1)
+    expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(2)
   })
 })

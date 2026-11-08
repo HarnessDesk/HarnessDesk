@@ -44,3 +44,12 @@ it('omits empty title and detail nodes as well as an empty shell', async () => {
   await act(() => root.render(<Banner title="   ">{false}</Banner>))
   expect(host.innerHTML).toBe('')
 })
+
+it('opts into a stacked notice while keeping ordinary notices unchanged', async () => {
+  await act(() => root.render(<Banner layout="stack" title="Finish in your browser" actions={<><BannerAction>Open the page again</BannerAction><BannerAction variant="secondary">Cancel</BannerAction></>}>Match this code.</Banner>))
+  expect(host.querySelector('[data-slot="alert"]')?.getAttribute('data-layout')).toBe('stack')
+  expect(host.querySelector('[data-slot="alert-title"]')?.textContent).toBe('Finish in your browser')
+  expect(host.querySelector('[data-slot="alert-description"]')?.textContent).toBe('Match this code.')
+  await act(() => root.render(<Banner title="Saved">Done</Banner>))
+  expect(host.querySelector('[data-slot="alert"]')?.hasAttribute('data-layout')).toBe(false)
+})

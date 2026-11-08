@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { cardEvidence, checkView, ciView, diffView, factView, prView } from '../preview/evidence-fixture'
-import { byWords, cardChips, chipOf, chipWords, ciVerdict, spokenChip, standingWords } from './evidence'
+import { byWords, cardChips, evidenceSummary, chipOf, chipWords, ciVerdict, spokenChip, standingWords } from './evidence'
 
 const RUN = { name: 'verify', state: 'passed' as const, url: null }
 
@@ -100,4 +100,55 @@ it('says who produced a fact, or that the desk did', () => {
   expect(byWords(checkView())).toBe('Scout on Alpha · alpha-max')
   expect(byWords(factView({ kind: 'diff', files: 1, added: 1, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) }, { by: null }))).toBe('The desk')
   expect(byWords(factView({ kind: 'diff', files: 1, added: 1, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) }, { by: { agent: null, seat: 'Beta · beta-pro' } }))).toBe('Beta · beta-pro')
+})
+
+
+describe('compact evidence summary', () => {
+  const review = (verdict: string, freshness: import('@harnessdesk/protocol').Freshness = { state: 'fresh' }) => factView({ kind: 'review', verdict, by: 'seat-judge', at: 'a'.repeat(40) }, { freshness })
+  const finding = (state: 'open' | 'repaired' | 'withdrawn', freshness: import('@harnessdesk/protocol').Freshness = { state: 'fresh' }) => factView({ kind: 'finding', id: 'finding-1', state, at: 'a'.repeat(40) }, { freshness })
+  const label = (facts: ReturnType<typeof checkView>[], running: {name: string; since: number}[] = []) => evidenceSummary(cardEvidence(1, facts, running))?.label
+  it('prioritizes current failure, review and finding over running, regardless of order', () => {
+    const facts = [checkView({exit: 1}), review('request-changes'), finding('open')]
+    expect(label(facts)).toBe('Failed')
+    expect(label([...facts].reverse())).toBe('Failed')
+    expect(label([review('request-changes'), finding('open')], [{name:'verify', since:1}])).toBe('Changes requested')
+    expect(label([finding('open')], [{name:'verify', since:1}])).toBe('Finding open')
+    expect(label([checkView({timedOut:true, exit:null})])).toBe('Failed')
+    expect(label([ciView(['failed'])])).toBe('Failed')
+  })
+  it('suppresses only the earlier result for the running name', () => {
+    const running = [{name:'verify', since:1}]
+    expect(label([checkView({exit:1})], running)).toBe('Running')
+    expect(label([checkView({exit:1}), checkView({name:'lint', exit:1})], running)).toBe('Failed')
+    expect(label([checkView({exit:1, freshness:{state:'behind', commits:2}}), ciView(['pending'])])).toBe('Running')
+  })
+  it('reports relevant stale before unknown and never promotes an old failure', () => {
+    for (const freshness of [{state:'behind', commits:1} as const, {state:'moved'} as const, {state:'uncommitted'} as const]) {
+      expect(label([checkView({exit:1, freshness})])).toBe('Out of date')
+      expect(label([review('request-changes', freshness)])).toBe('Out of date')
+      expect(label([finding('open', freshness)])).toBe('Out of date')
+    }
+    const unknown = {state:'unknown', why:'checkout gone'} as const
+    expect(label([finding('open', unknown)])).toBe('Unknown')
+    expect(label([checkView({freshness:unknown})])).toBe('Unknown')
+    expect(label([ciView(['failed'], {freshness:unknown})])).toBe('Unknown')
+    expect(label([checkView({freshness:unknown}), finding('open', {state:'moved'})])).toBe('Out of date')
+    expect(label([prView('open', {freshness:unknown})])).toBe('Observed')
+    expect(label([diffView({freshness:{state:'moved'}})])).toBe('Observed')
+  })
+  it('uses aggregate CI and never claims every required check passed', () => {
+    expect(label([ciView(['passed','skipped'])])).toBe('Checks recorded')
+    for (const states of [['cancelled'], ['skipped'], []] as const) expect(label([ciView(states)])).toBe('Incomplete')
+    expect(label([checkView({exit:null}), checkView({name:'lint'})])).toBe('Incomplete')
+    expect(label([checkView({freshness:{state:'final'}})])).toBe('Checks recorded')
+    expect(label([review('picked')])).toBe('Observed')
+    expect(evidenceSummary(cardEvidence(1, [checkView({exit:1})]))).toEqual({label:'Failed', tone:'danger'})
+  })
+  it('preserves omission of empty observations and unfinished zero diffs', () => {
+    const none = factView({kind:'diff', files:0, added:0, removed:0, from:'a'.repeat(40), to:'b'.repeat(40)})
+    expect(evidenceSummary(undefined)).toBeNull()
+    expect(evidenceSummary(cardEvidence(1, []))).toBeNull()
+    expect(evidenceSummary(cardEvidence(1, [none]))).toBeNull()
+    expect(evidenceSummary(cardEvidence(1, [none]), true)?.label).toBe('Observed')
+  })
 })

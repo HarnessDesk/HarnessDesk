@@ -48,6 +48,8 @@ export interface ModelInfo {
    * (#1013).
    */
   readonly reasoningLevelsShared?: boolean
+  /** Whether the runtime declares a fast service tier for this model. */
+  readonly supportsFast?: boolean
   readonly supportsImages: boolean
   /**
    * Whether the model reasons before it answers, when that is a property of
@@ -154,8 +156,9 @@ export interface AccountStatus {
    */
   readonly refusal?: string
   /**
-   * True while the agent has not been asked yet: nobody is listed because
-   * nothing has shown either way, not because nobody is signed in. An ACP
+   * True while the current account has not been verified: nobody is listed
+   * because nothing has shown either way now, not because nobody is signed in.
+   * A previous process's observation may no longer apply. An ACP
    * agent says whether it is signed in only when a session opens (or is
    * refused), so until then an empty list is "not checked", and a surface
    * that read it as "needs no account" or "not signed in" was wrong both
@@ -276,6 +279,11 @@ export interface RuntimeCapabilities {
   readonly deleteHistory: false | 'trash' | 'erase'
   /** False when the agent's durable history cannot serve a readable body. */
   readonly readableHistory?: boolean
+  /**
+   * A conversation's `createdAt` is when it began, as the agent recorded it. Left out where the agent lists only
+   * its last activity and `createdAt` stands in for a start nobody measured, so nothing presents it as one.
+   */
+  readonly startTimes?: boolean
   /** Surfaces a plugin catalogue — `RuntimeExtensions.catalog`. */
   readonly extensionStore: boolean
   /** Exposes configured hooks — `AgentRuntime.listHooks`. */
@@ -572,6 +580,8 @@ export interface RuntimeInfo {
     readonly home: string | null
     /** False for the agent's original account, which owns the real home. */
     readonly removable: boolean
+    /** Removing this slot can leave credentials with the agent or system. */
+    readonly forgetUnknown?: true
     /** Whether the host can make one more account of this agent. */
     readonly canAdd: boolean
     /** The credential cannot name this account, so the person names it when adding it. */
@@ -1014,7 +1024,7 @@ export interface CatalogRefresh {
 }
 
 /** What telling a runtime its secret changed actually achieved. */
-export type SecretReload = 'restarted' | 'busy' | 'unsupported'
+export type SecretReload = 'restarted' | 'busy' | 'deferred' | 'unsupported'
 
 /** Host-owned display observations; absent fields mean not known yet. No credentials. */
 export interface RuntimeObservations {

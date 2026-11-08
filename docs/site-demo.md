@@ -30,8 +30,10 @@ development, use `pnpm --filter @harnessdesk/ui run dev:site-demo`.
 and supplies the Team pane's host verbs. All identities are placeholders.
 The site build normalizes the shared preview fixtures to placeholders too;
 the desktop and preview harness retain their own fixture data. The recorded
-host identifies as 0.4.0, and demo download answers offer that release's
-Apple silicon and Intel DMGs.
+host still identifies as 0.4.0 (`host/hello` in `demo-wire.json`), but the
+demo's download answers offer the release named in `DOWNLOAD` in
+`packages/ui/site-demo/fake-host.ts` — its Apple silicon and Intel DMGs —
+which is bumped by hand when a release ships.
 The page visibly labels the staged numbers. Person answers are local to this
 page; they do not merge or post anything. Review chips read the staged host's
 recorded publication, including **Posted to #42** after a review closes.

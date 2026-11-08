@@ -3,6 +3,7 @@ import {
   DEFAULT_FLOW_BUDGET,
   DEFAULT_TRIGGER_BUDGET,
   TRIGGER_DEFAULTS,
+  TRIGGER_EVENTS,
   TRIGGER_LABEL_CHARS,
   TRIGGER_LABEL_LIMIT,
   TRIGGER_COMMENT_FROM,
@@ -288,7 +289,7 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
 
   let events: readonly string[] | null = defaults.events
   if (raw['events'] !== undefined) {
-    events = fieldList(raw['events'], `${at}.events`, defaults.events as readonly string[], problems, 'events')
+    events = fieldList(raw['events'], `${at}.events`, TRIGGER_EVENTS[source], problems, 'events')
   }
 
   let label: readonly string[] | undefined
@@ -324,8 +325,11 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
 
   let opens: TriggerDefinition['opens'] | null = null
   const target = raw['opens']
-  if (!isMap(target) || Object.keys(target).length !== 1 || !('flow' in target || 'agent' in target)) {
+  if (!isMap(target) || Object.keys(target).length !== 1 || !('flow' in target || 'agent' in target || 'lead' in target)) {
     problems.push({ at: `${at}.opens`, text: 'opens names exactly one flow or one Agent.', fix: 'Write opens: { flow: review-pr } or opens: { agent: triager }.' })
+  } else if ('lead' in target) {
+    if (target['lead'] === true) opens = { lead: true }
+    else problems.push({ at: `${at}.opens.lead`, text: 'A Lead target must be true.', fix: 'Write opens: { lead: true }.' })
   } else if ('flow' in target) {
     const flow = slug(target['flow'], `${at}.opens.flow`, 'A flow id', problems)
     if (flow) opens = { flow }
@@ -364,6 +368,8 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
       if (role) again = { role, title: AGAIN_TITLE, detail: null }
     }
   }
+
+  if (opens && 'lead' in opens && again !== null) problems.push({ at: `${at}.again`, text: 'A Lead trigger drafts a plan for approval and cannot name again.', fix: 'Remove again.' })
 
   const concurrency = raw['concurrency'] === undefined ? 1 : integer(raw['concurrency'], `${at}.concurrency`, 1, CONCURRENCY_MAX, problems, 'concurrency')
 

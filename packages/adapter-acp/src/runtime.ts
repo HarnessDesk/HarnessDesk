@@ -46,6 +46,7 @@ import {
   type InstallationCheck,
   type Session,
   type SessionId,
+  type SessionGoal,
   type SessionAttachments,
   type SessionAttachmentReceipt,
   type SessionOptions,
@@ -126,6 +127,7 @@ import { decodeLoadout, loadoutItem, loadoutPart } from './loadout.js'
 import { AcpTasks } from './tasks.js'
 import { projectToolItem, type ToolItemState } from './tool-items.js'
 import { whichOnPath } from './which.js'
+import { ACP_STEER, ACP_GOAL, supportsSteering, supportsGoals, goalUpdate } from './session-controls.js'
 
 /**
  * `AgentRuntime` over the Agent Client Protocol.
@@ -270,6 +272,8 @@ export interface AcpAgentConfig {
    * this sentence, rather than as a press that can only be refused (#1760).
    */
   readonly authMethodNotes?: Readonly<Record<string, string>>
+  /** Fallback descriptions for driveable methods; the agent’s own description wins. */
+  readonly authMethodDescriptions?: Readonly<Record<string, string>>
   /** Reads a stored secret at spawn time. Supplied by the host, not the registry. */
   readonly resolveSecret?: (env: string) => string | undefined
   readonly tagline?: string
@@ -316,6 +320,8 @@ export interface AcpAgentConfig {
    * registry.
    */
   readonly resolveIdentity?: () => Account | null
+  /** Record-backed status: undefined means the record could not be read, null proves nobody is recorded. */
+  readonly resolveIdentityStatus?: () => Account | null | undefined
   /** The identity record is also the sign-in status: null means signed out. */
   readonly identityIsStatus?: boolean
   /**
@@ -397,6 +403,9 @@ export interface AcpAgentConfig {
    * server's own `instructions`, if it accepted one.
    */
   readonly instructions?: () => string
+  /** Host-owned PATH steering, minted with the same caller as the tool bridge. */
+  readonly onGitSession?: (caller: string, sessionId: string) => void
+  readonly gitEnvironment?: (cwd: string, caller: string, path?: string) => Promise<Readonly<Record<string, string>> | undefined>
   /** Host-owned identities of option-only sessions, retained across desk recreation. */
   readonly probeSessionsFile?: string
   readonly logger?: {
@@ -879,6 +888,8 @@ export class AcpRuntime implements AgentRuntime {
    * tells it to use the key — see `AcpSecretSpec.acpMethod`.
    */
   #keyAuthPending = false
+  /** The initial key switch belongs only to the control process that began it. */
+  #startupKeyAuth: { readonly process: number; readonly settled: Promise<void> } | null = null
   /**
    * The keys in the environment the running agent was spawned with. What
    * `resolveSecret` says now may be newer than what the process got — a key
@@ -888,6 +899,11 @@ export class AcpRuntime implements AgentRuntime {
   #handedKeys: ReadonlySet<string> = new Set()
   /** The agent accepted being told to use a stored key, and nothing has told it otherwise since. */
   #keyTold = false
+  // Local admission order resolves competing successful operations. It is
+  // not a claim about when a provider applied concurrent requests.
+  #modeOperationClock = 0
+  #acceptedModeOperation = 0
+  #controlProcessGeneration = 0
   /** The version of the agent that refused the tool server; a different one is asked again. */
   #refusedBy: string | null | undefined = undefined
   /** The agent's bridge declared that it carries the desk's standing instruction. */
@@ -924,6 +940,8 @@ export class AcpRuntime implements AgentRuntime {
   readonly #account: CliAccount | null
   /** Sign-ins started over ACP that nobody has cancelled; see `#authenticateOverAcp`. */
   readonly #acpLogins = new Set<string>()
+  readonly #acpLoginTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  readonly #cliLoginGenerations = new Map<string, AuthWorld>()
   readonly extensions: AcpExtensions | undefined
   /**
    * Set once the agent has shown it speaks the background-task extension —
@@ -1033,6 +1051,7 @@ export class AcpRuntime implements AgentRuntime {
 
   readonly #workers = new Set<AcpConnection>()
   readonly #sessionConnections = new Map<SessionId, AcpConnection>()
+  readonly #pendingForks = new Map<AcpConnection, number>()
   readonly #closing = new Map<SessionId, Promise<void>>()
   #sharedReleasePending = false
   #idleStopping: Promise<void> | null = null
@@ -1077,7 +1096,10 @@ export class AcpRuntime implements AgentRuntime {
 
   async #stopConnections(): Promise<void> {
     for (const id of this.#readRest.keys()) this.#cancelReadRest(id)
+    for (const timer of this.#acpLoginTimers.values()) clearTimeout(timer)
+    this.#acpLoginTimers.clear()
     this.#stoppingConnections ??= (async () => {
+      this.#controlProcessGeneration++
       await Promise.all([this.#connection, ...this.#workers].map(connection => connection.stop()))
       this.#workers.clear()
       this.#sessionConnections.clear()
@@ -1181,6 +1203,9 @@ export class AcpRuntime implements AgentRuntime {
             resume:
               (this.#initialized?.agentCapabilities?.loadSession ?? false) ||
               Boolean(this.#initialized?.agentCapabilities?.sessionCapabilities?.resume),
+            fork: Boolean(this.#initialized?.agentCapabilities?.sessionCapabilities?.fork),
+            steer: supportsSteering(this.#initialized?._meta),
+            goals: supportsGoals(this.#initialized?._meta),
             // Protocol-level: `session/cancel`, plan entries and thought
             // chunks are ACP's own vocabulary, claimable once this agent has
             // shown it speaks ACP at all — and not a moment before, which is
@@ -1321,6 +1346,14 @@ export class AcpRuntime implements AgentRuntime {
       this.#attachmentCapability = decodeAttachmentCapability(this.#initialized)
       this.#restored = null
       this.#idleInfo = null
+      // Publish the barrier before ready: a health listener may open a real
+      // conversation immediately, while the peer has not applied its key yet.
+      const process = this.#controlProcessGeneration
+      const settled = Promise.resolve().then(() => {
+        if (this.#disposed || process !== this.#controlProcessGeneration) return
+        return this.#authenticateWithStoredKey()
+      })
+      this.#startupKeyAuth = { process, settled }
       this.#setHealth({ state: 'ready' })
       // The handshake is what turned the capability claims on, and a window
       // may already be drawn from the all-false version.
@@ -1332,7 +1365,11 @@ export class AcpRuntime implements AgentRuntime {
       // A key handed over at this start is only used once the agent is told
       // to — before the probe opens, so the probe is the first session the key
       // signs.
-      void this.#authenticateWithStoredKey().then(() => this.#observeToolReach())
+      void settled.then(() => {
+        if (!this.#disposed && process === this.#controlProcessGeneration) return this.#observeToolReach()
+      }, error => {
+        this.#config.logger?.warn?.('the initial key authentication could not complete', { agent: this.#config.id, error: describeAcp(error) })
+      })
     } catch (error) {
       const cleanExit = error instanceof AcpError && error.exitCode === 0
       const message = cleanExit
@@ -1745,7 +1782,7 @@ export class AcpRuntime implements AgentRuntime {
     // Whatever happens below, the next handshake is the one that hands the
     // changed key over, so that is when the agent is told to use it.
     if (this.#config.secrets?.some((secret) => secret.acpMethod)) this.#keyAuthPending = true
-    if (this.#health.state !== 'ready') return 'restarted'
+    if (this.#health.state !== 'ready') return 'deferred'
     const busy = [...this.#sessions.values()].some(
       (session) => !this.#isProbe(session.id) && session.busy,
     )
@@ -2046,7 +2083,10 @@ export class AcpRuntime implements AgentRuntime {
     // Key presence and precedence are local reads, even while the agent is
     // idle. Refresh them before returning observations from an older cache;
     // only the agent-owned identities still need their saved answer.
-    if (this.#health.state !== 'ready' && saved && !lifted) {
+    // A successful desk sign-in can arrive while the runtime rests. Its
+    // newer observation owns the answer, rather than the saved sign-out.
+    const signedInAfterSignOut = this.#config.identityIsStatus && this.#signIn.state === 'observed' && saved?.refusal === 'Signed out.'
+    if (this.#health.state !== 'ready' && saved && !lifted && !signedInAfterSignOut && !(this.#signIn.state === 'required' && this.#signIn.signedOut)) {
       const { unchecked: _was, ...rest } = saved
       const accounts = [...saved.accounts.filter(account => account.kind !== 'apiKey' && account.kind !== 'externalKey'), ...keyAccounts]
       const observed = this.#observedAccount(keyAccounts.length > 0)
@@ -2066,15 +2106,18 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     if (this.#account && this.#health.state === 'ready') {
+      const authGeneration = this.#authGeneration
       const beforeStatus = this.#signIn
       const refusalGeneration = this.#refusalGeneration
       // Publish a newer session refusal before asking the CLI again. Its
       // credential file may still describe the sign-in the session rejected.
-      const freshRefusal = this.#config.account?.status && beforeStatus.state === 'required' && this.#statusObservation !== refusalGeneration
+      const pendingSignOut = beforeStatus.state === 'required' && beforeStatus.signedOut && this.#signingOut > 0
+      const freshRefusal = this.#config.account?.status && beforeStatus.state === 'required' && (pendingSignOut || this.#statusObservation !== refusalGeneration)
       const status = freshRefusal
         ? { accounts: [], signInMethods: this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : [] }
         : await this.#account.status()
-      this.#statusObservation = refusalGeneration
+      if (!this.#currentAuthWorld(authGeneration)) return this.getAccount()
+      if (!pendingSignOut) this.#statusObservation = refusalGeneration
       if (!freshRefusal && this.#config.account?.status && this.#refusalGeneration === refusalGeneration && this.#signIn === beforeStatus && beforeStatus.state === 'required') {
         this.#noteSignIn({ state: 'observed' })
       }
@@ -2096,7 +2139,10 @@ export class AcpRuntime implements AgentRuntime {
     const accounts = [...keyAccounts, ...observed.accounts]
     return this.#lastAccount = {
       accounts,
-      signInMethods: [...keyMethods, ...observed.signInMethods],
+      signInMethods: [
+        ...(this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : []),
+        ...keyMethods, ...observed.signInMethods,
+      ],
       ...(observed.refusal ? { refusal: observed.refusal } : {}),
       ...(accounts.length === 0 && observed.unchecked ? { unchecked: true } : {}),
     }
@@ -2124,18 +2170,20 @@ export class AcpRuntime implements AgentRuntime {
       // A key stored after this process was spawned waits for the next one.
       if (told.some((one) => typeof this.#config.resolveSecret?.(one.env) === 'string')) return
       this.#keyAuthPending = false
-      if (this.#keyTold && told.length > 0) this.#noteSignIn({ state: 'required', message: KEY_REMOVED })
-      this.#keyTold = false
+      if (this.#keyTold && told.length > 0) this.#observeAuth(this.#authGeneration, { state: 'required', message: KEY_REMOVED }, 'refusal')
+      this.#observeAuthMode(this.#authGeneration, { mode: 'other', ordinal: ++this.#modeOperationClock })
       return
     }
     this.#keyAuthPending = false
+    const world = this.#authGeneration
+    const receipt: AuthModeReceipt = { mode: 'key', ordinal: ++this.#modeOperationClock, process: this.#controlProcessGeneration }
     try {
       await this.#connection.request(ACP_AUTHENTICATE, { methodId: secret.acpMethod })
-      this.#keyTold = true
+      if (receipt.process !== this.#controlProcessGeneration || !this.#authWorldReachable(world)) return
+      if (!this.#observeAuthMode(world, receipt)) return
       this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
     } catch (error) {
       // Refused, so it signs in however it did before — nothing to undo later.
-      this.#keyTold = false
       this.#config.logger?.warn?.('the agent would not switch to the stored key', {
         agent: this.#config.id,
         error: describeAcp(error),
@@ -2161,7 +2209,8 @@ export class AcpRuntime implements AgentRuntime {
               id: `${ACP_METHOD}${method.id}`,
               label: method.name,
               flow: 'browser' as const,
-              ...(method.description ? { description: method.description } : {}),
+              ...((method.description || this.#config.authMethodDescriptions?.[method.id])
+                ? { description: method.description || this.#config.authMethodDescriptions?.[method.id] } : {}),
             }
       })
   }
@@ -2169,7 +2218,14 @@ export class AcpRuntime implements AgentRuntime {
   async login(method: string): Promise<LoginStart> {
     if (method.startsWith(ACP_METHOD)) return this.#authenticateOverAcp(method.slice(ACP_METHOD.length))
     if (!this.#account) throw new Error(`${this.#config.name} declares no sign-in command.`)
-    return this.#account.login()
+    const generation = this.#authGeneration
+    let started: string | undefined
+    try {
+      return await this.#account.login((id) => { started = id; this.#cliLoginGenerations.set(id, generation) })
+    } catch (error) {
+      if (started) this.#cliLoginGenerations.delete(started)
+      throw error
+    }
   }
 
   /**
@@ -2189,20 +2245,30 @@ export class AcpRuntime implements AgentRuntime {
    * again. `CliAccount` treats a cancelled-then-successful flow the same way.
    */
   async #authenticateOverAcp(methodId: string): Promise<LoginStart> {
+    const authGeneration = this.#authGeneration
+    const receipt: AuthModeReceipt = { mode: 'other', ordinal: ++this.#modeOperationClock, process: this.#controlProcessGeneration }
     const loginId = randomUUID()
     this.#acpLogins.add(loginId)
     const runtime = runtimeId(this.#config.id)
+    const timer = setTimeout(() => {
+      if (!this.#takeAcpLogin(loginId)) return
+      this.emit({ type: 'account/loginCompleted', runtime, loginId, success: false, reason: 'wait-expired' })
+    }, 5 * 60_000)
+    timer.unref()
+    this.#acpLoginTimers.set(loginId, timer)
     void this.#connection.request(ACP_AUTHENTICATE, { methodId }).then(
       () => {
-        const mine = this.#acpLogins.delete(loginId)
+        const mine = this.#takeAcpLogin(loginId)
+        if (receipt.process !== this.#controlProcessGeneration) return
+        this.#observeAuthMode(authGeneration, receipt)
         // Before the events, so whoever reads the identity on `account/changed`
         // reads it signed in — the same ordering `#accountEvent` keeps.
-        this.#noteSignIn({ state: 'observed' })
+        this.#observeAuth(authGeneration, { state: 'observed' }, 'login', receipt.process)
         if (mine) this.emit({ type: 'account/loginCompleted', runtime, loginId, success: true })
         this.emit({ type: 'account/changed', runtime })
       },
       (error: unknown) => {
-        if (!this.#acpLogins.delete(loginId)) return
+        if (!this.#takeAcpLogin(loginId)) return
         this.emit({
           type: 'account/loginCompleted',
           runtime,
@@ -2215,8 +2281,15 @@ export class AcpRuntime implements AgentRuntime {
     return { type: 'browser', loginId }
   }
 
+  #takeAcpLogin(loginId: string): boolean {
+    const timer = this.#acpLoginTimers.get(loginId)
+    if (timer) clearTimeout(timer)
+    this.#acpLoginTimers.delete(loginId)
+    return this.#acpLogins.delete(loginId)
+  }
+
   async cancelLogin(loginId: string): Promise<void> {
-    if (this.#acpLogins.delete(loginId)) {
+    if (this.#takeAcpLogin(loginId)) {
       this.emit({
         type: 'account/loginCompleted',
         runtime: runtimeId(this.#config.id),
@@ -2267,7 +2340,17 @@ export class AcpRuntime implements AgentRuntime {
     // fallback for an agent whose CLI cannot be asked.
     const overAcp = !this.#config.account?.logout && this.#logsOutOverAcp()
     if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
+    const modeOrdinal = ++this.#modeOperationClock
+    const process = overAcp ? this.#controlProcessGeneration : undefined
     const before = this.#signIn
+    const beforeAuthGeneration = canonicalAuthWorld(this.#authGeneration)
+    // Each logout fences older work with its own identity. Failure joins its
+    // world to the preceding one without reusing an identity for a later logout.
+    const signedOutAuthGeneration: AuthWorld = { previous: beforeAuthGeneration, pending: true }
+    this.#authGeneration = signedOutAuthGeneration
+    const beforeAccount = this.#lastAccount
+    const beforeSignedOutIdentity = this.#signedOutIdentity
+    this.#signedOutIdentity = this.#config.identityIsStatus ? this.#identityStatus() : null
     const beforeGeneration = this.#refusalGeneration
     const beforeObservation = this.#statusObservation
     // Make the state transition visible to the account/changed event emitted
@@ -2280,26 +2363,58 @@ export class AcpRuntime implements AgentRuntime {
     const signedOut: SignInObservation = { state: 'required', message: 'Signed out.', signedOut: true }
     this.#signIn = signedOut
     const signedOutGeneration = ++this.#refusalGeneration
+    const rollback: LogoutRollback = { before, beforeAccount, beforeSignedOutIdentity, beforeGeneration, beforeObservation }
+    this.#logoutRollbacks.add(rollback)
     this.#signingOut++
     try {
       if (overAcp) {
         await this.#connection.request(ACP_LOGOUT, {})
+        if (process !== this.#controlProcessGeneration) throw new Error('The agent connection retired during sign-out.')
         // CliAccount announces its own; this path has nobody else to do it.
         this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
       } else {
         await this.#account!.logout()
       }
+      this.#applyAuthMode({ mode: 'other', ordinal: modeOrdinal, process })
+      // Receipts completed inside this successful barrier must not become
+      // current merely because the barrier is no longer pending. A newer
+      // independent logout keeps its own receipts; failed newer worlds may
+      // already have been aliased to this one and must be discarded too.
+      for (const world of this.#deferredAuthObservations.keys()) {
+        if (canonicalAuthWorld(world) === signedOutAuthGeneration) this.#deferredAuthObservations.delete(world)
+      }
     } catch (error) {
       // Only what this sign-out wrote is taken back: an answer that landed
       // while the command ran is newer than the rollback and stands.
-      if (this.#signIn === signedOut) this.#signIn = before
+      signedOutAuthGeneration.parent = canonicalAuthWorld(beforeAuthGeneration)
+      // A later pending logout may have saved our temporary sign-out as its
+      // prior state. If we failed, it must roll back past us too.
+      for (const later of this.#logoutRollbacks) {
+        if (later.before !== signedOut) continue
+        later.before = rollback.before
+        later.beforeAccount = rollback.beforeAccount
+        later.beforeSignedOutIdentity = rollback.beforeSignedOutIdentity
+        if (later.beforeGeneration === signedOutGeneration) {
+          later.beforeGeneration = rollback.beforeGeneration
+          later.beforeObservation = rollback.beforeObservation
+        }
+      }
+      if (this.#signIn === signedOut) {
+        this.#signIn = rollback.before
+        this.#signedOutIdentity = rollback.beforeSignedOutIdentity
+        this.#lastAccount = rollback.beforeAccount
+      }
       if (this.#refusalGeneration === signedOutGeneration) {
-        this.#refusalGeneration = beforeGeneration
-        this.#statusObservation = beforeObservation
+        this.#refusalGeneration = rollback.beforeGeneration
+        this.#statusObservation = rollback.beforeObservation
       }
       throw error
     } finally {
+      signedOutAuthGeneration.pending = false
+      signedOutAuthGeneration.previous = undefined
+      this.#logoutRollbacks.delete(rollback)
       this.#signingOut--
+      this.#settleAuthObservations()
     }
   }
 
@@ -2520,14 +2635,15 @@ export class AcpRuntime implements AgentRuntime {
       this.#cancelReadRest(session.id)
       const connection = this.connectionFor(session.id)
       try {
-        if (connection === this.#connection) {
+        const hasSiblings = [...this.#sessionConnections].some(([id, sibling]) => id !== session.id && sibling === connection)
+        if (connection === this.#connection || hasSiblings || this.#pendingForks.has(connection)) {
           if (this.#initialized?.agentCapabilities?.sessionCapabilities?.close) {
             await connection.request('session/close', { sessionId: session.id }, 3_000)
           } else {
             // The peer has no release verb. Cancel only this conversation;
             // keep working siblings on their shared process until all handles rest.
             await session.interrupt()
-            if (!this.#isProbe(session.id) && !this.#transientReads.has(session.id)) this.#sharedReleasePending = true
+            if (connection === this.#connection && !this.#isProbe(session.id) && !this.#transientReads.has(session.id)) this.#sharedReleasePending = true
           }
         } else {
           await connection.stop()
@@ -2543,6 +2659,12 @@ export class AcpRuntime implements AgentRuntime {
       this.#transientReads.delete(session.id)
       session.released()
       this.#sessionConnections.delete(session.id)
+      // Two siblings can close concurrently, each initially seeing the other.
+      // The last released mapping also owns reaping their shared worker.
+      if (connection !== this.#connection && !this.#pendingForks.has(connection) && ![...this.#sessionConnections.values()].includes(connection)) {
+        await connection.stop()
+        this.#workers.delete(connection)
+      }
       this.#tasks?.forget(session.id)
       if (this.#tasks && !this.#isProbe(session.id)) {
         this.emit({ type: 'session/tasks', sessionId: session.id, tasks: [] })
@@ -2816,6 +2938,108 @@ export class AcpRuntime implements AgentRuntime {
   #idleInfo: RuntimeInfo | null = null
   #restored: RuntimeObservations | null = null
   #lastAccount: AccountStatus | null = null
+  /** Invalidates observations begun before a desk sign-out. */
+  #authGeneration: AuthWorld = {}
+  #authObservationClock = 0
+  #acceptedAuthObservation = 0
+  #deferredAuthObservations = new Map<AuthWorld, AuthReceipts>()
+
+  #currentAuthWorld(world: AuthWorld | undefined): boolean {
+    return world !== undefined && canonicalAuthWorld(world) === canonicalAuthWorld(this.#authGeneration)
+  }
+
+  // Only pending logout barriers can still disappear. A settled successful
+  // logout has no previous link, so observations behind it are discarded.
+  #authWorldReachable(world: AuthWorld): boolean {
+    const target = canonicalAuthWorld(world)
+    let current = canonicalAuthWorld(this.#authGeneration)
+    for (;;) {
+      if (current === target) return true
+      if (!current.pending || !current.previous) return false
+      current = canonicalAuthWorld(current.previous)
+    }
+  }
+
+  #observeAuth(world: AuthWorld | undefined, observation: SignInObservation, kind: AuthReceipt['kind'], process?: number): void {
+    if (!world) return
+    const receipt: AuthReceipt = { observation, kind, sequence: ++this.#authObservationClock, process }
+    if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) this.#applyAuthObservation(receipt, kind === 'cli')
+    else if (this.#authWorldReachable(world)) {
+      const canonical = canonicalAuthWorld(world)
+      const receipts = this.#deferredAuthObservations.get(canonical) ?? {}
+      receipts[kind === 'open' ? 'open' : process === undefined ? 'strong' : 'strongAcp'] = receipt
+      this.#deferredAuthObservations.set(canonical, receipts)
+    }
+  }
+
+  #applyAuthObservation(receipt: AuthReceipt, silent = false): void {
+    if ((receipt.process !== undefined && receipt.process !== this.#controlProcessGeneration) || receipt.sequence <= this.#acceptedAuthObservation) return
+    // An open alone cannot lift a signed-out identity record, even when the
+    // reply was held behind a logout that subsequently failed.
+    if (receipt.kind === 'open' && this.#config.identityIsStatus && this.#signIn.state === 'required' && this.#signIn.signedOut) return
+    this.#noteSignIn(receipt.observation, receipt.sequence, silent)
+  }
+
+  // Admission and deferred settlement both require the same live control
+  // process. Accepted history survives a reload; a reply only held by a
+  // pending logout does not become history after that process retires.
+  #observeAuthMode(world: AuthWorld, receipt: AuthModeReceipt): boolean {
+    if ((receipt.process !== undefined && receipt.process !== this.#controlProcessGeneration) || receipt.ordinal <= this.#acceptedModeOperation) return false
+    if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) {
+      this.#applyAuthMode(receipt)
+      return true
+    }
+    if (!this.#authWorldReachable(world)) return false
+    const canonical = canonicalAuthWorld(world)
+    const group = this.#deferredAuthObservations.get(canonical) ?? {}
+    const key = receipt.process === undefined ? 'hostMode' : 'mode'
+    if (group[key] && receipt.ordinal <= group[key]!.ordinal) return false
+    group[key] = receipt
+    this.#deferredAuthObservations.set(canonical, group)
+    return true
+  }
+
+  #applyAuthMode(receipt: AuthModeReceipt): void {
+    if ((receipt.process !== undefined && receipt.process !== this.#controlProcessGeneration) || receipt.ordinal <= this.#acceptedModeOperation) return
+    this.#acceptedModeOperation = receipt.ordinal
+    this.#keyTold = receipt.mode === 'key'
+  }
+
+  #settleAuthObservations(): void {
+    let latestMode: AuthModeReceipt | undefined
+    let latest: AuthReceipt | undefined
+    const pending = new Map<AuthWorld, AuthReceipts>()
+    for (const [world, receipts] of this.#deferredAuthObservations) {
+      for (const mode of [receipts.mode, receipts.hostMode]) {
+        if (!mode || mode.ordinal <= this.#acceptedModeOperation || (mode.process !== undefined && mode.process !== this.#controlProcessGeneration)) continue
+        if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) {
+          if (!latestMode || mode.ordinal > latestMode.ordinal) latestMode = mode
+        } else if (this.#authWorldReachable(world)) {
+          const canonical = canonicalAuthWorld(world)
+          const group = pending.get(canonical) ?? {}
+          const key = mode.process === undefined ? 'hostMode' : 'mode'
+          if (!group[key] || mode.ordinal > group[key]!.ordinal) group[key] = mode
+          pending.set(canonical, group)
+        }
+      }
+      for (const receipt of [receipts.open, receipts.strong, receipts.strongAcp]) {
+        if (!receipt || (receipt.process !== undefined && receipt.process !== this.#controlProcessGeneration) || receipt.sequence <= this.#acceptedAuthObservation) continue
+        if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) {
+          const blockedOpen = receipt.kind === 'open' && this.#config.identityIsStatus && this.#signIn.state === 'required' && this.#signIn.signedOut
+          if (!blockedOpen && (!latest || receipt.sequence > latest.sequence)) latest = receipt
+        } else if (this.#authWorldReachable(world)) {
+          const canonical = canonicalAuthWorld(world)
+          const group = pending.get(canonical) ?? {}
+          const key = receipt.kind === 'open' ? 'open' : receipt.process === undefined ? 'strong' : 'strongAcp'
+          if (!group[key] || receipt.sequence > group[key]!.sequence) group[key] = receipt
+          pending.set(canonical, group)
+        }
+      }
+    }
+    this.#deferredAuthObservations = pending
+    if (latest) this.#applyAuthObservation(latest)
+    if (latestMode) this.#applyAuthMode(latestMode)
+  }
 
   // ACP has neither an archive nor a naming verb, even before negotiation.
   historyAuthorityKnown(): boolean { return true }
@@ -2839,8 +3063,11 @@ export class AcpRuntime implements AgentRuntime {
   }
   /** What the agent's answers showed about its sign-in; see `SignInObservation`. */
   #signIn: SignInObservation = { state: 'unknown' }
+  #logoutRollbacks = new Set<LogoutRollback>()
   /** Sign-outs whose command is still running: until it ends, the agent's record still names who is being signed out. */
   #signingOut = 0
+  /** Identity at sign-out; null is proven absent, undefined means the read failed. */
+  #signedOutIdentity: Account | null | undefined = null
   /** Every refusal counts, even when its unchanged message needs no notification. */
   #refusalGeneration = 0
   #statusObservation = -1
@@ -2903,24 +3130,45 @@ export class AcpRuntime implements AgentRuntime {
   #sessionOpens = 0
 
   async #openWithTools<T>(
-    method: 'session/new' | 'session/load' | 'session/resume',
+    method: 'session/new' | 'session/load' | 'session/resume' | 'session/fork',
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
     probe = false,
   ): Promise<T> {
+    const authGeneration = this.#authGeneration
     if (!probe) this.#sessionOpens++
-    try { return await this.#openSessionWithTools<T>(method, params, attachments) } finally {
+    try {
+      // The startup tool probe is scheduled after the switch; other probes
+      // keep their existing path and cannot wait on themselves here.
+      const startup = !probe ? this.#startupKeyAuth : null
+      if (startup) {
+        await startup.settled
+        if (this.#disposed || startup.process !== this.#controlProcessGeneration) {
+          throw new Error('The agent stopped or restarted before the conversation could open.')
+        }
+      }
+      return await this.#openSessionWithTools<T>(method, params, attachments, authGeneration)
+    } finally {
       if (!probe) this.#sessionOpens--
     }
   }
 
   async #openSessionWithTools<T>(
-    method: 'session/new' | 'session/load' | 'session/resume',
+    method: 'session/new' | 'session/load' | 'session/resume' | 'session/fork',
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
+    authGeneration = this.#authGeneration,
   ): Promise<T> {
-    let connection = this.#connection
-    if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.close && !this.#config.sharedSessionProcess) {
+    const caller = randomUUID()
+    const steeringCaller = randomUUID()
+    // A fork refers to live state in its source's process. It inherits that
+    // process environment; another worker need not know the source id.
+    const forking = method === 'session/fork'
+    const steering = !forking && typeof params['cwd'] === 'string' ? await this.#config.gitEnvironment?.(params['cwd'], steeringCaller, (this.#launch && !('blocked' in this.#launch) ? this.#launch.env?.['PATH'] : undefined) ?? this.#config.env?.['PATH']) : undefined
+    let connection = forking ? this.connectionFor(makeSessionId(params['sessionId'] as string)) : this.#connection
+    let ownsWorker = false
+    if (!forking && (steering || !this.#initialized?.agentCapabilities?.sessionCapabilities?.close && !this.#config.sharedSessionProcess)) {
+      ownsWorker = true
       if (this.#disposed) throw shutDown(this.#config.name)
       connection = this.#makeConnection(true)
       if (this.#launch && !('blocked' in this.#launch)) {
@@ -2929,6 +3177,7 @@ export class AcpRuntime implements AgentRuntime {
       }
       const executable = this.#config.executable
       if (executable && this.#executable) connection.withEnv({ [executable.env]: this.#executable.path })
+      if (steering) connection.withEnv(steering)
       this.#workers.add(connection)
       try {
         if (!(await connection.start()) || this.#disposed) throw shutDown(this.#config.name)
@@ -2940,19 +3189,19 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     const existingId = params['sessionId']
-    if (typeof existingId === 'string') this.#sessionConnections.set(makeSessionId(existingId), connection)
+    if (method !== 'session/fork' && typeof existingId === 'string') this.#sessionConnections.set(makeSessionId(existingId), connection)
     let opened = false
-    const caller = randomUUID()
     const servers = this.#toolServerRefused ? [] : mcpServersOf(this.#config, caller)
     // The token's runtime is known now; its session only once the open answers.
-    if (servers.length > 0) this.#config.toolServer?.onOpen?.(caller)
+    if (steering || servers.length > 0) this.#config.toolServer?.onOpen?.(caller)
     // The claim closes the loop: the bridge this open spawns carries the
     // token, and whoever built the runtime now learns which session it names.
     const claim = (result: T, acceptedTools = true): T => {
       const sessionId = (result as { sessionId?: unknown }).sessionId ?? params['sessionId']
+      if (steering && typeof sessionId === 'string') this.#config.onGitSession?.(steeringCaller, sessionId)
       if (typeof sessionId === 'string') this.#sessionConnections.set(makeSessionId(sessionId), connection)
       opened = true
-      if (acceptedTools && servers.length > 0 && typeof sessionId === 'string') {
+      if ((steering || acceptedTools && servers.length > 0) && typeof sessionId === 'string') {
         this.#config.toolServer?.onSession?.(caller, sessionId)
       }
       return result
@@ -2964,9 +3213,13 @@ export class AcpRuntime implements AgentRuntime {
       const briefed = { ...p, ...this.#briefed(p) }
       return { ...briefed, ...attachmentsMeta(briefed, attachments) }
     }
+    // The peer can persist a fork before answering; its worker must outlive
+    // the source handle until claim registers the new branch (or open fails).
+    if (forking) this.#pendingForks.set(connection, (this.#pendingForks.get(connection) ?? 0) + 1)
     try {
       return this.#opened(
         claim(await connection.request<T>(method, extend({ ...params, mcpServers: servers }))),
+        authGeneration,
       )
     } catch (error) {
       const message = describeAcp(error)
@@ -2975,7 +3228,7 @@ export class AcpRuntime implements AgentRuntime {
       // it says about the sign-in, so neither classification can hide the
       // other.
       if (servers.length === 0 || !REFUSES_TOOL_SERVER.test(message)) {
-        this.refusedForSignIn(error)
+        if (isAuthRefusal(error)) this.#observeAuth(authGeneration, { state: 'required', message: describeAcp(error) }, 'refusal')
         throw error
       }
       // Two opens can race into the same refusal — the eager probe and the
@@ -2994,25 +3247,38 @@ export class AcpRuntime implements AgentRuntime {
         for (const listener of this.#infoListeners) listener()
       }
       try {
-        return this.#opened(claim(await connection.request<T>(method, extend({ ...params, mcpServers: [] })), false))
+        return this.#opened(claim(await connection.request<T>(method, extend({ ...params, mcpServers: [] })), false), authGeneration)
       } catch (again) {
-        this.refusedForSignIn(again)
+        if (isAuthRefusal(again)) this.#observeAuth(authGeneration, { state: 'required', message: describeAcp(again) }, 'refusal')
         throw again
       }
     } finally {
-      if (!opened && connection !== this.#connection) {
+      if (forking) {
+        const remaining = this.#pendingForks.get(connection)! - 1
+        if (remaining > 0) this.#pendingForks.set(connection, remaining)
+        else this.#pendingForks.delete(connection)
+        if (connection !== this.#connection && remaining === 0 && ![...this.#sessionConnections.values()].includes(connection)) {
+          await connection.stop()
+          this.#workers.delete(connection)
+        }
+      }
+      if (!opened && ownsWorker) {
         await connection.stop()
         this.#workers.delete(connection)
-        if (typeof existingId === 'string' && this.#sessionConnections.get(makeSessionId(existingId)) === connection) {
+        if (method !== 'session/fork' && typeof existingId === 'string' && this.#sessionConnections.get(makeSessionId(existingId)) === connection) {
           this.#sessionConnections.delete(makeSessionId(existingId))
         }
       }
     }
   }
 
-  /** A session opened: whoever the agent is signed in as, it is signed in. */
-  #opened<T>(result: T): T {
-    this.#noteSignIn({ state: 'observed' })
+  /** Record a session open when it can establish sign-in. */
+  #opened<T>(result: T, authGeneration: AuthWorld): T {
+    // A probe or session may open without authenticating (including in a
+    // fresh helper). When the agent's record is the status, opening alone
+    // cannot undo our sign-out while that record still names the old account.
+    // A changed record or an explicit successful login can lift it instead.
+    this.#observeAuth(authGeneration, { state: 'observed' }, 'open')
     return result
   }
 
@@ -3023,7 +3289,8 @@ export class AcpRuntime implements AgentRuntime {
     return true
   }
 
-  #noteSignIn(next: SignInObservation): void {
+  #noteSignIn(next: SignInObservation, sequence = ++this.#authObservationClock, silent = false): void {
+    this.#acceptedAuthObservation = sequence
     if (next.state === 'required') this.#refusalGeneration++
     const before = this.#signIn
     if (before.state === next.state && (next.state !== 'required' || before.state !== 'required' || before.message === next.message)) return
@@ -3031,33 +3298,46 @@ export class AcpRuntime implements AgentRuntime {
     // `account` was false until the first observation, and a window may
     // already be drawn from that; and whoever holds the account surface
     // open should hear that the answer changed.
-    if (before.state === 'unknown') for (const listener of this.#infoListeners) listener()
-    this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
+    if (!silent) {
+      if (before.state === 'unknown') for (const listener of this.#infoListeners) listener()
+      this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
+    }
   }
 
   /**
    * The desk's own sign-out gives way to the agent's record. Where the record
    * is the status (`identityIsStatus`), the sign-in the agent offers outside
    * the desk shows nowhere but there, and nothing else would say so until a
-   * session opened. Only once the sign-out command has ended — until then
-   * the record still names the account going out — and never a refusal,
-   * which is the agent's own and outranks the record. Answers whether it
-   * lifted one.
+   * session opened. Only once the sign-out command has ended and the record
+   * has changed from the account going out, and never a refusal, which is
+   * the agent's own and outranks the record. Answers whether it lifted one.
    */
   #liftSignOut(hasKey: boolean): boolean {
     const seen = this.#signIn
     if (seen.state !== 'required' || !seen.signedOut || this.#signingOut > 0) return false
-    if (!this.#config.identityIsStatus || hasKey || !this.#identity()) return false
+    if (!this.#config.identityIsStatus || hasKey) return false
+    const identity = this.#identityStatus()
+    if (identity === undefined) return false
+    if (identity === null) {
+      this.#signedOutIdentity = null
+      return false
+    }
+    const old = this.#signedOutIdentity
+    if (old === undefined) return false
+    if (old && old.kind === identity.kind && (old.email ?? old.label) === (identity.email ?? identity.label)) return false
+    this.#signedOutIdentity = null
     this.#noteSignIn({ state: 'observed' })
     return true
   }
 
   /** Keep an interactive CLI's observation in step with its account events. */
   #accountEvent(event: AgentEvent): void {
+    const generation = event.type === 'account/loginCompleted' && event.loginId ? this.#cliLoginGenerations.get(event.loginId) : undefined
+    if (event.type === 'account/loginCompleted' && event.loginId) this.#cliLoginGenerations.delete(event.loginId)
     if (event.type === 'account/loginCompleted' && event.success) {
       // CliAccount emits account/changed immediately after this completion;
       // update first so the listener reads the new identity on that event.
-      this.#signIn = { state: 'observed' }
+      this.#observeAuth(generation, { state: 'observed' }, 'cli')
     }
     this.emit(event)
   }
@@ -3143,6 +3423,19 @@ export class AcpRuntime implements AgentRuntime {
         error: String(error),
       })
       return null
+    }
+  }
+
+  /** Unlike a display identity, an unreadable status cannot prove absence. */
+  #identityStatus(): Account | null | undefined {
+    try {
+      if (this.#config.resolveIdentityStatus) return this.#config.resolveIdentityStatus()
+      return this.#config.resolveIdentity ? this.#config.resolveIdentity() : undefined
+    } catch (error) {
+      this.#config.logger?.warn?.('could not read who the agent is signed in as', {
+        agent: this.#config.id, error: String(error),
+      })
+      return undefined
     }
   }
 
@@ -3273,7 +3566,7 @@ export class AcpRuntime implements AgentRuntime {
     return this.#resumeSession(id, options)
   }
 
-  async #resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+  async #resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AcpSession> {
     await this.#closing.get(id)
     const saved = this.#environments.get(id)
     const environment = options.environment ? laneEnvironmentOf(options.environment) : saved
@@ -3511,8 +3804,58 @@ export class AcpRuntime implements AgentRuntime {
     this.#searchListing = null
   }
 
-  async forkSession(): Promise<AgentSession> {
-    throw new Error(`${this.#config.name} does not support forking a session.`)
+  async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    if (!this.info.capabilities.fork) throw new Error(`${this.#config.name} does not support forking a session.`)
+    const source = await this.#resumeSession(id)
+    if (source.busy) throw new Error('Wait for the running turn to finish before forking this conversation.')
+    const history = source.snapshot()
+    const cwd = options.cwd ?? history.cwd
+    const environment = options.environment ?? this.#environments.get(id)
+    const requestedCeiling = options.requestedCeiling ?? this.#sessionCeilings.get(id)
+    // A read source cannot produce an unguarded branch.
+    const readRequested = requestedCeiling === 'read' || this.#sessionCeilings.get(id) === 'read'
+    const heldRead = this.#readCeiling && readRequested
+    const meta = heldRead ? { harnessdesk: { ceiling: 'read' } } : {}
+    const sourceAttachments = this.#attachmentInputs.get(id)
+    // The filter is inherited, its staging directory is not: closing either
+    // conversation must never remove files the other query still reads.
+    const attachments = options.attachments ?? (sourceAttachments ? { ...sourceAttachments, key: randomUUID() } : undefined)
+    const opened = await this.#openWithTools<AcpNewSessionResult>('session/fork', {
+      sessionId: id, cwd,
+      _meta: environment ? environmentMeta(meta, environment, this.info.capabilities.sessionEnvironment) : meta,
+    }, attachments)
+    // The peer has created a durable branch. From here on return it, even if
+    // its display history or requested settings cannot be reproduced exactly.
+    const changed = source.busy || source.snapshot().turns.length !== history.turns.length
+    const session = AcpSession.fromFork(this, opened, cwd, history, !changed)
+    this.#sessions.set(session.id, session)
+    this.#openedIn.set(session.id, cwd)
+    if (readRequested) this.#sessionCeilings.set(session.id, 'read')
+    if (heldRead) this.#readGuardedSessions.add(session)
+    if (attachments) this.#attachmentInputs.set(session.id, attachments)
+    const warnings: string[] = []
+    if (changed) warnings.push('The source conversation changed while forking. The branch was created, but its displayed history is incomplete because the fork point is unknown.')
+    if (environment) {
+      this.#environments.set(session.id, laneEnvironmentOf(environment))
+      try {
+        acknowledgeEnvironment(opened._meta, environment)
+      } catch (error) {
+        // Keep the branch visible without permitting work in an unconfirmed
+        // lane. A later reopen must pass the usual environment handshake.
+        session.blockOpening(describeAcp(error))
+        warnings.push(describeAcp(error))
+      }
+    }
+    for (const [key, value] of Object.entries({ ...(options.model ? { model: options.model } : {}), ...options.options }).sort(([a], [b]) => rankOptionId(a) - rankOptionId(b))) {
+      try { await session.setOption(key, value) } catch (error) {
+        warnings.push(`The branch was created, but setting ${key} to ${String(value)} failed: ${describeAcp(error)}`)
+      }
+    }
+    this.#learnCatalog(opened)
+    this.#invalidateSearchListing()
+    this.emit({ type: 'session/started', session: session.snapshot() })
+    for (const message of warnings) this.emit({ type: 'notice', class: 'conversation', kind: 'conversation:fork', sessionId: session.id, level: 'warning', message })
+    return session
   }
 
   /**
@@ -3926,6 +4269,33 @@ const describeAcp = (error: unknown): string => {
   return error instanceof Error ? error.message : String(error)
 }
 
+// A failed logout aliases its world to the world before it. Pending work may
+// retain old nodes, so find iteratively and compress paths as they are read.
+type AuthWorld = { parent?: AuthWorld; previous?: AuthWorld | undefined; pending?: boolean }
+
+type AuthReceipt = { observation: SignInObservation; kind: 'login' | 'cli' | 'open' | 'refusal'; sequence: number; process?: number | undefined }
+type AuthModeReceipt = { mode: 'key' | 'other'; ordinal: number; process?: number | undefined }
+type AuthReceipts = { open?: AuthReceipt; strong?: AuthReceipt; strongAcp?: AuthReceipt; mode?: AuthModeReceipt; hostMode?: AuthModeReceipt }
+
+type LogoutRollback = {
+  before: SignInObservation
+  beforeAccount: AccountStatus | null
+  beforeSignedOutIdentity: Account | null | undefined
+  beforeGeneration: number
+  beforeObservation: number
+}
+
+function canonicalAuthWorld(world: AuthWorld): AuthWorld {
+  let root = world
+  while (root.parent) root = root.parent
+  while (world.parent) {
+    const next = world.parent
+    world.parent = root
+    world = next
+  }
+  return root
+}
+
 /**
  * What the agent's own answers have said about its sign-in. ACP has no
  * account query, so this is never asked; it is observed. A session that
@@ -4295,6 +4665,10 @@ class AcpSession implements AgentSession {
   readonly #announced = { options: 0, model: 0 }
   #turns: Turn[] = []
   #currentTurn: MutableTurn | null = null
+  #turnCompletion: Promise<void> | null = null
+  #goal: SessionGoal | null = null
+  #forkedFrom: SessionId | null = null
+  #openingProblem: string | null = null
   /** What the agent has said about tokens, if anything. Null until it does. */
   #usage: SessionUsage | null = null
   /**
@@ -4338,6 +4712,19 @@ class AcpSession implements AgentSession {
     const session = new AcpSession(host, { sessionId: String(id) }, cwd)
     session.#replaying = true
     return session
+  }
+
+  static fromFork(host: AcpRuntime, opened: AcpNewSessionResult, cwd: string, source: Session, historyReliable = true): AcpSession {
+    const session = new AcpSession(host, opened, cwd)
+    session.#turns = historyReliable ? [...source.turns] : []
+    session.#turnPrefix = `turn-f${randomUUID()}-`
+    session.#partialHistory = !historyReliable || (source.partialHistory ?? false)
+    session.#forkedFrom = source.id
+    return session
+  }
+
+  blockOpening(message: string): void {
+    this.#openingProblem = message
   }
 
   /** The draft-options probe: a real session that never says anything. */
@@ -4600,6 +4987,11 @@ class AcpSession implements AgentSession {
    * being replayed, which is a turn re-read rather than one in flight.
    */
   async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId> {
+    return this.#send(input, opts)
+  }
+
+  async #send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }, control?: { method: string; params: Record<string, unknown> }): Promise<TurnId> {
+    if (this.#openingProblem) throw new Error(this.#openingProblem)
     if (this.busy) {
       throw new Error(
         `${this.#host.agentName} is still working on the last message; wait for the turn to end, or interrupt it.`,
@@ -4635,7 +5027,53 @@ class AcpSession implements AgentSession {
     })
     this.#host.emit({ type: 'session/status', sessionId: this.id, status: { type: 'active' } })
 
-    const prompt: AcpContentBlock[] = input.flatMap((content): AcpContentBlock[] => {
+    const prompt = this.#prompt(input)
+
+    // Where the agent's own usage record stands before the turn, for an agent
+    // that counts there rather than on the wire: what it gains from here on
+    // is this turn's.
+    const mark = this.#markRecord()
+
+    // ACP's prompt resolves when the *turn* ends; the send contract resolves
+    // on acceptance. Fire, return, and settle the turn when the agent does —
+    // including when it dies, which must fail the turn, never strand it.
+    this.#turnCompletion = this.#host.connectionFor(this.id)
+      .request<AcpPromptResponse>(control?.method ?? 'session/prompt', control?.params ?? { sessionId: this.id, prompt })
+      .then(async (response) => {
+        // A structured goal control may start its own prompt if the original
+        // prompt ended while that request was in flight. Keep its updates in
+        // the tracked turn until every accepted control has settled.
+        while (turn.controls?.size) await Promise.allSettled([...turn.controls])
+        // The turn's tokens land before the turn does, so the finished turn's
+        // tail already has them to show. ACP's own field first; an agent that
+        // counts in the extension slot instead is read from there, and one
+        // that says nothing at all, from its own record if it keeps one.
+        const usage = response.usage ?? quotaUsageOf(response._meta) ?? this.#recordedSince(mark)
+        if (usage) this.#recordTurnUsage(usage, response._meta?.harnessdesk?.inputTokensAreUncached === true)
+        // A turn nobody could account for is not the one before it: its figures
+        // are unknown, so the last turn shows none rather than the previous
+        // turn's under this one's name. For every runtime, not only the ones
+        // that keep a record of their own — an agent that reports usage on some
+        // turns and not others is the commoner shape, and it was the one left
+        // showing turn one's tokens and cache chip under turn two (#159).
+        else this.#forgetLastTurn()
+        // Goal control replies omit the inner prompt's stop reason. Preserve
+        // a cancellation the host requested instead of reading {} as success.
+        this.#finishTurn(turn, (control || turn.goalControlled) && turn.interruptRequested ? 'cancelled' : response.stopReason)
+      })
+      .catch((error: unknown) => {
+        this.#host.refusedForSignIn(error)
+        this.#failTurn(turn, describeAcp(error))
+        if (control) throw error
+      })
+    // A control's result is internal turn bookkeeping, not setter acceptance.
+    // Keep its rejection observable to races, with an attached handler always.
+    void this.#turnCompletion.catch(() => {})
+    return id
+  }
+
+  #prompt(input: readonly UserContent[]): AcpContentBlock[] {
+    return input.flatMap((content): AcpContentBlock[] => {
       if (content.type === 'text') return [{ type: 'text', text: content.text }]
       if (content.type === 'image') {
         if (content.url.startsWith('data:')) {
@@ -4661,45 +5099,57 @@ class AcpSession implements AgentSession {
       }
       return []
     })
-
-    // Where the agent's own usage record stands before the turn, for an agent
-    // that counts there rather than on the wire: what it gains from here on
-    // is this turn's.
-    const mark = this.#markRecord()
-
-    // ACP's prompt resolves when the *turn* ends; the send contract resolves
-    // on acceptance. Fire, return, and settle the turn when the agent does —
-    // including when it dies, which must fail the turn, never strand it.
-    void this.#host.connectionFor(this.id)
-      .request<AcpPromptResponse>('session/prompt', { sessionId: this.id, prompt })
-      .then((response) => {
-        // The turn's tokens land before the turn does, so the finished turn's
-        // tail already has them to show. ACP's own field first; an agent that
-        // counts in the extension slot instead is read from there, and one
-        // that says nothing at all, from its own record if it keeps one.
-        const usage = response.usage ?? quotaUsageOf(response._meta) ?? this.#recordedSince(mark)
-        if (usage) this.#recordTurnUsage(usage, response._meta?.harnessdesk?.inputTokensAreUncached === true)
-        // A turn nobody could account for is not the one before it: its figures
-        // are unknown, so the last turn shows none rather than the previous
-        // turn's under this one's name. For every runtime, not only the ones
-        // that keep a record of their own — an agent that reports usage on some
-        // turns and not others is the commoner shape, and it was the one left
-        // showing turn one's tokens and cache chip under turn two (#159).
-        else this.#forgetLastTurn()
-        this.#finishTurn(turn, response.stopReason)
-      })
-      .catch((error: unknown) => {
-        this.#host.refusedForSignIn(error)
-        this.#failTurn(turn, describeAcp(error))
-      })
-    return id
   }
 
-  async steer(): Promise<void> {
-    throw new Error(`${this.#host.agentName} cannot steer a running turn; interrupt it instead.`)
+  async steer(input: readonly UserContent[]): Promise<void> {
+    return this.#steer(input, 'user')
+  }
+
+  async #steer(input: readonly UserContent[], recordAs: 'user' | 'notice'): Promise<void> {
+    if (!this.#host.info.capabilities.steer) throw new Error(`${this.#host.agentName} cannot steer a running turn; interrupt it instead.`)
+    const turn = this.#currentTurn
+    if (!turn || !this.busy) throw new Error('There is no running turn to steer.')
+    const completion = this.#turnCompletion
+    const response = await this.#host.connectionFor(this.id).request<{ outcome: string }>(ACP_STEER, {
+      sessionId: this.id, prompt: this.#prompt(input), _meta: { steering: { idleBehavior: 'promptRequired' } },
+    })
+    if (response.outcome === 'promptRequired') {
+      await completion?.catch(() => {})
+      await this.send(input, { recordAs })
+      return
+    }
+    if (response.outcome !== 'injected') throw new Error('The agent did not confirm steering the running turn.')
+    const { content, context } = peelUserContent(recordDeskInput(input), ACP_ENVELOPE)
+    const item: AgentItem = recordAs === 'notice'
+      ? { id: itemId(`${turn.id}-steer-${randomUUID()}`), type: 'notice', text: plainTextOf(input), startedAt: Date.now() }
+      : { id: itemId(`${turn.id}-steer-${randomUUID()}`), type: 'userMessage', content, ...(context.length ? { context } : {}), startedAt: Date.now() }
+    turn.items.push(item)
+    // The original prompt may have settled before the steering reply arrived.
+    this.#turns = this.#turns.map(finished => finished.id === turn.id ? { ...finished, items: [...turn.items] } : finished)
+    this.#emit({ type: 'item/completed', sessionId: this.id, turnId: turn.id, item })
+  }
+
+  async setGoal(objective: string | null): Promise<void> {
+    if (!this.#host.info.capabilities.goals) throw new Error('This agent does not support goals.')
+    if (objective !== null && !objective.trim()) throw new Error('A goal needs an objective.')
+    const params = objective === null ? { sessionId: this.id, action: 'clear' } : { sessionId: this.id, action: 'set', objective }
+    const turn = this.#currentTurn
+    if (turn && this.busy) {
+      // Goals and steering are independent negotiated extensions. Preserve
+      // the structured action/objective on every path, including literal
+      // objectives that happen to look like a peer's command syntax.
+      const control = this.#host.connectionFor(this.id).request(ACP_GOAL, params)
+      turn.goalControlled = true
+      turn.controls ??= new Set()
+      turn.controls.add(control)
+      try { await control } finally { turn.controls.delete(control) }
+    } else {
+      await this.#send([{ type: 'text', text: objective === null ? 'Goal cleared' : `Goal set: ${objective}` }], { recordAs: 'notice' }, { method: ACP_GOAL, params })
+    }
   }
 
   async interrupt(): Promise<void> {
+    if (this.busy && this.#currentTurn) this.#currentTurn.interruptRequested = true
     this.#host.connectionFor(this.id).notify('session/cancel', { sessionId: this.id })
   }
 
@@ -4770,7 +5220,7 @@ class AcpSession implements AgentSession {
         // conversation opened stands in for turns this process never saw.
         this.#host.previewOf(this.id),
       cwd: this.#cwd,
-      status: this.#currentTurn ? { type: 'active' as const } : { type: 'idle' as const },
+      status: this.#openingProblem ? { type: 'error' as const, message: this.#openingProblem } : this.#currentTurn ? { type: 'active' as const } : { type: 'idle' as const },
       createdAt: Date.now(),
       updatedAt: Date.now(),
       git: null,
@@ -4795,7 +5245,8 @@ class AcpSession implements AgentSession {
       ],
       itemsLoaded: true,
       ...(this.#partialHistory ? { partialHistory: true } : {}),
-      forkedFrom: null,
+      forkedFrom: this.#forkedFrom,
+      goal: this.#goal,
       settings: this.settings(),
       options: this.options(),
       usage: this.#usage,
@@ -5033,6 +5484,13 @@ class AcpSession implements AgentSession {
         return
       }
       case 'session_info_update': {
+        if (this.#host.info.capabilities.goals) {
+          const goal = goalUpdate(update._meta)
+          if (goal !== undefined) {
+            this.#goal = goal
+            this.#emit({ type: 'session/goal', sessionId: this.id, goal })
+          }
+        }
         // The empty and whitespace-only title an agent might send between
         // naming turns is not a name to show — `titleOf` already treats
         // "nothing said yet" as no title, and a live update should not read
@@ -5294,6 +5752,7 @@ class AcpSession implements AgentSession {
                 const described = asked.options.find((one) => one.label === option.name)
                 return {
                   id: option.optionId,
+          once: option.kind === 'reject_once' || option.kind === 'allow_once',
                   label: option.name,
                   ...(described?.description ? { description: described.description } : {}),
                 }
@@ -5322,6 +5781,7 @@ class AcpSession implements AgentSession {
       // user asked me to write outside the workspace" and the dialog showed
       // `write`. A decision needs the sentence, not the verb.
       ...(permissionReason(request.toolCall) ? { reason: permissionReason(request.toolCall) } : {}),
+      cwd: typeof (request.toolCall.rawInput as { cwd?: unknown } | undefined)?.cwd === 'string' ? (request.toolCall.rawInput as { cwd: string }).cwd : this.#cwd,
       options: request.options.map((option) => {
         const geminiGrant = this.#host.info.capabilities.perToolMcpApproval && option.kind === 'allow_always'
           ? ({
@@ -5332,6 +5792,7 @@ class AcpSession implements AgentSession {
           : undefined
         return {
           id: option.optionId,
+          once: option.kind === 'reject_once' || option.kind === 'allow_once',
           label: option.name,
           ...(geminiGrant ? { description: geminiGrant.description, grant: geminiGrant.grant } : {}),
           intent:
@@ -5462,6 +5923,9 @@ const OPEN_TURN = -1
 
 interface MutableTurn {
   readonly id: TurnId
+  interruptRequested?: boolean
+  goalControlled?: boolean
+  controls?: Set<Promise<unknown>>
   items: AgentItem[]
   tools?: Map<string, ToolItemState>
   /**

@@ -1,9 +1,15 @@
+import { leadRoundId, leadRepairInput, leadRepairDetail, LEAD_REPAIR_INSTRUCTIONS, type LeadAcceptanceResult } from '@harnessdesk/lead'
+export { leadRoundId } from '@harnessdesk/lead'
+/** Durable host decision to wait for checks before revisiting this review. */
+export const leadCheckWaitKey = (round: number): string => `lead-check-wait:${round}`
 import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
+import { observedReviewTarget, reviewTargetDiagnostic } from './review-target-diagnostic.js'
 
 import { DEFAULT_FLOW_BUDGET, completesRound, isPersonReviewStep } from '@harnessdesk/protocol'
 import type {
+  CeilingLevel,
   CompiledFlow,
   EvidenceView,
   FindingId,
@@ -29,6 +35,7 @@ import type {
   GoalOrigin,
   GoalSeatRequest,
   Intent,
+  ReviewTargetBinding,
   Lane,
   RepairLead,
   SeatRecord,
@@ -83,6 +90,7 @@ export type StoredFlowExecution = FlowExecution & {
   authorization: { sourceDigest: string; commandDigest: string; approvedAt: number; start?: 'front-door' }
   /** The empty Goal a front-door start reserved, journaled with its start before the reservation is written. */
   reserving?: { readonly goal: string; readonly revision: number }
+  lead?: FlowLeadBinding
   operationTimes: Readonly<Record<string, { preparedAt: number; startedAt: number | null; finishedAt: number | null }>>
   /** Each check round's plan, by round number, written when the round's cards were: see `CheckPlan`. */
   checkPlans?: Readonly<Record<string, CheckPlan>>
@@ -163,8 +171,29 @@ export const UNREACHABLE = (cards: readonly number[], predecessor: number, why: 
 export const NOT_AT_BASE = (card: number, base: string): string =>
   `The Seat for card #${card} did not open at ${base.slice(0, 12)}, the commit this card starts from, so it was given no work. Start a new run.`
 
-/** What `startGoal` is handed: a compiled, authorized policy. Preview and its token are a later step's. */
+/** Host-only provenance, persisted before work; no wire parameter can supply it. */
+export interface FlowLeadBinding {
+  readonly logicalGoalId: string
+  readonly contractDigest: string
+  readonly startId: string
+  readonly stepId: string
+  /** Previous approved step's frozen reviewed commit; supplied only by host admission. */
+  readonly base?: string
+}
+export interface FlowLeadGuard {
+  acceptance?(run: StoredFlowExecution): Promise<LeadAcceptanceResult | null>
+  canRerunChecks?(run: StoredFlowExecution): Promise<boolean>
+  /** Host second-look authority and atomic admission, including terminal spend reopening. */
+  prepareSecondLook?(run: StoredFlowExecution, key: string, round: number): Promise<void>
+  prepareRepair?(run: StoredFlowExecution, key: string, round: number): Promise<void>
+  validateStart?(binding: FlowLeadBinding): Promise<void>
+  bind(run: StoredFlowExecution): Promise<void>
+  round(run: StoredFlowExecution, roundId: string): Promise<void>
+  gate(run: StoredFlowExecution): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>
+}
+/** A compiled, authorized start. Lead provenance is supplied by token redemption. */
 export interface FlowStartRequest {
+  readonly lead?: FlowLeadBinding
   readonly root: string
   readonly cwd?: string
   readonly sentence: string
@@ -245,7 +274,9 @@ export interface FlowExecutionPort {
   reviewTarget?(
     goal: string, card: Pick<Intent, 'title' | 'detail'> & { readonly id?: number }, number?: number | null,
     checkout?: FlowSubject['checkout'],
-  ): Promise<{ readonly at: string; readonly number: number } | { readonly why: string }>
+  ): Promise<{ readonly at: string; readonly number: number; readonly reviewTarget?: ReviewTargetBinding } | { readonly why: string }>
+  /** A review checkout can read the exact base commit, not only its head. */
+  hasReviewCommit?(cwd: string, sha: string): Promise<boolean>
   /** Fetches the configured base once, after its intent is journaled and before adoption. */
   fetchBase?(root: string, base: FlowBase, run: string): Promise<FlowBasePin>
   /** Deletes only an aborted, unadopted run’s retained base ref. */
@@ -296,6 +327,8 @@ export interface FlowExecutionPort {
   seatsOn(goal: string): readonly SeatRecord[]
   /** The Agent's current brief digest where this Goal would read it; null when it cannot be read. */
   digestOf(goal: string, agent: string): Promise<string | null>
+  /** The Goal's own sentence, handed to a Seat whose card title does not already say it. */
+  goalSentence?(goal: string): string | null
   /** Sends one turn to a Seat's conversation. */
   order(seat: SeatRecord, text: string): Promise<void>
   /**
@@ -314,6 +347,8 @@ export interface FlowExecutionPort {
   settleApprovals?(seat: SeatRecord, reason: string): Promise<void>
   /** The lane a Seat was given, or null when it has none. */
   laneOf(seat: SeatRecord): Lane | null
+  /** Reassert the held ceiling before any Lead hand-back. */
+  holdLeadSeat?(seat: SeatRecord, level: CeilingLevel): Promise<boolean>
   /** Puts a Seat back on the model and effort it was opened on and says what it is running. */
   reseat(seat: SeatRecord): Promise<string>
   changed(goal: string, runs: readonly FlowExecution[]): void
@@ -776,6 +811,7 @@ const questionStall = (card: number, reason: string): string => `Card #${card}: 
 const now = (): number => Date.now()
 
 export interface FlowExecutionsOptions {
+  readonly lead?: FlowLeadGuard
   readonly now?: () => number
   /** How long a pending release waits, past `RELEASE_STALL_MS`, before it stops being silent about it (#1027). Tests inject a small value; production leaves it at the default. */
   readonly releaseStallMs?: number
@@ -832,6 +868,7 @@ export interface PersonReviewBinding {
   readonly round: number
   readonly subjects: readonly FlowSubject[]
   readonly unsettled: readonly { readonly card: number; readonly why: string }[]
+  readonly refusal?: string
 }
 
 export class FlowExecutions {
@@ -840,12 +877,14 @@ export class FlowExecutions {
   readonly #port: FlowExecutionPort
   readonly #now: () => number
   readonly #facts: FlowExecutionsOptions['facts'] | null
+  readonly #lead: FlowLeadGuard | null
   readonly #triggered: FlowExecutionsOptions['triggered'] | null
   readonly #releaseStallMs: number
   readonly #queue = new SerialRun()
   #runs = new Map<string, StoredFlowExecution>()
   /** Seats whose release is waiting on their own turn-ended signal (#1027); keyed by Seat id. */
   readonly #pendingReleases = new Map<string, PendingRelease>()
+  readonly #leadRepairResumed = new Set<string>()
   /** Set once, at the top of `dispose()`, before anything below it can yield — every release path checks it, and once set nothing here schedules another timer or writes another document. */
   #disposed = false
   /** The checks running now, by Run: Stop owns one Run; a Goal pause reaches all its Runs. */
@@ -892,6 +931,7 @@ export class FlowExecutions {
     this.#port = port
     this.#now = options.now ?? now
     this.#facts = options.facts ?? null
+    this.#lead = options.lead ?? null
     this.#triggered = options.triggered ?? null
     this.#releaseStallMs = options.releaseStallMs ?? RELEASE_STALL_MS
   }
@@ -1595,6 +1635,52 @@ export class FlowExecutions {
     return { operation, seat: operation?.seat ? this.#port.seatOf(operation.seat) : null }
   }
 
+  /** Only the run's merge grant for its frozen PR and reviewed head can skip a question. */
+  isGuardedMergeStep(goal: string, card: number): boolean {
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.document.format !== 'agents') return false
+    return bindingsFor(found.run, found.round.role)[found.slot]?.grant === 'merge'
+  }
+
+  /** Journal-only authority; never performs a forge read while the gateway owns its queue. */
+  async mergeAuthority(goal: string, card: number, target: { readonly repository: string; readonly number: number; readonly head: string }): Promise<ReviewTargetBinding | null> {
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.state !== 'running' || !this.isMergeStep(goal, card, target) || !this.#facts) return null
+    const { run, round } = found
+    const frozen = run.target
+    if (frozen?.kind !== 'pull-request' || frozen.reviewBound === false || !frozen.repository || !frozen.baseRef || !frozen.base || !frozen.head || !frozen.pr ||
+        frozen.repository !== target.repository || frozen.pr !== target.number || frozen.head !== target.head) return null
+    const binding: ReviewTargetBinding = { repository: frozen.repository, number: frozen.pr, head: frozen.head, baseRef: frozen.baseRef, baseTip: frozen.base }
+    const cause = /^after:(\d+):(.+)$/.exec(round.cause)
+    const previous = cause && run.rounds.find(one => one.n === Number(cause[1]))
+    const rule = cause && policyOf(run).rules.find(one => one.id === cause[2] && one.then.role === round.role && one.on === previous?.role)
+    const answers = rule?.when?.evidence?.flatMap(one => 'review' in one ? [one.review] : []) ?? []
+    if (!previous || !rule || answers.length === 0) return null
+    const facts = await this.#facts(goal)
+    const current = this.#cardOf(goal, card)
+    if (!current || current.run !== run || current.round !== round || current.run.state !== 'running' || !this.isMergeStep(goal, card, target)) return null
+    if (round.evidence.some(id => facts.filter(one => one.record.id === id && !one.record.restored && one.freshness.state === 'fresh').length !== 1)) return null
+    const selected = facts.filter(one => round.evidence.includes(one.record.id) && one.record.fact.kind === 'review')
+    if (selected.length === 0 || answers.some(answer => !selected.some(one => one.record.fact.kind === 'review' && one.record.fact.verdict === answer))) return null
+    if (previous.seats.some(seat => !selected.some(one => one.record.fact.kind === 'review' && one.record.fact.by === seat))) return null
+    for (const view of selected) {
+      const fact = view.record.fact
+      if (fact.kind !== 'review' || view.record.restored || view.freshness.state !== 'fresh' || !answers.includes(fact.verdict) ||
+          !fact.reviewTarget || fact.reviewTarget.repository !== binding.repository || fact.reviewTarget.number !== binding.number ||
+          fact.reviewTarget.head !== binding.head || fact.reviewTarget.baseRef !== binding.baseRef || fact.reviewTarget.baseTip !== binding.baseTip) return null
+      const latest = facts.filter(one => one.record.fact.kind === 'review' && one.record.fact.by === fact.by && one.record.fact.at === fact.at).at(-1)
+      if (latest !== view) return null
+    }
+    return binding
+  }
+
+  isMergeStep(goal: string, card: number, target: { readonly number: number; readonly head: string }): boolean {
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.state !== 'running' || found.run.document.format !== 'agents') return false
+    const binding = bindingsFor(found.run, found.round.role)[found.slot]
+    return binding?.grant === 'merge' && found.run.target?.pr === target.number && found.run.target.head === target.head
+  }
+
   /** Which conversation may take this card, or null for a card no v2 run bound. */
   bindingOf(goal: string, card: number): { readonly session: SeatRecord['session'] | null; readonly opening: boolean } | null {
     const found = this.#cardOf(goal, card)
@@ -1675,6 +1761,8 @@ export class FlowExecutions {
   }
 
   async #externalReview(run: StoredFlowExecution, card: number): Promise<Omit<FlowClosure, 'cards'>> {
+    const frozenTarget = run.target?.kind === 'pull-request' && run.target.reviewBound !== false
+      ? observedReviewTarget({ repository: run.target.repository, number: run.target.pr, head: run.target.head, baseRef: run.target.baseRef, baseTip: run.target.base }) : null
     const intent = this.#team.stateFor(run.goal).intents.find((one) => one.id === card)
     // A working-tree snapshot has no committed candidate. A PR binding
     // cannot turn it into a review of that PR's head, even after it is clean.
@@ -1692,21 +1780,36 @@ export class FlowExecutions {
     const target = pinned && run.target?.pr === null ? { at: pinned, number: null }
       : await this.#port.reviewTarget(run.goal, pinned ? { id: intent.id, title: '', detail: null } : intent, this.#targetPr(run), seat?.checkout)
     if ('why' in target) {
-      this.#team.reviewAvailability(run.goal, card, target.why)
+      const why = frozenTarget ? `${target.why} ${reviewTargetDiagnostic(frozenTarget, undefined, 'verified open pull request')}` : target.why
+      this.#team.reviewAvailability(run.goal, card, why)
       await this.#team.flush()
-      return { subjects: [], unsettled: [], refusal: target.why }
+      return { subjects: [], unsettled: [], refusal: why }
     }
     if (!seat) return { subjects: [], unsettled: [], refusal: 'This review’s checkout is not available yet. Ask for candidates after its Seat opens.' }
     const head = await this.#port.headOf(seat.checkout.cwd, seat.checkout.branch)
+    const team = this.#team.stateFor(run.goal)
+    const comparisonRoot = team.cwd ?? team.root
     const label = target.number === null ? 'This review' : `Pull request #${target.number}`
-    const why = pinned && target.at !== pinned ? `${label} moved from the commit this Run reviews. Start a new review at its current head.`
+    const frozen = run.target?.kind === 'pull-request' ? run.target : null
+    const wantsBinding = !!frozen && frozen.reviewBound !== false && !!frozen.repository && !!frozen.baseRef && !!frozen.base
+    const binding = wantsBinding && 'reviewTarget' in target ? target.reviewTarget : undefined
+    const changedBinding = frozenTarget && binding && (frozenTarget.repository !== binding.repository || frozenTarget.number !== binding.number || frozenTarget.head !== binding.head || frozenTarget.baseRef !== binding.baseRef || frozenTarget.baseTip !== binding.baseTip)
+    const why = changedBinding ? reviewTargetDiagnostic(frozenTarget, binding)
+      : pinned && target.at !== pinned ? `${label} moved from the commit this Run reviews. Start a new review at its current head.`
       : head.at !== target.at ? `${label} moved or its review checkout is not at ${target.at.slice(0, 12)}. Start a new review at its current head.`
-      : head.dirty ? `${label}'s review checkout has uncommitted changes.` : null
+      : head.dirty ? `${label}'s review checkout has uncommitted changes.`
+      : wantsBinding && !binding ? frozenTarget ? reviewTargetDiagnostic(frozenTarget, undefined, 'pull request read') : `${label}'s target could not be verified. Start a fresh review.`
+      : wantsBinding && frozen && (!binding || frozen.repository !== binding.repository || frozen.pr !== binding.number || frozen.head !== binding.head || frozen.baseRef !== binding.baseRef || frozen.base !== binding.baseTip)
+        ? `${label}'s target changed or was not recorded. Start a fresh review.`
+      : binding && !await this.#port.hasReviewCommit?.(seat.checkout.cwd, binding.baseTip)
+        ? `${label}'s destination commit is not available in its review checkout. Fetch it and start a fresh review.`
+      : binding && (!await this.#port.hasReviewCommit?.(comparisonRoot, binding.baseTip) || !await this.#port.hasReviewCommit?.(comparisonRoot, binding.head))
+        ? `${label}'s comparison commits are not available in the Team's project. Fetch them and start a fresh review.` : null
     this.#team.reviewAvailability(run.goal, card, why)
     await this.#team.flush()
     if (why) return { subjects: [], unsettled: [{ card, why }], refusal: why }
     const round = run.rounds.find((one) => one.cards.includes(card))!
-    return { subjects: [{ card, round: round.n, checkout: seat.checkout, at: target.at }], unsettled: [] }
+    return { subjects: [{ card, round: round.n, checkout: seat.checkout, at: target.at, ...(binding ? { reviewTarget: binding } : {}) }], unsettled: [] }
   }
 
   async #heads(run: StoredFlowExecution, cards: readonly number[]): Promise<Omit<FlowClosure, 'cards'>> {
@@ -1888,6 +1991,7 @@ export class FlowExecutions {
     if (await this.#committerSharing(seat.checkout.cwd, goal, card)) {
       return "Refused: another card is working in this checkout, so its changes can't be told apart from yours; nothing was committed. Ask the person to commit, or isolate the role."
     }
+    if (run.lead && !await this.#mayDispatch(run.id)) return 'Refused: Lead dispatch stopped.'
     if (!this.#port.commitWork) return 'Refused: this desk cannot commit for a Seat.'
     const made = await this.#port.commitWork(seat.checkout.cwd, before, message, seat)
     if ('refused' in made) return made.refused
@@ -2004,6 +2108,7 @@ export class FlowExecutions {
     if (inTurn >= RUN_CHECK_PER_TURN) {
       return `Refused: card #${card} has used its ${RUN_CHECK_PER_TURN} run_check runs for this turn; rely on what they printed.`
     }
+    if (run.lead && !await this.#mayDispatch(run.id)) return 'Refused: Lead dispatch stopped.'
     if (!this.#port.checkoutAt) return 'Refused: this desk cannot cut a checkout to run a check in.'
     this.#checkAsks.set(ask, { turn, inTurn: inTurn + 1, total: asked.total + 1 })
     this.#checkAsking.add(ask)
@@ -2025,6 +2130,7 @@ export class FlowExecutions {
           }
         }
         const context = this.#checkContext(run, round.n, [{ card, round: round.n, checkout: { cwd: where, branch: null }, at }])
+        if (this.#get(run.id).lead && !await this.#mayDispatch(run.id)) return 'Refused: Lead dispatch stopped.'
         outcome = await this.#port.runCheck(
           check.run,
           { cwd: where, timeoutSec: check.timeout, flowContext: context, signal: controller.signal },
@@ -2125,6 +2231,16 @@ export class FlowExecutions {
     return this.#queue.within(runId, () => this.#personReviewBindingNow(runId, card))
   }
 
+  /** Synchronous admission fence for the evidence store; it does not enter the run queue. */
+  personReviewAdmitted(goal: string, card: number, round: number): boolean {
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.state !== 'running' || found.run.document.format !== 'agents' ||
+        found.round.n !== round || found.round.state !== 'running') return false
+    const role = found.run.document.flow.roles.find(one => one.id === found.round.role)
+    const intent = this.#team.stateFor(goal).intents.find(one => one.id === card)
+    return !!role && role.kind === 'person' && isPersonReviewStep(found.run.document.flow, role.id) && intent?.state === 'open' && intent.role === role.id
+  }
+
   async #personReviewBindingNow(runId: string, card: number): Promise<PersonReviewBinding | null> {
     const run = this.#runs.get(runId)
     if (!run || run.state !== 'running' || run.document.format !== 'agents') return null
@@ -2147,6 +2263,7 @@ export class FlowExecutions {
       round: round.n,
       subjects,
       unsettled: closure.unsettled,
+      ...(closure.refusal ? { refusal: closure.refusal } : {}),
     }
   }
 
@@ -2656,8 +2773,10 @@ export class FlowExecutions {
     const refused = this.refusal()
     if (refused) throw new Error(refused)
     if (request.compiled.document.format !== 'agents') throw new Error('Only a flow in the Agent format starts a new Goal. Update this flow first.')
+    if (request.lead && (!request.requireHeld || !this.#lead)) throw new Error('lead-start-not-approved')
     const errors = request.compiled.problems.filter((one) => one.level === 'error')
     if (errors.length) throw new Error(`This flow will not run yet:\n${errors.map((one) => `• ${one.at}: ${one.text}`).join('\n')}`)
+    if (request.lead) await this.#lead!.validateStart?.(request.lead)
     const policy = request.compiled.document.flow
     const earlier = request.continues ? this.#get(request.continues) : null
     if (earlier) {
@@ -2690,6 +2809,7 @@ export class FlowExecutions {
     const at = this.#now()
     // The start is journaled before the Goal exists — or before an empty one is reserved — so a restart finds the Goal by this run rather than making or reserving another.
     let run: StoredFlowExecution = {
+      ...(request.lead ? { lead: structuredClone(request.lead) } : {}),
       version: 2, id, goal: '', document: request.compiled.document, state: 'running', rounds: [], operations: [],
       legacyRun: null, reason: null, compiled: request.compiled, source: request.source, sourcePath: request.sourcePath,
       vars, startedAt: at, updatedAt: at, authorization: request.authorization, operationTimes: {},
@@ -2711,6 +2831,7 @@ export class FlowExecutions {
       await this.#abortBaseStart(id, error)
       throw error
     }
+    if (run.lead) await this.#lead!.validateStart?.(run.lead)
     const base = run.base
     let goal: { readonly id: string }
     if (earlier) {
@@ -2742,7 +2863,7 @@ export class FlowExecutions {
           root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
           origin: { kind: 'flow', run: id },
           // Every Seat of a review of a branch, a pull request or a diff works at the commit its preview resolved.
-          ...(base || request.target?.head ? { at: base?.at ?? request.target!.head! } : {}),
+          ...(base || request.lead?.base || request.target?.head ? { at: base?.at ?? request.lead?.base ?? request.target!.head! } : {}),
         })
       } catch (error) {
         await this.#abortBaseStart(id, error)
@@ -2757,6 +2878,11 @@ export class FlowExecutions {
   /** Board policy, then the seed round. Shared by a fresh start and a restart that finds the start half done. */
   async #afterStart(id: string): Promise<void> {
     const run = this.#get(id)
+    if (run.lead) {
+      if (!this.#lead) throw new Error('lead-guard-unavailable')
+      await this.#lead.bind(run)
+      if (!await this.#mayDispatch(id)) return
+    }
     const policy = policyOf(run)
     // Visible and fixed for the life of the run: board-only unless the policy said members.
     this.#team.setMessaging(run.goal, policy.messaging === 'members')
@@ -2771,6 +2897,24 @@ export class FlowExecutions {
    */
   async #open(id: string, then: FlowThen, cause: { readonly key: string; readonly evidence: readonly string[] }, dependsOn: readonly number[]): Promise<void> {
     try {
+      const run = this.#get(id)
+      // A hold is a rule decision, not a successful round opening. In particular
+      // a second look must always receive the new round it asked to open.
+      const fromReview = dependsOn.length > 0 ? run.rounds.find(round => round.role === 'review' && dependsOn.every(card => round.cards.includes(card))) : undefined
+      if (run.lead && then.role === 'implement' && fromReview && !run.rounds.some(round => round.cause === cause.key)) {
+        const acceptance = await this.#readLeadAcceptance(run)
+        const canRerun = acceptance?.checksCouldNotRun && await this.#canRerunLeadChecks(run)
+        if (this.#stopRequests.has(id) || this.#get(id).state !== 'running') return
+        if (canRerun) {
+          await this.#put(this.#operation({ ...this.#get(id), reason: 'Waiting for the required checks to run again.' }, leadCheckWaitKey(fromReview.n),
+            { kind: 'round', state: 'finished', card: null, seat: null }))
+          return
+        }
+        if (acceptance?.checksReadyForReview && run.operations.some(operation => operation.key === leadCheckWaitKey(fromReview.n))) {
+          const review = policyOf(run).rules.find(rule => rule.on === 'implement' && rule.then.role === 'review')?.then
+          if (review) then = review
+        }
+      }
       await this.#openRound(id, then, cause, dependsOn)
     } catch (error) {
       // The Stop ahead of this step ends the run, saying why; this is not a round that could not open.
@@ -2786,6 +2930,21 @@ export class FlowExecutions {
       } catch (stalling) {
         this.#port.log('a flow run could not record why it stopped', { run: id, error: stalling instanceof Error ? stalling.message : String(stalling) })
       }
+    }
+  }
+
+  async #readLeadAcceptance(run: StoredFlowExecution): Promise<LeadAcceptanceResult | null> {
+    try { return await this.#lead?.acceptance?.(run) ?? null }
+    catch (error) {
+      this.#port.log('Lead acceptance evidence could not be read; keeping the Flow transition', { run: run.id, error: String(error) })
+      return null
+    }
+  }
+  async #canRerunLeadChecks(run: StoredFlowExecution): Promise<boolean> {
+    try { return await this.#lead?.canRerunChecks?.(run) ?? false }
+    catch (error) {
+      this.#port.log('Lead check actions could not be read; keeping the repair transition', { run: run.id, error: String(error) })
+      return false
     }
   }
 
@@ -2833,6 +2992,7 @@ export class FlowExecutions {
         throw new TriggerRefusal('This Goal already has a run. A trigger’s run attaches only to its own new Goal.')
       }
       const closure = await triggered.freeze(request.root, request.definition)
+      if (!closure.preview || 'lead' in request.definition.opens) throw new TriggerRefusal('A Lead trigger drafts a plan for approval; it cannot start a Flow.')
       const compiled = closure.preview.compiled
       if (compiled.document.format !== 'agents') throw new TriggerRefusal('Only a flow in the Agent format runs from a trigger.')
       const policy = compiled.document.flow
@@ -2935,15 +3095,21 @@ export class FlowExecutions {
    * none, the run waits for a person with the reason. Idempotent, and it
    * never discards a card, an answer or a finding.
    */
-  supersedeTriggered(id: string, why: string, next: 'round' | 'person'): Promise<void> {
+  supersedeTriggered(id: string, why: string, next: 'round' | 'person', key: string): Promise<boolean> {
     return this.#queue.within(id, async () => {
       const run = this.#get(id)
       if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
       if (next === 'round') {
-        if (!run.intake.dispatchHeld) await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true } })
-        return
+        // An existing cause is this firing's round, even when a later firing has since landed.
+        if (run.rounds.some((round) => round.cause === `cause:intake:${key}`)) return false
+        // A crash before opening the round must reuse the boundary already saved for this firing.
+        if (run.intake.supersessionKey === key) return true
+        const through = Math.max(run.intake.supersededThrough ?? 0, ...run.rounds.map((round) => round.n))
+        await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true, rearm: [], supersededThrough: through, supersessionKey: key } })
+        return true
       }
       if (run.state === 'running' && run.reason !== why) await this.#stall(id, why)
+      return true
     })
   }
 
@@ -2967,17 +3133,30 @@ export class FlowExecutions {
     for (const controller of this.#checks.get(id) ?? []) controller.abort()
   }
 
-  async #mayDispatch(id: string): Promise<boolean> {
+  async #mayDispatch(id: string, held?: { pending: boolean }): Promise<boolean> {
     const run = this.#get(id)
+    if (run.lead) {
+      const verdict = await this.#leadGate(id)
+      if (!verdict.ok) return false
+    }
     if (!run.intake) return true
     if (run.intake.dispatchHeld) return false
     const verdict = await this.#gateOf(id)
     if (verdict.ok) return true
     // Gated, but by a hold that is already being cleaned up under its own reason: holding again would replace it with this sentence.
-    if (verdict.pending) return false
+    if (verdict.pending) {
+      if (held) held.pending = true
+      return false
+    }
     if (verdict.transient) await this.#hold(id, verdict.reason)
     else await this.#stall(id, verdict.reason)
     return false
+  }
+
+  async #leadGate(id: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }> {
+    const run = this.#get(id)
+    if (!run.lead) return { ok: true }
+    return this.#lead ? this.#lead.gate(run) : { ok: false, reason: 'lead-guard-unavailable' }
   }
 
   async #gateOf(id: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string; readonly transient?: boolean; readonly pending?: boolean }> {
@@ -3043,15 +3222,14 @@ export class FlowExecutions {
    * A Seat's turn ended while its run was held by a pause or the cap: it is
    * handed its card again once the hold lifts, never while it stands.
    */
-  async #noteHeld(id: string, operation: FlowOperation): Promise<void> {
+  async #noteHeld(id: string, operation: FlowOperation, pending: boolean): Promise<void> {
     /* Held, or about to be: a hold whose cleanup the budget watch has not
        finished is not on the run yet, and the Seat whose turn ended meanwhile
        is handed its card when the hold is released all the same. */
-    if (!this.#get(id).intake?.heldFor) {
-      const gate = await this.#gateOf(id)
-      if (gate.ok || !gate.pending) return
-    }
     const run = this.#get(id)
+    // A supersede hold has no hold reason: its old cards must not return.
+    if (run.intake?.dispatchHeld && !run.intake.heldFor) return
+    if (!run.intake?.heldFor && !pending) return
     if (!run.intake || run.intake.rearm?.includes(operation.key)) return
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)
     if (!card || done(card)) return
@@ -3060,12 +3238,92 @@ export class FlowExecutions {
 
   // --------------------------------------------------------------- rounds
 
+  /** Host-only continuation of a proved worker blocker. This never creates a
+   * new run or repeats a Flow start; the same step owns one newly admitted
+   * round. A cause key survives polling and recovery. Person and budget stops
+   * remain terminal, and uncertain effects are never replayed here.
+   */
+  restartLeadStopped(id: string, stopKey: string): Promise<FlowRoundState> {
+    return this.#queue.within(id, async () => {
+      let run = this.#get(id)
+      if (!/^second-look-[a-f0-9]{64}$/.test(stopKey) || !run.lead || !this.#lead?.prepareSecondLook || this.#continued(run))
+        throw new Error('lead-second-look-run-unavailable')
+      const cause = `cause:lead:${stopKey}`, existing = run.rounds.find(round => round.cause === cause)
+      if (existing && existing.state !== 'opening') return existing
+      const previous = existing ? run.rounds.find(round => round.n === existing.n - 1) : run.rounds.at(-1)
+      const role = previous && policyOf(run).roles.find(role => role.id === previous.role)
+      const cards = previous ? this.#team.stateFor(run.goal).intents.filter(card => previous.cards.includes(card.id)) : []
+      const workerStop = run.state === 'settled' && run.end?.kind === 'unrouted' && run.end.outcome === 'blocked' ||
+        run.state === 'stalled' && run.end?.kind === 'stalled' || run.state === 'stopped' && run.end?.kind === 'stopped' && run.end.by === 'desk'
+      if ((!existing && !workerStop) || !previous || role?.kind !== 'agent' || !cards.length || cards.length !== previous.cards.length ||
+        !cards.every(done) || run.operations.some(operation => operation.state === 'uncertain') || this.#stopRequests.has(id))
+        throw new Error('lead-second-look-run-unavailable')
+      // The guard validates current consent, the journaled stop claim, and the
+      // same contract binding, then admits this round with existing caps.
+      await this.#lead.prepareSecondLook(run, stopKey, existing?.n ?? run.rounds.length + 1)
+      const admission = await this.#leadGate(id)
+      if (!admission.ok) throw new Error(admission.reason)
+      if (this.#stopRequests.has(id)) throw new StopPending()
+      run = await this.#put({ ...this.#get(id), state: 'running', reason: null })
+      // Fresh metering after the state change covers this reopened execution.
+      // #openRound rechecks dispatch, records round accounting, then dispatches.
+      const restarted = await this.#openRound(run.id, { role: role.id, title: cards[0]!.title,
+        ...(cards[0]!.detail ? { detail: cards[0]!.detail! } : {}) },
+        { key: cause, evidence: previous.evidence }, [...new Set(cards.flatMap(card => card.dependsOn))])
+      if (restarted.state !== 'running' || this.#get(id).state !== 'running') throw new Error('lead-second-look-restart-refused')
+      return restarted
+    })
+  }
+
   /** Phase 8's entry: a round opened for an outside cause, idempotent on its key. */
   openRound(id: string, then: FlowThen, cause: { readonly key: string; readonly evidence: readonly string[] }): Promise<FlowRoundState> {
     return this.#queue.within(id, () => this.#openRound(id, then, { key: `cause:${cause.key}`, evidence: cause.evidence }, []))
   }
 
-  async #openRound(id: string, then: FlowThen, cause: { readonly key: string; readonly evidence: readonly string[] }, dependsOn: readonly number[]): Promise<FlowRoundState> {
+  /** Host-only repair admission. Cards and round accounting land before any worker can run. */
+  prepareLeadRepair(op: { readonly runId: string; readonly teamId: string; readonly key: string; readonly round: number; readonly detail?: string }): Promise<FlowRoundState> {
+    return this.#queue.within(op.runId, async () => {
+      let run = this.#get(op.runId)
+      if (!run.lead || !this.#lead?.prepareRepair || run.goal !== op.teamId || this.#continued(run)) throw new Error('lead-repair-run-unowned')
+      const cause = `cause:lead:${op.key}`, existing = run.rounds.find(round => round.cause === cause)
+      if (existing && existing.state !== 'opening') return existing
+      await this.#lead.prepareRepair(run, op.key, op.round)
+      if (run.state === 'stopped' || run.state === 'stalled' || !existing && run.rounds.length + 1 !== op.round) throw new Error('lead-repair-run-unavailable')
+      if (!existing && run.rounds.at(-1)?.role !== 'accept') throw new Error('lead-repair-acceptance-missing')
+      // Acceptance closes asynchronously outside this queue. Its outstanding
+      // findings close must land before a new repair resets the progress window.
+      const acceptance = run.rounds.at(-1)
+      const answered = acceptance?.cards.every(id => this.#team.stateFor(run.goal).intents.some(card => card.id === id && done(card)))
+      if (!existing && answered && (acceptance?.state !== 'closed' || run.findings && !run.operations.some(op => op.key === `close:${acceptance.n}` && op.state === 'finished')))
+        throw new Error('lead-repair-acceptance-pending')
+      // A newly observed external event begins a fresh progress window. Keep
+      // the total round ceiling and all findings; person acceptance itself
+      // produced no worker evidence and must not spend this repair's window.
+      run = await this.#put({ ...run, state: 'running', reason: null,
+        ...(!existing && run.findings ? { findings: { ...run.findings, idleRounds: 0 } } : {}) })
+      return this.#openRound(run.id, { role: 'implement', title: 'Repair the followed pull request',
+        detail: `${op.detail ?? 'Repair the observed checks or review on this branch.'}\n\nCommit the change. ${LEAD_REPAIR_INSTRUCTIONS} Person acceptance still applies. Never publish or merge.` },
+        { key: cause, evidence: [] }, [], true)
+    })
+  }
+  releaseLeadRepair(op: { readonly runId: string; readonly key: string }): Promise<void> {
+    return this.#queue.within(op.runId, async () => {
+      const run = this.#get(op.runId), round = run.rounds.find(round => round.cause === `cause:lead:${op.key}`)
+      if (!round || !await this.#mayDispatch(run.id)) return
+      if (round.state !== 'opening') {
+        if (this.#leadRepairResumed.has(op.key)) return
+        const seated = this.#openCardSeatings(run.id)
+        await this.#advance(run.id)
+        for (const operation of seated) await this.#reArm(run.id, operation, 'relaunched')
+        this.#leadRepairResumed.add(op.key)
+        return
+      }
+      await this.#openRound(run.id, { role: 'implement', title: 'Repair the followed pull request' }, { key: round.cause, evidence: round.evidence }, [])
+      this.#leadRepairResumed.add(op.key)
+    })
+  }
+
+  async #openRound(id: string, then: FlowThen, cause: { readonly key: string; readonly evidence: readonly string[] }, dependsOn: readonly number[], heldRepair = false): Promise<FlowRoundState> {
     let run = this.#get(id)
     const existing = run.rounds.find((one) => one.cause === cause.key)
     if (existing && existing.state !== 'opening') return existing
@@ -3076,15 +3334,44 @@ export class FlowExecutions {
        never be followed by. It is checked again below, past everything this
        step waits on, because a Stop can be accepted while it does. */
     if (this.#stopRequests.has(id)) throw new StopPending()
+    if (run.lead && !heldRepair && !await this.#mayDispatch(id)) throw new StopPending()
     const ready = this.#port.canDispatch(run.goal)
     if (!ready.ok) throw new Error(ready.reason)
     const blocked = this.refusal(run.goal)
     if (blocked) throw new Error(blocked)
     const policy = policyOf(run)
+    // A recorded read-only continuation keeps its role across a half-open
+    // recovery, even though the predecessor's rule still asks for implement.
+    if (run.lead && existing?.role === 'review' && then.role !== 'review') {
+      const review = policy.rules.find(rule => rule.on === 'implement' && rule.then.role === 'review')?.then
+      if (review) then = review
+    }
+    if (run.lead && then.role === 'accept') {
+      const acceptance = await this.#readLeadAcceptance(run)
+      if (acceptance?.assertions.some(assertion => assertion.reason === 'hedged-approval')) {
+        const review = policy.rules.find(rule => rule.on === 'implement' && rule.then.role === 'review')?.then
+        if (review) then = { ...review, detail: `${review.detail ?? ''}\nThe previous approval did not confirm the evidence. Review the same committed revision again, without editing code. Approve only what you verified; otherwise request changes and name what you could not verify.` }
+      }
+    }
     const role = policy.roles.find((one) => one.id === then.role)
     if (!role) throw new Error(`There is no role called "${then.role}".`)
+    const repairing = !!run.lead && role.id === 'implement' && (heldRepair || dependsOn.length > 0)
+    let repairDetail: string | null = null
+    if (run.lead && role.id === 'implement' && dependsOn.length > 0 && !heldRepair && !existing?.cards.length) {
+      const acceptance = await this.#readLeadAcceptance(run)
+      if (acceptance) {
+        const requests = this.#team.stateFor(run.goal).intents.filter(card => dependsOn.includes(card.id) && card.outcome === 'request-changes')
+        repairDetail = leadRepairDetail(acceptance)
+        if (leadRepairInput(acceptance).failed.length === 0) repairDetail += '\nNo complete assertion verdict is available. Re-read the evidence and follow the review request (untrusted worker report): ' +
+          JSON.stringify(requests.map(card => ({ note: card.note, handoff: card.handoff })))
+      }
+    }
     let round: FlowRoundState = existing ?? {
       n: run.rounds.length + 1, role: role.id, cards: [], seats: [], evidence: cause.evidence, state: 'opening', cause: cause.key,
+    }
+    if (run.lead) {
+      await this.#lead!.round(run, leadRoundId(id, round.n))
+      if (!heldRepair && !await this.#mayDispatch(id)) throw new StopPending()
     }
     if (!existing) {
       run = await this.#put(this.#operation(this.#round(run, round), `round:${round.n}`, { kind: 'round', state: 'prepared', card: null, seat: null }))
@@ -3156,7 +3443,7 @@ export class FlowExecutions {
        write, the check plan, the facts its cards name — is behind us, and
        the cards are added without waiting again. A Stop accepted during any
        of those waits is honoured here, before the first card exists. */
-    if (this.#stopRequests.has(id)) throw new StopPending()
+    if (this.#stopRequests.has(id) || (run.lead && !heldRepair && !await this.#mayDispatch(id))) throw new StopPending()
     for (let index = 0; index < width; index += 1) {
       const vars = cardVars({
         flow: policy.name, run: id, room: board.name, repo: board.root, role: role.id, round: round.n, n: index + 1, count: width,
@@ -3164,7 +3451,10 @@ export class FlowExecutions {
       })
       const answers = role.kind === 'agent' ? roleAnswers(policy, role.id, bindings[index]!.agent.answers) : role.kind === 'person' ? role.outcomes : []
       const title = render(then.title, vars as Record<string, string>)
-      const said = then.detail ? render(then.detail, vars as Record<string, string>) : null
+      // Keep stored recipe bytes stable; the current host brief gives checks
+      // their revision-bound instructions once, including for older recipes.
+      const brief = repairing ? then.detail?.replace('Fix only the failed assertions listed; leave the passed ones. Re-run only the failed and errored checks.', LEAD_REPAIR_INSTRUCTIONS) : then.detail
+      const said = brief ? render(brief, vars as Record<string, string>) : null
       const refused = [title, said].find((one): one is Error => one instanceof Error)
       if (refused) {
         await this.#stall(id, refused.message)
@@ -3172,6 +3462,8 @@ export class FlowExecutions {
       }
       const detail = board.intents.find((one) => one.dispatch === `${id}:${round.n}:${index}`)?.detail ?? [
         said as string | null,
+        repairing && !(said as string | null)?.includes(LEAD_REPAIR_INSTRUCTIONS) ? LEAD_REPAIR_INSTRUCTIONS : null,
+        repairDetail,
         answers.length > 0 && role.kind !== 'check' ? `Finish this with complete_claim and an outcome of exactly one of: ${answers.join(', ')}.` : null,
         ...asksSplit,
       ].filter((one): one is string => Boolean(one)).join('\n\n')
@@ -3198,7 +3490,7 @@ export class FlowExecutions {
     /* A trigger's run stops here while its dispatch is held, or its gate
        refuses: the round's cards exist, and nothing is seated, handed over or
        run until `resumeTriggered` lets it go and the gate allows it. */
-    if (!await this.#mayDispatch(id)) return this.#get(id).rounds.find((one) => one.n === round.n)!
+    if (heldRepair || !await this.#mayDispatch(id)) return this.#get(id).rounds.find((one) => one.n === round.n)!
     /* A later review of a series gets its repair packet, read and pinned
        before any of its Seats opens: a delta that cannot be read in full
        stops the run here, with nothing seated. */
@@ -3319,6 +3611,19 @@ export class FlowExecutions {
    * read it through, stops the round.
    */
   async #planSeats(run: StoredFlowExecution, round: FlowRoundState, isolate: boolean, dependsOn: readonly number[]): Promise<SeatPlan | string> {
+    if (run.target?.kind === 'pull-request' && round.cards.some(card => this.requiresReview(run.goal, card))) {
+      const frozen = run.target
+      const bound = frozen.reviewBound !== false && !!frozen.repository && !!frozen.baseRef && !!frozen.base
+      if (!frozen.pr || !frozen.head || !this.#port.reviewTarget) {
+        return 'This pull request review has no complete saved target. Start a fresh review from the pull request.'
+      }
+      const current = await this.#port.reviewTarget(run.goal, { title: '', detail: null }, frozen.pr)
+      if ('why' in current || !bound && current.at !== frozen.head || bound && (!current.reviewTarget || current.reviewTarget.repository !== frozen.repository ||
+          current.reviewTarget.number !== frozen.pr || current.reviewTarget.head !== frozen.head ||
+          current.reviewTarget.baseRef !== frozen.baseRef || current.reviewTarget.baseTip !== frozen.base)) {
+        return 'The pull request target changed or could not be verified. Start a fresh review.'
+      }
+    }
     const closure = await this.#closure(run, dependsOn)
     // A person or read-only step can precede the review without supplying a
     // writer's revision. Resolve the review's PR only after that walk is empty.
@@ -3330,7 +3635,7 @@ export class FlowExecutions {
         await this.#team.flush()
         if ('at' in target) return { base: target.at, handed: [] }
       }
-      return { base: run.base?.at ?? null, handed: [] }
+      return { base: run.base?.at ?? run.lead?.base ?? null, handed: [] }
     }
     const board = this.#team.stateFor(run.goal)
     const shared = board.cwd ?? board.root
@@ -3343,8 +3648,8 @@ export class FlowExecutions {
     const handed = closure.subjects.map((one) => ({ card: one.card, at: one.at, branch: one.checkout.branch, cwd: one.checkout.cwd }))
     // The one rule a dry run states too (`rolesAtPredecessor`), so what it said is what runs.
     const where = handedCheckout(isolate, handed.map((one) => ({ apart: !sameCanonicalPath(one.cwd, shared) })))
-    if (where === 'own') return { base: run.base?.at ?? null, handed: [] }
-    return { base: where === 'lane' ? handed[0]!.at : run.base?.at ?? null, handed }
+    if (where === 'own') return { base: run.base?.at ?? run.lead?.base ?? null, handed: [] }
+    return { base: where === 'lane' ? handed[0]!.at : run.base?.at ?? run.lead?.base ?? null, handed }
   }
 
   async #seatRound(
@@ -3373,6 +3678,7 @@ export class FlowExecutions {
     const mayGo = async (): Promise<boolean | 'fail'> => {
       const current = this.#get(id)
       if (this.#stopRequests.has(id) || current.state !== 'running') return false
+      if (current.lead && !await this.#mayDispatch(id)) return false
       if (!current.intake) return true
       if (current.intake.dispatchHeld) return false
       const verdict = await this.#gateOf(id)
@@ -3390,7 +3696,14 @@ export class FlowExecutions {
       let run = this.#get(id)
       const card = round.cards[index]!
       const key = `seat:${round.n}:${index}`
-      const prior = run.operations.find((one) => one.key === key)
+      let prior = run.operations.find((one) => one.key === key)
+      if (!prior && run.lead && round.role === 'implement' && run.rounds.some(one => one.n <= round.n && one.cause.startsWith('cause:lead:'))) {
+        const earlier = run.rounds.filter(one => one.n < round.n && one.role === 'implement').at(-1)
+        const seat = earlier?.seats[index] && this.#port.seatOf(earlier.seats[index]!)
+        if (!seat || !await this.#sameSeat(id, seat, card, round.role, 'released')) return false
+        run = await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'finished', card, seat: String(seat.id) }))
+        prior = run.operations.find(one => one.key === key)
+      }
       if (prior?.state === 'finished' && prior.seat) {
         const kept = this.#port.seatOf(prior.seat)
         if (!kept) return fail(`The Seat recorded for card #${card} can no longer be read. Its work is kept; start a new run.`)
@@ -3403,10 +3716,12 @@ export class FlowExecutions {
           }
         }
         const handed = run.operations.some((one) => one.key === `turn:${round.n}:${index}` && one.state === 'finished')
-        if (!handed && base !== null && (await this.#port.headOf(kept.checkout.cwd, null)).at !== base) {
+        if (!handed && base !== null && !(run.lead && round.role === 'implement' && run.rounds.some(one => one.cause.startsWith('cause:lead:'))) && (await this.#port.headOf(kept.checkout.cwd, null)).at !== base) {
           openedNow.push(String(kept.id))
           return fail(NOT_AT_BASE(card, base))
         }
+        const current = this.#get(id), saved = current.rounds.find(one => one.n === round.n)!
+        if (!saved.seats.includes(String(kept.id))) await this.#put(this.#round(current, { ...saved, seats: [...saved.seats, String(kept.id)] }))
         seats.push(kept)
         continue
       }
@@ -3439,7 +3754,7 @@ export class FlowExecutions {
       if (await mayGo() !== true) return false
       run = await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'started', card, seat: null }))
       // A Stop accepted during the journal must precede the initial brief.
-      if (this.#stopRequests.has(id) || run.state !== 'running') {
+      if (this.#stopRequests.has(id) || run.state !== 'running' || (run.lead && !await this.#mayDispatch(id))) {
         await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'uncertain', card, seat: null }))
         return false
       }
@@ -3520,6 +3835,7 @@ export class FlowExecutions {
    * refused for any other reason is a refusal (the answer, its words).
    */
   async #handOver(id: string, key: string, seat: SeatRecord, cardId: number | null, binding: FlowBinding, lead?: string): Promise<string | null> {
+    if (this.#get(id).lead && !await this.#mayDispatch(id)) return 'lead-dispatch-refused'
     const cardNow = (): Intent | undefined => this.#team.stateFor(this.#get(id).goal).intents.find((one) => one.id === cardId)
     const turn = (state: FlowOperation['state']) => this.#put(this.#operation(this.#get(id), key, { kind: 'turn', state, card: cardId, seat: String(seat.id) }))
     if (done(cardNow())) {
@@ -3527,6 +3843,7 @@ export class FlowExecutions {
       return null
     }
     const run = this.#get(id)
+    if (run.lead && !await this.#port.holdLeadSeat?.(seat, binding.grant)) return 'lead-worker-ceiling-not-held'
     const found = cardId === null ? null : this.#cardOf(run.goal, cardId)
     const plan = found?.run.id === id ? run.seatPlans?.[String(found.round.n)] : undefined
     // Recovery can resume directly from a journaled Seat, before seating completed.
@@ -3561,6 +3878,7 @@ export class FlowExecutions {
       await turn('uncertain')
       return 'This flow was stopped before this turn was handed over.'
     }
+    if (this.#get(id).lead && !await this.#mayDispatch(id)) { await turn('uncertain'); return 'lead-dispatch-refused' }
     try {
       const order = this.#cardOrder(this.#get(id), cardNow(), binding)
       await this.#port.order(seat, lead ? `${lead}\n\n${order}` : order)
@@ -3590,8 +3908,10 @@ export class FlowExecutions {
         ...seating.handed.map((one) => `- card #${one.card}: ${one.at}${one.branch ? ` on ${one.branch}` : ''}, written in ${one.cwd}`),
         'Read those folders if you need to; never write in one.',
       ].join('\n')
+    const sentence = this.#port.goalSentence?.(run.goal)?.trim() || null
     return [
       `Card #${card?.id ?? '?'} on this Goal is yours: ${card?.title ?? ''}`,
+      sentence && sentence !== card?.title?.trim() ? `The Goal it serves: ${sentence}` : null,
       card?.detail ?? null,
       'It is already claimed for you. Work only on this card.',
       answers.length > 0
@@ -3740,6 +4060,7 @@ export class FlowExecutions {
         return false
       }
     }
+    if (run.lead && !await this.#mayDispatch(id)) return false
     // A trigger's gate is asked again before each check spawns: a stop, a pause or the cap reaches the next one.
     if (run.intake) {
       if (run.intake.dispatchHeld) return false
@@ -3755,7 +4076,7 @@ export class FlowExecutions {
     // Stop can arrive during the startup write, before any controller exists.
     // Yield this queue item to Stop without launching the deferred effect.
     // A consented earlier retry may preserve stalled downstream work.
-    if (this.#stopRequests.has(id) || (!background && run.state !== 'running')) {
+    if (this.#stopRequests.has(id) || (!background && run.state !== 'running') || (run.lead && !await this.#mayDispatch(id))) {
       await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
       return false
     }
@@ -4153,8 +4474,10 @@ export class FlowExecutions {
   async #reArm(id: string, operation: FlowOperation, why: 'turn-ended' | 'released' | 'relaunched' = 'turn-ended'): Promise<void> {
     const run = this.#get(id)
     if (run.state !== 'running' || this.#continued(run)) return
-    if (run.intake && !await this.#mayDispatch(id)) {
-      await this.#noteHeld(id, operation)
+    if (operation.card !== null && run.rounds.some((round) => round.n <= (run.intake?.supersededThrough ?? 0) && round.cards.includes(operation.card!))) return
+    const held = { pending: false }
+    if ((run.intake || run.lead) && !await this.#mayDispatch(id, held)) {
+      await this.#noteHeld(id, operation, held.pending)
       return
     }
     const seat = this.#port.seatOf(operation.seat!)
@@ -4214,8 +4537,9 @@ export class FlowExecutions {
          reopening must still hold or stall the run instead of handing the
          card back on spend that is no longer current (#939): read the gate
          again now, right before the card is actually handed back. */
-      if (run.intake && !await this.#mayDispatch(id)) {
-        await this.#noteHeld(id, operation)
+      held.pending = false
+      if ((run.intake || run.lead) && !await this.#mayDispatch(id, held)) {
+        await this.#noteHeld(id, operation, held.pending)
         return
       }
     }
@@ -4292,6 +4616,7 @@ export class FlowExecutions {
    */
   async #sameSeat(id: string, seat: SeatRecord, cardId: number, roleId: string, why: 'turn-ended' | 'released' | 'relaunched' | 'answered'): Promise<boolean> {
     const run = this.#get(id)
+    if (run.lead && !await this.#mayDispatch(id)) return false
     const role = policyOf(run).roles.find((one) => one.id === roleId)
     if (role?.kind === 'agent' && (role.isolate || run.base !== undefined)) {
       const lane = this.#port.laneOf(seat)
@@ -4307,6 +4632,13 @@ export class FlowExecutions {
       if (why === 'turn-ended') throw error
       await this.#stall(id, `Card #${cardId} could not be handed back to its Seat${why === 'relaunched' ? ' after the desk restarted' : ''}: ${error instanceof Error ? error.message : String(error)}`)
       return false
+    }
+    if (run.lead) {
+      const binding = bindingsFor(run, roleId).find(item => item.agent.id === seat.agent?.id)
+      if (!binding || !await this.#port.holdLeadSeat?.(seat, binding.grant)) {
+        await this.#stall(id, 'lead-worker-ceiling-not-held')
+        return false
+      }
     }
     if (running !== seat.seatLabel) {
       await this.#stall(id, `The Seat for card #${cardId} came back on ${running}, not ${seat.seatLabel}, so it was not handed its card again.`)

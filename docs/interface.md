@@ -57,6 +57,13 @@ it needs and the size this panel has.
 Before a draft has its first message, Changes stays disabled with
 **Available after the first message** on hover. Activity appears as work is recorded.
 
+The turn card and Changes label a reported file path **Outside** when it is
+outside the known open workspace and conversation roots, and **Location
+unknown** when its spelling cannot be placed. These are lexical labels, not
+access decisions. Turn counts describe observed edits; Git counts describe the
+current working tree. Both the turn card and Changes summarize outside files;
+filtering Changes narrows its displayed turn total and outside count.
+
 Diffs wrap by default in the side pane and at full width. Modified lines keep
 their red/green ground and emphasize changed words with a stronger band on
 both sides. Line numbers, file paths and `+N −N` counts remain visible.
@@ -290,7 +297,7 @@ so the composer, a filter box and an empty desk all still navigate.
 ## The sidebar
 
 The sidebar column has three parts: a **header** with the title bar, brand and
-everything-search, then New session and three navigation rows; one scrolling
+everything-search, then New session and five navigation rows; one scrolling
 **content** area for the list controls and conversations; and a **footer** for
 docked panels, notices and the seat.
 
@@ -326,11 +333,12 @@ dialog. Just a Team opens a shared board without fixed steps.
 desk; the rest stay under **More Flows**. Changing the Flow stays in the dialog
 and keeps each draft.
 
-**Agents**, **Dashboard** and **Plugins** each have a full row under New
-session: the same icon, label and trailing badge grammar as the conversation
-list. Their labels truncate with the rest of the row when space is short; they
-remain visible at the sidebar's 200px minimum. Agents and Plugins keep their
-counts on their own pages; their sidebar rows carry no count. Dashboard shows
+**Teams**, **Flows**, **Agents**, **Customize** and **Dashboard** each have a
+full row under New session: the same icon, label and trailing badge grammar as
+the conversation list. Their labels truncate with the rest of the row when space
+is short; they remain visible at the sidebar's 200px minimum. Customize is one
+destination with **Skills**, **MCP** and **Plugins** tabs. Agents and Customize
+keep their counts on their own pages; their sidebar rows carry no count. Dashboard shows
 an attention count only while a runtime needs attention.
 Its Overview hides the Turns tile when no runtime reports turns; a reported zero
 remains a reading. A plan card with one window names it beside the headline
@@ -473,20 +481,36 @@ Branch from here and Copy, then Archive and Remove from HarnessDesk. Delete ever
 separator; its disabled reason stays on the tooltip.
 
 **The footer holds the docks, notices and seat: you, and the runtime you will pick up next.** The seat row
-is your identity — your profile's face and name, which are the house mark and
-"HarnessDesk" until you choose otherwise — followed by a disclosure. Its quiet
+is your identity — the signed-in HarnessDesk account name and picture, or the
+local profile face and name until you sign in — followed by a disclosure. Its quiet
 48px row sits under a full-width hairline, with Inbox and Settings at the right.
 The default runtime's account, readiness and usage live in the menu. The trigger's
 tooltip still names who new sessions run as and any applicable quota warning.
-The menu stays at five actions: your profile, the current account, Usage,
-Settings and signing out (when signed in). The account opens a separate picker;
+The menu starts with **Sign in to HarnessDesk…**, with the reason **Open this
+desk from your phone**. Signing in opens the system browser at the configured
+cloud host (app.harnessdesk.app by default); a **Finish in your browser** banner
+above the seat names that host and shows the matching short code,
+**Open the page again** and **Cancel**. The notice
+uses the seat’s inset and stacks its header above full-width copy and actions. A signed-in
+account instead opens a **HarnessDesk account** submenu with **Linked phones**
+and its count, **Account settings**, and **Sign out…** (the group already names the account). The
+confirmation explains that agent accounts stay signed in. If the cloud cannot
+be reached, it also offers **Sign out on this desk only**, which removes the
+local sign-in and explains that the desk stays linked to the account until it
+is unlinked from another device.
+The current agent account, Usage and Settings retain their own actions. The
+menu does not sign out of an agent: that is on the account's page in
+Settings › Runtimes, so a menu opened to switch carries no destructive row.
+The agent account opens a separate picker;
 **Run new sessions as** lists each available account on one line, grouped by
 runtime where there are several. Current marks identify the selected runtime,
 so its sibling accounts share the mark: credential selection belongs to that
 agent, while the root names the account whose report decides its usage. Long names
 truncate; full identity remains on hover. A second word distinguishes names
 that collide: the runtime across runtimes, or the domain within one runtime.
-Unavailable and Needs sign-in remain visible on the current account. **Add an
+With **Hide account addresses** on (Settings › General), names stand in for
+addresses everywhere, hover included.
+Not working and Sign in needed remain visible on the current account. **Add an
 account** and **Manage runtimes** live at the bottom of the picker.
 
 **Usage** opens a separate level with the current report's account identity,
@@ -509,11 +533,16 @@ measure keeps the shared quiet button's visible fill after the pointer leaves,
 without a Selected chip. **What is left** includes
 every account reporting limits, including healthy accounts and limits supplied
 by a host meter. Plan labels come from adapter presentation, with the raw plan
-type in the title. Pace badges describe remaining allowance against an even
-burn: **▼ 39% under pace**, **▲ 39% over pace**, or **● 0% on pace**, with no
-signed percentage. A read observed before this window opened says **From a
-cached read**; a reading made in this window says **Read … ago**. The page's
-read note follows the selected accounts and uses their oldest observation.
+type in the title. Each card leads with the agent, the account on the line
+beside it, and one status word every surface shares — **Ready**, **Low**,
+**Short**, **Out**, **Overdrawn** or **Unknown** (`usageStandingOf` in
+`@harnessdesk/protocol`, the same word the phone receives). Pace is said as a
+time under the bar — **Lasts to its 3:53 PM reset**, **Runs out ~2:47 PM,
+before its 4:43 PM reset**, **Back Thu 9:00 AM** — never as "over" or "under"
+pace. The rows under it are the limits the headline does not already say. A
+card names where its reading came from only when that reading is stale or
+failed; the page's read note follows the selected accounts and uses their
+oldest observation.
 
 The quota forecast, "&lt;runtime&gt; will run out before it refills", stays on the
 Dashboard. Above a visible composer it appears only after a desk conversation
@@ -523,21 +552,66 @@ between an inline title and its detail. Every other page carries the same title
 and detail in the account trigger's tooltip. Dismissing or silencing the notice
 also removes that warning from the tooltip for the same occurrence or kind.
 
-**Your profile is a name and a face, and nothing else, because nothing else is
-shown.** Settings opens on it — your face and name head the rail, above every
-group, the way a Mac's own settings open on their owner — and the page is its
-own preview: the head follows the name as you type it. The faces are the app's
+**Settings › Account** shows the HarnessDesk identity and a separate sign-out
+action; **This desk** contains its name, Rename and **Reachable from your
+phone**, off until turned on. With it on, paired phones reach the desk through
+the account relay when they are away from its network; a chip beside the label
+says **Connected** or **Connecting…**, and a warning chip says **Can’t reach
+HarnessDesk** after three failed tries, **In use elsewhere** when another copy
+of this desk took the relay, or **Refused** when the account no longer lets the
+desk in. Its tooltip says what to do. **Linked phones** lists each phone
+and its last seen time; Unlink confirms before removing access. Sign in on a phone with the
+same account to add another. **Without an account** offers **Pair a phone with
+a code** through **Phone settings** when the host advertises LAN pairing. It
+stays disabled with **Not available in this build** when that capability is off.
+Account status comes from the host, independently of runtime accounts; credentials stay out of the renderer. Account pictures are bounded
+raster data supplied by the host; the renderer never loads the account’s
+remote picture URL, and the app’s image content policy stays unchanged.
+
+While signed in, the bottom of Account offers **Delete account…**. Its
+**Delete your HarnessDesk account?** confirmation explains that deletion removes
+the account and unlinks every desk and phone, leaves agents and local work on
+this Mac unaffected, and cannot be undone. **Keep account** cancels;
+**Delete account** asks the host to delete the cloud account. The page follows
+the host's signed-out state after success. A failure stays in the confirmation;
+offline deletion says **Can't reach HarnessDesk. Try again when you're online.**
+and offers no local-only deletion.
+
+**Settings › Phone** appears when the host advertises local phone access
+(`HARNESSDESK_PHONE_LINK=1`). Show code displays a QR code that works once for
+ten minutes; New code creates another. Scan it from a phone on the same network,
+or, while Reachable from your phone is on, from anywhere: the row says which.
+Then choose Allow or Not now on the desk. The global **Allow this phone?**
+confirmation also appears when another page is open. Phones lists the name,
+Read/Run/Answer grants, and **Connected on this network**, **Connected through
+your account** or the last-seen time. Remove asks for confirmation,
+disconnects the device and requires a new pairing to return. This local pairing
+requires no account link. The Account page's linked phones belong to its
+separate service lane.
+
+A paired phone can page through active and archived sessions, open their
+redacted conversations, and, with Run granted, start a session, reply or stop
+a running turn. Starting uses the desk's selected agent and an admitted project
+or a fresh chat folder, with model and effort choices from that agent when
+available. Replies keep the conversation's settings. Archived
+conversations are read-only until restored on the desk; Team-owned sessions
+remain with their Team. Approval answers require Answer separately from Run.
+
+The **Local profile** beneath the account settings remains a name and a face
+kept on this Mac. Its page is its own preview: the head follows the name as
+you type it. The faces are the app's
 own icon in six colourways, from `assets/brand/faces`, and then the house
 mark's family, twenty-three whales from `assets/avatars`; the whale drawn in
 black is left out because a dark surface swallows it, and the default is the
 mark itself, drawn in the theme's own ink. Whichever you wear is also what the
-Dock wears, and clearing it puts the app's own icon back there. A face is a squared tile
-everywhere you appear, so its footprint never changes when the face does.
+Dock wears, and clearing it puts the app's own icon back there. A face is
+round by default and square when chosen, everywhere you appear; its footprint
+never changes when the face does.
 Clearing the name puts "HarnessDesk" back, picking the first face puts the
 mark back, and **Reset to default** puts back both. It stays on this Mac.
 What an avatar stores is its id — a short
-string every copy of the app draws the same — which is what an account will
-sync. The same face marks your own messages in a room, where the header still
+string every copy of the app draws the same. The same face marks your own
+messages in a room, where the header still
 says "You".
 
 **Switching is a preference, not a navigation.** Picking a different runtime
@@ -645,11 +719,18 @@ the host limits completed rescans to once a minute.
 
 Ordinary conversation actions, file approvals, task tooltips and system notification
 descriptions call the process a runtime, whether or not a saved Agent role was seated.
-Library batch-install previews count runtime targets for both skills and MCP servers.
+Customize batch-install previews count runtime targets for both skills and MCP servers.
 
 Opening a conversation from the sidebar, command palette or a conversation
 link opens its folder as the workspace, including a worktree whose repository
 is closed. Workspace-scoped Agents, Plugins and New Team follow that folder.
+
+Hidden, closed conversations may release their cached transcript after the
+host verifies its saved copy. Opening one restores that copy; active work,
+mounted views, drafts and unconfirmed activity remain protected. If the copy
+cannot be restored, the existing error notice reports the failure and the
+conversation's row and any retained activity are kept. An unavailable body is
+never treated as an empty, complete history.
 
 **The header earns each button**: title · status group · browser button ·
 terminal toggle · ⋮. The status group puts the ceiling, status, background work,
@@ -791,7 +872,7 @@ through them, appears as a publication row: a verb, then the thing as a chip —
 GitHub's mark and `owner/name #n` — then its state in a word. Hovering the chip
 opens a card with GitHub's own text on it: the title, the author and size, and
 the opening of the description as GitHub holds it, which is where the signature
-the desk wrote is read. Pressing it opens the page. Settings › Plugins › Git
+the desk wrote is read. Pressing it opens the page. Customize › Plugins › Git
 has Description, Review and Comment signature templates. Their placeholders
 are listed once above the settings rows; a blank value turns that kind off.
 The default signature names the Team role and the agent's own model and effort
@@ -831,12 +912,69 @@ tool output** adds output from tools and commands, with those hits marked
 **Tool output**. Reasoning stays outside search, and the choice is remembered
 on this viewer.
 
+### Git writes and the Git record
+
+A gateway push arrives as the ordinary docked approval, titled **Push
+`branch` to `owner/repo`**. Repository, Branch and Head are `ApprovalMeta`
+facts. Its reason explains the host's own copy and recorded push; its answers
+are **Push**, **Push this branch without asking** and **Don't push**. A first
+push pins the project's repository. A rewrite always asks again.
+
+An agent's own command in Ask mode gets a docked steering card. `ApprovalCode`
+shows the command, `ApprovalMeta` shows Repository, Branch, Head and what it
+**Becomes**, and one `ApprovalReason` explains the choice. The answers are
+**Push through HarnessDesk**, **Let it use its own git** and **Don't push**.
+Own git is a one-off alternative, never a standing grant. Forge operations
+say **Write through HarnessDesk** and **Don't write**. An accepted steering
+card also approves the matching first push; rewrite approval remains separate. Refusals and results reach the command's own output and the thread.
+
+Branch publications read **Pushed**, a branch chip, and the short SHA with
+**new branch**, or the commit count on the previous head when known. A merged
+PR publication reads **Merged**, its PR chip and the **Merged** state pill.
+Always mode adds a notice row saying **Sent through HarnessDesk · your choice
+for this project**. A successful concrete write made outside the gateway
+gets **A push went around HarnessDesk**, or **A forge write went around
+HarnessDesk**, in the conversation's existing warning notice placement.
+Mentioning git in prose and dry runs do not raise this warning.
+
+A pull request's hover card has a **Record** section, also present in the
+Lead's PR panel. `SectionHead`, `Rows`, `Row` and `RowMark` show each write's
+operation and who, where and when. An outside head has an **Outside** title
+chip and says **Seen time. Not written through HarnessDesk, so no one here
+is named.** A commit author is never substituted for the unproven pusher.
+
+The project page places **Git record** after Checks and Provenance. Its
+**All / Outside / Refused** views show counts above `PageRecords`, with State,
+Where, Who and When columns. Rows open their conversation, Goal or forge
+reference. Pages show 50 entries and **Show earlier**; opening or focusing
+the page and branch/PR publications refresh it. An unpinned project says
+**No pushes yet. The first push you approve pins this project's repository.**
+
+**Settings › Permissions › Git writes** offers **Send agents' own pushes
+through HarnessDesk** as **Ask each time / Always / Never**, and **Record
+pushes HarnessDesk did not make** as a switch. Host writes are always
+recorded. Changes take effect at once in open conversations with steering
+installed. Turning steering back on for a conversation opened with Never
+requires a new conversation.
+
+The project's **Git writes** section shows **Pushes go to** as a read-only
+pin and **Agents' own pushes** as **As in Settings (current) / Always / Ask /
+Never**. One `MenuNote` explains that with Never, an agent's own push can
+still appear as Outside and is named for nobody; the global outside-recording
+switch controls those observations too.
+
+An outside change on the Lead's followed branch is a warning `Banner` headed
+**branch moved outside HarnessDesk**; a rewrite is a danger banner headed
+**branch was rewritten outside HarnessDesk**. They explain that pushes stop,
+checks and reviews continue, and nothing outside is attributed. **Take the
+branch back** uses the existing reclaim decision, bound to the observed head.
+
 ## The composer
 
 **Agent names a role; Runtime names the program that runs a conversation.**
 The composer chooses a Runtime. A conversation seated as an Agent keeps the
 Agent’s role name and Seat; its runtime name comes from `RuntimeInfo.presentation`.
-Library’s **Declared by** filter selects Agent roles, while **Loaded by**,
+Customize’s **Declared by** filter selects Agent roles, while **Loaded by**,
 **Install for**, and **Which runtimes load it** describe runtimes.
 
 While a draft’s runtime starts, its composer row shows **Starting**;
@@ -874,7 +1012,24 @@ signed out and not accountless: its conversation opens normally, its seat stays
 offered and it is listed as Ready, and Sign in keeps the ways in it declared
 below that line. An agent the desk told to use a stored key is not unchecked
 once that key is removed: it reads as needing a sign-in again, and the desk
-presses none of its other ways in for it.
+presses none of its other ways in for it. A runtime whose program or required
+CLI is missing reads **Not installed** from the moment the desk opens, not Ready
+until its first conversation; one run through a package runner (`npx`, `uvx`)
+names the missing runner and what provides it instead of offering the agent's
+own install command.
+
+Storing a key while an ACP agent is not ready says it can pick up the key on
+its next start; it does not claim the agent restarted with it.
+
+An ACP browser sign-in that has not answered after five minutes stops waiting
+and returns to its sign-in choices. The desk says the agent may still finish;
+that wait ending does not sign the agent out or cancel its own browser request.
+
+A runtime that can hold more than one account offers **Add another account**
+once signed in. Antigravity asks for a name first; an empty one gives
+“Antigravity 2”, “Antigravity 3” and so on. Each account is its own row over a
+folder of its own, keeps its own conversations, and is removed on its own:
+removal asks it to sign out and moves its folder to the Trash.
 
 *The textarea carries intent; chips carry context and capability.* Full design
 in [extending.md](extending.md).
@@ -1039,10 +1194,11 @@ from the runtime next time. Live and full conversation bodies remain.
 
 Grouped navigation, one short page each: a rail of pages, a 20px title with a
 one-line blurb, small grey section labels over cards of rows, one control at
-the right of each row. The rail starts with you — your face and name, above
-every group — and that row opens your profile.
+the right of each row. The rail starts with **Back** and a **Search settings**
+box above every group. **Account** in Preferences opens the account and local
+profile page; the seat at the foot of the rail keeps your current identity.
 
-Standalone pages name themselves once with a visible h1 in the first body row, on the content column's left edge. That row is one bar tall and starts at the body's top, so the title stands on the sidebar wordmark's line. Their chooser or verb sits on the right of the same row, centred on that line, with the page stack gap before the next block. The title scrolls away; the fixed bar keeps its height and tools. Sessions, Teams and edited Flows retain their subject menu in the bar; canvas surfaces have no body title.
+Standalone pages name themselves once with a visible h1 in the first body row, on the content column's left edge. That row is one bar tall and starts at the body's top, so the title stands on the sidebar wordmark's line. Their chooser or verb sits on the right of the same row, centred on that line, with the page stack gap before the next block. The title scrolls away; the fixed bar keeps its height and tools. Sessions, Teams and edited Flows retain their subject menu in the bar; canvas surfaces have no body title. A Team also heads its body: its name as the h1 with Findings, Review stopped Run and the view's verb (Stop run…) on the same bar-tall line, and its tabs on the line below. The head stays put while the view under it scrolls.
 
 The page name is a visible h1 above its description. The Settings top bar
 keeps only the column toggle; it carries no page title or breadcrumb.
@@ -1053,29 +1209,28 @@ Account slots stay with their runtime; the count is runtimes, not accounts.
 
 | Group | Pages |
 | --- | --- |
-| **General** | General · Appearance · Notifications · Keyboard shortcuts |
-| **Conversations** | Workspaces · History · Archive |
+| **Preferences** | Account · Lead (when enabled) · General · Appearance · Notifications · Keyboard shortcuts |
+| **Conversations** | Workspaces · History · Storage · Archive |
 | **Runtimes** | Runtimes · Models · Hooks · Extensions |
-| **Capabilities** | Customize (Skills · MCP · Plugins) |
-| **Access** | Permissions · Browser |
+| **Access** | Permissions · Phone (when available) · Browser |
 
 The order is the order a new window is read in: this app, how it looks, what
 it says; the work you have opened and put away; the runtimes and what each one
-brings; what is shared across them; what any of them may do. Hooks and
+brings; what any of them may do. What is shared across them — skills, MCP
+servers and plugins — is not a Settings page but the sidebar's **Customize**. Hooks and
 Extensions are the active runtime's own; their hover text names that runtime.
 The nav always offers Hooks and Extensions with the same labels and order,
 including before the runtime catalogue arrives. Capabilities govern the page's
 contents, never the presence or name of its navigation row.
-There is no Account page, because there is no account — the profile is
-yours, not an account's; presets are edited
+The Account page retains the older internal `profile` route. Presets are edited
 where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.
 
-Library's skills page offers **Add skill**: **Write a skill**, **From GitHub…**,
+Customize's Skills tab offers **Add skill**: **Write a skill**, **From GitHub…**,
 and **Copy from another runtime…**. Its More menu keeps **Check for updates**,
 **Rescan**, and **Changes made here…**; MCP servers retain their existing menus.
-Add skill and Check for updates wait until the Library has been read.
+Add skill and Check for updates wait until the skills have been read.
 A check stays disabled while it runs. Add from GitHub accepts a
 public repository or folder URL and an optional branch, tag or commit. Found
 skills show their folder, file count and counts of files that can run or are
@@ -1091,13 +1246,13 @@ with incoming runnable or binary files requires one acknowledgement before
 Apply. It acknowledges only the operations that need it; local installs ask
 for none. Each operation keeps its own result or refusal after Apply.
 
-Library omits reserved skill folders beginning with `_` and skills whose only
+Customize omits reserved skill folders beginning with `_` and skills whose only
 on-disk definitions are empty. A usable copy elsewhere keeps the skill listed;
 empty copies remain available to the cleanup action. Descriptions render inline
 markdown through the sanitized reading path.
 
 Check for updates asks once about skills installed from a repository, then reads
-the Library again. A toast reports available updates, an up-to-date result, no
+the skills again. A toast reports available updates, an up-to-date result, no
 recorded sources, or sources that could not be checked. Nothing checks on open,
 on focus or on a timer. An update is a quiet row finding, after existing warnings;
 it does not change problem counts. A missing source branch is a warning and an
@@ -1110,7 +1265,7 @@ has no review action; an unreachable source is quiet text. Review fetches each
 behind source once and plans its runtime copies at the freshly fetched commit.
 A refused or missing folder keeps its reason in the card and opens no plan.
 
-A skill opens as a wide page with Back to Library and Use in composer. Its
+A skill opens as a wide page with Back to Customize and Use in composer. Its
 sanitized description sits above a definition card with Rendered and Source
 views and Copy of the exact file. Each distinct Why reason has one warning
 banner titled with the affected runtimes, spanning both columns. The right column holds Update (only after a check),
@@ -1133,18 +1288,18 @@ runnable or binary file; removed files have no Read action. The definition diff
 starts open. An edited-copy reason appears verbatim above the files, and only
 an operation that plans a backup says it will make one. Added or changed runnable
 or binary files use the existing acknowledgement; removed files need none.
-After Apply the ordinary Library read supplies the new state.
+After Apply the ordinary skills read supplies the new state.
 
-**Changes made here** reads the last 90 days of Library writes on its own page,
+**Changes made here** reads the last 90 days of Customize writes on its own page,
 reached from More or the **View changes** action on each write's toast. All,
 Can restore and Failed chips show counts; search matches names and paths.
 Today, Yesterday and Earlier group the entries, with time, runtime and path.
 Only a completed change with a backup offers **Restore…**, which previews what
 it puts back and replaces. Applying a restore refreshes the page. **Back to
-Library** returns to the page it was opened from — a skill's own page, or the
+Customize** returns to the page it was opened from — a skill's own page, or the
 Skills or MCP list — and otherwise opens the section last used; each section
 keeps its filter, search, chip and list-or-matrix choice while the window is
-open. The Library has no history list at its foot. Successful writes share one
+open. Customize has no history list at its foot. Successful writes share one
 success toast; failures share a persistent failure toast with the first
 reason. Skipped operations raise nothing, and the write toasts offer no Undo.
 
@@ -1205,7 +1360,7 @@ scroll inside the dialog body, with the question and Approve/Keep buttons
 remaining on screen so the whole command can be read before consent. The Agent's
 Notes section reads and clears `NOTES.md` beside its file: private
 working context, never system instructions. A Seat's own name card and the
-Library's Agent filter both read back what a Seat's runtime build actually
+Customize's Agent filter both read back what a Seat's runtime build actually
 loaded, by that Seat's own immutable id — "declared, not loaded" and "not
 recorded" are shown as different facts, never folded into one another.
 
@@ -1238,26 +1393,44 @@ section appears on a runtime's detail page, where an idle runtime says **Not run
 reading process cost never starts one. Opening the detail page begins a costly
 or unmeasured start in the background; the page can show the last learned models,
 options and account while it waits. Shared recycling refusals are stated once below the table.
+An ordinary extra Codex account whose process is not running shows its account as
+not yet verified, rather than treating its last observation as a current sign-in.
+Removing one warns that agent or system credentials may remain when its identity
+cannot be established; its conversations stay with the runtime. A retained
+account with no known sign-in methods offers **Check account**, which starts
+that agent on request and reads its account without changing the default.
+
+An agent with several accounts lists them under its row in the order they are
+used, each with its plan, **Default** on the one new sessions run as, and what
+is left or **Limit reached**. On the agent's page each account's menu offers
+**Move up** and **Move down**, and **When an account runs out** chooses **Use
+the next account**, **Ask me** (the default: the usage notice offers the next
+one) or **Stop** (it offers nothing). Use the next account moves new sessions to
+the next account in that order with room, once, and says so in a notice that
+can be muted as *Account switches*. A conversation already open stays on its
+account, because its thread lives in that account's history.
 
 It has a page per runtime (health, update, the runtime's own options) or per account;
+an agent's page leads with who it signs in as — its accounts, then the defaults
+for new sessions, then its options, update and processes;
 *Add a runtime* lists the runtimes this machine can register. **Browse more…**
 reveals ACP registry entries with one group note: “Third-party entries from the
 ACP registry. HarnessDesk has not reviewed them.” Adding or downloading an entry
 works as before; a custom command remains under **Something else**.
-Runtime brand tiles keep the same colour here, in Runtimes, in Library's
+Runtime brand tiles keep the same colour here, in Runtimes, in Customize's
 **Loaded by** column and wherever that runtime is drawn. Account ring colours
 remain a separate preference. In Usage, runtime rows, legend dots, share segments
 and bars share that tint. The first runtime of each tint keeps it; later
 duplicates take unused roster tints, including their ranked faces, so the table
-continues to identify the series. Library's loading tiles are spaced so each mark
+continues to identify the series. Customize's loading tiles are spaced so each mark
 stays whole. Extensions
-appears only for a runtime with a store or MCP servers to show, which today
-means Codex alone. A runtime whose sign-in the desk cannot ask about — an ACP
+is always listed; its page has contents only for a runtime with a store or MCP
+servers to show, which today means Codex alone, and otherwise opens Runtimes. A runtime whose sign-in the desk cannot ask about — an ACP
 runtime with no status command and no stored key — is described by what its own
 answers showed: "Signed in" once a conversation has opened, its declared
 sign-in methods in its own words when it refused one for want of
 authentication, and nothing at all before either has happened. It is never
-"Needs sign-in" on the strength of an empty list. ⌘, opens this page.
+"Sign in needed" on the strength of an empty list. ⌘, opens Settings at General.
 
 Extensions › Reload and plugin installation hold changes while any conversation
 on the account has selected tool servers. Each notice says how many conversations
@@ -1293,8 +1466,9 @@ along with what Settings still does not do — is recorded with the audit.
 
 ## What the desk observed
 
-**On a card.** A room's board draws each card's evidence as chips in its foot,
-and its columns — Needs you, Working, In review, To do, Ready, and Set aside
+**On a card.** A room's board draws one compact observation status in each card's foot.
+It opens the latest recorded facts and does not certify required checks; the
+Flow inspector separately keeps check attempt history. Board columns — Needs you, Working, In review, To do, Ready, and Set aside
 while anything is — come from those facts, so nothing on the board is dragged.
 A completed card is not placed until the first evidence read succeeds; while
 that read is pending or unavailable, the board says so rather than claiming
@@ -1304,7 +1478,7 @@ that nothing was checked. The whole of it is in
 **As the board narrows.** Occupied columns keep their full width and scroll
 horizontally when they do not fit. Empty columns start as narrow rails with
 their names and zero counts; each rail opens in place and offers a keyboard
-Fold control. The Board tab counts every card, including completed work, so a
+Fold control. The Tasks tab counts every card, including completed work, so a
 finished Team's three Ready cards are visible beside its four empty rails.
 An overflowing board keeps its scrollbar visible before any scrolling gesture.
 When every column is empty, the board shows one “Nothing on the board yet” line.
@@ -1433,7 +1607,8 @@ pixels. A 400px reading column is protected in this order:
   a wide window folds the same way. At 520px the branch's name, the status's
   word and the tasks chip's words fold to their marks — still read out, and
   on hover — while back and forward retain their title-row targets, moving
-  to the main bar if the sidebar has no room, and the plan meter shows its
+  to the main bar if a standing sidebar has no room, or into a second drawer
+  header row when it floats, and the plan meter shows its
   figure only when the runtime is running low. At 400px a resting status goes, the browser and
   terminal buttons fold into ⋯ › View where there is a ⋯ — a draft has none,
   and keeps its browser button — and the plan meter keeps its bar alone, low
@@ -1456,6 +1631,17 @@ it exactly where it was.
 History shows an associated Agent's recorded name beside its runtime's mark. A compact count indicates additional Seats; selecting the commit lists every contributor. The selected detail distinguishes complete, partial, pending and unattributed changes and keeps the explanation visible. Its Seat record opens the exact historical record, with the original conversation available only while the desk can still open it. Matching observations keep their original revisions. A missing card or conversation says why it is unavailable.
 
 Workspaces › a project › Provenance controls capture on this machine. It starts on and shows healthy, degraded or stopped capture with the host's reason and next step. The setting changes on screen after it is saved; Retry does not turn capture on. Stopped or degraded capture appears in the project's menu, with Retry while capture is on or Turn on while it is off. Only stopped capture adds a quiet Capture stopped chip to the project row; hover or focus makes room for its actions. A plain conversation and its header are unchanged.
+
+A saved capture history over 64 MiB first attempts bounded recovery by removing
+obsolete checkpoints, preserving every historical observation. If the retained
+history still exceeds the limit, the reason says it reached its storage limit.
+The next step confirms that observations were kept and offers Retry; capture
+can be turned off if recovery cannot make room. The desktop never deletes
+observations to make it fit. Backup files report size-refused projects in
+`omittedProjects`; healthy projects are still included, and restore continues
+past refused projects. An externally changed history instead asks the user to
+Retry capture to reload it. Damaged or unwritable histories retain storage repair
+guidance; neither is described as a storage-size limit.
 
 ## Goals and retained lanes
 
@@ -1615,6 +1801,8 @@ that policy. Shared user and built-in entries appear once; a project's own
 file keeps its project identity. A broken entry stays visible with its
 parser refusal. **Just a Team** has no steps: it opens the same New Team
 dialog with a shared board and chat.
+Unavailable project folders share one warning with folded details and Retry;
+only folders whose catalogue was read can be chosen for editing or starting.
 
 Opening a Flow puts the editable graph in main. Its title menu holds Rename,
 Duplicate and Delete; deletion moves a writable file to the Trash only if it
@@ -1716,6 +1904,17 @@ while the chosen Flow loads, keeping the footer in place.
 A completed comparison's Split receipt keeps each recorded attempt, identifying
 the merged change and the attempt not kept. Routing rounds remain separate in
 Work's record. An unrecorded pick is not claimed; a person's pick says **You picked**.
+
+A PR review candidate shows its repository, pull request, full head and
+destination commit and ref. An automatic merge asks for a fresh review if
+that target changed or its earlier review lacks the binding. A separately
+approved manual merge says when it does not check fresh review proof. The
+destination check is a preflight; the remote branch can still move afterward.
+When the project has no pinned repository, the PR preview says the review is
+informational and cannot authorize an automatic merge.
+The Git record marks an uncertain merge as **Needs inspection**. If the PR is
+later observed merged, the record says so without attributing the merge to the
+earlier request.
 
 Starting a comparison opens **Work**, with the frozen Flow and recent recorded
 activity together. Its attempt tiles remain directly available through
@@ -1834,7 +2033,8 @@ Other evidence waits stay neutral, reading **Waiting** with their recorded
 reason in the Run strip; they do not raise Needs you in the Team or Run. A review waiting
 to be posted keeps its own reason and Findings action, alongside any evidence
 wait. The live line keeps pending release and trigger actions while these rows
-are shown; routing ids stay out of the reason. Below 800px Seats become list rows. A question,
+are shown; routing ids stay out of the reason. Below 800px Seats become list rows.
+Each description takes the row's full reading width below its name and controls. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 The selected Team and the Team owning the open Seat start expanded. Working
@@ -2059,3 +2259,169 @@ evidence reads Waiting. Stopping closes rounds without finishing their cards:
 those steps read Stopping while their retained turn is live, then Stopped,
 freeze their time at the current Run ending, and carry
 no completion badge, activity, glow or motion.
+
+## Lead
+
+A message the Lead sends into an ordinary chat uses the person's bubble shape
+under `Sent by <name>`. A chat the Lead has written to shows `<name> is managing this chat.` with **Take over**. After take over it shows **You have
+this chat.** with `Hand back to <name>`. Failed button actions show their reason inline. An invalid control record blocks Lead actions and offers **Reset chat control**, with confirmation before clearing all projects' holds and message verification keys. A temporary read failure shows a neutral notice with **Try again** only in chats with a control record, keeps Take over / Hand back visible, and retries once after a short delay. A repeated retryable record-read failure offers **Try again** as its primary action and confirmed **Reset chat control** as its secondary action, retains Take over / Hand back, and gets one automatic retry in that escalated state too. A successful read clears the notice; Reset clears all projects' holds and verified message labels. An unavailable selected project explains that its folder and access permissions must be restored; its warning also appears only in recorded chats. A Reset confirmation closes as soon as the record is no longer invalid. Lead dispatch stays blocked while its control state is unknown. Typing does not take over; only the
+button does. While the person holds the chat, the host refuses Lead sends,
+stops and queued delivery there, and removes the Lead's waiting messages.
+Hand back sends no message and releases every project copy of that chat’s hold; a newer take-over still wins.
+
+Lead is one ongoing conversation. Questions, explanations and clarifications receive ordinary replies; they do not require a plan. A simple task can run in one ordinary chat, using the desk's selected agent and saved session permissions. Lead can find, read, message and stop ordinary chats in its selected project. Their approvals remain with the person. Ordinary chats have their own session spend; the Lead allowance covers its replies and reviewed Flow runs. The limits popover explains that distinction.
+
+While an ordinary reply is in flight the composer offers Stop reply. A completed reply leaves no planning banner or invented goal. Formal reviewed work retains its plan and approval cards. A setup failure keeps the composer available and explains the needed change without Resume; a new message carries that failure back to Lead so it can adjust. Transient interruptions retain Resume. A delegated chat waiting for a provider reset remains working while the host tries at most two continues. Exhausted retries or a credit failure bring the existing structured ask: retry, move to an available agent, or stop. A chosen move retains the old chat and carries the original request and a bounded progress digest into the new one. Person-held chats stay untouched. Tracked ordinary chat state changes coalesce into a background check; results and decisions can return to the same Lead conversation, while unchanged work stays quiet.
+
+If a chat start or send loses its response after the effect may have begun, Lead waits with `lead-chat-effect-uncertain`. The notice says to inspect that chat on the desk and offers **Start new request**, using the existing person Stop action. Resume is unavailable. Sending before that acknowledgement returns specific feedback and leaves the draft intact. After successful Stop, the next separately typed person message starts a fresh logical goal; the original operation remains uncertain in the journal and is never replayed. Flow recovery, cleanup and allowance fences still apply.
+
+Lead is off by default; `HARNESSDESK_LEAD=1` enables it at startup. Its child
+needs a runtime whose permission model blocks the network; the desktop app
+carries one. Where no runtime passes the host's probe, Lead reports unavailable:
+a banner explains the requirement and gives the probe's reason, the composer and
+Send are disabled, and Restart is refused. Ordinary sessions and Settings
+remain usable.
+
+When the host enables Lead, its chosen name, Dex or Lex, opens the conversation
+pane from the sidebar (hover title: Lead). Lead uses the same window shell,
+top bar, thread, Items message renderer, empty-state layout and measured floating
+composer as a session. Its name occupies the session title slot; the top bar
+carries the rail toggle and the settings glyph, titled Lead settings, which opens
+Settings › Lead. There is no body heading. A single LeadAvatar slot shows the chosen name's artwork and expression.
+An empty conversation is one LeadGreeting: the face, "Hi, I'm Dex" (or Lex), and
+"Tell me what you want done." Until settings arrive the name reads Lead, the disc is
+empty and the greeting says "Hi there". With no folder open the host has no Lead
+journal yet, so the page shows the name a journal starts with, Dex: the greeting
+says the Lead works inside one project folder and offers **Open folder…**, the
+dock shows no warning for it, and opening a folder reads the Lead again. The
+composer says Message Dex… or Message Lex…; Enter sends, Shift+Enter adds a
+line, and Send waits for the host's in-flight request. The Lead remains a
+host-owned thread, never a Session.
+
+The Lead page has the session's right rail, open until closed from its top-bar
+toggle and floating over the conversation where the window is too narrow. Its
+cards read the current goal back: **Goal**, **Plan** (each step as a checklist
+item, the running step active, with a Waiting for you or Needs you word while
+the plan or a question waits on the person), **Workers** (the roles the running
+step seats, in the plan card's words — Write, Review — never a runtime; before
+the run starts, every role the plan seats; while the goal waits or after it
+stops, no card, since the projection does not say which step it is on) and
+**Spend**. Before a goal, one Goal line says what the rail will hold and what
+comes first: "Send a goal." or, with no folder open, "Open a folder, then send a
+goal." Spend says Up to the dollar cap before a
+goal, then the known total against it with Lead, Workers and Rounds facts;
+unconfirmed worker spend reads Not confirmed and draws no meter. Its pencil opens
+the limits popover: tightening applies at once, raising asks on a card in the
+conversation. The plan's decision stays in the conversation; the rail only reads
+it back, and before approval it reads the latest plan card, the one the
+conversation is asking about. Where it floats it is open by default too, like
+the session rail; its toggle puts it away.
+
+Decision details are assistant Markdown in journal order, without card borders,
+inset rows, revision labels or internal identifiers. Plans show LeadPlanFlow, an ordered flow diagram of steps and responsible roles
+ending in Approve to start, acceptance checks, the allowance and folder,
+and the separate-approval boundary for publishing, merging and deleting. Results
+show qualified check, review, findings and changes status, reasons and separately
+attributed Lead and reported worker spend. Unknown values remain unknown.
+
+A plan for recurring work carries a Repeats chip and a How it repeats block: its local timetable, that a slot is skipped while the previous run waits, and that an asleep desk makes one run when it wakes. The allowance is per run. Approve covers the stored contract for future runs; publishing, merging and deleting still ask on each run. A changed project, policy, seat, review independence or Flow source returns a plan card with the reason. Each run has its own result and acceptance. Plan and result Runs links open Settings › Lead, where each task's Runs view shows its next slot and last 12 runs, state, reason and known spend and rounds. Pause silently skips slots until Resume. Stop retains the history. Run once now requires an idle Lead. Settings tasks without an approved contract still ask for a plan approval each time.
+
+A host intervention on a worker stop shows one Second look entry with Said, Found and Did facts. A proven cleared issue or pull request can resume the existing run within its allowance; missing fresh check evidence can produce one steer asking the worker to show output. Such output remains advisory: required checks still need the person's own Run check action. Unchanged or unprovable claims reach the person as before.
+
+Known attributed spend at 80% shows one At 80% entry, its dollar total and cap in warning ink, and the unchanged stop threshold. Raise limit… opens the shared Dialog with dollar and round fields and applies the person's increase directly. A raised dollar cap can produce a new warning on reaching its own 80%; uncertain spend never produces a figure. Increasing a stopped goal's limits leaves it stopped. The Lead receives a desk message to finish only what the approved plan needs and list extra review asks in the result.
+
+Second look and At 80% entries stay in the bounded read-only thread history when the next goal begins. Raise limit… is available only for the current goal before acceptance or decline, including while stopped. Scheduled origins show a short local run time rather than internal identifiers.
+
+The shared ApprovalDialog docks the question and buttons above the composer.
+Plans and widenings offer Approve and Decline; a result offers Open changes,
+Decline, Accept and Accept and open PR. The fourth action sends accept-open-pr
+through the same revision-bound decision. A worker request names its role and what it asks, with Yes once
+and No when those choices are supported. An eligible request also offers Yes for
+this goal: the person answers once and the host remembers that exact target for
+this goal and approved contract. Saved approvals for this goal lists each target,
+the number of later requests answered, and Revoke. Each used rule has one Desk
+notice line, updated in place: “Allowed under your rule for this goal: <target> ·
+N times”. It never consumes conversation history. A file rule’s row offers View
+changes, opening its bounded retained history newest first in a shared
+dialog titled Changes under this approval. The header counts retained answers and requests that need review separately. Counts remain exact when older diffs are dropped. Revoke applies to
+the next request and keeps the row as read-only history with a Revoked chip and
+its diff reader. Entering Following also retires every saved approval into
+revoked history, so a later repair asks again. Accepted, declined, stopped and
+fresh goals clear active rules and history. A changed contract clears them only
+when no worker audit is unresolved; otherwise it retains revoked history and
+the audit wait. The person can use these controls on a
+paired phone with answer permission; Lead cannot create or revoke a rule.
+Commands offer only Yes once and No, with additional grants shown in full. If an
+automatic answer has no acknowledgement, its durable intent pauses automatic
+work across restarts. A normal answer in flight shows no uncertainty. After an answer fails without acknowledgement or the host reopens its unresolved dispatch, the row and its unacknowledged diff entry show Needs review; that entry stays
+available after Revoke without increasing the answered count. The person inspects the changes and revokes any still-active uncertain rule
+before Resume is available. Following or a revised plan may already have
+retired that rule; its uncertain entry remains openable and Resume is still
+required. A proposal or plan approval never resolves this wait. If an older
+checkpoint lost the rule key, its host notice retains the diff; an ordinary chat
+message cannot review it. Explicit Resume retires that notice’s Needs review
+state. An acknowledgement or proven non-delivery resolves a still-pending
+dispatch; terminal decisions or a new goal end the wait.
+Questions, stdin, publication, irreversible actions and changes to permissions,
+allowances or branch ownership always ask separately. After an approving review, each required
+check without counted evidence offers Run check with its whole command. That
+person's run counts on the Team; a worker's own run stays advisory. Chat replies
+answer neither request. These live actions are bound to the approved contract and
+the current request or reviewed commit, and use the desk's existing approval and
+check paths. Decision clicks still carry the seen revision and digest, share
+one page-wide lock, expose pending state and refuse stale revisions. Decided
+messages retain Approved, Declined or Accepted in the meta style; their controls
+leave the dock. New entries follow until the person scrolls up.
+
+Resume, renewal-blocked and refusal banners share the session's notice stack
+with the decision dock, including its gap above the composer. A visible plan
+decision needs no extra banner. When its plan is absent, a sentence explains the
+needed decision without an action. Explicit navigation focuses
+the approval dock; an arriving plan scrolls without taking composer focus. Expiry
+re-offers the approved plan with only the earlier expiry time in its banner, once,
+and a fresh approval requirement in the message. The host owns renewal; terminal threads
+cannot renew. An accepted predecessor can seed the next step after its run settles;
+an open acceptance can also seed it. A live running or stalled predecessor still
+being reviewed waits for desk activity. A stopped run or a settled result that
+wasn't accepted parks with `lead-predecessor-unavailable`. A binding or reviewed
+revision that cannot be confirmed parks with `lead-predecessor-unverifiable`.
+Both explain what happened and ask the person to message the chosen Lead name
+to change the plan, or stop the goal. Both offer Stop goal through ConfirmDialog,
+which explains that files and worktrees are left as they are. Every other active
+goal phase has Stop in the composer's corner, with Send beside it when a message is typed. Stopping cancels only owned work. A finished goal, whether
+accepted, declined or stopped, leaves the thread ready for a new one. Neither wait offers Resume; sending a message
+continues with those instructions. A revised plan proposed in the refused-start
+turn is retained for approval before the Lead parks.
+Reads back off to 30 seconds, read once more, then wait for changes.
+
+Settings › Lead exists only with the host capability. Its groups are Name,
+Provider key, Allowances, Permissions and Triggers. The chosen name saves immediately and changes
+no authority. The uncontrolled key input is emptied before its exclusive request,
+including refusal; removing a key asks for confirmation. Changed authority groups
+have a trailing Save. Tightening applies immediately; widening creates a decision
+message and shows Waiting for your approval in the conversation with an Open
+button that lands on that decision. Consent expiry remains a settings fact.
+
+The followed PR row opens its pull request and shows number, checks, review and
+a branch-ownership chip. Your branch means automatic repairs are paused. Outside
+pushes and rewritten branches have an ownership card with a short reason and
+Reclaim branch. An explicit push card uses the reviewed result machinery. A
+hand-back limit is a Needs-you wait with a reason in the conversation. Only an
+active repair round says it is repairing; passive following says Following.
+An automatic goal retains its linked From origin line.
+
+An ended repair is judged against the current owned branch head. Green CI and
+matching reviewed evidence can offer its result again; otherwise one Needs-you
+wait explains a failed, withdrawn, abandoned or unverified repair. Missing CI
+runs keep a published repair waiting. Turning following off before dispatch
+withdraws that repair without spending its automatic repair allowance.
+
+Settings › Lead › Triggers has Follow my pull requests switches for Checks failed
+and Review comment; each defaults on and saves independently to settings.follow.
+Open a goal when is a read-only list of project declarations with opens.lead
+true, using the arm preview's lead.summary. Each opens the project's returned
+trigger-file path. This page neither edits nor arms declarations.
+
+A phone start uses the selected runtime’s saved new-session choices after validating them against the current adapter. Replies use the ordinary turn queue while an agent is busy. If creation succeeds but the first message cannot be confirmed, the response retains the session id and a warning; the phone opens that conversation with the draft instead of starting another session on retry.
+
+Queued phone replies are acknowledged as waiting. If Stop or a failed turn pauses the queue, further phone replies refuse before enqueueing and keep their drafts, with an instruction to continue on the desk. Stop reports any replies still waiting. Model and profile selectors resolve before dependent saved choices and recommendations.

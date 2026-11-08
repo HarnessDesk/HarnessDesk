@@ -1,6 +1,8 @@
+import { Fragment, useLayoutEffect, useRef, useState } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
+import { ChipLook } from './tone'
 
 /**
  * A line in a list of things, each of which has a face, a name and a reading.
@@ -23,6 +25,13 @@ import { cn } from '@/lib/utils'
  * the title in more words. A small state light belongs in `mark`, beside
  * the text column, so it never indents the title alone. An empty mark slot
  * reserves the same column for read and unread rows.
+ *
+ * `subtitleLayout="below"` gives an earned description the whole row's
+ * reading width. The face, name and control share one centred heading;
+ * the description and any metadata follow beneath it at full width. Faces
+ * centre on that heading, rather than the combined heading and description.
+ * This supports narrow panes whose
+ * remaining text column cannot hold a readable sentence.
  */
 
 /* `title` is omitted from the div's own props before being re-declared. It is
@@ -42,8 +51,12 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
   subtitle?: React.ReactNode
   /** An earned sentence wraps whole; names, paths and compact facts truncate. */
   wrapSubtitle?: boolean
+  /** Below the heading and controls, using the row's whole reading width. */
+  subtitleLayout?: 'column' | 'below'
   /** The reading: a figure, a chip, a `Delta`, a menu. */
   trail?: React.ReactNode
+  /** With subtitleLayout="below", facts share the heading when they fit, otherwise use a full row. */
+  headingFacts?: React.ReactNode
   /** Below the title, full width — a `Progress`, a set of chips. */
   meta?: React.ReactNode
   interactive?: boolean
@@ -100,6 +113,7 @@ const ListRow = ({
   wrapTitle,
   subtitle,
   wrapSubtitle,
+  subtitleLayout,
   trail,
   meta,
   interactive,
@@ -107,9 +121,97 @@ const ListRow = ({
   density,
   selected,
   nav,
+  headingFacts,
   as = 'div',
   ...props
 }: ListRowProps) => {
+  const below = subtitleLayout === 'below'
+  const adaptive = below && headingFacts != null
+  const headingRef = useRef<HTMLDivElement>(null)
+  const [factsBelow, setFactsBelow] = useState(false)
+  useLayoutEffect(() => {
+    if (!adaptive) return
+    const heading = headingRef.current
+    if (!heading) return
+    let stopped = false
+    let frame = 0
+    const number = (value: string) => Number.parseFloat(value) || 0
+    const schedule = () => { if (!stopped && !frame) frame = requestAnimationFrame(measure) }
+    const measure = () => {
+      frame = 0
+      const root = heading.parentElement
+      const title = heading.querySelector<HTMLElement>('[data-slot="list-row-title"]')
+      const facts = root?.querySelector<HTMLElement>('[data-slot="list-row-heading-facts"]')
+      if (!root || !title || !facts) return
+      const style = getComputedStyle(heading)
+      const gap = number(style.columnGap)
+      const width = heading.clientWidth - number(style.paddingLeft) - number(style.paddingRight)
+      const fixed = Array.from(heading.querySelectorAll<HTMLElement>(':scope > [data-slot="list-row-lead"], :scope > [data-slot="list-row-mark"], :scope > [data-slot="list-row-trail"]'))
+      const children = Array.from(facts.children) as HTMLElement[]
+      const factWidth = children.reduce((total, child) => total + Math.max(child.scrollWidth, child.getBoundingClientRect().width), 0)
+        + Math.max(0, children.length - 1) * number(getComputedStyle(facts).columnGap)
+      const nameElement = title.querySelector<HTMLElement>('[data-role="subject"]') ?? title
+      const font = getComputedStyle(nameElement)
+      const context = document.createElement('canvas').getContext('2d')
+      if (!context || width <= 0) return
+      context.font = `${font.fontStyle} ${font.fontVariant} ${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
+      const text = nameElement.textContent ?? ''
+      const letterSpacing = number(font.letterSpacing)
+      const textWidth = (value: string) => context.measureText(value).width + Math.max(0, value.length - 1) * letterSpacing
+      const readable = Math.min(textWidth(text), textWidth('MMMM'))
+      const button = title.querySelector('button')
+      const nameMinimum = Math.max(readable, button ? number(getComputedStyle(button).minWidth) : 0)
+      const fixedWidth = fixed.reduce((total, element) => total + element.getBoundingClientRect().width, 0)
+      const next = fixedWidth + gap * (fixed.length + 1) + nameMinimum + factWidth > width + 0.5
+      setFactsBelow(previous => previous === next ? previous : next)
+    }
+    const facts = heading.parentElement?.querySelector<HTMLElement>('[data-slot="list-row-heading-facts"]')
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : undefined
+    observer?.observe(heading)
+    const title = heading.querySelector<HTMLElement>('[data-slot="list-row-title"]')
+    if (title) observer?.observe(title)
+    for (const element of [...heading.querySelectorAll<HTMLElement>(':scope > [data-slot="list-row-lead"], :scope > [data-slot="list-row-mark"], :scope > [data-slot="list-row-trail"]'), ...Array.from(facts?.children ?? [])]) observer?.observe(element)
+    if (!observer) window.addEventListener('resize', schedule)
+    const mutations = new MutationObserver(() => {
+      for (const child of Array.from(facts?.children ?? [])) observer?.observe(child)
+      schedule()
+    })
+    mutations.observe(heading, { subtree: true, childList: true, characterData: true, attributes: true })
+    mutations.observe(document.body, { attributes: true })
+    if (facts && !heading.contains(facts)) mutations.observe(facts, { subtree: true, childList: true, characterData: true })
+    document.fonts?.addEventListener('loadingdone', schedule)
+    void document.fonts?.ready.then(schedule)
+    schedule()
+    return () => {
+      stopped = true
+      if (frame) cancelAnimationFrame(frame)
+      observer?.disconnect()
+      mutations.disconnect()
+      window.removeEventListener('resize', schedule)
+      document.fonts?.removeEventListener('loadingdone', schedule)
+    }
+  // The DOM observers track fact changes; JSX identity changes on every parent render.
+  }, [adaptive, factsBelow])
+  const facts = adaptive ? <div data-slot="list-row-heading-facts" data-placement={factsBelow ? 'below' : 'inline'}
+    className={cn('flex min-w-0 flex-wrap items-center gap-2 [&>*]:shrink-0', factsBelow ? 'mt-(--hd-table-line-gap) w-full' : 'shrink-0')}>{headingFacts}</div> : null
+  const Heading: React.ElementType = below ? 'div' : Fragment
+  const metadata = meta != null ? <div className="mt-1.5">{meta}</div> : null
+  const description = subtitle != null ? (
+    <div
+      data-slot="list-row-subtitle"
+      {...(wrapSubtitle ? { 'data-wrap-subtitle': '' } : {})}
+      className={cn(
+        'min-w-0 text-(--hd-muted-foreground)',
+        size === 'sm' ? 'text-xs' : 'mt-(--hd-table-line-gap)',
+        below && size === 'sm' && 'mt-(--hd-table-line-gap)',
+        size === 'default' && (wrapSubtitle ? 'text-(length:--hd-table-sentence-size)' : 'text-(length:--hd-table-fact-size)'),
+        wrapSubtitle ? 'whitespace-normal [overflow-wrap:normal]' : 'truncate',
+        density === 'compact' && 'leading-(--hd-line-xs)',
+      )}
+    >
+      {subtitle}
+    </div>
+  ) : null
   /* The props are the div's; `button` is the narrower element and JSX
      cannot resolve the union on its own. */
   const Element = as as 'div'
@@ -118,6 +220,7 @@ const ListRow = ({
     data-slot="list-row"
     data-hd-table={density}
     data-size={size}
+    {...(below ? { 'data-subtitle-layout': 'below' } : {})}
     {...(as === 'button' ? { type: 'button' as const } : {})}
     /* `aria-current` rather than a class alone: a screen reader moving down a
        roster is told which conversation is open, which is the whole reason the
@@ -162,10 +265,12 @@ const ListRow = ({
       selected &&
         nav &&
         'bg-[var(--hd-sidebar-selected,var(--hd-selected))] hover:bg-[var(--hd-sidebar-selected,var(--hd-selected))] text-[var(--hd-sidebar-selected-foreground,inherit)] [&_[data-slot=list-row-subtitle]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] [&_[data-slot=list-row-trail]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))]',
+      below && 'flex-col items-stretch justify-center gap-0',
       className,
     )}
     {...props}
   >
+    <Heading {...(below ? { 'data-slot': 'list-row-heading', ref: headingRef, className: cn('flex min-w-0 items-center', size === 'sm' ? 'gap-2' : 'gap-(--hd-table-lead-gap)') } : {})}>
     {lead != null && (
       <span
         data-slot="list-row-lead"
@@ -197,23 +302,10 @@ const ListRow = ({
       >
         {title}
       </div>
-      {subtitle != null && (
-        <div
-          data-slot="list-row-subtitle"
-          {...(wrapSubtitle ? { 'data-wrap-subtitle': '' } : {})}
-          className={cn(
-            'text-(--hd-muted-foreground)',
-            size === 'sm' ? 'text-xs' : 'mt-(--hd-table-line-gap)',
-            size === 'default' && (wrapSubtitle ? 'text-(length:--hd-table-sentence-size)' : 'text-(length:--hd-table-fact-size)'),
-            wrapSubtitle ? 'whitespace-normal [overflow-wrap:normal]' : 'truncate',
-            density === 'compact' && 'leading-(--hd-line-xs)',
-          )}
-        >
-          {subtitle}
-        </div>
-      )}
-      {meta != null && <div className="mt-1.5">{meta}</div>}
+      {!below && description}
+      {!below && metadata}
     </div>
+    {adaptive && !factsBelow && facts}
     {trail != null && (
       <div
         data-slot="list-row-trail"
@@ -223,9 +315,13 @@ const ListRow = ({
           size === 'sm' ? 'text-xs text-(--hd-muted-foreground)' : 'text-xs',
         )}
       >
-        {trail}
+        <ChipLook.Provider value="quiet">{trail}</ChipLook.Provider>
       </div>
     )}
+    </Heading>
+    {adaptive && factsBelow && facts}
+    {below && description}
+    {below && metadata}
   </Element>
   )
 }

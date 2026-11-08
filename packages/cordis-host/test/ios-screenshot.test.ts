@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
+import { PNG } from './fixtures/ios.js'
+
 import { ExtensionKernel, type HarnessPlugin } from '../src/index.js'
 
 /**
@@ -21,6 +23,8 @@ const fakeXcrun = (t: TestContext, options: { readonly failShot?: boolean } = {}
   const dir = mkdtempSync(join(tmpdir(), 'hd-xcrun-'))
   const scratch = mkdtempSync(join(tmpdir(), 'hd-xcrun-tmp-'))
   const listing = join(dir, 'devices.json')
+  const image = join(dir, 'shot.png')
+  writeFileSync(image, PNG)
   writeFileSync(
     listing,
     JSON.stringify({
@@ -38,7 +42,8 @@ const fakeXcrun = (t: TestContext, options: { readonly failShot?: boolean } = {}
       `if [ "$1 $2" = 'simctl list' ]; then cat '${listing}'; exit 0; fi`,
       options.failShot
         ? `if [ "$1 $2" = 'simctl io' ]; then echo 'simctl: the screenshot failed' >&2; exit 1; fi`
-        : `if [ "$1 $2" = 'simctl io' ] && [ "$4" = screenshot ]; then printf PNG > "$5"; exit 0; fi`,
+        : `if [ "$1 $2" = 'simctl io' ] && [ "$4" = screenshot ]; then cp '${image}' "$5"; exit 0; fi`,
+      `if [ \"$1 $2\" = 'simctl io' ] && [ \"$4\" = enumerate ]; then exit 0; fi`,
       'exit 1',
       '',
     ].join('\n'),
@@ -86,7 +91,7 @@ test('a simulator screenshot leaves nothing behind in the temporary directory', 
     assert.equal(result.ok, true, JSON.stringify(result))
     const text = result.ok ? result.content.map((part) => (part.type === 'text' ? part.text : '')).join('') : ''
     const { shot } = JSON.parse(text) as { shot: string }
-    assert.equal(shot, `data:image/png;base64,${Buffer.from('PNG').toString('base64')}`, 'the control: a screenshot was taken')
+    assert.equal(shot, `data:image/png;base64,${PNG.toString('base64')}`, 'the control: a screenshot was taken')
   }
   assert.deepEqual(xcrun.left(), [])
 })

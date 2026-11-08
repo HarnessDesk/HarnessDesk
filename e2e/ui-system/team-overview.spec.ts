@@ -1,5 +1,116 @@
 import { expect, test } from '@playwright/test'
+import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
 import { closeTeamDetails, selectTeamPage, teamSeats } from './team-frame-actions'
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`general Team Overview gallery passes the whole-document text audit in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await expect(page.locator('#team-overview-answer-approval [data-slot="team-overview"]')).toBeVisible()
+    await expect.poll(() => page.locator('body').evaluate(body => body.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')
+    expect(textReasons(await page.evaluate(COLLECT), { user: USER })).toEqual([])
+  })
+}
+
+test('focused Overview exposes its mounted store to preview tooling', async ({ page }) => {
+  await page.goto('/preview.html?team-overview=narrow&theme=light')
+  await expect(page.locator('#team-overview-narrow [data-slot="team-overview"]')).toBeVisible()
+  await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
+  await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: { store: { setTheme(value: 'dark'): void } } }).__hdPreview
+    preview.store.setTheme('dark')
+  })
+  await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+  expect(await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: {
+      store: { getSnapshot(): { accountsByRuntime: object } }
+    } }).__hdPreview
+    return { accounts: preview.store.getSnapshot().accountsByRuntime, keys: Object.keys(preview).sort() }
+  })).toEqual({ accounts: {}, keys: ['store'] })
+  await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: { store: { setTheme(value: 'light'): void } } }).__hdPreview
+    preview.store.setTheme('light')
+  })
+  await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
+  await page.goto('/preview.html?team-overview=narrow&theme=dark')
+  await expect(page.locator('#team-overview-narrow [data-slot="team-overview"]')).toBeVisible()
+  await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+})
+
+test('default gallery keeps its conversation and sidebar preview helpers', async ({ page }) => {
+  await page.goto('/preview.html')
+  const details = await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: {
+      store: { getSnapshot(): { sessions: Map<string, unknown> } }
+      sessionKey: string
+      sidebarFolderlessStore: { getSnapshot(): unknown }
+    } }).__hdPreview
+    return { keys: Object.keys(preview).sort(), hasSession: preview.store.getSnapshot().sessions.has(preview.sessionKey),
+      hasSidebar: !!preview.sidebarFolderlessStore.getSnapshot() }
+  })
+  expect(details).toEqual({ keys: ['sessionKey', 'sidebarFolderlessStore', 'store'], hasSession: true, hasSidebar: true })
+})
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Team Overview: seat descriptions keep a readable line in the narrowest preview in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    for (const width of [240, 280, 320]) {
+      await page.setViewportSize({ width, height: 1100 })
+      await page.goto(`/preview.html?team-overview=narrow&theme=${theme}`)
+      await page.evaluate(() => document.fonts.ready)
+      const overview = page.locator('#team-overview-narrow [data-slot="team-overview"]')
+      await expect(overview).toHaveAttribute('data-layout', 'narrow')
+      if (width === 240) {
+        expect(await overview.locator('[data-seat]').first().evaluate(element => element.getBoundingClientRect().width)).toBeCloseTo(128, 0)
+      }
+      for (const row of await overview.locator('[data-seat]').all()) {
+        const geometry = await row.evaluate(element => {
+          const heading = element.querySelector('[data-slot="list-row-heading"]')!.getBoundingClientRect()
+          const face = element.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
+          const description = element.querySelector('[data-slot="list-row-subtitle"]')!.getBoundingClientRect()
+          const bounds = element.getBoundingClientRect()
+          const style = getComputedStyle(element)
+          return {
+            faceDelta: Math.abs((face.top + face.bottom - heading.top - heading.bottom) / 2),
+            startDelta: Math.abs(description.left - bounds.left - parseFloat(style.paddingLeft) - parseFloat(style.borderLeftWidth)),
+            endDelta: Math.abs(bounds.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth) - description.right),
+          }
+        })
+        expect(geometry.faceDelta).toBeLessThan(1.5)
+        expect(geometry.startDelta).toBeLessThan(1)
+        expect(geometry.endDelta).toBeLessThan(1)
+      }
+      const descriptions = overview.locator('[data-seat] [data-slot="list-row-subtitle"]').filter({ hasText: 'Reviewer · Alpha' })
+      await expect(descriptions).toHaveCount(3)
+      for (const description of await descriptions.all()) {
+        const reading = await description.evaluate(element => {
+          const lines = new Map<number, string[]>()
+          const bounds = element.getBoundingClientRect()
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+          let clipped = false
+          for (let node; (node = walker.nextNode());) {
+            if (node.parentElement?.closest('.sr-only')) continue
+            for (const word of node.textContent!.matchAll(/[^\s·]+/g)) {
+              const range = document.createRange()
+              range.setStart(node, word.index!)
+              range.setEnd(node, word.index! + word[0].length)
+              const box = range.getBoundingClientRect()
+              if (box.width <= 1) continue
+              const line = Math.round(box.top)
+              lines.set(line, [...(lines.get(line) ?? []), word[0]])
+              clipped ||= box.left < bounds.left - 1 || box.right > bounds.right + 1
+            }
+          }
+          return { lines: [...lines.values()], clipped, overflow: element.scrollWidth > element.clientWidth }
+        })
+        expect(reading.lines, `seat description at viewport ${width}`).toEqual([['Reviewer', 'Alpha']])
+        expect(reading.clipped).toBe(false)
+        expect(reading.overflow).toBe(false)
+      }
+      expect(await overview.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    }
+  })
+}
 
 for (const theme of ['light', 'dark'] as const) {
   test(`Team Overview: precedence, resting ink, faces, fold and pane width in ${theme}`, async ({ page }) => {
@@ -202,7 +313,8 @@ for (const theme of ['light', 'dark'] as const) {
     const frame = page.locator('#team-overview-live-stopped-unknown')
     await teamSeats(frame)
     const facts = frame.locator('[aria-label="Team Run facts"] [data-slot="summary-item"]').filter({ has: page.locator('dt', { hasText: /^Elapsed$/ }) })
-    await expect(facts).toContainText('Not recorded')
+    // Elapsed is drawn as its icon, so the value names what is missing.
+    await expect(facts).toContainText('Time not recorded')
     await closeTeamDetails(frame)
     await frame.getByRole('button', { name: 'Full record', exact: true }).click()
     const record = frame.getByRole('list', { name: 'Run timeline', exact: true })
@@ -330,3 +442,205 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Overview seat facts stay inside the row in ${theme}`, async ({ page }) => {
+    for (const width of [240, 320, 420, 800, 1440]) {
+      await page.setViewportSize({ width, height: 1100 })
+      await page.goto(`/preview.html?team-overview=narrow&theme=${theme}`)
+      await page.evaluate(() => document.fonts.ready)
+      const rows = page.locator('#team-overview-narrow [data-slot="team-overview"] [data-seat]')
+      await expect(rows).toHaveCount(4)
+      for (const row of await rows.all()) {
+        const result = await row.evaluate(el => {
+          const box = el.getBoundingClientRect()
+          const title = el.querySelector('[data-slot="list-row-title"]')!.getBoundingClientRect()
+          const trail = el.querySelector('[data-slot="list-row-trail"]')?.getBoundingClientRect()
+          const facts = [...el.querySelectorAll<HTMLElement>('[data-slot="seat-state"], [data-slot="seat-cost"]')]
+          const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1
+          return facts.map(fact => {
+            const rect = fact.getBoundingClientRect()
+            const range = document.createRange(); range.selectNodeContents(fact)
+            const ink = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0)
+            return {
+              inside: rect.left >= box.left - 1 && rect.right <= box.right + 1 && ink.every(r => r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1),
+              uncut: fact.scrollWidth <= fact.clientWidth + 1 && ink.every(r => r.left >= rect.left - 1 && r.right <= rect.right + 1),
+              overlapsTitle: overlaps(rect, title),
+              overlapsTrail: trail ? overlaps(rect, trail) : false,
+            }
+          })
+        })
+        expect(result.length).toBeGreaterThan(0)
+        for (const fact of result) expect(fact, `viewport ${width}`).toEqual({ inside: true, uncut: true, overlapsTitle: false, overlapsTrail: false })
+      }
+    }
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Overview facts resize and seat actions remain usable in ${theme}`, async ({ page }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', error => pageErrors.push(error.message))
+    await page.addInitScript(() => {
+      const errors: string[] = []
+      Object.assign(window, { __seatObserverErrors: errors })
+      window.addEventListener('error', event => { if (event.message.includes('ResizeObserver loop')) errors.push(event.message) })
+    })
+    await page.setViewportSize({ width: 420, height: 1100 })
+    await page.goto(`/preview.html?team-overview=narrow&seat-facts-test=unavailable&theme=${theme}`)
+    await page.evaluate(() => document.fonts.ready)
+    const overview = page.locator('#team-overview-narrow [data-slot="team-overview"]')
+    const short = overview.locator('[data-seat="seat-0"]')
+    const long = overview.locator('[data-seat="seat-1"]')
+    const unavailable = overview.locator('[data-seat="seat-2"]')
+    const facts = short.locator('[data-slot="list-row-heading-facts"]')
+    await expect(short.locator('[data-slot="seat-cost"]')).toHaveText('123456 turns')
+    await expect(short.locator('[data-slot="seat-state"]')).toHaveText('Working')
+    await expect(long.locator('[data-slot="seat-state"]')).toHaveText('Needs you')
+    await expect(long.locator('[data-slot="seat-cost"]')).toHaveText('$0.21')
+    await expect(unavailable.locator('[data-slot="seat-cost"]')).toHaveText('—')
+    await expect(unavailable.getByRole('button', { name: /^Open / })).toHaveCount(0)
+    await expect(facts).toHaveAttribute('data-placement', 'inline')
+    await expect(long.locator('[data-slot="list-row-heading-facts"]')).toHaveAttribute('data-placement', 'inline')
+    expect(await long.locator('[data-slot="text"][data-role="subject"]').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)
+    await short.getByRole('button', { name: 'Open A', exact: true }).focus()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('[data-seat-opened]')).toHaveText('seat-0')
+    for (const width of [240, 320, 420, 240, 420]) {
+      await page.setViewportSize({ width, height: 1100 })
+      if (width === 420) await expect(facts).toHaveAttribute('data-placement', 'inline')
+      if (width === 240) await expect(facts).toHaveAttribute('data-placement', 'below')
+      await expect(facts).toBeVisible()
+      const placements = await facts.evaluate(async el => {
+        const values: string[] = []
+        for (let i = 0; i < 6; i++) { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); values.push(el.getAttribute('data-placement') ?? '') }
+        return values
+      })
+      expect(new Set(placements).size).toBe(1)
+    }
+    const opener = short.getByRole('button', { name: 'Open A', exact: true })
+    const output = page.locator('[data-seat-opened]')
+    await opener.focus(); await expect(opener).toBeFocused()
+    await page.keyboard.press('Enter'); await page.keyboard.press('Space'); await opener.click()
+    await short.click({ position: { x: 2, y: 2 } })
+    await expect(output).toHaveText('seat-0,seat-0,seat-0,seat-0,seat-0')
+    await unavailable.click({ position: { x: 2, y: 2 } })
+    await expect(output).toHaveText('seat-0,seat-0,seat-0,seat-0,seat-0')
+    await expect(long.getByRole('button', { name: 'Open A very long synthetic agent name for truncation' })).toBeVisible()
+    await expect(long.locator('[title="A very long synthetic agent name for truncation"]')).toBeVisible()
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    expect(pageErrors).toEqual([])
+    expect(await page.evaluate(() => (window as unknown as { __seatObserverErrors: string[] }).__seatObserverErrors)).toEqual([])
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  for (const variant of ['done', 'stopped', 'unavailable'] as const) {
+    test(`narrow Overview ${variant} facts and descriptions fit in ${theme}`, async ({ page }) => {
+      for (const width of [240, 320, 420]) {
+        await page.setViewportSize({ width, height: 1100 })
+        await page.goto(`/preview.html?team-overview=narrow&seat-facts-test=${variant}&theme=${theme}`)
+        await page.evaluate(() => document.fonts.ready)
+        const rows = page.locator('#team-overview-narrow [data-seat]')
+        await expect(rows.first().locator('[data-slot="list-row-heading"]')).toBeVisible()
+        if (variant === 'done') await expect(rows.first().locator('[data-slot="seat-state"]')).toHaveText('Done')
+        if (variant === 'stopped') await expect(rows.first().locator('[data-slot="seat-state"]')).toHaveText('Stopped')
+        if (variant === 'unavailable') await expect(page.locator('#team-overview-narrow [data-seat="seat-2"]').getByRole('button', { name: /^Open / })).toHaveCount(0)
+        for (const row of await rows.all()) {
+          const geometry = await row.evaluate(el => {
+            const row = el.getBoundingClientRect(), heading = el.querySelector('[data-slot="list-row-heading"]')!.getBoundingClientRect()
+            const title = el.querySelector('[data-slot="list-row-title"]')!.getBoundingClientRect()
+            const trail = el.querySelector('[data-slot="list-row-trail"]')?.getBoundingClientRect()
+            const subtitle = el.querySelector('[data-slot="list-row-subtitle"]')?.getBoundingClientRect()
+            const css = getComputedStyle(el)
+            const overlap = (a: DOMRect, b: DOMRect) => a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1
+            const facts = [...el.querySelectorAll<HTMLElement>('[data-slot="seat-state"], [data-slot="seat-cost"]')].map(fact => {
+              const rect = fact.getBoundingClientRect(), range = document.createRange(); range.selectNodeContents(fact)
+              const ink = [...range.getClientRects()].filter(r => r.width && r.height)
+              return rect.left >= row.left - 1 && rect.right <= row.right + 1 && fact.scrollWidth <= fact.clientWidth + 1 &&
+                ink.every(r => r.left >= rect.left - 1 && r.right <= rect.right + 1 && r.top >= row.top - 1 && r.bottom <= row.bottom + 1) &&
+                !overlap(rect, title) && (!trail || !overlap(rect, trail))
+            })
+            return { facts, description: !subtitle || (Math.abs(subtitle.left - heading.left) < 1 && Math.abs(subtitle.right - heading.right) < 1),
+              belowWidth: (() => { const f = el.querySelector<HTMLElement>('[data-placement="below"]'); if (!f) return true; const b = f.getBoundingClientRect(); return Math.abs(b.left - row.left - parseFloat(css.paddingLeft) - parseFloat(css.borderLeftWidth)) < 1 && Math.abs(row.right - parseFloat(css.paddingRight) - parseFloat(css.borderRightWidth) - b.right) < 1 })() }
+          })
+          expect(geometry.facts.length).toBeGreaterThan(0)
+          expect(geometry.facts.every(Boolean), `${variant} at ${width}`).toBe(true)
+          expect(geometry.description).toBe(true)
+          expect(geometry.belowWidth).toBe(true)
+        }
+      }
+    })
+  }
+}
+
+test('Overview idle ticks retain heading observers while facts and width still reflow', async ({ page }) => {
+  await page.clock.install()
+  await page.addInitScript(() => {
+    const NativeResizeObserver = window.ResizeObserver
+    const counts = { created: 0, disconnected: 0 }
+    const observed = new WeakSet<Element>()
+    Object.assign(window, { __headingObserverCounts: counts, __headingObserved: observed })
+    window.ResizeObserver = class extends NativeResizeObserver {
+      private heading = false
+      override observe(target: Element, options?: ResizeObserverOptions) {
+        if (!this.heading && target.matches('[data-slot="list-row-heading"]')) {
+          this.heading = true
+          counts.created++
+        }
+        if (this.heading) observed.add(target)
+        super.observe(target, options)
+      }
+      override disconnect() {
+        if (this.heading) counts.disconnected++
+        super.disconnect()
+      }
+    }
+  })
+  await page.setViewportSize({ width: 420, height: 1100 })
+  await page.goto('/preview.html?team-overview=narrow&seat-facts-test=unavailable&theme=light')
+  await page.evaluate(() => document.fonts.ready)
+  const row = page.locator('#team-overview-narrow [data-seat="seat-0"]')
+  const facts = row.locator('[data-slot="list-row-heading-facts"]')
+  await page.clock.runFor(500)
+  await expect(facts).toHaveAttribute('data-placement', 'inline')
+  const counts = () => page.evaluate(() => ({ ...(window as unknown as { __headingObserverCounts: { created: number; disconnected: number } }).__headingObserverCounts }))
+  const before = await counts()
+  expect(before.created - before.disconnected).toBe(4)
+  await page.clock.runFor(3000)
+  expect(await counts()).toEqual(before)
+
+  // Moving the facts below mounts them afresh, so a cost written into the DOM would be lost on the
+  // move and the row would flip straight back. A stylesheet keyed on a body attribute survives it,
+  // and the body attribute is one of the changes the row already listens for (themes use it).
+  const longCost = (on: boolean) => page.evaluate(on => {
+    if (!document.getElementById('long-seat-cost')) {
+      const style = document.createElement('style')
+      style.id = 'long-seat-cost'
+      style.textContent = 'body[data-long-seat-cost] #team-overview-narrow [data-seat="seat-0"] [data-slot="seat-cost"]::after { content: " 999999999999999999999999999 turns" }'
+      document.head.append(style)
+    }
+    document.body.toggleAttribute('data-long-seat-cost', on)
+  }, on)
+  await longCost(true)
+  await page.clock.runFor(100)
+  await expect(facts).toHaveAttribute('data-placement', 'below')
+  await facts.locator('[data-slot="seat-cost"]').evaluate(el => {
+    const replacement = document.createElement('span')
+    replacement.setAttribute('data-slot', 'seat-cost')
+    replacement.textContent = '2 turns'
+    el.replaceWith(replacement)
+  })
+  await page.clock.runFor(100)
+  await expect(facts).toHaveAttribute('data-placement', 'below')
+  expect(await facts.locator('[data-slot="seat-cost"]').evaluate(el => (window as unknown as { __headingObserved: WeakSet<Element> }).__headingObserved.has(el))).toBe(true)
+  await longCost(false)
+  await page.clock.runFor(100)
+  await expect(facts).toHaveAttribute('data-placement', 'inline')
+  await page.setViewportSize({ width: 240, height: 1100 })
+  await page.clock.runFor(100)
+  await expect(facts).toHaveAttribute('data-placement', 'below')
+  await page.setViewportSize({ width: 420, height: 1100 })
+  await page.clock.runFor(100)
+  await expect(facts).toHaveAttribute('data-placement', 'inline')
+})

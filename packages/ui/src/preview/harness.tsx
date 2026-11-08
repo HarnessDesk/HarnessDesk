@@ -1,11 +1,13 @@
+import { createLeadState } from '../state/lead'
 import { GITHUB_SOURCE, githubFile, githubPlan } from './library-github-fixture'
+import { createPhoneState } from '../state/phone'
 import { FRAME } from '../design/frame'
 import { DOCUMENT_DIFF } from './run-shapes-fixture'
 import { panes, type TeamChatLayout, type TeamFramePage } from '../state/layout'
 import { replaceTeamPayload } from '../state/workbench'
 import { toStored, type SideBySideState } from '../lib/side-by-side'
 import { fixedToolRefusal, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from '../state/frame-tools'
-import { toggleWorkRail as toggleWorkRailIn, swapWorkPane as swapWorkPaneIn, activeView, fixedSubject, dockViews } from '../state/workbench'
+import { toggleWorkRail as toggleWorkRailIn, togglePageRail as togglePageRailIn, swapWorkPane as swapWorkPaneIn, activeView, fixedSubject, dockViews } from '../state/workbench'
 import { browserView, drivenBrowserTab, findPane, show as showPane, type PaneView } from '../state/layout'
 import { BrowserTileRegistry, type BrowserTileMount } from '../lib/browser-tiles'
 import { addBrowserTab, patchBrowserTab, type BrowserView } from '../state/layout'
@@ -146,6 +148,9 @@ import editorSource from '../lib/brands.ts?raw'
 
 export const runtime = (id: string, name: string): RuntimeInfo =>
   ({ id: runtimeId(id), name, capabilities: {}, presentation: { name } }) as unknown as RuntimeInfo
+
+/** The first runtime in an unseeded preview store, also used by standalone specimens. */
+export const previewPrimaryRuntime = (): RuntimeInfo => runtime('codex', 'Alpha')
 
 /** The conversation every frame below is scoped to. */
 export const PREVIEW_SESSION_KEY = sessionKey(runtimeId('codex'), 's1' as SessionId)
@@ -936,6 +941,13 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
 
 /** The smallest store the mounted screens call. */
 class PreviewStore {
+  /** The same unavailable facade as a flag-off real desk; opt-in fixtures replace it. */
+  readonly lead = createLeadState({ request: (method, params) => this.transport.request(method, params) as never }, () => this.getSnapshot().leadAvailable)
+
+  /** The phone link, answered from what a frame puts there with `phone.changed`. */
+  readonly phone: ReturnType<typeof createPhoneState> = createPhoneState({
+    request: async (method: string) => { if (method === 'phone/pairing') return { url: 'harnessdesk://pair?c=preview', expiresAt: Date.now() + 600_000, addresses: [] } as never; return this.phone.state as never },
+  })
   #snapshot: AppSnapshot
   #teamFrameSerial = 0
   #listeners = new Set<() => void>()
@@ -952,7 +964,7 @@ class PreviewStore {
       workspaces: previewWorkspaces,
       runtimes: [
         {
-          ...runtime('codex', 'Alpha'),
+          ...previewPrimaryRuntime(),
           ceilings: {
             read: { settings: [{ option: 'permissions', value: ':read-only' }], how: 'Read-only sandbox; anything past it asks you' },
             edit: {
@@ -1367,6 +1379,7 @@ class PreviewStore {
       frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
   }
   toggleWorkRail(): void { this.#workbench(toggleWorkRailIn(this.#snapshot.workbench)) }
+  togglePageRail(page: string): void { this.#workbench(togglePageRailIn(this.#snapshot.workbench, page)) }
   swapWorkPane(): void { this.#workbench(swapWorkPaneIn(this.#snapshot.workbench)) }
   toggleWorkPanel(): void {
     const subject = this.workSubject()
@@ -1686,12 +1699,33 @@ class PreviewStore {
     return preview
   }
 
+  signInToHarnessDesk = async (): Promise<void> => {
+    this.patch({ harnessDeskAccount: { status: 'pending', desk: { name: 'Jane’s MacBook Pro', reachable: false }, phones: [],
+      pending: { userCode: 'ABCD-EFGH', verifyUrl: 'https://app.harnessdesk.app/link#code=ABCD-EFGH', expiresAt: Math.floor(Date.now() / 1000) + 600 } } })
+  }
+  openHarnessDeskSignIn = async (): Promise<void> => {}
+  cancelHarnessDeskSignIn = async (): Promise<void> => { this.patch({ harnessDeskAccount: { status: 'signedOut', desk: { name: 'Jane’s MacBook Pro', reachable: false }, phones: [] } }) }
+  signOutOfHarnessDesk = this.cancelHarnessDeskSignIn
+  renameHarnessDesk = async (name: string): Promise<void> => {
+    const status = this.#snapshot.harnessDeskAccount
+    if (status) this.patch({ harnessDeskAccount: { ...status, desk: { ...status.desk, name } } })
+  }
+  setHarnessDeskReachable = async (reachable: boolean): Promise<void> => {
+    const status = this.#snapshot.harnessDeskAccount
+    if (status) this.patch({ harnessDeskAccount: { ...status, desk: { ...status.desk, reachable } } })
+  }
+  unlinkHarnessDeskPhone = async (deviceId: string): Promise<void> => {
+    const status = this.#snapshot.harnessDeskAccount
+    if (status) this.patch({ harnessDeskAccount: { ...status, phones: status.phones.filter(phone => phone.deviceId !== deviceId) } })
+  }
+
   // --- the dials -----------------------------------------------------------
   setTheme = (theme: AppSnapshot['theme']): void => this.patch({ theme })
   setSpendChartMode = (spendChartMode: AppSnapshot['spendChartMode']): void => this.patch({ spendChartMode })
   setPalette = (palette: AppSnapshot['palette']): void => this.patch({ palette })
   setAccent = (accent: AppSnapshot['accent']): void => this.patch({ accent })
   setCorners = (corners: AppSnapshot['corners']): void => this.patch({ corners })
+  setSurface = (surface: AppSnapshot['surface']): void => this.patch({ surface })
   setFaces = (faces: AppSnapshot['faces']): void => this.patch({ faces })
   setLook = (next: AppSnapshot['look']): void => this.patch({ look: next })
   setProfile = (patch: ProfilePatch): void =>
@@ -2193,6 +2227,14 @@ class PreviewStore {
   #previewTicket = 0
   transport = {
     request: async (method: string, params?: unknown): Promise<unknown> => {
+      if (method.startsWith('account/')) {
+        if (method === 'account/signIn') await this.signInToHarnessDesk()
+        if (method === 'account/cancel' || method === 'account/signOut') await this.cancelHarnessDeskSignIn()
+        if (method === 'account/renameDesk') await this.renameHarnessDesk((params as { name: string }).name)
+        if (method === 'account/setReachable') await this.setHarnessDeskReachable((params as { reachable: boolean }).reachable)
+        if (method === 'account/unlinkPhone') await this.unlinkHarnessDeskPhone((params as { deviceId: string }).deviceId)
+        return this.#snapshot.harnessDeskAccount
+      }
       if (method === 'session/index') {
         const query = params as { runtimes?: string[]; archived?: string }
         if (query.archived !== 'only') return { data: [], nextCursor: null }
@@ -2395,3 +2437,7 @@ export const Mount = ({ children, with: own }: { children: ReactNode; with?: App
 )
 
 export { Boundary }
+
+// Explicit opt-in synthetic Lead specimens; ordinary previews remain disabled.
+export { LeadFrames, LeadContractSpecimen, LeadAvatarSpecimen } from './frames-lead'
+export { LEAD_SCENES } from './lead-fixture'

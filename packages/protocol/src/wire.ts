@@ -1,3 +1,10 @@
+import type { LeadStage } from './lead-stage.js'
+import type { ForgeGitEntry, ForgeRequester } from './forge.js'
+import type {
+  PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
+  PhoneWorkItem, PhoneWorkSnapshot, PhoneWorkThread,
+} from './phone.js'
+import type { LeadChatControlList, LeadRepeatControl, LeadBudgetRaise, LeadSpendLimitSet, LeadWakeLog, LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged, LeadSchedule, LeadMemory } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
@@ -747,7 +754,120 @@ export interface AgentRegisterRequest {
  * both generic over this map, so a mismatch is a compile error rather than a
  * runtime 'unknown method'.
  */
+/** The app account is independent of every agent account. Secrets never cross this wire. */
+export interface HarnessDeskPhone {
+  readonly deviceId: string
+  readonly name: string
+  readonly lastSeenAt: number | null
+}
+export interface HarnessDeskAccountStatus {
+  readonly status: 'signedOut' | 'pending' | 'signedIn'
+  readonly account?: { readonly name: string | null; readonly email: string | null; readonly pictureUrl: string | null; readonly pictureDataUrl?: string }
+  readonly desk: { readonly name: string; readonly reachable: boolean }
+  readonly pending?: { readonly userCode: string; readonly verifyUrl: string; readonly expiresAt: number }
+  readonly phones: readonly HarnessDeskPhone[]
+  readonly error?: string
+}
+
+/** A Host incarnation, record generation, body revision and contiguous session notification cursor. */
+export interface TranscriptWatermark {
+  readonly epoch: string
+  readonly generation: string
+  readonly revision: number
+  readonly sequence: number
+}
+
 export interface HostMethods {
+  'account/status': { params: Record<string, never>; result: HarnessDeskAccountStatus }
+  'account/signIn': { params: Record<string, never>; result: HarnessDeskAccountStatus }
+  'account/openSignIn': { params: Record<string, never>; result: HarnessDeskAccountStatus }
+  'account/cancel': { params: Record<string, never>; result: HarnessDeskAccountStatus }
+  'account/delete': { params: Record<string, never>; result: HarnessDeskAccountStatus }
+  'account/signOut': { params: { readonly localOnly?: boolean }; result: HarnessDeskAccountStatus }
+  'account/unlinkPhone': { params: { readonly deviceId: string }; result: HarnessDeskAccountStatus }
+  'account/renameDesk': { params: { readonly name: string }; result: HarnessDeskAccountStatus }
+  'account/setReachable': { params: { readonly reachable: boolean }; result: HarnessDeskAccountStatus }
+
+
+  'phone/state': { params: Record<string, never>; result: PhoneLinkState }
+  /** A new single-use pairing code for a phone on the same network. */
+  'phone/pairing': { params: Record<string, never>; result: PhonePairing }
+  'phone/allow': { params: { readonly id: string; readonly tiers?: readonly PhoneTier[] }; result: PhoneLinkState }
+  'phone/deny': { params: { readonly id: string }; result: PhoneLinkState }
+  'phone/revoke': { params: { readonly device: string }; result: PhoneLinkState }
+  /** What a paired phone reads of the person's sessions: redacted rows, counts per state, newest first. */
+  'phone/sessions/list': { params: { readonly state?: PhoneSessionState; readonly limit?: number; readonly cursor?: string }; result: PhoneSessionsList }
+  /** What a paired phone reads of the Teams: stage, progress, workers and cost, no paths or transcripts. */
+  'phone/teams/list': { params: { readonly limit?: number }; result: PhoneTeamsList }
+  /** What a paired phone reads of spend and seats for a range. */
+  'phone/dashboard/read': { params: { readonly range?: PhoneRange }; result: PhoneDashboard }
+  /**
+   * Everything a paired phone's Sessions, Teams and Dashboard tabs draw, in the shapes the phone decodes. Pushed whole
+   * on the `workspace` topic when it changes. Not the window's `workspace/*` file methods: those are folders and files.
+   */
+  'workspace/read': { params: Record<string, never>; result: PhoneWorkSnapshot }
+  /** Every ordinary desk session, in stable index pages, with active and archived cursors kept separate. */
+  'workspace/sessions/list': {
+    params: { readonly archived?: boolean; readonly cursor?: string; readonly limit?: number }
+    result: { readonly items: readonly PhoneWorkItem[]; readonly nextCursor: string | null }
+  }
+  /** Start with the desk's ordinary runtime and settings; a project is a displayed, admitted name. */
+  'workspace/session/start': { params: { readonly text: string; readonly project?: string; readonly agent?: string; readonly model?: string; readonly effort?: 'low' | 'medium' | 'high' | 'extra' }; result: { readonly id: string; readonly problem?: string } }
+  'workspace/session/send': { params: { readonly id: string; readonly text: string }; result: { readonly queued?: boolean } }
+  'workspace/stop': { params: { readonly id: string }; result: { readonly queued?: boolean } }
+  /** One session's conversation for the phone: its words scrubbed, no command output, no lines of a change. */
+  'workspace/thread/read': { params: { readonly id: string }; result: PhoneWorkThread }
+  /**
+   * Answers one approval a session is waiting on. `scope: "session"` picks that approval's own session-scoped choice and
+   * nothing wider, and only with `allow: true`. Answers `{}`; the new state arrives on the `workspace` topic.
+   */
+  'workspace/approval/decide': {
+    params: { readonly id: string; readonly session: string; readonly allow: boolean; readonly scope?: 'once' | 'session' }
+    result: Record<string, never>
+  }
+  /**
+   * Wraps one Team a Lead started, once the person has accepted its result and every card is finished or dropped.
+   * The desk writes the receipt from the cards; anything that needs a choice is refused and stays on the desk.
+   */
+  'workspace/team/wrap': { params: { readonly team: string }; result: Record<string, never> }
+  /** Ordinary sessions in the host-selected Lead project. Transcripts are untrusted observations. */
+  'lead/chat/list': {
+    params: { readonly cursor?: string; readonly limit?: number }
+    result: { readonly items: readonly { readonly id: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly updatedAt: number }[]; readonly nextCursor: string | null }
+  }
+  'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
+  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly effectId?: string; readonly agent?: string; readonly moveFrom?: string }; result: { readonly id: string; readonly problem?: string } }
+  'lead/chat/send': { params: { readonly id: string; readonly text: string; readonly effectId?: string; readonly retryAt?: 'reset' }; result: { readonly queued?: boolean } }
+  /** Window only. Which Lead-touched chats the person holds, and the keys of what the Lead sent. */
+  'lead/chats/resetControl': { params: Record<string, never>; result: LeadChatControlList }
+  'lead/chats/control': { params: Record<string, never>; result: LeadChatControlList }
+  /** Window only. The person takes one chat back from the Lead; Lead sends to it are refused until handed back. */
+  'lead/chat/takeOver': { params: { id: string }; result: LeadChatControlList }
+  'lead/chat/handBack': { params: { id: string }; result: LeadChatControlList }
+
+  'lead/chat/stop': { params: { readonly id: string; readonly effectId?: string }; result: { readonly queued?: boolean } }
+  'lead/wakes/read': { params: Record<string, never>; result: LeadWakeLog }
+  'lead/thread/read': { params: Record<string, never>; result: LeadWindowProjection }
+  'lead/thread/send': { params: LeadThreadSend; result: LeadSendReceipt }
+  'lead/card/decide': { params: LeadCardDecision; result: LeadWindowProjection }
+  'lead/approval/revoke': { params: { readonly id: string; readonly contractDigest: string }; result: LeadWindowProjection }
+  'lead/action/perform': { params: LeadActionInput; result: LeadWindowProjection }
+  'lead/settings/read': { params: Record<string, never>; result: LeadWindowProjection }
+  'lead/settings/update': { params: LeadSettingsUpdate; result: LeadWindowProjection | LeadNameReceipt }
+  'lead/stop': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }
+  'lead/resume': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }
+  /** Say something to the goal's running worker mid-turn, without restarting it. */
+  'lead/steer': { params: { readonly text: string }; result: LeadWindowProjection }
+  /** The Lead's own timetable: goals it opens when idle, and the hours it opens none. */
+  'lead/repeat/control': { params: LeadRepeatControl; result: LeadSchedule }
+  'lead/budget/raise': { params: LeadBudgetRaise; result: LeadWindowProjection }
+  /** The person's standing money limit per goal, null for Off; it also applies to the goal in hand unless that has finished. */
+  'lead/spendLimit/set': { params: LeadSpendLimitSet; result: LeadWindowProjection }
+  'lead/schedule/read': { params: Record<string, never>; result: LeadSchedule }
+  'lead/schedule/update': { params: { readonly schedule: LeadSchedule }; result: LeadSchedule }
+  /** What the Lead keeps between goals, the person's lines and its own suggestions. */
+  'lead/memory/read': { params: Record<string, never>; result: LeadMemory }
+  'lead/memory/update': { params: { readonly memory: LeadMemory }; result: LeadMemory }
   'client/hello': {
     params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }
     result: {
@@ -891,6 +1011,8 @@ export interface HostMethods {
     result: {
       readonly protocolVersion: number
       readonly hostVersion: string
+      /** Optional host-owned destinations, absent until explicitly enabled at startup. */
+      readonly capabilities?: { readonly lead?: true; readonly phone?: true }
       readonly runtimes: readonly RuntimeInfo[]
       /**
        * How this host protects a secret it is given, in words a person can
@@ -1218,8 +1340,9 @@ export interface HostMethods {
    * The value goes to the credential broker and is never returned.
    *
    * `applied` is what the agent knows now: `restarted` means it is running
-   * with the new value, `busy` that a turn was in flight and it will pick the
-   * value up on its next start. The shell says which, because "saved" alone
+   * with the new value, `busy` that work prevented a restart, and `deferred`
+   * that no restart was made while it was not ready. In the latter two cases
+   * a later start can pick up the value. The shell says which, because "saved" alone
    * let a user store a key and watch the next turn fail for the lack of it.
    */
   'runtime/apiKey/store': {
@@ -1379,6 +1502,16 @@ export interface HostMethods {
   'session/loadout': {
     params: { readonly session: string; readonly runtime?: RuntimeId }
     result: ConversationLoadouts
+  }
+  /** A verified storage fact, not permission for a renderer to unload without event fencing. */
+  'session/prepare-eviction': {
+    params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly identity: string }
+    result: { readonly epoch: string; readonly generation: string; readonly revision: number; readonly sequence?: number; readonly identity: string } | null
+  }
+  /** Null means the Host cannot currently provide an authoritative fenced full body. */
+  'session/cache-snapshot': {
+    params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+    result: { readonly session: Session; readonly watermark: TranscriptWatermark; readonly identity: string } | null
   }
   'session/read': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
@@ -2443,6 +2576,12 @@ export interface HostMethods {
     result: { readonly started: true }
   }
 
+  'git/record/list': {
+    params: { readonly root: string; readonly branch?: string; readonly number?: number; readonly view?: 'all' | 'outside' | 'refused'; readonly limit?: number; readonly before?: string }
+    result: { readonly repository: string | null; readonly entries: readonly ForgeGitEntry[]; readonly counts: { readonly all: number; readonly outside: number; readonly refused: number } }
+  }
+  'git/record/attribute': { params: { readonly root: string; readonly branch: string; readonly sha: string }; result: ForgeRequester | 'outside' }
+
   'git/status': { params: { readonly root: string }; result: GitStatus | null }
   'git/branches': {
     params: { readonly root: string }
@@ -2676,10 +2815,17 @@ export interface HostMethods {
       /** Plain-language lines describing what it is asking for. */
       readonly permissions: readonly string[]
       readonly alreadyInstalled: boolean
+      /** The sha256 of the manifest shown; the install that follows passes it back. */
+      readonly manifestDigest: string
     }
   }
+  /**
+   * Installs what `plugin/inspect` showed. `manifestDigest` is the one it
+   * reported: a package whose manifest has changed since is refused, so what
+   * the person agreed to is what is installed.
+   */
   'plugin/install': {
-    params: { readonly specifier: string }
+    params: { readonly specifier: string; readonly manifestDigest: string }
     result: { readonly pluginId: string }
   }
   'plugin/uninstall': { params: { readonly pluginId: string }; result: null }
@@ -2815,7 +2961,28 @@ export interface SeatActivity {
   readonly since?: number
 }
 
+/** In-memory managed chat ownership, ordered within one StateStore lifetime. */
+export interface ChatRootsSnapshot {
+  readonly epoch: string
+  readonly revision: number
+  readonly roots: readonly string[]
+}
+
 export type WireNotification =
+  | { readonly method: 'chats/rootsChanged'; readonly params: ChatRootsSnapshot }
+  | {
+      /** The window's current Lead chat holders, verification keys and control-read problem. */
+      readonly method: 'lead/chats/controlChanged'
+      readonly params: LeadChatControlList
+    }
+  | {
+      /** A tracked ordinary chat changed state; transcript content stays behind read. */
+      readonly method: 'lead/chat/changed'
+      readonly params: { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly incident?: import('./lead.js').LeadChatIncidentObservation }
+    }
+  | { readonly method: 'account/changed'; readonly params: { readonly status: HarnessDeskAccountStatus } }
+  | { readonly method: 'phone/changed'; readonly params: PhoneLinkState }
+  | { readonly method: 'lead/changed'; readonly params: LeadChanged }
   | { method: 'storage/usageChanged'; params: StorageUsage }
   | { readonly method: 'seat/activity'; readonly params: SeatActivity }
   | { method: 'goal/changed'; params: { view: GoalView } }
@@ -2841,7 +3008,12 @@ export type WireNotification =
        * client keep two runtimes' conversations apart.
        */
       readonly method: 'event'
-      readonly params: { readonly runtime: RuntimeId; readonly event: AgentEvent }
+      readonly params: { readonly runtime: RuntimeId; readonly event: AgentEvent; readonly transcriptFence?: { readonly epoch: string; readonly generation: string; readonly revision: number; readonly sequence?: number } }
+    }
+  | {
+      /** A sequenced Host-side change without a corresponding body event. */
+      readonly method: 'session/cache-invalidated'
+      readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly watermark: TranscriptWatermark }
     }
   | {
       /** Extension-plane state, streamed the same way agent events are. */
