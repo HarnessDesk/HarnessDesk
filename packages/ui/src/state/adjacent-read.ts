@@ -1,10 +1,15 @@
 import { isNoticeTurn, mergeRead, preserveDeskContext, preserveNoticeItems, type AgentEvent, type Session, type TranscriptWatermark, type Turn } from '@harnessdesk/protocol'
 
 type Field = { readonly present: boolean; readonly value: unknown }
-type Change = { readonly first: Field; last: Field }
+type Patch = { path: (string | number)[]; before: Field; truncate?: number }
+type Change = { readonly first: Field; last: Field; undo: Patch[][] }
+// The journal budget covers one open across read and resume; it excludes the
+// first and latest snapshots. Refuse overflow while a provider stalls.
+const MAX_JOURNAL_BYTES = 8 * 1024 * 1024
+const MAX_TRANSITIONS = 4096
 type Fields = Map<string, Change>
-type ItemChanges = { whole?: Change; fields: Fields }
-type TurnChanges = { whole?: Change; fields: Fields; items: Map<string, ItemChanges> }
+type ItemChanges = { whole?: Change; history?: Change; fields: Fields }
+type TurnChanges = { whole?: Change; history?: Change; fields: Fields; items: Map<string, ItemChanges> }
 const absent: Field = { present: false, value: undefined }
 const field = (object: object | undefined, key: string): Field => object && Object.hasOwn(object, key)
   ? { present: true, value: (object as Record<string, unknown>)[key] } : absent
@@ -16,27 +21,55 @@ const sameValue = (a: unknown, b: unknown): boolean => {
 }
 const same = (a: Field, b: Field): boolean => a.present === b.present && (!a.present || sameValue(a.value, b.value))
 const value = (object: object | undefined): Field => object ? { present: true, value: object } : absent
-const record = (fields: Fields, before: object | undefined, after: object | undefined, excluded: readonly string[]): void => {
-  const keys = new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])
-  for (const key of keys) {
-    if (excluded.includes(key)) continue
-    const first = field(before, key), last = field(after, key)
-    if (same(first, last)) continue
-    const previous = fields.get(key)
-    if (previous) previous.last = last
-    else fields.set(key, { first, last })
+// Reverse patches keep append-only text as a length, not every growing string.
+// Arrays with a changed shape and arbitrary replacements retain exact values.
+const reversePatch = (before: Field, after: Field, path: (string | number)[], out: Patch[]): void => {
+  if (same(before, after)) return
+  const a = before.value, b = after.value
+  if (before.present && after.present && typeof a === 'string' && typeof b === 'string' && b.startsWith(a)) {
+    out.push({ path, before: absent, truncate: a.length }); return
   }
+  if (before.present && after.present && a && b && typeof a === 'object' && typeof b === 'object' &&
+      Array.isArray(a) === Array.isArray(b) && (!Array.isArray(a) || a.length === (b as unknown[]).length)) {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+    for (const key of keys) reversePatch(field(a, key), field(b, key), [...path, key], out)
+    return
+  }
+  out.push({ path, before })
+}
+const undo = (current: Field, patches: Patch[]): Field => {
+  let root = current.value
+  let present = current.present
+  for (const patch of patches) {
+    if (!patch.path.length) {
+      if (patch.truncate !== undefined) root = (root as string).slice(0, patch.truncate)
+      else { root = structuredClone(patch.before.value); present = patch.before.present }
+      continue
+    }
+    let parent = root as Record<string | number, unknown>
+    for (const key of patch.path.slice(0, -1)) parent = parent[key] as Record<string | number, unknown>
+    const key = patch.path[patch.path.length - 1]!
+    if (patch.truncate !== undefined) parent[key] = (parent[key] as string).slice(0, patch.truncate)
+    else if (patch.before.present) Object.defineProperty(parent, key, { value: structuredClone(patch.before.value), writable: true, enumerable: true, configurable: true })
+    else delete parent[key]
+  }
+  return present ? { present: true, value: root } : absent
 }
 const apply = (fresh: Field, change: Change): Field => {
   if (same(fresh, change.last)) return fresh
   if (same(fresh, change.first)) return change.last
+  let checkpoint: Field = change.last.present ? { present: true, value: structuredClone(change.last.value) } : absent
+  for (let i = change.undo.length - 1; i >= 0; i--) {
+    checkpoint = undo(checkpoint, change.undo[i]!)
+    if (same(fresh, checkpoint)) return change.last
+  }
   throw new Error('The conversation changed while it was being read. Retry to refresh it.')
 }
 const applyFields = <T extends object>(fresh: T, fields: Fields): T => {
   const result = { ...fresh } as Record<string, unknown>
   for (const [key, change] of fields) {
     const next = apply(field(result, key), change)
-    if (next.present) result[key] = next.value
+    if (next.present) Object.defineProperty(result, key, { value: next.value, writable: true, enumerable: true, configurable: true })
     else delete result[key]
   }
   return result as T
@@ -47,6 +80,42 @@ export class AdjacentReadChanges {
   readonly fields: Fields = new Map()
   readonly indexFields: Fields = new Map()
   readonly turns = new Map<string, TurnChanges>()
+  private journalBytes = 0
+  private transitions = 0
+  private journalInvalid = false
+  private journalDiscontinuous = false
+  private update(previous: Change | undefined, first: Field, last: Field): Change {
+    if (!previous) return { first, last, undo: [] }
+    if (this.journalInvalid) return previous
+    if (!same(previous.last, first)) {
+      this.journalInvalid = true
+      this.journalDiscontinuous = true
+      return previous
+    }
+    const patches: Patch[] = []
+    reversePatch(previous.last, last, [], patches)
+    // Count serialized payload, including paths and removed/replaced values.
+    const bytes = JSON.stringify(patches).length * 2
+    if (++this.transitions > MAX_TRANSITIONS || this.journalBytes + bytes > MAX_JOURNAL_BYTES) {
+      this.journalInvalid = true
+      return previous
+    }
+    this.journalBytes += bytes
+    previous.undo.push(patches)
+    previous.last = last
+    return previous
+  }
+  private record(fields: Fields, before: object | undefined, after: object | undefined, excluded: readonly string[]): void {
+    for (const key of new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])) {
+      if (excluded.includes(key)) continue
+      const first = field(before, key), last = field(after, key)
+      if (!same(first, last)) fields.set(key, this.update(fields.get(key), first, last))
+    }
+  }
+  private ensureJournal(): void {
+    if (this.journalDiscontinuous) throw new Error('The conversation changed without a complete event sequence. Retry to refresh it.')
+    if (this.journalInvalid) throw new Error('The conversation changed too much while it was being read. Retry to refresh it.')
+  }
   unseen = false
   coverage: TranscriptWatermark | null = null
   coverageInvalid = false
@@ -55,15 +124,17 @@ export class AdjacentReadChanges {
     for (const key of ['title', 'archived']) {
       const first = field(before, key), last = field(after, key)
       if (same(first, last)) continue
-      const previous = this.indexFields.get(key)
-      if (previous) previous.last = last
-      else this.indexFields.set(key, { first, last })
+      this.indexFields.set(key, this.update(this.indexFields.get(key), first, last))
     }
   }
-  applyIndex(snapshot: Session): Session { return applyFields(snapshot, this.indexFields) }
+  applyIndex(snapshot: Session): Session { this.ensureJournal(); return applyFields(snapshot, this.indexFields) }
   forResume(): AdjacentReadChanges {
     const next = new AdjacentReadChanges()
-    for (const [key, change] of this.indexFields) next.indexFields.set(key, { ...change })
+    for (const [key, change] of this.indexFields) next.indexFields.set(key, { ...change, undo: [...change.undo] })
+    next.journalBytes = this.journalBytes
+    next.transitions = this.transitions
+    next.journalInvalid = this.journalInvalid
+    next.journalDiscontinuous = this.journalDiscontinuous
     return next
   }
   observeFence(fence: TranscriptWatermark | null): void {
@@ -79,17 +150,18 @@ export class AdjacentReadChanges {
     return turn
   }
   #compareTurn(id: string, before: Turn | undefined, after: Turn | undefined, onlyItem?: string): void {
-    if (!onlyItem && same(value(before), value(after))) return
+    if (same(value(before), value(after))) return
+    const history = this.#turn(id)
+    history.history = this.update(history.history, value(before), value(after))
     if (!before || !after) {
-      const turn = this.#turn(id)
-      if (turn.whole) turn.whole.last = value(after)
-      else turn.whole = { first: value(before), last: value(after) }
+      const turn = history
+      turn.whole = turn.history
       return
     }
     const existing = this.turns.get(id)
-    if (existing?.whole) { existing.whole.last = value(after); return }
+    if (existing?.whole) { existing.whole = existing.history; return }
     const turn = this.#turn(id)
-    if (!onlyItem) record(turn.fields, before, after, ['id', 'items'])
+    if (!onlyItem) this.record(turn.fields, before, after, ['id', 'items'])
     const left = new Map<string, Turn['items'][number]>(before.items.map(item => [item.id, item])), right = new Map<string, Turn['items'][number]>(after.items.map(item => [item.id, item]))
     const ids = onlyItem ? [onlyItem] : [...new Set([...left.keys(), ...right.keys()])]
     for (const itemId of ids) {
@@ -97,10 +169,10 @@ export class AdjacentReadChanges {
       if (same(value(a), value(b))) continue
       let item = turn.items.get(itemId)
       if (!item) turn.items.set(itemId, item = { fields: new Map() })
+      item.history = this.update(item.history, value(a), value(b))
       if (!a || !b || a.type !== b.type || item.whole) {
-        if (item.whole) item.whole.last = value(b)
-        else item.whole = { first: value(a), last: value(b) }
-      } else record(item.fields, a, b, ['id', 'type'])
+        item.whole = item.history
+      } else this.record(item.fields, a, b, ['id', 'type'])
     }
   }
   observe(event: AgentEvent, before: Session | undefined, after: Session | undefined): void {
@@ -108,7 +180,7 @@ export class AdjacentReadChanges {
       if (event.type === 'session/started' || event.type === 'session/status' || event.type === 'session/title' || event.type === 'session/settings' || event.type === 'session/options' || event.type === 'session/memory' || event.type === 'session/goal' || event.type === 'session/detached' || event.type === 'session/closed' || event.type === 'usage/updated' || event.type === 'turn/started' || event.type === 'turn/completed' || event.type.startsWith('item/') || event.type === 'turn/diff' || event.type === 'turn/plan') this.unseen = true
       return
     }
-    record(this.fields, before, after, ['turns'])
+    this.record(this.fields, before, after, ['turns'])
     if (event.type === 'turn/started' || event.type === 'turn/completed') {
       this.#compareTurn(event.turn.id, before.turns.find(t => t.id === event.turn.id), after.turns.find(t => t.id === event.turn.id)); return
     }
@@ -124,11 +196,13 @@ export class AdjacentReadChanges {
       for (const id of new Set([...left.keys(), ...right.keys()])) this.#compareTurn(id, left.get(id), right.get(id))
     }
   }
+  assertComplete(): void { this.ensureJournal() }
   get observed(): boolean { return this.unseen || this.fields.size > 0 || this.turns.size > 0 }
 }
 
 /** Apply only event-owned changes; a divergent unfenced field refuses replacement. */
 export const reconcileAdjacentRead = (held: Session, read: Session, changes: AdjacentReadChanges): Session => {
+  changes.assertComplete()
   if (changes.unseen) throw new Error('The conversation changed without a complete event sequence. Retry to refresh it.')
   const merged = mergeRead(held, read, turn => changes.turns.has(turn.id) || turn.status === 'inProgress')
   if (!read.itemsLoaded) return applyFields(merged, changes.fields)
