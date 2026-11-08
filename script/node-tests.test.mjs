@@ -57,6 +57,8 @@ test('each group pattern still names a test, and the Lead files run on the Lead 
   const byName = Object.fromEntries(grouped(files).map(group => [group.name, group]))
   assert.ok(byName['lead-e2e'].files.length >= 4, 'the Lead end-to-end cases are split over files')
   assert.ok(byName.lead.files.includes('packages/lead/dist/test/supervisor.test.js'))
+  assert.equal(byName['plugin-confinement'].node, 26, 'a plugin is confined only on a runtime that refuses the network')
+  assert.deepEqual(byName['plugin-confinement'].files, ['packages/extension-host/dist/test/confinement.test.js'])
   assert.equal(byName.retention.files.length, 1, 'retention runs alone in its invocation')
   assert.ok(byName.unit.files.length > 300, 'everything else is a unit test')
   // `*` in a pattern never crosses a directory (#1052's review: `find -path` did).

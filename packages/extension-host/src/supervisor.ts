@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { answerIosCall } from './ios.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
@@ -35,10 +38,12 @@ import {
   type KernelLogger,
   PluginCapabilityHost,
   capabilityWorkMs,
+  escapingLink,
   readCapabilityRequest,
   type CapabilityLease,
   placedBrowserEngine,
   handPageToSystem,
+  pdfName,
 } from '@harnessdesk/cordis-host'
 import {
   choosePluginRuntime,
@@ -263,6 +268,8 @@ export class PluginHostProcess {
   }
   /** Ends every program this process asked for, when the process goes. */
   #capabilityRuns = new AbortController()
+  /** The folders this process's saved PDFs were written into, removed with it. */
+  readonly #pdfFolders = new Set<string>()
   /** Whether the running process is under the permission model, and on what. */
   #confinement: PluginConfinement | null = null
   /**
@@ -1274,6 +1281,40 @@ export class PluginHostProcess {
           reply({ response: request.request, result: null })
           return
         }
+        case 'browser/savePdf': {
+          if (!this.#confined) {
+            refuse('Only a confined plugin process has its PDFs written by the host.')
+            return
+          }
+          const { data, name } = request.params as { data?: unknown; name?: unknown }
+          if (typeof data !== 'string' || typeof name !== 'string') {
+            refuse('A saved PDF needs its data and a name.')
+            return
+          }
+          // A folder per PDF, named for this process as the in-process ones
+          // are, so a desk that crashes leaves nothing the next one keeps;
+          // removed when the plugin's process is disposed. The name is made
+          // safe again here: the process's word for it is not.
+          const folder = await mkdtemp(join(tmpdir(), `hd-pdf-${process.pid}-`))
+          this.#pdfFolders.add(folder)
+          const path = join(folder, `${pdfName(name)}.pdf`)
+          await writeFile(path, Buffer.from(data, 'base64'))
+          reply({ response: request.request, result: path })
+          return
+        }
+        case 'browser/missing': {
+          if (!this.#confined) {
+            refuse('Only a confined plugin process has its uploads looked for by the host.')
+            return
+          }
+          const paths = (request.params as { paths?: unknown }).paths
+          if (!Array.isArray(paths) || paths.length > 256 || !paths.every((path) => typeof path === 'string')) {
+            refuse('An upload names its files as a list of paths.')
+            return
+          }
+          reply({ response: request.request, result: (paths as string[]).filter((path) => !existsSync(path)) })
+          return
+        }
         case 'browser/ensure':
           await engine.ensure(identity)
           reply({ response: request.request, result: null })
@@ -1656,6 +1697,9 @@ export class PluginHostProcess {
 
   async dispose(): Promise<void> {
     this.#disposed = true
+    const folders = [...this.#pdfFolders]
+    this.#pdfFolders.clear()
+    await Promise.all(folders.map((folder) => rm(folder, { recursive: true, force: true })))
     const child = this.#child
     if (!child) return
     // Closing stdin asks politely; the deadline answers for plugins that will not.
@@ -1898,6 +1942,13 @@ export class SupervisedExtensionHost {
           // agreed, and must not be for a manifest that renamed its plugin.
           if (pkg.manifest.id !== member.id) throw new Error(MANIFEST_CHANGED)
           if ((await this.#consent.check(member.id, now)) === 'changed') throw new Error(MANIFEST_CHANGED)
+          // The installer refuses a link that leads outside the package, but
+          // a copy installed before that check, or a link placed since, would
+          // read through the directory grant. Checked again at every start.
+          const link = await escapingLink(member.directory)
+          if (link) {
+            throw new Error(`${link} is a link that leads outside the plugin, so it was not started. Remove the link, or reinstall the plugin.`)
+          }
         },
         stillConsented: async () => this.#consent.matches(member.id, (await readInstalledManifest(member.directory)).bytes),
         onRefused: () => {

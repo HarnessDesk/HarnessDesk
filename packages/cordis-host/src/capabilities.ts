@@ -136,9 +136,11 @@ export interface HttpResponse {
  * Fetches a URL the plugin's manifest allows.
  *
  * Timeouts are mandatory rather than optional: a plugin awaiting a hung
- * request inside a tool call would stall the agent's turn.
+ * request inside a tool call would stall the agent's turn. `stopped` ends it
+ * sooner: the parent passes its plugin process's lifetime, so a request does
+ * not go on after the plugin that made it has gone.
  */
-export const httpFetch = async (owner: RegisteredPlugin, url: string, init: HttpRequestInit = {}): Promise<HttpResponse> => {
+export const httpFetch = async (owner: RegisteredPlugin, url: string, init: HttpRequestInit = {}, stopped?: AbortSignal): Promise<HttpResponse> => {
   owner.gate.assertNetwork(url)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), init.timeoutMs ?? 30_000)
@@ -147,7 +149,7 @@ export const httpFetch = async (owner: RegisteredPlugin, url: string, init: Http
       method: init.method ?? 'GET',
       ...(init.headers ? { headers: init.headers } : {}),
       ...(init.body === undefined ? {} : { body: init.body }),
-      signal: controller.signal,
+      signal: stopped ? AbortSignal.any([controller.signal, stopped]) : controller.signal,
     })
     const headers: Record<string, string> = {}
     response.headers.forEach((value, key) => {
@@ -205,7 +207,8 @@ export interface ShellOptions {
 /**
  * Where a program runs from when the parent runs it for a plugin's process:
  * that process's own environment, never the host's, and a signal that stops
- * it when the process goes.
+ * it when the process goes. The same signal ends the requests and device
+ * commands the parent makes for that process.
  */
 export interface ShellHost {
   readonly env?: NodeJS.ProcessEnv

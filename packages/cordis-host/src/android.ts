@@ -118,7 +118,20 @@ export type AndroidMethod = (typeof ANDROID_METHODS)[number]
  * for a plugin in its own, with that plugin's grant.
  */
 export class AndroidDevices {
-  constructor(private readonly assertAndroid: () => void) {}
+  /**
+   * `stopped`, when given, is the signal that ends a command early: the parent
+   * passes its plugin process's lifetime, so a plugin that stops takes its
+   * device work with it.
+   */
+  constructor(
+    private readonly assertAndroid: () => void,
+    private readonly stopped: () => AbortSignal | undefined = () => undefined,
+  ) {}
+
+  private get until(): { readonly signal?: AbortSignal } {
+    const signal = this.stopped()
+    return signal ? { signal } : {}
+  }
 
   private async adb(args: readonly string[], what: string, timeoutMs?: number, serial?: string): Promise<string> {
     this.assertAndroid()
@@ -126,6 +139,7 @@ export class AndroidDevices {
       const { stdout } = await runDevice(adbBinary(), [...onDevice(serial), ...args], {
         what,
         ...(timeoutMs ? { timeoutMs } : {}),
+        ...this.until,
       })
       return stdout
     } catch (error) {
@@ -188,6 +202,7 @@ export class AndroidDevices {
     try {
       return await runDeviceForPng(adbBinary(), [...onDevice(serial), 'exec-out', 'screencap', '-p'], {
         what: 'Screenshotting the device',
+        ...this.until,
       })
     } catch (error) {
       throw await this.refusal(error as Error, serial)

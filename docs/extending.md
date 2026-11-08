@@ -117,7 +117,8 @@ answer denies. Where the runtime allows it, the process is also confined: it
 cannot read outside its own directory, write any file, open a connection or
 start a program on its own, so `ctx.fs`, `ctx.http`, `ctx.shell` and
 `ctx.android` are the only way to reach them, and the host serves each call.
-A plugin package may not contain a symbolic link that leads outside it.
+A plugin package may not contain a symbolic link that leads outside it, and
+an installed plugin with one does not start.
 [Plugin isolation](plugin-isolation.md) is the full design, including what
 confinement does not cover.
 

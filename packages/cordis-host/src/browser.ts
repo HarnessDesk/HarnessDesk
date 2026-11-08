@@ -234,6 +234,24 @@ export const setSystemHandOff = (handOff: ((url: string) => Promise<void>) | nul
 }
 
 /**
+ * The files a page's work touches, when another process owns them. A
+ * confined process can write no file and read none of the workspace, so the
+ * parent writes its saved PDFs and looks for the files it uploads.
+ */
+export interface BrowserFiles {
+  /** Writes a saved PDF (base64) under `name`, where it lives as long as the plugin's process; resolves to its path. */
+  savePdf(data: string, name: string): Promise<string>
+  /** The paths among these that name no file. */
+  missing(paths: readonly string[]): Promise<readonly string[]>
+}
+
+let hostFiles: BrowserFiles | null = null
+
+export const setBrowserFiles = (files: BrowserFiles | null): void => {
+  hostFiles = files
+}
+
+/**
  * The user's answer to "where should pages open". Changing it does not
  * disturb a browser already open: the next call lands wherever the setting
  * now says, and whatever was running is left for its own owner to close.
@@ -371,7 +389,7 @@ export interface NetworkEntry {
  * space (round 1). A name with nothing left is `page`. What Windows forbids
  * besides is left alone: the desktop app ships for macOS only.
  */
-const pdfName = (title: string | undefined): string => {
+export const pdfName = (title: string | undefined): string => {
   const whole = String(title ?? '')
     .replace(/[\x00-\x1f/\\:]/g, '-')
     .trim()
@@ -600,7 +618,9 @@ export class BrowserService extends Service {
     options: { landscape?: boolean; printBackground?: boolean; name?: string } = {},
   ): Promise<{ path: string; bytes: number }> {
     const url = await this.pdf(options)
-    const data = Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')
+    const encoded = url.slice(url.indexOf(',') + 1)
+    const data = Buffer.from(encoded, 'base64')
+    if (hostFiles) return { path: await hostFiles.savePdf(encoded, pdfName(options.name)), bytes: data.length }
     /* The folder lives as long as the plugin that asked for it, which for a
        built-in is the desk: nothing else would remove it (review of #187,
        round 1). `this.ctx` is the caller's scope, the one the gate reads. The
@@ -779,7 +799,7 @@ export class BrowserService extends Service {
   /** Hands a file input real files, which only the browser can do. */
   async upload(ref: string, files: readonly string[]): Promise<void> {
     const cdp = await this.reach()
-    const missing = files.filter((file) => !existsSync(file))
+    const missing = hostFiles ? await hostFiles.missing(files) : files.filter((file) => !existsSync(file))
     if (missing.length) throw new Error(`No file at ${missing.join(', ')}.`)
     await cdp.send('DOM.enable')
     const handle = (await cdp.send('Runtime.evaluate', {

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { consentPath, ExtensionKernel } from '@harnessdesk/cordis-host'
+import { consentPath, ExtensionKernel, pdfName } from '@harnessdesk/cordis-host'
 import type { SessionId } from '@harnessdesk/protocol'
 
 import { choosePluginRuntime, hostPluginRuntime, type PluginRuntime } from '../src/confinement.js'
@@ -38,7 +39,7 @@ const speak = (method, params) => new Promise(resolve => {
   process.stdin.on('data', listen); process.stdout.write(JSON.stringify({ request: id, method, params }) + '\\n')
 })
 
-export const plugin = { name: 'escape', inject: ['tools', 'fs', 'http', 'shell'], apply(ctx) {
+export const plugin = { name: 'escape', inject: ['tools', 'fs', 'http', 'shell', 'browser'], apply(ctx) {
   ctx.tools.register({ name: 'escape', description: 'Fixture', inputSchema: { type: 'object' }, execute: async (args) => JSON.stringify({
     read: await attempt(() => readFileSync(args.outside, 'utf8')),
     readWorkspace: await attempt(() => readFileSync(args.inside, 'utf8')),
@@ -69,6 +70,12 @@ export const plugin = { name: 'escape', inject: ['tools', 'fs', 'http', 'shell']
   }) })
   ctx.tools.register({ name: 'slow', description: 'Fixture', inputSchema: { type: 'object' }, execute: async (args) =>
     (await ctx.shell.run(args.node, ['-e', 'setTimeout(() => process.stdout.write("waited"), 3000)'], { timeoutMs: 10000 })).stdout })
+  ctx.tools.register({ name: 'pdf', description: 'Fixture', inputSchema: { type: 'object' }, execute: async () =>
+    JSON.stringify(await ctx.browser.savePdf({ name: '../../report' })) })
+  ctx.tools.register({ name: 'upload', description: 'Fixture', inputSchema: { type: 'object' }, execute: async (args) => JSON.stringify({
+    present: await attempt(() => ctx.browser.upload('e1', [args.inside])),
+    absent: await attempt(() => ctx.browser.upload('e1', [args.inside + '.gone'])),
+  }) })
   ctx.tools.register({ name: 'raw', description: 'Fixture', inputSchema: { type: 'object' }, execute: async (args) => speak('capability/call', args.params) })
 } }
 `
@@ -81,6 +88,8 @@ interface Harness {
   readonly own: string
   readonly paths: { outside: string; inside: string; own: string; consent: string; port: number; node: string; victim: number }
   readonly connections: () => number
+  /** The files each `DOM.setFileInputFiles` the page was sent named. */
+  readonly uploaded: readonly (readonly string[])[]
   invoke(name: string, args?: Record<string, unknown>): Promise<unknown>
 }
 
@@ -94,7 +103,7 @@ const harness = async (t: TestContext, confine: boolean, runtimes?: readonly Plu
   await writeFile(join(workspace, 'inside.txt'), 'inside')
   await writeFile(join(directory, 'harnessdesk.plugin.json'), JSON.stringify({
     id: 'escape', name: 'Escape', version: '1.0.0', main: './index.mjs',
-    permissions: { workspace: { read: true }, network: { hosts: ['127.0.0.1'] }, shell: true },
+    permissions: { workspace: { read: true }, network: { hosts: ['127.0.0.1'] }, shell: true, browser: true },
   }))
   await writeFile(join(directory, 'index.mjs'), plugin)
 
@@ -104,9 +113,25 @@ const harness = async (t: TestContext, confine: boolean, runtimes?: readonly Plu
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const port = (server.address() as { port: number }).port
 
+  // The pane's stand-in: it prints a PDF and takes files into an input.
+  const uploaded: string[][] = []
+  const browserEngine = {
+    async ensure() {
+      return {
+        async send(method: string, params?: Record<string, unknown>) {
+          if (method === 'Page.printToPDF') return { data: Buffer.from('%PDF-fake').toString('base64') }
+          if (method === 'Runtime.evaluate') return { result: { objectId: 'input-1' } }
+          if (method === 'DOM.setFileInputFiles') uploaded.push([...(params?.['files'] as string[])])
+          return {}
+        },
+      }
+    },
+    async close() {},
+  }
   const host = new SupervisedExtensionHost(new ExtensionKernel(), {
     invokeTimeoutMs,
     env: { HARNESSDESK_PLUGINS: store },
+    browserEngine,
     confine,
     ...(runtimes ? { runtimes } : {}),
   })
@@ -135,6 +160,7 @@ const harness = async (t: TestContext, confine: boolean, runtimes?: readonly Plu
     own: paths.own,
     paths,
     connections: () => connections,
+    uploaded,
     async invoke(name, args = {}) {
       const tool = tools.find((one) => one.name === name)
       assert.ok(tool, `${name} is contributed; saw ${tools.map((one) => one.name).join(', ')}`)
@@ -228,6 +254,38 @@ test('the call deadline waits while the host serves a slow call, so the plugin i
   const before = (await host.stats()).processes?.[0]?.pid
   assert.equal(await invoke('slow'), 'waited')
   assert.equal((await host.stats()).processes?.[0]?.pid, before, 'the same process answered')
+})
+
+test("a confined plugin's saved PDFs and uploads are files the host writes and finds, not the process", async (t) => {
+  const { host, invoke, paths, uploaded } = await harness(t, true)
+  assert.equal((await host.stats()).processes?.[0]?.confinement?.confined, true)
+  const saved = await invoke('pdf') as { path: string; bytes: number }
+  assert.equal(await readFile(saved.path, 'utf8'), '%PDF-fake')
+  assert.equal(saved.bytes, 9)
+  // Written by this process (the host), in a folder named for it, under a
+  // name made safe here rather than taken from the plugin's process.
+  assert.match(basename(dirname(saved.path)), new RegExp(`^hd-pdf-${process.pid}-`))
+  assert.equal(dirname(dirname(saved.path)), tmpdir())
+  assert.equal(basename(saved.path), `${pdfName('../../report')}.pdf`)
+  // A workspace file the process cannot read is found by the host; a missing one is not.
+  const uploads = await invoke('upload') as Record<string, string>
+  assert.equal(uploads['present'], 'allowed')
+  assert.match(uploads['absent']!, /No file at/)
+  assert.deepEqual(uploaded, [[paths.inside]])
+  // The folder lives as long as the plugin's process.
+  await host.setEnabled('escape', false)
+  assert.equal(existsSync(dirname(saved.path)), false)
+})
+
+test('a link leading outside an installed plugin, placed after it was installed, keeps it from starting', async (t) => {
+  const { host, base, paths } = await harness(t, true)
+  await host.setEnabled('escape', false)
+  await symlink(paths.outside, join(base, 'plugins', 'escape', 'data'))
+  await host.setEnabled('escape', true)
+  const escape = host.plugins().find((one) => one.identity.id === 'escape')
+  assert.equal(escape?.state.type, 'failed', JSON.stringify(escape?.state))
+  assert.match(escape?.state.type === 'failed' ? escape.state.message : '', /data is a link that leads outside the plugin, so it was not started/)
+  assert.deepEqual((await host.stats()).processes ?? [], [])
 })
 
 test('with no runtime that refuses what the probe tries, a plugin runs unconfined and says why', async (t) => {

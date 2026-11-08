@@ -12,6 +12,7 @@ import {
   setBrowserEngine,
   setBrowserSettings,
   setSystemHandOff,
+  setBrowserFiles,
   currentBrowserIdentity,
   setEditorEngine,
   setTeamEngine,
@@ -404,6 +405,10 @@ const handlers: Handlers = {
       setSystemHandOff(async (url) => {
         const identity = currentBrowserIdentity(true)!
         await askHost('browser/handoff', { invocation: identity.invocation, url })
+      })
+      setBrowserFiles({
+        savePdf: (data, name) => askHost('browser/savePdf', { invocation: currentBrowserIdentity(true)!.invocation, data, name }),
+        missing: (paths) => askHost('browser/missing', { invocation: currentBrowserIdentity(true)!.invocation, paths }),
       })
     } else if (params.inlineBrowser) {
       setBrowserEngine(remoteBrowserEngine)

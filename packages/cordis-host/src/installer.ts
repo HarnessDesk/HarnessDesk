@@ -52,7 +52,8 @@ const readManifestBytes = async (directory: string): Promise<Buffer> => {
 }
 
 /**
- * Refuses a package with a symbolic link that leads outside it.
+ * The first symbolic link in a package that leads outside it, as a path
+ * relative to the package, or null when there is none.
  *
  * A plugin's process may read its own directory and nothing else
  * (docs/plugin-isolation.md, layer 5), but the permission model follows a
@@ -61,30 +62,38 @@ const readManifestBytes = async (directory: string): Promise<Buffer> => {
  * dependency's alias — is left as it is. A link whose target does not exist
  * is judged by where it would lead.
  */
-export const assertSelfContained = async (directory: string): Promise<void> => {
+export const escapingLink = async (directory: string): Promise<string | null> => {
   const root = await realpath(directory)
   const inside = (path: string): boolean => {
     const rel = relative(root, path)
     return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
   }
-  const walk = async (at: string): Promise<void> => {
+  const walk = async (at: string): Promise<string | null> => {
     for (const entry of await readdir(at, { withFileTypes: true })) {
       const path = join(at, entry.name)
       if (entry.isSymbolicLink()) {
         const target = resolve(dirname(path), await readlink(path))
         const leads = await realpath(path).catch(() => target)
-        if (!inside(target) || !inside(leads)) {
-          throw new InstallError(
-            `${relative(root, path)} is a link that leads outside the plugin, so nothing was installed. ` +
-              'A plugin ships its own files; copy what it needs into the package.',
-          )
-        }
+        if (!inside(target) || !inside(leads)) return relative(root, path)
       } else if (entry.isDirectory()) {
-        await walk(path)
+        const found = await walk(path)
+        if (found) return found
       }
     }
+    return null
   }
-  await walk(root)
+  return walk(root)
+}
+
+/** Refuses to install a package with a link that leads outside it (`escapingLink`). */
+export const assertSelfContained = async (directory: string): Promise<void> => {
+  const link = await escapingLink(directory)
+  if (link) {
+    throw new InstallError(
+      `${link} is a link that leads outside the plugin, so nothing was installed. ` +
+        'A plugin ships its own files; copy what it needs into the package.',
+    )
+  }
 }
 
 const parseManifestBytes = (bytes: Buffer, directory: string, source: PluginSource): PluginPackage => {

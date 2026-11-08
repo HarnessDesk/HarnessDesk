@@ -117,9 +117,10 @@ The promises come in two kinds:
 
 - **A granted permission is real power.** A plugin granted `shell: true` can
   run programs as you. One granted `workspace.write` can change your
-  checkout. Isolation makes sure a plugin gets *only* what it was granted. It
-  does not make a broad grant safe. Read what a plugin asks for before you
-  install it.
+  checkout. One granted `browser` drives a browser, which can open the files
+  your account can read. Isolation makes sure a plugin gets *only* what it
+  was granted. It does not make a broad grant safe. Read what a plugin asks
+  for before you install it.
 - **Confinement is a seat belt, not a vault.** Layer 5 uses Node's permission
   model. Node documents that model as protection against *accidental* reach,
   not as a guarantee against code written to escape it. A plugin that
@@ -146,8 +147,10 @@ The promises come in two kinds:
 - **Links inside a package.** Node follows a symbolic link wherever it
   leads, even past the paths a process may read. So the installer refuses a
   package with a link that leads outside it; a link that stays inside is
-  copied as written. A link placed into an installed plugin's directory
-  later, by something other than the installer, is not checked again.
+  copied as written. The host looks again before every start, restarts
+  included, so a copy installed before that check, or a link placed into a
+  plugin's directory since, keeps the plugin from starting. A link placed
+  while the plugin runs is found at its next start.
 - **Everything runs as your user account.** Plugins never run as a separate
   user. What is sensitive stays out of their reach by keeping it in the
   host: plugin processes get an environment built from scratch, and
@@ -343,6 +346,11 @@ workspace.
 a `capability/call` for one is refused when it comes from startup, a timer,
 or a lease that ended, whatever the plugin was granted.
 
+**Hosted work stops with the plugin.** A program, a request or a device
+command the host runs for a plugin is ended when that plugin's process
+exits, is turned off or is uninstalled. It does not finish for a plugin that
+is gone.
+
 `agents.invoke` and `secrets` are already in the manifest schema, but no
 plane serves them yet. Each will be added by the recipe under
 [Adding a capability](#adding-a-capability).
@@ -391,6 +399,9 @@ does:
   context read each carry a browser identity the host minted for that call,
   so each of them can open a page. A hand-off to the system
   browser takes only an `http` or `https` address, and only during a call.
+  A saved PDF is written by the host, in a folder that is removed with the
+  plugin's process, and the files an upload names are looked for by the
+  host.
 
 **Which runtime runs it.** The Lead's candidates, in their order: the app's
 own runtime, then the Node it bundles for the Lead. A probe starts each

@@ -147,7 +147,7 @@ export class PluginCapabilityHost {
     private readonly shellHost: () => ShellHost = () => ({}),
   ) {
     this.#owner = this.#runtime.register(pluginInstanceId(`${pluginId}#installed`), permissions).entry
-    this.#devices = new AndroidDevices(() => this.#owner.gate.assertAndroid())
+    this.#devices = new AndroidDevices(() => this.#owner.gate.assertAndroid(), () => this.shellHost().signal)
   }
 
   setWorkspace(state: WorkspaceState): void {
@@ -178,7 +178,7 @@ export class PluginCapabilityHost {
         }
         break
       case 'http':
-        return httpFetch(owner, request.url, request.init)
+        return httpFetch(owner, request.url, request.init, this.shellHost().signal)
       case 'shell':
         return shellRun(runtime, owner, request.command, request.args, request.options, this.shellHost())
       case 'android': {

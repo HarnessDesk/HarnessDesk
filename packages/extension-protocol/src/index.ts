@@ -328,6 +328,10 @@ export interface ChildToHostMethods {
   'browser/close': { params: { readonly invocation: string }; result: null }
   /** A confined process's `browser_open` under the `system` placement: a web address only. */
   'browser/handoff': { params: { readonly invocation: string; readonly url: string }; result: null }
+  /** A confined process's saved PDF (base64): the parent writes it, in a folder that lives as long as the process. */
+  'browser/savePdf': { params: { readonly invocation: string; readonly data: string; readonly name: string }; result: string }
+  /** A confined process's upload: the files among these the parent finds no file at. */
+  'browser/missing': { params: { readonly invocation: string; readonly paths: readonly string[] }; result: readonly string[] }
 
   /**
    * The editor plane — the same four shapes as the browser above, for the
