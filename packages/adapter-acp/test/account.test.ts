@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { ChildProcess } from 'node:child_process'
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -333,6 +333,197 @@ const keyed = (key: () => string | undefined, env: Record<string, string> = {}, 
     logger: onRefusal ? { warn: (message) => { if (message === 'the agent would not switch to the stored key') onRefusal() } } : undefined,
     ...(cliLogout ? { account: { logout: { command: FAKE_CLI, args: ['logout'] } } } : {}),
   })
+
+for (const held of ['effect', 'reply'] as const) {
+  test(`a session opened during startup key authentication waits for the effect: ${held}`, async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'hd-acp-startup-auth-'))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    const gate = join(dir, 'gate'), mode = join(dir, 'mode'), log = join(dir, 'auth.log'), opens = join(dir, 'open-modes')
+    writeFileSync(mode, 'out')
+    const runtime = keyed(() => 'placeholder-key', {
+      FAKE_ACP_AUTH_LOG: log, FAKE_ACP_AUTH_MODE_FILE: mode,
+      FAKE_ACP_AUTH_OBSERVE_FILE: opens, FAKE_ACP_AUTH_OBSERVE_CWD: dir,
+      ...(held === 'effect' ? { FAKE_ACP_AUTH_GATE: gate } : { FAKE_ACP_AUTH_REPLY_GATE: gate }),
+    })
+    const waitFor = async (ready: () => boolean, what: string) => {
+      const deadline = Date.now() + 5000
+      while (!ready()) {
+        if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+    }
+    const observed = () => existsSync(opens) ? readFileSync(opens, 'utf8').trim().split('\n').filter(Boolean) : []
+    let attempt: Promise<{ session?: Awaited<ReturnType<AcpRuntime['createSession']>>; error?: unknown }> | undefined
+    try {
+      assert.equal(await runtime.reloadSecrets(), 'deferred', 'the stored key is due at the next start')
+      const starting = runtime.start()
+      attempt = starting.then(() => runtime.createSession({ cwd: dir })).then(session => ({ session }), error => ({ error }))
+      await waitFor(() => existsSync(log), 'the peer to receive authenticate')
+      if (held === 'reply') await waitFor(() => readFileSync(mode, 'utf8') === 'api-key', 'the peer to apply the key')
+      else assert.equal(readFileSync(mode, 'utf8'), 'out', 'the effect is still held')
+      // Let already-scheduled local open work reach the connection, then use a
+      // real ordered peer round-trip. The peer records the applied mode at
+      // session/new, before it accepts or rejects that request.
+      await new Promise<void>(resolve => setImmediate(resolve))
+      await runtime.connection.request('test/auth-barrier', {})
+      const beforeRelease = observed()
+      if (held === 'effect') assert.deepEqual(beforeRelease, [], 'no session may reach the peer before the key effect')
+      else assert.ok(beforeRelease.every(value => value === 'api-key'), 'a delayed reply is not a delayed effect')
+      writeFileSync(gate, 'release')
+      const result = await attempt
+      assert.ifError(result.error)
+      assert.ok(result.session)
+      assert.ok(observed().length > 0 && observed().every(value => value === 'api-key'), 'the actual session opened under the key mode')
+    } finally {
+      writeFileSync(gate, 'release')
+      await attempt
+      await runtime.dispose()
+    }
+  })
+}
+
+const waitForStartupAuth = async (ready: () => boolean, what: string): Promise<void> => {
+  const deadline = Date.now() + 5000
+  while (!ready()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+}
+
+test('a missing stored key does not hold an ordinary session open', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-startup-no-key-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const log = join(dir, 'auth.log'), mode = join(dir, 'mode')
+  writeFileSync(mode, 'google')
+  const runtime = keyed(() => undefined, { FAKE_ACP_AUTH_LOG: log, FAKE_ACP_AUTH_MODE_FILE: mode })
+  try {
+    assert.equal(await runtime.reloadSecrets(), 'deferred')
+    await runtime.start()
+    const session = await runtime.createSession({ cwd: dir })
+    assert.ok(session)
+    assert.equal(existsSync(log), false, 'no unrelated authentication request was sent')
+    assert.equal(readFileSync(mode, 'utf8'), 'google')
+  } finally { await runtime.dispose() }
+})
+
+test('a refused startup key switch releases the open without inventing success', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-startup-refusal-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'gate'), mode = join(dir, 'mode'), log = join(dir, 'auth.log'), opens = join(dir, 'open-modes'), refuse = join(dir, 'refuse')
+  writeFileSync(mode, 'google'); writeFileSync(refuse, '')
+  const runtime = keyed(() => 'placeholder-key', { FAKE_ACP_AUTH_GATE: gate, FAKE_ACP_AUTH_LOG: log,
+    FAKE_ACP_AUTH_MODE_FILE: mode, FAKE_ACP_REFUSE_KEY_FILE: refuse,
+    FAKE_ACP_AUTH_OBSERVE_FILE: opens, FAKE_ACP_AUTH_OBSERVE_CWD: dir })
+  let attempt: Promise<{ session?: Awaited<ReturnType<AcpRuntime['createSession']>>; error?: unknown }> | undefined
+  try {
+    assert.equal(await runtime.reloadSecrets(), 'deferred')
+    const starting = runtime.start()
+    attempt = starting.then(() => runtime.createSession({ cwd: dir })).then(session => ({ session }), error => ({ error }))
+    await waitForStartupAuth(() => existsSync(log), 'held authentication')
+    await new Promise<void>(resolve => setImmediate(resolve))
+    await runtime.connection.request('test/auth-barrier', {})
+    assert.equal(existsSync(opens), false, 'session waits for the actual refusal')
+    writeFileSync(gate, 'release')
+    const result = await attempt
+    assert.ifError(result.error); assert.ok(result.session)
+    assert.equal(readFileSync(mode, 'utf8'), 'google', 'refusal keeps the peer’s prior mode')
+    assert.deepEqual(readFileSync(opens, 'utf8').trim().split('\n'), ['google'])
+  } finally { writeFileSync(gate, 'release'); await attempt; await runtime.dispose() }
+})
+
+test('a changed key waits while the startup open is fenced and reaches the next process', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-startup-new-key-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'gate'), log = join(dir, 'auth.log'), matches = join(dir, 'key-matches'), opens = join(dir, 'open-modes')
+  let key = 'first-placeholder-key'
+  const runtime = keyed(() => key, { FAKE_ACP_AUTH_GATE: gate, FAKE_ACP_AUTH_LOG: log,
+    FAKE_ACP_AUTH_MODE_FILE: join(dir, 'mode'), FAKE_ACP_AUTH_KEY_MATCH_FILE: matches,
+    FAKE_ACP_AUTH_EXPECTED_KEY: 'replacement-placeholder-key',
+    FAKE_ACP_AUTH_OBSERVE_FILE: opens, FAKE_ACP_AUTH_OBSERVE_CWD: dir })
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  let attempt: Promise<{ session?: Awaited<ReturnType<AcpRuntime['createSession']>>; error?: unknown }> | undefined
+  try {
+    assert.equal(await runtime.reloadSecrets(), 'deferred')
+    const starting = runtime.start()
+    attempt = starting.then(() => runtime.createSession({ cwd: dir })).then(session => ({ session }), error => ({ error }))
+    await waitForStartupAuth(() => existsSync(log), 'held authentication')
+    await new Promise<void>(resolve => setImmediate(resolve))
+    await runtime.connection.request('test/auth-barrier', {})
+    assert.equal(existsSync(opens), false)
+    key = 'replacement-placeholder-key'
+    assert.equal(await runtime.reloadSecrets(), 'busy', 'a pending open is not killed to apply a newer key')
+    writeFileSync(gate, 'release')
+    const first = await attempt
+    assert.ifError(first.error); assert.ok(first.session)
+    const beforeRestart = events.length
+    assert.equal(await runtime.reloadSecrets(), 'restarted')
+    await waitForStartupAuth(() => readFileSync(matches, 'utf8').trim().split('\n').length >= 2, 'the replacement peer to receive authenticate')
+    await waitForStartupAuth(() => events.slice(beforeRestart).some(event => event.type === 'account/changed'), 'the replacement authentication to settle')
+    assert.deepEqual(readFileSync(matches, 'utf8').trim().split('\n'), ['other', 'match'], 'the next process receives the newer key')
+  } finally { writeFileSync(gate, 'release'); await attempt; await runtime.dispose() }
+})
+
+test('disposing during a held startup key switch cannot dispatch its waiting session', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-startup-dispose-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'gate'), log = join(dir, 'auth.log'), opens = join(dir, 'open-modes')
+  const runtime = keyed(() => 'placeholder-key', { FAKE_ACP_AUTH_GATE: gate, FAKE_ACP_AUTH_LOG: log,
+    FAKE_ACP_AUTH_OBSERVE_FILE: opens, FAKE_ACP_AUTH_OBSERVE_CWD: dir })
+  let attempt: Promise<{ session?: Awaited<ReturnType<AcpRuntime['createSession']>>; error?: unknown }> | undefined
+  try {
+    assert.equal(await runtime.reloadSecrets(), 'deferred')
+    const starting = runtime.start()
+    attempt = starting.then(() => runtime.createSession({ cwd: dir })).then(session => ({ session }), error => ({ error }))
+    await waitForStartupAuth(() => existsSync(log), 'held authentication')
+    await new Promise<void>(resolve => setImmediate(resolve))
+    await runtime.connection.request('test/auth-barrier', {})
+    assert.equal(existsSync(opens), false)
+    await runtime.dispose()
+    const result = await attempt
+    assert.ok(result.error, 'the old open is refused on disposal')
+    assert.equal(existsSync(opens), false, 'no session was sent after shutdown')
+  } finally { writeFileSync(gate, 'release'); await attempt; await runtime.dispose() }
+})
+
+test('a retired startup key switch cannot open its session on a replacement process', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-startup-replacement-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const oldCwd = join(dir, 'old'), mode = join(dir, 'mode'), opens = join(dir, 'old-opens')
+  mkdirSync(oldCwd)
+  const runtime = keyed(() => 'placeholder-key', { FAKE_ACP_AUTH_MODE_FILE: mode,
+    FAKE_ACP_AUTH_OBSERVE_FILE: opens, FAKE_ACP_AUTH_OBSERVE_CWD: oldCwd })
+  let release!: () => void, applied!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const appliedReceipt = new Promise<void>(resolve => { applied = resolve })
+  const request = runtime.connection.request.bind(runtime.connection)
+  let first = true
+  t.mock.method(runtime.connection, 'request', async <T>(method: string, params: unknown, timeout?: number): Promise<T> => {
+    const answer = await request<T>(method, params, timeout)
+    if (method === 'authenticate' && first) { first = false; applied(); await held }
+    return answer
+  })
+  let attempt: Promise<{ session?: Awaited<ReturnType<AcpRuntime['createSession']>>; error?: unknown }> | undefined
+  try {
+    assert.equal(await runtime.reloadSecrets(), 'deferred')
+    await runtime.start(); await appliedReceipt
+    attempt = runtime.createSession({ cwd: oldCwd }).then(session => ({ session }), error => ({ error }))
+    await new Promise<void>(resolve => setImmediate(resolve))
+    await runtime.connection.request('test/auth-barrier', {})
+    assert.equal(existsSync(opens), false)
+    const crash = assert.rejects(runtime.connection.request('test/crash', {}))
+    await waitForStartupAuth(() => runtime.health().state === 'unavailable', 'the first process to exit')
+    await crash
+    assert.equal(await runtime.reloadSecrets(), 'deferred')
+    await runtime.start()
+    const fresh = await runtime.createSession({ cwd: dir })
+    assert.ok(fresh, 'the replacement process accepts a new open')
+    release()
+    const result = await attempt
+    assert.ok(result.error, 'the original process cannot authorize an open on its replacement')
+    assert.equal(existsSync(opens), false)
+  } finally { release(); await attempt; await runtime.dispose() }
+})
 
 test('a refused key switch preserves the earlier successful key mode on removal', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'hd-acp-key-refused-'))
