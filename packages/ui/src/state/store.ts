@@ -664,6 +664,10 @@ export class AppStore {
   #transcriptPressureRunning = false
   #transcriptPressureDirty = false
   #transcriptChange = 0
+  #transcriptOwnerChanges = 0
+
+  /** Body restoration tolerates lease changes, but no other transcript fence changes. */
+  #transcriptRestoreChange(): number { return this.#transcriptChange - this.#transcriptOwnerChanges }
 
   /** Cursor presence alone is not an eviction receipt or a verified current body. */
   transcriptCacheVerified(runtime: RuntimeId, id: SessionId): boolean {
@@ -679,6 +683,7 @@ export class AppStore {
     this.#transcriptAuthority.delete(key)
     this.#transcriptReceipts.delete(key)
     this.#transcriptChange++
+    this.#transcriptOwnerChanges++
     let released = false
     return () => {
       if (released) return
@@ -696,8 +701,12 @@ export class AppStore {
       if (owners.size === 0 && this.#transcriptOwners.get(key) === owners) {
         this.#transcriptOwners.delete(key)
         this.#transcriptChange++
+        this.#transcriptOwnerChanges++
         this.#scheduleTranscriptPressure()
-      } else this.#transcriptChange++
+      } else {
+        this.#transcriptChange++
+        this.#transcriptOwnerChanges++
+      }
       if (advance && reproof && this.#transcriptReproof.get(key) === reproof) {
         reproof.owners.delete(token)
         reproof.change = this.#transcriptChange
@@ -991,7 +1000,7 @@ export class AppStore {
     if (rebind && descriptor.changed) return false
     if (descriptor.inFlight && descriptor.flightConnection === operationConnection) return descriptor.inFlight
     const release = this.retainTranscript(runtime, id)
-    const change = this.#transcriptChange, draftRevision = this.drafts.revision
+    const change = this.#transcriptRestoreChange(), draftRevision = this.drafts.revision
     descriptor.dirty = false
     const run = (async (): Promise<boolean> => {
       try {
@@ -1003,7 +1012,7 @@ export class AppStore {
         const advancedWithoutLocalData = !descriptor.changed && sameIncarnation && snapshot.watermark.sequence > descriptor.watermark.sequence && snapshot.watermark.revision >= descriptor.watermark.revision
         if (!snapshot || !held || this.#releasedTranscripts.get(key) !== descriptor || !descriptor.eligible || captured?.unresolved ||
             operationConnection !== this.#chatConnectionGeneration || descriptor.removal !== (this.#sessionRemovalRevisions.get(key) ?? 0) ||
-            this.#transcriptChange !== change || this.drafts.revision !== draftRevision || held.itemsLoaded ||
+            this.#transcriptRestoreChange() !== change || this.drafts.revision !== draftRevision || held.itemsLoaded ||
             transcriptSessionFingerprint(held) !== descriptor.metadata || snapshot.session.runtime !== runtime || snapshot.session.id !== id ||
             !snapshot.session.itemsLoaded || snapshot.session.partialHistory || !this.#validTranscriptFence(snapshot.watermark) ||
             (!rebind && (snapshot.watermark.epoch !== descriptor.watermark.epoch || snapshot.watermark.generation !== descriptor.watermark.generation ||
