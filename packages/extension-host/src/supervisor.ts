@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { answerIosCall } from './ios.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
@@ -1439,6 +1439,8 @@ export class SupervisedExtensionHost {
   readonly #installer: PluginHostProcess
   /** One entry per installed plugin, in install order, running or not. */
   readonly #members = new Map<string, Member>()
+  /** The lifecycle operation each plugin is in, so the next one waits for it. */
+  readonly #lifecycle = new Map<string, Promise<void>>()
   readonly #listeners = new Set<(event: ExtensionEvent) => void>()
   readonly #logger: KernelLogger
   readonly #options: SupervisedExtensionHostOptions
@@ -1491,9 +1493,15 @@ export class SupervisedExtensionHost {
     const installed = await listInstalled(this.#root)
     const started: Promise<void>[] = []
     for (const entry of installed) {
-      if (this.#members.has(entry.id)) continue
-      const member: Member = { id: entry.id, directory: entry.directory, proc: null, enabled: true, problem: null, config: null, identity: null, configSchema: null, uninstalling: false, generation: 0 }
-      this.#members.set(entry.id, member)
+      // A plugin is the directory it was installed into, never what its
+      // manifest says now: the manifest is the plugin's to rewrite, and a
+      // plugin that renamed itself would otherwise come back as a plugin
+      // nobody agreed to, with no record to hold it to. #start then refuses
+      // a manifest that names anything else.
+      const id = basename(entry.directory)
+      if (this.#members.has(id)) continue
+      const member: Member = { id, directory: entry.directory, proc: null, enabled: true, problem: null, config: null, identity: null, configSchema: null, uninstalling: false, generation: 0 }
+      this.#members.set(id, member)
       started.push(this.#start(member))
     }
     await Promise.all(started)
@@ -1566,7 +1574,10 @@ export class SupervisedExtensionHost {
         // a plugin that rewrites its manifest and exits must not come back
         // under the permissions it gave itself.
         beforeStart: async () => {
-          const { bytes: now } = await readInstalledManifest(member.directory)
+          const { package: pkg, bytes: now } = await readInstalledManifest(member.directory)
+          // Before the record is consulted: a missing record is recorded as
+          // agreed, and must not be for a manifest that renamed its plugin.
+          if (pkg.manifest.id !== member.id) throw new Error(MANIFEST_CHANGED)
           if ((await this.#consent.check(member.id, now)) === 'changed') throw new Error(MANIFEST_CHANGED)
         },
         stillConsented: async () => this.#consent.matches(member.id, (await readInstalledManifest(member.directory)).bytes),
@@ -1832,6 +1843,13 @@ export class SupervisedExtensionHost {
     const member = this.#members.get(pluginId)
     if (!member) return
     if (member.uninstalling) throw new Error(`${member.identity?.name ?? pluginId} is being uninstalled.`)
+    return this.#serially(pluginId, () => this.#setEnabled(member, enabled))
+  }
+
+  async #setEnabled(member: Member, enabled: boolean): Promise<void> {
+    if (member.uninstalling || this.#members.get(member.id) !== member) {
+      throw new Error(`${member.identity?.name ?? member.id} is being uninstalled.`)
+    }
     if (!enabled) {
       member.enabled = false
       member.problem = null
@@ -1954,8 +1972,15 @@ export class SupervisedExtensionHost {
           'Read it again before installing.',
       )
     }
-    const existing = this.#members.get(inspected.id)
-    if (existing?.uninstalling) throw new Error(`${inspected.name} is being uninstalled; install it again once that is done.`)
+    if (this.#members.get(inspected.id)?.uninstalling) {
+      throw new Error(`${inspected.name} is being uninstalled; install it again once that is done.`)
+    }
+    return this.#serially(inspected.id, () => this.#install(inspected.id, inspected.name, specifier, manifestDigest))
+  }
+
+  async #install(inspectedId: string, name: string, specifier: string, manifestDigest: string): Promise<string> {
+    const existing = this.#members.get(inspectedId)
+    if (existing?.uninstalling) throw new Error(`${name} is being uninstalled; install it again once that is done.`)
     if (existing) await this.#stop(existing)
     let id: string
     try {
@@ -1993,10 +2018,16 @@ export class SupervisedExtensionHost {
       throw new Error('Built-in plugins are part of HarnessDesk and cannot be uninstalled.')
     }
     if (member.uninstalling) throw new Error(`${member.identity?.name ?? pluginId} is already being uninstalled.`)
-    // Off first, so nothing restarts it while its files go. Marked too, so a
-    // switch flipped or an install made while the old process is still
-    // stopping cannot start one that this removal would then lose track of.
+    // Marked at once, so a switch flipped or an install made from here on is
+    // refused rather than queued behind the removal; one already under way
+    // finishes first, and nothing it starts outlives what follows.
     member.uninstalling = true
+    return this.#serially(pluginId, () => this.#uninstall(member))
+  }
+
+  async #uninstall(member: Member): Promise<void> {
+    const pluginId = member.id
+    // Off first, so nothing restarts it while its files go.
     member.enabled = false
     await this.#stop(member)
     try {
@@ -2019,6 +2050,23 @@ export class SupervisedExtensionHost {
   }
 
   // ------------------------------------------------------------------ private
+
+  /**
+   * Installs, uninstalls and switches of one plugin, one at a time. Each of
+   * them awaits the installer or a process, and one that read the member
+   * before another's await and acted after it would undo what the other did:
+   * an uninstall landing while an install copied files was followed by the
+   * install starting the plugin it had just removed.
+   */
+  #serially<T>(pluginId: string, work: () => Promise<T>): Promise<T> {
+    const next = (this.#lifecycle.get(pluginId) ?? Promise.resolve()).then(work, work)
+    const settled = next.then(() => undefined, () => undefined)
+    this.#lifecycle.set(pluginId, settled)
+    void settled.then(() => {
+      if (this.#lifecycle.get(pluginId) === settled) this.#lifecycle.delete(pluginId)
+    })
+    return next
+  }
 
   #processes(): PluginHostProcess[] {
     return [...this.#members.values()].flatMap((member) => (member.proc ? [member.proc] : []))

@@ -383,12 +383,14 @@ request.
 | --- | --- |
 | **Inspect** | The installer reads the package's manifest in a short-lived process with no plugin code loaded. The person sees what it asks for before anything runs. |
 | **Install or update** | The person agrees to the manifest. If an older version is running, its process is stopped first, so it cannot touch the files being replaced. The installer writes the package into the plugins directory, the host records the manifest, and a new plugin process loads the new version. |
-| **Start** | The host checks the manifest against the record, before every spawn, restarts included. The process is spawned and greeted: protocol version, browser settings, workspace, and the permissions the host holds the plugin to, which it applies rather than re-reading the manifest. It loads its one plugin. The host replays the plugin's stored configuration and keeps its snapshot. A start that is overtaken, by the plugin being turned off or started again, gives up and stops the process it made. |
+| **Start** | A plugin is the directory it was installed into: a manifest that names another plugin does not start. The host checks the manifest against the record, before every spawn, restarts included. The process is spawned and greeted: protocol version, browser settings, workspace, and the permissions the host holds the plugin to, which it applies rather than re-reading the manifest. It loads its one plugin. The host replays the plugin's stored configuration and keeps its snapshot. A restart that cannot load the plugin again ends that process and shows the plugin as failed. A start that is overtaken, by the plugin being turned off or started again, gives up and stops the process it made. |
 | **Enable / disable** | Enabling starts the process. Disabling stops it and withdraws its contributions. The plugin stays listed in Settings either way, under the same instance id. |
 | **Configure** | The setting goes to that plugin's process only. The host keeps the stored value and replays it after every restart. |
 | **Crash** | The calls in flight on that pipe fail at once and their leases close. A plugin gets three restarts, after 250 ms, 1 s and 4 s. A fourth crash with no healthy run in between marks it failed, with the reason, and it stays stopped until the person enables it again. A healthy run is 30 s up, or any event from the plugin. No other plugin is affected. |
 | **Wedge** | A call that overruns its deadline (30 s unless the host says otherwise) gets the process killed from the host's side. The crash path then takes over. |
-| **Uninstall** | The process is stopped, then the installed directory and the consent record are removed. |
+| **Uninstall** | The process is stopped, then the installed directory and the consent record are removed. Once it begins, turning the plugin on or installing it again is refused until it ends. |
+
+Install, uninstall and enable or disable of one plugin run one at a time, in the order they were asked for, so none of them acts on a plugin another has changed under it.
 | **Host shutdown** | Every process is asked to stop by closing its pipe. After 2 s it is killed. |
 
 ## Every plane, and how it is attributed

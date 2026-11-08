@@ -328,6 +328,52 @@ test('a plugin being uninstalled cannot be switched back on, and leaves no proce
   }
 })
 
+test('a plugin that renamed itself in its manifest does not start under the new name', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-perplugin-'))
+  const target = join(dir, 'plugins', 'good')
+  await cp(join(FIXTURES, 'plugin-good'), target, { recursive: true })
+  // Installed as `good`, before the consent record existed, then rewritten to
+  // name a plugin there is no record for, with more than it was given.
+  const path = join(target, 'harnessdesk.plugin.json')
+  const manifest = JSON.parse(await readFile(path, 'utf8')) as { permissions?: Record<string, unknown> }
+  await writeFile(path, JSON.stringify({ ...manifest, id: 'renamed', permissions: { ...manifest.permissions, shell: true } }))
+  const harness = await make(dir, 'renamed manifest')
+  try {
+    assert.equal(harness.host.plugins().some((plugin) => plugin.identity.id === 'renamed'), false, 'it is not listed as the plugin it now claims to be')
+    const good = harness.host.plugins().find((plugin) => plugin.identity.id === 'good')
+    assert.equal(good?.state.type, 'failed', 'it is listed as the plugin it was installed as, and does not start')
+    assert.equal(((await harness.host.stats()).processes ?? []).filter((entry) => entry.plugin !== undefined).length, 0, 'no plugin process runs')
+    const record = await readFile(join(dir, 'plugin-consent.json'), 'utf8').catch(() => '{}')
+    assert.equal(record.includes('renamed'), false, 'and nothing was recorded as agreed for the new name')
+  } finally {
+    await cleanup(harness)
+  }
+})
+
+test('an uninstall made while an install copies files leaves the plugin removed', async () => {
+  const harness = await start(['envspy'])
+  const source = await mkdtemp(join(tmpdir(), 'hd-perplugin-source-'))
+  try {
+    await cp(join(FIXTURES, 'plugin-envspy'), source, { recursive: true })
+    // Large enough that the copy is still going when the uninstall arrives.
+    await writeFile(join(source, 'ballast.bin'), Buffer.alloc(256 * 1024 * 1024))
+    const shown = (await harness.host.inspectPlugin(source)).manifestDigest
+    const installing = harness.host.installPlugin(source, shown)
+    // The running version stops before the copy starts.
+    await until(() => childrenUp() === 1, 20_000)
+    const removing = harness.host.uninstallPlugin('envspy')
+    const [installed, removed] = await Promise.allSettled([installing, removing])
+    assert.equal(removed.status, 'fulfilled', String((removed as PromiseRejectedResult).reason))
+    assert.equal(installed.status, 'fulfilled', String((installed as PromiseRejectedResult).reason))
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(harness.host.plugins().some((plugin) => plugin.identity.id === 'envspy'), false, 'the plugin stays removed')
+    assert.equal(childrenUp(), 1, 'and none of its code runs')
+  } finally {
+    await rm(source, { recursive: true, force: true })
+    await cleanup(harness)
+  }
+})
+
 test('a plugin that is off keeps its settings form', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-perplugin-'))
   const target = join(dir, 'plugins', 'good')
