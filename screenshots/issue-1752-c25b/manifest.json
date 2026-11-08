@@ -1,0 +1,8 @@
+{
+  "issue": 1752,
+  "head": "c25ba3b666f2e594dc0c35a5d456ba66f41ba5c9",
+  "tree": "1e9a23ace622a8df801ac424f5efbe78e62da12d",
+  "surface": "Isolated Electron synthetic desk; live read-only adjacent conversation with long transcript",
+  "verification": "Trusted wheel scrollback stays in place during a second-client update; return to tail follows the next update. Main draft and workspace preserved; held read resolves through a full matching Host snapshot. Thirteen privacy audits and four refusal controls passed; originals independently inspected.",
+  "limits": "Fake provider only. The 720px viewport emulation frame is withheld and is not mobile or native-resize proof."
+}
