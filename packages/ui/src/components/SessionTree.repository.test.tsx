@@ -248,6 +248,21 @@ it('expands all projects through clone folds while filtered', () => {
   expect(rig.store.getSnapshot().listPrefs.collapsed).toEqual(['unseen-team'])
 })
 
+it('alt-click folds and unfolds all project roots and their clone aliases', () => {
+  const other = '/example/other'
+  const rig = mount([row('home', WIDGETS), row('clone', PLAN), row('other', other, { repo: at(other, 'github.com/acme/other') })], {
+    workspace: null, workspaces: [],
+    listPrefs: { ...emptySnapshot().listPrefs, agent: runtime.id },
+  })
+  answerPreferences(rig)
+  const toggle = () => act(() => container.querySelector<HTMLButtonElement>('[data-draggable]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })))
+  toggle()
+  expect(rig.store.setProjectsCollapsed).toHaveBeenLastCalledWith(expect.arrayContaining([WIDGETS, other]), true)
+  toggle()
+  expect(rig.store.setProjectsCollapsed).toHaveBeenLastCalledWith(expect.arrayContaining([WIDGETS, PLAN, other]), false)
+  expect(titles()).toEqual(expect.arrayContaining(['home', 'clone', 'other']))
+})
+
 it('moves a filtered project from its clone aliases using the effective pin order', () => {
   const untouched = '/demo/unseen-project'
   const rig = mount([row('home', WIDGETS), row('clone', PLAN)], {

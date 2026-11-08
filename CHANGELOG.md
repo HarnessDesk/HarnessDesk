@@ -11,7 +11,7 @@ move is real work and is not news to a person weighing an upgrade.
 - **An installed plugin reaches only what you granted.** Its process cannot read outside its own folder, write files, open connections or start programs by itself; HarnessDesk does those for it, within the permissions you agreed to. Where no runtime can confine it, it runs as before and the plugin host says why. A plugin package with a link leading outside it is refused at install.
 - **Control a simulator without owning the mouse.** On Xcode 27, simulator tools use a bundled native helper for taps, long presses, swipes, timed drags, pinch and rotation gestures, US-layout text, keys and physical buttons. Input and its screenshot stay on the chosen device. When native input is unavailable, taps alone retain the previous Simulator-window `cliclick` path; newer input tools refuse. Software-keyboard show/hide, device rotation and deterministic lock report that they are not yet verified.
 
-- **The iOS Simulator tells you what setup needs.** Check Xcode selection, its license, iOS support and simulator runtimes without changing them. Simulator tools can name a device when several are booted, boot without opening a window, and read or change light and dark appearance; screenshots identify the device and original pixel dimensions. Appearance changes say whether they applied.
+- **The iOS Simulator tells you what setup needs.** Check Xcode selection, its license, iOS support and simulator runtimes without changing them. When Xcode still needs its first launch to install components, the diagnosis says so even if the simulator tool is not yet available. Simulator tools can name a device when several are booted, boot without opening a window, and read or change light and dark appearance; screenshots identify the device and original pixel dimensions. Appearance changes say whether they applied.
 - **Claude Code conversations can branch, take direction mid-turn, and keep a goal.** The bundled bridge is updated, with the source conversation’s read ceiling preserved when branching.
 
 - **Wrap a Lead's Teams from your phone.** Once you accept the Lead's result, each of its Teams offers Wrap up: the desk closes it with its own receipt and keeps every branch. Two Teams of one goal are named by their plan step, a worker's question the Lead already asks you is listed once, and the result card says which commits to check and which the review read.
@@ -45,6 +45,8 @@ move is real work and is not news to a person weighing an upgrade.
 - **Hide account addresses.** A switch in Settings › General shows accounts by name only, in the seat menu and on account pages, for sharing your screen.
 
 - **Signing out of an agent account is on its page in Settings.** The seat menu now only switches accounts; signing out of HarnessDesk stays there.
+
+- **Hidden, closed conversations can release cached transcripts.** The desk verifies its saved copy before releasing a body and restores it when needed. Active work, drafts and unconfirmed activity stay protected; unavailable history is reported rather than presented as empty.
 
 - **Automatic PR merges check the review target again.** A changed destination or an older unbound review requires a fresh PR review. Queued and uncertain submissions stay unresolved until a merge is observed; a person may need to inspect or complete them outside the app.
 

@@ -56,6 +56,92 @@ describe('rejectionFor', () => {
 })
 
 describe('Transport queue handling (#501)', () => {
+  it('holds independent request owners through success, error, abort and disconnect', async () => {
+    class MockWebSocket {
+      static OPEN = 1
+      static instance: MockWebSocket
+      readyState = 0
+      listeners = new Map<string, (event: any) => void>()
+      sent: string[] = []
+      failSend = false
+      constructor(_url: string) { MockWebSocket.instance = this }
+      addEventListener(type: string, cb: (event: any) => void) { this.listeners.set(type, cb) }
+      send(frame: string) { if (this.failSend) throw new Error('Synthetic send failure'); this.sent.push(frame) }
+      close() { this.readyState = 3 }
+      open() { this.readyState = 1; this.listeners.get('open')?.({}) }
+      message(value: unknown) { this.listeners.get('message')?.({ data: JSON.stringify(value) }) }
+      disconnect() { this.readyState = 3; this.listeners.get('close')?.({}) }
+    }
+    const original = globalThis.WebSocket
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    try {
+      const { Transport } = await import('./transport')
+      let owners = 0
+      const transport = new Transport('ws://example.test', {
+        onEvent: () => {}, onNotification: () => {}, onStatus: () => {},
+        onRequest: (() => { owners++; let live = true; return () => { if (live) { live = false; owners-- } } }) as never,
+      } as never)
+      transport.connect(); const socket = MockWebSocket.instance; socket.open()
+      const a = transport.request('session/read', { runtime: runtimeId('example'), sessionId: 'one' as never })
+      const b = transport.request('session/read', { runtime: runtimeId('example'), sessionId: 'two' as never })
+      expect(owners).toBe(2)
+      const [first, second] = socket.sent.map(frame => JSON.parse(frame).id)
+      socket.message({ id: first, ok: true, result: null }); await a
+      expect(owners).toBe(1)
+      socket.message({ id: second, ok: false, error: { code: 'methodFailed', message: 'Synthetic refusal' } })
+      await expect(b).rejects.toThrow('Synthetic refusal'); expect(owners).toBe(0)
+      const controller = new AbortController()
+      const c = transport.request('session/read', { runtime: runtimeId('example'), sessionId: 'three' as never }, { signal: controller.signal })
+      controller.abort(); await expect(c).rejects.toMatchObject({ name: 'AbortError' }); expect(owners).toBe(0)
+      socket.failSend = true
+      const failed = transport.request('session/read', { runtime: runtimeId('example'), sessionId: 'failed' as never })
+      await expect(failed).rejects.toThrow('Synthetic send failure'); expect(owners).toBe(0)
+      socket.failSend = false
+      const circular: { self?: unknown } = {}; circular.self = circular
+      expect(() => transport.request('session/read', circular as never)).toThrow(); expect(owners).toBe(0)
+      const queuedTransport = new Transport('ws://example.test', {
+        onEvent: () => {}, onNotification: () => {}, onStatus: () => {},
+        onRequest: (() => { owners++; let live = true; return () => { if (live) { live = false; owners-- } } }) as never,
+      } as never)
+      queuedTransport.connect()
+      const queuedSocket = MockWebSocket.instance
+      const queued = queuedTransport.request('session/read', { runtime: runtimeId('example'), sessionId: 'queued' as never })
+      queuedSocket.failSend = true; queuedSocket.open()
+      await expect(queued).rejects.toThrow('Synthetic send failure'); expect(owners).toBe(0)
+      queuedTransport.close()
+      const d = transport.request('session/read', { runtime: runtimeId('example'), sessionId: 'four' as never })
+      socket.disconnect(); await expect(d).rejects.toThrow('connection'); expect(owners).toBe(0)
+      transport.close()
+    } finally { globalThis.WebSocket = original }
+  })
+  it('delivers the transcript fence alongside its event', async () => {
+    class MockWebSocket {
+      static instance: MockWebSocket
+      listeners = new Map<string, (event: { data: string }) => void>()
+      constructor(_url: string) { MockWebSocket.instance = this }
+      addEventListener(type: string, cb: (event: { data: string }) => void) { this.listeners.set(type, cb) }
+      close() {}
+      message(value: unknown) { this.listeners.get('message')?.({ data: JSON.stringify(value) }) }
+    }
+    const original = globalThis.WebSocket
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    try {
+      const { Transport } = await import('./transport')
+      const received: unknown[][] = []
+      const transport = new Transport('ws://example.test', {
+        onEvent: ((...args: unknown[]) => received.push(args)) as never,
+        onNotification: () => {}, onStatus: () => {},
+      })
+      transport.connect()
+      const fence = { epoch: 'epoch', generation: 'generation', revision: 3, sequence: 5 }
+      const event = { type: 'session/title', sessionId: 'one', title: 'Title' }
+      MockWebSocket.instance.message({ method: 'event', params: { runtime: 'example', event, transcriptFence: fence } })
+      expect(received).toEqual([['example', event, fence]])
+      transport.close()
+    } finally {
+      globalThis.WebSocket = original
+    }
+  })
   it('removes an aborted disconnected request before the socket opens', async () => {
     class MockWebSocket {
       static instances: MockWebSocket[] = []

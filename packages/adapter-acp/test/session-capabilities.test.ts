@@ -105,6 +105,55 @@ test('a failed fork request never stops the source worker', async t => {
   assert.equal((await runtime.readSession(source.id)).turns.at(-1)!.status, 'completed')
 })
 
+for (const isolatedBy of ['no-close', 'git-environment'] as const) {
+  for (const refused of [false, true]) {
+    test(`closing a source during a pending ${refused ? 'refused' : 'persisted'} fork preserves ${isolatedBy} worker ownership`, async t => {
+      const dir = mkdtempSync(join(tmpdir(), 'acp-fork-release-'))
+      t.after(() => rmSync(dir, { recursive: true, force: true }))
+      const opens = join(dir, 'opens.jsonl'), gate = join(dir, 'release'), store = join(dir, 'store.json')
+      const runtime = new AcpRuntime({
+        id: 'session-peer', name: 'Session peer', command: process.execPath, args: [FAKE],
+        env: { FAKE_ACP_FORK: '1', FAKE_ACP_OPENS: opens, FAKE_ACP_FORK_GATE: gate, FAKE_ACP_STORE: store, ...(isolatedBy === 'no-close' ? { FAKE_ACP_NO_CLOSE: '1' } : {}), ...(refused ? { FAKE_ACP_FORK_ERROR: '1' } : {}) },
+        ...(isolatedBy === 'git-environment' ? { gitEnvironment: async () => ({ FAKE_GIT_SCOPE: 'source' }) } : {}),
+      })
+      t.after(() => runtime.dispose())
+      const events: AgentEvent[] = []
+      runtime.subscribe(event => events.push(event))
+      await runtime.start()
+      const source = await runtime.createSession({ cwd: dir })
+      const connection = runtime.connectionFor(source.id)
+      const result = runtime.forkSession(source.id).then(fork => ({ fork, error: undefined }), error => ({ fork: undefined, error }))
+      try {
+        await until(() => existsSync(opens) && readFileSync(opens, 'utf8').includes(refused ? 'session/fork/refused' : 'session/fork'))
+        const entry = JSON.parse(readFileSync(opens, 'utf8').trim().split('\n').find(line => line.includes(refused ? 'session/fork/refused' : 'session/fork'))!)
+        if (!refused) await until(() => {
+          try { return Object.hasOwn(JSON.parse(readFileSync(store, 'utf8')), entry.sessionId) } catch { return false }
+        })
+        await source.close()
+        assert.equal(connection.alive, true, 'the pending fork still owns the source worker')
+        writeFileSync(gate, 'release')
+        const outcome = await result
+        if (refused) {
+          assert.match(String(outcome.error), /fork refused/)
+          assert.equal(connection.alive, false, 'the last failed open reaps its unowned worker')
+          const stored = existsSync(store) ? Object.keys(JSON.parse(readFileSync(store, 'utf8'))) : []
+          assert.ok(stored.every(id => id === source.id), 'the refusal creates no branch')
+        } else {
+          assert.ifError(outcome.error)
+          const fork = outcome.fork!
+          assert.equal(fork.id, entry.sessionId)
+          await finish(events, fork, 'surviving fork remains usable')
+          await fork.close()
+          assert.equal(connection.alive, false)
+        }
+      } finally {
+        writeFileSync(gate, 'release')
+        await result
+      }
+    })
+  }
+}
+
 test('a fork inherits the approved filter under its own staging key', async t => {
   const runtime = make({ FAKE_ACP_FORK: '1', FAKE_ACP_ATTACHMENTS: '1' })
   t.after(() => runtime.dispose())

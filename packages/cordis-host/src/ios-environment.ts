@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type { IosSetup } from './ios-types.js'
 import { IOS_COMMAND_TIMEOUTS, IOS_DIAGNOSTIC_PROBES } from './ios-timeouts.js'
 import { currentIosInputSignal } from './ios-invocation.js'
@@ -64,6 +65,11 @@ export const diagnoseIosEnvironment = async (overrides: Partial<IosEnvironmentDe
     const detail = (result.stderr || result.errorMessage || result.stdout).trim().split('\n').slice(-2).join(' · ')
     return answer('serviceUnavailable', `${result.timedOut ? 'Probe timed out. ' : ''}${detail}`.trim() || `Probe exited with status ${result.exitCode}.`)
   }
+  const firstLaunchFailure = (launch: IosProbeResult): IosSetup => {
+    const failure = failed(launch)
+    const pending = !launch.stderr.trim() || /runFirstLaunch|first launch|components|system content/i.test(launch.stderr)
+    return failure.code !== 'license' && !launch.timedOut && typeof launch.exitCode === 'number' && pending ? answer('firstLaunch') : failure
+  }
   if (developerDirectory === undefined) {
     const selected = await probe('selection')
     if (selected.exitCode !== 0) {
@@ -82,15 +88,21 @@ export const diagnoseIosEnvironment = async (overrides: Partial<IosEnvironmentDe
     // A service failure is not an install problem. Only a missing tool/invalid
     // developer selection earns a setup instruction.
     if (!/unable to find|not found|missing|invalid.*developer|active developer|ENOENT/i.test(found.stderr)) return failed(found)
+    // A selected Xcode can lack simctl until first launch installs its
+    // components. Do not make that inference for CLT or an invalid selection.
+    if (developerDirectory && !developerDirectory.includes('CommandLineTools') &&
+        deps.exists(join(developerDirectory, 'usr/bin/xcodebuild')) &&
+        !/invalid[^\n]*developer|developer[^\n]*invalid/i.test(found.stderr) &&
+        /unable to find[^\n]*simctl|simctl[^\n]*(?:not found|missing)|(?:not found|missing)[^\n]*simctl/i.test(found.stderr)) {
+      const launch = await probe('firstLaunch')
+      if (launch.exitCode !== 0) return firstLaunchFailure(launch)
+    }
     const installed = deps.exists('/Applications/Xcode.app') || (!!developerDirectory && !developerDirectory.includes('CommandLineTools') && deps.exists(developerDirectory))
     return answer(installed ? 'developerDirectory' : 'xcodeMissing')
   }
   const launch = await probe('firstLaunch')
   if (launch.exitCode !== 0) {
-    const failure = failed(launch)
-    const pending = !launch.stderr.trim() || /runFirstLaunch|first launch|components|system content/i.test(launch.stderr)
-    if (failure.code !== 'license' && !launch.timedOut && typeof launch.exitCode === 'number' && pending) return answer('firstLaunch')
-    return failure
+    return firstLaunchFailure(launch)
   }
   const sdks = await probe('sdks')
   if (sdks.exitCode !== 0) return failed(sdks)

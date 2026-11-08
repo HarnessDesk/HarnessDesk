@@ -60,8 +60,9 @@ for (const theme of ['light', 'dark'] as const) {
       }))
       await testInfo.attach('view-layout', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
       await bar.screenshot({ path: testInfo.outputPath('views.png') })
-      const track = await views.first().locator('..').evaluate(node => ({ height: node.getBoundingClientRect().height, padding: parseFloat(getComputedStyle(node).paddingTop) }))
-      expect(track).toEqual({ height: 32, padding: 1 })
+      const track = await views.first().locator('..').evaluate(node => ({ height: node.getBoundingClientRect().height, padding: parseFloat(getComputedStyle(node).paddingTop),
+        controlHeight: parseFloat(getComputedStyle(node).getPropertyValue('--hd-control-h')), background: getComputedStyle(node).backgroundColor }))
+      expect(track).toEqual({ height: track.controlHeight, padding: 0, controlHeight: track.controlHeight, background: 'rgba(0, 0, 0, 0)' })
       for (const row of measurements) {
         expect.soft(row.height, row.label ?? '').toBe(track.height - 2 * track.padding)
         for (const content of row.contents) {

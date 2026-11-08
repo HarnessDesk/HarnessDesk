@@ -186,6 +186,7 @@ test('topic baselines, replacement, scope, filtered broadcasts and request audit
   assert.ok(!peer.messages.some(m => m.method === 'sync'))
   assert.deepEqual(module.topicsOf(h.host.syncPayload()), [])
   assert.deepEqual(module.topicsOf({ method: 'event', params: { event: { type: 'turn/started' } } } as WireNotification), [])
+  assert.deepEqual(module.topicsOf({ method: 'session/cache-invalidated', params: { runtime: 'synthetic', sessionId: 'one', watermark: { epoch: 'e', generation: 'g', revision: 1, sequence: 1 } } } as WireNotification), [])
   assert.deepEqual(module.topicsOf({ method: 'event', params: { event: { type: 'approval/resolved' } } } as WireNotification), ['waiting'])
   for (const scope of [{ run: run.id }, { project: home }]) {
     const before = peer.messages.length

@@ -3,14 +3,16 @@ import test, { type TestContext } from 'node:test'
 import childProcess from 'node:child_process'
 import { syncBuiltinESMExports } from 'node:module'
 import { iosService, type ProbeResult } from './fixtures/ios.js'
+import { withIosInputSignal } from '../src/ios-invocation.js'
+import { IOS_ENGINE_BOUNDS_MS } from '../src/ios-timeouts.js'
 
 const ok = (stdout = ''): ProbeResult => ({ exitCode: 0, stdout, stderr: '' })
 const fail = (stderr: string): ProbeResult => ({ exitCode: 1, stdout: '', stderr })
-const fixture = (options: { selected?: string; selection?: ProbeResult; explicit?: string; installed?: boolean; sdk?: string; runtimes?: ProbeResult; launch?: ProbeResult; find?: ProbeResult; platform?: string } = {}) => {
+const fixture = (options: { selected?: string; selection?: ProbeResult; explicit?: string; installed?: boolean; validXcode?: boolean; sdk?: string; runtimes?: ProbeResult; launch?: ProbeResult; find?: ProbeResult; platform?: string } = {}) => {
   const calls: { binary: string; args: readonly string[]; env?: NodeJS.ProcessEnv; timeoutMs: number }[] = []
   const service = iosService({ environment: {
     platform: options.platform ?? 'darwin', developerDirectory: options.explicit,
-    exists: (path: string) => options.installed !== false && path === '/Applications/Xcode.app',
+    exists: (path: string) => options.installed !== false && (path === '/Applications/Xcode.app' || options.validXcode === true && path.endsWith('/Contents/Developer/usr/bin/xcodebuild')),
     execute: async (binary: string, args: readonly string[], limits: { env?: NodeJS.ProcessEnv; timeoutMs: number }) => {
       calls.push({ binary, args, ...limits })
       if (binary === 'xcode-select') return options.selection ?? ok(options.selected ?? '/Applications/Xcode.app/Contents/Developer')
@@ -77,6 +79,59 @@ test('first launch has its own actionable diagnosis', async () => {
   assert.equal(setup.code, 'firstLaunch')
   assert.equal(setup.message, 'Open Xcode once so it can finish installing its components, then retry.')
   assert.ok(calls.every(({ args }) => !args.includes('-showsdks')), 'stop before querying SDKs')
+})
+
+test('missing simctl in a selected Xcode diagnoses pending first launch', async () => {
+  for (const stderr of ['unable to find utility "simctl", not a developer tool or in PATH', 'simctl missing']) {
+    const { service, calls } = fixture({ validXcode: true, find: fail(stderr), launch: fail('Install additional components with -runFirstLaunch') })
+    const setup = await service.diagnose()
+    assert.equal(setup.code, 'firstLaunch')
+    assert.deepEqual(calls.map(({ binary, args }) => [binary, ...args]), [['xcode-select', '-p'], ['xcrun', '--find', 'simctl'], ['xcodebuild', '-checkFirstLaunchStatus']])
+    assert.ok(calls.reduce((total, call) => total + call.timeoutMs, 0) <= IOS_ENGINE_BOUNDS_MS.diagnose)
+  }
+})
+
+test('the missing-tool fallback preserves first-launch errors and the original selection diagnosis', async () => {
+  for (const [launch, expected] of [
+    [ok(), 'developerDirectory'],
+    [fail('You have not agreed to the Xcode license.'), 'license'],
+    [fail('Permission denied'), 'serviceUnavailable'],
+    [{ ...fail('timed out'), timedOut: true }, 'serviceUnavailable'],
+    [{ ...fail('terminated by SIGTERM'), exitCode: null }, 'serviceUnavailable'],
+  ] as const) {
+    const { service, calls } = fixture({ validXcode: true, explicit: '/Applications/Xcode-Beta.app/Contents/Developer', find: fail('unable to find utility "simctl"'), launch })
+    assert.equal((await service.diagnose()).code, expected)
+    assert.deepEqual(calls.map(({ args }) => args[0]), ['--find', '-checkFirstLaunchStatus'])
+    assert.ok(calls.every(({ env }) => env?.['DEVELOPER_DIR'] === '/Applications/Xcode-Beta.app/Contents/Developer'))
+  }
+})
+
+test('invalid selections and unrelated simctl failures do not invoke first launch', async () => {
+  for (const find of [fail('invalid active developer path: unable to find utility simctl'), fail('permission denied'), { ...fail('unable to find simctl'), timedOut: true }]) {
+    const { service, calls } = fixture({ validXcode: true, find })
+    const result = await service.diagnose()
+    assert.equal(result.code, find.timedOut || find.stderr === 'permission denied' ? 'serviceUnavailable' : 'developerDirectory')
+    assert.ok(calls.every(({ args }) => args[0] !== '-checkFirstLaunchStatus'))
+  }
+  const missingTool = fixture({ validXcode: false, find: fail('unable to find utility simctl'), launch: fail('first launch pending') })
+  assert.equal((await missingTool.service.diagnose()).code, 'developerDirectory')
+  assert.ok(missingTool.calls.every(({ args }) => args[0] !== '-checkFirstLaunchStatus'))
+})
+
+test('cancellation during the missing-simctl first-launch probe stops diagnosis', async () => {
+  const controller = new AbortController(), calls: string[] = []
+  const service = iosService({ environment: {
+    platform: 'darwin', developerDirectory: '/Applications/Xcode.app/Contents/Developer', exists: () => true,
+    execute: async (_binary, args, options) => {
+      calls.push(args[0]!)
+      assert.equal(options.signal, controller.signal)
+      if (args[0] === '--find') return fail('unable to find utility "simctl"')
+      controller.abort(new Error('cancelled'))
+      return fail('first launch pending')
+    },
+  } })
+  await assert.rejects(withIosInputSignal(controller.signal, () => service.diagnose()), /cancelled/)
+  assert.deepEqual(calls, ['--find', '-checkFirstLaunchStatus'])
 })
 
 test('empty selected developer directory fails before xcrun', async () => {

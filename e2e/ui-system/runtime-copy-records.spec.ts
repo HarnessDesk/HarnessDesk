@@ -10,13 +10,17 @@ async function capture(page: Page, scene: string, theme: string) {
 
 for (const theme of ['light', 'dark'] as const) {
   test(`usage preview names its cached sources in ${theme}`, async ({ page }) => {
+    await page.clock.install()
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/runtime-copy-repair.html?scene=usage-overview')
     await expect(page.getByRole('button', { name: /Turns/ }).first()).toBeVisible()
     await page.evaluate(async () => { await document.fonts.ready })
     await capture(page, 'usage-overview', theme)
-    // Overview includes both accounts, including the healthy cached report.
+    // Fresh readings do not repeat their source on each card.
     const sources = page.getByText('from its own cache', { exact: true })
+    await expect(sources).toHaveCount(0)
+    // Once the same readings go stale their provenance must be visible.
+    await page.clock.fastForward(11 * 60_000)
     await expect(sources).toHaveCount(2)
     await expect(sources.nth(0)).toBeVisible()
     await expect(sources.nth(1)).toBeVisible()

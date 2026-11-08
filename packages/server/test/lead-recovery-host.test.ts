@@ -3,7 +3,8 @@ import { readFile, realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { createLeadJournal, initialLeadState, type LeadJournal, type LeadPermissionCall, type LeadPermissionContext } from '@harnessdesk/lead'
-import { runtimeId, sessionId, type AgentError, type WireNotification } from '@harnessdesk/protocol'
+import { canonicalTranscriptBody, runtimeId, sessionId, turnId, type AgentError, type WireNotification } from '@harnessdesk/protocol'
+import { TranscriptStore } from '../src/transcripts.js'
 import { evidenceDesk } from './fixtures/evidence-desk.js'
 import { FakeRuntime, FakeSession } from './fixtures/fake-runtime.js'
 
@@ -46,11 +47,11 @@ const rig = async (t: TestContext, previous?: Awaited<ReturnType<typeof evidence
   await idle()
   const advance = async (ms: number) => { clock += ms; for (const [run, at] of [...scheduled]) if (at <= clock) { scheduled.delete(run); run() }; await idle() }
   const nextRetry = async () => { await idle(); assert.ok(scheduled.size, 'one retry is scheduled'); await advance(Math.max(0, Math.min(...scheduled.values()) - clock)) }
-  const execute = async (call: LeadPermissionCall) => {
+  const execute = async (call: LeadPermissionCall, expected: 'succeeded' | 'uncertain' = 'succeeded') => {
     const result = await journal.execute({ id: `fixture-${++attempt}`, request: { ...call, project, runId: null, start: null }, context: context() },
       async parsed => ({ value: await desk.host.call(parsed.method, parsed.params as never), identity: null }))
     assert.equal(result.decision.effect, 'allow', result.decision.reason)
-    assert.equal(result.outcome, 'succeeded', JSON.stringify(result))
+    assert.equal(result.outcome, expected, JSON.stringify(result))
     await idle()
     return result.value as any
   }
@@ -333,6 +334,126 @@ test('a person turn superseding an undispatched retry inherits no automatic atte
 })
 
 
+test('a direct retry rejected by the agent asks without replaying an unconfirmed send', { timeout: 30_000 }, async t => {
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits'); await r.idle()
+  await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
+  r.runtime.sessions.get(created.id.slice(created.id.indexOf(':') + 1))!.sendFailure = new Error('Synthetic send rejection')
+  await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Continue' } }, 'uncertain')
+  const incident = (await r.stored()).records[0]
+  assert.equal(incident.state, 'asked')
+  assert.equal(incident.attempts, 1)
+  assert.match(incident.lastError.message, /confirm|check/i)
+  await r.advance(600_000)
+  assert.equal(r.prompts.length, 1, 'an uncertain send is never replayed automatically')
+})
+
+test('an automatically retried send rejected by the agent still asks', { timeout: 30_000 }, async t => {
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'network'); await r.idle()
+  r.runtime.sessions.get(created.id.slice(created.id.indexOf(':') + 1))!.sendFailure = new Error('Synthetic send rejection')
+  await r.nextRetry()
+  assert.equal((await r.stored()).records[0].state, 'asked')
+  await r.advance(600_000)
+  assert.equal(r.prompts.length, 1)
+})
+
+test('a late rejected retry cannot replace a newer completed turn', { timeout: 30_000 }, async t => {
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits'); await r.idle()
+  await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
+  const id = sessionId(created.id.slice(created.id.indexOf(':') + 1))
+  const session = r.runtime.sessions.get(String(id))!
+  const entered = deferred(), release = deferred()
+  t.after(() => release.resolve())
+  t.mock.method(session, 'send', async () => { entered.resolve(); await release.promise; throw new Error('Synthetic late rejection') })
+  const sending = r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Continue' } }, 'uncertain')
+  try {
+    await entered.promise
+    r.runtime.emit({ type: 'turn/completed', sessionId: id, turn: { id: turnId('new-completed-turn'), items: [], status: 'completed' } })
+    await r.idle()
+    assert.equal((await r.stored()).records[0].state, 'cleared')
+  } finally { release.resolve(); await sending }
+  assert.equal((await r.stored()).records[0].state, 'cleared')
+})
+
+test('a late rejected retry cannot undo person take-over', { timeout: 30_000 }, async t => {
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits'); await r.idle()
+  await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
+  const session = r.runtime.sessions.get(created.id.slice(created.id.indexOf(':') + 1))!
+  const entered = deferred(), release = deferred()
+  t.after(() => release.resolve())
+  t.mock.method(session, 'send', async () => { entered.resolve(); await release.promise; throw new Error('Synthetic late rejection') })
+  const sending = r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Continue' } }, 'uncertain')
+  try {
+    await entered.promise
+    await r.host.call('lead/chat/takeOver', { id: created.id }); await r.idle()
+    assert.equal((await r.stored()).records[0].state, 'stopped')
+  } finally { release.resolve(); await sending }
+  assert.equal((await r.stored()).records[0].state, 'stopped')
+})
+
+test('a queued retry rejected after dispatch asks without replay', { timeout: 30_000 }, async t => {
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits'); await r.idle()
+  await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
+  await r.host.call('workspace/session/send', { id: created.id, text: 'Person turn still running' })
+  await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Continue after this turn' } })
+  const target = { runtime: r.runtime.info.id, sessionId: sessionId(created.id.slice(created.id.indexOf(':') + 1)) }
+  const session = r.runtime.sessions.get(String(target.sessionId))!
+  session.sendFailure = new Error('Synthetic send rejection')
+  const readEntered = deferred(), releaseRead = deferred(), paused = deferred()
+  t.after(() => releaseRead.resolve())
+  let holdRead = true
+  r.onResolve(async call => { if (call.method === 'lead/chat/read' && holdRead) { holdRead = false; readEntered.resolve(); await releaseRead.promise } })
+  const pause = r.host.registry.pauseQueue.bind(r.host.registry)
+  t.mock.method(r.host.registry, 'pauseQueue', (record: Parameters<typeof pause>[0], reason: string) => { pause(record, reason); paused.resolve() })
+  session.finish('The earlier turn finished')
+  try {
+    await readEntered.promise; await paused.promise
+    await (r.host.leadChats as import('../src/lead/chats.js').LeadChats).incidents!.idle()
+    const notice = r.notifications.find(one => one.method === 'event' && one.params.event.type === 'notice' && one.params.event.message.includes('queued message'))
+    assert.ok(notice && notice.method === 'event' && notice.params.event.type === 'notice')
+    assert.match(notice.params.event.message, /could not be confirmed/i)
+    assert.match(notice.params.event.message, /check.*conversation.*before/i)
+    assert.doesNotMatch(notice.params.event.message, /was not sent/i)
+    const incident = (await r.stored()).records[0]
+    assert.equal(incident.state, 'asked')
+    assert.equal(incident.attempts, 1)
+    assert.match(incident.lastError.message, /confirm|check/i)
+    assert.equal(r.host.registry.get(target.runtime, target.sessionId)!.queue.status, 'paused')
+    assert.equal(r.prompts.length, 2)
+  } finally { releaseRead.resolve(); await r.idle() }
+  assert.equal((await r.stored()).records[0].state, 'asked', 'an older turn observation cannot clear the newer unconfirmed send')
+})
+
+test('an earlier turn observation cannot settle a queued retry while its send is pending', { timeout: 30_000 }, async t => {
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits'); await r.idle()
+  await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
+  await r.host.call('workspace/session/send', { id: created.id, text: 'Person turn still running' })
+  await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Continue after this turn' } })
+  const id = sessionId(created.id.slice(created.id.indexOf(':') + 1)), session = r.runtime.sessions.get(String(id))!
+  const readEntered = deferred(), releaseRead = deferred(), sendEntered = deferred(), rejectSend = deferred(), paused = deferred()
+  t.after(() => { releaseRead.resolve(); rejectSend.resolve() })
+  let holdRead = true
+  r.onResolve(async call => { if (call.method === 'lead/chat/read' && holdRead) { holdRead = false; readEntered.resolve(); await releaseRead.promise } })
+  t.mock.method(session, 'send', async () => { sendEntered.resolve(); await rejectSend.promise; throw new Error('Synthetic send rejection') })
+  const pause = r.host.registry.pauseQueue.bind(r.host.registry)
+  t.mock.method(r.host.registry, 'pauseQueue', (record: Parameters<typeof pause>[0], reason: string) => { pause(record, reason); paused.resolve() })
+  session.finish('The earlier turn finished')
+  try {
+    await readEntered.promise; await sendEntered.promise
+    releaseRead.resolve(); await (r.host.leadChats as import('../src/lead/chats.js').LeadChats).idle(false)
+    assert.equal((await r.stored()).records[0].state, 'retrying')
+    const target = { runtime: r.runtime.info.id, sessionId: id }, record = r.host.registry.get(target.runtime, id)!
+    await r.host.call('turn/queue/cancel', { ...target, id: record.queue.messages[0]!.id })
+    rejectSend.resolve(); await paused.promise; await r.idle()
+    assert.equal((await r.stored()).records[0].state, 'asked', 'removal after dispatch cannot erase an unconfirmed outcome')
+  } finally { releaseRead.resolve(); rejectSend.resolve() }
+})
+
 test('a desk interrupt settles an automatic retry through its terminal turn event', async t => {
   const r = await rig(t), created = await r.start()
   r.fail(created.id, 'network'); await r.idle(); await r.nextRetry()
@@ -345,6 +466,14 @@ test('a desk interrupt settles an automatic retry through its terminal turn even
 
 
 for (const removal of ['cancel', 'clear', 'delete'] as const) test(`a queued renewal removed before dispatch settles recovery: ${removal}`, async t => {
+  let transcripts: TranscriptStore | undefined
+  if (removal === 'delete') {
+    const record = TranscriptStore.prototype.record
+    t.mock.method(TranscriptStore.prototype, 'record', function (this: TranscriptStore, ...args: Parameters<TranscriptStore['record']>) {
+      transcripts = this
+      return record.apply(this, args)
+    })
+  }
   const r = await rig(t), created = await r.start()
   r.fail(created.id, 'credits'); await r.idle()
   await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
@@ -354,7 +483,22 @@ for (const removal of ['cancel', 'clear', 'delete'] as const) test(`a queued ren
   const target = { runtime: r.runtime.info.id, sessionId: sessionId(created.id.slice(created.id.indexOf(':') + 1)) }
   const record = r.host.registry.get(target.runtime, target.sessionId)!
   assert.equal(record.queue.messages.length, 1)
-  if (removal === 'delete') r.host.registry.delete(target.runtime, target.sessionId)
+  if (removal === 'delete') {
+    // A bare registry delete does not perform the Host's transcript cleanup.
+    // Settle this active owner's exact body first so deletion cannot strand a
+    // pending write whose generation no longer has an owner.
+    assert.ok(transcripts, 'the real Host recorded a transcript')
+    const held = record.session
+    await transcripts.flushSession(target.runtime, target.sessionId)
+    const saved = await transcripts.recover(target.runtime, target.sessionId)
+    assert.ok(saved, 'the current transcript reached durable storage')
+    assert.equal(canonicalTranscriptBody(saved.turns).canonical, canonicalTranscriptBody(held.turns).canonical)
+    assert.equal(r.host.registry.get(target.runtime, target.sessionId), record, 'the saved generation still has its owner')
+    assert.equal(record.session, held, 'the saved body is still the current body')
+    assert.ok(record.running.size > 0 && held.turns.some(turn => turn.status === 'inProgress'), 'the person turn is still active')
+    assert.equal(record.queue.messages.length, 1, 'the renewal is still queued at deletion')
+    r.host.registry.delete(target.runtime, target.sessionId)
+  }
   else if (removal === 'clear') await r.host.call('turn/queue/clear', target)
   else await r.host.call('turn/queue/cancel', { ...target, id: record.queue.messages[0]!.id })
   await r.idle()
@@ -389,5 +533,8 @@ test('a queued renewal rejected by the outer host admission settles before its t
     assert.match(r.host.registry.get(target.runtime, target.sessionId)!.queue.reason!, /scope changed before dispatch/)
     assert.equal((await r.stored()).records[0].state, 'stopped')
     assert.equal(r.prompts.length, 2)
+    const notice = r.notifications.find(one => one.method === 'event' && one.params.event.type === 'notice' && one.params.event.message.includes('queued message'))
+    assert.ok(notice && notice.method === 'event' && notice.params.event.type === 'notice')
+    assert.match(notice.params.event.message, /queued message was not sent/i)
   } finally { releaseRead.resolve(); await r.idle() }
 })

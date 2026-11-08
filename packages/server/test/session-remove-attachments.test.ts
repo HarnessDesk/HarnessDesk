@@ -74,7 +74,9 @@ for (const undoFirst of [false, true]) test(`a failed frozen receipt ${undoFirst
   await assert.rejects(desk.client.call('session/resume', params), /Synthetic receipt write refusal/)
   assert.equal(closes, 1)
   const failed = desk.harness.host.registry.get(session.runtime, session.id)
+  const pendingTurns = undoFirst ? structuredClone(failed?.session.turns ?? []) : []
   if (undoFirst) {
+    assert.ok(pendingTurns.length > 0, 'the failed close retained observed activity before retry')
     assert.equal(failed?.live, null, 'the admitted entry never holds the closed handle')
     assert.equal(failed?.attachmentSeat, seat)
   } else {
@@ -86,6 +88,10 @@ for (const undoFirst of [false, true]) test(`a failed frozen receipt ${undoFirst
   assert.equal((await plane.read(seat))?.epoch, 0)
   fail.mock.mockImplementation(record)
   await desk.client.call('session/resume', params)
+  if (undoFirst) {
+    const current = desk.harness.host.registry.get(session.runtime, session.id)!.session.turns
+    for (const turn of pendingTurns) assert.deepEqual(current.find(candidate => candidate.id === turn.id)?.items, turn.items)
+  }
   assert.equal((await recordOf(desk, session)).epoch, 1)
   assert.equal(closes, 1, 'successful admission does not close the resumed handle')
 })

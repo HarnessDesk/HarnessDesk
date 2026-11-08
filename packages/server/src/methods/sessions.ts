@@ -91,6 +91,7 @@ const closeSession = async (ctx: HostContext, params: { runtime: RuntimeId; sess
        addressed to it. Closing a pane is window management; leaving a room
        is releasing its durable Goal Seat. */
     record.detached = false
+    record.cacheClosed = true
     await ctx.sessions.releaseBody(params)
   }
   return null
@@ -187,11 +188,16 @@ export const sessionMethods = {
 
   'transcripts/search': (ctx, params) => ctx.transcripts.search(params.query, { includeTools: params.includeTools }),
 
+  'session/prepare-eviction': (ctx, params) => ctx.sessions.prepareEviction(params),
+
+  'session/cache-snapshot': (ctx, params) => ctx.sessions.cacheSnapshot(params),
+
   'session/read': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const session = await ctx.sessions.read(runtime, makeSessionId(params.sessionId))
     ctx.sessionIndex.reopen(session)
     const record = ctx.registry.upsert(session, ctx.registry.get(session.runtime, session.id)?.live ?? null)
+    ctx.sessions.noteReconciled(record, session)
     const read = record.session
     if (!record.live) await ctx.sessions.releaseBody({ runtime: read.runtime, sessionId: read.id })
     return read
@@ -233,6 +239,7 @@ export const sessionMethods = {
       // the conversation runs, so the reopen runs on the one the caller asked for.
       if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId, ...(options.route ? { route: options.route } : {}) })
       await ctx.runtimes.ensureStarted(runtime)
+      await ctx.sessions.prepareReopenTranscript(runtime.info.id, sessionId)
       const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
       return resumeSeatSession(runtime, sessionId, { ...options, ...(environment ? { environment } : {}) },
         ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.checkout.cwd)
@@ -264,7 +271,9 @@ export const sessionMethods = {
     const transcript = await ctx.sessions.read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
     ctx.sessionIndex.reopen(session)
-    const resumed = ctx.registry.upsert(session, live).session
+    const resumedRecord = ctx.registry.upsert(session, live)
+    ctx.sessions.noteReconciled(resumedRecord, transcript)
+    const resumed = resumedRecord.session
     ctx.sessionIndex.record(resumed)
     // Ordinary history resumes register directly above rather than through
     // create/fork's attach; observe that handle without changing admission.
@@ -332,11 +341,16 @@ export const sessionMethods = {
     // The agent's copy first: if it refuses, the stopped conversation's
     // index and body remain available here.
     const remembered = await ctx.sessionWorktrees.remember(runtime.info.id, id, true).then(() => true, () => false)
+    // Close and worktree bookkeeping can deliver replay events. Bind the
+    // exact owners present just before the delete request; later authority
+    // epochs must not be discarded on behalf of this request.
+    const conflictOwners = ctx.sessions.conflictOwners(runtime.info.id, id)
     const outcome = await runtime.deleteSession(id)
     // Then everything the host was holding about it. A transcript left
     // behind would be re-enriched onto the next session that reused the
     // id, and an archive mark left behind is a row hidden forever.
     await ctx.transcripts.forget(runtime.info.id, id, { deleteIndex: true })
+    ctx.sessions.discardConflictOwners(conflictOwners)
     await ctx.loadouts.forget(runtime.info.id, id)
     ctx.sessionIndex.deleted(runtime.info.id, id)
     const warning = await ctx.sessionWorktrees.cleanup(runtime.info.id, id, !remembered)
