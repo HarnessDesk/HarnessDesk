@@ -15,6 +15,7 @@ import { replaceTeamPayload } from './workbench'
 import { settleConversationTool, conversationToolContext, fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
 import { activeView, fixedSubject, isolateSessionBrowserProfiles, normalizeFixedWorkbench } from './workbench'
 import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
+import { transcriptFingerprint, transcriptSessionFingerprint } from './transcript-fingerprint'
 import { teamsInput } from '../lib/teams-snapshot'
 import { roomFoldersGone } from '../lib/room-folders'
 import {
@@ -23,7 +24,9 @@ import {
   questionWaitOf,
   type QuestionWait,
   mergeRead,
+  canonicalTranscriptBody,
   PendingConversationNotices,
+  PendingTranscript,
   readRuntimeNotices,
   runtimeNoticeKey,
   orderTasks,
@@ -43,6 +46,7 @@ import {
   type ProjectChecks,
   type AgentEntry,
   type AgentEvent,
+  type TranscriptWatermark,
   type AgentItem,
   type AgentOrigin,
   type ApprovalDecision,
@@ -635,6 +639,718 @@ export class AppStore {
   #leadCapabilityEpoch = 0
   #chatRootsVersion: { epoch: string; revision: number } | null = null
   #chatConnectionGeneration = 0
+  // This authority is preparatory only: no body is evicted until the Host's
+  // complete notification and durable-receipt guarantees are enabled.
+  readonly #transcriptAuthority = new Map<SessionKey, { watermark: TranscriptWatermark; lastFingerprint: string | null; sessionFingerprint: string }>()
+  readonly #transcriptCursors = new Map<SessionKey, { watermark: TranscriptWatermark; lastFingerprint: string | null }>()
+  readonly #transcriptOwners = new Map<SessionKey, Set<symbol>>()
+  readonly #transcriptSnapshotRequests = new Map<SessionKey, symbol>()
+  // A gap or contradictory cursor needs semantic reconciliation, not merely
+  // another numerically newer snapshot. No unload is enabled in this state.
+  readonly #transcriptRecoveryBlocked = new Set<SessionKey>()
+  // Only an unbroken, verified-cursor invalidation chain may be re-proved.
+  readonly #transcriptReproof = new Map<SessionKey, { watermark: TranscriptWatermark; change: number; connection: number; removal: number; draftRevision: number; body: WeakRef<Session>; fingerprint: string; owners: Set<symbol> }>()
+  readonly #transcriptOrphans = new Set<PendingTranscript>()
+  readonly #releasedTranscripts = new Map<SessionKey, { identity: string; turnCount: number; watermark: TranscriptWatermark; connection: number; removal: number; metadata: string; hostMetadata: string; owner: object; pending: PendingTranscript; itemTypes: Map<string, Map<string, AgentItem['type']>>; awaitedItems: Map<string, Map<string, Set<AgentItem['type']>>>; changed: boolean; eligible: boolean; dirty: boolean; invalidation?: TranscriptWatermark; observed?: TranscriptWatermark; quarantinedLast?: { fence: TranscriptWatermark; fingerprint: string }; inFlight?: Promise<boolean>; flightConnection?: number }>()
+  readonly #releasedOrphans: { identity: string; watermark: TranscriptWatermark; pending: PendingTranscript }[] = []
+  readonly #transcriptPending = new Map<SessionKey, { owner: object; capture: PendingTranscript; base: TranscriptWatermark; connection: number; removal: number; inFlight: boolean; dirty: boolean; eligible: boolean }>()
+  readonly #transcriptReceipts = new Map<SessionKey, { authority: { watermark: TranscriptWatermark; lastFingerprint: string | null; sessionFingerprint: string }; change: number; draftRevision: number }>()
+  readonly #transcriptTouches = new Map<SessionKey, number>()
+  #transcriptClock = 0
+  #transcriptPressureTail: Promise<void> = Promise.resolve()
+  #transcriptCacheEnabled = false
+  #transcriptPolicyGeneration = 0
+  #transcriptDrain: Promise<void> | null = null
+  #transcriptPressureRunning = false
+  #transcriptPressureDirty = false
+  #transcriptChange = 0
+  #transcriptOwnerChanges = 0
+
+  /** Body restoration tolerates lease changes, but no other transcript fence changes. */
+  #transcriptRestoreChange(): number { return this.#transcriptChange - this.#transcriptOwnerChanges }
+
+  /** Cursor presence alone is not an eviction receipt or a verified current body. */
+  transcriptCacheVerified(runtime: RuntimeId, id: SessionId): boolean {
+    return this.#transcriptAuthority.has(sessionKey(runtime, id))
+  }
+
+  retainTranscript(runtime: RuntimeId, id: SessionId): () => void {
+    const key = sessionKey(runtime, id), token = Symbol()
+    const owners = this.#transcriptOwners.get(key) ?? new Set<symbol>()
+    owners.add(token)
+    this.#transcriptOwners.set(key, owners)
+    this.#transcriptTouches.set(key, ++this.#transcriptClock)
+    this.#transcriptAuthority.delete(key)
+    this.#transcriptReceipts.delete(key)
+    this.#transcriptChange++
+    this.#transcriptOwnerChanges++
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const reproof = this.#transcriptReproof.get(key), current = this.#snapshot.sessions.get(key)
+      let advance = false
+      try {
+        advance = !!reproof && reproof.change === this.#transcriptChange && reproof.owners.has(token) &&
+          reproof.connection === this.#chatConnectionGeneration && reproof.removal === (this.#sessionRemovalRevisions.get(key) ?? 0) &&
+          reproof.draftRevision === this.drafts.revision && current === reproof.body.deref() && !!current?.itemsLoaded &&
+          transcriptSessionFingerprint(current) === reproof.fingerprint && !this.#transcriptPending.has(key) &&
+          this.#transcriptOrphans.size === 0 && this.#releasedOrphans.length === 0
+      } catch { /* An unrepresentable body cannot advance the proof chain. */ }
+      owners.delete(token)
+      if (owners.size === 0 && this.#transcriptOwners.get(key) === owners) {
+        this.#transcriptOwners.delete(key)
+        this.#transcriptChange++
+        this.#transcriptOwnerChanges++
+        this.#scheduleTranscriptPressure()
+      } else {
+        this.#transcriptChange++
+        this.#transcriptOwnerChanges++
+      }
+      if (advance && reproof && this.#transcriptReproof.get(key) === reproof) {
+        reproof.owners.delete(token)
+        reproof.change = this.#transcriptChange
+      }
+    }
+  }
+
+  /** Scalar-only diagnostics; eligibility and bytes remain unknown without proof. */
+  transcriptCacheStats(): { loadedFullBodies: number; releasedBodies: number; trackedRecoveryRecords: number; enabled: boolean; pressureRunning: boolean; pressureDirty: boolean; eligibleBodies: null; eligibleBytes: null } {
+    let loadedFullBodies = 0
+    for (const session of this.#snapshot.sessions.values()) if (session.itemsLoaded) loadedFullBodies++
+    let releasedWithEvents = 0
+    for (const descriptor of this.#releasedTranscripts.values()) if (descriptor.changed) releasedWithEvents++
+    return { loadedFullBodies, releasedBodies: this.#releasedTranscripts.size,
+      trackedRecoveryRecords: this.#transcriptPending.size + this.#transcriptOrphans.size + this.#releasedOrphans.length + releasedWithEvents,
+      enabled: this.#transcriptCacheEnabled, pressureRunning: this.#transcriptPressureRunning, pressureDirty: this.#transcriptPressureDirty,
+      eligibleBodies: null, eligibleBytes: null }
+  }
+
+  /** Restore the default cache policy after an explicit measurement disable. */
+  enableTranscriptCache(): void {
+    if (this.#transcriptCacheEnabled) return
+    this.#transcriptCacheEnabled = true
+    this.#transcriptPolicyGeneration++
+    this.#scheduleTranscriptPressure()
+  }
+
+  /** Stop new policy unloads and wait for the owned drain to finish. */
+  async disableTranscriptCache(): Promise<void> {
+    this.#transcriptCacheEnabled = false
+    this.#transcriptPolicyGeneration++
+    this.#transcriptPressureDirty = false
+    const drain = this.#transcriptDrain
+    if (drain) await drain
+  }
+
+  #scheduleTranscriptPressure(): void {
+    if (!this.#transcriptCacheEnabled) return
+    this.#transcriptPressureDirty = true
+    if (this.#transcriptPressureRunning) return
+    this.#transcriptPressureRunning = true
+    const generation = this.#transcriptPolicyGeneration
+    const drain = Promise.resolve().then(() => this.#drainTranscriptPressure(generation))
+    this.#transcriptDrain = drain
+    void drain.then(() => { if (this.#transcriptDrain === drain) this.#transcriptDrain = null })
+  }
+
+  async #drainTranscriptPressure(generation: number): Promise<void> {
+    const active = () => this.#transcriptCacheEnabled && this.#transcriptPolicyGeneration === generation
+    try {
+      while (active() && this.#transcriptPressureDirty) {
+        this.#transcriptPressureDirty = false
+        for (;;) {
+          const planned = await this.prepareTranscriptPressure()
+          if (!active() || planned.length === 0) break
+          let unloaded = false
+          for (const key of planned) {
+            if (!active()) break
+            const { runtime, id } = splitSessionKey(key)
+            if (await this.#unloadTranscript(runtime, id, active)) { unloaded = true; break }
+          }
+          if (!unloaded) break
+          // Each mutation starts a fresh proof round; a prior plan is not a
+          // receipt authorizing any later unload.
+        }
+      }
+    } catch {
+      // An unexpected refusal keeps every candidate loaded. A later lifecycle
+      // change, rather than a timer, may request another pass.
+    } finally {
+      this.#transcriptPressureRunning = false
+      if (this.#transcriptPressureDirty) this.#scheduleTranscriptPressure()
+    }
+  }
+
+  /** Plan only; each unload still requires a fresh receipt and guard. */
+  planTranscriptEvictions(limits: { count: number; bytes: number } = { count: 128, bytes: 8 * 1024 * 1024 }): readonly SessionKey[] {
+    if (!Number.isSafeInteger(limits.count) || limits.count < 0 || !Number.isSafeInteger(limits.bytes) || limits.bytes < 0) return []
+    const candidates: { key: SessionKey; bytes: number; touched: number }[] = []
+    for (const [key] of this.#transcriptAuthority) {
+      const session = this.#snapshot.sessions.get(key)
+      if (!session || !this.#currentTranscriptPlanningReceipt(key, session)) continue
+      try {
+        candidates.push({ key, bytes: canonicalTranscriptBody(session.turns).bytes, touched: this.#transcriptTouches.get(key) ?? 0 })
+      } catch { this.#transcriptAuthority.delete(key); this.#transcriptReceipts.delete(key) }
+    }
+    candidates.sort((a, b) => a.touched - b.touched || String(a.key).localeCompare(String(b.key)))
+    let count = candidates.length, bytes = candidates.reduce((sum, candidate) => sum + candidate.bytes, 0)
+    const planned: SessionKey[] = []
+    for (const candidate of candidates) {
+      if (count <= limits.count && bytes <= limits.bytes) break
+      planned.push(candidate.key)
+      count--; bytes -= candidate.bytes
+    }
+    return planned
+  }
+
+  // Planning may reuse an unchanged proof; an actual unload always obtains a new one.
+  #currentTranscriptPlanningReceipt(key: SessionKey, session: Session): boolean {
+    const authority = this.#transcriptAuthority.get(key), receipt = this.#transcriptReceipts.get(key)
+    if (!authority || !receipt || receipt.authority !== authority || receipt.change !== this.#transcriptChange || receipt.draftRevision !== this.drafts.revision) {
+      this.#transcriptReceipts.delete(key)
+      return false
+    }
+    if (!session.itemsLoaded || this.#transcriptRecoveryBlocked.has(key) || this.#transcriptPending.has(key) || this.#transcriptProtected(key, session)) return false
+    try {
+      if (transcriptSessionFingerprint(session) === authority.sessionFingerprint) return true
+    } catch { /* Unsupported bodies remain loaded. */ }
+    this.#transcriptAuthority.delete(key)
+    this.#transcriptReceipts.delete(key)
+    return false
+  }
+
+  /** Prepare only; this does not unload any candidate. */
+  prepareTranscriptPressure(limits: { count: number; bytes: number } = { count: 128, bytes: 8 * 1024 * 1024 }): Promise<readonly SessionKey[]> {
+    const run = this.#transcriptPressureTail.then(async () => {
+      if (!Number.isSafeInteger(limits.count) || limits.count < 0 || !Number.isSafeInteger(limits.bytes) || limits.bytes < 0) return []
+      const candidates: { key: SessionKey; bytes: number; touched: number }[] = []
+      for (const [key, session] of this.#snapshot.sessions) {
+        if (!session.itemsLoaded || (this.#transcriptRecoveryBlocked.has(key) && !this.#canReproofTranscript(key, session)) || this.#transcriptProtected(key, session)) continue
+        try { candidates.push({ key, bytes: canonicalTranscriptBody(session.turns).bytes, touched: this.#transcriptTouches.get(key) ?? 0 }) } catch { /* Keep unsupported bodies. */ }
+      }
+      if (candidates.length <= limits.count && candidates.reduce((sum, item) => sum + item.bytes, 0) <= limits.bytes) return []
+      candidates.sort((a, b) => a.touched - b.touched || String(a.key).localeCompare(String(b.key)))
+      for (const candidate of candidates) {
+        const session = this.#snapshot.sessions.get(candidate.key)
+        if (session && this.#currentTranscriptPlanningReceipt(candidate.key, session)) continue
+        const { runtime, id } = splitSessionKey(candidate.key)
+        await this.prepareTranscriptEviction(runtime, id)
+      }
+      return this.planTranscriptEvictions(limits)
+    })
+    this.#transcriptPressureTail = run.then(() => {}, () => {})
+    return run
+  }
+
+  async #readOwnedTranscript(runtime: RuntimeId, id: SessionId): Promise<Session> {
+    const release = this.retainTranscript(runtime, id)
+    try {
+      if (this.#releasedTranscripts.has(sessionKey(runtime, id)) && !await this.restoreTranscript(runtime, id)) throw new Error('The saved conversation could not be restored')
+      return await this.transport.request('session/read', { runtime, sessionId: id })
+    } finally { release() }
+  }
+
+  async #withTranscriptOwner<T>(key: SessionKey, operation: () => Promise<T>): Promise<T> {
+    const { runtime, id } = splitSessionKey(key), release = this.retainTranscript(runtime, id)
+    try {
+      if (this.#releasedTranscripts.has(key) && !await this.restoreTranscript(runtime, id)) throw new Error('The saved conversation could not be restored')
+      return await operation()
+    } finally { release() }
+  }
+
+  #transcriptMounted(key: SessionKey): boolean {
+    const workbench = this.#snapshot.workbench
+    const views = [
+      ...panes(this.#snapshot.layout.root).map(pane => pane.view),
+      ...mountedViewsIn(workbench).map(entry => entry.mounted.view),
+      ...Object.values(workbench.frameSubjects).map(subject => subject.view),
+    ]
+    return views.some(view => {
+      if (view.kind === 'conversation' || view.kind === 'terminal') return view.session === key
+      if (view.kind !== 'room') return false
+      if (view.chatMember === key || view.watching?.includes(key) || view.sideBySide?.tiles.includes(key) ||
+          view.sideBySide?.pinned?.includes(key) || view.sideBySide?.focused === key || view.sideBySide?.expanded === key) return true
+      const team = this.#snapshot.teams.get(view.room)
+      return !team || team.members.includes(key)
+    })
+  }
+
+  #transcriptProtected(key: SessionKey, session: Session): boolean {
+    const handoff = this.#snapshot.draftHandoff
+    return this.#transcriptOwners.has(key) || this.#transcriptMounted(key) ||
+      this.#snapshot.loadingSessions.has(key) || this.#deleting.has(key) ||
+      this.#snapshot.listPrefs.pinnedSessions.includes(key) || !!this.drafts.live(key) || this.drafts.recoverable(key).length > 0 ||
+      !!this.#snapshot.queues.get(key)?.messages.length || !!this.#snapshot.tasks.get(key)?.some(task => task.state === 'running') ||
+      !!this.#snapshot.planEdits[key]?.length ||
+      this.#snapshot.approvals.some(entry => entry.key === key) ||
+      !!handoff && sessionKey(handoff.runtime, handoff.sessionId) === key ||
+      session.status.type !== 'idle' || session.turns.some(turn => turn.status === 'inProgress') || !!session.partialHistory
+  }
+
+  #canReproofTranscript(key: SessionKey, session: Session): boolean {
+    const proof = this.#transcriptReproof.get(key)
+    if (!proof || proof.change !== this.#transcriptChange || proof.connection !== this.#chatConnectionGeneration ||
+        proof.removal !== (this.#sessionRemovalRevisions.get(key) ?? 0) || proof.draftRevision !== this.drafts.revision ||
+        proof.body.deref() !== session || !session.itemsLoaded || this.#transcriptPending.has(key) ||
+        this.#transcriptOrphans.size > 0 || this.#releasedOrphans.length > 0) return false
+    try { return transcriptSessionFingerprint(session) === proof.fingerprint } catch { return false }
+  }
+
+  async verifyTranscriptCache(runtime: RuntimeId, id: SessionId): Promise<boolean> {
+    const key = sessionKey(runtime, id), before = this.#snapshot.sessions.get(key), change = this.#transcriptChange, draftRevision = this.drafts.revision
+    const reproof = this.#transcriptReproof.get(key)
+    const blocked = this.#transcriptRecoveryBlocked.has(key)
+    const safeReproof = blocked && !!before && this.#canReproofTranscript(key, before)
+    if (!before?.itemsLoaded || (blocked && !safeReproof) || this.#transcriptPending.has(key) || this.#transcriptProtected(key, before) || !globalThis.crypto?.subtle) return false
+    const request = Symbol()
+    this.#transcriptReceipts.delete(key)
+    this.#transcriptSnapshotRequests.set(key, request)
+    try {
+      const sessionFingerprint = transcriptSessionFingerprint(before)
+      const hostComparable = transcriptSessionFingerprint({ ...before, archived: before.archived === undefined ? false : before.archived })
+      const local = canonicalTranscriptBody(before.turns).canonical
+      const snapshot = await this.transport.request('session/cache-snapshot', { runtime, sessionId: id })
+      if (!snapshot || snapshot.session.runtime !== runtime || snapshot.session.id !== id || !snapshot.session.itemsLoaded ||
+          this.#transcriptProtected(key, snapshot.session) || !this.#validTranscriptFence(snapshot.watermark) || !/^[a-f0-9]{64}$/.test(snapshot.identity)) return false
+      if (hostComparable !== transcriptSessionFingerprint({ ...snapshot.session, archived: snapshot.session.archived === undefined ? false : snapshot.session.archived })) return false
+      if (local !== canonicalTranscriptBody(snapshot.session.turns).canonical) return false
+      const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(local))
+      const identity = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('')
+      if (identity !== snapshot.identity || this.#snapshot.sessions.get(key) !== before || this.#transcriptChange !== change || this.drafts.revision !== draftRevision || this.#transcriptSnapshotRequests.get(key) !== request || this.#transcriptProtected(key, before)) return false
+      const current = this.#transcriptAuthority.get(key)?.watermark
+      if (current && (current.epoch !== snapshot.watermark.epoch || current.generation !== snapshot.watermark.generation)) {
+        this.#transcriptRecoveryBlocked.add(key)
+        this.#transcriptAuthority.delete(key)
+        return false
+      }
+      if (current && current.epoch === snapshot.watermark.epoch && current.generation === snapshot.watermark.generation &&
+          (snapshot.watermark.sequence < current.sequence || snapshot.watermark.revision < current.revision ||
+            (snapshot.watermark.sequence === current.sequence && snapshot.watermark.revision !== current.revision))) return false
+      if (sessionFingerprint !== transcriptSessionFingerprint(before)) return false
+      if (safeReproof) {
+        if (!reproof || this.#transcriptReproof.get(key) !== reproof || this.#transcriptPending.has(key) || this.#transcriptOrphans.size || this.#releasedOrphans.length ||
+            snapshot.watermark.epoch !== reproof.watermark.epoch || snapshot.watermark.generation !== reproof.watermark.generation ||
+            snapshot.watermark.sequence < reproof.watermark.sequence || snapshot.watermark.revision < reproof.watermark.revision ||
+            (snapshot.watermark.sequence === reproof.watermark.sequence && snapshot.watermark.revision !== reproof.watermark.revision)) return false
+        this.#transcriptRecoveryBlocked.delete(key)
+        this.#transcriptReproof.delete(key)
+      }
+      this.#transcriptReproof.delete(key)
+      this.#transcriptAuthority.set(key, { watermark: snapshot.watermark, lastFingerprint: null, sessionFingerprint })
+      this.#transcriptCursors.set(key, { watermark: snapshot.watermark, lastFingerprint: null })
+      return true
+    } catch { return false } finally {
+      if (this.#transcriptSnapshotRequests.get(key) === request) this.#transcriptSnapshotRequests.delete(key)
+    }
+  }
+
+  /** Verify the Host receipt without dropping a body. Activation has separate gates. */
+  async prepareTranscriptEviction(runtime: RuntimeId, id: SessionId): Promise<boolean> {
+    if (!await this.verifyTranscriptCache(runtime, id)) return false
+    const key = sessionKey(runtime, id), session = this.#snapshot.sessions.get(key), authority = this.#transcriptAuthority.get(key)
+    if (!session || !authority || this.#transcriptProtected(key, session)) return false
+    const change = this.#transcriptChange, draftRevision = this.drafts.revision
+    try {
+      const identity = transcriptFingerprint(canonicalTranscriptBody(session.turns).canonical)
+      const receipt = await this.transport.request('session/prepare-eviction', { runtime, sessionId: id, identity })
+      if (!receipt || !this.#validTranscriptFence(receipt) || receipt.identity !== identity) return false
+      const expected = authority.watermark
+      if (receipt.epoch !== expected.epoch || receipt.generation !== expected.generation || receipt.revision !== expected.revision || receipt.sequence !== expected.sequence) return false
+      const current = this.#snapshot.sessions.get(key) === session && this.#transcriptAuthority.get(key) === authority &&
+        this.#transcriptChange === change && this.drafts.revision === draftRevision && !this.#transcriptProtected(key, session) &&
+        transcriptSessionFingerprint(session) === authority.sessionFingerprint
+      if (current) this.#transcriptReceipts.set(key, { authority, change, draftRevision })
+      return current
+    } catch { return false }
+  }
+
+  /** Explicit request; scheduler-driven unloads use the same receipt checks. */
+  async unloadTranscript(runtime: RuntimeId, id: SessionId): Promise<boolean> {
+    return this.#unloadTranscript(runtime, id, () => true)
+  }
+
+  async #unloadTranscript(runtime: RuntimeId, id: SessionId, permitted: () => boolean): Promise<boolean> {
+    const key = sessionKey(runtime, id)
+    if (!permitted() || this.#releasedTranscripts.has(key) || !await this.prepareTranscriptEviction(runtime, id) || !permitted()) return false
+    const session = this.#snapshot.sessions.get(key), receipt = this.#transcriptReceipts.get(key), authority = this.#transcriptAuthority.get(key)
+    if (!session || !receipt || !authority || receipt.authority !== authority || receipt.change !== this.#transcriptChange ||
+        receipt.draftRevision !== this.drafts.revision || this.#transcriptProtected(key, session) || this.#transcriptRecoveryBlocked.has(key) ||
+        this.#transcriptPending.has(key) || !session.itemsLoaded || transcriptSessionFingerprint(session) !== authority.sessionFingerprint) return false
+    const identity = transcriptFingerprint(canonicalTranscriptBody(session.turns).canonical)
+    const owner = {}, metadata = transcriptSessionFingerprint({ ...session, turns: [], itemsLoaded: false })
+    const hostMetadata = transcriptSessionFingerprint({ ...session, archived: session.archived === undefined ? false : session.archived, turns: [], itemsLoaded: false })
+    this.#releasedTranscripts.set(key, { identity, turnCount: session.turns.length, watermark: authority.watermark, connection: this.#chatConnectionGeneration,
+      removal: this.#sessionRemovalRevisions.get(key) ?? 0, metadata, hostMetadata, owner, pending: new PendingTranscript({ runtime, sessionId: id, owner }), itemTypes: new Map(), awaitedItems: new Map(), changed: false, eligible: true, dirty: false })
+    const sessions = new Map(this.#snapshot.sessions)
+    sessions.set(key, { ...session, turns: [], itemsLoaded: false })
+    this.#transcriptReceipts.delete(key)
+    this.#transcriptAuthority.delete(key)
+    this.#transcriptReproof.delete(key)
+    this.#patch({ sessions }, { preserveSessionMembership: true })
+    return true
+  }
+
+  /** Restore only the descriptor-matched Host snapshot; never reopen an agent. */
+  async restoreTranscript(runtime: RuntimeId, id: SessionId): Promise<boolean> {
+    const key = sessionKey(runtime, id), descriptor = this.#releasedTranscripts.get(key)
+    if (!descriptor) return true
+    const operationConnection = this.#chatConnectionGeneration
+    const rebind = descriptor.connection !== operationConnection
+    if (rebind && descriptor.changed) return false
+    if (descriptor.inFlight && descriptor.flightConnection === operationConnection) return descriptor.inFlight
+    const release = this.retainTranscript(runtime, id)
+    const change = this.#transcriptRestoreChange(), draftRevision = this.drafts.revision
+    descriptor.dirty = false
+    const run = (async (): Promise<boolean> => {
+      try {
+        const snapshot = await this.transport.request('session/cache-snapshot', { runtime, sessionId: id })
+        const held = this.#snapshot.sessions.get(key)
+        const captured = descriptor.changed ? descriptor.pending.inspect() : null
+        const cursor = captured?.watermark
+        const sameIncarnation = snapshot && snapshot.watermark.epoch === descriptor.watermark.epoch && snapshot.watermark.generation === descriptor.watermark.generation
+        const advancedWithoutLocalData = !descriptor.changed && sameIncarnation && snapshot.watermark.sequence > descriptor.watermark.sequence && snapshot.watermark.revision >= descriptor.watermark.revision
+        if (!snapshot || !held || this.#releasedTranscripts.get(key) !== descriptor || !descriptor.eligible || captured?.unresolved ||
+            operationConnection !== this.#chatConnectionGeneration || descriptor.removal !== (this.#sessionRemovalRevisions.get(key) ?? 0) ||
+            this.#transcriptRestoreChange() !== change || this.drafts.revision !== draftRevision || held.itemsLoaded ||
+            transcriptSessionFingerprint(held) !== descriptor.metadata || snapshot.session.runtime !== runtime || snapshot.session.id !== id ||
+            !snapshot.session.itemsLoaded || snapshot.session.partialHistory || !this.#validTranscriptFence(snapshot.watermark) ||
+            (!rebind && (snapshot.watermark.epoch !== descriptor.watermark.epoch || snapshot.watermark.generation !== descriptor.watermark.generation ||
+              snapshot.watermark.sequence < descriptor.watermark.sequence || snapshot.watermark.revision < descriptor.watermark.revision)) ||
+            !/^[a-f0-9]{64}$/.test(snapshot.identity) || transcriptFingerprint(canonicalTranscriptBody(snapshot.session.turns).canonical) !== snapshot.identity ||
+            (descriptor.invalidation && (!sameIncarnation || snapshot.watermark.sequence < descriptor.invalidation.sequence || snapshot.watermark.revision < descriptor.invalidation.revision)) ||
+            (!descriptor.changed && !advancedWithoutLocalData && transcriptSessionFingerprint({ ...snapshot.session, archived: snapshot.session.archived === undefined ? false : snapshot.session.archived, turns: [], itemsLoaded: false }) !== descriptor.hostMetadata)) return false
+        if (!descriptor.changed && !advancedWithoutLocalData && snapshot.identity !== descriptor.identity) return false
+        if (captured) {
+          // Rich deltas are not independently materialized here. Only their
+          // actual same-family item completion may supersede them.
+          if ([...descriptor.awaitedItems.values()].some(items => [...items.values()].some(types => [...types].some(type => type !== 'assistantMessage' && type !== 'command')))) return false
+          // Wire JSON has no undefined, non-finite numbers, cycles or exotic
+          // values. Compare complete objects canonically; array order matters.
+          const wireValue = (value: unknown, seen = new Set<object>()): unknown => {
+            if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
+            if (typeof value === 'number' && Number.isFinite(value)) return value
+            if (typeof value !== 'object' || seen.has(value)) throw new Error('Invalid wire value')
+            seen.add(value)
+            try {
+              if (Array.isArray(value)) {
+                if (Object.keys(value).length !== value.length) throw new Error('Invalid wire array')
+                for (let index = 0; index < value.length; index++) if (!Object.hasOwn(value, index)) throw new Error('Invalid wire array')
+                return value.map(entry => wireValue(entry, seen))
+              }
+              if ((Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) || Reflect.ownKeys(value).length !== Object.keys(value).length || Reflect.ownKeys(value).some(key => typeof key !== 'string')) throw new Error('Invalid wire object')
+              return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, entry]) => [key, wireValue(entry, seen)]))
+            } finally { seen.delete(value) }
+          }
+          const wireEqual = (left: unknown, right: unknown): boolean => {
+            try { return JSON.stringify(wireValue(left)) === JSON.stringify(wireValue(right)) } catch { return false }
+          }
+          if (!cursor || cursor.epoch !== descriptor.watermark.epoch || cursor.generation !== descriptor.watermark.generation ||
+              cursor.sequence <= descriptor.watermark.sequence || snapshot.watermark.sequence < cursor.sequence || snapshot.watermark.revision < cursor.revision) return false
+          if (captured.session) for (const [field, value] of Object.entries(captured.session)) {
+            // Later observed typed field replacements supersede this replay.
+            if (Object.hasOwn(captured.sessionFields, field)) continue
+            const actual = snapshot.session[field as keyof Session]
+            // A runtime may fill a previously absent sidebar preview from its
+            // stored opening while a newly observed turn is being recorded.
+            // The checks below still prove the old body and every new turn.
+            if (field === 'preview' && value == null && typeof actual === 'string' && actual.length > 0 &&
+                snapshot.session.turns.slice(descriptor.turnCount).some(turn => captured.turns.some(observed => observed.id === turn.id))) continue
+            if (field === 'updatedAt' && typeof value === 'number' && typeof actual === 'number') {
+              if (actual < value) return false
+            } else if (!wireEqual(actual, value)) return false
+          }
+          for (const [field, value] of Object.entries(captured.sessionFields)) {
+            if (!wireEqual(snapshot.session[field as keyof Session], value)) return false
+          }
+          if (new Set(snapshot.session.turns.map(turn => turn.id)).size !== snapshot.session.turns.length) return false
+          let previousTurn = -1
+          for (const turn of captured.turns) {
+            const turnIndex = snapshot.session.turns.findIndex((value, index) => index > previousTurn && value.id === turn.id)
+            if (turnIndex < 0) return false
+            previousTurn = turnIndex
+            const found = snapshot.session.turns[turnIndex]!
+            if (new Set(found.items.map(item => item.id)).size !== found.items.length) return false
+            if (turn.metadata && Object.entries(turn.metadata).some(([field, value]) => {
+              if ((field === 'diff' && turn.diff !== undefined) || (field === 'plan' && turn.plan !== undefined)) return false
+              return !wireEqual(found[field as keyof typeof found], value)
+            })) return false
+            if ((turn.diff !== undefined && !wireEqual(found.diff, turn.diff)) || (turn.plan !== undefined && !wireEqual(found.plan, turn.plan))) return false
+            let previousItem = -1
+            for (const item of turn.items) {
+              const itemIndex = found.items.findIndex((value, index) => index > previousItem && value.id === item.id)
+              if (itemIndex < 0) return false
+              previousItem = itemIndex
+            }
+          }
+          // Prove the exact evicted baseline by reversing only captured
+          // append deltas on old turns. New turns must have been observed.
+          if (snapshot.session.turns.length < descriptor.turnCount) return false
+          const observedTurns = new Set(captured.turns.map(turn => turn.id))
+          if (snapshot.session.turns.slice(descriptor.turnCount).some(turn => !observedTurns.has(turn.id))) return false
+          const byTurn = new Map(captured.turns.map(turn => [turn.id, new Map(turn.items.map(item => [item.id, item.delta]))]))
+          let validSuffix = true
+          const previousTurns = snapshot.session.turns.slice(0, descriptor.turnCount).map(turn => ({ ...turn, items: turn.items.map(item => {
+            const delta = byTurn.get(turn.id)?.get(item.id)
+            if (!delta || (delta.assistantText === undefined && delta.commandOutput === undefined)) return item
+            if (item.type === 'assistantMessage' && delta.assistantText !== undefined && delta.commandOutput === undefined && item.text.endsWith(delta.assistantText)) return { ...item, text: item.text.slice(0, item.text.length - delta.assistantText.length) }
+            if (item.type === 'command' && delta.commandOutput !== undefined && delta.assistantText === undefined && typeof item.output === 'string' && item.output.endsWith(delta.commandOutput)) return { ...item, output: item.output.slice(0, item.output.length - delta.commandOutput.length) }
+            validSuffix = false
+            return item
+          }) }))
+          if (!validSuffix || transcriptFingerprint(canonicalTranscriptBody(previousTurns).canonical) !== descriptor.identity) return false
+          for (const turn of captured.turns) for (const item of turn.items) {
+            const foundIndex = snapshot.session.turns.findIndex(value => value.id === turn.id)
+            if (foundIndex >= descriptor.turnCount && !item.replacement && !item.candidates.length && (item.delta.assistantText !== undefined || item.delta.commandOutput !== undefined)) return false
+          }
+          // Only material with a concrete counterpart in this same full
+          // snapshot can leave the protected capture. In-progress text/output
+          // may extend, and an in-progress command may finish; other observed
+          // fields must still agree.
+          const representedItem = (observed: AgentItem, found: AgentItem): boolean => {
+            if (observed.type !== found.type || observed.id !== found.id) return false
+            if (observed.type !== 'userMessage' && observed.type !== 'assistantMessage' && observed.type !== 'command') return wireEqual(observed, found)
+            return Object.entries(observed).every(([field, value]) => {
+              const actual = found[field as keyof AgentItem]
+              if ((field === 'text' || field === 'output') && typeof value === 'string') return typeof actual === 'string' && actual.startsWith(value)
+              if (field === 'status' && value === 'inProgress' && observed.type === 'command' && found.type === 'command') return ['inProgress', 'completed', 'failed', 'declined'].includes(found.status)
+              return wireEqual(actual, value)
+            })
+          }
+          for (const turn of captured.turns) for (const item of turn.items) {
+            const found = snapshot.session.turns.find(value => value.id === turn.id)?.items.find(value => value.id === item.id)
+            if (!found || item.deltaCandidates.length || (item.replacement && !representedItem(item.replacement, found)) || item.candidates.some(value => !representedItem(value, found))) return false
+            const { assistantText, commandOutput, ...unsupported } = item.delta
+            if (Object.keys(unsupported).length) return false
+            if (assistantText !== undefined) {
+              if (found.type !== 'assistantMessage') return false
+              const prefixes = [item.replacement, ...item.candidates].filter((value): value is Extract<AgentItem, { type: 'assistantMessage' }> => value?.type === 'assistantMessage').map(value => value.text)
+              if (prefixes.length ? prefixes.some(prefix => !found.text.startsWith(prefix + assistantText)) : !found.text.endsWith(assistantText)) return false
+            }
+            if (commandOutput !== undefined) {
+              if (found.type !== 'command' || typeof found.output !== 'string') return false
+              const prefixes = [item.replacement, ...item.candidates].filter((value): value is Extract<AgentItem, { type: 'command' }> => value?.type === 'command').map(value => value.output ?? '')
+              if (prefixes.length ? prefixes.some(prefix => !found.output!.startsWith(prefix + commandOutput)) : !found.output.endsWith(commandOutput)) return false
+            }
+            if (!item.replacement && !item.candidates.length && assistantText === undefined && commandOutput === undefined) return false
+          }
+          if (!descriptor.pending.retire({ ...snapshot.watermark, full: true, identityValid: true }, descriptor.owner, true)) return false
+        }
+        const sessions = new Map(this.#snapshot.sessions)
+        sessions.set(key, snapshot.session)
+        this.#patch({ sessions })
+        this.#releasedTranscripts.delete(key)
+        this.#transcriptRecoveryBlocked.delete(key)
+        this.#transcriptCursors.set(key, { watermark: snapshot.watermark, lastFingerprint: null })
+        return true
+      } catch { return false }
+      finally { release() }
+    })()
+    descriptor.inFlight = run
+    descriptor.flightConnection = operationConnection
+    void run.then(() => {
+      if (descriptor.inFlight === run) { descriptor.inFlight = undefined; descriptor.flightConnection = undefined }
+      if (descriptor.dirty && descriptor.eligible && this.#releasedTranscripts.get(key) === descriptor) void this.restoreTranscript(runtime, id)
+    })
+    return run
+  }
+
+  #validTranscriptFence(value: unknown): value is TranscriptWatermark {
+    if (!value || typeof value !== 'object') return false
+    const fence = value as Partial<TranscriptWatermark>
+    return typeof fence.epoch === 'string' && !!fence.epoch && typeof fence.generation === 'string' && !!fence.generation &&
+      Number.isSafeInteger(fence.revision) && (fence.revision ?? -1) >= 0 && Number.isSafeInteger(fence.sequence) && (fence.sequence ?? -1) >= 0
+  }
+
+  async #recoverTranscript(runtime: RuntimeId, id: SessionId, pending: { owner: object; capture: PendingTranscript; base: TranscriptWatermark; connection: number; removal: number; inFlight: boolean; dirty: boolean; eligible: boolean }): Promise<void> {
+    const key = sessionKey(runtime, id)
+    if (pending.inFlight || !pending.eligible) return
+    pending.inFlight = true
+    pending.dirty = false
+    const change = this.#transcriptChange, draftRevision = this.drafts.revision
+    try {
+      const snapshot = await this.transport.request('session/cache-snapshot', { runtime, sessionId: id })
+      const captured = pending.capture.inspect()
+      const held = this.#snapshot.sessions.get(key)
+      const cursor = captured.watermark
+      if (!snapshot || !held || this.#transcriptChange !== change || this.drafts.revision !== draftRevision || this.#transcriptPending.get(key) !== pending || pending.connection !== this.#chatConnectionGeneration ||
+          pending.removal !== (this.#sessionRemovalRevisions.get(key) ?? 0) || captured.unresolved || !cursor || !pending.eligible ||
+          snapshot.session.runtime !== runtime || snapshot.session.id !== id || !snapshot.session.itemsLoaded || snapshot.session.partialHistory ||
+          !this.#validTranscriptFence(snapshot.watermark) || snapshot.watermark.epoch !== pending.base.epoch ||
+          snapshot.watermark.generation !== pending.base.generation || snapshot.watermark.sequence < cursor.sequence ||
+          snapshot.watermark.revision < cursor.revision || !/^[a-f0-9]{64}$/.test(snapshot.identity) ||
+          transcriptFingerprint(canonicalTranscriptBody(snapshot.session.turns).canonical) !== snapshot.identity) return
+      // This first recovery slice accepts only an empty held transcript and
+      // an actual snapshot containing every captured unseen assistant delta.
+      // Nonempty or richer local material remains protected for reconciliation.
+      if (held.turns.length !== 0 || transcriptSessionFingerprint({ ...held, archived: held.archived === undefined ? false : held.archived, turns: [] }) !== transcriptSessionFingerprint({ ...snapshot.session, archived: snapshot.session.archived === undefined ? false : snapshot.session.archived, turns: [] })) return
+      for (const turn of captured.turns) for (const item of turn.items) {
+        const text = item.delta.assistantText
+        const found = snapshot.session.turns.find(value => value.id === turn.id)?.items.find(value => value.id === item.id)
+        if (typeof text !== 'string' || !found || found.type !== 'assistantMessage' || !found.text.includes(text)) return
+      }
+      if (!pending.capture.retire({ ...snapshot.watermark, full: true, identityValid: true }, pending.owner, true)) return
+      const sessions = new Map(this.#snapshot.sessions)
+      sessions.set(key, snapshot.session)
+      this.#patch({ sessions })
+      this.#transcriptPending.delete(key)
+      this.#transcriptCursors.set(key, { watermark: snapshot.watermark, lastFingerprint: null })
+      this.#transcriptRecoveryBlocked.delete(key)
+    } catch { /* Retain the body and pending material; another event can retry. */ }
+    finally {
+      pending.inFlight = false
+      if (pending.dirty && this.#transcriptPending.get(key) === pending) void this.#recoverTranscript(runtime, id, pending)
+    }
+  }
+
+  #acceptTranscriptEvent(runtime: RuntimeId, event: AgentEvent, fence: unknown): void {
+    const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
+    if (!id) {
+      // An addressed cursor that cannot be associated with a session is not
+      // proof that any held session saw the complete stream.
+      if (fence !== undefined) {
+        this.#transcriptChange++
+        for (const key of this.#transcriptCursors.keys()) this.#transcriptRecoveryBlocked.add(key)
+        this.#transcriptAuthority.clear()
+        this.#transcriptCursors.clear()
+      }
+      this.#onEvent(runtime, event)
+      return
+    }
+    const key = sessionKey(runtime, id), released = this.#releasedTranscripts.get(key)
+    if (released) {
+      const expected = event.type === 'item/started' || event.type === 'item/completed'
+        ? released.awaitedItems.get(event.turnId)?.get(event.item.id) : undefined
+      const deltaType: AgentItem['type'] | undefined = event.type !== 'item/delta' ? undefined : event.delta.kind === 'assistantText' ? 'assistantMessage' : event.delta.kind === 'commandOutput' ? 'command' :
+        event.delta.kind === 'fileChangePatch' ? 'fileChange' : event.delta.kind === 'planText' ? 'plan' : event.delta.kind === 'toolProgress' ? 'toolCall' : 'reasoning'
+      const knownType = event.type === 'item/delta' ? released.itemTypes.get(event.turnId)?.get(event.itemId) : undefined
+      const incoming = event.type === 'session/started' ? event.session.turns.flatMap(turn => turn.items.map(item => ({ turnId: turn.id, item }))) :
+        event.type === 'turn/started' || event.type === 'turn/completed' ? event.turn.items.map(item => ({ turnId: event.turn.id, item })) :
+        event.type === 'item/started' || event.type === 'item/completed' ? [{ turnId: event.turnId, item: event.item }] : []
+      // Before ordered capture can replace prior material, compare every real
+      // item (including those nested in a full replay) with its known family.
+      const mismatch = (!!knownType && !!deltaType && knownType !== deltaType) || incoming.some(({ turnId, item }) => {
+        const known = released.itemTypes.get(turnId)?.get(item.id), awaited = released.awaitedItems.get(turnId)?.get(item.id)
+        return (!!known && known !== item.type) || (!!awaited && [...awaited].some(type => type !== item.type))
+      })
+      let conflictFingerprint: string | null = null
+      if (mismatch && this.#validTranscriptFence(fence)) {
+        try { conflictFingerprint = transcriptFingerprint(JSON.stringify(event)) } catch { /* Keep the event protected. */ }
+        const previous = released.quarantinedLast
+        if (conflictFingerprint && previous && previous.fingerprint === conflictFingerprint && previous.fence.epoch === fence.epoch &&
+            previous.fence.generation === fence.generation && previous.fence.sequence === fence.sequence && previous.fence.revision === fence.revision) return
+      }
+      const result = mismatch && (event.type === 'session/started' || event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'item/started' || event.type === 'item/completed' || event.type === 'item/delta')
+        ? (released.pending.quarantine(event, released.owner) ? 'unresolved' : 'ignored')
+        : released.pending.observe(event, fence, released.owner)
+      if (result === 'duplicate') return
+      if (mismatch && result === 'unresolved' && conflictFingerprint && this.#validTranscriptFence(fence)) released.quarantinedLast = { fence: { ...fence }, fingerprint: conflictFingerprint }
+      this.#notifyPublication(event)
+      this.#transcriptChange++
+      released.changed = true
+      released.dirty = true
+      const invalidation = released.invalidation ?? released.watermark
+      const floor = released.observed && released.observed.sequence > invalidation.sequence ? released.observed : invalidation
+      // These families have no additional event owner and their captured
+      // material can be checked in the body. Notice items require exact wire
+      // equality during restoration; notice events remain protected.
+      const supportedItem = (item: AgentItem) => item.type === 'userMessage' || item.type === 'assistantMessage' || item.type === 'command' || item.type === 'reasoning' || item.type === 'fileChange' || item.type === 'plan' || item.type === 'toolCall' || item.type === 'publication' || item.type === 'notice'
+      const represented = (event.type === 'session/started' && event.session.itemsLoaded && !event.session.partialHistory &&
+          event.session.turns.every(turn => turn.items.every(supportedItem) && new Set(turn.items.map(item => item.id)).size === turn.items.length) &&
+          new Set(event.session.turns.map(turn => turn.id)).size === event.session.turns.length) ||
+        event.type === 'turn/diff' || event.type === 'turn/plan' || event.type === 'session/title' || event.type === 'session/status' || event.type === 'session/settings' || event.type === 'session/options' || event.type === 'session/memory' || event.type === 'session/goal' || event.type === 'usage/updated' || event.type === 'session/closed' ||
+        ((event.type === 'turn/started' || event.type === 'turn/completed') && event.turn.items.every(supportedItem) && new Set(event.turn.items.map(item => item.id)).size === event.turn.items.length) ||
+        ((event.type === 'item/started' || event.type === 'item/completed') && supportedItem(event.item)) ||
+        (event.type === 'item/delta' && ['assistantText', 'commandOutput', 'reasoningSummary', 'reasoningSummaryPart', 'reasoningText', 'fileChangePatch', 'planText', 'toolProgress'].includes(event.delta.kind)) ||
+        event.type === 'session/queue' || event.type === 'session/tasks' || event.type === 'approval/requested' || event.type === 'approval/resolved'
+      if (result !== 'accepted' || !this.#validTranscriptFence(fence) || fence.epoch !== floor.epoch ||
+          fence.generation !== floor.generation || fence.sequence !== floor.sequence + 1 || fence.revision < floor.revision || !represented) released.eligible = false
+      else {
+        released.observed = fence
+        const remember = (turnId: string, item: AgentItem) => {
+          let items = released.itemTypes.get(turnId)
+          if (!items) { items = new Map(); released.itemTypes.set(turnId, items) }
+          items.set(item.id, item.type)
+        }
+        if (event.type === 'session/started') for (const turn of event.session.turns) for (const item of turn.items) remember(turn.id, item)
+        if (event.type === 'turn/started' || event.type === 'turn/completed') for (const item of event.turn.items) remember(event.turn.id, item)
+        if (event.type === 'item/started' || event.type === 'item/completed') remember(event.turnId, event.item)
+        if (event.type === 'item/delta') {
+          const type = deltaType!
+          let items = released.awaitedItems.get(event.turnId)
+          if (!items) { items = new Map(); released.awaitedItems.set(event.turnId, items) }
+          let types = items.get(event.itemId)
+          if (!types) { types = new Set(); items.set(event.itemId, types) }
+          types.add(type)
+        }
+        if (event.type === 'item/completed' && expected) {
+          const items = released.awaitedItems.get(event.turnId)!
+          items.delete(event.item.id)
+          if (items.size === 0) released.awaitedItems.delete(event.turnId)
+        }
+      }
+      this.#transcriptRecoveryBlocked.add(key)
+      this.#transcriptCursors.delete(key)
+      // Existing non-transcript owners must still receive their events once.
+      if (event.type === 'session/queue' || event.type === 'session/tasks' || event.type === 'approval/requested' || event.type === 'approval/resolved') this.#onEvent(runtime, event)
+      if (released.eligible) void this.restoreTranscript(runtime, id)
+      return
+    }
+    const entry = this.#transcriptAuthority.get(key), cursorEntry = this.#transcriptCursors.get(key), previous = cursorEntry?.watermark
+    this.#transcriptChange++
+    this.#transcriptReceipts.delete(key)
+    let fingerprint: string | null = null
+    if (previous) {
+      try { fingerprint = transcriptFingerprint(JSON.stringify(event)) } catch { /* An unrepresentable event cannot authorize eviction. */ }
+    }
+    let pending = this.#transcriptPending.get(key)
+    if (pending && (pending.connection !== this.#chatConnectionGeneration || pending.removal !== (this.#sessionRemovalRevisions.get(key) ?? 0))) {
+      // Keep the old owner's data without feeding a replacement owner's events
+      // into it. Recovery of orphaned incarnations is deliberately unresolved.
+      this.#transcriptOrphans.add(pending.capture)
+      this.#transcriptPending.delete(key)
+      pending = undefined
+    }
+    const isExactDuplicate = previous && this.#validTranscriptFence(fence) && fence.epoch === previous.epoch && fence.generation === previous.generation && fence.sequence === previous.sequence && fence.revision === previous.revision && !!cursorEntry?.lastFingerprint && fingerprint === cursorEntry.lastFingerprint
+    const isGap = previous && this.#validTranscriptFence(fence) && fence.epoch === previous.epoch && fence.generation === previous.generation && fence.sequence > previous.sequence + 1 && fence.revision >= previous.revision
+    if (!pending && previous && !isExactDuplicate && (isGap || !this.#validTranscriptFence(fence) || fence.epoch !== previous.epoch || fence.generation !== previous.generation || fence.sequence <= previous.sequence)) {
+      const owner = {}
+      pending = { owner, capture: new PendingTranscript({ runtime, sessionId: id, owner }), base: previous, connection: this.#chatConnectionGeneration, removal: this.#sessionRemovalRevisions.get(key) ?? 0, inFlight: false, dirty: false,
+        eligible: !!isGap && event.type === 'item/delta' && event.delta.kind === 'assistantText' && (this.#snapshot.sessions.get(key)?.turns.length === 0) }
+      this.#transcriptPending.set(key, pending)
+    }
+    if (pending) {
+      const result = pending.capture.observe(event, fence, pending.owner)
+      if (result === 'duplicate') return
+      if (result === 'unresolved' || result === 'ignored') { pending.eligible = false; this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key); return }
+      if ((event.type !== 'item/delta' && event.type !== 'session/status') || (event.type === 'item/delta' && event.delta.kind !== 'assistantText')) {
+        pending.eligible = false
+        const held = this.#snapshot.sessions.get(key)
+        if (held) pending.capture.retainLocal(held, pending.owner)
+        if (event.type === 'session/started') return
+      }
+      pending.dirty = true
+    }
+    if (previous && this.#validTranscriptFence(fence) && fence.epoch === previous.epoch && fence.generation === previous.generation &&
+        fence.sequence <= previous.sequence) {
+      if (fence.sequence !== previous.sequence || fence.revision !== previous.revision || !cursorEntry?.lastFingerprint ||
+          fingerprint !== cursorEntry.lastFingerprint) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key) }
+      return
+    }
+    const next = previous && this.#validTranscriptFence(fence) && fence.epoch === previous.epoch && fence.generation === previous.generation &&
+      fence.sequence === previous.sequence + 1 && fence.revision >= previous.revision ? fence : null
+    if (previous && !next) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptCursors.delete(key) }
+    if (next && fingerprint) this.#transcriptCursors.set(key, { watermark: next, lastFingerprint: fingerprint })
+    this.#transcriptAuthority.delete(key)
+    this.#onEvent(runtime, event)
+    if (pending) void this.#recoverTranscript(runtime, id, pending)
+    const current = this.#snapshot.sessions.get(key)
+    if (next && fingerprint && current && entry && !this.#transcriptProtected(key, current)) {
+      // A later receipt must re-verify the whole session. Keep only the cursor
+      // and last-event fingerprint here; do not serialize a body per delta.
+      this.#transcriptAuthority.set(key, { watermark: next, lastFingerprint: fingerprint, sessionFingerprint: entry!.sessionFingerprint })
+    }
+  }
 
   #applyChatRoots(value: unknown): boolean {
     if (!value || typeof value !== 'object') return false
@@ -669,8 +1385,51 @@ export class AppStore {
     this.#snapshot = { ...this.#snapshot, recoverableDrafts: this.drafts.recoverableSnapshot() }
     this.drafts.onRecoverableChange(() => this.#patch({ recoverableDrafts: this.drafts.recoverableSnapshot() }))
     this.transport = new Transport(url, {
-      onEvent: (runtime, event) => this.#onEvent(runtime, event),
+      onEvent: (runtime, event, fence) => this.#acceptTranscriptEvent(runtime, event, fence),
+      onRequest: (method, params) => {
+        if (method === 'session/cache-snapshot' || method === 'session/prepare-eviction' || !params || typeof params !== 'object') return
+        const target = params as { runtime?: unknown; sessionId?: unknown }
+        const { runtime: runtimeValue, sessionId: targetSession } = target
+        if (typeof runtimeValue !== 'string' || !runtimeValue || typeof targetSession !== 'string' || !targetSession) return
+        return this.retainTranscript(runtimeValue as RuntimeId, targetSession as SessionId)
+      },
       onNotification: (notification) => {
+        if (notification.method === 'session/cache-invalidated') {
+          this.#transcriptChange++
+          const key = sessionKey(notification.params.runtime, notification.params.sessionId)
+          const released = this.#releasedTranscripts.get(key)
+          const cursor = this.#transcriptCursors.get(key)?.watermark, prior = this.#transcriptReproof.get(key)
+          const floor = cursor ?? (prior?.change === this.#transcriptChange - 1 && prior.connection === this.#chatConnectionGeneration &&
+            prior.removal === (this.#sessionRemovalRevisions.get(key) ?? 0) ? prior.watermark : undefined)
+          const incoming = notification.params.watermark
+          if (!released && !this.#transcriptPending.has(key) && floor && this.#validTranscriptFence(incoming) &&
+              incoming.epoch === floor.epoch && incoming.generation === floor.generation &&
+              incoming.sequence > floor.sequence && incoming.revision >= floor.revision) {
+            const body = this.#snapshot.sessions.get(key)
+            try {
+              if (!body?.itemsLoaded) throw new Error('No loaded transcript')
+              const fingerprint = transcriptSessionFingerprint(body)
+              if (!cursor && prior && (prior.body.deref() !== body || prior.fingerprint !== fingerprint || prior.draftRevision !== this.drafts.revision)) throw new Error('Transcript changed during invalidation')
+              this.#transcriptReproof.set(key, { watermark: incoming, change: this.#transcriptChange, connection: this.#chatConnectionGeneration,
+                removal: this.#sessionRemovalRevisions.get(key) ?? 0, draftRevision: this.drafts.revision, body: new WeakRef(body),
+                fingerprint, owners: new Set(this.#transcriptOwners.get(key)) })
+            } catch { this.#transcriptReproof.delete(key) }
+          } else this.#transcriptReproof.delete(key)
+          if (released) {
+            const watermark = notification.params.watermark
+            const invalidation = released.invalidation ?? released.watermark
+            const floor = released.observed && released.observed.sequence > invalidation.sequence ? released.observed : invalidation
+            if (!this.#validTranscriptFence(watermark) || watermark.epoch !== floor.epoch || watermark.generation !== floor.generation ||
+                watermark.sequence !== floor.sequence + 1 || watermark.revision < floor.revision) released.eligible = false
+            else { released.invalidation = watermark; released.dirty = true }
+            if (released.changed && released.eligible) void this.restoreTranscript(notification.params.runtime, notification.params.sessionId)
+            this.#transcriptRecoveryBlocked.add(key)
+          }
+          if (this.#transcriptCursors.has(key)) this.#transcriptRecoveryBlocked.add(key)
+          this.#transcriptAuthority.delete(key)
+          this.#transcriptCursors.delete(key)
+          this.#transcriptReceipts.delete(key)
+        }
         if (notification.method === 'chats/rootsChanged') this.#applyChatRoots(notification.params)
         if (notification.method === 'account/changed') {
           this.#harnessDeskAccountRequested = true
@@ -684,6 +1443,16 @@ export class AppStore {
           if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
         }
         if (notification.method === 'sync') {
+          for (const [key, pending] of this.#transcriptPending) {
+            const held = this.#snapshot.sessions.get(key)
+            if (held) pending.capture.retainLocal(held, pending.owner)
+            pending.eligible = false
+          }
+          this.#transcriptChange++
+          for (const key of this.#transcriptCursors.keys()) this.#transcriptRecoveryBlocked.add(key)
+          this.#transcriptAuthority.clear()
+          this.#transcriptCursors.clear()
+          this.#transcriptReceipts.clear()
           const sessions = new Map<SessionKey, Session>()
           const rawSessions = Array.isArray(notification.params.sessions)
             ? notification.params.sessions
@@ -694,14 +1463,17 @@ export class AppStore {
               const held = this.#snapshot.sessions.get(key)
               // A closed body's metadata is silent about the transcript this
               // window already shows. A full sync still replaces it outright.
-              const synced = !session.itemsLoaded && held
-                // Entire turns may have arrived while disconnected. Keep the
-                // displayed text until the visible pane reads the latest body.
-                ? { ...mergeRead(held, session), turns: held.turns, itemsLoaded: false }
-                : session
+              const synced = held && (this.#transcriptPending.has(key) || this.#releasedTranscripts.has(key))
+                ? held
+                : !session.itemsLoaded && held
+                  // Entire turns may have arrived while disconnected. Keep the
+                  // displayed text until the visible pane reads the latest body.
+                  ? { ...mergeRead(held, session), turns: held.turns, itemsLoaded: false }
+                  : session
               sessions.set(key, this.#pendingConversationNotices.apply(synced))
             }
           }
+          for (const key of this.#transcriptTouches.keys()) if (!sessions.has(key)) this.#transcriptTouches.delete(key)
           // Replaced, not merged: the host sends every queue that has anything
           // in it, so one that is missing is one that has drained.
           const queues = new Map<SessionKey, SessionQueue>()
@@ -742,6 +1514,7 @@ export class AppStore {
           if (this.#historyLoaded || this.#historyPageChanges) void this.loadHistory({ reset: true, reconcile: true })
           void this.refreshRuntime()
           void this.#resumeVisible()
+          this.#scheduleTranscriptPressure()
         }
         if (notification.method === 'extension') {
           this.#onExtensionEvent(notification.params.event)
@@ -798,6 +1571,11 @@ export class AppStore {
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
+          this.#transcriptChange++
+          for (const key of this.#transcriptCursors.keys()) if (splitSessionKey(key).runtime === runtime) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptCursors.delete(key) }
+          for (const key of this.#transcriptAuthority.keys()) if (splitSessionKey(key).runtime === runtime) this.#transcriptAuthority.delete(key)
+          for (const key of this.#transcriptReceipts.keys()) if (splitSessionKey(key).runtime === runtime) this.#transcriptReceipts.delete(key)
+          for (const key of this.#transcriptTouches.keys()) if (splitSessionKey(key).runtime === runtime) this.#transcriptTouches.delete(key)
           this.#accountOwners.set(runtime, (this.#accountOwners.get(runtime) ?? 0) + 1)
           // In-flight searches include this runtime's response. Invalidate
           // the request before filtering visible history so a late response
@@ -842,6 +1620,8 @@ export class AppStore {
           this.#changeHistory(notification.params.upserted, notification.params.removed, notification.params.firstPageCursor)
         }
         if (notification.method === 'session/removed') {
+          this.#transcriptChange++
+          this.#transcriptAuthority.delete(sessionKey(notification.params.runtime, notification.params.sessionId))
           this.#dropRemoved(
             sessionKey(notification.params.runtime, notification.params.sessionId),
             notification.params.deleted,
@@ -1015,6 +1795,11 @@ export class AppStore {
       onStatus: (status) => {
         const previous = this.#snapshot.status
         if (status !== 'open') {
+          this.#transcriptChange++
+          for (const key of this.#transcriptCursors.keys()) this.#transcriptRecoveryBlocked.add(key)
+          this.#transcriptAuthority.clear()
+          this.#transcriptCursors.clear()
+          this.#transcriptReceipts.clear()
           this.#chatConnectionGeneration += 1
           this.#chatRootsVersion = null
           this.#leadCapabilityEpoch += 1
@@ -1039,6 +1824,7 @@ export class AppStore {
     this.phone = createPhoneState(this.transport)
     this.phone.subscribe(() => { const phoneLink = this.phone.state.enabled; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
     this.#watchWindowWidth()
+    this.enableTranscriptCache()
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -2829,9 +3615,11 @@ export class AppStore {
     // Choosing a conversation is what a floating sidebar is open for — the one
     // already on screen included, which moves nothing the rule in `#patch` sees.
     if (options.reveal !== false && !options.restoring) this.closeFloatingSidebar()
+    const releaseTranscript = this.retainTranscript(runtime, id)
     this.#setLoading(key, true)
     let readSucceeded = false
     try {
+      if (this.#releasedTranscripts.has(key) && !await this.restoreTranscript(runtime, id)) throw new Error('The saved conversation could not be restored')
       const session = await this.transport.request('session/read', { runtime, sessionId: id })
       if (!stillHeld()) return false
       this.#setSession(session)
@@ -2978,6 +3766,7 @@ export class AppStore {
       }
     } finally {
       this.#setLoading(key, false)
+      releaseTranscript()
     }
     return readSucceeded
   }
@@ -3266,10 +4055,7 @@ export class AppStore {
     const held = this.#snapshot.sessions.get(sessionKey(handoff.runtime, handoff.sessionId)) ?? null
     let read: Session | null = null
     try {
-      read = await this.transport.request('session/read', {
-        runtime: handoff.runtime,
-        sessionId: handoff.sessionId,
-      })
+      read = await this.#readOwnedTranscript(handoff.runtime, handoff.sessionId)
     } catch (error) {
       if (!held) {
         this.resultNotice('warning', describe(error))
@@ -3403,7 +4189,7 @@ export class AppStore {
     }
     if (!key) return
     try {
-      await this.transport.request('turn/send', { ...address(key), input })
+      await this.#withTranscriptOwner(key, () => this.transport.request('turn/send', { ...address(key!), input }))
     } catch (error) {
       this.resultNotice('error', describe(error))
     }
@@ -3593,6 +4379,7 @@ export class AppStore {
   /** Remove only the desk's row and copy, with the host's bounded Undo. */
   async removeSession(id: SessionId, owner: RuntimeId): Promise<void> {
     const key = sessionKey(owner, id)
+    const releaseTranscript = this.retainTranscript(owner, id)
     this.#deleting.add(key)
     try {
       const { undoUntil, warning } = await this.transport.request('session/remove', { runtime: owner, sessionId: id, removed: true })
@@ -3604,7 +4391,7 @@ export class AppStore {
       })
     } catch (error) {
       this.resultNotice('error', describe(error))
-    } finally { this.#deleting.delete(key) }
+    } finally { this.#deleting.delete(key); releaseTranscript() }
   }
 
   async undoRemoveSession(id: SessionId, owner: RuntimeId): Promise<void> {
@@ -3619,10 +4406,11 @@ export class AppStore {
    */
   async deleteSession(id: SessionId, owner: RuntimeId): Promise<SessionDeletion> {
     const key = sessionKey(owner, id)
+    const releaseTranscript = this.retainTranscript(owner, id)
     this.#deleting.add(key)
     const outcome = await this.transport
       .request('session/delete', { runtime: owner, sessionId: id })
-      .finally(() => this.#deleting.delete(key))
+      .finally(() => { this.#deleting.delete(key); releaseTranscript() })
     // Closed already, as a rule: the removal arrives first (`#deleting`). A
     // host that answered before it said so still leaves this pane to close.
     const pane = panes(this.#snapshot.layout.root).find((entry) => sessionOf(entry) === key)
@@ -3663,7 +4451,32 @@ export class AppStore {
    * again for a conversation it never showed.
    */
   #dropRemoved(key: SessionKey, deleted: boolean): void {
+    const released = this.#releasedTranscripts.get(key)
+    const removal = this.#sessionRemovalRevisions.get(key) ?? 0
+    // A deletion only owns material from this connection and incarnation.
+    // Older or unsequenced observations remain protected as ambiguous orphans.
+    const currentOwner = (owner: { connection: number; removal: number }) =>
+      deleted && owner.connection === this.#chatConnectionGeneration && owner.removal === removal
+    const matchingCapture = (capture: PendingTranscript, base: TranscriptWatermark) => {
+      const observed = capture.inspect()
+      return !observed.unresolved && observed.watermark?.epoch === base.epoch && observed.watermark.generation === base.generation
+    }
+    if (released) {
+      if (!currentOwner(released) || (released.changed && !matchingCapture(released.pending, released.watermark))) this.#releasedOrphans.push(released)
+      this.#releasedTranscripts.delete(key)
+    }
+    const pending = this.#transcriptPending.get(key)
+    if (pending) {
+      if (!currentOwner(pending) || !matchingCapture(pending.capture, pending.base)) this.#transcriptOrphans.add(pending.capture)
+      this.#transcriptPending.delete(key)
+    }
+    this.#transcriptChange++
+    this.#transcriptAuthority.delete(key)
+    this.#transcriptCursors.delete(key)
+    this.#transcriptReceipts.delete(key)
+    this.#transcriptTouches.delete(key)
     // Reads already in flight cannot recreate what the host has confirmed gone.
+    this.#transcriptReproof.delete(key)
     this.#sessionRemovalRevisions.set(key, (this.#sessionRemovalRevisions.get(key) ?? 0) + 1)
     this.#cancelTerminalOpenings(`session:${key}`)
     const { runtime, id } = splitSessionKey(key)
@@ -3717,7 +4530,7 @@ export class AppStore {
   async renameSession(title: string, key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
     try {
-      await this.transport.request('session/setTitle', { ...address(key), title })
+      await this.#withTranscriptOwner(key, () => this.transport.request('session/setTitle', { ...address(key), title }))
       // The confirmed name patches both the open conversation and its indexed row.
       const open = this.#snapshot.sessions.get(key)
       if (open) {
@@ -3765,7 +4578,10 @@ export class AppStore {
 
   #release(view: PaneView): void {
     if (view.kind === 'conversation' && view.session) {
-      void this.transport.request('session/close', address(view.session)).catch(() => {})
+      const { runtime, id } = splitSessionKey(view.session)
+      const releaseTranscript = this.retainTranscript(runtime, id)
+      void this.transport.request('session/close', address(view.session))
+        .then(() => { releaseTranscript(); this.#scheduleTranscriptPressure() }, () => { releaseTranscript() })
     }
     if (view.kind === 'terminal') {
       void this.transport.request('terminal/close', { terminalId: view.terminalId }).catch(() => {})
@@ -4580,6 +5396,7 @@ export class AppStore {
    * project it belongs to.
    */
   #setWorkbench(next: Workbench): void {
+    const mounted = new Set([...this.#releasedTranscripts.keys()].filter(key => this.#transcriptMounted(key)))
     let workbench = settleWorkbench(next)
     if (workbench.navigation === this.#snapshot.workbench.navigation && workbench.navigation.current.kind === 'work') {
       const view = focusedPane(workbench.main).view
@@ -4587,6 +5404,16 @@ export class AppStore {
         navigation: visitDestination(workbench.navigation, destinationOf(view), true) }
     }
     this.#patch({ workbench, layout: workbench.main, detailsTab: visibleInspector(workbench) })
+    for (const key of this.#releasedTranscripts.keys()) {
+      if (mounted.has(key) || !this.#transcriptMounted(key)) continue
+      queueMicrotask(() => {
+        if (!this.#releasedTranscripts.has(key) || !this.#transcriptMounted(key)) return
+        const { runtime, id } = splitSessionKey(key)
+        void this.restoreTranscript(runtime, id).then(restored => {
+          if (!restored && this.#releasedTranscripts.has(key) && this.#transcriptMounted(key)) this.resultNotice('error', 'The saved conversation could not be restored')
+        })
+      })
+    }
     // What the patch settled on, which is not always what was asked for: a
     // panel expanded in a sidebar that is not on screen is put back.
     this.#keepWorkbench(this.#snapshot.workbench)
@@ -5990,6 +6817,10 @@ export class AppStore {
   }
 
   async seatRecord(runtime: RuntimeId, sessionId: SessionId): Promise<SeatRecord | null> {
+    // An addressed Host read invalidates the same transcript fence. Let an
+    // existing restore settle, without restoring a hidden body just for this.
+    const restoring = this.#releasedTranscripts.get(sessionKey(runtime, sessionId))?.inFlight
+    if (restoring) await restoring
     return (await this.transport.request('evidence/seat', { runtime, sessionId })) as SeatRecord | null
   }
 
@@ -7120,7 +7951,7 @@ export class AppStore {
   ): Promise<boolean> {
     if (!key) return false
     try {
-      await this.transport.request('turn/steer', { ...address(key), input })
+      await this.#withTranscriptOwner(key, () => this.transport.request('turn/steer', { ...address(key), input }))
       return true
     } catch (error) {
       if (onFailure) onFailure(describe(error))
@@ -7132,7 +7963,7 @@ export class AppStore {
   async interrupt(key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
     try {
-      await this.transport.request('turn/interrupt', address(key))
+      await this.#withTranscriptOwner(key, () => this.transport.request('turn/interrupt', address(key)))
     } catch (error) {
       this.resultNotice('warning', describe(error))
     }
@@ -7178,7 +8009,7 @@ export class AppStore {
     }
     if (!key) return false
     try {
-      await this.transport.request('turn/queue', { ...address(key), input })
+      await this.#withTranscriptOwner(key, () => this.transport.request('turn/queue', { ...address(key!), input }))
       return true
     } catch (error) {
       this.resultNotice('error', describe(error))
@@ -7189,7 +8020,7 @@ export class AppStore {
   async unqueue(id: string, key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
     try {
-      await this.transport.request('turn/queue/cancel', { ...address(key), id })
+      await this.#withTranscriptOwner(key, () => this.transport.request('turn/queue/cancel', { ...address(key), id }))
     } catch (error) {
       this.resultNotice('warning', describe(error))
     }
@@ -7198,13 +8029,13 @@ export class AppStore {
   /** Replaces one queued message in place; the caller decides how to recover a refusal. */
   async updateQueued(id: string, input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
-    await this.transport.request('turn/queue/update', { ...address(key), id, input })
+    await this.#withTranscriptOwner(key, () => this.transport.request('turn/queue/update', { ...address(key), id, input }))
   }
 
   async moveQueued(id: string, to: number, key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
     try {
-      await this.transport.request('turn/queue/move', { ...address(key), id, to })
+      await this.#withTranscriptOwner(key, () => this.transport.request('turn/queue/move', { ...address(key), id, to }))
     } catch (error) {
       this.resultNotice('warning', describe(error))
     }
@@ -7214,7 +8045,7 @@ export class AppStore {
   async flushQueue(key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
     try {
-      await this.transport.request('turn/queue/flush', address(key))
+      await this.#withTranscriptOwner(key, () => this.transport.request('turn/queue/flush', address(key)))
     } catch (error) {
       this.resultNotice('warning', describe(error))
     }
@@ -7223,7 +8054,7 @@ export class AppStore {
   async clearQueue(key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
     try {
-      await this.transport.request('turn/queue/clear', address(key))
+      await this.#withTranscriptOwner(key, () => this.transport.request('turn/queue/clear', address(key)))
     } catch (error) {
       this.resultNotice('warning', describe(error))
     }
@@ -7241,6 +8072,10 @@ export class AppStore {
     const runtime = this.#snapshot.runtimes.find((entry) => entry.id === address(key).runtime)
     if (runtime && !runtime.capabilities.backgroundTasks) return 'unsupported'
     try {
+      // As with seat metadata, do not interrupt an already-running restore or
+      // start one just to read the task list.
+      const restoring = this.#releasedTranscripts.get(key)?.inFlight
+      if (restoring) await restoring
       const tasks = await this.transport.request('tasks/list', address(key))
       const next = new Map(this.#snapshot.tasks)
       if (tasks.length === 0) next.delete(key)
@@ -7284,7 +8119,7 @@ export class AppStore {
   async updateSettings(patch: Partial<SessionSettings>, key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
     try {
-      await this.transport.request('session/settings', { ...address(key), patch })
+      await this.#withTranscriptOwner(key, () => this.transport.request('session/settings', { ...address(key), patch }))
       const session = this.#snapshot.sessions.get(key)
       if (session?.settings) {
         this.#setSession({ ...session, settings: { ...session.settings, ...patch } })
@@ -7299,6 +8134,8 @@ export class AppStore {
       (entry) => entry.key === key && entry.approval.id === id,
     )
     if (!pending) return { ok: true }
+    const { runtime, id: sessionId } = splitSessionKey(key)
+    const releaseTranscript = this.retainTranscript(runtime, sessionId)
     // Drop it from the queue optimistically; the host confirms with
     // `approval/resolved`, and leaving a dead dialog up is worse than a flicker.
     this.#patch({ approvals: this.#snapshot.approvals.filter((entry) => entry !== pending) })
@@ -7319,6 +8156,8 @@ export class AppStore {
         this.#patch({ approvals: [...this.#snapshot.approvals, pending] })
       }
       return { ok: false, message }
+    } finally {
+      releaseTranscript()
     }
   }
 
@@ -7802,10 +8641,7 @@ export class AppStore {
     // agent's session of the same id would put another conversation's
     // decisions into this one's prompt, and nothing on screen would say so.
     try {
-      const session = await this.transport.request('session/read', {
-        runtime,
-        sessionId: id as SessionId,
-      })
+      const session = await this.#readOwnedTranscript(runtime, id as SessionId)
       const lines: string[] = []
       for (const turn of session.turns) {
         for (const item of turn.items) {
@@ -8811,9 +9647,12 @@ export class AppStore {
 
   readonly #gitRecordListeners = new Set<() => void>()
   onGitRecordChange(listener: () => void): () => void { this.#gitRecordListeners.add(listener); return () => this.#gitRecordListeners.delete(listener) }
-  #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+  #notifyPublication(event: AgentEvent): void {
     const published = event.type === 'item/completed' ? [event.item] : event.type === 'turn/completed' ? event.turn.items : []
     if (published.some(item => item.type === 'publication' && (item.reference.kind === 'branch' || item.reference.kind === 'pullRequest'))) for (const listener of this.#gitRecordListeners) listener()
+  }
+  #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    this.#notifyPublication(event)
     if (event.type === 'approval/requested') {
       const key = sessionKey(runtime, event.approval.sessionId)
       if (this.#snapshot.approvals.some((entry) => entry.key === key && entry.approval.id === event.approval.id)) return
@@ -8967,6 +9806,10 @@ export class AppStore {
   readonly #pendingConversationNotices = new PendingConversationNotices()
 
   #setSession(session: Session): void {
+    this.#transcriptChange++
+    this.#transcriptAuthority.delete(sessionKey(session.runtime, session.id))
+    this.#transcriptReceipts.delete(sessionKey(session.runtime, session.id))
+    this.#transcriptTouches.set(sessionKey(session.runtime, session.id), ++this.#transcriptClock)
     session = this.#pendingConversationNotices.apply(session)
     const sessions = new Map(this.#snapshot.sessions)
     const key = sessionKey(session.runtime, session.id)
@@ -8988,7 +9831,7 @@ export class AppStore {
    * subscribers are woken once per frame, which is what keeps three streaming
    * conversations from re-rendering the window hundreds of times a second.
    */
-  #patch(patch: Partial<AppSnapshot>): void {
+  #patch(patch: Partial<AppSnapshot>, options?: { preserveSessionMembership?: boolean }): void {
     const next = { ...this.#snapshot, ...patch }
     const navigation = availableDestinationHistory(next.workbench.navigation, () => {
       const view = focusedPane(next.workbench.main).view
@@ -9067,11 +9910,17 @@ export class AppStore {
       activeSessionKey && splitSessionKey(activeSessionKey).runtime === next.activeRuntime
         ? splitSessionKey(activeSessionKey).id
         : null
-    if (patch.sessions && this.#snapshot.layout === next.layout) {
+    const membershipUnchanged = options?.preserveSessionMembership && patch.sessions &&
+      patch.sessions.size === this.#snapshot.sessions.size && [...patch.sessions.keys()].every(key => this.#snapshot.sessions.has(key))
+    if (patch.sessions && !membershipUnchanged && this.#snapshot.layout === next.layout) {
       // A conversation that vanished from the host leaves its pane empty
       // rather than pointing at nothing.
       next.layout = prune(next.layout, (key) => next.sessions.has(key) || this.#snapshot.loadingSessions.has(key))
     }
+    if (next.layout !== this.#snapshot.layout || next.workbench !== this.#snapshot.workbench || next.teams !== this.#snapshot.teams ||
+        next.queues !== this.#snapshot.queues || next.tasks !== this.#snapshot.tasks || next.approvals !== this.#snapshot.approvals ||
+        next.listPrefs !== this.#snapshot.listPrefs || next.loadingSessions !== this.#snapshot.loadingSessions ||
+        next.draftHandoff !== this.#snapshot.draftHandoff || next.planEdits !== this.#snapshot.planEdits) this.#transcriptChange++
     this.#snapshot = next
     // Remembered like any change of layout, unless it came through
     // `#setWorkbench`, which remembers what this settles on itself.

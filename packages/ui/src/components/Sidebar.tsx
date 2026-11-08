@@ -7,11 +7,12 @@ import { LeftColumn, LeftColumnBody, LeftColumnNavigation, LeftColumnProjectsHea
 import { LibraryIcon } from './Icons'
 import { Slot } from '../slots/registry'
 import { sidebarPlacement } from '../state/workbench'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import { SidebarNotices, useAccountQuotaWarning, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useActiveSession, useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
+import type { AppStore } from '../state/store'
 import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, FolderOpenIcon, PlusIcon, SearchIcon, SettingsIcon, SignInIcon, SignOutIcon, TeamIcon, UsageIcon, UserIcon } from './Icons'
 import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
@@ -68,6 +69,13 @@ import styles from './Sidebar.module.css'
  * health, settings, sign out — rather than a stack of rows. Sign-out lives
  * here because this is where people look for it: on their own name.
  */
+
+// Keep the scroll listener independent of the render's full snapshot.
+const historyScrollAction = (store: Pick<AppStore, 'loadHistory'>, ref: RefObject<HTMLDivElement | null>, cursor: string | null, loading: boolean): (() => void) => () => {
+  const element = ref.current
+  if (!element || !cursor || loading) return
+  if (element.scrollTop + element.clientHeight > element.scrollHeight - 240) void store.loadHistory()
+}
 
 export const Sidebar = ({
   onOpenSettings,
@@ -128,13 +136,10 @@ export const Sidebar = ({
     return () => window.clearTimeout(timer)
   }, [query, store, sessionsOwner])
 
-  const onScroll = useCallback(() => {
-    const element = listRef.current
-    if (!element || !snapshot.historyCursor || snapshot.historyLoading) return
-    if (element.scrollTop + element.clientHeight > element.scrollHeight - 240) {
-      void store.loadHistory()
-    }
-  }, [snapshot.historyCursor, snapshot.historyLoading, store])
+  const onScroll = useMemo(
+    () => historyScrollAction(store, listRef, snapshot.historyCursor, snapshot.historyLoading),
+    [snapshot.historyCursor, snapshot.historyLoading, store],
+  )
 
   const health = useRuntimeHealth()
   const ready = health?.state === 'ready' || health?.state === 'idle'

@@ -62,9 +62,9 @@ for (const adapter of ['acp', 'codex'] as const) {
   test(`${adapter} restores observations without a process and replaces them live`, async t => {
     const dir = await mkdtemp(join(tmpdir(), 'hd-runtime-cache-'))
     const spawns = join(dir, 'spawns')
-    const make = (): AgentRuntime => adapter === 'acp'
+    const make = (generation = 1): AgentRuntime => adapter === 'acp'
       ? new AcpRuntime({ id: 'cached', name: 'Cached', command: process.execPath, args: [peer], env: { FAKE_ACP_START_DELAY_MS: '100', FAKE_ACP_SPAWNS: spawns } })
-      : new CodexRuntime({ id: runtimeId('cached'), name: 'Cached', binaryPath: codex, clientName: 'test', env: { HOME: dir, CODEX_HOME: dir } })
+      : new CodexRuntime({ id: runtimeId('cached'), name: 'Cached', binaryPath: codex, clientName: 'test', env: { HOME: dir, CODEX_HOME: dir, HARNESSDESK_CODEX_GENERATION: String(generation) } })
     let host = makeHost(dir, [new FakeRuntime(), make()])
     t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
     await host.start()
@@ -80,7 +80,8 @@ for (const adapter of ['acp', 'codex'] as const) {
       try { return JSON.parse(await readFile(join(dir, 'runtime-cache.json'), 'utf8')).runtimes.cached.models?.length > 0 } catch { return false }
     })
     await host.dispose()
-    const restored = make()
+    // The fixture otherwise reuses the first fake thread id after each process restart.
+    const restored = make(2)
     host = makeHost(dir, [new FakeRuntime(), restored])
     await host.start()
     assert.equal(restored.health().state, 'idle')

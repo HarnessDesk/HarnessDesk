@@ -44,6 +44,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Signing out of an agent account is on its page in Settings.** The seat menu now only switches accounts; signing out of HarnessDesk stays there.
 
+- **Hidden, closed conversations can release cached transcripts.** The desk verifies its saved copy before releasing a body and restores it when needed. Active work, drafts and unconfirmed activity stay protected; unavailable history is reported rather than presented as empty.
+
 - **Automatic PR merges check the review target again.** A changed destination or an older unbound review requires a fresh PR review. Queued and uncertain submissions stay unresolved until a merge is observed; a person may need to inspect or complete them outside the app.
 
 - **Usage says one standing per account, everywhere.** The Dashboard card, Plans and the phone read the same Ready, Low, Short, Out, Overdrawn or Unknown, so an account is no longer Out on one page and Ready on another. Pace is a time ("Runs out ~3:10 PM, before its 4:50 PM reset"), a spent account says when it is back, an overdrawn balance says so, and a spent model says the others still work. Overview's What is left names the account to start on.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -43,7 +43,18 @@ const SHAPE = [
 
 test('a front-door start over the rig staged by the real seed.mjs seats the codex row held (#927)', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'hd-shots-front-door-'))
-  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  let stateDir, host
+  t.after(async () => {
+    // Host owns the runtimes and transcript store. Keep their backing files
+    // until it has finished its own shutdown; retain them if shutdown fails.
+    if (host) {
+      const filesPresent = existsSync(directory) && !!stateDir && existsSync(stateDir)
+      await host.dispose()
+      assert.ok(filesPresent, 'the host owns its fixture files until disposal completes')
+    }
+    if (stateDir) rmSync(stateDir, { recursive: true, force: true })
+    rmSync(directory, { recursive: true, force: true })
+  })
   const home = join(directory, 'home')
   const work = join(directory, 'work')
   execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
@@ -54,8 +65,7 @@ test('a front-door start over the rig staged by the real seed.mjs seats the code
   assert.ok(configs.length > 0, 'the rig staged at least one camera row')
   assert.ok(!configs.some((agent) => agent.id === 'codex'), 'native-Codex staging frees the reserved id from the camera cast')
 
-  const stateDir = mkdtempSync(join(tmpdir(), 'hd-shots-front-door-state-'))
-  t.after(() => rmSync(stateDir, { recursive: true, force: true }))
+  stateDir = mkdtempSync(join(tmpdir(), 'hd-shots-front-door-state-'))
   const builtinAgents = join(stateDir, 'builtin-agents')
   mkdirSync(join(builtinAgents, 'implementer'), { recursive: true })
   // The real shipped Agent's own frontmatter (packages/server/agents/implementer/AGENT.md).
@@ -65,7 +75,7 @@ test('a front-door start over the rig staged by the real seed.mjs seats the code
     'utf8',
   )
 
-  const host = new Host({
+  host = new Host({
     logger: new Logger('test', { level: 'error', console: false }),
     state: new StateStore(join(stateDir, 'state.json')),
     builtinAgents,
@@ -77,10 +87,6 @@ test('a front-door start over the rig staged by the real seed.mjs seats the code
   host.register(codex)
   await host.start()
   await Promise.all([...camera.map((runtime) => runtime.start()), codex.start()])
-  t.after(async () => {
-    await Promise.all([...camera.map((runtime) => runtime.dispose()), codex.dispose()])
-    await host.dispose()
-  })
 
   mkdirSync(work, { recursive: true })
   await host.call('workspace/open', { path: work })

@@ -288,3 +288,40 @@ test('the Seat attachments were frozen under survives a settings re-announcement
   registry.upsert(session([], { id: other }), null)
   assert.equal(registry.attachmentSeatOf(RUNTIME, other), null, 'one conversation’s Seat must never leak to another')
 })
+
+test('transcript revision changes for direct replacement and reconciled reads, and recreation gets a fresh generation', () => {
+  const registry = new SessionRegistry()
+  const record = registry.upsert(session([turn('a', 'completed', 1)]), null)
+  const versioned = record as unknown as { readonly bodyRevision?: number; readonly bodyGeneration?: string }
+  assert.equal(typeof versioned.bodyRevision, 'number', 'host body revision exists')
+  assert.equal(typeof versioned.bodyGeneration, 'string', 'host body generation exists')
+  const generation = versioned.bodyGeneration
+  const before = versioned.bodyRevision!
+  record.session = { ...record.session, turns: [turn('b', 'completed', 1)] }
+  assert.ok(versioned.bodyRevision! > before, 'direct host replacement advances the revision')
+  const afterDirect = versioned.bodyRevision!
+  registry.upsert(session([turn('c', 'completed', 1)]), null)
+  assert.ok(versioned.bodyRevision! > afterDirect, 'read reconciliation advances the revision')
+  registry.delete(RUNTIME, ID)
+  const recreated = registry.upsert(session([turn('a', 'completed', 1)]), null) as unknown as typeof versioned
+  assert.notEqual(recreated.bodyGeneration, generation, 'removed and recreated session cannot reuse a receipt')
+})
+
+test('removal followed by undo invalidates a receipt even when the same record returns', () => {
+  const registry = new SessionRegistry()
+  const record = registry.upsert(session([turn('a', 'completed', 1)]), null)
+  const before = record.bodyRevision
+  registry.holdRemoved(RUNTIME, ID, Date.now() + 60_000)
+  assert.equal(registry.restoreRemoved(RUNTIME, ID), record)
+  assert.ok(record.bodyRevision > before, 'a removal boundary must advance the identity fence')
+})
+
+test('folding an item event advances the body revision with the actual content', () => {
+  const registry = new SessionRegistry()
+  const record = registry.upsert(session([turn('a', 'completed', 1)]), null)
+  const before = record.bodyRevision
+  registry.apply(RUNTIME, { type: 'item/completed', sessionId: ID, turnId: turnId('a'),
+    item: { id: itemId('late'), type: 'assistantMessage', text: 'later content' } })
+  assert.ok(record.bodyRevision > before)
+  assert.equal(record.session.turns[0]?.items.at(-1)?.id, itemId('late'))
+})
