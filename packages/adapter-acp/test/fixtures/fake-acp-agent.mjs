@@ -1129,14 +1129,15 @@ const handlers = {
     if (!known.includes(params?.methodId)) return fail(id, `unknown auth method ${String(params?.methodId)}`)
     // FAKE_ACP_AUTH_NEEDS_ENV={"<method>":"<VAR>"} refuses a method whose
     // variable is not in this process's environment — Antigravity's
-    // `gemini-api-key`, which reads GEMINI_API_KEY (#1760) — and
-    // FAKE_ACP_AUTH_LOG=<file> records every method it accepted, so a test
-    // reads a switch that took, not one that was merely asked for.
+    // `gemini-api-key`, which reads GEMINI_API_KEY (#1760). The auth log
+    // records requests after that check, before any gate or refusal; it is
+    // not evidence that the peer applied the method.
     const needs = process.env.FAKE_ACP_AUTH_NEEDS_ENV ? JSON.parse(process.env.FAKE_ACP_AUTH_NEEDS_ENV)[params?.methodId] : undefined
     if (needs && !process.env[needs]) {
       return fail(id, `The ${needs} environment variable must be set in the environment the ACP server is launched from.`)
     }
     if (process.env.FAKE_ACP_AUTH_LOG) appendFileSync(process.env.FAKE_ACP_AUTH_LOG, `${params?.methodId}\n`)
+    if (process.env.FAKE_ACP_AUTH_KEY_MATCH_FILE) appendFileSync(process.env.FAKE_ACP_AUTH_KEY_MATCH_FILE, `${process.env.HD_FAKE_KEY === process.env.FAKE_ACP_AUTH_EXPECTED_KEY ? 'match' : 'other'}\n`)
     const answer = () => {
       if (params?.methodId === 'api-key' && process.env.FAKE_ACP_REFUSE_KEY_FILE && existsSync(process.env.FAKE_ACP_REFUSE_KEY_FILE)) return fail(id, 'key switch refused')
       if (process.env.FAKE_ACP_AUTH_FAILS === '1') return fail(id, 'the browser flow was refused. Try again.')
@@ -1144,7 +1145,13 @@ const handlers = {
       // Signed in, so the sessions this agent was refusing now open.
       signedOut = false
       delete process.env.FAKE_ACP_AUTH_REQUIRED
-      reply(id, {})
+      // This gate holds only the response: the mode is already applied.
+      const replyGate = process.env.FAKE_ACP_AUTH_REPLY_GATE
+      if (replyGate) {
+        const timer = setInterval(() => {
+          if (existsSync(replyGate)) { clearInterval(timer); reply(id, {}) }
+        }, 10)
+      } else reply(id, {})
     }
     if (process.env.FAKE_ACP_AUTH_GATE) {
       const timer = setInterval(() => {
@@ -1166,6 +1173,11 @@ const handlers = {
     signedOut = true
     if (process.env.FAKE_ACP_AUTH_MODE_FILE) writeFileSync(process.env.FAKE_ACP_AUTH_MODE_FILE, 'out')
     reply(id, {})
+  },
+  // An ordered peer round-trip for the auth/session interleaving test.
+  'test/auth-barrier': (id) => {
+    if (process.env.FAKE_ACP_AUTH_OBSERVE_FILE) reply(id, {})
+    else fail(id, 'test barrier unavailable')
   },
   'test/crash': () => { process.exit(1) },
   'session/close': async (id, params) => {
@@ -1216,6 +1228,9 @@ const handlers = {
       return
     }
     const savedMode = process.env.FAKE_ACP_AUTH_MODE_FILE && existsSync(process.env.FAKE_ACP_AUTH_MODE_FILE) ? readFileSync(process.env.FAKE_ACP_AUTH_MODE_FILE, 'utf8') : null
+    if (process.env.FAKE_ACP_AUTH_OBSERVE_FILE && params?.cwd === process.env.FAKE_ACP_AUTH_OBSERVE_CWD) {
+      appendFileSync(process.env.FAKE_ACP_AUTH_OBSERVE_FILE, `${savedMode ?? 'none'}\n`)
+    }
     if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed || signedOut || savedMode === 'out' || (savedMode === 'api-key' && !process.env.HD_FAKE_KEY)) {
       send({
         jsonrpc: '2.0',

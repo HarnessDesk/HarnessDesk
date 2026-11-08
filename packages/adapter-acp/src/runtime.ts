@@ -888,6 +888,8 @@ export class AcpRuntime implements AgentRuntime {
    * tells it to use the key — see `AcpSecretSpec.acpMethod`.
    */
   #keyAuthPending = false
+  /** The initial key switch belongs only to the control process that began it. */
+  #startupKeyAuth: { readonly process: number; readonly settled: Promise<void> } | null = null
   /**
    * The keys in the environment the running agent was spawned with. What
    * `resolveSecret` says now may be newer than what the process got — a key
@@ -1344,6 +1346,14 @@ export class AcpRuntime implements AgentRuntime {
       this.#attachmentCapability = decodeAttachmentCapability(this.#initialized)
       this.#restored = null
       this.#idleInfo = null
+      // Publish the barrier before ready: a health listener may open a real
+      // conversation immediately, while the peer has not applied its key yet.
+      const process = this.#controlProcessGeneration
+      const settled = Promise.resolve().then(() => {
+        if (this.#disposed || process !== this.#controlProcessGeneration) return
+        return this.#authenticateWithStoredKey()
+      })
+      this.#startupKeyAuth = { process, settled }
       this.#setHealth({ state: 'ready' })
       // The handshake is what turned the capability claims on, and a window
       // may already be drawn from the all-false version.
@@ -1355,7 +1365,11 @@ export class AcpRuntime implements AgentRuntime {
       // A key handed over at this start is only used once the agent is told
       // to — before the probe opens, so the probe is the first session the key
       // signs.
-      void this.#authenticateWithStoredKey().then(() => this.#observeToolReach())
+      void settled.then(() => {
+        if (!this.#disposed && process === this.#controlProcessGeneration) return this.#observeToolReach()
+      }, error => {
+        this.#config.logger?.warn?.('the initial key authentication could not complete', { agent: this.#config.id, error: describeAcp(error) })
+      })
     } catch (error) {
       const cleanExit = error instanceof AcpError && error.exitCode === 0
       const message = cleanExit
@@ -3123,7 +3137,18 @@ export class AcpRuntime implements AgentRuntime {
   ): Promise<T> {
     const authGeneration = this.#authGeneration
     if (!probe) this.#sessionOpens++
-    try { return await this.#openSessionWithTools<T>(method, params, attachments, authGeneration) } finally {
+    try {
+      // The startup tool probe is scheduled after the switch; other probes
+      // keep their existing path and cannot wait on themselves here.
+      const startup = !probe ? this.#startupKeyAuth : null
+      if (startup) {
+        await startup.settled
+        if (this.#disposed || startup.process !== this.#controlProcessGeneration) {
+          throw new Error('The agent stopped or restarted before the conversation could open.')
+        }
+      }
+      return await this.#openSessionWithTools<T>(method, params, attachments, authGeneration)
+    } finally {
       if (!probe) this.#sessionOpens--
     }
   }
