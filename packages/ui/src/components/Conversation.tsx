@@ -397,6 +397,8 @@ export const Conversation = ({
   const scroll = useRef<HTMLDivElement>(null)
   const transcriptContent = useRef<HTMLDivElement>(null)
   const [pinned, setPinned] = useState(true)
+  const scrollIntent = useRef(false)
+  const markScrollIntent = useCallback(() => { scrollIntent.current = true }, [])
   const status = paneStatus(session, snapshot.approvals, key)
   const worktree = session
     ? snapshot.worktrees.find((entry) => entry.managed && entry.path === session.cwd)
@@ -438,21 +440,17 @@ export const Conversation = ({
   const busy = session ? isBusy(session) : false
   const live = session ? currentTurn(session) : undefined
 
-  // The auto-scroll below sets `scrollTop` itself, and that assignment fires
-  // its own native `scroll` event a frame later — indistinguishable, to a
-  // plain listener, from the reader scrolling back to the bottom. Without
-  // this mark that delayed event re-pinned every release a frame after it
-  // landed, so a selection made the instant a token streamed in snapped
-  // straight back. One event (or one frame, whichever comes first) is
-  // swallowed per programmatic scroll, the same way shadcn's own
-  // `data-autoscrolling` does it.
+  // A native scroll event is not proof of user input: late layout and scroll
+  // anchoring can deliver it after a programmatic scroll's frame has ended.
+  // Follow stays engaged until a gesture moves this transcript.
   const onScroll = useCallback(() => {
     const element = scroll.current
     if (!element) return
-    if (element.dataset.autoscrolling) {
-      delete element.dataset.autoscrolling
-      return
-    }
+    // Scroll anchoring and late transcript layout also emit scroll. Only an
+    // input gesture can release follow; opening a long history never does.
+    if (!scrollIntent.current) return
+    scrollIntent.current = false
+    delete element.dataset.autoscrolling
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight
     setPinned(distance < NEAR_BOTTOM_PX)
   }, [])
@@ -506,6 +504,7 @@ export const Conversation = ({
     if (!element) return
     let frame = 0
     const follow = () => {
+      scrollIntent.current = false
       element.dataset.autoscrolling = 'true'
       element.scrollTop = element.scrollHeight
       // A no-op assignment fires no event; do not swallow the reader's next scroll.
@@ -524,6 +523,7 @@ export const Conversation = ({
 
   // Switching sessions always starts at the bottom of the new transcript.
   useEffect(() => {
+    scrollIntent.current = false
     setPinned(true)
   }, [session?.id])
 
@@ -612,6 +612,13 @@ export const Conversation = ({
           <ConversationThread
             ref={scroll}
             onScroll={onScroll}
+            onWheelCapture={markScrollIntent}
+            onTouchMoveCapture={markScrollIntent}
+            onPointerDownCapture={event => { if (event.target === event.currentTarget) markScrollIntent() }}
+            onPointerMoveCapture={event => { if (event.buttons === 1) markScrollIntent() }}
+            onKeyDownCapture={event => {
+              if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) markScrollIntent()
+            }}
             onClick={onScrollClick}
             data-transcript
             data-live-transcript

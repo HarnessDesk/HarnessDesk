@@ -649,7 +649,7 @@ it('follows transcript and dock geometry changes until the reader scrolls up', (
     expect(scroll.scrollTop).toBe(1000)
     // A real reader scroll, rather than the delayed event from our own write.
     delete scroll.dataset.autoscrolling
-    act(() => {scroll.scrollTop = 100; scroll.dispatchEvent(new Event('scroll', {bubbles:true}))})
+    act(() => {scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 })); scroll.scrollTop = 100; scroll.dispatchEvent(new Event('scroll', {bubbles:true}))})
     expect(jumpToLatest()).toBeDefined()
     height = 1200
     act(() => resize.forEach(callback => callback()))
@@ -1254,4 +1254,34 @@ it('draft Details names the folder with its full path on hover (#1720)', () => {
   expect(path.title).toBe('/work/long/project/first-run-1720')
   expect(container.textContent).not.toContain('reported for this draft')
   expect(container.querySelector('[aria-label="Plan"]')).toBeNull()
+})
+
+it('opens a long finished conversation at the latest reply despite layout scroll events', async () => {
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => { if (this.active) callback([], this as unknown as ResizeObserver) }) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  try {
+    render(rig(session({ turns: Array.from({ length: 30 }, (_, index) => ({
+      id: turnId(`finished-${index}`), status: 'completed' as const,
+      items: [{ id: itemId(`reply-${index}`), type: 'assistantMessage' as const, text: `Finished reply ${index}` }],
+    })) })).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    let height = 800
+    Object.defineProperties(scroll, { scrollHeight: { get: () => height }, clientHeight: { get: () => 400 } })
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(800)
+    // Late layout/scroll anchoring can deliver a scroll after our own marker
+    // expires, before ResizeObserver reports the final transcript height.
+    delete scroll.dataset.autoscrolling
+    height = 2400
+    act(() => scroll.dispatchEvent(new Event('scroll', { bubbles: true })))
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(2400)
+    expect(jumpToLatest()).toBeUndefined()
+  } finally { vi.unstubAllGlobals() }
 })
