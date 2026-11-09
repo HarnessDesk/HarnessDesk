@@ -218,6 +218,7 @@ Two default running sizes: 13px for chrome and 14px for reading. 12px carries me
 | `--hd-line-heading` | `28px` |
 | `--hd-line-title` | `30px` |
 | `--hd-line-display` | `40px` |
+| `--hd-leading-reading` | `1.625` |
 | `--hd-weight-normal` | `400` |
 | `--hd-weight-medium` | `400` |
 | `--hd-weight-semibold` | `580` |
@@ -1970,7 +1971,7 @@ Who runs the desk: two picture cards. A name is an immediate preference; this co
 
 `packages/ui/src/design/patterns/LeadAvatar.tsx`
 
-A Lead line: a face column every line keeps, so the text aligns, and the face itself only on a turn's first line.
+A Lead turn centres its face on the first block's first line box, including prose, lists, headings and cards.
 
 ### `LeadGreeting`
 
@@ -2012,6 +2013,12 @@ A plan role in the words the Lead uses everywhere: what the worker does, never w
 An approved plan's linear flow in reading order. The Timeline owns the
 decorative connectors; role labels describe responsibility without naming
 a runtime. Labels are text, wrap whole, and cannot introduce markup.
+
+### `LeadWorking`
+
+`packages/ui/src/design/patterns/LeadWorking.tsx`
+
+A pending reply's body, inside the same LeadTurn as its eventual text. The clock is a fact, never a live announcement.
 
 ### `LeftColumnTop`
 

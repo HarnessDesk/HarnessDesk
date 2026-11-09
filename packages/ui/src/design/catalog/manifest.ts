@@ -170,7 +170,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'TerminalShellTabs', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'QrCode', 'FlowExample', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
-  'LeadAvatar', 'ConversationShell', 'lead-contract', 'LeadPlanFlow', 'LeadAskOptions', 'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
+  'LeadWorking', 'LeadAvatar', 'ConversationShell', 'lead-contract', 'LeadPlanFlow', 'LeadAskOptions', 'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
   'SettingsRowMenu', 'HeaderStatusGroup', 'SelectionAction',
 ])
 
@@ -181,6 +181,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   CustomizeTabs: ['chips'],
+  LeadWorking: ['default'],
   LeadAvatar: ['default'],
   ConversationShell: ['default'],
   'lead-contract': ['default'],
@@ -320,6 +321,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   CustomizeTabs: ['selected', 'unselected'],
+  LeadWorking: ['default'],
   LeadAvatar: ['default'],
   ConversationShell: ['default'],
   'lead-contract': ['default', 'loading'],
@@ -493,6 +495,7 @@ Object.assign(SIZES, {
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   CustomizeTabs: 'packages/ui/src/panels/customize-navigation.tsx',
+  LeadWorking: 'packages/ui/src/components/LeadPage.tsx',
   'LeadAvatar': 'packages/ui/src/components/LeadPage.tsx',
   'ConversationShell': 'packages/ui/src/components/Conversation.tsx',
   'lead-contract': 'packages/ui/src/components/LeadCards.tsx',
@@ -571,6 +574,7 @@ Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sideba
 Object.assign(PATTERN_CONSUMER, { ComposerTrack: 'packages/ui/src/components/ComposerControls.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  LeadWorking: 'packages/ui/src/preview/frames-lead.tsx',
   'LeadAvatar': 'packages/ui/src/preview/frames-lead.tsx',
   'ConversationShell': 'packages/ui/src/preview/frames-lead.tsx',
   'lead-contract': 'packages/ui/src/preview/frames-lead.tsx',
@@ -734,6 +738,7 @@ const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
 
 const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   CustomizeTabs: ['CustomizeTabs'],
+  LeadWorking: ['LeadWorking'],
   'lead-contract': ['LeadContract'],
   LeadPlanFlow: ['LeadPlanFlow'],
   LeadAskOptions: ['LeadAskOptions'],
@@ -944,6 +949,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['LeadWorking', 'lead-turn', 'A pending Lead reply with host activity, elapsed seconds and Stop in its turn'],
   ['LeadAvatar', 'lead-avatar', 'The chosen Lead character on its disc, one size per place'],
   ['ConversationShell', 'conversation', 'The session and Lead share their window, transcript and floating composer dock'],
   ['LeadPlanFlow', 'lead-plan-flow', 'Ordered plan steps and responsible roles on the shared timeline, ending in approval'],

@@ -346,6 +346,8 @@ body {
   --hd-line-heading: 28px;
   --hd-line-title: 30px;
   --hd-line-display: 40px;
+  /* Prose uses a ratio so its leading follows the reading size. */
+  --hd-leading-reading: 1.625;
 
   --hd-weight-normal: 400;
   --hd-weight-medium: 400; /* desk: 500 → 400, a lighter medium */

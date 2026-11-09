@@ -385,12 +385,13 @@ it.each(['2', 'Escape'])('guards typed-through %s after explicit decision naviga
 it.each(['running', 'waiting-for-user'] as const)('confirms Stop goal from %s and leaves files and worktrees in place', async phase => {
   const base = leadProjection(), { box, request } = await mount({ ...base,
     waitReason: phase === 'waiting-for-user' ? 'lead-predecessor-unavailable' : null,
-    thread: { ...base.thread, state: phase, contract: leadPlan.contract } })
+    requestInFlight: phase === 'running',
+    thread: { ...base.thread, state: phase, messages: [goalMessage], contract: leadPlan.contract } })
   const stopLabel = 'Stop goal'
   expect(button(stopLabel)).toBeDefined()
   expect(box.querySelector('[data-slot="top-bar"]')?.textContent).not.toContain('Stop goal')
   if (phase === 'running') expect(box.querySelector('[data-slot="lead-run-strip"] button')?.textContent).toBe('Stop goal')
-  await act(async () => button(stopLabel).click())
+  await act(async () => (phase === 'running' ? box.querySelector<HTMLButtonElement>('[data-slot="lead-working"] button')! : button(stopLabel)).click())
   expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Files and worktrees are left as they are.')
   expect(request.mock.calls.filter(([method]) => method === 'lead/stop')).toHaveLength(0)
   await act(async () => button('Keep working').click())
@@ -413,13 +414,13 @@ it.each(['running', 'waiting-for-user'] as const)('confirms Stop goal from %s an
 
 it('says the Lead is thinking while its request runs, and goes quiet when it waits for the person', async () => {
   const base = leadProjection(), { box, update } = await mount({ ...base, requestInFlight: true, thread: { ...base.thread, state: 'planning', messages: [goalMessage] } })
-  expect(liveLine(box)?.textContent).toBe('Thinking…')
-  expect(liveLine(box)?.getAttribute('role')).toBe('status')
+  expect(box.querySelector('[data-slot="lead-working"]')?.textContent).toContain('Thinking')
+  expect(box.querySelector('[data-slot="lead-working"] [role="status"]')).not.toBeNull()
   await update({ requestInFlight: false })
   expect(liveLine(box)).toBeNull()
   // The first send, before the Lead's process has begun.
   await update({ requestInFlight: true, thread: { ...base.thread, state: 'draft', messages: [goalMessage] } })
-  expect(liveLine(box)?.textContent).toBe('Thinking…')
+  expect(box.querySelector('[data-slot="lead-working"]')?.textContent).toContain('Thinking')
   // A plan on the table is not planning; the line would only flash under it.
   await update({ wayOut: 'decide-plan', thread: { ...base.thread, state: 'awaiting-plan', messages: [goalMessage], cards: [leadPlan], cardPositions: { plan: 2 } } })
   expect(liveLine(box)).toBeNull()
@@ -445,7 +446,7 @@ it('says which step a running goal is on and how many runs it has started', asyn
 
 it('keeps the live line off a window that cannot trust its projection', async () => {
   const base = leadProjection(), { box, store } = await mount({ ...base, requestInFlight: true, progress: { step: 1, steps: 1, runs: 1 }, thread: { ...base.thread, state: 'running', messages: [goalMessage], contract: leadPlan.contract } })
-  expect(liveLine(box)).not.toBeNull()
+  expect(box.querySelector('[data-slot="lead-working"]')).not.toBeNull()
   await act(async () => store.lead.changed({ method: 'lead/changed', params: { version: 1, revision: base.revision + 1, error: 'lead-projection-failed' } }))
   expect(box.querySelector('[role="alert"]')).not.toBeNull()
   expect(liveLine(box)).toBeNull()
@@ -836,4 +837,34 @@ it.each(['', '   '])('renders an ask-only reply without an empty transcript item
   expect(reply.textContent).toContain(askFixture.question)
   expect(button('Start it')).toBeDefined()
   expect(reply.querySelector('[data-slot="turn-item"]')).toBeNull()
+})
+
+
+it('keeps a working turn after send, maps host activity, and replaces it with the reply', async () => {
+  const base = leadProjection(), { box, store, request, update } = await mount(base)
+  let release!: (value: never) => void
+  request.mockImplementation(async method => method === 'lead/thread/send' ? new Promise(resolve => { release = resolve }) : base as never)
+  await input(box.querySelector('textarea')!, 'What is on this desk?')
+  await act(async () => button('Send').click())
+  expect(box.querySelector('[data-slot="lead-working"]')?.textContent).toContain('Thinking')
+  await update({ requestInFlight: true, thread: { ...base.thread, messages: [goalMessage] }, activity: { since: Date.now() - 6000, method: 'lead/desk/summary' } } as any)
+  const working = box.querySelector('[data-slot="lead-working"]')!
+  expect(working.textContent).toContain('Reading the desk')
+  expect(working.textContent).toContain('6s')
+  expect(working.textContent).not.toContain('lead/desk/summary')
+  for (const [method, label] of [['library/usage', 'Counting skill use'], ['lead/usage/summary', 'Checking what is left']]) {
+    await update({ requestInFlight: true, thread: { ...base.thread, messages: [goalMessage] }, activity: { since: Date.now() - 6000, method } } as any)
+    expect(working.textContent).toContain(label)
+    expect(working.textContent).not.toContain(method)
+  }
+  const avatar = working.closest('article')!.querySelector('[data-slot="lead-avatar"]')
+  const stop = vi.spyOn(store.lead, 'stop').mockResolvedValue(undefined as never)
+  await act(async () => [...working.querySelectorAll('button')].find(node => node.textContent === 'Stop')!.click())
+  expect(stop).toHaveBeenCalledOnce()
+  await update({ requestInFlight: true, thread: { ...base.thread, messages: [goalMessage, { ...goalMessage, id: 'reply', role: 'assistant', revision: 3, text: 'There are two chats on the desk.' }] } })
+  expect(box.querySelector('[data-slot="lead-working"]')).toBeNull()
+  expect(box.textContent).toContain('There are two chats on the desk.')
+  expect(box.querySelector('article[aria-label="Dex"] [data-slot="lead-avatar"]')).toBe(avatar)
+  await act(async () => release({ version: 1, kind: 'sent', revision: 2 } as never))
+  await update({ requestInFlight: false })
 })

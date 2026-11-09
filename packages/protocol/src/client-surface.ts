@@ -8,6 +8,8 @@ export type ClientTopic = 'runs' | 'cards' | 'teams' | 'waiting' | 'notices' | '
 /** Classified private methods: available only on a host-policy client door.
  * The typed SDK uses them, while public discovery and the CLI exclude them. */
 export const PRIVATE_CLIENT_METHODS = {
+  'lead/desk/summary': 'read',
+  'lead/usage/summary': 'read',
   'lead/chat/list': 'read',
   'lead/chat/read': 'read',
   'lead/chat/start': 'run',

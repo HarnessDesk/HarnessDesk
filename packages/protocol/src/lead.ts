@@ -402,6 +402,8 @@ export interface LeadWindowProjection extends LeadHostProjection {
   readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions?: readonly LeadAction[]
   readonly requestInFlight: boolean
+  /** Host request clock and admitted desk operation; presentation only, no model prose. */
+  readonly activity?: { readonly since: number; readonly method: string | null }
   readonly wayOut: LeadPersonAction
   readonly waitReason: typeof LEAD_MANAGEMENT_REASONS[number] | null
   readonly planConsentExpiresAt: number | null
@@ -910,7 +912,7 @@ const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
     : object<Extract<LeadAction, { kind: 'check' }>>({ ...actionBase, kind: literalUnion('check'), name: text(40), command: boundedText(2000, false, proseControls) })(value, path)
 }
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
-  version, revision, stage: optional(literalUnion(...LEAD_STAGES)), stageReason: optional(text(80)), thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),
+  version, revision, stage: optional(literalUnion(...LEAD_STAGES)), stageReason: optional(text(80)), thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, activity: optional(object({ since: integer(0, Number.MAX_SAFE_INTEGER), method: nullable(text(120)) })), wayOut: nullable(literalUnion('resume', 'decide-plan')),
   waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
   savedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
   revokedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
@@ -924,3 +926,79 @@ export const parseLeadWakeRecord: Validator<LeadWakeRecord> = object({ id, at: i
 export const parseLeadWakeLog: Validator<LeadWakeLog> = object({ revision: integer(), wakes: list(parseLeadWakeRecord, 128, 0, wake => wake.id) })
 
 export const parseLeadApprovalRevoke: Validator<{ readonly id: string; readonly contractDigest: string }> = object({ id, contractDigest: digest })
+
+
+/** Counts of unarchived ordinary chats (Team seats excluded) and Teams, across the desk. */
+export interface LeadDeskCounts { readonly running: number; readonly needsYou: number; readonly idle: number }
+export interface LeadDeskTotals { readonly chats: LeadDeskCounts; readonly teams: LeadDeskCounts }
+/** Titles are untrusted data. Project is a display name, never a filesystem path. */
+export interface LeadDeskItem {
+  readonly id: string
+  readonly title: string
+  readonly project: string | null
+  readonly state: 'running' | 'needs-you' | 'idle'
+  readonly updatedAt: number
+  readonly kind: 'chat' | 'team'
+}
+export interface LeadDeskSummary {
+  /** Exact aggregate counts, independent of the bounded detail scan. */
+  readonly totals: LeadDeskTotals
+  /** Per-project counts cover only sessionsScanned when true; totals stay exact. */
+  readonly countsPartial: boolean
+  readonly sessionsScanned: number
+  readonly projectsMore: number
+  readonly projects: readonly (LeadDeskTotals & { readonly project: string | null })[]
+  /** Newest first, default eight, at most twenty. */
+  readonly recent: readonly LeadDeskItem[]
+  /** Up to twenty working items, including those outside recent. */
+  readonly running: readonly LeadDeskItem[]
+  readonly runningMore: number
+  /** Up to twenty attention items, including those outside recent. May overlap recent. */
+  readonly needsYou: readonly LeadDeskItem[]
+  readonly needsYouMore: number
+  /** Items outside the recent window, including any also listed in needsYou. */
+  readonly olderCount: number
+}
+
+/** Allowance only, projected field by field from cached Dashboard reports. No account identifiers. */
+export interface LeadUsageWindow {
+  readonly label: string
+  readonly kind: '5h' | 'weekly' | 'monthly' | 'window' | 'allowance' | 'balance'
+  readonly unlimited?: boolean
+  readonly windowMinutes: number | null
+  readonly remainingPercent: number | null
+  readonly remaining: number | null
+  readonly unit: string | null
+  /** Absolute epoch milliseconds, never relative text. */
+  readonly resetsAt: number | null
+  readonly reached: boolean
+  readonly projection: {
+    readonly kind: 'runs-out' | 'lasts-to-reset'
+    readonly at: number
+    readonly basis: 'average consumption since window start'
+    readonly since: number
+    readonly asOf: number
+  } | null
+}
+export interface LeadUsageSummary {
+  /** Runtime running counts are lower bounds when the session scan is partial. */
+  readonly countsPartial: boolean
+  readonly sessionsScanned: number
+  readonly asOf: number
+  /** Counts by presentation name, including running agents with no cached allowance. */
+  readonly runtimes: readonly { readonly name: string; readonly runningSessions: number }[]
+  readonly accounts: readonly {
+    readonly runtime: string
+    /** Presentation name, plan, and ordinal when several accounts share a name. */
+    readonly label: string
+    readonly plan: string | null
+    /** Desk-wide runtime count, a lower bound when countsPartial; repeated accounts share it. */
+    readonly runningSessions: number
+    readonly windows: readonly LeadUsageWindow[]
+    readonly reached: boolean
+    readonly fetchedAt: number
+    readonly stale: boolean
+    readonly error: 'sign-in needed' | 'reading failed' | null
+    readonly spend: { readonly currency: string; readonly today: number | null; readonly last30Days: number | null; readonly provenance: import('./usage.js').SpendProvenance } | null
+  }[]
+}

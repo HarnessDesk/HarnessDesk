@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { PhoneSim } from '@harnessdesk/phone-link/sim'
-import { runtimeId, sessionId, type GoalView, type LedgerQuery, type LedgerReport, type PhoneTier, type PhoneWorkAllowance, type SessionSummary, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, burn, type GoalView, type LedgerQuery, type LedgerReport, type PhoneTier, type PhoneWorkAllowance, type SessionSummary, type UsageReport } from '@harnessdesk/protocol'
 import { Logger } from '../src/log.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { phoneLinkOff, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
@@ -58,6 +58,7 @@ const fixture = async (): Promise<Fixture> => {
     now: () => NOW,
     sessions: {
       page: options => index.phoneList(options),
+      isOwn: (runtime, id) => index.isOwn(runtime, id),
       counts: () => index.phoneCounts(),
       touchedSince: since => index.touchedSince(since),
       costliestSince: (since, limit) => index.costliestSince(since, limit),
@@ -601,5 +602,183 @@ test('queued sessions count as neither running nor done', async () => {
     f.live.push({ runtime: agent, id: sessionId('no-longer-indexed'), running: false, waiting: false, queued: true, cost: null })
     f.live.push({ runtime: agent, id: sessionId('also-no-longer-indexed'), running: false, waiting: false, queued: true, cost: null })
     assert.equal(f.workspace.sessionsList({}).counts.done, 0, 'a changed index cannot make done negative')
+  } finally { await f.done() }
+})
+
+
+test('Lead summary counts every project, keeps old attention items, and bounds only recents', async () => {
+  const f = await fixture()
+  try {
+    for (const project of ['alpha', 'beta']) {
+      const root = `/workspace/${project}`
+      f.db.prepare('INSERT INTO repos(cwd, repo_root, origin_url, worktree, "exists", checked_at) VALUES (?,?,NULL,0,1,0)').run(root, root)
+      for (let n = 0; n < 15; n++) f.index.upsert(summary(`${project}-${n}`, {
+        title: n === 0 ? `Build ${root}/src/main.ts` : `Task ${project} ${n}`, cwd: root,
+        preview: HOSTILE.transcript, updatedAt: NOW - n * HOUR,
+      }), { archived: false })
+    }
+    f.index.upsert(summary('team-seat'), { archived: false, teamId: 'old-team' })
+    f.index.upsert(summary('archived'), { archived: true })
+    f.live = [{ runtime: agent, id: sessionId('alpha-0'), running: true, waiting: false, cost: null }]
+    const old = team('old-team', { activity: 'needs-you', updatedAt: NOW - 1000 * HOUR })
+    f.teams = [{ ...old, view: { ...old.view, goal: { ...old.view.goal, root: '/workspace/beta' } } }]
+    // Dynamic lookup permits the missing feature to fail as an assertion before its contract exists.
+    const summarize = (f.workspace as unknown as { deskSummary?: (params: { limit?: number }) => Promise<any> }).deskSummary
+    assert.equal(typeof summarize, 'function', 'a desk-wide projection must exist')
+    const result = await summarize!.call(f.workspace, { limit: 2 })
+    assert.deepEqual(result.totals, { chats: { running: 1, needsYou: 0, idle: 29 }, teams: { running: 0, needsYou: 1, idle: 0 } })
+    assert.deepEqual(result.projects, [
+      { project: 'alpha', chats: { running: 1, needsYou: 0, idle: 14 }, teams: { running: 0, needsYou: 0, idle: 0 } },
+      { project: 'beta', chats: { running: 0, needsYou: 0, idle: 15 }, teams: { running: 0, needsYou: 1, idle: 0 } },
+    ])
+    assert.equal(result.recent.length, 2)
+    assert.equal(result.olderCount, 29)
+    assert.deepEqual(result.needsYou, [{ id: 'old-team', title: 'Ship the importer', project: 'beta', state: 'needs-you', kind: 'team', updatedAt: NOW - 1000 * HOUR }])
+    assert.ok(result.recent[0].updatedAt >= result.recent[1].updatedAt)
+    assert.equal((await summarize!.call(f.workspace, {})).recent.length, 8)
+    assert.equal((await summarize!.call(f.workspace, { limit: 100 })).recent.length, 20)
+    assert.equal(JSON.stringify(result).includes(HOSTILE.transcript), false)
+    assert.equal(JSON.stringify(result).includes('/workspace/'), false)
+    assert.deepEqual(Object.keys(result.recent[0]).sort(), ['id', 'kind', 'project', 'state', 'title', 'updatedAt'])
+    const phone = await f.workspace.workItems(100)
+    assert.equal(phone.filter(item => item.stage === 'working').length, result.totals.chats.running + result.totals.teams.running)
+    assert.equal(phone.filter(item => item.stage?.startsWith('you-')).length, result.needsYou.length)
+    const wired = await dispatch({ leadDeskSummary: (params: { limit?: number }) => summarize!.call(f.workspace, params) } as unknown as HostContext,
+      'lead/desk/summary' as never, { limit: 2 } as never)
+    assert.deepEqual(wired, result)
+  } finally { await f.done() }
+})
+
+test('Lead allowance is private, cached, account-distinct and counts running chats across projects', async () => {
+  const f = await fixture()
+  try {
+    for (const [id, cwd] of [['alpha-chat', '/workspace/alpha'], ['beta-chat', '/workspace/beta']] as const) {
+      f.db.prepare('INSERT INTO repos(cwd, repo_root, origin_url, worktree, "exists", checked_at) VALUES (?,?,NULL,0,1,0)').run(cwd, cwd)
+      f.index.upsert(summary(id, { cwd }))
+      f.live.push({ runtime: agent, id: sessionId(id), running: true, waiting: false, cost: null })
+    }
+    // Neither archived chats nor Team seats are ordinary running chats in desk_summary.
+    for (const id of ['archived', 'team-seat']) {
+      f.index.upsert(summary(id), id === 'archived' ? { archived: true } : { teamId: 'team-1' })
+      f.live.push({ runtime: agent, id: sessionId(id), running: true, waiting: false, cost: null })
+    }
+    const lane = { id: 'session', label: '5-hour', usedPercent: 80, windowMinutes: 300, resetsAt: NOW + 2 * HOUR }
+    const reports = [report('dev@example.com', { lanes: [lane], credits: { remaining: 12, unit: 'USD' },
+      spend: { currency: 'USD', todayCost: 2, windowCost: 30, windowDays: 30, provenance: 'listPrice' } as UsageReport['spend'] }),
+      report('Jane Doe', { planLabel: 'Team', fetchedAt: NOW - HOUR, reached: 'session',
+        error: { message: `Jane Doe dev@example.com: API_KEY=${HOSTILE.token} failed` } })]
+    Object.assign(reports[0]!, { apiKey: HOSTILE.token, userName: 'Jane Doe' })
+    // Ignore the normal reports port: Lead passes already cached reports explicitly.
+    f.reports = [report('not a cached account')]
+    const result = await f.workspace.usageSummary(reports)
+    assert.deepEqual(result.runtimes, [{ name: 'Fake Agent', runningSessions: 2 }])
+    const desk = await f.workspace.deskSummary({})
+    assert.deepEqual(desk.projects.map(project => [project.project, project.chats.running]), [['alpha', 1], ['beta', 1]])
+    assert.equal(result.accounts[0]!.runningSessions, desk.totals.chats.running)
+    assert.deepEqual(result.accounts.map(account => account.label), ['Fake Agent · Pro · account 1', 'Fake Agent · Team · account 2'])
+    assert.deepEqual(result.accounts.map(account => [account.stale, account.reached]), [[false, false], [true, true]])
+    assert.match(result.accounts[1]!.error!, /failed/)
+    const text = JSON.stringify(result)
+    for (const forbidden of ['@', 'Jane Doe', HOSTILE.token, 'not a cached account']) assert.equal(text.includes(forbidden), false, forbidden)
+    const window = result.accounts[0]!.windows[0]!
+    assert.equal(window.remainingPercent, 20)
+    assert.equal(window.kind, '5h')
+    assert.deepEqual(window.projection, { kind: 'runs-out', at: NOW + 0.75 * HOUR,
+      basis: 'average consumption since window start', since: NOW - 3 * HOUR, asOf: NOW })
+    assert.equal(window.projection!.at, NOW + burn(lane, NOW)!.etaMs!)
+    assert.equal(result.accounts[1]!.windows[0]!.projection, null, 'failed readings cannot forecast')
+    assert.deepEqual(result.accounts[0]!.spend, { currency: 'USD', today: 2, last30Days: 30, provenance: 'listPrice' })
+    assert.equal(result.accounts[0]!.windows[1]!.kind, 'balance')
+    assert.equal(result.accounts[0]!.windows[1]!.remaining, 12)
+    assert.equal(result.accounts[0]!.windows[1]!.resetsAt, null)
+    const wired = await dispatch({ leadUsageSummary: () => f.workspace.usageSummary(reports) } as unknown as HostContext,
+      'lead/usage/summary', {})
+    assert.deepEqual(wired, result)
+  } finally { await f.done() }
+})
+
+test('Lead allowance keeps unknown figures unknown and shares the Dashboard lasts-to-reset projection', async () => {
+  const f = await fixture()
+  try {
+    const value = report('dev@example.com', { credits: { remaining: null, unit: 'USD', unlimited: true }, lanes: [
+      { id: 'weekly', label: 'Weekly', usedPercent: 20, windowMinutes: 10080, resetsAt: NOW + 84 * HOUR },
+      { id: 'monthly', label: 'Monthly', usedPercent: 60, used: 60, limit: 100, unit: 'requests', windowMinutes: 43200, resetsAt: NOW + 240 * HOUR },
+      { id: 'unknown', label: 'Unknown', usedPercent: 0, usageKnown: false, windowMinutes: null, resetsAt: null },
+    ] })
+    const result = await f.workspace.usageSummary([value])
+    assert.equal(result.accounts[0]!.windows[0]!.projection?.kind, 'lasts-to-reset')
+    assert.equal(result.accounts[0]!.windows[0]!.projection?.at, NOW + 84 * HOUR)
+    assert.equal(result.accounts[0]!.windows[1]!.remaining, 40)
+    assert.equal(result.accounts[0]!.windows[1]!.kind, 'monthly')
+    assert.equal(result.accounts[0]!.windows[2]!.remainingPercent, null)
+    assert.equal(result.accounts[0]!.windows[2]!.projection, null)
+    assert.equal(result.accounts[0]!.spend, null)
+    assert.equal(result.accounts[0]!.windows[3]!.unlimited, true)
+  } finally { await f.done() }
+})
+
+test('Lead allowance emits only closed error words and preserves ordinary words around short identities', async () => {
+  const f = await fixture()
+  try {
+    const result = await f.workspace.usageSummary([
+      report('dev@example.com', { error: { message: 'jane-d at Acme Example Org: token xy failed' } }),
+      report('other@example.com', { error: { message: 'jane-d at Acme Example Org', needsSignIn: true } }),
+      report('a', { planLabel: 'Standard', fetchedAt: NOW - 1000 }),
+    ])
+    assert.deepEqual(result.accounts.map(account => account.error), ['reading failed', 'sign-in needed', null])
+    assert.equal(result.accounts[2]!.plan, 'Standard')
+    assert.equal(result.accounts[2]!.stale, false, 'the Dashboard boundary is strictly greater than the TTL')
+    assert.ok(!JSON.stringify(result).includes('jane-d'))
+    assert.ok(!JSON.stringify(result).includes('Acme Example Org'))
+  } finally { await f.done() }
+})
+
+test('Lead allowance redacts one- and two-character account identities in report labels', async () => {
+  const f = await fixture()
+  try {
+    for (const account of ['a', 'xy']) {
+      const result = await f.workspace.usageSummary([report(account, {
+        planLabel: `${account} Standard`,
+        lanes: [{ id: 'short', label: `Plan for ${account}`, scope: account, windowMinutes: 300, usedPercent: 10, resetsAt: NOW + HOUR }],
+      })])
+      assert.equal(result.accounts[0]!.plan, '… Standard')
+      assert.equal(result.accounts[0]!.windows[0]!.label, 'Plan for … · …')
+      assert.equal(result.runtimes[0]!.name, 'Fake Agent')
+    }
+  } finally { await f.done() }
+})
+
+test('Lead summary caps running and attention lists while keeping exact totals and omitted counts', async () => {
+  const f = await fixture()
+  try {
+    for (let n = 0; n < 120; n++) {
+      const id = `chat-${n}`
+      f.index.upsert(summary(id, { updatedAt: NOW - n }))
+      f.live.push({ runtime: agent, id: sessionId(id), running: n < 60, waiting: n >= 60, cost: null })
+    }
+    const result = await f.workspace.deskSummary({})
+    assert.deepEqual(result.totals.chats, { running: 60, needsYou: 60, idle: 0 })
+    assert.equal(result.running.length, 20)
+    assert.equal(result.runningMore, 40)
+    assert.equal(result.needsYou.length, 20)
+    assert.equal(result.needsYouMore, 40)
+    assert.equal(result.countsPartial, false)
+  } finally { await f.done() }
+})
+
+test('Lead summary scans stop at the Sessions paging bound and expose partial counts', async () => {
+  const f = await fixture()
+  try {
+    for (let n = 0; n < 2001; n++) f.index.upsert(summary(`chat-${n}`, { updatedAt: NOW - n }))
+    f.live.push({ runtime: agent, id: sessionId('chat-2000'), running: true, waiting: false, cost: null })
+    const result = await f.workspace.deskSummary({})
+    assert.equal(result.sessionsScanned, 2000)
+    assert.equal(result.countsPartial, true)
+    assert.deepEqual(result.totals.chats, { running: 1, needsYou: 0, idle: 2000 })
+    assert.equal(result.runningMore, 1, 'exact live totals include old items outside the scan')
+    const usage = await f.workspace.usageSummary([report('dev@example.com')])
+    assert.equal(usage.sessionsScanned, 2000)
+    assert.equal(usage.countsPartial, true)
+    assert.equal(usage.accounts[0]!.runningSessions, 0, 'a partial count is explicitly marked, never presented as exact')
   } finally { await f.done() }
 })

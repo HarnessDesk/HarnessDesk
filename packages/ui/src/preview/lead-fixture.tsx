@@ -45,7 +45,7 @@ export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', 
 export const leadMemory: LeadMemory = { version: 1, items: [
   { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
   { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
-export const LEAD_SCENES = ['ask-options', 'repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed'] as const
+export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -117,6 +117,18 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
     ]
     projection = { ...projection, requestInFlight: scene === 'ordinary-reply',
       ...(scene === 'setup-blocked' ? { waitReason: 'lead-plan-not-independent' as const } : {}) }
+  }
+  if (scene.startsWith('turn-') || scene === 'working-desk') {
+    thread.state = 'planning'
+    thread.messages = [{ version: 1, id: 'desk-question', revision: 1, role: 'user', text: 'What is on this desk now?' }]
+    const text = scene === 'turn-bold' ? '**运行中（1 个）**\n\n一个聊天正在检查键盘操作。'
+      : scene === 'turn-heading' ? '## Running work\n\nOne chat is checking keyboard navigation.'
+      : scene === 'turn-list' ? '- 运行中：检查键盘操作\n- Waiting: approve the documentation change'
+      : 'The desk has 30 chats and 1 Team. One chat is running; the Team needs your review.'
+    if (scene !== 'working-desk') thread.messages = [...thread.messages, { version: 1, id: 'desk-answer', revision: 2, role: 'assistant', text,
+      ...(scene === 'turn-card' ? { proactive: { finding: 'The Team needs your review.', caveat: 'One chat is still working.', ask: 'Open changes', action: 'changes' as const } } : {}) }]
+    projection = { ...projection, requestInFlight: scene === 'working-desk',
+      ...(scene === 'working-desk' ? { activity: { since: Date.now() - 6000, method: 'lead/desk/summary' } } : {}) }
   }
   return leadProjection({ ...projection, thread, stage: undefined, stageReason: undefined })
 }

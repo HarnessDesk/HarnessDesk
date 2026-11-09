@@ -22,3 +22,13 @@ test('chat notification read authority checks the target live and refuses missin
   const failed = await createLeadClientAuthority({ host, project, owned: [], readChatTarget: async () => { throw new Error('Synthetic stale session') } })
   assert.equal(await failed.authorize(request), 'leadScope')
 })
+
+test('desk-wide allowance and skill counts reach dispatch without project-scoped transcript authority', async t => {
+  const directory = await mkdtemp('/tmp/hd-usage-authority-')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const authority = await createLeadClientAuthority({ project: directory, owned: [], host: {
+    clientScopeViews: () => [], call: async () => { throw new Error('No transcript read') },
+  } as unknown as Pick<Host, 'call' | 'clientScopeViews'> })
+  for (const method of ['lead/usage/summary', 'library/usage'] as const)
+    assert.equal(await authority.authorize({ id: 1, method, params: {} }), null)
+})

@@ -2499,6 +2499,7 @@ Until settings load the disc is empty and the title is "Hi there". The Lead's
 presence word is drawn in the sidebar row and the bar only when it is not at
 rest; Ready and No folder open stay in the status popover. The chosen name
 occupies the title slot and composer placeholder.
+In a Lead turn, the face's vertical centre meets the centre of the first block's first line box, including paragraphs, bold labels, lists, headings and cards; the working row keeps that same alignment.
 The tools slot holds the rail toggle (`PageRailToggle`) and the settings glyph opening Settings › Lead;
 the rail is LeadDetails, and the allowance lives on its Spend card, not under the composer.
 Active goals outside terminal predecessor waits use ComposerTrack name="send":
@@ -2532,9 +2533,9 @@ that files and worktrees are left as they are. Other active goal phases offer
 Stop in the composer's send track. The composer continues with the person's new instructions;
 once a goal is accepted, declined or stopped it accepts a new one. Both waits have synthetic preview scenes in both themes.
 
-The thread ends with at most one quiet line, TurnWorkLive, so a goal that is working
-or that was stopped is never silent. "Planning…" shows while a request runs and no plan
-is on the table; while the goal runs it names the step, of how many, and the runs it
+A pending reply uses LeadWorking in its LeadTurn: a quiet pulse, the host-observed step (Thinking when none is known), elapsed seconds in muted ink and the composer's Stop action. The first reply replaces that body in place, retaining its face. A plan on the table is not pending work.
+The thread otherwise ends with at most one quiet line, TurnWorkLive, so a goal that is working
+or that was stopped is never silent; while the goal runs it names the step, of how many, and the runs it
 has started ("Step 1 of 2 · Repair the parser · 1 run", "no runs yet" before the first).
 Both come from the window's `progress` and `requestInFlight`, which the host reads from
 the journal. After the person's Stop, which makes no stopped card, the settled form says

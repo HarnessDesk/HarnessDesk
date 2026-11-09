@@ -4208,6 +4208,7 @@ export class Host {
         await this.#leadChats?.projectChanged()
       },
       readRequestInFlight: () => this.#leadService?.requestInFlight ?? false,
+      readActiveTool: () => this.#leadService?.activeTool ?? null,
       readChatEffectQueued: () => this.#leadChats?.effectsQueued ?? false,
       service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
@@ -5543,6 +5544,12 @@ export class Host {
       },
       leadChats: { list: params => this.leadChats.list(params), read: params => this.leadChats.read(params),
         start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
+      // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
+      leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary([...this.#runtimes.values()].flatMap(runtime => {
+        const report = this.#usageService.cached(runtime.info.id)
+        return report ? [report] : []
+      })),
+      leadDeskSummary: params => this.#phoneWorkspaceView().deskSummary(params),
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       leadThreadSend: async (params) => (await this.#leadWindow()).send(params),
       leadApprovalRevoke: async params => (await this.#leadWindow()).revokeApproval(params),
@@ -10626,6 +10633,7 @@ export class Host {
           for (const row of page.rows) this.#sessionIndexRepos.read(row.summary.cwd, true)
           return page
         },
+        isOwn: (runtime, id) => this.#sessionIndex.isOwn(runtime, id),
         counts: () => this.#sessionIndex.phoneCounts(),
         touchedSince: (since) => this.#sessionIndex.touchedSince(since),
         costliestSince: (since, limit) => this.#sessionIndex.costliestSince(since, limit),

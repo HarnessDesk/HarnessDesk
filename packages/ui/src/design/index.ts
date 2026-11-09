@@ -302,3 +302,5 @@ export { ConversationShell, ConversationThread, ConversationDock, ConversationCo
 export { LeadAvatar, LeadGreeting, LeadIdentity, LeadLineNote, LeadNameChoice, LeadSlot, LeadTurn } from './patterns/LeadAvatar'
 
 export { LeadAskOptions } from './patterns/LeadAskOptions'
+
+export { LeadWorking } from './patterns/LeadWorking'

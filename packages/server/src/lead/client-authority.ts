@@ -48,8 +48,11 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
     authorize: async request => {
       try {
         if (clientTierFor(request.method, request.params) === 'answer') return 'tierNotGranted'
+        // Read-only desk projections and skill counts contain no transcripts or account credentials.
+        if (request.method === 'lead/desk/summary' || request.method === 'lead/usage/summary' || request.method === 'library/usage') return null
         // Re-resolve the pinned location, including on reads, rather than allowing
         // a renamed/deleted project to be replaced by a new alias at dispatch.
+        // The three desk-wide reads above deliberately return before this project check.
         if (!await inProject(project)) return 'leadScope'
         // Goal-level reads cover every execution on an owned Goal, including
         // one a person continued. Run-level reads stay ownership-scoped.
@@ -61,7 +64,6 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
           // The host handlers independently pin these pathless calls to this Lead's project.
           case 'lead/chat/read': return await options.readChatTarget?.(request.params.id) === true ? null : 'leadScope'
           case 'lead/chat/list': case 'lead/chat/start': case 'lead/chat/send': case 'lead/chat/stop': return null
-          case 'library/usage': return 'leadScope'
           case 'workspace/open': return await inProject(request.params.path) ? null : 'leadScope'
           case 'flow/catalog': case 'flow/source': case 'goal/list':
             return request.params.root !== undefined && await inProject(request.params.root) ? null : 'leadScope'

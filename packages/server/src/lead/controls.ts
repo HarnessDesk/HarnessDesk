@@ -67,6 +67,7 @@ interface LeadControlsOptions {
   readonly stopEffects?: () => Promise<void>
   /** Child execution may continue across multiple service.send results. */
   readonly readRequestInFlight?: () => boolean
+  readonly readActiveTool?: () => string | null
   readonly readChatEffectQueued?: () => boolean
   /** The Lead's latest checks between turns; shown only while a goal runs. */
   readonly readPresence?: () => LeadPresence | null
@@ -80,6 +81,7 @@ export class LeadControls {
   #failedRevision: number | null = null
   // Steers live with the goal they were sent in; a new goal starts an empty list.
   #steers: { readonly goal: string | null; readonly list: LeadSteer[] } = { goal: null, list: [] }
+  #replySince: number | null = null
   #runningSince: { readonly goal: string | null; readonly at: number } | null = null
   #continuation: Promise<void> | null = null
   #continueAgain = false
@@ -192,9 +194,12 @@ export class LeadControls {
     const auditFailed = state.managementReason === 'lead-worker-audit-failed'
     const approvalHistory = boundLeadApprovalHistory(state.workerApprovals.map(rule => ({ ...rule, entries: auditFailed ? leadWorkerApprovalEntries(rule) : rule.entries ?? [] })))
     const requestInFlight = this.#inFlight()
+    if (!requestInFlight) this.#replySince = null
+    else this.#replySince ??= this.options.now()
+    const activity = requestInFlight ? { since: this.#replySince!, method: this.options.readActiveTool?.() ?? null } : null
     const { stage, reason: stageReason } = leadThreadStage(state, thread, personActions, waitReason as LeadWindowProjection['waitReason'], requestInFlight, this.options.readChatEffectQueued?.() ?? false)
     const result = parseLeadWindowProjection({ stage, stageReason, version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight, personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight, ...(activity && { activity }), personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }

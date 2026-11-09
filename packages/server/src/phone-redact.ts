@@ -1,4 +1,5 @@
-import { basename, isAbsolute, relative } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, isAbsolute, relative, resolve } from 'node:path'
 
 /**
  * What may leave the desk for a paired phone, one rule per kind of text. A phone is the person's own device but a
@@ -102,7 +103,7 @@ export const scrubProjectText = (text: string, cwd: string, limit = 300): string
 
 /** A folder's own name. Never the path above it, and never a name that is only a home or a root. */
 export const folderName = (path: string | null | undefined): string | null => {
-  if (!path) return null
+  if (!path || resolve(path) === resolve(homedir())) return null
   const name = basename(path.replace(/[\\/]+$/, ''))
   return name === '' || name === '.' || name === '..' ? null : scrub(name, 60)
 }

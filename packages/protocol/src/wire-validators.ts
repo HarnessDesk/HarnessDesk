@@ -1036,6 +1036,13 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'workspace/thread/read': shape({ id: isString }),
   'workspace/team/wrap': phoneShape({ team: phoneText(300) }),
   'workspace/approval/decide': shape({ id: isString, session: isString, allow: isBoolean, scope: optional(literalUnion('once', 'session')) }),
+  'lead/usage/summary': phoneShape({}),
+  'lead/desk/summary': phoneShape({ limit: (value, path = '') => {
+    if (value === undefined) return undefined
+    const limit = isNumber(value, path)
+    if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new ValidationError(path, 'expected an integer from 1 to 20')
+    return limit
+  } }),
   'lead/chat/list': phoneShape({ cursor: optional(phoneText(2048)), limit: optional((value, path = '') => {
     const limit = isNumber(value, path)
     if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new ValidationError(path, 'expected an integer from 1 to 50')

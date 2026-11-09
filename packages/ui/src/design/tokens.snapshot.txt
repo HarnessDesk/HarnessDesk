@@ -208,6 +208,7 @@
 --hd-label-weight = 400
 --hd-lead-dex-ground = rgb(227, 235, 251)
 --hd-lead-lex-ground = rgb(36, 49, 79)
+--hd-leading-reading = 1.625
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
 --hd-left-row-h = calc(32px + 2px)
@@ -809,6 +810,7 @@
 --hd-label-weight = 400
 --hd-lead-dex-ground = rgb(227, 235, 251)
 --hd-lead-lex-ground = rgb(36, 49, 79)
+--hd-leading-reading = 1.625
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
 --hd-left-row-h = calc(32px + 2px)
@@ -1412,6 +1414,7 @@
 --hd-label-weight = 400
 --hd-lead-dex-ground = rgb(227, 235, 251)
 --hd-lead-lex-ground = rgb(36, 49, 79)
+--hd-leading-reading = 1.625
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
 --hd-left-row-h = calc(32px + 2px)
@@ -2018,6 +2021,7 @@
 --hd-label-weight = 400
 --hd-lead-dex-ground = rgb(227, 235, 251)
 --hd-lead-lex-ground = rgb(36, 49, 79)
+--hd-leading-reading = 1.625
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
 --hd-left-row-h = calc(32px + 2px)

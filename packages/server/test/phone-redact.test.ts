@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
+import { homedir } from 'node:os'
 import { test } from 'node:test'
-import { commandForApproval, commandTitle, scrub, scrubProjectText, scrubText } from '../src/phone-redact.js'
+import { folderName, commandForApproval, commandTitle, scrub, scrubProjectText, scrubText } from '../src/phone-redact.js'
 
 const cwd = '/Users/jane/proj'
 
@@ -111,4 +112,10 @@ test('phone approval text refuses secret-bearing or unparseable wrappers', () =>
   for (const command of ['zsh -lc "API_KEY=x curl …"', 'bash -c "unterminated', "bash -c 'pnpm test' extra"]) {
     assert.deepEqual(commandForApproval(command, cwd, '/Users/jane', () => false), { text: '', whole: false })
   }
+})
+
+test('the home directory never becomes a project display name', () => {
+  assert.equal(folderName(homedir()) === null, true)
+  assert.equal(folderName(`${homedir()}/`) === null, true)
+  assert.equal(folderName('/workspace/alpha'), 'alpha')
 })

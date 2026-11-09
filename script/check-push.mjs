@@ -244,7 +244,8 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
     const reason = nodeReason || (!entry.direct && totalTests > 60 ? `${totalTests} test files across changed packages and dependants exceed the local limit of 60; CI runs dependent tests.` : '')
     const retention = entry.files.filter(file => groupOf(file).name === 'retention')
     const ordinary = entry.files.filter(file => !retention.includes(file))
-    if (ordinary.length) add(`Node tests: ${entry.name}`, 'node', ['--test', '--test-timeout=120000', ...ordinary], reason, { needs: [build.name] })
+    // A local desk may have many cores and other active work; bound file processes so fixture watchdogs keep their budget.
+    if (ordinary.length) add(`Node tests: ${entry.name}`, 'node', ['--test', '--test-concurrency=3', '--test-timeout=120000', ...ordinary], reason, { needs: [build.name] })
     // Match CI and verify: this real-Flow measurement must not compete with
     // hundreds of server fixtures for its unchanged workload deadline.
     if (retention.length) add(`Node tests: ${entry.name} retention`, 'node', ['--test', '--test-timeout=120000', ...retention], reason, { needs: [build.name] })

@@ -1,7 +1,8 @@
-import { leadStage, isWaitingOnYou } from '@harnessdesk/protocol'
+import { burn, remainingOf, leadStage, isWaitingOnYou } from '@harnessdesk/protocol'
 import { teamLeadStage } from './work-stage.js'
 import {
   sessionIndexCursorOf, sessionLabel,
+  type LeadUsageSummary, type LeadUsageWindow, type LeadDeskSummary, type LeadDeskItem, type LeadStage,
   type GoalView, type LedgerQuery, type LedgerReport, type PhoneDashboard, type PhoneProjectShare, type PhoneRange, type PhoneSeatUsage,
   type PhoneSessionRow, type PhoneSessionsList, type PhoneSessionState, type PhoneTeamRow, type PhoneTeamsList, type PhoneTeamStage,
   type PhoneTeamStatus, type PhoneWorkAllowance, type PhoneWorkItem, type PhoneWorkPeriod, type PhoneWorkUsage, type PhoneWorkWorker,
@@ -60,6 +61,7 @@ export interface PhoneWorkspacePorts {
   readonly now: () => number
   readonly sessions: {
     page(options: { archived: boolean; cursor?: string; pageSize: number }): { rows: { summary: SessionSummary; cost: number | null }[]; nextCursor: string | null }
+    isOwn(runtime: RuntimeId, id: SessionId): boolean
     counts(): { active: number; archived: number }
     touchedSince(since: number): number
     costliestSince(since: number, limit: number): { summary: SessionSummary; cost: number }[]
@@ -191,6 +193,131 @@ export class PhoneWorkspace {
       cursor = page.nextCursor
     }
     return { rows, counts: this.#counts(liveSessions), next }
+  }
+
+  /** Same 200-row pages and 2,000-session ceiling as filtered Sessions reads; also bound empty pages. */
+  #summarySessions(): { rows: SessionSummary[]; partial: boolean } {
+    const rows: SessionSummary[] = []
+    let cursor: string | undefined
+    for (let pages = 0; pages < SCAN_LIMIT / 200; pages++) {
+      const page = this.#ports.sessions.page({ archived: false, cursor, pageSize: 200 })
+      rows.push(...page.rows.slice(0, 200).map(entry => entry.summary))
+      if (page.nextCursor === null) return { rows, partial: false }
+      cursor = page.nextCursor
+    }
+    return { rows, partial: true }
+  }
+
+  /** The same own-session index and host stages as Sessions, with no preview/message fallback. */
+  async deskSummary(params: { limit?: number }): Promise<LeadDeskSummary> {
+    const limit = clamp(params.limit, 8, 20)
+    const inputs = await this.#ports.teams()
+    const liveSessions = this.#ports.live().filter(one => this.#ports.sessions.isOwn(one.runtime, one.id))
+    const live = new Map(liveSessions.map(one => [keyOf(one.runtime, one.id), one]))
+    const items: LeadDeskItem[] = []
+    const stateOf = (stage: LeadStage): LeadDeskItem['state'] => isWaitingOnYou(stage) ? 'needs-you'
+      : stage === 'working' ? 'running' : 'idle'
+    const scan = this.#summarySessions()
+    for (const summary of scan.rows) items.push({
+      id: `${summary.runtime}:${summary.id}`, title: scrub(summary.title ?? '') || 'Untitled',
+      project: projectOf(summary), kind: 'chat', updatedAt: summary.updatedAt,
+      state: stateOf(this.#sessionStage(live.get(keyOf(summary.runtime, summary.id))).stage),
+    })
+    for (const input of inputs) items.push({ id: input.view.goal.id, title: scrub(input.view.goal.sentence) || 'Untitled',
+      project: folderName(input.view.goal.root), kind: 'team', updatedAt: input.view.goal.updatedAt,
+      state: stateOf(workTeamStage(input).stage) })
+    const empty = () => ({ chats: { running: 0, needsYou: 0, idle: 0 }, teams: { running: 0, needsYou: 0, idle: 0 } })
+    const totals = empty(), projects = new Map<string | null, ReturnType<typeof empty>>()
+    // Mutate only local counters: returned fields are readonly to consumers.
+    for (const item of items) {
+      const project = projects.get(item.project) ?? empty()
+      projects.set(item.project, project)
+      const kind = item.kind === 'chat' ? 'chats' : 'teams', state = item.state === 'needs-you' ? 'needsYou' : item.state
+      for (const counts of [totals[kind], project[kind]]) counts[state]++
+    }
+    // The index already has an exact aggregate. Live membership is checked without walking old session rows.
+    const active = this.#ports.sessions.counts().active
+    totals.chats.running = liveSessions.filter(one => this.#sessionStage(one).stage === 'working').length
+    totals.chats.needsYou = liveSessions.filter(one => isWaitingOnYou(this.#sessionStage(one).stage)).length
+    totals.chats.idle = Math.max(0, active - totals.chats.running - totals.chats.needsYou)
+    items.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+    const running = items.filter(item => item.state === 'running').slice(0, 20)
+    const needsYou = items.filter(item => item.state === 'needs-you').slice(0, 20)
+    const projectRows = [...projects].map(([project, counts]) => ({ project, ...counts }))
+      .sort((a, b) => (a.project ?? '').localeCompare(b.project ?? ''))
+    const recent = items.slice(0, limit)
+    return { totals, countsPartial: scan.partial, sessionsScanned: scan.rows.length,
+      projects: projectRows.slice(0, 20), projectsMore: Math.max(0, projectRows.length - 20), recent,
+      running, runningMore: Math.max(0, totals.chats.running + totals.teams.running - running.length),
+      needsYou, needsYouMore: Math.max(0, totals.chats.needsYou + totals.teams.needsYou - needsYou.length),
+      olderCount: Math.max(0, active + inputs.length - recent.length) }
+  }
+
+  /** Cached Dashboard reports only. Runtime activity uses the same own-session index and stages as deskSummary. */
+  async usageSummary(reports: readonly UsageReport[]): Promise<LeadUsageSummary> {
+    const now = this.#ports.now()
+    const live = new Map(this.#ports.live().map(one => [keyOf(one.runtime, one.id), one]))
+    // Free text may repeat an account identity; redact known identities before the path/address/key scrub.
+    const identities = reports.flatMap(report => report.account ? [report.account] : [])
+    const safe = (text: string): string => scrub(identities.reduce((value, identity) => {
+      if (identity.length >= 3) return value.split(identity).join('…')
+      // Short account names still identify a person, but must not erase letters inside ordinary words.
+      const literal = identity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return value.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${literal}(?![\\p{L}\\p{N}_])`, 'gu'), '…')
+    }, text), 400)
+    const names = new Map<RuntimeId, string>()
+    const running = new Map<string, number>()
+    const nameOf = (runtime: RuntimeId) => {
+      const name = names.get(runtime) ?? safe(this.#ports.seatName(runtime) ?? 'Agent')
+      names.set(runtime, name)
+      if (!running.has(name)) running.set(name, 0)
+      return name
+    }
+    const scan = this.#summarySessions()
+    for (const summary of scan.rows) {
+      const name = nameOf(summary.runtime)
+      if (this.#sessionStage(live.get(keyOf(summary.runtime, summary.id))).stage === 'working')
+        running.set(name, running.get(name)! + 1)
+    }
+    const totals = new Map<string, number>(), ordinals = new Map<string, number>()
+    for (const report of reports) { const name = nameOf(report.runtime); totals.set(name, (totals.get(name) ?? 0) + 1) }
+    const accounts = reports.map(report => {
+      const runtime = nameOf(report.runtime), ordinal = (ordinals.get(runtime) ?? 0) + 1
+      ordinals.set(runtime, ordinal)
+      const plan = report.planLabel ?? report.plan
+      const windows: LeadUsageWindow[] = report.lanes.map(lane => {
+        const view = report.error ? null : burn(lane, now)
+        const projection: LeadUsageWindow['projection'] = view?.forecast && lane.placeholder !== true ? {
+          kind: view.runsOut ? 'runs-out' : 'lasts-to-reset',
+          at: view.runsOut ? now + (view.etaMs ?? 0) : view.resetsAt,
+          basis: 'average consumption since window start', since: view.startsAt, asOf: now,
+        } : null
+        const minutes = lane.windowMinutes
+        return {
+          label: safe(lane.scope ? `${lane.label} · ${lane.scope}` : lane.label),
+          kind: minutes === 300 ? '5h' : minutes === 10080 ? 'weekly'
+            : minutes !== null && minutes >= 28 * 24 * 60 && minutes <= 31 * 24 * 60 ? 'monthly'
+            : minutes === null ? 'allowance' : 'window',
+          windowMinutes: minutes, remainingPercent: lane.placeholder === true ? null : remainingOf(lane),
+          remaining: lane.usageKnown !== false && lane.placeholder !== true && lane.used != null && lane.limit != null ? Math.max(0, lane.limit - lane.used) : null,
+          unit: lane.unit ? safe(lane.unit) : null, resetsAt: lane.resetsAt,
+          reached: lane.placeholder !== true && (report.reached === lane.id || report.reached === lane.label || remainingOf(lane) === 0), projection,
+        }
+      })
+      if (report.credits) windows.push({ label: 'Balance', kind: 'balance', unlimited: report.credits.unlimited === true, windowMinutes: null,
+        remainingPercent: null, remaining: report.credits.remaining, unit: safe(report.credits.unit), resetsAt: null,
+        reached: report.reached === 'credits' || report.credits.unlimited !== true && report.credits.remaining !== null && report.credits.remaining <= 0, projection: null })
+      return {
+        runtime, label: `${runtime}${plan ? ` · ${safe(plan)}` : ''}${totals.get(runtime)! > 1 ? ` · account ${ordinal}` : ''}`,
+        plan: plan === null ? null : safe(plan), runningSessions: running.get(runtime) ?? 0, windows,
+        reached: report.reached !== null, fetchedAt: report.fetchedAt,
+        stale: now - report.fetchedAt > report.staleAfterMs,
+        error: report.error ? report.error.needsSignIn === true ? 'sign-in needed' as const : 'reading failed' as const : null,
+        spend: report.spend ? { currency: safe(report.spend.currency), today: report.spend.todayCost,
+          last30Days: report.spend.windowDays === 30 ? report.spend.windowCost : null, provenance: report.spend.provenance } : null,
+      }
+    })
+    return { countsPartial: scan.partial, sessionsScanned: scan.rows.length, asOf: now, runtimes: [...running].map(([name, runningSessions]) => ({ name, runningSessions })), accounts }
   }
 
   // --------------------------------------------------------------------- teams
