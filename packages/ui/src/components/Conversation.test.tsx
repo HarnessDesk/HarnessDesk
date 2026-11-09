@@ -1303,7 +1303,11 @@ it.each(['earlier', 'latest'])('map navigation to the %s reply preserves follow 
   try {
     render(rig(session({ turns: Array.from({ length: 8 }, (_, i) => ({ ...transcriptSession().turns[0]!, id: turnId(`map-${i}`) })) })).store)
     const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
-    Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+    let scrollTop = 0
+    Object.defineProperties(scroll, {
+      scrollHeight: { value: 1600 }, clientHeight: { value: 400 },
+      scrollTop: { get: () => scrollTop, set: value => { scrollTop = Math.min(value, 1200) } },
+    })
     act(() => resize.forEach(callback => callback()))
     const map = container.querySelector<HTMLElement>('[aria-label="Jump to a message"]')!
     expect(map).not.toBeNull()
@@ -1315,6 +1319,8 @@ it.each(['earlier', 'latest'])('map navigation to the %s reply preserves follow 
     destination.scrollIntoView = vi.fn(() => {
       scroll.scrollTop = top
       scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+      // Chromium emits scrollend before React commits the scroll's pin update.
+      scroll.dispatchEvent(new Event('scrollend', { bubbles: true }))
     })
     act(() => map.dispatchEvent(new MouseEvent('click', { bubbles: true, clientY: latest ? 1000 : 0 })))
     expect(destination.scrollIntoView).toHaveBeenCalled()

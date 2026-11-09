@@ -397,7 +397,10 @@ export const Conversation = ({
   const pane = usePane()
   const scroll = useRef<HTMLDivElement>(null)
   const transcriptContent = useRef<HTMLDivElement>(null)
-  const [pinned, setPinned] = useState(true)
+  const [pinned, renderPinned] = useState(true)
+  // Native scrollend can arrive before React commits the scroll's pin update.
+  const pinnedNow = useRef(true)
+  const setPinned = useCallback((value: boolean) => { pinnedNow.current = value; renderPinned(value) }, [])
   const keyboardHere = useContext(KeyboardHereContext)
   const pointerHere = useRef(false)
   const followTranscript = useRef<() => void>(() => {})
@@ -540,7 +543,7 @@ export const Conversation = ({
     if (!element) return
     let frame = 0
     const follow = () => {
-      if (scrollIntent.current) return
+      if (scrollIntent.current || !pinnedNow.current) return
       element.dataset.autoscrolling = 'true'
       element.scrollTop = element.scrollHeight
       // A no-op assignment fires no event; do not swallow the reader's next scroll.
