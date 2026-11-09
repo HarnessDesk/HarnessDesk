@@ -71,6 +71,7 @@ export interface PhoneWorkspacePorts {
   /** The agent's presentation name, from the runtime's own `presentation`; null for an agent this host does not know. */
   readonly seatName: (runtime: RuntimeId) => string | null
   /** Whether this runtime's `createdAt` is a measured start (`capabilities.startTimes`); absent means it is not. */
+  readonly canDelete?: (runtime: RuntimeId) => boolean
   readonly knowsStart?: (runtime: RuntimeId) => boolean
   readonly teams: () => Promise<readonly PhoneTeamInput[]>
   readonly reports: () => Promise<readonly UsageReport[]>
@@ -135,6 +136,7 @@ export class PhoneWorkspace {
     const id = `${summary.runtime}:${summary.id}`
     return {
       id,
+      canDelete: this.#ports.canDelete?.(summary.runtime) === true,
       title: scrub(sessionLabel(summary.title, one?.preview ?? summary.preview, '')) || 'Untitled',
       project: projectOf(summary),
       state: this.#stateOf(summary, live),
@@ -425,7 +427,7 @@ export class PhoneWorkspace {
     const { stage, reason: stageReason } = this.#sessionStage(live, row.state === 'archived')
     return {
       stage, stageReason, id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
-      pinned: row.pinned, archived: row.archived === true,
+      canDelete: row.canDelete, pinned: row.pinned, archived: row.archived === true,
       phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
       line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : 'Done',
       agent: { name: row.seat }, ...(lead ? { by: lead } : {}),

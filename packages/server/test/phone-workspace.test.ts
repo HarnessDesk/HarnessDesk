@@ -151,7 +151,7 @@ test('a session row carries only the redacted fields, and the live figure beats 
     const list = f.workspace.sessionsList({})
     assert.deepEqual(list.rows.map(row => row.id), ['fake-agent:running', 'fake-agent:waiting', 'fake-agent:done-new', 'fake-agent:foreign-money', 'fake-agent:done-old'])
     const [running, waiting, doneNew, foreign] = list.rows
-    assert.deepEqual(Object.keys(running!).sort(), ['archived', 'cost', 'id', 'lastActivityAt', 'pinned', 'project', 'seat', 'startedAt', 'startedBy', 'state', 'title'])
+    assert.deepEqual(Object.keys(running!).sort(), ['archived', 'canDelete', 'cost', 'id', 'lastActivityAt', 'pinned', 'project', 'seat', 'startedAt', 'startedBy', 'state', 'title'])
     assert.deepEqual({ project: running!.project, state: running!.state, startedBy: running!.startedBy, seat: running!.seat, cost: running!.cost, pinned: running!.pinned },
       { project: 'acme-api', state: 'running', startedBy: 'you', seat: 'Fake Agent', cost: 2.5, pinned: false })
     assert.equal(running!.lastActivityAt, NOW - HOUR)
@@ -791,7 +791,7 @@ for (const [verb, params] of [
 ] as const) test(`phone session ${verb} requires run and rejects unknown ids`, async () => {
   const f = await populated()
   const work = new PhoneWork({ seatName: (runtime: import('@harnessdesk/protocol').RuntimeId) => runtime === agent ? 'Agent' : null,
-    isOwn: (runtime: import('@harnessdesk/protocol').RuntimeId, id: import('@harnessdesk/protocol').SessionId) => f.index.isOwn(runtime, id, true) } as never)
+    isOwn: (runtime: import('@harnessdesk/protocol').RuntimeId, id: import('@harnessdesk/protocol').SessionId, archived = false) => f.index.isOwn(runtime, id, archived) } as never)
   const d = await door(f.workspace, { phoneWork: work, sessionIndex: {
     setPinned: (runtime, id, pinned) => f.index.setPinned(runtime, id, pinned),
     setTitle: (runtime, id, title) => f.index.setTitle(runtime, id, title),
@@ -824,7 +824,7 @@ for (const [verb, params] of [
     }
     if (verb === 'delete') {
       const refused = await runner.request(method, { id: 'fake-agent:done-new' })
-      assert.equal(refused.error.message, 'Agent erases it for good, so delete it there')
+      assert.equal(refused.error.message, 'Agent erases conversations for good, so delete it on the computer.')
     }
     if (verb === 'pin') {
       assert.equal((await runner.request(method, { id: 'fake-agent:done-new', pinned: true })).ok, true)

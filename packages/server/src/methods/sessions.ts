@@ -347,7 +347,7 @@ export const sessionMethods = {
     await ctx.runtimes.ensureStarted(runtime)
     if (runtime.info.capabilities.deleteHistory !== 'trash') {
       throw new Error(runtime.info.capabilities.deleteHistory === 'erase'
-        ? `${runtime.info.presentation.name} erases it for good, so delete it there`
+        ? `${runtime.info.presentation.name} erases conversations for good, so delete it on the computer.`
         : `${runtime.info.presentation.name} keeps no way to delete one.`)
     }
     await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })

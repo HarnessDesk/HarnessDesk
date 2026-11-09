@@ -10771,6 +10771,7 @@ export class Host {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
       },
+      canDelete: runtime => this.#runtimes.get(runtime)?.info.capabilities.deleteHistory === 'trash',
       knowsStart: (runtime) => {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).capabilities.startTimes === true : false
@@ -11032,6 +11033,7 @@ export class Host {
       readyRuntimes: () => this.#readyRuntimes(),
       projectRoots: () => this.#state.state.workspaces.filter(workspace => !isManagedChatFolder(this.#state, workspace.path)).map(workspace => workspace.path),
       projectName: root => folderName(this.#sessionIndex.repo(root)?.repo?.root ?? root),
+      canDelete: runtime => this.#runtimes.get(runtime)?.info.capabilities.deleteHistory === 'trash',
       canInterrupt: runtime => this.#runtimes.get(runtime)?.info.capabilities.interrupt === true,
       models: async runtime => {
         await this.#ensureStarted(this.#runtime({ runtime }))
