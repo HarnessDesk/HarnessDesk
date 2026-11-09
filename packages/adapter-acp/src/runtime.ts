@@ -5863,7 +5863,11 @@ class AcpSession implements AgentSession {
       type === 'assistantMessage'
         ? { ...(item as Extract<AgentItem, { type: 'assistantMessage' }>), text: '' }
         : { ...(item as Extract<AgentItem, { type: 'reasoning' }>), content: [] }
-    this.#host.emit({ type: 'item/started', sessionId: this.id, turnId: turn.id, item: bare })
+    // Through the replay guard like every other item event. A replayed answer
+    // announced here reached the host as fresh, empty activity over the
+    // finished reply it had saved under the same id: an idle conversation read
+    // back with every reply blank and its history "still being saved" (#2044).
+    this.#emit({ type: 'item/started', sessionId: this.id, turnId: turn.id, item: bare })
     return item
   }
 
