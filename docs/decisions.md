@@ -7,6 +7,23 @@ the rule is the last line of its section.
 
 ---
 
+## Reading a conversation back is not activity — 2026-11-09
+
+Loading a stored ACP conversation replays it, and the replay is history being
+re-read: the adapter folds it into the read and announces nothing until the
+read is whole. One path used to announce each replayed answer and thought as
+an empty `item/started`, which the host had to take as unsaved work over the
+finished items it held under the same ids. An idle conversation then read
+back with its replies blank and "still being saved" for good (#2044).
+
+A load also carries no times. Where a replay is silent on a turn's start,
+end, duration, plan or diff, the host keeps what it recorded when it watched
+the turn run, however full the replay is otherwise. A duration the backend
+did measure still wins; a turn nobody timed shows no duration rather than 0.
+
+**Rule:** an adapter emits nothing while replaying; a read fills a turn's
+silent facts from the desk's record, never from the moment of the read.
+
 ## A finished transcript item keeps what the desk observed — 2026-11-08
 
 Every ordinary read reconciles replay with the saved transcript, as recovery

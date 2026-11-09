@@ -1070,20 +1070,36 @@ export class TranscriptStore {
         }
       }
       const items = [...(additions.get(null) ?? []), ...retained.flatMap(item => [byId.get(item.id) ?? item, ...(additions.get(item.id) ?? [])])]
-      const enriched = !restoreMissing || kept.items.length <= turn.items.length ? { ...turn, items } : {
+      // The host's own stored time, never the backend read's: a replay
+      // that opens this turn again re-stamps `startedAt` at the moment it
+      // was replayed (see the ACP adapter), and letting that win would
+      // re-date a turn from months ago to today every time the session is
+      // reopened -- and, since desk turn counting buckets by day, count it
+      // again on whatever day it happens to be reopened (#1047 review).
+      // A duration is the backend's where it measured one; an ACP load
+      // measures nothing, and a replay as full as the stored turn used to
+      // drop the time the desk watched it take (#2044).
+      // The plan and diff the host recorded fill in for a read silent on them,
+      // as the branch below already does. Only what the host holds is laid
+      // over: a turn with nothing to add stays the read's own object, so an
+      // unchanged read writes nothing. A turn the read split differently is
+      // not the one that was timed.
+      const recorded = moved ? {} : {
+        ...(kept.startedAt != null ? { startedAt: kept.startedAt } : {}),
+        ...(kept.completedAt != null ? { completedAt: kept.completedAt } : {}),
+        ...(turn.durationMs == null && kept.durationMs != null ? { durationMs: kept.durationMs } : {}),
+        ...(turn.plan === undefined && kept.plan !== undefined ? { plan: kept.plan } : {}),
+        ...(turn.diff == null && kept.diff != null ? { diff: kept.diff } : {}),
+      }
+      const enriched = !restoreMissing || kept.items.length <= turn.items.length ? { ...turn, items, ...recorded } : {
         ...kept,
         ...turn,
         items,
         diff: turn.diff ?? kept.diff ?? null,
         plan: turn.plan ?? kept.plan,
-        // The host's own stored time, never the backend read's: a replay
-        // that opens this turn again re-stamps `startedAt` at the moment it
-        // was replayed (see the ACP adapter), and letting that win would
-        // re-date a turn from months ago to today every time the session is
-        // reopened -- and, since desk turn counting buckets by day, count it
-        // again on whatever day it happens to be reopened (#1047 review).
         startedAt: kept.startedAt ?? turn.startedAt ?? null,
         completedAt: kept.completedAt ?? turn.completedAt ?? null,
+        ...recorded,
       }
       if (isDeepStrictEqual(enriched, turn)) return turn
       changed = true
