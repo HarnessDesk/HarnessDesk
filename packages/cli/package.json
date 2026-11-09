@@ -6,7 +6,7 @@
   "description": "Command line reads and Flow starts for a local HarnessDesk.",
   "bin": { "harnessdesk": "./dist/src/bin.js" },
   "dependencies": { "@harnessdesk/client": "workspace:*", "@harnessdesk/protocol": "workspace:*" },
-  "devDependencies": { "@harnessdesk/server": "workspace:*", "ws": "^8.22.0", "@types/ws": "^8.18.2" },
+  "devDependencies": { "@harnessdesk/server": "workspace:*", "ws": "^8.22.1", "@types/ws": "^8.18.2" },
   "files": ["dist"],
   "license": "MIT"
 }

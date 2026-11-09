@@ -29,7 +29,7 @@
     "@harnessdesk/plugins": "workspace:*",
     "@harnessdesk/protocol": "workspace:*",
     "@harnessdesk/responses-gateway": "workspace:*",
-    "ws": "^8.22.0",
+    "ws": "^8.22.1",
     "@harnessdesk/contract": "workspace:*",
     "@harnessdesk/crypto": "workspace:*"
   },
