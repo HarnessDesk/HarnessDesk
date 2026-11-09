@@ -402,11 +402,11 @@ it('caps repeated read backoff at sixty seconds', async () => {
 
 it('stops automatic built-in retries only after the owning host confirms absence', async () => {
   vi.useFakeTimers()
-  request.mockRejectedValue(new Error('There is no Agent called "code-reviewer" here.'))
+  request.mockRejectedValue(Object.assign(new Error('Agent introuvable.'), { code: 'authoringAgentMissing' }))
   await render('/installed/node_modules/@harnessdesk/server/agents/code-reviewer/AGENT.md')
   await act(async () => { vi.advanceTimersByTime(120000) }); await settle()
   expect(request).toHaveBeenCalledTimes(1)
-  expect(container.textContent).toContain('There is no Agent called')
+  expect(container.textContent).toContain('Agent introuvable.')
   expect(button('Retry')).toBeTruthy()
 })
 
@@ -447,4 +447,15 @@ it('refreshes a healthy preview on reconnect', async () => {
     expect(request).toHaveBeenCalledWith('workspace/readFile', expect.anything())
     expect(request).toHaveBeenCalledWith('preview/ticket', expect.anything())
   } finally { Object.assign(snapshot, { status }) }
+})
+
+
+it('keeps retrying uncoded Agent errors even when their English message suggests absence', async () => {
+  vi.useFakeTimers()
+  request.mockRejectedValueOnce(new Error('There is no Agent called "code-reviewer" here.'))
+  request.mockResolvedValue({ source: 'Recovered Agent', digest: 'hash', writable: false, exists: true, issues: [] })
+  await render('/installed/node_modules/@harnessdesk/server/agents/code-reviewer/AGENT.md', { view: 'source' })
+  await poll()
+  expect(request).toHaveBeenCalledTimes(2)
+  expect(container.querySelector('textarea')?.value).toBe('Recovered Agent')
 })

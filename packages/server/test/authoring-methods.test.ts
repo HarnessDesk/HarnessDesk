@@ -3,7 +3,7 @@ import { access, mkdir, realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { parseClientMessage, ValidationError, type HostMethodName } from '@harnessdesk/protocol'
+import { parseClientMessage, ValidationError, wireCodeOf, type HostMethodName } from '@harnessdesk/protocol'
 
 import { Agents } from '../src/agents.js'
 import { AuthoringPlane, COPY_AGENTS_FIRST, MODELS_STAY_HERE } from '../src/authoring/plane.js'
@@ -259,4 +259,14 @@ test('rendering a shape or a trigger writes nothing and never claims a bad value
   const badTrigger = await plane.renderTriggers([scheduleAgain])
   assert.equal(badTrigger.source, '')
   assert.ok(badTrigger.issues.length > 0)
+})
+
+
+test('absent Agents carry a wire code independent of the display message', async () => {
+  const { plane } = await setup()
+  const ctx = { authoring: plane } as unknown as HostContext
+  await assert.rejects(dispatch(ctx, 'authoring/read', { target: { kind: 'agent', origin: 'builtin', id: 'retired' } }), error => {
+    assert.equal(wireCodeOf(error), 'authoringAgentMissing')
+    return true
+  })
 })

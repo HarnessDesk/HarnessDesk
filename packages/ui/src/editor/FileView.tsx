@@ -194,7 +194,7 @@ export const FileView = (props: FileViewProps) => {
       if (sharedBaselineChanged()) { void load(identity); return }
       readFailed()
       const message = error instanceof Error ? error.message : String(error)
-      builtinMissing.current = !!builtinAgentId && message === `There is no Agent called "${builtinAgentId}" here.`
+      builtinMissing.current = !!builtinAgentId && (error as { code?: unknown } | null)?.code === 'authoringAgentMissing'
       update(before => ({ ...before, problem: { kind: 'unreadable', message } }))
     }
   }
