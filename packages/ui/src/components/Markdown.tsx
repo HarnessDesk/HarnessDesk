@@ -160,6 +160,7 @@ export const Markdown = ({
      read in a column of other people's lines, not as a document. */
   return (
     <div
+      data-slot="markdown"
       className={chat ? `${styles.markdown} ${styles.chat}` : styles.markdown}
       onClick={copyCode}
       dangerouslySetInnerHTML={{ __html: html }}

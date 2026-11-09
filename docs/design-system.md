@@ -1970,7 +1970,7 @@ Who runs the desk: two picture cards. A name is an immediate preference; this co
 
 `packages/ui/src/design/patterns/LeadAvatar.tsx`
 
-A Lead line: a face column every line keeps, so the text aligns, and the face itself only on a turn's first line.
+A Lead turn centres its face on the first block's first line box, including prose, lists, headings and cards.
 
 ### `LeadGreeting`
 
@@ -2012,6 +2012,18 @@ A plan role in the words the Lead uses everywhere: what the worker does, never w
 An approved plan's linear flow in reading order. The Timeline owns the
 decorative connectors; role labels describe responsibility without naming
 a runtime. Labels are text, wrap whole, and cannot introduce markup.
+
+### `LEAD_ACTIVITY_LABELS`
+
+`packages/ui/src/design/patterns/LeadWorking.tsx`
+
+One vocabulary for host-observed desk operations; unknown calls stay Thinking.
+
+### `LeadWorking`
+
+`packages/ui/src/design/patterns/LeadWorking.tsx`
+
+A pending reply's body, inside the same LeadTurn as its eventual text. The clock is a fact, never a live announcement.
 
 ### `LeftColumnTop`
 

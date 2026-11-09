@@ -385,12 +385,13 @@ it.each(['2', 'Escape'])('guards typed-through %s after explicit decision naviga
 it.each(['running', 'waiting-for-user'] as const)('confirms Stop goal from %s and leaves files and worktrees in place', async phase => {
   const base = leadProjection(), { box, request } = await mount({ ...base,
     waitReason: phase === 'waiting-for-user' ? 'lead-predecessor-unavailable' : null,
-    thread: { ...base.thread, state: phase, contract: leadPlan.contract } })
+    requestInFlight: phase === 'running',
+    thread: { ...base.thread, state: phase, messages: [goalMessage], contract: leadPlan.contract } })
   const stopLabel = 'Stop goal'
   expect(button(stopLabel)).toBeDefined()
   expect(box.querySelector('[data-slot="top-bar"]')?.textContent).not.toContain('Stop goal')
   if (phase === 'running') expect(box.querySelector('[data-slot="lead-run-strip"] button')?.textContent).toBe('Stop goal')
-  await act(async () => button(stopLabel).click())
+  await act(async () => (phase === 'running' ? box.querySelector<HTMLButtonElement>('[data-slot="lead-working"] button')! : button(stopLabel)).click())
   expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Files and worktrees are left as they are.')
   expect(request.mock.calls.filter(([method]) => method === 'lead/stop')).toHaveLength(0)
   await act(async () => button('Keep working').click())

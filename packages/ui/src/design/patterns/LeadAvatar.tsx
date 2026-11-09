@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import type { LeadName } from '@harnessdesk/protocol'
 import { leadFaceSrc, type LeadMood } from '../../lib/lead-faces'
 import { Button } from '../ui/button'
@@ -36,9 +36,41 @@ export const LeadNameChoice = ({ value, pending, onChange }: { readonly value: L
     </RadioGroupItem>)}
   </RadioGroup>
 
-/** A Lead line: a face column every line keeps, so the text aligns, and the face itself only on a turn's first line. */
-export const LeadTurn = ({ face, children }: { readonly face: ReactNode; readonly children: ReactNode }) =>
-  <div className={styles.turn}><span className={styles.turnFace} data-slot="lead-turn-face">{face}</span><div className={styles.turnBody}>{children}</div></div>
+/** A Lead turn centres its face on the first block's first line box, including prose, lists, headings and cards. */
+export const LeadTurn = ({ face, children }: { readonly face: ReactNode; readonly children: ReactNode }) => {
+  const turn = useRef<HTMLDivElement>(null), body = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const root = turn.current, content = body.current
+    if (!root || !content) return
+    let disposed = false
+    const align = () => {
+      if (disposed) return
+      const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT)
+      let node: Node | null
+      while ((node = walker.nextNode())) {
+        const text = node.parentElement
+        if (!node.textContent?.trim() || !text || text.closest('svg, [aria-hidden="true"]') || !text.getClientRects().length) continue
+        // The inline's leading belongs to its enclosing block's first line, not its glyph bounds.
+        const line = Number.parseFloat(getComputedStyle(text).lineHeight)
+        if (!Number.isFinite(line)) continue
+        let block = text
+        while (block.parentElement && block !== content && ['inline', 'contents'].includes(getComputedStyle(block).display)) block = block.parentElement
+        const css = getComputedStyle(block)
+        const inset = block.getBoundingClientRect().top - root.getBoundingClientRect().top +
+          Number.parseFloat(css.paddingTop) + Number.parseFloat(css.borderTopWidth)
+        root.style.setProperty('--turn-first-line-inset', `${inset}px`)
+        root.style.setProperty('--turn-first-line-height', `${line}px`)
+        break
+      }
+    }
+    align()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(align)
+    observer?.observe(content)
+    void document.fonts?.ready.then(align)
+    return () => { disposed = true; observer?.disconnect() }
+  }, [children])
+  return <div ref={turn} data-slot="lead-turn" className={styles.turn}><span className={styles.turnFace} data-slot="lead-turn-face">{face}</span><div ref={body} data-slot="lead-turn-body" className={styles.turnBody}>{children}</div></div>
+}
 
 /**
  * The empty Lead conversation as one composition: the face, who it is in the

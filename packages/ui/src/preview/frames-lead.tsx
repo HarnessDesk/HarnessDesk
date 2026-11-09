@@ -15,7 +15,7 @@ import { Settings } from '../components/Settings'
 import { LeadDecision } from '../components/LeadDecision'
 import { LeadCards } from '../components/LeadCards'
 import { LeadPage } from '../components/LeadPage'
-import { LeadAskOptions, LeadAvatar, LeadNameChoice, LeadPlanFlow } from '../design'
+import { LeadAskOptions, LeadAvatar, LeadNameChoice, LeadPlanFlow, LeadTurn, LeadWorking, Text } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
 import { LEAD_SCENES, leadWakeFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
@@ -160,3 +160,16 @@ const LEAD_PLAN_FLOW_CATALOG_VARIANTS = ['default'] as const
 const LEAD_PLAN_FLOW_CATALOG_SIZES = ['default'] as const
 const LEAD_PLAN_FLOW_CATALOG_STATES = ['default'] as const
 export const LeadPlanFlowSpecimen = () => <div data-variant={LEAD_PLAN_FLOW_CATALOG_VARIANTS[0]} data-size={LEAD_PLAN_FLOW_CATALOG_SIZES[0]} data-state={LEAD_PLAN_FLOW_CATALOG_STATES[0]}><LeadPlanFlow steps={leadContract.steps} /></div>
+
+
+const LEAD_WORKING_CATALOG_VARIANTS = ['default'] as const
+const LEAD_WORKING_CATALOG_SIZES = ['default'] as const
+const LEAD_WORKING_CATALOG_STATES = ['default'] as const
+
+/** First-block shapes and the pending body share the same turn contract. */
+export const LeadTurnSpecimen = () => <div data-variant={LEAD_WORKING_CATALOG_VARIANTS[0]} data-size={LEAD_WORKING_CATALOG_SIZES[0]} data-state={LEAD_WORKING_CATALOG_STATES[0]} className="flex flex-col gap-4">
+  <LeadTurn face={<LeadAvatar name="dex" size="turn" />}><Text as="p" role="prose">The desk has one running chat.</Text></LeadTurn>
+  <LeadTurn face={<LeadAvatar name="dex" size="turn" />}><Text as="p" role="prose"><strong>运行中（1 个）</strong></Text></LeadTurn>
+  <LeadTurn face={<LeadAvatar name="dex" size="turn" />}><Text as="h3" role="section">Running work</Text></LeadTurn>
+  <LeadTurn face={<LeadAvatar name="dex" size="turn" />}><LeadWorking method="lead/desk/summary" since={Date.now() - 6000} onStop={() => {}} /></LeadTurn>
+</div>

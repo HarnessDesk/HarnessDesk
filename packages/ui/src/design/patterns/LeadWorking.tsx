@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '../ui/button'
 import { Dot, Text } from './Settings'
+import { TurnItem } from './TurnWork'
 import { TranscriptAssistantMessage } from './ConversationShell'
 import styles from './LeadWorking.module.css'
 
@@ -34,9 +35,9 @@ export const LeadWorking = ({ method, since, stopping = false, onStop }: {
   const [started] = useState(() => Date.now()), [now, setNow] = useState(() => Date.now())
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer) }, [])
   const label = method && Object.hasOwn(LEAD_ACTIVITY_LABELS, method) ? LEAD_ACTIVITY_LABELS[method] : 'Thinking'
-  return <TranscriptAssistantMessage><div data-slot="lead-working" className={styles.working}>
+  return <TurnItem><TranscriptAssistantMessage><div data-slot="lead-working" className={styles.working}>
     <span className={styles.step} role="status"><Dot pulse /><Text role="prose" ink="secondary">{label}</Text></span>
     <Text role="meta" ink="muted" numeric>{`${Math.max(0, Math.floor((now - (since ?? started)) / 1000))}s`}</Text>
     <Button variant="link" size="inline-link" disabled={stopping} onClick={onStop}>Stop</Button>
-  </div></TranscriptAssistantMessage>
+  </div></TranscriptAssistantMessage></TurnItem>
 }
