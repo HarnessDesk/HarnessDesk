@@ -68,10 +68,17 @@ for (const theme of ['light', 'dark'] as const) {
     const top = (await dock.boundingBox())!.y
     const left = scrollers.nth(0)
     const line = left.locator('[data-part="answer"] p').nth(2)
-    await left.evaluate((node, dockTop) => {
-      const line = node.querySelectorAll('[data-part="answer"] p')[2]!
-      node.scrollTop += line.getBoundingClientRect().top - dockTop - 70
-    }, top)
+    // A reader scrolls with the wheel; follow releases only on that gesture.
+    // Wheel deltas need not land exactly, so measure and correct until within a pixel.
+    // Hover the transcript's upper edge: its centre sits under the floating cards and dock.
+    const leftBox = (await left.boundingBox())!
+    await page.mouse.move(leftBox.x + 24, leftBox.y + 24)
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const delta = (await line.boundingBox())!.y - top - 70
+      if (Math.abs(delta) <= 1) break
+      await page.mouse.wheel(0, delta)
+      await page.waitForTimeout(200)
+    }
     await expect(frame.getByRole('button', {name:'Jump to latest'})).toHaveCount(1)
     const lineBox = (await line.boundingBox())!
     const dockBox = (await dock.boundingBox())!
