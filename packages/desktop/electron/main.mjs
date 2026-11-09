@@ -947,18 +947,23 @@ app.on('before-quit', async (event) => {
   running = null
   host = null
   extensions = null
-  try {
-    await closingDoor?.close()
-    await closingPhone?.close()
-    await closing?.close()
-    await closingHost?.dispose()
-    await closingExtensions?.dispose()
-    await logger?.flush()
-  } finally {
-    tray?.destroy()
-    tray = null
-    app.quit()
+  // Quit is a best-effort drain, never a crash/relaunch boundary. In
+  // particular, refusing an unsafe transcript save must not skip extensions.
+  const step = async (name, close) => {
+    try { await close() } catch (error) {
+      try { logger?.error(`Shutdown ${name} failed`, { error: String(error?.stack ?? error) }) }
+      catch { /* A broken logger must not turn quitting into a crash either. */ }
+    }
   }
+  await step('client door', () => closingDoor?.close())
+  await step('phone link', () => closingPhone?.close())
+  await step('server', () => closing?.close())
+  await step('host', () => closingHost?.dispose())
+  await step('extensions', () => closingExtensions?.dispose())
+  await step('log flush', () => logger?.flush())
+  await step('tray', () => tray?.destroy())
+  tray = null
+  app.quit()
 })
 
 // SIGTERM must run the same disposal as the menu: ACP agents own separate groups.
