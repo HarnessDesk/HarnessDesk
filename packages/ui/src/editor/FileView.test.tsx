@@ -276,3 +276,40 @@ it('refuses parent Save on a truncated read without writing a partial file', asy
   expect(saved).toBe(false)
   expect(request.mock.calls.filter(([method]) => method === 'file/save')).toHaveLength(0)
 })
+
+it('reads a restored built-in Agent through its logical identity in the running build, without workspace polling', async () => {
+  vi.useFakeTimers()
+  request.mockImplementation(async (method: string) => {
+    if (method === 'authoring/read') return { source: '# Current build\nReview changes.', digest: 'builtin-hash', writable: false, exists: true, issues: [] }
+    throw new Error('File is outside every open workspace')
+  })
+  await render('/Applications/HarnessDesk.app/Contents/Resources/app.asar.unpacked/node_modules/@harnessdesk/server/agents/code-reviewer/AGENT.md', { view: 'source' })
+  expect(request).toHaveBeenCalledWith('authoring/read', { target: { kind: 'agent', origin: 'builtin', id: 'code-reviewer' } })
+  expect(container.querySelector('textarea')?.value).toContain('# Current build')
+  expect(container.querySelector('textarea')?.readOnly).toBe(true)
+  await poll(); await poll(); await poll()
+  expect(request).toHaveBeenCalledTimes(1)
+})
+
+it('stops polling a built-in Agent whose owning read fails', async () => {
+  vi.useFakeTimers()
+  request.mockRejectedValue(new Error('The built-in file is unavailable'))
+  await render('/repo/packages/server/agents/code-reviewer/AGENT.md')
+  const initial = request.mock.calls.length
+  await poll(); await poll(); await poll()
+  expect(request).toHaveBeenCalledTimes(initial)
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(container.textContent).toContain('The built-in file is unavailable')
+})
+
+it('stops automatic retries after an unreadable workspace file instead of logging forever', async () => {
+  vi.useFakeTimers()
+  request.mockRejectedValue(new Error('File is outside every open workspace'))
+  await render('/another-install/notes.md')
+  await poll(); await poll(); await poll()
+  const stopped = request.mock.calls.length
+  await poll(); await poll(); await poll()
+  expect(request).toHaveBeenCalledTimes(stopped)
+  expect(stopped).toBeLessThanOrEqual(8)
+  expect(container.textContent).toContain('File is outside every open workspace')
+})

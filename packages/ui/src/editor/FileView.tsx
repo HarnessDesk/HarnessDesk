@@ -113,6 +113,12 @@ const reconcileRead = (before: FileState, file: WorkspaceReadFileResult, mediaTy
 export const FileView = (props: FileViewProps) => {
   const { path, runtime, root, subject } = props
   const store = useStore(), snapshot = useSnapshot(), theme = useTheme(), pane = usePane()
+  // File panes are persisted in workspace `layouts`. Older desks stored an
+  // installation's absolute AGENT.md path there. Keep only its identity for
+  // reads: authoring owns the built-in root of the build actually running.
+  const builtinAgentId = snapshot.agents?.find(entry =>
+    entry.origin === 'builtin' && entry.path === path || entry.shadows.some(copy => copy.origin === 'builtin' && copy.path === path))?.id
+    ?? /(?:\/node_modules\/@harnessdesk\/server|\/packages\/server)\/agents\/([a-z0-9][a-z0-9-]*)\/AGENT\.md$/.exec(path.replaceAll('\\', '/'))?.[1]
   const selectionId = useId()
   const keyboardHere = useContext(KeyboardHereContext)
   const surface = useRef<HTMLDivElement>(null)
@@ -138,6 +144,7 @@ export const FileView = (props: FileViewProps) => {
   const [frameGeneration, setFrameGeneration] = useState(0)
   const mode = props.view ?? chosen
   const changeView = (view: FileViewMode) => { setChosen(view); callbacks.current.onViewChange?.(view) }
+  const readFailures = useRef(0)
   const epoch = useRef(0), loadId = useRef(0), pollId = useRef(0), modifiedAt = useRef<number | null>(null)
   const diskRead = useRef<WorkspaceReadFileResult | null>(null)
   const headRevision = useRef(0), headInFlight = useRef(false), headQueued = useRef(false)
@@ -154,19 +161,24 @@ export const FileView = (props: FileViewProps) => {
     const sharedBaselineChanged = () => !!callbacks.current.readLiveDocument && sharedBase !== baseOf(callbacks.current.readLiveDocument?.())
     try {
       const mediaType = IMAGE_TYPES[path.split('.').pop()?.toLowerCase() ?? '']
-      const [file, meta] = await Promise.all([
+      const [file, meta] = builtinAgentId
+        ? await store.transport.request('authoring/read', { target: { kind: 'agent', origin: 'builtin', id: builtinAgentId } })
+          .then(document => [{ kind: 'text' as const, content: document.source, hash: document.digest, truncated: false }, null] as const)
+        : await Promise.all([
         store.transport.request('workspace/readFile', { path, runtime, maxBytes: WORKSPACE_BINARY_LIMIT_BYTES, ...(mediaType ? { encoding: 'base64' as const } : {}) }),
         store.transport.request('workspace/stat', { path, runtime }).catch(() => null),
       ])
       if (identity !== epoch.current || reading !== loadId.current) return
       if (sharedBaselineChanged()) { void load(identity); return }
       modifiedAt.current = meta?.modifiedAt ?? null
+      readFailures.current = file.kind === 'unreadable' ? readFailures.current + 1 : 0
       diskRead.current = file; ++headRevision.current
       update(before => reconcileRead(before, file, mediaType))
       refreshHead.current()
     } catch (error) {
       if (identity !== epoch.current || reading !== loadId.current) return
       if (sharedBaselineChanged()) { void load(identity); return }
+      ++readFailures.current
       update(before => ({ ...before, problem: { kind: 'unreadable', message: error instanceof Error ? error.message : String(error) } }))
     }
   }
@@ -174,7 +186,7 @@ export const FileView = (props: FileViewProps) => {
   // snapshot, fence provenance changes, and coalesce polling into one request.
   refreshHead.current = () => {
     const file = diskRead.current, provenance = callbacks.current
-    if (!provenance.root || !file || current.current.saving || !((file.kind === 'text' && !file.truncated) || file.kind === 'missing')) return
+    if (builtinAgentId || !provenance.root || !file || current.current.saving || !((file.kind === 'text' && !file.truncated) || file.kind === 'missing')) return
     if (headInFlight.current) { headQueued.current = true; return }
     headInFlight.current = true; headQueued.current = false
     const identity = epoch.current, revision = headRevision.current
@@ -189,7 +201,7 @@ export const FileView = (props: FileViewProps) => {
 
   useEffect(() => {
     const identity = ++epoch.current
-    diskRead.current = null; ++headRevision.current
+    diskRead.current = null; readFailures.current = 0; ++headRevision.current
     const latest = callbacks.current.readLiveDocument?.()
     const saved = latest === undefined ? callbacks.current.liveDocument === undefined ? callbacks.current.document : callbacks.current.liveDocument : latest
     update(() => saved ? withDocument(blank(), saved) : blank())
@@ -197,7 +209,7 @@ export const FileView = (props: FileViewProps) => {
     if (!pdf) void load(identity)
     store.reportEditor?.({ kind: 'opened', path, at: Date.now() })
     return () => { ++epoch.current; ++headRevision.current; diskRead.current = null; headQueued.current = false; store.reportEditor?.({ kind: 'closed', path, at: Date.now() }) }
-  }, [path, runtime, store])
+  }, [path, runtime, store, builtinAgentId])
 
   // Panels remain mounted while hidden. Shared edits and clean saves must update
   // their local state too; a mount seed alone leaves an old draft and hash behind.
@@ -239,8 +251,11 @@ export const FileView = (props: FileViewProps) => {
   }, [native, path, runtime, store, frameGeneration])
 
   useEffect(() => {
+    // Shipped definitions cannot change under this build. Retry transient
+    // refusals, but stop after three failed reads until an explicit reopen.
+    if (builtinAgentId) return
     const timer = window.setInterval(() => {
-      if (current.current.saving) return
+      if (current.current.saving || readFailures.current >= 3) return
       const identity = epoch.current, polling = ++pollId.current
       void store.transport.request('workspace/stat', { path, runtime }).then(meta => {
         if (identity !== epoch.current || polling !== pollId.current || current.current.saving) return
@@ -256,11 +271,11 @@ export const FileView = (props: FileViewProps) => {
       })
     }, 3000)
     return () => window.clearInterval(timer)
-  }, [path, runtime, store, native])
+  }, [path, runtime, store, native, builtinAgentId])
 
   const save = async (requestedHash?: string): Promise<boolean> => {
     const before = latestState(), expectedHash = requestedHash ?? before.base?.hash
-    if (!before.base || before.base.truncated || before.base.content.length > MAX_EDITABLE || !dirty(before) || before.saving || expectedHash === undefined || before.conflict?.kind === 'binary' || before.conflict?.kind === 'tooLarge') return false
+    if (builtinAgentId || !before.base || before.base.truncated || before.base.content.length > MAX_EDITABLE || !dirty(before) || before.saving || expectedHash === undefined || before.conflict?.kind === 'binary' || before.conflict?.kind === 'tooLarge') return false
     let saved = false
     const content = before.draft ?? before.base.content
     // The immutable shared base object is its generation: even a peer restoring
@@ -313,7 +328,7 @@ export const FileView = (props: FileViewProps) => {
   const changed = state.head !== undefined && (deleted || state.head === null || state.head !== content) && !(state.problem?.kind === 'missing' && state.head === null)
   const counts = changed ? countTextChanges(state.head ?? '', content) : null
   const actualMode = mode === 'changes' && !changed && !state.comparing ? 'source' : mode
-  const editable = !!state.base && !state.base.truncated && state.base.content.length <= MAX_EDITABLE
+  const editable = !builtinAgentId && !!state.base && !state.base.truncated && state.base.content.length <= MAX_EDITABLE
   const canSave = editable && state.conflict?.kind !== 'binary' && state.conflict?.kind !== 'tooLarge'
   const quotePath = root && path.startsWith(`${root.replace(/\/$/, '')}/`) ? path.slice(root.replace(/\/$/, '').length + 1) : path
   const onSelection = (one: EditorSelection | null, selectionChanged = true) => {
@@ -408,7 +423,7 @@ export const FileView = (props: FileViewProps) => {
         : state.problem ? state.problem.kind === 'missing' ? <ToolPaneMessage as="div"><p>{sanitizeText(path.split('/').pop() ?? path)} does not exist yet.</p><Button variant="outline" size="sm" onClick={() => { update(one => ({ ...one, base: { content: '', hash: '', truncated: false }, draft: '', pending: true, problem: null })); changeView('source') }}>Create this file</Button></ToolPaneMessage> : <ToolPaneMessage>{state.problem.kind === 'tooLarge' ? `File too large — ${(state.problem.size / (1024 * 1024)).toFixed(1)} MB` : state.problem.message}</ToolPaneMessage>
         : state.binary ? state.binary.imageSrc ? <div className={styles.imageStage}><img className={styles.image} src={state.binary.imageSrc} alt={sanitizeText(path.split('/').pop() ?? path)} onError={() => update(one => ({ ...one, binary: one.binary ? { ...one.binary, imageSrc: null } : null }))} /></div> : <ToolPaneMessage>Binary file — {(state.binary.size / 1024).toFixed(1)} KB</ToolPaneMessage>
         : !state.base ? <ToolPaneMessage>Loading…</ToolPaneMessage>
-        : actualMode === 'preview' && markdown ? <div className={styles.document}><div className={styles.documentControls}><Button variant="ghost" size="sm" onClick={() => changeView('source')}>Edit</Button></div><MarkdownView text={content} /></div>
+        : actualMode === 'preview' && markdown ? <div className={styles.document}><div className={styles.documentControls}><Button variant="ghost" size="sm" onClick={() => changeView('source')}>{builtinAgentId ? 'Source' : 'Edit'}</Button></div><MarkdownView text={content} /></div>
         : <Suspense fallback={<div className={styles.editor} />}>
           {state.comparing && conflict?.kind === 'text' ? <MergeView {...editorProps} original={conflict.content} /> : actualMode === 'changes' ? <MergeView {...editorProps} original={state.head ?? ''} /> : <CodeView {...editorProps} />}
         </Suspense>}
