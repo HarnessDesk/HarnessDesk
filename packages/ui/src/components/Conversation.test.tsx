@@ -7,6 +7,7 @@ import { wrapContext, reduceSession, runtimeId, sessionId, sessionKey, turnId, i
 
 import { seatAgentKey } from '../lib/agents'
 import { KeyboardHereContext, PaneProvider, StoreProvider } from '../state/context'
+import { emptyWorkbench } from '../state/workbench'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { Conversation } from './Conversation'
 import styles from './Conversation.module.css'
@@ -1441,8 +1442,8 @@ it.each(['scrollend', 'timeout'])('catches up with content grown during intent a
   } finally { vi.useRealTimers(); vi.unstubAllGlobals() }
 })
 
-it('ignores a sidebar scroll key when this transcript does not hold the keyboard or pointer', async () => {
-  render(rig(transcriptSession()).store)
+it('ignores a scroll key when the keyboard is elsewhere in a side by side grid', async () => {
+  render(rig(transcriptSession()).store, KEY, {}, false)
   const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
   Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
   act(() => {
@@ -1451,6 +1452,67 @@ it('ignores a sidebar scroll key when this transcript does not hold the keyboard
     scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
   })
   expect(jumpToLatest()).toBeUndefined()
+  await act(async () => {})
+})
+
+const focusedIn = (id: string): Partial<AppSnapshot> => {
+  const workbench = emptyWorkbench()
+  return { workbench: { ...workbench, main: { ...workbench.main, focused: id } } }
+}
+
+it('a window PageUp releases follow in the focused pane with no pointer history', async () => {
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => { if (this.active) callback([], this as unknown as ResizeObserver) }) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  try {
+    render(rig(transcriptSession(), new Map(), focusedIn('p1')).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    let top = 0
+    Object.defineProperties(scroll, {
+      scrollHeight: { value: 1600 }, clientHeight: { value: 400 },
+      scrollTop: { get: () => top, set: value => { top = Math.min(value, 1200) } },
+    })
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(1200)
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+      scroll.scrollTop = 100
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    expect(jumpToLatest()).toBeDefined()
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(100)
+    await act(async () => {})
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('a window PageUp reaches only the focused pane when two are visible and the pointer touched neither', async () => {
+  const store = rig(transcriptSession(), new Map(), focusedIn('a')).store
+  const pane = (id: string) => (
+    <PaneProvider scope={{ paneId: id, view: { kind: 'conversation', session: KEY as never }, sessionKey: KEY as never }}>
+      <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+    </PaneProvider>
+  )
+  act(() => root.render(<StoreProvider store={store}><TopBarProvider>{pane('a')}{pane('b')}</TopBarProvider></StoreProvider>))
+  const scrolls = [...container.querySelectorAll<HTMLElement>('[data-live-transcript]')]
+  expect(scrolls).toHaveLength(2)
+  for (const scroll of scrolls) Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    scrolls[0]!.scrollTop = 100
+    scrolls[0]!.dispatchEvent(new Event('scroll', { bubbles: true }))
+    scrolls[1]!.scrollTop = 100
+    scrolls[1]!.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  const jumps = [...container.querySelectorAll('button')].filter(button => button.textContent === 'Jump to latest')
+  expect(jumps).toHaveLength(1)
+  expect(scrolls[0]!.contains(jumps[0]!) || scrolls[0]!.parentElement!.contains(jumps[0]!)).toBe(true)
+  expect(scrolls[1]!.parentElement!.contains(jumps[0]!)).toBe(false)
   await act(async () => {})
 })
 

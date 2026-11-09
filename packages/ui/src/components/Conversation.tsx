@@ -10,6 +10,7 @@ import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type Run
 
 import {
   KeyboardHereContext,
+  useIsFocusedPane,
   useActiveSession,
   usePane, PaneProvider,
   useRuntime,
@@ -363,6 +364,23 @@ const ConversationMenu = ({ owner, folderActions }: { owner?: string; folderActi
 }
 
 
+/* The transcript the pointer last touched, shared by every mounted
+   conversation: one pair of window listeners, not one pair per transcript. */
+let lastPointerTranscript: Element | null = null
+let trackingPointer = false
+const trackPointerTranscript = () => {
+  if (trackingPointer || typeof window === 'undefined') return
+  trackingPointer = true
+  const onPointer = (event: PointerEvent) => {
+    const scroller = event.target instanceof Element ? event.target.closest('[data-live-transcript]') : null
+    if (scroller) lastPointerTranscript = scroller
+  }
+  window.addEventListener('pointermove', onPointer, true)
+  window.addEventListener('pointerdown', onPointer, true)
+}
+const pointerTranscript = (): Element | null =>
+  lastPointerTranscript?.isConnected ? lastPointerTranscript : null
+
 export const Conversation = ({
   onChooseProject,
   onSignIn,
@@ -402,7 +420,9 @@ export const Conversation = ({
   const pinnedNow = useRef(true)
   const setPinned = useCallback((value: boolean) => { pinnedNow.current = value; renderPinned(value) }, [])
   const keyboardHere = useContext(KeyboardHereContext)
-  const pointerHere = useRef(false)
+  const focusedPane = useIsFocusedPane()
+  const focusedPaneNow = useRef(focusedPane)
+  focusedPaneNow.current = focusedPane || keyboardHere === true
   const followTranscript = useRef<() => void>(() => {})
   const scrollIntent = useRef(false)
   const scrollIntentTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -418,25 +438,19 @@ export const Conversation = ({
   }, [clearScrollIntent])
   useEffect(() => () => clearTimeout(scrollIntentTimer.current), [])
   useEffect(() => {
-    const onPointer = (event: PointerEvent) => {
-      const scroller = event.target instanceof Element ? event.target.closest('[data-live-transcript]') : null
-      if (scroller) pointerHere.current = scroller === scroll.current
-    }
+    trackPointerTranscript()
     const onKey = (event: KeyboardEvent) => {
-      if ((keyboardHere !== true && !pointerHere.current) || !scroll.current?.hasAttribute('data-live-transcript')) return
+      if (keyboardHere === false || !scroll.current?.hasAttribute('data-live-transcript')) return
+      // The transcript the pointer last touched wins; with none, the focused pane's.
+      const touched = pointerTranscript()
+      if (touched ? touched !== scroll.current : !focusedPaneNow.current) return
       if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return
       const focused = document.activeElement
       if (focused instanceof Element && focused.closest('input, textarea, [contenteditable]:not([contenteditable="false"]), [data-slot="conversation-dock"]')) return
       markScrollIntent()
     }
     window.addEventListener('keydown', onKey, true)
-    window.addEventListener('pointermove', onPointer, true)
-    window.addEventListener('pointerdown', onPointer, true)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('pointermove', onPointer, true)
-      window.removeEventListener('pointerdown', onPointer, true)
-    }
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [markScrollIntent, keyboardHere])
   const status = paneStatus(session, snapshot.approvals, key)
   const worktree = session
