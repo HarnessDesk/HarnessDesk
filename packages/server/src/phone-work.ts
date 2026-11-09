@@ -232,7 +232,7 @@ export class PhoneWork {
       items, projects,
       ...(usage ? { usage } : {}),
       models, agents, flows: [], commands: [],
-      capabilities: { ...CAPABILITIES, delete: ids.some(id => this.#ports.canDelete?.(id) === true), chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
+      capabilities: { ...CAPABILITIES, delete: this.#ports.readyRuntimes().some(id => this.#ports.canDelete?.(id) === true), chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
       threads: [],
     }
   }

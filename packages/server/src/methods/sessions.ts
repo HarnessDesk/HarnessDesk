@@ -348,7 +348,7 @@ export const sessionMethods = {
     if (runtime.info.capabilities.deleteHistory !== 'trash') {
       throw new Error(runtime.info.capabilities.deleteHistory === 'erase'
         ? `${runtime.info.presentation.name} erases conversations for good, so delete it on the computer.`
-        : `${runtime.info.presentation.name} keeps no way to delete one.`)
+        : `${runtime.info.presentation.name} cannot move a stored conversation to the Trash.`)
     }
     await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })
     // The agent's copy first: if it refuses, the stopped conversation's

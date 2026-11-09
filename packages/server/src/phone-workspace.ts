@@ -70,8 +70,9 @@ export interface PhoneWorkspacePorts {
   readonly live: () => readonly PhoneLiveSession[]
   /** The agent's presentation name, from the runtime's own `presentation`; null for an agent this host does not know. */
   readonly seatName: (runtime: RuntimeId) => string | null
-  /** Whether this runtime's `createdAt` is a measured start (`capabilities.startTimes`); absent means it is not. */
+  /** Whether this agent moves deleted conversations to the Trash. */
   readonly canDelete?: (runtime: RuntimeId) => boolean
+  /** Whether this runtime's `createdAt` is a measured start (`capabilities.startTimes`); absent means it is not. */
   readonly knowsStart?: (runtime: RuntimeId) => boolean
   readonly teams: () => Promise<readonly PhoneTeamInput[]>
   readonly reports: () => Promise<readonly UsageReport[]>

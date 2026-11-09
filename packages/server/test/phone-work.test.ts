@@ -784,4 +784,5 @@ test('archived phone ids admit only unarchive and delete', async () => {
 test('phone delete capability follows the ready agents', async () => {
   assert.equal((await rig({ canDelete: () => false }).work.snapshot()).capabilities.delete, false)
   assert.equal((await rig({ canDelete: () => true }).work.snapshot()).capabilities.delete, true)
+  assert.equal((await rig({ readyRuntimes: () => [], canDelete: () => true }).work.snapshot()).capabilities.delete, false, 'an unavailable default agent does not advertise delete')
 })

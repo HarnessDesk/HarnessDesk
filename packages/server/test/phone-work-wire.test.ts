@@ -196,7 +196,7 @@ test('session controls reject invalid text, hidden defaults, unbounded pages and
   } finally { await d.done() }
 })
 
-test('the phone surface carries the three workspace names at the tiers a phone needs, and the topic at read', () => {
+test('the phone surface carries workspace controls at the tiers a phone needs, and the topic at read', () => {
   assert.equal(PHONE_POLICY.methods['workspace/read'], 'read')
   assert.equal(PHONE_POLICY.methods['workspace/thread/read'], 'read')
   assert.equal(PHONE_POLICY.methods['workspace/approval/decide'], 'answer')
