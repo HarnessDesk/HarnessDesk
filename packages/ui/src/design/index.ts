@@ -303,4 +303,4 @@ export { LeadAvatar, LeadGreeting, LeadIdentity, LeadLineNote, LeadNameChoice, L
 
 export { LeadAskOptions } from './patterns/LeadAskOptions'
 
-export { LeadWorking, LEAD_ACTIVITY_LABELS } from './patterns/LeadWorking'
+export { LeadWorking } from './patterns/LeadWorking'

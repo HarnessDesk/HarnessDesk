@@ -2013,12 +2013,6 @@ An approved plan's linear flow in reading order. The Timeline owns the
 decorative connectors; role labels describe responsibility without naming
 a runtime. Labels are text, wrap whole, and cannot introduce markup.
 
-### `LEAD_ACTIVITY_LABELS`
-
-`packages/ui/src/design/patterns/LeadWorking.tsx`
-
-One vocabulary for host-observed desk operations; unknown calls stay Thinking.
-
 ### `LeadWorking`
 
 `packages/ui/src/design/patterns/LeadWorking.tsx`

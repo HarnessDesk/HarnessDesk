@@ -171,5 +171,5 @@ export const LeadTurnSpecimen = () => <div data-variant={LEAD_WORKING_CATALOG_VA
   <LeadTurn face={<LeadAvatar name="dex" size="turn" />}><Text as="p" role="prose">The desk has one running chat.</Text></LeadTurn>
   <LeadTurn face={<LeadAvatar name="dex" size="turn" />}><Text as="p" role="prose"><strong>运行中（1 个）</strong></Text></LeadTurn>
   <LeadTurn face={<LeadAvatar name="dex" size="turn" />}><Text as="h3" role="section">Running work</Text></LeadTurn>
-  <LeadTurn face={<LeadAvatar name="dex" size="turn" />}><LeadWorking method="lead/desk/summary" since={Date.now() - 6000} onStop={() => {}} /></LeadTurn>
+  <LeadTurn face={<LeadAvatar name="dex" size="turn" />}><LeadWorking label="Reading the desk" since={Date.now() - 6000} onStop={() => {}} /></LeadTurn>
 </div>
