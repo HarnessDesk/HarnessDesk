@@ -1285,3 +1285,35 @@ it('opens a long finished conversation at the latest reply despite layout scroll
     expect(jumpToLatest()).toBeUndefined()
   } finally { vi.unstubAllGlobals() }
 })
+
+
+it('map navigation keeps its destination through a transcript resize', async () => {
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => { if (this.active) callback([], this as unknown as ResizeObserver) }) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  const bounds = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return this.matches('[data-part] > *') ? new DOMRect(100, 0, 600, 40) : bounds.call(this)
+  })
+  try {
+    render(rig(session({ turns: Array.from({ length: 8 }, (_, i) => ({ ...transcriptSession().turns[0]!, id: turnId(`map-${i}`) })) })).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+    act(() => resize.forEach(callback => callback()))
+    const map = container.querySelector<HTMLElement>('[aria-label="Jump to a message"]')!
+    expect(map).not.toBeNull()
+    const destination = scroll.querySelector<HTMLElement>('[data-part="answer"]')!
+    destination.scrollIntoView = vi.fn(() => { scroll.scrollTop = 100 })
+    act(() => map.click())
+    expect(destination.scrollIntoView).toHaveBeenCalled()
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(100)
+    expect(jumpToLatest()).toBeDefined()
+    await act(async () => {})
+  } finally { geometry.mockRestore(); vi.unstubAllGlobals() }
+})

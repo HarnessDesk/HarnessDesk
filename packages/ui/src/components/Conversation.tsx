@@ -397,6 +397,7 @@ export const Conversation = ({
   const scroll = useRef<HTMLDivElement>(null)
   const transcriptContent = useRef<HTMLDivElement>(null)
   const [pinned, setPinned] = useState(true)
+  const releaseFollow = useCallback(() => { setPinned(false) }, [])
   const scrollIntent = useRef(false)
   const markScrollIntent = useCallback(() => { scrollIntent.current = true }, [])
   const status = paneStatus(session, snapshot.approvals, key)
@@ -597,7 +598,7 @@ export const Conversation = ({
       <div className={styles.body}>
         {/* Beside the transcript, not in it: the rail is a picture of the
             scroller and must not scroll with what it pictures. */}
-        {session && <ConversationMap turns={session.turns} scroll={scroll} />}
+        {session && <ConversationMap turns={session.turns} scroll={scroll} onNavigate={releaseFollow} />}
         {loading && items.length === 0 ? (
           // In the same column as every other empty state here, clear of the
           // composer. Pane-filling empty states keep the word in place;
