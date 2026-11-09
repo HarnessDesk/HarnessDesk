@@ -1639,7 +1639,7 @@ export class AppStore {
             ...(state.state !== 'running' ? { historyRevision: this.#snapshot.historyRevision + 1 } : {}) })
         }
         if (notification.method === 'session/indexChanged') {
-          this.#patch({ historyRevision: this.#snapshot.historyRevision + 1 })
+          this.#patch({ historyRevision: this.#snapshot.historyRevision + 1, ...(notification.params.pinnedSessions ? { listPrefs: { ...this.#snapshot.listPrefs, pinnedSessions: notification.params.pinnedSessions } } : {}) })
           this.#changeHistory(notification.params.upserted, notification.params.removed, notification.params.firstPageCursor)
         }
         if (notification.method === 'session/removed') {
@@ -2538,10 +2538,8 @@ export class AppStore {
 
   /** Pins a session to the top of its group, or unpins it. */
   toggleSessionPinned(key: string): void {
-    const pinned = this.#snapshot.listPrefs.pinnedSessions
-    this.setListPrefs({
-      pinnedSessions: pinned.includes(key) ? pinned.filter((entry) => entry !== key) : [...pinned, key],
-    })
+    void this.transport.request('session/pin', { ...address(key as SessionKey), pinned: !this.#snapshot.listPrefs.pinnedSessions.includes(key) })
+      .catch(error => this.resultNotice('error', describe(error)))
   }
 
   /** Shows a folder in the OS file browser. The desktop shell supplies the hand-off. */
@@ -8421,9 +8419,7 @@ export class AppStore {
         pinned: Array.isArray(rawList?.pinned)
           ? rawList.pinned.filter((entry): entry is string => typeof entry === 'string')
           : [],
-        pinnedSessions: Array.isArray(rawList?.pinnedSessions)
-          ? rawList.pinnedSessions.filter((entry): entry is string => typeof entry === 'string')
-          : [],
+        pinnedSessions: await this.transport.request('session/pins', {}) ?? [],
         gitColumns: readColumnWidths(rawList?.gitColumns),
         collapsed: Array.isArray(rawList?.collapsed)
           ? rawList.collapsed.filter((entry): entry is string => typeof entry === 'string')
@@ -9317,7 +9313,8 @@ export class AppStore {
     const listPrefs = { ...this.#snapshot.listPrefs, ...patch }
     this.#patch({ listPrefs })
     if (patch.agent !== undefined && patch.agent !== previousAgent) void this.loadHistory({ reset: true, reconcile: true })
-    void this.#writePreference({ listPrefs }, 'The list settings')
+    const { pinnedSessions: _pins, ...persisted } = listPrefs
+    void this.#writePreference({ listPrefs: persisted }, 'The list settings')
   }
 
   /**

@@ -40,6 +40,7 @@ interface Row {
   worktree: number | null
   origin_url: string | null
   exists: number | null
+  pinned_order: number | null
   usage: string | null
 }
 
@@ -54,8 +55,8 @@ interface PendingFacts { title?: string | null; archived?: boolean | null; teamI
 const pendingKey = (runtime: RuntimeId, id: SessionId): string => `pending:${JSON.stringify([runtime, id])}`
 const removalOriginKey = (runtime: RuntimeId, id: SessionId): string => `removed-origin:${JSON.stringify([runtime, id])}`
 export const SESSION_REMOVE_UNDO_MS = 8_000
-const SELECT = `SELECT s.*, r.repo_root AS cached_root, r.worktree, r.origin_url, r."exists"
-  FROM sessions s LEFT JOIN repos r ON r.cwd = s.cwd`
+const SELECT = `SELECT s.*, r.repo_root AS cached_root, r.worktree, r.origin_url, r."exists", p.position AS pinned_order
+  FROM sessions s LEFT JOIN repos r ON r.cwd = s.cwd LEFT JOIN session_pins p ON p.runtime=s.runtime AND p.id=s.id`
 /** Dollars from the usage the desk stored with a session; null when the agent did not price it or priced it in another currency. */
 const storedDollars = (usage: string | null): number | null => {
   if (!usage) return null
@@ -71,6 +72,7 @@ const summaryOf = (row: Row): SessionSummary => ({
   ...(row.git ? { git: JSON.parse(row.git) as SessionSummary['git'] } : {}),
   repo: row.cached_root ? { root: row.cached_root, worktree: Boolean(row.worktree), ...(row.origin_url ? { origin: row.origin_url } : {}) } : null,
   ...(row.worktree_path && row.worktree_state ? { worktree: { path: row.worktree_path, branch: row.worktree_branch, state: row.worktree_state } } : {}),
+  pinned: row.pinned_order !== null,
   archived: Boolean(row.archived), ...(row.exists === null ? {} : { folderGone: !row.exists }),
 })
 
@@ -167,6 +169,31 @@ export class SessionIndex {
 
   isImported(runtime: RuntimeId, id: SessionId): boolean {
     return this.#row(runtime, id)?.origin === 'imported'
+  }
+
+  /** One ordered pin list shared by every window and paired phone. */
+  pins(): string[] {
+    return (this.#db.prepare('SELECT runtime,id FROM session_pins ORDER BY position').all() as { runtime: string; id: string }[])
+      .map(row => `${row.runtime}:${row.id}`)
+  }
+
+  setPinned(runtime: RuntimeId, id: SessionId, pinned: boolean): void {
+    if (pinned) this.#db.prepare(`INSERT OR IGNORE INTO session_pins(runtime,id,position)
+      VALUES(?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM session_pins))`).run(runtime, id)
+    else this.#db.prepare('DELETE FROM session_pins WHERE runtime=? AND id=?').run(runtime, id)
+    this.#notify(runtime, id, false)
+  }
+
+  /** Runs under the database lock, so a second window cannot restore old preferences. */
+  migratePins(keys: readonly string[]): void {
+    this.#transaction(() => {
+      if (this.#db.prepare("SELECT 1 FROM meta WHERE key='session-pins:migrated'").get()) return
+      for (const key of keys) {
+        const at = key.indexOf(':')
+        if (at > 0 && at < key.length - 1) this.setPinned(key.slice(0, at) as RuntimeId, key.slice(at + 1) as SessionId, true)
+      }
+      this.#db.prepare("INSERT INTO meta(key,value) VALUES('session-pins:migrated','1')").run()
+    })
   }
 
   opened(runtime: RuntimeId, id: SessionId): void {
@@ -410,7 +437,7 @@ export class SessionIndex {
   }
 
   /** The body writer deleted the row and body in one transaction. */
-  deleted(runtime: RuntimeId, id: SessionId): void { this.#notify(runtime, id) }
+  deleted(runtime: RuntimeId, id: SessionId): void { this.setPinned(runtime, id, false) }
 
   setTitle(runtime: RuntimeId, id: SessionId, title: string | null): void {
     this.#transaction(() => {

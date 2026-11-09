@@ -534,3 +534,16 @@ it('Remove updates only its row and offers Undo without a history reload', async
     ['session/remove', { runtime, sessionId: sessionId('one'), removed: false }],
   ])
 })
+
+
+it('writes session pins to the host and receives phone pins through index changes', async () => {
+  change([row('one')])
+  store.toggleSessionPinned(String(sessionKey(runtime, 'one')))
+  expect(request).toHaveBeenCalledWith('session/pin', { runtime, sessionId: 'one', pinned: true })
+  handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [row('one', { pinned: true })], removed: [], pinnedSessions: ['agent:one'] } } as WireNotification)
+  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual(['agent:one'])
+  request.mockClear()
+  store.setListPrefs({ sort: 'name' })
+  const write = request.mock.calls.find(([method]: readonly unknown[]) => method === 'app/state/set')
+  expect((write?.[1] as any)?.patch.listPrefs).not.toHaveProperty('pinnedSessions')
+})

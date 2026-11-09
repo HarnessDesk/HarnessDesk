@@ -1250,7 +1250,7 @@ export class Host {
     this.#sessionIndex = new SessionIndex(join(this.#state.directory, 'sessions.sqlite'), (change) => {
       const firstPage = this.#listSessionIndex({})
       if (change.resolveRepos !== false) for (const row of firstPage.data) this.#sessionIndexRepos.read(row.cwd)
-      this.#push({ method: 'session/indexChanged', params: { upserted: change.upserted.filter(row => this.#runtimes.has(row.runtime)).map(row => this.#indexStatus(row)), removed: change.removed, firstPageCursor: firstPage.nextCursor ?? null } })
+      this.#push({ method: 'session/indexChanged', params: { pinnedSessions: this.#sessionIndex.pins(), upserted: change.upserted.filter(row => this.#runtimes.has(row.runtime)).map(row => this.#indexStatus(row)), removed: change.removed, firstPageCursor: firstPage.nextCursor ?? null } })
     })
     this.#sessionWorktrees = new SessionWorktrees(this.#sessionIndex, this.#state.directory, path =>
       this.registry.snapshot().some(session => (samePath(session.cwd, path) || session.cwd.startsWith(path + '/')) &&
@@ -2942,6 +2942,8 @@ export class Host {
       this.#logger.warn('Lead listener cleanup is unavailable; ordinary desk startup continues')
     })
     await this.#state.load()
+    const legacyPins = (this.#state.state.preferences['listPrefs'] as { pinnedSessions?: unknown } | undefined)?.pinnedSessions
+    this.#sessionIndex.migratePins(Array.isArray(legacyPins) ? legacyPins.filter((key): key is string => typeof key === 'string') : [])
     if (this.#disposed) return
     await this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)
     if (this.#disposed) return
@@ -5435,6 +5437,8 @@ export class Host {
           for (const row of page.data) this.#sessionIndexRepos.read(row.cwd, true)
           return page
         },
+        pins: () => this.#sessionIndex.pins(),
+        setPinned: (runtime, id, pinned) => this.#sessionIndex.setPinned(runtime, id, pinned),
         record: (session) => this.#recordSessionIndex(session, true),
         refreshMissingFolder: (cwd) => this.#sessionIndexRepos.refreshMissing(cwd),
         reopen: (session) => {

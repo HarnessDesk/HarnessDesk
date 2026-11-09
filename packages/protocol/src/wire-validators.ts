@@ -1241,6 +1241,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'session/fork': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
   'session/worktreePreview': shape({ runtime: isString, sessionId: isString }),
   'session/discardWorktree': shape({ runtime: isString, sessionId: isString, stamp: isString }),
+  'session/pins': shape({}),
+  'session/pin': shape({ runtime: isString, sessionId: isString, pinned: isBoolean }),
   'session/archive': shape({ runtime: isString, sessionId: isString, archived: isBoolean }),
   'session/remove': shape({ runtime: isString, sessionId: isString, removed: isBoolean }),
   'session/delete': shape({ runtime: isString, sessionId: isString }),

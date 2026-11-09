@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
-const SCHEMA_VERSION = 7
+const SCHEMA_VERSION = 8
 
 /** The index and transcript bodies share this schema and one database file. */
 export const transaction = <T>(db: DatabaseSync, write: () => T): T => {
@@ -132,6 +132,10 @@ export function openSessionDatabase(file: string): DatabaseSync {
         CREATE TRIGGER worktree_facts_delete BEFORE DELETE ON sessions BEGIN
           UPDATE session_worktrees SET title=old.title,updated_at=old.updated_at WHERE runtime=old.runtime AND id=old.id; END;
         PRAGMA user_version = 7;`)
+    })
+    if (version < 8) migrate(8, () => {
+      db.exec(`CREATE TABLE session_pins(runtime TEXT NOT NULL,id TEXT NOT NULL,position INTEGER NOT NULL,
+        PRIMARY KEY(runtime,id)); PRAGMA user_version = 8;`)
     })
     return db
   } catch (error) { db.close(); throw error }

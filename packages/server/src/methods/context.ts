@@ -127,6 +127,8 @@ export interface HostContext {
     record(session: Session): void
     reopen(session: Session): void
     refreshMissingFolder(cwd: string): Promise<void>
+    pins(): readonly string[]
+    setPinned(runtime: RuntimeId, id: SessionId, pinned: boolean): void
     setTitle(runtime: RuntimeId, id: SessionId, title: string | null): void
     setArchived(runtime: RuntimeId, id: SessionId, archived: boolean): void
     remove(runtime: RuntimeId, id: SessionId): void

@@ -490,6 +490,8 @@ export interface SessionWorktree {
 
 /** The lightweight row shown in the sidebar; never carries a transcript. */
 export interface SessionSummary {
+  /** Host-owned pin shared with paired devices. */
+  readonly pinned?: boolean
   readonly worktree?: SessionWorktree
   readonly id: SessionId
   readonly runtime: RuntimeId

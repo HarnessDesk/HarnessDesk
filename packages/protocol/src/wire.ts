@@ -1545,6 +1545,8 @@ export interface HostMethods {
     }
     result: Session
   }
+  'session/pins': { params: Record<string, never>; result: readonly string[] }
+  'session/pin': { params: { readonly runtime: RuntimeId; readonly sessionId: string; readonly pinned: boolean }; result: null }
   'session/archive': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly archived: boolean }
     result: { readonly warning?: string } | null
@@ -3118,6 +3120,7 @@ export type WireNotification =
         readonly upserted: readonly SessionSummary[]
         readonly removed: readonly { readonly runtime: RuntimeId; readonly id: SessionId }[]
         /** Continues the current first page while an upgrade fills an initially empty index. */
+        readonly pinnedSessions?: readonly string[]
         readonly firstPageCursor?: string | null
       }
     }

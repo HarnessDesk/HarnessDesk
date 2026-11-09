@@ -710,6 +710,7 @@ export interface AppSnapshot {
     /** Project roots kept at the top of the list, in the order they were pinned. */
     readonly pinned: readonly string[]
     /** Session keys kept at the top of their group, in the order they were pinned. */
+    /** Read-only projection of host session pins; never persisted with list preferences. */
     readonly pinnedSessions: readonly string[]
     /**
      * Column widths in the history table, in pixels, for the ones a person

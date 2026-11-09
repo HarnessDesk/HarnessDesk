@@ -311,6 +311,11 @@ export const sessionMethods = {
     return ctx.sessions.attach(runtime, live.id, live)
   },
 
+  'session/pins': ctx => ctx.sessionIndex.pins(),
+  'session/pin': (ctx, params) => {
+    ctx.sessionIndex.setPinned(params.runtime, makeSessionId(params.sessionId), params.pinned)
+    return null
+  },
   'session/archive': archiveConversation,
   'session/worktreePreview': (ctx, params) => ctx.sessionWorktrees.preview(params.runtime, makeSessionId(params.sessionId)),
   'session/discardWorktree': async (ctx, params) => {
