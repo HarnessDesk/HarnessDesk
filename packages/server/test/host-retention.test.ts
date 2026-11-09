@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { getHeapSnapshot } from 'node:v8'
 
-import { canonicalTranscriptBody, PendingTranscript, approvalId, itemId, sessionId, turnId, type Session, type TurnId } from '@harnessdesk/protocol'
+import { canonicalTranscriptBody, PendingTranscript, approvalId, itemId, sessionId, turnId, wireCodeOf, type Session, type TurnId } from '@harnessdesk/protocol'
 import { Host } from '../src/host.js'
 import { StateStore } from '../src/state.js'
 import { LoadoutRecorder } from '../src/loadouts.js'
@@ -933,7 +933,7 @@ test('a stale session-started replay cannot replace an unsaved equal-count item'
   const identity = createHash('sha256').update(canonicalTranscriptBody(record.session.turns).canonical).digest('hex')
   assert.equal(await host.call('session/prepare-eviction', { runtime: created.runtime, sessionId: created.id, identity }), null)
   assert.equal(record.transcriptIncomplete, true)
-  assert.equal(record.session.itemsLoaded, false)
+  assert.equal(record.session.itemsLoaded, true, 'quarantine keeps the faithful held view readable')
   assert.equal(captures.length, 1)
   const captured = JSON.stringify(captures[0]!.inspect())
   assert.ok(captured.includes('unsaved newer text'), 'the original unsaved item remains captured')
@@ -954,7 +954,7 @@ test('a stale session-started replay cannot replace an unsaved equal-count item'
   assert.ok(JSON.stringify(captures[1]!.inspect()).includes('new epoch activity'))
   assert.ok(store)
   await assert.rejects(store.flush(), /protected/i)
-  await assert.rejects(host.call('session/read', { runtime: created.runtime, sessionId: created.id }), /unsaved|unavailable/i)
+  assert.equal((await host.call('session/read', { runtime: created.runtime, sessionId: created.id })).historyPending, true)
   await assert.rejects(host.dispose(), /unsaved|protected/i)
 })
 
@@ -1396,7 +1396,9 @@ test('an unavailable saved body retains late item data until exact-base recovery
   assert.equal(record.session.itemsLoaded, false)
   assert.ok(sent.some(entry => entry.method === 'event' && entry.params.event.type === 'notice' && /history.*unavailable/i.test(entry.params.event.message)))
   assert.equal(sent.some(entry => entry.method === 'event' && entry.params.event.type.startsWith('item/')), false)
-  await assert.rejects(host.call('session/read', { runtime: body.runtime, sessionId: body.id }), /unavailable/i)
+  const pendingRead = await host.call('session/read', { runtime: body.runtime, sessionId: body.id })
+  assert.equal(pendingRead.historyPending, true)
+  assert.deepEqual(pendingRead.turns[0]?.items, [...body.turns[0]!.items, { ...item, text: 'later' }])
   const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
   assert.equal(await host.call('session/prepare-eviction', { runtime: body.runtime, sessionId: body.id, identity }), null)
   unavailable = false
@@ -1600,7 +1602,7 @@ test('a failed read preserves the closed recovery body and can be verified after
   const read = runtime.readSession.bind(runtime), recover = TranscriptStore.prototype.recover
   runtime.readSession = async () => { throw new Error('synthetic read failure') }
   const recovery = t.mock.method(TranscriptStore.prototype, 'recover', async function(this: TranscriptStore, ...args: Parameters<typeof recover>) { return null })
-  await assert.rejects(host.call('session/read', address), /synthetic read failure/)
+  await assert.rejects(host.call('session/read', address), error => wireCodeOf(error) === 'historyUnavailable')
   recovery.mock.restore(); runtime.readSession = read
   const after = await host.call('session/cache-snapshot', address); assert.ok(after, 'failed read must leave closed recovery available')
   assert.deepEqual(after.session.turns, before.session.turns)

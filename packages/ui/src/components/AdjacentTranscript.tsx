@@ -1,6 +1,6 @@
 import { sessionKey, type Session } from '@harnessdesk/protocol'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
-import { ConversationShell, ConversationThread, Separator } from '../design'
+import { ConversationShell, ConversationThread, ReadingMeasure, Separator, Text } from '../design'
 import { fileLink } from '../lib/file-link'
 import { useStore } from '../state/context'
 import { ItemView, ReadOnlyTranscript } from './Items'
@@ -57,6 +57,7 @@ export const AdjacentTranscript = ({ session }: { session: Session }) => {
   return <ReadOnlyTranscript>
     <ConversationShell><ConversationThread ref={scroll} data-transcript="" aria-label="Read-only transcript" onScroll={onScroll} onClick={fileClick} onAuxClick={fileClick}>
       <div ref={content}>
+      {session.historyPending && <ReadingMeasure><Text as="div" role="prose" ink="secondary">Recent activity is still being saved.</Text></ReadingMeasure>}
       {session.turns.map((turn, index) => <div key={turn.id}>
         {index > 0 && <Separator />}
         {turn.items.map(item => <ItemView key={item.id} item={item} root={session.cwd} sentAt={turn.startedAt ?? undefined} />)}

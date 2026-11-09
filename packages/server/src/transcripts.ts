@@ -314,7 +314,14 @@ export class TranscriptStore {
   pendingReplayConflict(replay: Session, generation: string, epoch: number, held?: Session): boolean {
     if (!replay.itemsLoaded) return false
     replay = this.replayWithPendingMetadata(replay, generation, epoch)
-    const bodies = [...this.pendingBodies(replay.runtime, replay.id, generation, epoch)]
+    // A cold reopen queues the retained body before asking the agent to replay.
+    // That queue entry is not unsaved activity. Compare only bodies that differ
+    // from storage; ordinary lossy replay is reconciled by enrich, not quarantine.
+    let durable: readonly Turn[] | undefined
+    try { durable = this.#database.read(replay.runtime, replay.id)?.turns } catch { /* Unknown storage stays protected. */ }
+    const durableBody = durable && canonicalTranscriptBody(durable).canonical
+    const bodies = this.pendingBodies(replay.runtime, replay.id, generation, epoch).filter(body =>
+      durableBody === undefined || canonicalTranscriptBody(body.turns).canonical !== durableBody)
     if (bodies.length && held && held.runtime === replay.runtime && held.id === replay.id) bodies.push(held)
     for (const body of bodies) {
       const byTurn = new Map(body.turns.map(turn => [turn.id, turn]))
@@ -327,6 +334,9 @@ export class TranscriptStore {
           group.push(item); byItem.set(String(item.id), group)
         }
         if (turn.items.some(item => byItem.get(String(item.id))?.some(previous => {
+          // A queued body can mix saved items with genuinely new activity.
+          // Only its unsaved values need protection against lossy replay.
+          if (durable?.find(candidate => candidate.id === turn.id)?.items.some(candidate => isDeepStrictEqual(candidate, previous))) return false
           if (isDeepStrictEqual(previous, item)) return false
           if (previous.type !== 'assistantMessage' || item.type !== 'assistantMessage' || !item.text.startsWith(previous.text)) return true
           const { text: _oldText, ...oldFields } = previous
@@ -336,6 +346,31 @@ export class TranscriptStore {
       }
     }
     return false
+  }
+
+  /** A full replay agreed with the current held body; keep the existing CAS base. */
+  resumeAfterReplay(session: Session, generation: string, epoch: number): boolean {
+    const key = keyOf(session.runtime, session.id)
+    if (this.#generationConflicts.has(key) || this.#writes.has(key) || this.#retryHeld.has(key) ||
+        this.#authorities.get(key)?.generation !== generation ||
+        !this.generationCurrent(session.runtime, session.id, generation, session, undefined, epoch)) return false
+    const pending = this.#pending.get(key)
+    if (pending && (pending.generation !== generation || pending.authorityEpoch !== epoch)) return false
+    // Agreement with the held view must cover every still-owned queued item,
+    // including turns omitted by a partial or stale replay.
+    if (pending && !pending.session.turns.every(turn => {
+      const agreed = session.turns.find(candidate => candidate.id === turn.id)
+      return agreed && turn.items.every(item => agreed.items.some(candidate => {
+        if (isDeepStrictEqual(candidate, item)) return true
+        if (item.type !== 'assistantMessage' || candidate.type !== 'assistantMessage' || !candidate.text.startsWith(item.text)) return false
+        const { text: _old, ...previous } = item, { text: _new, ...next } = candidate
+        return isDeepStrictEqual(previous, next)
+      }))
+    })) return false
+    this.#protectedWrites.delete(key)
+    this.#protectedNotified.delete(key)
+    this.record(session, { generation, authorityEpoch: epoch })
+    return true
   }
 
   /** Unsaved turns belong to this exact record incarnation, not a later one. */

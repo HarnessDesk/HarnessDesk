@@ -482,6 +482,7 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
     else question = true
   }
   const result: PhoneWorkThread = {
+    ...(session.historyPending ? { historyPending: true } : {}),
     ...(input.leadControl ? { leadChatHolder: input.leadControl.holder } : {}),
     id: input.id,
     title: scrub(sessionLabel(input.title ?? session.title, session.preview, '') || firstAsk(session) || '') || 'Untitled',

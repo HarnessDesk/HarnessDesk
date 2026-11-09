@@ -739,10 +739,13 @@ is closed. Workspace-scoped Agents, Plugins and New Team follow that folder.
 
 Hidden, closed conversations may release their cached transcript after the
 host verifies its saved copy. Opening one restores that copy; active work,
-mounted views, drafts and unconfirmed activity remain protected. If the copy
-cannot be restored, the existing error notice reports the failure and the
-conversation's row and any retained activity are kept. An unavailable body is
-never treated as an empty, complete history.
+mounted views, drafts and unconfirmed activity remain protected. While recent
+activity cannot be safely saved, the conversation shows its retained history
+with **Recent activity is still being saved.** If saved history is unavailable,
+complete activity still held in memory remains readable as partial history.
+Only a conversation with nothing readable shows an unavailable-history error;
+its row and retained activity are kept. An unavailable body is never treated
+as an empty, complete history.
 
 **The header earns each button**: title · status group · browser button ·
 terminal toggle · ⋮. The status group puts the ceiling, status, background work,

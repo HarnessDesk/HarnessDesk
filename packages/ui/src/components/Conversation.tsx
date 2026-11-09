@@ -620,6 +620,7 @@ export const Conversation = ({
             {!hasRealTurn && emptyState}
             <div ref={transcriptContent} data-transcript-content><Page width="reading" gutter="none">
             {session.deskCopy && <ReadingMeasure><Text as="div" role="prose" ink="secondary">HarnessDesk’s copy — {snapshot.runtimes.find(entry => entry.id === session.runtime)?.presentation.name ?? 'The runtime'}’s own record is unavailable.</Text></ReadingMeasure>}
+            {session.historyPending && <ReadingMeasure><Text as="div" role="prose" ink="secondary">Recent activity is still being saved.</Text></ReadingMeasure>}
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
               // answer, then what changed on disk — the order a reader wants,

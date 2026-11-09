@@ -1,7 +1,7 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
 import type { LeadChatControl, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
 import {
-  findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
+  findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, wireCodeOf, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
 } from '@harnessdesk/protocol'
 import { assessApproval, buildThread, type PhoneApprovalTurn, type ThreadContext } from './phone-thread.js'
@@ -169,7 +169,9 @@ export async function phoneSessionValues(
 const guarded = async <T>(work: () => Promise<T>): Promise<T> => {
   try { return await work() } catch (error) {
     if (error instanceof PhoneWorkRefusal) throw error
-    throw new PhoneWorkRefusal(scrub(error instanceof Error ? error.message : '', 200) || 'The desk could not do that.')
+    const refusal = new PhoneWorkRefusal(scrub(error instanceof Error ? error.message : '', 200) || 'The desk could not do that.')
+    if (wireCodeOf(error) === 'historyUnavailable') Object.assign(refusal, { wireCode: 'historyUnavailable' })
+    throw refusal
   }
 }
 

@@ -445,6 +445,8 @@ export type PhoneWorkTurn =
     }
 
 export interface PhoneWorkThread {
+  /** Recent activity is retained by the host but is not yet safely saved. */
+  readonly historyPending?: boolean
   /** Present only for chats the host records as Lead-managed. */
   readonly leadChatHolder?: 'lead' | 'person'
   readonly id: string
