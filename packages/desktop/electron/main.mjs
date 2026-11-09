@@ -960,9 +960,9 @@ app.on('before-quit', async (event) => {
   await step('server', () => closing?.close())
   await step('host', () => closingHost?.dispose())
   await step('extensions', () => closingExtensions?.dispose())
-  await step('log flush', () => logger?.flush())
   await step('tray', () => tray?.destroy())
   tray = null
+  await step('log flush', () => logger?.flush())
   app.quit()
 })
 

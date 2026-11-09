@@ -23,10 +23,25 @@ for (const failing of ['client door', 'phone link', 'server', 'host', 'extension
     }
     vm.runInNewContext(handler, sandbox)
     await assert.doesNotReject(() => quit({ preventDefault: step('prevent') }))
-    assert.deepEqual(calls, ['prevent', 'client door', 'phone link', 'server', 'host', 'extensions', 'log flush', 'tray', 'quit'])
+    assert.deepEqual(calls, ['prevent', 'client door', 'phone link', 'server', 'host', 'extensions', 'tray', 'log flush', 'quit'])
     assert.equal(failures.length, 1)
     assert.match(failures[0].message, new RegExp(failing))
     assert.match(failures[0].detail.error, /failed: unsaved history/)
     await quit({ preventDefault: () => assert.fail('second quit must pass through') })
   })
 }
+
+
+test('flush includes a tray shutdown failure before the app quits', async () => {
+  const entries = [], flushed = []
+  let quit
+  const sandbox = {
+    app: { on: (_name, callback) => { quit = callback }, quit() {} },
+    clientDoor: null, phoneLink: null, running: { close() {} }, host: null, extensions: null,
+    tray: { destroy() { throw new Error('Tray unavailable') } },
+    logger: { error(message) { entries.push(message) }, flush() { flushed.push(...entries) } },
+  }
+  vm.runInNewContext(handler, sandbox)
+  await quit({ preventDefault() {} })
+  assert.deepEqual(flushed, ['Shutdown tray failed'])
+})
