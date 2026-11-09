@@ -1287,7 +1287,7 @@ it('opens a long finished conversation at the latest reply despite layout scroll
 })
 
 
-it('map navigation keeps its destination through a transcript resize', async () => {
+it.each(['earlier', 'latest'])('map navigation to the %s reply preserves follow according to its destination', async destinationKind => {
   const resize: (() => void)[] = []
   vi.stubGlobal('ResizeObserver', class {
     active = false
@@ -1307,13 +1307,21 @@ it('map navigation keeps its destination through a transcript resize', async () 
     act(() => resize.forEach(callback => callback()))
     const map = container.querySelector<HTMLElement>('[aria-label="Jump to a message"]')!
     expect(map).not.toBeNull()
-    const destination = scroll.querySelector<HTMLElement>('[data-part="answer"]')!
-    destination.scrollIntoView = vi.fn(() => { scroll.scrollTop = 100 })
-    act(() => map.click())
+    const destinations = [...scroll.querySelectorAll<HTMLElement>('[data-part="answer"]')]
+    const latest = destinationKind === 'latest'
+    const destination = latest ? destinations.at(-1)! : destinations[0]!
+    const top = latest ? 1200 : 100
+    ;[...map.children].forEach((mark, index) => Object.defineProperty(mark, 'offsetTop', { value: index * 10 }))
+    destination.scrollIntoView = vi.fn(() => {
+      scroll.scrollTop = top
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    act(() => map.dispatchEvent(new MouseEvent('click', { bubbles: true, clientY: latest ? 1000 : 0 })))
     expect(destination.scrollIntoView).toHaveBeenCalled()
     act(() => resize.forEach(callback => callback()))
-    expect(scroll.scrollTop).toBe(100)
-    expect(jumpToLatest()).toBeDefined()
+    expect(scroll.scrollTop).toBe(top)
+    if (latest) expect(jumpToLatest()).toBeUndefined()
+    else expect(jumpToLatest()).toBeDefined()
     await act(async () => {})
   } finally { geometry.mockRestore(); vi.unstubAllGlobals() }
 })
