@@ -333,7 +333,14 @@ test('first-read capability negotiation cannot bless an append during replay', a
 test('cached reads preserve the creation time with and without a held session', async t => {
   const r = await rig(t)
   const original = await r.read()
+  // This fixture resumes an unchanged source. FakeSession's default zero
+  // timestamps and unrelated cwd would be real persisted metadata changes,
+  // which intentionally invalidate the source stamp even on a thin replay.
+  const emit = r.runtime.emit.bind(r.runtime)
+  const resumeReplay = t.mock.method(r.runtime, 'emit', (event: Parameters<FakeRuntime['emit']>[0]) => emit(event.type === 'session/started'
+    ? { ...event, session: { ...original, turns: [] } } : event))
   const live = await r.runtime.resumeSession(original.id, { cwd: r.dir })
+  resumeReplay.mock.restore()
   r.host.registry.upsert(original, live)
   const held = await r.read()
   assert.equal(held.createdAt, original.createdAt)

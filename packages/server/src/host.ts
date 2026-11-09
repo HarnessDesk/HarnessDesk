@@ -259,7 +259,7 @@ import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
 import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
-import { TranscriptSaveRefusedError, TranscriptStore } from './transcripts.js'
+import { transcriptSessionFacts, TranscriptSaveRefusedError, TranscriptStore } from './transcripts.js'
 import { HistoryImport } from './history-import.js'
 import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
@@ -1220,12 +1220,9 @@ export class Host {
         // Only facts actually written by TranscriptStore participate here.
         // A later handle-settings change is kept by the Host and must not
         // make an otherwise identical queued transcript permanently unowned.
-        const persisted = (value: Session) => ({ runtime: value.runtime, id: value.id, turns: value.turns,
-          usage: value.usage ?? null, title: value.title ?? null, preview: value.preview ?? null,
-          cwd: value.cwd, createdAt: value.createdAt, updatedAt: value.updatedAt })
         return record?.bodyGeneration === generation && (authorityEpoch === undefined || record.bodyAuthorityEpoch === authorityEpoch) &&
           !record.transcriptIncomplete && record.session.itemsLoaded && (allowPartial || !record.session.partialHistory) && session.itemsLoaded && (allowPartial || !session.partialHistory) &&
-          isDeepStrictEqual(persisted(record.session), persisted(session))
+          isDeepStrictEqual(transcriptSessionFacts(record.session), transcriptSessionFacts(session))
       },
       (runtime, id, generation, base) => {
         const record = this.registry.get(runtime, id)
@@ -1242,6 +1239,10 @@ export class Host {
           if (kind === 'import') this.#importedTranscriptBases.add(record)
           this.#invalidateTranscriptCache(record)
         }
+      },
+      (runtime, id) => {
+        const record = this.registry.get(runtime, id)
+        if (record) this.#clearSettledHistoryPending(record)
       },
     )
     this.#sessionIndex = new SessionIndex(join(this.#state.directory, 'sessions.sqlite'), (change) => {
@@ -7914,6 +7915,8 @@ export class Host {
         // Only a refused persistence operation permits this projection. Runtime,
         // scope and programming errors retain their original meaning.
         const record = this.registry.get(runtime.info.id, id)
+        if (error instanceof TranscriptSaveRefusedError && admitCwd) throw Object.assign(
+          new Error('The chat project location cannot be verified while its history is unsaved.', { cause: error }), { wireCode: 'historyUnavailable' })
         if (error instanceof TranscriptSaveRefusedError && !admitCwd && record &&
             this.#transcripts.hasProtectedChanges(runtime.info.id, id)) return this.#pendingTranscriptView(record)
         throw error
@@ -7925,7 +7928,7 @@ export class Host {
   async #readTranscriptUntracked(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held && this.#recoveredTranscriptBases.has(held.bodyGeneration)) {
-      if (admitCwd) throw new Error('The chat project location cannot be verified while its history is unsaved.')
+      if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
       return { ...held.session, historyPending: true }
     }
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) {
@@ -7935,14 +7938,14 @@ export class Host {
     // Reading the desk's own history needs no working agent process.
     const health = runtime.health()
     if (health.state === 'unavailable' && health.reason !== 'unknown' && !held?.live) {
-      if (admitCwd) throw new Error('The chat project location cannot be verified while its agent is unavailable.')
+      if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its agent is unavailable.'), { wireCode: 'historyUnavailable' })
       const kept = await this.#transcripts.recover(runtime.info.id, id) ??
         await readKeptTranscriptFile(join(this.#state.directory, 'transcripts'), runtime.info.id, id)
       if (kept) return { ...kept, deskCopy: true }
     }
     const scoped = await this.#scopedRead(runtime, id, allowReopen)
     if (scoped) {
-      if (admitCwd) throw new Error('The chat project location cannot be verified from its retained transcript.')
+      if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified from its retained transcript.'), { wireCode: 'historyUnavailable' })
       return scoped
     }
     const source = await this.#sourceState(runtime, id)
@@ -7954,7 +7957,10 @@ export class Host {
       await this.#prepareReopenTranscript(runtime.info.id, id)
       const raw = await runtime.readSession(id)
       const replayed = this.registry.get(runtime.info.id, id)
-      if (!admitCwd && replayed?.transcriptIncomplete) return this.#pendingTranscriptView(replayed)
+      if (replayed?.transcriptIncomplete) {
+        if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
+        return this.#pendingTranscriptView(replayed)
+      }
       // The index owns the desk's display location, not proof of a runtime
       // transcript's scope. Check the body being returned before replacing cwd.
       await admitCwd?.(raw.cwd)
@@ -9311,8 +9317,7 @@ export class Host {
       // Restoring an unchanged body from a lossy replay adds no source work.
       // Recording it would invalidate the last reconciled source fingerprint.
       replayOnlyBody = !this.#transcripts.hasOutstandingWrite(runtime, held.session.id) &&
-        enriched !== event.session && isDeepStrictEqual(enriched.turns, held.session.turns) &&
-        isDeepStrictEqual(enriched.usage, held.session.usage)
+        enriched !== event.session && isDeepStrictEqual(transcriptSessionFacts(enriched), transcriptSessionFacts(held.session))
       event = { ...event, session: enriched }
     }
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()

@@ -39,8 +39,9 @@ export class TranscriptSaveRefusedError extends Error {}
  * Turn and item rows in the index's `<state>/sessions.sqlite`,
  * written a beat after the last event and at once when a turn completes. On
  * a read, the backend's turns are *enriched*, not replaced: a turn with the
- * same id whose stored copy knows more items takes the stored items, and the
- * backend's own status, timestamps and diff win wherever it has them. A turn
+ * same id keeps stored-only items alongside replay-only items. Shared items
+ * use the replay only when every saved field is preserved or extended; the
+ * backend's own turn status and diff still win wherever it has them. A turn
  * the backend no longer lists — after a rollback — is not brought back.
  *
  * The last token figures ride along for the same reason. Every adapter holds
@@ -201,6 +202,24 @@ const sameStoredSessionFacts = (stored: Stored, session: Session): boolean =>
   (['title', 'preview', 'cwd', 'createdAt', 'updatedAt', 'usage'] as const)
     .every(field => isDeepStrictEqual(stored[field] ?? null, session[field] ?? null))
 
+/** Exactly the session facts persisted by record(), shared with replay admission. */
+export const transcriptSessionFacts = (value: Session) => ({ runtime: value.runtime, id: value.id, turns: value.turns,
+  usage: value.usage ?? null, title: value.title ?? null, preview: value.preview ?? null,
+  cwd: value.cwd, createdAt: value.createdAt, updatedAt: value.updatedAt })
+
+/** A replay may add facts, but cannot discard or rewrite any saved field. */
+const replayExtends = (saved: unknown, replay: unknown): boolean => {
+  if (isDeepStrictEqual(saved, replay) || saved === undefined) return true
+  if (typeof saved === 'string') return typeof replay === 'string' && replay.startsWith(saved)
+  if (Array.isArray(saved)) return Array.isArray(replay) && replay.length >= saved.length &&
+    saved.every((value, index) => isDeepStrictEqual(value, replay[index]))
+  if (saved && replay && typeof saved === 'object' && typeof replay === 'object' && !Array.isArray(replay)) {
+    return Object.entries(saved).every(([field, value]) => value === undefined ||
+      Object.hasOwn(replay, field) && replayExtends(value, (replay as Record<string, unknown>)[field]))
+  }
+  return false
+}
+
 export class TranscriptStore {
   readonly #pending = new Map<string, PendingWrite>()
   readonly #generationConflicts = new Map<string, { owner: object; capture: PendingTranscript }>()
@@ -228,6 +247,7 @@ export class TranscriptStore {
     private readonly baseAdvanced: (runtime: RuntimeId, id: SessionId, generation: string, base: DurableTranscriptBase) => void = () => {},
     private readonly onProtected: (runtime: RuntimeId, id: SessionId) => void = () => {},
     private readonly onDurableChange: (runtime: RuntimeId, id: SessionId, kind?: 'import') => void = () => {},
+    private readonly onProtectionSettled: (runtime: RuntimeId, id: SessionId) => void = () => {},
   ) {
     this.#database = new TranscriptDatabase(join(dirname(directory), 'sessions.sqlite'))
     this.#snapshots = new DailySessionSnapshots(this.#database.file, {
@@ -538,7 +558,11 @@ export class TranscriptStore {
       this.record(next.session, { insight: next.insight, generation, revision: next.revision, authorityEpoch })
       return true
     })
-    if (saved && current() && this.#advanceBase(session, generation)) { this.#retryHeld.delete(key); return true }
+    if (saved && current() && this.#advanceBase(session, generation)) {
+      this.#retryHeld.delete(key)
+      this.onProtectionSettled(session.runtime, session.id)
+      return true
+    }
     if (saved) this.#notifyProtected(session)
     if (!this.#pending.has(key)) { this.#pending.set(key, pending); this.#retryHeld.delete(key) }
     return false
@@ -568,16 +592,8 @@ export class TranscriptStore {
       const preserveSource = refresh?.preserveSource && !this.#failedWrites.has(key)
       let stored: Stored = refresh?.preserveStored ?? {
         version: FORMAT,
-        runtime: session.runtime,
-        id: session.id,
         savedAt: Date.now(),
-        turns: session.turns,
-        usage: session.usage ?? null,
-        title: session.title ?? null,
-        preview: session.preview ?? null,
-        cwd: session.cwd,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
+        ...transcriptSessionFacts(session),
         ...(insight.length ? { insight } : {}),
       }
       try {
@@ -700,6 +716,7 @@ export class TranscriptStore {
     this.#verifiedRows.set(key, prepared!)
     this.#protectedWrites.delete(key)
     this.#protectedNotified.delete(key)
+    if (!ownedHeld) this.onProtectionSettled(session.runtime, session.id)
     return true
   }
 
@@ -715,7 +732,11 @@ export class TranscriptStore {
     this.#pending.delete(key)
     this.#retryHeld.set(key, pending)
     const saved = await this.#persistEvolvedBody(session, expectedBase, [], current, pending)
-    if (saved) { this.#retryHeld.delete(key); return true }
+    if (saved) {
+      this.#retryHeld.delete(key)
+      this.onProtectionSettled(session.runtime, session.id)
+      return true
+    }
     if (!this.#pending.has(key)) { this.#pending.set(key, pending); this.#retryHeld.delete(key) }
     return false
   }
@@ -828,6 +849,7 @@ export class TranscriptStore {
       this.#protectedNotified.delete(key)
       const next = this.#pending.get(key)
       if (next) this.record(next.session, { insight: next.insight, generation: next.generation, revision: next.revision, authorityEpoch: next.authorityEpoch })
+      this.onProtectionSettled(session.runtime, session.id)
       return
     }
     this.#notifyProtected(session)
@@ -1021,15 +1043,9 @@ export class TranscriptStore {
           const previous = kept.items.filter(candidate => candidate.id === item.id)
           if (previous.length !== 1) return item
           const saved = previous[0]!
-          if (item.type === 'command' && saved.type === 'command' && saved.output &&
-              saved.output.startsWith(item.output ?? '') && saved.output !== item.output) return { ...item, output: saved.output }
-          if (item.type === 'reasoning' && saved.type === 'reasoning') {
-            const restore = (read: readonly string[], stored: readonly string[]): readonly string[] =>
-              read.length <= stored.length && read.every((text, index) => stored[index]!.startsWith(text)) ? stored : read
-            const summary = restore(item.summary, saved.summary), content = restore(item.content, saved.content)
-            if (!isDeepStrictEqual(summary, item.summary) || !isDeepStrictEqual(content, item.content)) return { ...item, summary, content }
-          }
-          return item
+          // Keep the saved item whole if even one field is thin. Combining
+          // individual fields could fabricate an item neither side observed.
+          return replayExtends(saved, item) ? item : saved
         })
         const restored = enriched.some((item, index) => item !== items[index]) ? enriched : items
         const classified = preserveDeskContext(preserveNoticeItems(restored, kept.items, true), kept.items)
@@ -1055,10 +1071,15 @@ export class TranscriptStore {
         return { ...turn, items }
       }
       changed = true
+      // Retain the stored order, enrich shared ids, then keep replay-only
+      // items in their own order instead of dropping them on count alone.
+      const replay = carry(turn.items)
+      const byId = new Map(replay.map(item => [item.id, item]))
+      const storedIds = new Set(kept.items.map(item => item.id))
       return {
         ...kept,
         ...turn,
-        items: kept.items,
+        items: [...kept.items.map(item => byId.get(item.id) ?? item), ...replay.filter(item => !storedIds.has(item.id))],
         diff: turn.diff ?? kept.diff ?? null,
         plan: turn.plan ?? kept.plan,
         // The host's own stored time, never the backend read's: a replay

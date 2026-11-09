@@ -1181,3 +1181,27 @@ test('resuming replay also covers captured bodies after the owned queue is repla
   await assert.rejects(store.flush(), /protected/)
   await store.forget(captured.runtime, captured.id)
 })
+
+const thinReplayItems: readonly { name: string; saved: AgentItem; replay: AgentItem }[] = [
+  { name: 'tool error', saved: { ...tool('saved result'), error: 'saved error' } as AgentItem,
+    replay: tool('saved result') },
+  { name: 'file change content',
+    saved: { id: itemId('file'), type: 'fileChange', status: 'completed', changes: [{ path: 'example.txt', kind: { type: 'add' }, diff: 'saved content' }] },
+    replay: { id: itemId('file'), type: 'fileChange', status: 'completed', changes: [{ path: 'example.txt', kind: { type: 'add' }, diff: 'saved' }] } },
+  { name: 'search results',
+    saved: { id: itemId('search'), type: 'webSearch', status: 'completed', query: 'example', results: [{ title: 'Saved result', url: 'https://example.com' }] },
+    replay: { id: itemId('search'), type: 'webSearch', status: 'completed', query: 'example' } },
+  { name: 'subagent fields',
+    saved: { id: itemId('child'), type: 'subagent', status: 'completed', action: 'spawn', prompt: 'saved prompt', members: [{ sessionId: 'child', nickname: 'Helper' }] },
+    replay: { id: itemId('child'), type: 'subagent', status: 'completed', action: 'spawn', members: [] } },
+  { name: 'nested argument fields', saved: { ...tool('saved result'), args: { nested: { text: 'saved argument', count: 2 } } } as AgentItem,
+    replay: { ...tool('saved result'), args: { nested: { text: 'saved', count: 2 } } } as AgentItem },
+  { name: 'a growing field beside a missing field', saved: { ...tool('saved result'), error: 'saved error' } as AgentItem,
+    replay: tool('saved result continued') },
+]
+for (const { name, saved, replay } of thinReplayItems) test(`replay enrichment keeps the whole saved item for thin ${name}`, async t => {
+  const { store } = await fixture(t)
+  const original = session([turn('one', [saved])])
+  const read = session([turn('one', [replay])])
+  assert.deepEqual(store.enrichReplay(read, original).turns[0]!.items, [saved])
+})

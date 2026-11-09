@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { itemId, sessionId, turnId, wireCodeOf, type Session } from '@harnessdesk/protocol'
+import { itemId, sessionId, turnId, wireCodeOf, type AgentItem, type Session } from '@harnessdesk/protocol'
 import { Host } from '../src/host.js'
 import { StateStore } from '../src/state.js'
 import { SessionWorktrees } from '../src/session-worktrees.js'
@@ -40,9 +40,9 @@ for (const recent of [false, true]) test(`opening an idle conversation from the 
   runtime.readSession = async () => {
     const body = recent && reads === 0 ? saved : replay
     reads++
+    runtime.emit({ type: 'session/started', session: body })
     if (recent && reads === 2) runtime.emit({ type: 'item/completed', sessionId: created.id, turnId: turnId('one'),
       item: { id: itemId('recent'), type: 'assistantMessage', text: 'unrelated recent activity' } })
-    runtime.emit({ type: 'session/started', session: body })
     assert.equal(host.registry.get(created.runtime, created.id)!.transcriptIncomplete, false)
     return body
   }
@@ -144,8 +144,16 @@ for (const saveFails of [false, true]) test(`a genuine replay conflict stays rea
     db.db.exec('DROP TRIGGER refuse_body')
     const base = { kind: 'body' as const, identity: db.stateIdentity(durable, created.runtime, created.id) }
     assert.equal(await store.retryProtectedBody(consistent, base), true)
-    // session/read previously stored the pending projection on the record.
-    assert.equal(record.session.historyPending, true)
+    // Settling storage clears the mark before another read or event.
+    assert.equal(record.session.historyPending, undefined)
+    let pushed: Session | undefined
+    const stop = host.addBroadcaster(notification => {
+      if ('method' in notification && notification.method === 'event' && notification.params.event.type === 'session/started') pushed = notification.params.event.session
+    })
+    runtime.emit({ type: 'session/started', session: structuredClone(record.session) })
+    stop()
+    assert.ok(pushed)
+    assert.equal(pushed.historyPending, undefined, 'the next pushed replay must not carry a stale mark')
     const settledPhone = await host.call('workspace/thread/read', { id: `${created.runtime}:${created.id}` })
     assert.equal(settledPhone.historyPending, undefined)
     assert.equal(record.session.historyPending, undefined)
@@ -218,4 +226,144 @@ test('a protected write does not hide unrelated read failures or retry a failed 
   t.mock.method(TranscriptStore.prototype, 'recover', async () => { recoveries++; return null })
   await assert.rejects(host.call('session/read', { runtime: created.runtime, sessionId: created.id }), error => wireCodeOf(error) === 'historyUnavailable')
   assert.equal(recoveries, 1, 'a failed pending view is attempted once')
+})
+
+const savedTool = { id: itemId('tool'), type: 'toolCall' as const, tool: 'Read', source: { kind: 'builtin' as const },
+  status: 'completed' as const, args: { p: 1 }, result: [{ type: 'text' as const, text: 'saved result' }], error: 'saved error' }
+const savedAnswer = { id: itemId('answer'), type: 'assistantMessage' as const, text: 'saved full answer', phase: 'final' as const }
+const savedCommand = { id: itemId('command'), type: 'command' as const, command: 'synthetic', cwd: '/', origin: 'agent' as const,
+  actions: [], output: 'saved head, middle and tail', status: 'completed' as const, exitCode: 0 }
+const savedChanges = { id: itemId('files'), type: 'fileChange' as const, status: 'completed' as const,
+  changes: [{ path: '/demo/file', kind: { type: 'add' as const }, diff: 'saved file content' }] }
+const savedSearch = { id: itemId('search'), type: 'webSearch' as const, query: 'synthetic', status: 'completed' as const,
+  results: [{ title: 'Saved result', url: 'https://example.com/result' }] }
+const savedSubagent = { id: itemId('subagent'), type: 'subagent' as const, action: 'spawn', status: 'completed' as const,
+  prompt: 'saved task', model: 'synthetic-model', members: [{ sessionId: 'child', nickname: 'Helper' }] }
+const replayCases = [
+  { name: 'tool result dropped', saved: savedTool, thin: { ...savedTool, result: undefined },
+    newer: { ...savedTool, result: [...savedTool.result, { type: 'text' as const, text: 'continued result' }] } },
+  { name: 'assistant text shortened', saved: savedAnswer, thin: { ...savedAnswer, text: 'saved' },
+    newer: { ...savedAnswer, text: 'saved full answer with continued work' } },
+  { name: 'command output cut with a marker', saved: savedCommand, thin: { ...savedCommand, output: 'saved head ...cut... tail' },
+    newer: { ...savedCommand, output: savedCommand.output + ' with continued output' } },
+  { name: 'tool error dropped', saved: savedTool, thin: { ...savedTool, error: undefined },
+    newer: { ...savedTool, error: savedTool.error + ' with more detail' } },
+  { name: 'file content changed', saved: savedChanges, thin: { ...savedChanges, changes: [{ ...savedChanges.changes[0]!, diff: '' }] },
+    newer: { ...savedChanges, changes: [...savedChanges.changes, { path: '/demo/extra', kind: { type: 'add' as const }, diff: 'new file' }] } },
+  { name: 'search results dropped', saved: savedSearch, thin: { ...savedSearch, results: [] },
+    newer: { ...savedSearch, results: [...savedSearch.results, { title: 'New result', url: 'https://example.com/new' }] } },
+  { name: 'subagent model dropped', saved: savedSubagent, thin: { ...savedSubagent, model: undefined },
+    newer: { ...savedSubagent, prompt: savedSubagent.prompt + ' with more work', members: [...savedSubagent.members, { sessionId: 'child-2', nickname: 'Helper 2' }] } },
+  { name: 'one changed field vetoes an extended result', saved: savedTool,
+    thin: { ...savedTool, args: { p: 2 }, result: [...savedTool.result, { type: 'text' as const, text: 'continued result' }] },
+    newer: { ...savedTool, result: [...savedTool.result, { type: 'text' as const, text: 'continued result' }] } },
+] satisfies { name: string; saved: AgentItem; thin: AgentItem; newer: AgentItem }[]
+
+for (const method of ['session/read', 'workspace/thread/read'] as const) for (const scenario of replayCases) {
+  test(`generic replay preservation: ${scenario.name} through ${method}`, async t => {
+    const root = tempDir('hd-generic-replay-')
+    const options = { logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 }
+    const first = new Host(options), writer = new FakeRuntime()
+    first.register(writer); await first.start()
+    const created = await first.call('session/create', { runtime: writer.info.id, options: { cwd: root } }) as Session
+    const turn = { id: turnId('one'), status: 'inProgress' as const, items: [] }
+    writer.emit({ type: 'turn/started', sessionId: created.id, turn })
+    writer.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id, item: scenario.saved })
+    writer.emit({ type: 'turn/completed', sessionId: created.id, turn: { ...turn, status: 'completed' } })
+    const saved = structuredClone(first.registry.get(created.runtime, created.id)!.session)
+    await first.dispose()
+    const host = new Host(options), runtime = new FakeRuntime()
+    host.register(runtime); await host.start()
+    t.after(() => host.dispose().catch(() => {}))
+    const db = new TranscriptDatabase(join(root, 'sessions.sqlite'))
+    t.after(() => db.close())
+    let item: AgentItem = scenario.thin, reads = 0, enrichedRead: Session | undefined
+    const enrich = TranscriptStore.prototype.enrichForRefresh
+    t.mock.method(TranscriptStore.prototype, 'enrichForRefresh', async function(this: TranscriptStore, body: Session) {
+      const result = await enrich.call(this, body); enrichedRead = result.session; return result
+    })
+    runtime.readSession = async () => {
+      reads++
+      const replay = { ...saved, updatedAt: saved.updatedAt + 60_000,
+        turns: [{ ...saved.turns[0]!, items: [item] }] }
+      runtime.emit({ type: 'session/started', session: replay }); return replay
+    }
+    // Both thin reads preserve the saved body. An actual extension then wins,
+    // and a later thin replay must also preserve that newly saved extension.
+    for (const phase of [
+      { replay: scenario.thin, expected: scenario.saved },
+      { replay: scenario.newer, expected: scenario.newer },
+      { replay: scenario.thin, expected: scenario.newer },
+    ]) for (let i = 0; i < 2; i++) {
+      if (reads) await host.call('session/close', { runtime: created.runtime, sessionId: created.id })
+      item = phase.replay
+      const result = method === 'session/read'
+        ? await host.call(method, { runtime: created.runtime, sessionId: created.id })
+        : await host.call(method, { id: `${created.runtime}:${created.id}` })
+      assert.equal(result.historyPending, undefined)
+      // Phone deliberately omits arbitrary tool results. Verify the full read
+      // that feeds its projection as well as its visible assistant/command text.
+      const read = method === 'session/read' ? result as Session : enrichedRead!
+      assert.deepEqual(read.turns[0]!.items, [phase.expected])
+      if (phase.expected.type === 'assistantMessage') assert.match(JSON.stringify(result), new RegExp(phase.expected.text))
+      if (phase.expected.type === 'command') assert.match(JSON.stringify(result), new RegExp(phase.expected.output!))
+      assert.deepEqual(db.read(created.runtime, created.id)!.turns[0]!.items, [phase.expected])
+      assert.equal(host.registry.get(created.runtime, created.id)!.transcriptIncomplete, false)
+    }
+    assert.equal(reads, 6)
+  })
+}
+
+for (const field of ['title', 'preview', 'cwd'] as const) test(`an enriched replay persists changed ${field}`, async t => {
+  const root = tempDir('hd-replay-facts-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 })
+  const runtime = new FakeRuntime(); host.register(runtime); await host.start()
+  t.after(() => host.dispose().catch(() => {}))
+  let store!: TranscriptStore
+  const recordWrite = TranscriptStore.prototype.record
+  t.mock.method(TranscriptStore.prototype, 'record', function(this: TranscriptStore, ...args: Parameters<typeof recordWrite>) {
+    store = this; return recordWrite.apply(this, args)
+  })
+  const created = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } }) as Session
+  const turn = { id: turnId('one'), status: 'inProgress' as const, items: [] }
+  runtime.emit({ type: 'turn/started', sessionId: created.id, turn })
+  runtime.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id, item: savedCommand })
+  runtime.emit({ type: 'turn/completed', sessionId: created.id, turn: { ...turn, status: 'completed' } })
+  await store.flush()
+  const saved = host.registry.get(created.runtime, created.id)!.session
+  const changed = { ...saved, [field]: field === 'cwd' ? root + '/changed' : 'Changed synthetic metadata',
+    turns: [{ ...saved.turns[0]!, items: [{ ...savedCommand, output: '' }] }] }
+  runtime.emit({ type: 'session/started', session: changed })
+  await store.flush()
+  const db = new TranscriptDatabase(join(root, 'sessions.sqlite'))
+  try { assert.equal(db.read(created.runtime, created.id)![field], changed[field]) } finally { db.close() }
+})
+
+for (const method of ['session/read', 'workspace/thread/read'] as const) test(`an enriched replay merges saved-only and replay-only items through ${method}`, async t => {
+  const root = tempDir('hd-replay-merge-')
+  const options = { logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 }
+  const first = new Host(options), writer = new FakeRuntime(); first.register(writer); await first.start()
+  const created = await first.call('session/create', { runtime: writer.info.id, options: { cwd: root } }) as Session
+  const turn = { id: turnId('one'), status: 'inProgress' as const, items: [] }
+  writer.emit({ type: 'turn/started', sessionId: created.id, turn })
+  const old = [savedCommand, ...['old-1', 'old-2', 'old-3'].map(id => ({ ...savedAnswer, id: itemId(id), text: id }))]
+  for (const item of old) writer.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id, item })
+  writer.emit({ type: 'turn/completed', sessionId: created.id, turn: { ...turn, status: 'completed' } })
+  const saved = structuredClone(first.registry.get(created.runtime, created.id)!.session); await first.dispose()
+  const host = new Host(options), runtime = new FakeRuntime(); host.register(runtime); await host.start()
+  t.after(() => host.dispose().catch(() => {}))
+  const added = ['new-1', 'new-2'].map(id => ({ ...savedAnswer, id: itemId(id), text: id }))
+  runtime.readSession = async () => {
+    const replay = { ...saved, turns: [{ ...saved.turns[0]!, items: [savedCommand, ...added] }] }
+    runtime.emit({ type: 'session/started', session: replay }); return replay
+  }
+  const read = method === 'session/read' ? await host.call(method, { runtime: created.runtime, sessionId: created.id })
+    : await host.call(method, { id: `${created.runtime}:${created.id}` })
+  assert.match(JSON.stringify(read), /new-1.*new-2/)
+  const db = new TranscriptDatabase(join(root, 'sessions.sqlite'))
+  try {
+    const items = db.read(created.runtime, created.id)!.turns[0]!.items
+    assert.deepEqual(items.filter(item => String(item.id).startsWith('new-')), added)
+    for (const item of old) assert.ok(items.some(candidate => candidate.id === item.id))
+  } finally { db.close() }
 })
