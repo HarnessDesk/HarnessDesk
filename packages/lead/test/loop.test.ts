@@ -850,7 +850,7 @@ test('a successful tool result beyond the continuation budget does not park the 
   const loop = exported('createLeadLoop')(s.options)
   const result = await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(16_050) })) }] })
   assert.equal(result.status, 'completed')
-  assert.equal(result.toolResults[0].content, 'Tool refused')
+  assert.match(result.toolResults[0].content, /^Tool failed:.*result.*conversation limit/)
   assert.equal([...s.journal.state.attempts.values()].find(attempt => attempt.method === 'library/usage')!.outcome, 'succeeded')
   assert.equal(loop.state.phase, 'planning')
   await s.tick(); await loop.idle()
@@ -1213,7 +1213,7 @@ for (const permanent of [false, true]) test(`a retrying premature start waits fo
   try {
     await loop.start()
     const first = await loop.request(input)
-    assert.equal(first.toolResults.find((tool: any) => tool.tool_use_id === 'premature').content, 'Step 1 is not yet awaiting acceptance; wait for desk activity.')
+    assert.equal(first.toolResults.find((tool: any) => tool.tool_use_id === 'premature').content, 'Tool was not permitted: step 1 is not yet awaiting acceptance; wait for desk activity.')
     for (let i = 0; i < 5; i++) await s.tick()
     assert.equal(s.fake.requests.length, 1, 'only one provider request between desk changes')
     assert.notEqual(s.journal.state.managementReason, 'lead-tools-refused')
@@ -1248,7 +1248,7 @@ test('a start-only retry does not count refusals across three desk changes', asy
   try {
     await loop.start()
     const first = await loop.request(input)
-    assert.equal(first.toolResults.find((tool: any) => tool.tool_use_id === 'premature').content, 'Step 1 is not yet awaiting acceptance; wait for desk activity.')
+    assert.equal(first.toolResults.find((tool: any) => tool.tool_use_id === 'premature').content, 'Tool was not permitted: step 1 is not yet awaiting acceptance; wait for desk activity.')
     for (let i = 0; i < 5; i++) await s.tick()
     assert.equal(s.fake.requests.length, 1, 'only one provider request between desk changes')
     assert.notEqual(s.journal.state.managementReason, 'lead-tools-refused')
@@ -1286,7 +1286,7 @@ for (const terminalReason of ['lead-predecessor-unavailable', 'lead-predecessor-
     assert.deepEqual(result.deskActivityTools, [])
     assert.equal(s.journal.state.phase, 'waiting-for-user')
     assert.equal(s.journal.state.managementReason, terminalReason)
-    assert.equal(result.toolResults[0].content, `Step 2 cannot start: step 1's result ${terminalReason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`)
+    assert.equal(result.toolResults[0].content, `Tool was not permitted: step 2 cannot start: step 1's result ${terminalReason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`)
     assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
   } finally { await loop.close() }
 })
@@ -1316,7 +1316,7 @@ for (const terminalReason of ['lead-predecessor-unavailable', 'lead-predecessor-
     assert.equal(refreshedWithPlan, true, 'refresh observes the proposal before parking')
     assert.equal(s.journal.state.phase, 'waiting-for-user')
     assert.equal(s.journal.state.managementReason, terminalReason)
-    assert.equal(result.toolResults[0].content, `Step 2 cannot start: step 1's result ${terminalReason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`)
+    assert.equal(result.toolResults[0].content, `Tool was not permitted: step 2 cannot start: step 1's result ${terminalReason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`)
     assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
   } finally { await loop.close() }
 })

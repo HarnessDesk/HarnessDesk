@@ -438,7 +438,12 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
             const result = { ...results[position]!, content: safeJson(executed.value ?? null, LIMIT.text), is_error: false }
             const extra = bytes(json(result)) - bytes(json(results[position]))
             if (extra <= available) { results[position] = result; available -= extra; succeededTools.push(use.id) }
-            else transientTools.push(use.id)
+            else {
+              const overflow = { ...results[position]!, content: 'Tool failed: its result exceeded the conversation limit.' }
+              available -= bytes(json(overflow)) - bytes(json(results[position]))
+              results[position] = overflow
+              transientTools.push(use.id)
+            }
           }
         } catch (error) {
           if (error instanceof LeadToolFencedError) transientTools.push(use.id)
