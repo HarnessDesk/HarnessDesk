@@ -652,6 +652,7 @@ test('Lead allowance is private, cached, account-distinct and counts running cha
   const f = await fixture()
   try {
     for (const [id, cwd] of [['alpha-chat', '/workspace/alpha'], ['beta-chat', '/workspace/beta']] as const) {
+      f.db.prepare('INSERT INTO repos(cwd, repo_root, origin_url, worktree, "exists", checked_at) VALUES (?,?,NULL,0,1,0)').run(cwd, cwd)
       f.index.upsert(summary(id, { cwd }))
       f.live.push({ runtime: agent, id: sessionId(id), running: true, waiting: false, cost: null })
     }
@@ -670,7 +671,9 @@ test('Lead allowance is private, cached, account-distinct and counts running cha
     f.reports = [report('not a cached account')]
     const result = await f.workspace.usageSummary(reports)
     assert.deepEqual(result.runtimes, [{ name: 'Fake Agent', runningSessions: 2 }])
-    assert.equal(result.accounts[0]!.runningSessions, (await f.workspace.deskSummary({})).totals.chats.running)
+    const desk = await f.workspace.deskSummary({})
+    assert.deepEqual(desk.projects.map(project => [project.project, project.chats.running]), [['alpha', 1], ['beta', 1]])
+    assert.equal(result.accounts[0]!.runningSessions, desk.totals.chats.running)
     assert.deepEqual(result.accounts.map(account => account.label), ['Fake Agent · Pro · account 1', 'Fake Agent · Team · account 2'])
     assert.deepEqual(result.accounts.map(account => [account.stale, account.reached]), [[false, false], [true, true]])
     assert.match(result.accounts[1]!.error!, /failed/)
