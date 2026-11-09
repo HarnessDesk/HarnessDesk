@@ -65,6 +65,8 @@ export type PhoneSessionState = 'running' | 'needs-you' | 'done' | 'archived'
 export type PhoneStartedBy = 'you' | 'lead' | 'team'
 
 export interface PhoneSessionRow {
+  /** This agent moves deleted conversations to the Trash. */
+  readonly canDelete: boolean
   /** Opaque and stable: "<agent>:<session>". It carries no path. */
   readonly id: string
   readonly title: string
@@ -81,7 +83,8 @@ export interface PhoneSessionRow {
   /** When the session began as its agent recorded it, epoch milliseconds; not a measure of work. Left out when the
    * agent records no start (`RuntimeCapabilities.startTimes`) or the time is impossible. */
   readonly startedAt?: number
-  /** Pins live on the phone; the desk never sets this. */
+  readonly archived?: boolean
+  /** Host-owned pin shared with the desktop. */
   readonly pinned: boolean
 }
 
@@ -229,12 +232,15 @@ export interface PhoneWorkTeam {
 }
 
 export interface PhoneWorkItem {
+  /** Present for sessions; Teams cannot be deleted here. */
+  readonly canDelete?: boolean
   /** A session is "<agent>:<session>", a Team its own id. */
   readonly id: string
   readonly kind: 'session' | 'team'
   readonly title: string
   readonly project?: string
-  /** Archived conversations remain readable; controls stay on the desk until restored. */
+  readonly pinned?: boolean
+  /** Archived conversations remain readable. */
   readonly archived?: boolean
   readonly stage: LeadStage
   readonly stageReason: string
@@ -344,6 +350,9 @@ export interface PhoneWorkCapabilities {
   readonly startTeam: boolean
   readonly reply: boolean
   readonly stop: boolean
+  readonly rename?: boolean
+  readonly archive?: boolean
+  readonly pin?: boolean
   readonly delete: boolean
   readonly chooseModel: boolean
   /** More than one agent is listed in `agents`, so a new session can start on another one. */

@@ -239,7 +239,7 @@ test('nested approvals for a removed conversation never reach clients or the app
 test('Delete everywhere refuses an erasing runtime before asking it or changing our records', async t => {
   const r = await rig(t)
   Object.assign(r.runtime.info.capabilities, { deleteHistory: 'erase' })
-  await assert.rejects(r.host.call('session/delete', { runtime: r.runtime.info.id, sessionId: r.id }), /Trash/)
+  await assert.rejects(r.host.call('session/delete', { runtime: r.runtime.info.id, sessionId: r.id }), /erases conversations for good, so delete it on the computer\./)
   assert.deepEqual(r.runtime.deleted, [])
   assert.deepEqual(r.body(), [1, 1, 1])
   assert.equal((await r.host.call('session/index', {})).data.length, 1)

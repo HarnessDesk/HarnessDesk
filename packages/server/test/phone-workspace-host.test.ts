@@ -13,9 +13,9 @@ import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
 /** A real host over a fake agent and an index seeded the way a desk's own is, asked the phone's way. */
-const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?: boolean, metered = false) => {
+const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?: boolean, metered = false, deleteHistory: false | 'trash' | 'erase' = 'trash') => {
   const root = tempDir('hd-phone-host-')
-  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt, metered, ...(startTimes === undefined ? {} : { startTimes }) } })
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt, metered, deleteHistory, ...(startTimes === undefined ? {} : { startTimes }) } })
   const row = (id: string, over: Partial<SessionSummary>): SessionSummary =>
     ({ runtime: runtime.info.id, id: sessionId(id), title: id, cwd: join(root, 'acme-api'), createdAt: 10, updatedAt: 20, status: { type: 'notLoaded' }, archived: false, ...over })
   const index = new SessionIndex(join(root, 'sessions.sqlite'))
@@ -194,10 +194,11 @@ test('the host answers the phone’s snapshot of the work in the phone’s own u
     [`${runtime.info.id}:priced`, 'session', 'done', 'Done', { micros: 750_000 }, { name: runtime.info.presentation.name }],
     [`${runtime.info.id}:free`, 'session', 'done', 'Done', undefined, { name: runtime.info.presentation.name }],
   ])
+  assert.ok(snapshot.items.every(item => item.canDelete === (runtime.info.capabilities.deleteHistory === 'trash')))
   assert.equal(snapshot.items[0]!.title, 'Fix the sign-in for … in …')
   assert.equal(snapshot.items[0]!.project, undefined, 'a folder that is no repository names no project, in the list or in the conversation')
   assert.equal(snapshot.deskName, 'Desk')
-  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: true, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
+  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: runtime.info.capabilities.deleteHistory === 'trash', rename: true, archive: true, pin: true, chooseModel: true, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
   assert.deepEqual(snapshot.models.map(model => model.id), runtime.models.map(model => model.id))
   // The desk starts its default agent in the background; once it answers it is listed with its own models.
   const ready = await host.call('workspace/read', {})
@@ -445,4 +446,62 @@ test('Lead allowance uses only cached Dashboard reports and never asks a runtime
   assert.equal(typeof result.asOf, 'number')
   assert.equal(result.accounts.length, 1)
   assert.equal(result.accounts[0]!.windows[0]!.remaining, 42)
+})
+
+for (const capability of [false, 'erase', 'trash'] as const) test(`phone rows follow runtime deletion capability: ${capability}`, async t => {
+  const { host } = await desk(t, false, true, undefined, false, capability)
+  const snapshot = await host.call('workspace/read', {})
+  assert.equal(snapshot.capabilities.delete, capability === 'trash')
+  assert.ok(snapshot.items.every(item => item.canDelete === (capability === 'trash')))
+  const rows = await host.call('phone/sessions/list', {})
+  assert.ok(rows.rows.every(row => row.canDelete === (capability === 'trash')))
+})
+
+test('desk transcript reads and background attachment do not mark a conversation opened', async t => {
+  const { host, runtime, root } = await desk(t)
+  const id = sessionId('priced')
+  runtime.minted.set(id, join(root, 'acme-api'))
+  const indexed = async () => (await host.call('session/index', {})).data.find(row => row.id === id)!
+  assert.equal((await indexed()).lastOpenedAt ?? 0, 0)
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: id })
+  assert.equal((await indexed()).lastOpenedAt ?? 0, 0)
+  await host.call('session/resume', { runtime: runtime.info.id, sessionId: id })
+  assert.equal((await indexed()).lastOpenedAt ?? 0, 0)
+  await host.call('session/opened', { runtime: runtime.info.id, sessionId: id })
+  assert.ok((await indexed()).lastOpenedAt! > 0)
+})
+
+test('host migrates only existing pins after seeding and clears the legacy preference', async t => {
+  const root = tempDir('hd-pin-migration-')
+  const state = new StateStore(join(root, 'state.json'))
+  await state.load()
+  await state.setPreferences({ listPrefs: { sort: 'name', pinnedSessions: ['fake:kept', 'fake:seeded', 'fake:missing'] } })
+  await mkdir(join(root, 'transcripts', 'fake'), { recursive: true })
+  await writeFile(join(root, 'transcripts', 'fake', 'seeded.json'), JSON.stringify({ version: 1, runtime: 'fake', id: 'seeded', savedAt: 1, turns: [] }))
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert({ runtime: runtimeId('fake'), id: sessionId('kept'), cwd: root, status: { type: 'notLoaded' }, createdAt: 1, updatedAt: 2 })
+  index.close()
+  const host = new Host({ state, logger: silent, builtinAgents: root, catalogRefreshMs: 0 })
+  host.register(new FakeRuntime())
+  t.after(() => host.dispose())
+  await host.start()
+  const deadline = Date.now() + 5_000
+  while (Object.hasOwn(state.state.preferences['listPrefs'] as object, 'pinnedSessions')) {
+    assert.ok(Date.now() < deadline, 'migration finishes after the index seed')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.deepEqual(await host.call('session/pins', {}), ['fake:kept', 'fake:seeded'])
+  assert.deepEqual(state.state.preferences['listPrefs'], { sort: 'name' })
+  const savedList = async () => {
+    const saved = new StateStore(join(root, 'state.json'))
+    await saved.load()
+    return saved.state.preferences['listPrefs'] as object
+  }
+  let persisted = await savedList()
+  while (Object.hasOwn(persisted, 'pinnedSessions')) {
+    assert.ok(Date.now() < deadline, 'legacy pins are removed from durable preferences')
+    await new Promise(resolve => setTimeout(resolve, 10))
+    persisted = await savedList()
+  }
+  assert.deepEqual(persisted, { sort: 'name' })
 })

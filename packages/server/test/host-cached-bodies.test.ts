@@ -72,6 +72,8 @@ test('cached writes schedule eviction; opens update recency; clearCached skips a
   t.after(() => db.close())
   const row = () => db.prepare('SELECT * FROM sessions WHERE id=?').get(external.id)!
   assert.equal(row().body, 'cached')
+  assert.equal(Number(row().last_opened_at), 0, 'a background read does not count as opened')
+  await host.call('session/opened', { runtime: runtime.info.id, sessionId: external.id })
   assert.ok(Number(row().last_opened_at) > 0)
   t.mock.timers.tick(800)
   assert.equal(row().body, 'none')

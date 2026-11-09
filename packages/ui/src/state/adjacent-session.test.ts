@@ -483,3 +483,16 @@ it('preserves index metadata that arrives while adjacent resume is pending', asy
   expect(store.getSnapshot().adjacentSession?.error).toBeNull()
   expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))).toMatchObject({ title: 'Indexed during resume', archived: false })
 })
+
+it('marks an explicitly opened conversation and adjacent reader read', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId?: string; path?: string }) => {
+    if (method === 'session/read' || method === 'session/resume') return body(params.sessionId!)
+    if (method === 'workspace/open') return { path: '/project', name: 'project' }
+    return null
+  }) as never)
+  await store.openSession(sessionId('main'), { runtime })
+  expect(request).toHaveBeenCalledWith('session/opened', { runtime, sessionId: 'main' })
+  await store.openAdjacentSession(sessionId('reader'), runtime)
+  expect(request).toHaveBeenCalledWith('session/opened', { runtime, sessionId: 'reader' })
+})

@@ -10,6 +10,7 @@ import { Logger } from '../src/log.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { phoneLinkOff, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
 import { PhoneWorkspace, scrub, type PhoneLiveSession, type PhoneTeamInput } from '../src/phone-workspace.js'
+import { PhoneWork } from '../src/phone-work.js'
 import { SessionIndex } from '../src/session-index.js'
 
 const agent = runtimeId('fake-agent')
@@ -64,7 +65,7 @@ const fixture = async (): Promise<Fixture> => {
       costliestSince: (since, limit) => index.costliestSince(since, limit),
     },
     live: () => state.live,
-    seatName: runtime => runtime === agent ? 'Fake Agent' : null,
+    seatName: (runtime: import('@harnessdesk/protocol').RuntimeId) => runtime === agent ? 'Fake Agent' : null,
     knowsStart: () => state.knowsStart,
     teams: async () => state.teams,
     reports: async () => state.reports,
@@ -150,7 +151,7 @@ test('a session row carries only the redacted fields, and the live figure beats 
     const list = f.workspace.sessionsList({})
     assert.deepEqual(list.rows.map(row => row.id), ['fake-agent:running', 'fake-agent:waiting', 'fake-agent:done-new', 'fake-agent:foreign-money', 'fake-agent:done-old'])
     const [running, waiting, doneNew, foreign] = list.rows
-    assert.deepEqual(Object.keys(running!).sort(), ['cost', 'id', 'lastActivityAt', 'pinned', 'project', 'seat', 'startedAt', 'startedBy', 'state', 'title'])
+    assert.deepEqual(Object.keys(running!).sort(), ['archived', 'canDelete', 'cost', 'id', 'lastActivityAt', 'pinned', 'project', 'seat', 'startedAt', 'startedBy', 'state', 'title'])
     assert.deepEqual({ project: running!.project, state: running!.state, startedBy: running!.startedBy, seat: running!.seat, cost: running!.cost, pinned: running!.pinned },
       { project: 'acme-api', state: 'running', startedBy: 'you', seat: 'Fake Agent', cost: 2.5, pinned: false })
     assert.equal(running!.lastActivityAt, NOW - HOUR)
@@ -421,13 +422,14 @@ test('a balance that is not a finite number is left off the phone row', async ()
 // -------------------------------------------------------------- the phone door
 
 /** A paired phone, and the real link, over a desk that answers only the three reads. */
-const door = async (workspace: PhoneWorkspace) => {
+const door = async (workspace: PhoneWorkspace, extra: Partial<HostContext> = {}) => {
   const home = await mkdtemp(join(tmpdir(), 'hd-phone-door-'))
   let attached: PhoneLinkControl | null = null
   const ctx = {
     phone: { state: () => attached?.state() ?? phoneLinkOff, pairing: () => attached!.pairing(), allow: (...a: never[]) => (attached!.allow as any)(...a),
       deny: (id: string) => attached!.deny(id), revoke: (d: string) => attached!.revoke(d) },
     phoneWorkspace: workspace,
+    ...extra,
   } as unknown as HostContext
   const host = {
     call: (method: string, params: unknown) => dispatch(ctx, method as never, params as never),
@@ -780,5 +782,68 @@ test('Lead summary scans stop at the Sessions paging bound and expose partial co
     assert.equal(usage.sessionsScanned, 2000)
     assert.equal(usage.countsPartial, true)
     assert.equal(usage.accounts[0]!.runningSessions, 0, 'a partial count is explicitly marked, never presented as exact')
+  } finally { await f.done() }
+})
+
+
+for (const [verb, params] of [
+  ['rename', { title: 'New title' }], ['archive', { archived: true }], ['pin', { pinned: true }], ['delete', {}],
+] as const) test(`phone session ${verb} requires run and rejects unknown ids`, async () => {
+  const f = await populated()
+  const work = new PhoneWork({ seatName: (runtime: import('@harnessdesk/protocol').RuntimeId) => runtime === agent ? 'Agent' : null,
+    isOwn: (runtime: import('@harnessdesk/protocol').RuntimeId, id: import('@harnessdesk/protocol').SessionId, archived = false) => f.index.isOwn(runtime, id, archived) } as never)
+  const d = await door(f.workspace, { phoneWork: work, sessionIndex: {
+    setPinned: (runtime, id, pinned) => f.index.setPinned(runtime, id, pinned),
+    setTitle: (runtime, id, title) => f.index.setTitle(runtime, id, title),
+    setArchived: (runtime, id, archived) => f.index.setArchived(runtime, id, archived),
+  } as HostContext['sessionIndex'], runtimes: {
+    resolve: () => ({ info: { id: agent, capabilities: { deleteHistory: 'erase' }, presentation: { name: 'Agent' } } }),
+    ensureStarted: async () => {},
+  } as unknown as HostContext['runtimes'], names: { set: async () => {} } as unknown as HostContext['names'],
+    archive: { set: async () => {} } as unknown as HostContext['archive'], sessionWorktrees: {
+      remember: async () => {}, prepare: async () => ({}), cleanup: async () => undefined,
+    } as unknown as HostContext['sessionWorktrees'] })
+  try {
+    const reader = await d.pair(['read'])
+    const method = `workspace/session/${verb}`
+    assert.equal((await reader.request(method, { id: 'fake-agent:done-new', ...params })).error.code, 'tierNotGranted')
+    reader.close()
+    const runner = await d.pair(['read', 'run'])
+    const unknown = await runner.request(method, { id: 'fake-agent:unknown', ...params })
+    assert.equal(unknown.ok, false)
+    assert.match(unknown.error.message, /not a session/)
+    if (verb === 'rename' || verb === 'archive') {
+      assert.equal((await runner.request(method, { id: 'fake-agent:done-new', ...params })).ok, true)
+      const updated = f.index.get(agent, sessionId('done-new'))!
+      if (verb === 'rename') assert.equal(updated.title, 'New title')
+      else {
+        assert.equal(updated.archived, true)
+        assert.equal((await runner.request(method, { id: 'fake-agent:done-new', archived: false })).ok, true)
+        assert.equal(f.index.get(agent, sessionId('done-new'))?.archived, false)
+      }
+    }
+    if (verb === 'delete') {
+      const refused = await runner.request(method, { id: 'fake-agent:done-new' })
+      assert.equal(refused.error.message, 'Agent erases conversations for good, so delete it on the computer.')
+    }
+    if (verb === 'pin') {
+      assert.equal((await runner.request(method, { id: 'fake-agent:done-new', pinned: true })).ok, true)
+      assert.equal(f.index.get(agent, sessionId('done-new'))?.pinned, true)
+      const list = await runner.request('phone/sessions/list', {})
+      assert.equal(list.result.rows.find((row: any) => row.id === 'fake-agent:done-new').pinned, true)
+      assert.equal(f.workspace.workSessions({}).items.find(row => row.id === 'fake-agent:done-new')?.pinned, true)
+    }
+    runner.close()
+  } finally { await d.done(); await f.done() }
+})
+
+test('phone session lists carry host pins and archive state', async () => {
+  const f = await populated()
+  try {
+    f.index.setPinned(agent, sessionId('archived'), true)
+    const row = f.workspace.sessionsList({ state: 'archived' }).rows[0]!
+    assert.equal(row.pinned, true)
+    assert.equal(row.archived, true)
+    assert.deepEqual(f.workspace.workSessions({ archived: true }).items.map(row => [row.pinned, row.archived]), [[true, true]])
   } finally { await f.done() }
 })

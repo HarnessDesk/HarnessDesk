@@ -210,7 +210,7 @@ test('repository answers persist, enrich rows and notify only eligible rows', as
   } finally { reopened.close() }
   const db = new DatabaseSync(file)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 7)
+    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 9)
     assert.equal(db.prepare('SELECT repo_root FROM sessions WHERE id = ?').get('one')?.repo_root, '/demo')
   } finally { db.close() }
 })
@@ -447,5 +447,59 @@ test('browser partition lookup caches identities while rechecking membership and
     index.remove(runtime, first.id)
     assert.equal(index.browserProfileOwner(name), null, 'a cached identity cannot admit a removed session')
     assert.equal(index.browserProfileOwner(`session-${'a'.repeat(64)}`), null)
+  } finally { index.close() }
+})
+
+
+test('host pins retain their order and migrate renderer pins only once', async () => {
+  const index = new SessionIndex(':memory:')
+  try {
+    index.upsert(row('one')); index.upsert(row('two'))
+    index.migratePins(['fake:two', 'fake:one'])
+    assert.deepEqual(index.pins(), ['fake:two', 'fake:one'])
+    assert.equal(index.get(runtime, idOf('two'))?.pinned, true)
+    index.setPinned(runtime, idOf('two'), false)
+    index.migratePins(['fake:two'])
+    assert.deepEqual(index.pins(), ['fake:one'])
+    index.setPinned(runtime, idOf('two'), true)
+    assert.deepEqual(index.pins(), ['fake:one', 'fake:two'])
+    index.upsert(row('two', 20))
+    assert.equal(index.list().data[0]?.pinned, true)
+    assert.equal(index.get(runtime, idOf('two'))?.updatedAt, 20)
+  } finally { index.close() }
+})
+
+
+test('opening and completing a session publish unread facts without changing activity', async () => {
+  const changed: any[] = []
+  const index = new SessionIndex(':memory:', change => changed.push(change))
+  try {
+    index.upsert(row('one', 10))
+    index.completed(runtime, idOf('one'), 20, 'first')
+    await tick()
+    assert.equal(index.get(runtime, idOf('one'))?.lastCompletedAt, 20)
+    index.opened(runtime, idOf('one'))
+    await tick()
+    const latest = changed.at(-1).upserted[0]
+    assert.ok(latest.lastOpenedAt >= latest.lastCompletedAt)
+    assert.equal(latest.updatedAt, 10)
+    index.completed(runtime, idOf('one'), latest.lastOpenedAt + 100, 'first')
+    assert.equal(index.get(runtime, idOf('one'))?.lastCompletedAt, 20, 'a duplicate completion never restores unread')
+    index.completed(runtime, idOf('one'), latest.lastOpenedAt, 'second')
+    assert.ok(index.get(runtime, idOf('one'))!.lastCompletedAt! > latest.lastOpenedAt, 'same-clock-tick completion follows the open')
+    assert.equal(index.get(runtime, idOf('one'))?.updatedAt, 10)
+  } finally { index.close() }
+})
+
+test('pin migration ignores missing and removed sessions and removing imports drops their pins', () => {
+  const index = new SessionIndex(':memory:')
+  try {
+    index.upsert(row('kept'))
+    index.upsert(row('removed')); index.remove(runtime, idOf('removed'))
+    index.upsert(row('imported'), { origin: 'imported' })
+    index.migratePins(['fake:missing', 'fake:removed', 'fake:kept', 'fake:imported'])
+    assert.deepEqual(index.pins(), ['fake:kept', 'fake:imported'])
+    index.removeImported(runtime)
+    assert.deepEqual(index.pins(), ['fake:kept'])
   } finally { index.close() }
 })

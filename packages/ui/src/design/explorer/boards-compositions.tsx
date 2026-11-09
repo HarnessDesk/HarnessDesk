@@ -3602,7 +3602,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'left-column', title: 'Left column', about: 'Aligned rows with one trailing slot and long titles.', render: LeftColumnBoard },
 ]
 
-import { LeftColumnSeats, LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
+import { LeftColumnBulkBar, LeftColumnSeats, LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
 import { BellIcon, UserIcon, FileIcon } from '../../components/Icons'
 
 export const LEFTCOLUMN_CATALOG_VARIANTS = ['light', 'dark'] as const
@@ -3631,7 +3631,7 @@ export function LeftColumnBoard() {
       <li><LeftColumnRow nested label="Agent 2" icon={<AgentIcon size={16} />} trailing={{ kind: 'mark', label: 'Working', prefix: '#4', icon: <Spinner aria-hidden /> }} /></li>
       <li><LeftColumnRow nested label="Agent with a long seat label" icon={<AgentIcon size={16} />} title="Agent · Idle" /></li>
     </LeftColumnSeats>}
-  </LeftColumnGroup></LeftColumnGroup>}
+  </LeftColumnGroup><LeftColumnBulkBar count={2} onCancel={() => {}}><Button variant="ghost" size="sm">Pin</Button><Button variant="ghost" size="sm">Archive</Button><Button variant="ghost" size="sm">Delete</Button></LeftColumnBulkBar></LeftColumnGroup>}
 </LeftColumnBody>}
   footer={<>{mode === 'editor' && <LeftColumnExplorerFoot onClick={() => {}} />}<LeftColumnSeat notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>} settingsOpen={false} onSettings={() => {}}
     menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} /></>} />

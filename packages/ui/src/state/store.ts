@@ -1,3 +1,4 @@
+import { sessionVisible } from './session-visible'
 import { AdjacentReadChanges, preserveAdjacentLocal, reconcileAdjacentRead } from './adjacent-read'
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
 import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
@@ -1639,7 +1640,13 @@ export class AppStore {
             ...(state.state !== 'running' ? { historyRevision: this.#snapshot.historyRevision + 1 } : {}) })
         }
         if (notification.method === 'session/indexChanged') {
-          this.#patch({ historyRevision: this.#snapshot.historyRevision + 1 })
+          const pins = notification.params.pinnedSessions
+          if (pins) this.#sessionPinsRevision++
+          const pinsChanged = pins && (pins.length !== this.#snapshot.listPrefs.pinnedSessions.length || pins.some((key, index) => key !== this.#snapshot.listPrefs.pinnedSessions[index]))
+          this.#patch({ historyRevision: this.#snapshot.historyRevision + 1, ...(pinsChanged ? { listPrefs: { ...this.#snapshot.listPrefs, pinnedSessions: pins } } : {}) })
+          for (const row of notification.params.upserted) if ((row.lastCompletedAt ?? 0) > (row.lastOpenedAt ?? 0) && sessionVisible(this.#snapshot, sessionKey(row.runtime, row.id))) {
+            void this.transport.request('session/opened', { runtime: row.runtime, sessionId: row.id }).catch(error => this.resultNotice('error', describe(error)))
+          }
           this.#changeHistory(notification.params.upserted, notification.params.removed, notification.params.firstPageCursor)
         }
         if (notification.method === 'session/removed') {
@@ -2538,10 +2545,8 @@ export class AppStore {
 
   /** Pins a session to the top of its group, or unpins it. */
   toggleSessionPinned(key: string): void {
-    const pinned = this.#snapshot.listPrefs.pinnedSessions
-    this.setListPrefs({
-      pinnedSessions: pinned.includes(key) ? pinned.filter((entry) => entry !== key) : [...pinned, key],
-    })
+    void this.transport.request('session/pin', { ...address(key as SessionKey), pinned: !this.#snapshot.listPrefs.pinnedSessions.includes(key) })
+      .catch(error => this.resultNotice('error', describe(error)))
   }
 
   /** Shows a folder in the OS file browser. The desktop shell supplies the hand-off. */
@@ -3619,6 +3624,7 @@ export class AppStore {
         readOwner.collectingFences = false
       }
       read = true
+      void this.transport.request('session/opened', { runtime, sessionId: id }).catch(error => this.resultNotice('error', describe(error)))
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       if (!current()) return
       if (live.runtime !== runtime || live.id !== id) throw new Error('The conversation returned a different identity.')
@@ -3746,6 +3752,7 @@ export class AppStore {
       if (!stillHeld()) return false
       this.#setSession(session)
       readSucceeded = true
+      if (options.reveal !== false || sessionVisible(this.#snapshot, key)) void this.transport.request('session/opened', { runtime, sessionId: id }).catch(error => this.resultNotice('error', describe(error)))
       if (!options.preview && !options.restoring) this.#ensureHistorySummary(session)
       await followFolder(session)
       if (!stillHeld()) return false
@@ -8406,6 +8413,8 @@ export class AppStore {
           ? (rawAccounts as AccountPrefsMap)
           : {}
       const rawList = preferences['listPrefs'] as Partial<AppSnapshot['listPrefs']> | undefined
+      const pinsRevision = this.#sessionPinsRevision
+      const hostPins = await this.transport.request('session/pins', {}).catch(() => this.#snapshot.listPrefs.pinnedSessions)
       const listPrefs: AppSnapshot['listPrefs'] = {
         // Compact unless the user has said otherwise: one line per
         // conversation is what both Codex and Claude Code open with.
@@ -8421,9 +8430,7 @@ export class AppStore {
         pinned: Array.isArray(rawList?.pinned)
           ? rawList.pinned.filter((entry): entry is string => typeof entry === 'string')
           : [],
-        pinnedSessions: Array.isArray(rawList?.pinnedSessions)
-          ? rawList.pinnedSessions.filter((entry): entry is string => typeof entry === 'string')
-          : [],
+        pinnedSessions: this.#sessionPinsRevision === pinsRevision ? hostPins ?? [] : this.#snapshot.listPrefs.pinnedSessions,
         gitColumns: readColumnWidths(rawList?.gitColumns),
         collapsed: Array.isArray(rawList?.collapsed)
           ? rawList.collapsed.filter((entry): entry is string => typeof entry === 'string')
@@ -9317,7 +9324,8 @@ export class AppStore {
     const listPrefs = { ...this.#snapshot.listPrefs, ...patch }
     this.#patch({ listPrefs })
     if (patch.agent !== undefined && patch.agent !== previousAgent) void this.loadHistory({ reset: true, reconcile: true })
-    void this.#writePreference({ listPrefs }, 'The list settings')
+    const { pinnedSessions: _pins, ...persisted } = listPrefs
+    void this.#writePreference({ listPrefs: persisted }, 'The list settings')
   }
 
   /**
@@ -9763,6 +9771,9 @@ export class AppStore {
   }
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
     this.#notifyPublication(event)
+    if (event.type === 'turn/completed' && sessionVisible(this.#snapshot, sessionKey(runtime, event.sessionId))) {
+      void this.transport.request('session/opened', { runtime, sessionId: event.sessionId }).catch(error => this.resultNotice('error', describe(error)))
+    }
     if (event.type === 'approval/requested') {
       const key = sessionKey(runtime, event.approval.sessionId)
       if (this.#snapshot.approvals.some((entry) => entry.key === key && entry.approval.id === event.approval.id)) return
@@ -9904,6 +9915,7 @@ export class AppStore {
   #historyQuery = ''
   #historyCursor: string | null = null
   #historyCapacity = 50
+  #sessionPinsRevision = 0
   #historyLoaded = false
   #historyRows: readonly SessionSummary[] = []
   #historyAgent: RuntimeId | null = null

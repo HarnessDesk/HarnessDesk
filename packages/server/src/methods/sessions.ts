@@ -311,6 +311,12 @@ export const sessionMethods = {
     return ctx.sessions.attach(runtime, live.id, live)
   },
 
+  'session/opened': (ctx, params) => { ctx.sessionIndex.opened(params.runtime, params.sessionId); return null },
+  'session/pins': ctx => ctx.sessionIndex.pins(),
+  'session/pin': (ctx, params) => {
+    ctx.sessionIndex.setPinned(params.runtime, makeSessionId(params.sessionId), params.pinned)
+    return null
+  },
   'session/archive': archiveConversation,
   'session/worktreePreview': (ctx, params) => ctx.sessionWorktrees.preview(params.runtime, makeSessionId(params.sessionId)),
   'session/discardWorktree': async (ctx, params) => {
@@ -340,7 +346,9 @@ export const sessionMethods = {
     const id = makeSessionId(params.sessionId)
     await ctx.runtimes.ensureStarted(runtime)
     if (runtime.info.capabilities.deleteHistory !== 'trash') {
-      throw new Error(`${runtime.info.presentation.name} cannot move a stored conversation to the Trash.`)
+      throw new Error(runtime.info.capabilities.deleteHistory === 'erase'
+        ? `${runtime.info.presentation.name} erases conversations for good, so delete it on the computer.`
+        : `${runtime.info.presentation.name} cannot move a stored conversation to the Trash.`)
     }
     await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })
     // The agent's copy first: if it refuses, the stopped conversation's

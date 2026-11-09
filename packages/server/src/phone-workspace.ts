@@ -70,6 +70,8 @@ export interface PhoneWorkspacePorts {
   readonly live: () => readonly PhoneLiveSession[]
   /** The agent's presentation name, from the runtime's own `presentation`; null for an agent this host does not know. */
   readonly seatName: (runtime: RuntimeId) => string | null
+  /** Whether this agent moves deleted conversations to the Trash. */
+  readonly canDelete?: (runtime: RuntimeId) => boolean
   /** Whether this runtime's `createdAt` is a measured start (`capabilities.startTimes`); absent means it is not. */
   readonly knowsStart?: (runtime: RuntimeId) => boolean
   readonly teams: () => Promise<readonly PhoneTeamInput[]>
@@ -135,6 +137,7 @@ export class PhoneWorkspace {
     const id = `${summary.runtime}:${summary.id}`
     return {
       id,
+      canDelete: this.#ports.canDelete?.(summary.runtime) === true,
       title: scrub(sessionLabel(summary.title, one?.preview ?? summary.preview, '')) || 'Untitled',
       project: projectOf(summary),
       state: this.#stateOf(summary, live),
@@ -147,7 +150,8 @@ export class PhoneWorkspace {
       // A start the agent never recorded, or one later than the last activity, is left out rather than guessed.
       ...(this.#ports.knowsStart?.(summary.runtime) === true && Number.isFinite(summary.createdAt) && summary.createdAt > 0 &&
         summary.createdAt <= summary.updatedAt ? { startedAt: summary.createdAt } : {}),
-      pinned: false,
+      pinned: summary.pinned === true,
+      archived: summary.archived === true,
     }
   }
 
@@ -424,7 +428,7 @@ export class PhoneWorkspace {
     const { stage, reason: stageReason } = this.#sessionStage(live, row.state === 'archived')
     return {
       stage, stageReason, id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
-      ...(row.state === 'archived' ? { archived: true } : {}),
+      canDelete: row.canDelete, pinned: row.pinned, archived: row.archived === true,
       phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
       line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : 'Done',
       agent: { name: row.seat }, ...(lead ? { by: lead } : {}),

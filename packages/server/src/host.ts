@@ -1250,7 +1250,7 @@ export class Host {
     this.#sessionIndex = new SessionIndex(join(this.#state.directory, 'sessions.sqlite'), (change) => {
       const firstPage = this.#listSessionIndex({})
       if (change.resolveRepos !== false) for (const row of firstPage.data) this.#sessionIndexRepos.read(row.cwd)
-      this.#push({ method: 'session/indexChanged', params: { upserted: change.upserted.filter(row => this.#runtimes.has(row.runtime)).map(row => this.#indexStatus(row)), removed: change.removed, firstPageCursor: firstPage.nextCursor ?? null } })
+      this.#push({ method: 'session/indexChanged', params: { pinnedSessions: this.#sessionIndex.pins(), upserted: change.upserted.filter(row => this.#runtimes.has(row.runtime)).map(row => this.#indexStatus(row)), removed: change.removed, firstPageCursor: firstPage.nextCursor ?? null } })
     })
     this.#sessionWorktrees = new SessionWorktrees(this.#sessionIndex, this.#state.directory, path =>
       this.registry.snapshot().some(session => (samePath(session.cwd, path) || session.cwd.startsWith(path + '/')) &&
@@ -3067,6 +3067,14 @@ export class Host {
       titleOf: (runtime, id) => this.#names.nameOf(runtime, id),
       archiveCapability: (runtime) => this.#runtimes.get(runtime)?.info.capabilities.archiveHistory,
     }).then(async () => {
+      if (this.#disposed) return
+      const listPrefs = this.#state.state.preferences['listPrefs'] as Record<string, unknown> | undefined
+      const legacyPins = listPrefs?.['pinnedSessions']
+      this.#sessionIndex.migratePins(Array.isArray(legacyPins) ? legacyPins.filter((key): key is string => typeof key === 'string') : [])
+      if (listPrefs && Object.hasOwn(listPrefs, 'pinnedSessions')) {
+        const { pinnedSessions: _legacy, ...remaining } = listPrefs
+        await this.#state.setPreferences({ listPrefs: remaining })
+      }
       for (const row of this.#sessionIndex.managedCandidates(this.#state.directory)) {
         if (this.#disposed) return
         await this.#sessionWorktrees.remember(row.runtime, row.id).catch(() => {})
@@ -5435,6 +5443,9 @@ export class Host {
           for (const row of page.data) this.#sessionIndexRepos.read(row.cwd, true)
           return page
         },
+        opened: (runtime, id) => this.#sessionIndex.opened(runtime, id),
+        pins: () => this.#sessionIndex.pins(),
+        setPinned: (runtime, id, pinned) => this.#sessionIndex.setPinned(runtime, id, pinned),
         record: (session) => this.#recordSessionIndex(session, true),
         refreshMissingFolder: (cwd) => this.#sessionIndexRepos.refreshMissing(cwd),
         reopen: (session) => {
@@ -7843,7 +7854,6 @@ export class Host {
       const cwd = restored.cwd || indexed?.cwd || read.cwd
       const session = this.#preserveReadRecency({ ...read, cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) })
       if (read.historyPending) {
-        this.#sessionIndex.opened(runtime.info.id, id)
         return session
       }
       this.#transcripts.rememberReadBase(session, this.#transcripts.readBase(read))
@@ -7852,7 +7862,6 @@ export class Host {
         return this.#holdProtectedRead(session, protectedBase)
       }
       this.#recordSessionIndex(session, true)
-      this.#sessionIndex.opened(runtime.info.id, id)
       // A closed source-less replay may contain new work without desk events.
       // Save its new version before release reuses the persisted timestamp.
       if (!this.#sessionIndex.isRemoved(runtime.info.id, id) && !this.#recoveredTranscriptBases.has(this.registry.get(runtime.info.id, id)?.bodyGeneration ?? '') && !runtime.info.capabilities.sourceTranscript &&
@@ -9181,7 +9190,6 @@ export class Host {
       if (existing.live !== live) this.#loadoutHandles.delete(live)
       existing.live = live
       this.#recordSessionIndex(existing.session, true)
-      this.#sessionIndex.opened(runtime.info.id, id)
       if (observe) this.#observeLoadout(runtime, id, existing.session.cwd)
       return existing.session
     }
@@ -9201,7 +9209,6 @@ export class Host {
     }
     const session = this.registry.upsert(seeded, live).session
     this.#recordSessionIndex(session, true)
-    this.#sessionIndex.opened(runtime.info.id, id)
     if (observe) this.#observeLoadout(runtime, id, session.cwd)
     return session
   }
@@ -9718,6 +9725,8 @@ export class Host {
       if (event.type === 'turn/completed') this.#turnInsight.complete(runtime, record.session.id, String(event.turn.id), Date.now(), record.session.usage ?? null)
       if (!replayOnlyBody && !record.transcriptIncomplete && !this.#recoveredTranscriptBases.has(record.bodyGeneration)) this.#transcripts.record(record.session, { now: event.type === 'turn/completed', insight: this.#turnInsight.forSession(runtime, record.session.id), generation: record.bodyGeneration, revision: record.bodyRevision, authorityEpoch: record.bodyAuthorityEpoch })
       this.#recordSessionIndex(record.session, event.type === 'turn/completed' || event.type === 'session/started' || event.type === 'session/title')
+      // last_completed_turn makes replayed completion observations inert.
+      if (event.type === 'turn/completed') this.#sessionIndex.completed(runtime, record.session.id, Date.now(), String(event.turn.id))
     }
     // The numbers moved because a turn just spent some: re-read that agent
     // only, and only when someone could be looking. Cheaper and fresher than
@@ -10789,6 +10798,7 @@ export class Host {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
       },
+      canDelete: runtime => this.#runtimes.get(runtime)?.info.capabilities.deleteHistory === 'trash',
       knowsStart: (runtime) => {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).capabilities.startTimes === true : false
@@ -11050,6 +11060,7 @@ export class Host {
       readyRuntimes: () => this.#readyRuntimes(),
       projectRoots: () => this.#state.state.workspaces.filter(workspace => !isManagedChatFolder(this.#state, workspace.path)).map(workspace => workspace.path),
       projectName: root => folderName(this.#sessionIndex.repo(root)?.repo?.root ?? root),
+      canDelete: runtime => this.#runtimes.get(runtime)?.info.capabilities.deleteHistory === 'trash',
       canInterrupt: runtime => this.#runtimes.get(runtime)?.info.capabilities.interrupt === true,
       models: async runtime => {
         await this.#ensureStarted(this.#runtime({ runtime }))

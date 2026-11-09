@@ -46,6 +46,11 @@ export const PHONE_POLICY: PhonePolicy = {
     'workspace/session/start': 'run',
     'workspace/session/send': 'run',
     'workspace/stop': 'run',
+    'workspace/session/rename': 'run',
+    'workspace/session/archive': 'run',
+    'workspace/session/pin': 'run',
+    // There is no destructive lane: run is the same tier as wrapping a Team and its worktrees.
+    'workspace/session/delete': 'run',
     'workspace/thread/read': 'read',
     'workspace/approval/decide': 'answer',
     // Only a Team whose Lead result the person accepted, and only when nothing on it needs a choice. Run, as stop is:

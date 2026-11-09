@@ -136,7 +136,7 @@ test('the snapshot says what the desk honours, in micro-dollars, with usage left
   const empty = await rig().work.snapshot()
   assert.deepEqual(empty, {
     deskName: 'Studio Mac', items: [], projects: [], models: [], agents: [{ id: String(RT), name: 'Agent A', models: [], default: true }], flows: [], commands: [], threads: [],
-    capabilities: { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true },
+    capabilities: { startSession: true, startTeam: false, reply: true, stop: true, delete: false, rename: true, archive: true, pin: true, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true },
   })
   assert.ok(!('usage' in empty))
   const usage = { spentToday: { micros: 1_250_000 } } as never
@@ -759,4 +759,30 @@ test('phone model presentation is scrubbed and bounded while ids stay exact', as
   assert.equal(choice.id, model.id)
   assert.ok(choice.name.length <= 60 && choice.hint.length <= 200)
   assert.ok(!/dev@example|\/Users|placeholder/.test(choice.name + choice.hint))
+})
+
+for (const verb of ['rename', 'archive', 'pin', 'delete'] as const) test(`phone ${verb} scrubs desk failures`, async () => {
+  const { work } = rig()
+  const fail = async () => { throw new Error('Cannot write /home/dev/private/conversation.json for dev@example.com') }
+  const action = { rename: () => work.sessionRename({ id: key, title: 'Title' }, fail), archive: () => work.sessionArchive({ id: key, archived: true }, fail),
+    pin: () => work.sessionPin({ id: key, pinned: true }, fail), delete: () => work.sessionDelete({ id: key }, fail) }[verb]
+  await assert.rejects(action, error => error instanceof Error && !error.message.includes('/home/') && !error.message.includes('@'))
+})
+
+test('archived phone ids admit only unarchive and delete', async () => {
+  const { work } = rig({ isOwn: (_runtime, _id, archived) => archived === true })
+  let calls = 0
+  const done = async () => { calls++; return null }
+  await assert.rejects(() => work.sessionRename({ id: key, title: 'Title' }, done), /not a session/)
+  await assert.rejects(() => work.sessionPin({ id: key, pinned: true }, done), /not a session/)
+  await assert.rejects(() => work.sessionArchive({ id: key, archived: true }, done), /not a session/)
+  await work.sessionArchive({ id: key, archived: false }, done)
+  await work.sessionDelete({ id: key }, async () => { calls++; return { disposition: 'trash', removed: 1 } })
+  assert.equal(calls, 2)
+})
+
+test('phone delete capability follows the ready agents', async () => {
+  assert.equal((await rig({ canDelete: () => false }).work.snapshot()).capabilities.delete, false)
+  assert.equal((await rig({ canDelete: () => true }).work.snapshot()).capabilities.delete, true)
+  assert.equal((await rig({ readyRuntimes: () => [], canDelete: () => true }).work.snapshot()).capabilities.delete, false, 'an unavailable default agent does not advertise delete')
 })

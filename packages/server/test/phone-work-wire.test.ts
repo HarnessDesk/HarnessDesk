@@ -49,7 +49,7 @@ const leaks = (value: unknown): string[] => {
  * The real link and the real wire methods over a desk whose work is one session, asked the way a phone asks.
  * What the desk would have to say is scripted through the ports of `PhoneWork`; everything between is the product.
  */
-const door = async (chooseModel = false) => {
+const door = async (chooseModel = false, canDelete = false) => {
   const home = await mkdtemp(join(tmpdir(), 'hd-phone-wire-'))
   const state = { title: 'Fix the importer', pending: [asked()], builds: 0, running: false, responded: [] as any[], actions: [] as any[] }
   const items = (): PhoneWorkItem[] => [{ id: KEY, kind: 'session', title: state.title, stage: 'working', stageReason: 'running', phase: 'running', line: 'Working', updatedAt: 1 }]
@@ -63,6 +63,7 @@ const door = async (chooseModel = false) => {
     read: async () => conversation,
     live: () => ({ running: state.running, pending: state.pending, cwd: CWD }),
     defaultRuntime: () => RT, readyRuntimes: () => [RT], projectRoots: () => [CWD], canInterrupt: () => true,
+    canDelete: () => canDelete,
     knownModels: async () => null,
     models: async () => chooseModel ? [{ id: 'one', displayName: 'Model One', supportsImages: false, reasoningLevels: [{ id: 'xhigh', label: 'Extra high' }] }] : [],
     newSessionValues: async (runtime, cwd, choices) => chooseModel ? phoneSessionValues(runtime, cwd, {}, async params => [
@@ -184,19 +185,24 @@ test('session controls reject invalid text, hidden defaults, unbounded pages and
       ['workspace/session/start', { text: 'Hello', project: '' }], ['workspace/session/start', { text: 'Hello', permissions: 'always' }],
       ['workspace/session/send', { id: KEY, text: 'Hello', effort: 'high' }],
       ['workspace/session/send', { id: KEY, text: ' ' }], ['workspace/session/send', { id: '', text: 'Hello' }],
+      ['workspace/session/rename', { id: KEY, title: ' ' }], ['workspace/session/rename', { id: KEY, title: 'a'.repeat(201) }],
+      ['workspace/session/rename', { id: KEY, title: 'Title', extra: true }],
+      ['workspace/session/archive', { id: KEY, archived: true, extra: true }],
+      ['workspace/session/pin', { id: KEY, pinned: true, extra: true }], ['workspace/session/delete', { id: KEY, extra: true }],
+      ['workspace/session/delete', { id: '' }],
       ['workspace/stop', {}], ['workspace/stop', { id: '' }],
     ] as const) assert.equal((await phone.request(method, params)).error.code, 'badRequest', `${method} ${JSON.stringify(params).slice(0, 100)}`)
     phone.close()
   } finally { await d.done() }
 })
 
-test('the phone surface carries the three workspace names at the tiers a phone needs, and the topic at read', () => {
+test('the phone surface carries workspace controls at the tiers a phone needs, and the topic at read', () => {
   assert.equal(PHONE_POLICY.methods['workspace/read'], 'read')
   assert.equal(PHONE_POLICY.methods['workspace/thread/read'], 'read')
   assert.equal(PHONE_POLICY.methods['workspace/approval/decide'], 'answer')
   assert.equal(PHONE_POLICY.methods['workspace/team/wrap'], 'run')
   assert.equal(PHONE_POLICY.topics.workspace, 'read')
-  assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/session/send', 'workspace/session/start', 'workspace/sessions/list', 'workspace/stop', 'workspace/team/wrap', 'workspace/thread/read'])
+  assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/session/archive', 'workspace/session/delete', 'workspace/session/pin', 'workspace/session/rename', 'workspace/session/send', 'workspace/session/start', 'workspace/sessions/list', 'workspace/stop', 'workspace/team/wrap', 'workspace/thread/read'])
 })
 
 test('a phone that may read gets the snapshot and a conversation, and both scrub machine paths, addresses and output tokens', async () => {
@@ -207,7 +213,7 @@ test('a phone that may read gets the snapshot and a conversation, and both scrub
     assert.equal(snapshot.ok, true, JSON.stringify(snapshot))
     assert.equal(snapshot.result.deskName, 'Studio Mac')
     assert.deepEqual(snapshot.result.items.map((item: any) => item.id), [KEY])
-    assert.deepEqual(snapshot.result.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
+    assert.deepEqual(snapshot.result.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, rename: true, archive: true, pin: true, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
     const thread = await phone.request('workspace/thread/read', { id: KEY })
     assert.equal(thread.ok, true, JSON.stringify(thread))
     assert.equal(thread.result.status, 'asksYou')
@@ -375,6 +381,15 @@ test('encrypted phone starts honour a listed model and effort and return a probl
     const started = await phone.request('workspace/session/start', { text: 'Hello', model: 'one', effort: 'extra' })
     assert.deepEqual(started.result, { id: KEY })
     assert.deepEqual(d.state.actions[0]![1].options.options, { model: 'one', effort: 'xhigh' })
+    phone.close()
+  } finally { await d.done() }
+})
+
+for (const canDelete of [false, true]) test(`phone wire advertises ready-agent delete: ${canDelete}`, async () => {
+  const d = await door(false, canDelete)
+  try {
+    const phone = await d.pair(['read'])
+    assert.equal((await phone.request('workspace/read', {})).result.capabilities.delete, canDelete)
     phone.close()
   } finally { await d.done() }
 })

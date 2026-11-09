@@ -1008,7 +1008,12 @@ agents the snapshot lists in `agents` (default first, each with its own
 models), and may select a model and effort from that agent's reported
 catalogue; project names resolve
 only to admitted folders, and ambiguous names are refused. Archived sessions
-are readable; their mutations and Team-owned session ids are refused. Approval
+are readable. The four Run methods `workspace/session/rename`,
+`workspace/session/archive`, `workspace/session/pin` and `workspace/session/delete`
+reuse the desk handlers with scrubbed failures. Only unarchive (`archived: false`)
+and delete accept archived ids; rename and pin require active conversations.
+Team-owned session ids are refused. Delete is offered per row only when that
+agent moves conversations to the Trash. Approval
 decisions retain the separate Answer grant and the existing approval path.
 `workspace/team/wrap` needs Run, as stopping does, and wraps only a Team the Lead started
 whose result the person accepted, once every card on it is finished or

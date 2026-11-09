@@ -205,3 +205,15 @@ it('says so when the surface does not reach the host', async () => {
   expect(messages()[0]).toContain('The surface could not be saved')
   expect(store.getSnapshot().surface).toBe('sheet')
 })
+
+it('loads saved preferences even when the independent pins read fails', async () => {
+  Object.assign(store.getSnapshot().listPrefs, { pinnedSessions: ['agent:kept'] })
+  vi.mocked(store.transport.request).mockImplementation((async (method: string) => {
+    if (method === 'app/state/get') return { theme: 'dark', listPrefs: { sort: 'name', pinned: ['/demo'], densityPicked: true, density: 'comfortable' } }
+    if (method === 'session/pins') throw new Error('Pins unavailable')
+    return null
+  }) as never)
+  await store.loadPreferences()
+  expect(store.getSnapshot().theme).toBe('dark')
+  expect(store.getSnapshot().listPrefs).toMatchObject({ sort: 'name', pinned: ['/demo'], density: 'comfortable', pinnedSessions: ['agent:kept'] })
+})

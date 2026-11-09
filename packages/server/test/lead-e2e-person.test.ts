@@ -203,6 +203,9 @@ test('the phone names each Lead Team by its step, refuses a wrap before acceptan
   assert.equal(rig.journal.state.phase, 'accepted')
   await rig.waitFor(async () => (await teamItems()).filter(item => item.team?.canWrap === true).length === 2, 'both Teams wrappable')
   // The next goal starts before the person wraps: the accepted Teams stay the Lead's, named and wrappable.
+  // Start it the way a send does: stop the model process first. A live child keeps reading the accepted runs, and a
+  // read still open when the new goal is recorded refuses it (#2042).
+  await rig.service.stopGoal()
   await rig.waitFor(() => canBeginLeadGoal(rig.journal.state), 'the accepted goal settled')
   await rig.journal.beginGoal('next-goal', Date.now())
   assert.deepEqual(rig.journal.state.teams, [])

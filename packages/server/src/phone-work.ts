@@ -38,6 +38,7 @@ export interface PhoneWorkPorts {
   /** Admitted project roots, with no caller-supplied path and no per-chat folder the host made for a no-folder chat. */
   readonly projectRoots: () => readonly string[]
   readonly projectName?: (root: string) => string | null
+  readonly canDelete?: (runtime: RuntimeId) => boolean
   readonly canInterrupt: (runtime: RuntimeId) => boolean
   readonly models: (runtime: RuntimeId) => Promise<readonly ModelInfo[]>
   /** A runtime's models only if the desk already holds them or the runtime is running; null rather than start it. */
@@ -58,7 +59,7 @@ export interface PhoneWorkPorts {
 
 /** The controls the desk honours for a phone so far. The rest are left false, and the phone leaves them out. */
 const CAPABILITIES: PhoneWorkCapabilities = {
-  startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false,
+  startSession: true, startTeam: false, reply: true, stop: true, delete: false, rename: true, archive: true, pin: true, chooseModel: false, chooseAgent: false,
   choosePermissions: false, attach: false, undo: false, decide: true,
 }
 
@@ -231,7 +232,7 @@ export class PhoneWork {
       items, projects,
       ...(usage ? { usage } : {}),
       models, agents, flows: [], commands: [],
-      capabilities: { ...CAPABILITIES, chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
+      capabilities: { ...CAPABILITIES, delete: this.#ports.readyRuntimes().some(id => this.#ports.canDelete?.(id) === true), chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
       threads: [],
     }
   }
@@ -247,6 +248,26 @@ export class PhoneWork {
     const runtime = runtimeId(id.slice(0, at)), session = makeSessionId(id.slice(at + 1))
     if (this.#ports.seatName(runtime) === null || !this.#ports.isOwn(runtime, session, includeArchived)) return refuse('That is not a session this desk can show.')
     return { runtime, session, key: `${runtime}:${session}` }
+  }
+
+  async sessionRename(params: HostParams<'workspace/session/rename'>, handler: (params: HostParams<'session/setTitle'>) => Promise<HostResult<'session/setTitle'>>) {
+    const { runtime, session } = this.#target(params.id)
+    return guarded(() => handler({ runtime, sessionId: session, title: params.title }))
+  }
+
+  async sessionArchive(params: HostParams<'workspace/session/archive'>, handler: (params: HostParams<'session/archive'>) => Promise<HostResult<'session/archive'>>) {
+    const { runtime, session } = this.#target(params.id, !params.archived)
+    return guarded(() => handler({ runtime, sessionId: session, archived: params.archived }))
+  }
+
+  async sessionPin(params: HostParams<'workspace/session/pin'>, handler: (params: HostParams<'session/pin'>) => Promise<HostResult<'session/pin'>>) {
+    const { runtime, session } = this.#target(params.id)
+    return guarded(() => handler({ runtime, sessionId: session, pinned: params.pinned }))
+  }
+
+  async sessionDelete(params: HostParams<'workspace/session/delete'>, handler: (params: HostParams<'session/delete'>) => Promise<HostResult<'session/delete'>>) {
+    const { runtime, session } = this.#target(params.id, true)
+    return guarded(() => handler({ runtime, sessionId: session }))
   }
 
   async threadRead(params: { id: string }, admit?: DispatchAdmission<string>): Promise<PhoneWorkThread> {

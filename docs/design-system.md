@@ -2052,6 +2052,12 @@ Explorer occupies the same column; its header and foot share the row inset.
 
 Seat rows indent their leading column while retaining the parent's end rail.
 
+### `LeftColumnBulkBar`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+A persistent bottom rail for a list's bulk selection, wrapping at narrow widths.
+
 ### `LibraryMatrix`
 
 `packages/ui/src/design/patterns/LibraryMatrix.tsx`
