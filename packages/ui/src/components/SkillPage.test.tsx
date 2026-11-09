@@ -67,7 +67,7 @@ it('heads the page with its name, description, Skill chip, one composer verb and
 })
 it('renders the description as the sheet does, links and paragraphs whole', async () => {
   await mount([skill({ description: 'Read the [guide](https://example.com/guide) first.\n\nThen review the diff.' })])
-  const description = [...page().children].find(node => !node.hasAttribute('data-slot') && node.querySelector('p'))!
+  const description = page().querySelector('[data-slot="markdown"]')!
   expect(description.querySelectorAll('p')).toHaveLength(2); expect(description.querySelectorAll('a')).toHaveLength(1)
   expect(description.querySelector('a')?.getAttribute('href')).toBe('https://example.com/guide'); expect(description.querySelector('a')?.textContent).toBe('guide')
   expect(description.textContent).toContain('Then review the diff.')
