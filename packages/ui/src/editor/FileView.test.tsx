@@ -294,7 +294,7 @@ it('reads a restored built-in Agent through its logical identity in the running 
 it('stops polling a built-in Agent whose owning read fails', async () => {
   vi.useFakeTimers()
   request.mockRejectedValue(new Error('The built-in file is unavailable'))
-  await render('/repo/packages/server/agents/code-reviewer/AGENT.md')
+  await render('/installed/node_modules/@harnessdesk/server/agents/code-reviewer/AGENT.md')
   const initial = request.mock.calls.length
   await poll(); await poll(); await poll()
   expect(request).toHaveBeenCalledTimes(initial)
@@ -312,4 +312,32 @@ it('stops automatic retries after an unreadable workspace file instead of loggin
   expect(request).toHaveBeenCalledTimes(stopped)
   expect(stopped).toBeLessThanOrEqual(8)
   expect(container.textContent).toContain('File is outside every open workspace')
+})
+
+for (const suffix of ['packages/server/agents/code-reviewer/AGENT.md', 'node_modules/@harnessdesk/server/agents/code-reviewer/AGENT.md']) {
+  it(`keeps a workspace's ${suffix} editable and polling`, async () => {
+    vi.useFakeTimers()
+    const path = `/repo/${suffix}`
+    await render(path, { root: '/repo', view: 'source' })
+    expect(request).toHaveBeenCalledWith('workspace/readFile', expect.objectContaining({ path }))
+    expect(request.mock.calls.some(([method]) => method === 'authoring/read')).toBe(false)
+    expect(container.querySelector('textarea')?.readOnly).toBe(false)
+    disk = text('Workspace edit', 'new-workspace-hash'); modified = 2
+    await poll()
+    expect(container.querySelector('textarea')?.value).toBe('Workspace edit')
+    expect(request.mock.calls.filter(([method]) => method === 'workspace/readFile')).toHaveLength(2)
+  })
+}
+
+
+it('keeps the running build’s catalogued Agent file editable when it is inside the pane root', async () => {
+  const path = '/repo/packages/server/agents/code-reviewer/AGENT.md'
+  const agents = snapshot.agents
+  Object.assign(snapshot, { agents: [{ id: 'code-reviewer', origin: 'builtin', path, shadows: [], definition: null, digest: null, problems: [] }] })
+  try {
+    await render(path, { root: '/repo', view: 'source' })
+    expect(request).toHaveBeenCalledWith('workspace/readFile', expect.objectContaining({ path }))
+    expect(request.mock.calls.some(([method]) => method === 'authoring/read')).toBe(false)
+    expect(container.querySelector('textarea')?.readOnly).toBe(false)
+  } finally { Object.assign(snapshot, { agents }) }
 })

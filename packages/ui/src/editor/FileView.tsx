@@ -5,6 +5,7 @@ import { ExternalIcon } from '../components/Icons'
 import { KeyboardHereContext, usePane, useSnapshot, useStore } from '../state/context'
 import { useTheme } from '../state/theme'
 import { sanitizeText } from '../lib/sanitize'
+import { isPathInside } from '../lib/paths'
 import { CodeView, MergeView, MarkdownView, countTextChanges, editorLook, readHead } from './index'
 import styles from './FileView.module.css'
 import { quoteSelection, previewSelection } from './quote'
@@ -116,9 +117,12 @@ export const FileView = (props: FileViewProps) => {
   // File panes are persisted in workspace `layouts`. Older desks stored an
   // installation's absolute AGENT.md path there. Keep only its identity for
   // reads: authoring owns the built-in root of the build actually running.
-  const builtinAgentId = snapshot.agents?.find(entry =>
-    entry.origin === 'builtin' && entry.path === path || entry.shadows.some(copy => copy.origin === 'builtin' && copy.path === path))?.id
-    ?? /(?:\/node_modules\/@harnessdesk\/server|\/packages\/server)\/agents\/([a-z0-9][a-z0-9-]*)\/AGENT\.md$/.exec(path.replaceAll('\\', '/'))?.[1]
+  // Inside this pane's workspace, even this build's own definitions are files
+  // the developer can edit, rather than installed resources.
+  const builtinAgentId = root && isPathInside(path, root) ? undefined
+    : snapshot.agents?.find(entry =>
+      entry.origin === 'builtin' && entry.path === path || entry.shadows.some(copy => copy.origin === 'builtin' && copy.path === path))?.id
+      ?? /\/node_modules\/@harnessdesk\/server\/agents\/([a-z0-9][a-z0-9-]*)\/AGENT\.md$/.exec(path.replaceAll('\\', '/'))?.[1]
   const selectionId = useId()
   const keyboardHere = useContext(KeyboardHereContext)
   const surface = useRef<HTMLDivElement>(null)
