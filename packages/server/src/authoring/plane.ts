@@ -311,7 +311,8 @@ export class AuthoringPlane {
     const limit = target.kind === 'agent' ? AGENT_FILE_LIMIT : target.kind === 'flow' ? FLOW_FILE_LIMIT : TRIGGER_FILE_LIMIT
     const source = await place.tree.read(place.rel, limit)
     if (source === null && target.kind !== 'triggers') {
-      throw new Error(target.kind === 'agent' ? `There is no Agent called "${target.id}" here.` : `There is no flow called "${target.id}" here.`)
+      if (target.kind === 'agent') throw Object.assign(new Error(`There is no Agent called "${target.id}" here.`), { wireCode: 'authoringAgentMissing' })
+      throw new Error(`There is no flow called "${target.id}" here.`)
     }
     const text = source ?? ''
     const issues: AuthoringIssue[] = source === null ? [] : this.#documentIssues(target, place.scope, text, true)

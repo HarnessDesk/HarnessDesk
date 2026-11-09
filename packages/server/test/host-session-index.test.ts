@@ -704,3 +704,93 @@ test('reading a held body retains its creation time instead of sparse index or r
   assert.equal(read.createdAt, 10)
   assert.equal(read.updatedAt, 100)
 })
+
+for (const method of ['session/read', 'workspace/thread/read'] as const) test(`${method} replay does not change activity time or list position`, async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-index-replay-recency-')
+  const runtime = new FakeRuntime()
+  const old = { runtime: runtime.info.id, id: sessionId('older'), cwd: root,
+    title: 'Older conversation', createdAt: 10, updatedAt: 100, status: { type: 'idle' as const } }
+  const newer = { ...old, id: sessionId('newer'), updatedAt: 200 }
+  runtime.history.push(old, newer)
+  runtime.readSession = async id => {
+    const row = runtime.history.find(row => row.id === id)!
+    const replay = { ...row, createdAt: Date.now(), updatedAt: Date.now(), turns: [], itemsLoaded: true }
+    // ACP loads history to read it and announces the session before returning.
+    runtime.emit({ type: 'session/started', session: replay })
+    return replay
+  }
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert(old); index.upsert(newer); index.close()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  const before = await host.call('session/index', {})
+  if (method === 'session/read') await host.call(method, { runtime: runtime.info.id, sessionId: old.id })
+  else await host.call(method, { id: `${runtime.info.id}:${old.id}` })
+  const after = await host.call('session/index', {})
+  assert.deepEqual(after.data.map(row => row.id), before.data.map(row => row.id))
+  assert.equal(after.data.find(row => row.id === old.id)?.updatedAt, 100)
+  assert.equal(host.registry.get(runtime.info.id, old.id)?.session.updatedAt, 100)
+})
+
+test('a new turn re-announcing an indexed session promotes its activity outside a read', async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-index-turn-recency-')
+  const runtime = new FakeRuntime()
+  const old = { runtime: runtime.info.id, id: sessionId('older'), cwd: root,
+    title: 'Older conversation', createdAt: 10, updatedAt: 100, status: { type: 'idle' as const } }
+  // Keep the other row ahead of the wall clock used by turn/started: only
+  // the adapter's later session announcement can put this conversation first.
+  const newer = { ...old, id: sessionId('newer'), updatedAt: Date.now() + 100_000 }
+  const activityAt = newer.updatedAt + 100
+  runtime.history.push(old, newer)
+  runtime.onSend = session => runtime.emit({ type: 'session/started',
+    session: { ...session.snapshot(), cwd: root, updatedAt: activityAt } })
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert(old); index.upsert(newer); index.close()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  assert.equal((await host.call('session/index', {})).data[0]?.id, newer.id)
+  await host.start()
+  await host.call('turn/send', { runtime: runtime.info.id, sessionId: old.id,
+    input: [{ type: 'text', text: 'Continue this synthetic conversation' }] })
+  const after = await host.call('session/index', {})
+  assert.equal(after.data[0]?.id, old.id)
+  assert.equal(after.data[0]?.updatedAt, activityAt)
+  assert.equal(host.registry.get(runtime.info.id, old.id)?.session.updatedAt, activityAt)
+})
+
+test('a new turn announcement outside a read advances an indexed conversation', async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-index-turn-recency-')
+  const runtime = new FakeRuntime()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  await host.start()
+  const created = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  const live = runtime.sessions.get(String(created.id))!
+  const record = host.registry.get(runtime.info.id, created.id)!
+  const older = { ...record.session, title: 'Older conversation', createdAt: 10, updatedAt: 100 }
+  const newer = { ...older, id: sessionId('newer'), updatedAt: 200 }
+  record.session = older
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert(older); index.upsert(newer); index.close()
+  // Read first too: the nested read markers must be gone before activity.
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: older.id })
+  runtime.onSend = () => {
+    const held = host.registry.get(runtime.info.id, live.id)!.session
+    runtime.emit({ type: 'session/started', session: { ...held, updatedAt: 300 } })
+  }
+  assert.deepEqual((await host.call('session/index', {})).data.map(row => row.id), [newer.id, older.id])
+  await host.call('turn/send', { runtime: runtime.info.id, sessionId: older.id, input: [{ type: 'text', text: 'Continue this task' }] })
+  live.finish('Finished')
+  const after = await host.call('session/index', {})
+  assert.deepEqual(after.data.map(row => row.id), [older.id, newer.id])
+  assert.equal(after.data[0]?.updatedAt, 300)
+})

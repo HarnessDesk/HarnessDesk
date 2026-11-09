@@ -48,7 +48,9 @@ const SNAP = 24
 export const ConversationMap = ({
   turns,
   scroll,
+  onNavigate,
 }: {
+  readonly onNavigate?: () => void
   readonly turns: readonly Turn[]
   /** The transcript's scroller — the thing this is a picture of. */
   readonly scroll: RefObject<HTMLDivElement | null>
@@ -135,9 +137,12 @@ export const ConversationMap = ({
       const target =
         scroll.current?.querySelector(`[data-turn="${id}"][data-part="${part}"]`) ??
         scroll.current?.querySelector(`[data-turn="${id}"]`)
-      target?.scrollIntoView({ block: 'start', behavior: scriptedScrollBehavior() })
+      if (target) {
+        onNavigate?.()
+        target.scrollIntoView({ block: 'start', behavior: scriptedScrollBehavior() })
+      }
     },
-    [scroll],
+    [scroll, onNavigate],
   )
 
   if (!drawn || fit === null) return null

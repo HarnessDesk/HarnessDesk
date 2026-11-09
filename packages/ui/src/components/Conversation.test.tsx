@@ -6,7 +6,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { wrapContext, reduceSession, runtimeId, sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
 
 import { seatAgentKey } from '../lib/agents'
-import { PaneProvider, StoreProvider } from '../state/context'
+import { KeyboardHereContext, PaneProvider, StoreProvider } from '../state/context'
+import { emptyWorkbench } from '../state/workbench'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { Conversation } from './Conversation'
 import styles from './Conversation.module.css'
@@ -142,7 +143,7 @@ const rig = (
   return { store }
 }
 
-const render = (store: AppStore, key: string | null = KEY, props: Partial<React.ComponentProps<typeof Conversation>> = {}): void => {
+const render = (store: AppStore, key: string | null = KEY, props: Partial<React.ComponentProps<typeof Conversation>> = {}, keyboardHere: boolean | null = null): void => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
@@ -154,13 +155,13 @@ const render = (store: AppStore, key: string | null = KEY, props: Partial<React.
           }}
         >
           <TopBarOutlet owner="p1" fallback={{ place: 'New session', more: () => null }} /><WorkDetailsOutlet owner="p1" />
-          <Conversation
+          <KeyboardHereContext.Provider value={keyboardHere}><Conversation
             {...props}
             onChooseProject={() => undefined}
             onSignIn={() => undefined}
             onOpenUsage={() => undefined}
             onOpenRuntimes={() => undefined}
-          />
+          /></KeyboardHereContext.Provider>
         </PaneProvider></TopBarProvider>
       </StoreProvider>,
     )
@@ -649,7 +650,7 @@ it('follows transcript and dock geometry changes until the reader scrolls up', (
     expect(scroll.scrollTop).toBe(1000)
     // A real reader scroll, rather than the delayed event from our own write.
     delete scroll.dataset.autoscrolling
-    act(() => {scroll.scrollTop = 100; scroll.dispatchEvent(new Event('scroll', {bubbles:true}))})
+    act(() => {scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 })); scroll.scrollTop = 100; scroll.dispatchEvent(new Event('scroll', {bubbles:true}))})
     expect(jumpToLatest()).toBeDefined()
     height = 1200
     act(() => resize.forEach(callback => callback()))
@@ -1254,4 +1255,285 @@ it('draft Details names the folder with its full path on hover (#1720)', () => {
   expect(path.title).toBe('/work/long/project/first-run-1720')
   expect(container.textContent).not.toContain('reported for this draft')
   expect(container.querySelector('[aria-label="Plan"]')).toBeNull()
+})
+
+it('opens a long finished conversation at the latest reply despite layout scroll events', async () => {
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => { if (this.active) callback([], this as unknown as ResizeObserver) }) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  try {
+    render(rig(session({ turns: Array.from({ length: 30 }, (_, index) => ({
+      id: turnId(`finished-${index}`), status: 'completed' as const,
+      items: [{ id: itemId(`reply-${index}`), type: 'assistantMessage' as const, text: `Finished reply ${index}` }],
+    })) })).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    let height = 800
+    Object.defineProperties(scroll, { scrollHeight: { get: () => height }, clientHeight: { get: () => 400 } })
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(800)
+    // Late layout/scroll anchoring can deliver a scroll after our own marker
+    // expires, before ResizeObserver reports the final transcript height.
+    delete scroll.dataset.autoscrolling
+    height = 2400
+    act(() => scroll.dispatchEvent(new Event('scroll', { bubbles: true })))
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(2400)
+    expect(jumpToLatest()).toBeUndefined()
+  } finally { vi.unstubAllGlobals() }
+})
+
+
+it.each(['earlier', 'latest'])('map navigation to the %s reply preserves follow according to its destination', async destinationKind => {
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => { if (this.active) callback([], this as unknown as ResizeObserver) }) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  const bounds = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return this.matches('[data-part] > *') ? new DOMRect(100, 0, 600, 40) : bounds.call(this)
+  })
+  try {
+    render(rig(session({ turns: Array.from({ length: 8 }, (_, i) => ({ ...transcriptSession().turns[0]!, id: turnId(`map-${i}`) })) })).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    let scrollTop = 0
+    Object.defineProperties(scroll, {
+      scrollHeight: { value: 1600 }, clientHeight: { value: 400 },
+      scrollTop: { get: () => scrollTop, set: value => { scrollTop = Math.min(value, 1200) } },
+    })
+    act(() => resize.forEach(callback => callback()))
+    const map = container.querySelector<HTMLElement>('[aria-label="Jump to a message"]')!
+    expect(map).not.toBeNull()
+    const destinations = [...scroll.querySelectorAll<HTMLElement>('[data-part="answer"]')]
+    const latest = destinationKind === 'latest'
+    const destination = latest ? destinations.at(-1)! : destinations[0]!
+    const top = latest ? 1200 : 100
+    ;[...map.children].forEach((mark, index) => Object.defineProperty(mark, 'offsetTop', { value: index * 10 }))
+    destination.scrollIntoView = vi.fn(() => {
+      scroll.scrollTop = top
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+      // Chromium emits scrollend before React commits the scroll's pin update.
+      scroll.dispatchEvent(new Event('scrollend', { bubbles: true }))
+    })
+    act(() => map.dispatchEvent(new MouseEvent('click', { bubbles: true, clientY: latest ? 1000 : 0 })))
+    expect(destination.scrollIntoView).toHaveBeenCalled()
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(top)
+    if (latest) expect(jumpToLatest()).toBeUndefined()
+    else expect(jumpToLatest()).toBeDefined()
+    await act(async () => {})
+  } finally { geometry.mockRestore(); vi.unstubAllGlobals() }
+})
+
+it('a window PageUp releases follow through native scroll events in the keyboard pane', async () => {
+  render(rig(transcriptSession()).store, KEY, {}, true)
+  const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+  Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    scroll.scrollTop = 100
+    scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  expect(jumpToLatest()).toBeDefined()
+  await act(async () => {})
+})
+
+it('keeps gesture intent through a near-bottom first frame and a distant last frame', async () => {
+  render(rig(transcriptSession()).store)
+  const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+  Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 }))
+    scroll.scrollTop = 1150
+    scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  expect(jumpToLatest()).toBeUndefined()
+  act(() => {
+    scroll.scrollTop = 100
+    scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  expect(jumpToLatest()).toBeDefined()
+  await act(async () => {})
+})
+
+it.each(['textarea', 'input', 'div'])('ignores scroll keys while an editable %s has focus', async tag => {
+  render(rig(transcriptSession()).store)
+  const editor = document.createElement(tag)
+  if (tag === 'div') { editor.setAttribute('contenteditable', 'true'); editor.tabIndex = 0 }
+  container.append(editor)
+  const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+  Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    editor.focus()
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    scroll.scrollTop = 100
+    scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  expect(jumpToLatest()).toBeUndefined()
+  await act(async () => {})
+})
+
+it.each(['scrollend', 'timeout'])('expires gesture intent on %s before a later layout scroll', async end => {
+  vi.useFakeTimers()
+  try {
+    render(rig(transcriptSession()).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+    act(() => {
+      scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 }))
+      scroll.scrollTop = 1150
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+      if (end === 'scrollend') scroll.dispatchEvent(new Event('scrollend', { bubbles: true }))
+      else vi.advanceTimersByTime(151)
+      scroll.scrollTop = 100
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    expect(jumpToLatest()).toBeUndefined()
+    await act(async () => {})
+  } finally { vi.useRealTimers() }
+})
+
+
+it.each(['scrollend', 'timeout'])('catches up with content grown during intent after %s', async end => {
+  vi.useFakeTimers()
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => { if (this.active) callback([], this as unknown as ResizeObserver) }) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  try {
+    render(rig(transcriptSession()).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    let height = 1600
+    // Clamp like a browser: assigning scrollHeight ends at scrollHeight - clientHeight.
+    let top = 0
+    Object.defineProperties(scroll, {
+      scrollHeight: { get: () => height }, clientHeight: { value: 400 },
+      scrollTop: { get: () => top, set: value => { top = Math.min(value, height - 400) } },
+    })
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(1200)
+    act(() => {
+      scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -10 }))
+      scroll.scrollTop = 1190
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    height = 1800
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(1190)
+    act(() => {
+      if (end === 'scrollend') scroll.dispatchEvent(new Event('scrollend', { bubbles: true }))
+      else vi.advanceTimersByTime(151)
+    })
+    expect(scroll.scrollTop).toBe(1400)
+    expect(jumpToLatest()).toBeUndefined()
+    await act(async () => {})
+  } finally { vi.useRealTimers(); vi.unstubAllGlobals() }
+})
+
+it('ignores a scroll key when the keyboard is elsewhere in a side by side grid', async () => {
+  render(rig(transcriptSession()).store, KEY, {}, false)
+  const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+  Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    scroll.scrollTop = 100
+    scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  expect(jumpToLatest()).toBeUndefined()
+  await act(async () => {})
+})
+
+const focusedIn = (id: string): Partial<AppSnapshot> => {
+  const workbench = emptyWorkbench()
+  return { workbench: { ...workbench, main: { ...workbench.main, focused: id } } }
+}
+
+it('a window PageUp releases follow in the focused pane with no pointer history', async () => {
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => { if (this.active) callback([], this as unknown as ResizeObserver) }) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  try {
+    render(rig(transcriptSession(), new Map(), focusedIn('p1')).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    let top = 0
+    Object.defineProperties(scroll, {
+      scrollHeight: { value: 1600 }, clientHeight: { value: 400 },
+      scrollTop: { get: () => top, set: value => { top = Math.min(value, 1200) } },
+    })
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(1200)
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+      scroll.scrollTop = 100
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    expect(jumpToLatest()).toBeDefined()
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(100)
+    await act(async () => {})
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('a window PageUp reaches only the focused pane when two are visible and the pointer touched neither', async () => {
+  const store = rig(transcriptSession(), new Map(), focusedIn('a')).store
+  const pane = (id: string) => (
+    <PaneProvider scope={{ paneId: id, view: { kind: 'conversation', session: KEY as never }, sessionKey: KEY as never }}>
+      <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+    </PaneProvider>
+  )
+  act(() => root.render(<StoreProvider store={store}><TopBarProvider>{pane('a')}{pane('b')}</TopBarProvider></StoreProvider>))
+  const scrolls = [...container.querySelectorAll<HTMLElement>('[data-live-transcript]')]
+  expect(scrolls).toHaveLength(2)
+  for (const scroll of scrolls) Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    scrolls[0]!.scrollTop = 100
+    scrolls[0]!.dispatchEvent(new Event('scroll', { bubbles: true }))
+    scrolls[1]!.scrollTop = 100
+    scrolls[1]!.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  const jumps = [...container.querySelectorAll('button')].filter(button => button.textContent === 'Jump to latest')
+  expect(jumps).toHaveLength(1)
+  expect(scrolls[0]!.contains(jumps[0]!) || scrolls[0]!.parentElement!.contains(jumps[0]!)).toBe(true)
+  expect(scrolls[1]!.parentElement!.contains(jumps[0]!)).toBe(false)
+  await act(async () => {})
+})
+
+it('routes window scroll keys only to the last transcript touched by the pointer', async () => {
+  const store = rig(transcriptSession()).store
+  act(() => root.render(<StoreProvider store={store}><TopBarProvider>
+    <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+    <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+  </TopBarProvider></StoreProvider>))
+  const scrolls = [...container.querySelectorAll<HTMLElement>('[data-live-transcript]')]
+  expect(scrolls).toHaveLength(2)
+  for (const scroll of scrolls) Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    scrolls[0]!.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }))
+    scrolls[1]!.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    for (const scroll of scrolls) {
+      scroll.scrollTop = 100
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+    }
+  })
+  expect([...container.querySelectorAll('button')].filter(button => button.textContent === 'Jump to latest')).toHaveLength(1)
+  await act(async () => {})
 })

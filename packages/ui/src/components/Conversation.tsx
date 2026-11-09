@@ -1,5 +1,5 @@
 import { fileLink, filePathInRoot } from '../lib/file-link'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { editorConversation } from '../editor'
 import { sanitizeText } from '../lib/sanitize'
@@ -9,6 +9,8 @@ import { useInstalledAgents } from '../lib/first-run'
 import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
 import {
+  KeyboardHereContext,
+  useIsFocusedPane,
   useActiveSession,
   usePane, PaneProvider,
   useRuntime,
@@ -362,6 +364,23 @@ const ConversationMenu = ({ owner, folderActions }: { owner?: string; folderActi
 }
 
 
+/* The transcript the pointer last touched, shared by every mounted
+   conversation: one pair of window listeners, not one pair per transcript. */
+let lastPointerTranscript: Element | null = null
+let trackingPointer = false
+const trackPointerTranscript = () => {
+  if (trackingPointer || typeof window === 'undefined') return
+  trackingPointer = true
+  const onPointer = (event: PointerEvent) => {
+    const scroller = event.target instanceof Element ? event.target.closest('[data-live-transcript]') : null
+    if (scroller) lastPointerTranscript = scroller
+  }
+  window.addEventListener('pointermove', onPointer, true)
+  window.addEventListener('pointerdown', onPointer, true)
+}
+const pointerTranscript = (): Element | null =>
+  lastPointerTranscript?.isConnected ? lastPointerTranscript : null
+
 export const Conversation = ({
   onChooseProject,
   onSignIn,
@@ -396,7 +415,43 @@ export const Conversation = ({
   const pane = usePane()
   const scroll = useRef<HTMLDivElement>(null)
   const transcriptContent = useRef<HTMLDivElement>(null)
-  const [pinned, setPinned] = useState(true)
+  const [pinned, renderPinned] = useState(true)
+  // Native scrollend can arrive before React commits the scroll's pin update.
+  const pinnedNow = useRef(true)
+  const setPinned = useCallback((value: boolean) => { pinnedNow.current = value; renderPinned(value) }, [])
+  const keyboardHere = useContext(KeyboardHereContext)
+  const focusedPane = useIsFocusedPane()
+  const focusedPaneNow = useRef(focusedPane)
+  focusedPaneNow.current = focusedPane || keyboardHere === true
+  const followTranscript = useRef<() => void>(() => {})
+  const scrollIntent = useRef(false)
+  const scrollIntentTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const clearScrollIntent = useCallback(() => {
+    scrollIntent.current = false
+    clearTimeout(scrollIntentTimer.current)
+    followTranscript.current()
+  }, [])
+  const markScrollIntent = useCallback(() => {
+    scrollIntent.current = true
+    clearTimeout(scrollIntentTimer.current)
+    scrollIntentTimer.current = setTimeout(clearScrollIntent, 150)
+  }, [clearScrollIntent])
+  useEffect(() => () => clearTimeout(scrollIntentTimer.current), [])
+  useEffect(() => {
+    trackPointerTranscript()
+    const onKey = (event: KeyboardEvent) => {
+      if (keyboardHere === false || !scroll.current?.hasAttribute('data-live-transcript')) return
+      // The transcript the pointer last touched wins; with none, the focused pane's.
+      const touched = pointerTranscript()
+      if (touched ? touched !== scroll.current : !focusedPaneNow.current) return
+      if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return
+      const focused = document.activeElement
+      if (focused instanceof Element && focused.closest('input, textarea, [contenteditable]:not([contenteditable="false"]), [data-slot="conversation-dock"]')) return
+      markScrollIntent()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [markScrollIntent, keyboardHere])
   const status = paneStatus(session, snapshot.approvals, key)
   const worktree = session
     ? snapshot.worktrees.find((entry) => entry.managed && entry.path === session.cwd)
@@ -438,24 +493,20 @@ export const Conversation = ({
   const busy = session ? isBusy(session) : false
   const live = session ? currentTurn(session) : undefined
 
-  // The auto-scroll below sets `scrollTop` itself, and that assignment fires
-  // its own native `scroll` event a frame later — indistinguishable, to a
-  // plain listener, from the reader scrolling back to the bottom. Without
-  // this mark that delayed event re-pinned every release a frame after it
-  // landed, so a selection made the instant a token streamed in snapped
-  // straight back. One event (or one frame, whichever comes first) is
-  // swallowed per programmatic scroll, the same way shadcn's own
-  // `data-autoscrolling` does it.
+  // A native scroll event is not proof of user input: late layout and scroll
+  // anchoring can deliver it after a programmatic scroll's frame has ended.
+  // Follow stays engaged until a gesture moves this transcript.
   const onScroll = useCallback(() => {
     const element = scroll.current
     if (!element) return
-    if (element.dataset.autoscrolling) {
-      delete element.dataset.autoscrolling
-      return
-    }
+    // Scroll anchoring and late transcript layout also emit scroll. Only an
+    // input gesture can release follow; opening a long history never does.
+    if (!scrollIntent.current) return
+    markScrollIntent()
+    delete element.dataset.autoscrolling
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight
     setPinned(distance < NEAR_BOTTOM_PX)
-  }, [])
+  }, [markScrollIntent])
 
   // A reader who is selecting a word out of a streaming answer must not have
   // it yanked out from under the cursor by the next token — release follow
@@ -506,12 +557,14 @@ export const Conversation = ({
     if (!element) return
     let frame = 0
     const follow = () => {
+      if (scrollIntent.current || !pinnedNow.current) return
       element.dataset.autoscrolling = 'true'
       element.scrollTop = element.scrollHeight
       // A no-op assignment fires no event; do not swallow the reader's next scroll.
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => delete element.dataset.autoscrolling)
     }
+    followTranscript.current = follow
     follow()
     // A tile can finish laying out after its transcript mounts. Dock padding,
     // viewport changes and late text layout also change the bottom without a
@@ -519,13 +572,14 @@ export const Conversation = ({
     const observer = new ResizeObserver(follow)
     observer.observe(element)
     if (transcriptContent.current) observer.observe(transcriptContent.current)
-    return () => {observer.disconnect(); cancelAnimationFrame(frame)}
+    return () => {followTranscript.current = () => {}; observer.disconnect(); cancelAnimationFrame(frame)}
   }, [items, pinned, session?.id, Boolean(mainContent)])
 
   // Switching sessions always starts at the bottom of the new transcript.
   useEffect(() => {
+    clearScrollIntent()
     setPinned(true)
-  }, [session?.id])
+  }, [session?.id, clearScrollIntent])
 
   // A turn that was not there a moment ago is either a message the reader
   // just sent or a fresh reply starting — either way the point of sending is
@@ -545,10 +599,11 @@ export const Conversation = ({
   const dockArea = useComposerHeightVar(conversationRoot)
 
   const jumpToBottom = useCallback(() => {
+    clearScrollIntent()
     const element = scroll.current
     if (element) element.scrollTo({ top: element.scrollHeight, behavior: scriptedScrollBehavior() })
     setPinned(true)
-  }, [])
+  }, [clearScrollIntent])
 
   const [renaming, setRenaming] = useState(false)
   const [rename, setRename] = useState('')
@@ -597,7 +652,7 @@ export const Conversation = ({
       <div className={styles.body}>
         {/* Beside the transcript, not in it: the rail is a picture of the
             scroller and must not scroll with what it pictures. */}
-        {session && <ConversationMap turns={session.turns} scroll={scroll} />}
+        {session && <ConversationMap turns={session.turns} scroll={scroll} onNavigate={markScrollIntent} />}
         {loading && items.length === 0 ? (
           // In the same column as every other empty state here, clear of the
           // composer. Pane-filling empty states keep the word in place;
@@ -612,6 +667,11 @@ export const Conversation = ({
           <ConversationThread
             ref={scroll}
             onScroll={onScroll}
+            onScrollEnd={clearScrollIntent}
+            onWheelCapture={markScrollIntent}
+            onTouchMoveCapture={markScrollIntent}
+            onPointerDownCapture={event => { if (event.target === event.currentTarget) markScrollIntent() }}
+            onPointerMoveCapture={event => { if (event.buttons === 1) markScrollIntent() }}
             onClick={onScrollClick}
             data-transcript
             data-live-transcript
