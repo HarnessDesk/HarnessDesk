@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
-import { itemId, sessionId, turnId, type Session } from '@harnessdesk/protocol'
+import { itemId, sessionId, turnId, wireCodeOf, type Session } from '@harnessdesk/protocol'
 import { Host } from '../src/host.js'
 import { StateStore } from '../src/state.js'
 import { SessionIndex } from '../src/session-index.js'
@@ -82,14 +82,14 @@ test('a conflicting source refresh does not return an older fallback as complete
     return refresh.call(this, session, source, base)
   })
   try {
-    await assert.rejects(r.read(), /protected|changed/i)
+    await assert.rejects(r.read(), error => wireCodeOf(error) === 'historyUnavailable')
     const db = new TranscriptDatabase(join(r.dir, 'sessions.sqlite'))
     try { assert.equal(db.read(original.runtime, original.id)?.title, 'external change') } finally { db.close() }
     assert.ok(store); assert.equal(store.protectedPressure().bodies, 1)
   } finally { if (store) await store.forget(original.runtime, original.id) }
 })
 
-test('a conflicting source refresh cannot fall back to an older live Host body', async t => {
+test('a conflicting source refresh marks an older live Host view as pending', async t => {
   const r = await rig(t)
   await r.host.start()
   const original = await r.read()
@@ -113,7 +113,9 @@ test('a conflicting source refresh cannot fall back to an older live Host body',
     return refresh.call(this, session, source, base)
   })
   try {
-    await assert.rejects(r.read(), /protected|changed/i)
+    const pending = await r.read()
+    assert.equal(pending.historyPending, true)
+    assert.deepEqual(pending.turns, original.turns)
     assert.equal(injected, true, 'the source refresh actually reached the conflict')
     const db = new TranscriptDatabase(join(r.dir, 'sessions.sqlite'))
     try { assert.equal(db.read(original.runtime, original.id)?.title, 'external change') } finally { db.close() }
@@ -331,7 +333,14 @@ test('first-read capability negotiation cannot bless an append during replay', a
 test('cached reads preserve the creation time with and without a held session', async t => {
   const r = await rig(t)
   const original = await r.read()
+  // This fixture resumes an unchanged source. FakeSession's default zero
+  // timestamps and unrelated cwd would be real persisted metadata changes,
+  // which intentionally invalidate the source stamp even on a thin replay.
+  const emit = r.runtime.emit.bind(r.runtime)
+  const resumeReplay = t.mock.method(r.runtime, 'emit', (event: Parameters<FakeRuntime['emit']>[0]) => emit(event.type === 'session/started'
+    ? { ...event, session: { ...original, turns: [] } } : event))
   const live = await r.runtime.resumeSession(original.id, { cwd: r.dir })
+  resumeReplay.mock.restore()
   r.host.registry.upsert(original, live)
   const held = await r.read()
   assert.equal(held.createdAt, original.createdAt)

@@ -196,9 +196,12 @@ export const sessionMethods = {
     const runtime = ctx.runtimes.resolve(params)
     const session = await ctx.sessions.read(runtime, makeSessionId(params.sessionId))
     ctx.sessionIndex.reopen(session)
-    const record = ctx.registry.upsert(session, ctx.registry.get(session.runtime, session.id)?.live ?? null)
+    // The pending mark describes this client view, not a new writable fact.
+    // Folding it into the record would change the snapshot a protected retry owns.
+    const { historyPending, ...facts } = session
+    const record = ctx.registry.upsert(historyPending ? facts : session, ctx.registry.get(session.runtime, session.id)?.live ?? null)
     ctx.sessions.noteReconciled(record, session)
-    const read = record.session
+    const read = historyPending ? { ...record.session, historyPending: true } : record.session
     if (!record.live) await ctx.sessions.releaseBody({ runtime: read.runtime, sessionId: read.id })
     return read
   },

@@ -250,6 +250,7 @@ export class PendingTurnOverlay {
   #items: SymbolicItem[]
   #patch: Partial<Turn> = {}
   #metadataReplacement: Omit<Turn, 'items'> | null = null
+  #observedId: Turn['id'] | undefined
   #diff: FieldRef<Turn['diff']>
   #plan: FieldRef<Turn['plan']>
 
@@ -277,6 +278,8 @@ export class PendingTurnOverlay {
 
   apply(event: AgentEvent): void {
     const before = this.#shape.snapshot()
+    const addressed = event.type === 'turn/started' || event.type === 'turn/completed' ? event.turn.id : 'turnId' in event ? event.turnId : undefined
+    if (addressed && hint(addressed) === before.id) this.#observedId = addressed
     if (event.type === 'turn/started' || event.type === 'turn/completed') {
       if (hint(event.turn.id) !== before.id) return
       let selectedHints = before.items
@@ -381,6 +384,17 @@ export class PendingTurnOverlay {
   }
 
   shape() { return this.#shape.snapshot() }
+  /** Display only complete observed items; unknown base values cannot be invented. */
+  available(id = this.#observedId): Turn | null {
+    if (!id) return null
+    const items = this.#items.flatMap(symbol => {
+      if (!symbol.replacement || symbol.context && 'baseIndex' in symbol.context) return []
+      let item = symbol.deltas.apply(symbol.replacement)
+      if (symbol.noticePatch && item.type === 'notice') item = { ...item, ...symbol.noticePatch }
+      return [item]
+    })
+    return items.length ? { ...this.#metadataReplacement, ...this.#patch, id, status: this.#shape.snapshot().status, items } : null
+  }
   appendDerivedItem(item: AgentItem): void {
     this.#items.push({ baseIndex: null, replacement: item, deltas: new PendingItemDeltas(), context: null })
     this.#shape.append(item)
@@ -597,6 +611,18 @@ export class PendingSessionOverlay {
     const composite = migrated.length ? { ...shape, items: [...migrated.flatMap(entry => entry.overlay.shape().items), ...shape.items] } : shape
     this.#turns.push({ id: hint(turn.id), baseIndex: null, known: turn, migrated,
       overlay: new PendingTurnOverlay(composite, migrated.length ? null : desc.turnIdentities[0]!) })
+  }
+
+  /** A read projection only: this partial body can never authorize a write or release. */
+  available(base: Session): Session | null {
+    const turns = this.#turns.flatMap(turn => {
+      if (turn.known && !turn.migrated?.length) try { return [turn.overlay.materialize(turn.known)] } catch { /* Show only independent items below. */ }
+      const available = turn.overlay.available(turn.known?.id)
+      return available ? [available] : []
+    })
+    if (!turns.some(turn => turn.items.length)) return null
+    const result = { ...(this.#replacementSession ?? base), ...this.#patch, turns, itemsLoaded: true, partialHistory: true }
+    return this.#applyHostSeating ? seatedSession(result, this.#hostSeated) : result
   }
 
   materialize(base: Session): Session {

@@ -466,6 +466,8 @@ export interface Session {
   readonly worktreeWarning?: string
   /** Served from the desk because the agent’s own record is unavailable. */
   readonly deskCopy?: boolean
+  /** A faithful retained view while recent activity has not been safely saved. */
+  readonly historyPending?: boolean
   readonly itemsLoaded: boolean
   /**
    * The turns begin at a reopen that brought no history back — an agent that

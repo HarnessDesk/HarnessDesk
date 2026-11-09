@@ -7,6 +7,20 @@ the rule is the last line of its section.
 
 ---
 
+## A finished transcript item keeps what the desk observed — 2026-11-08
+
+Every ordinary read reconciles replay with the saved transcript, as recovery
+does. A final saved item survives a thinner or rewritten replay; a replay with
+a different status contributes no fields. With the same status, missing values
+may be filled and strings or arrays extended, but existing facts are kept.
+A running item accepts the runtime's finished version.
+
+This preserves recorded output at the cost of ignoring a runtime rewrite of a
+finished item, including a completed file change's diff. A later read cannot
+tell a correction from lossy reconstruction.
+
+**Rule:** preserve final saved facts; let the runtime finish running work.
+
 ## One host table says who work waits on — 2026-11-05
 
 Lead threads, ordinary chats and Teams carry a deterministic stage from the

@@ -905,6 +905,13 @@ it('shows one quiet copy notice using the agent presentation name', () => {
   expect(container.querySelector('[data-live-transcript]')?.textContent).toContain('Kept answer')
 })
 
+it('shows pending history with its retained answer and one quiet saving note', () => {
+  const one = session({ turns: [{ id: turnId('pending-turn'), status: 'completed', items: [{ id: itemId('pending-answer'), type: 'assistantMessage', text: 'Retained answer' }] }], ...({ historyPending: true } as Partial<Session>) })
+  render(rig(one).store)
+  expect(container.textContent?.split('Recent activity is still being saved.').length).toBe(2)
+  expect(container.querySelector('[data-live-transcript]')?.textContent).toContain('Retained answer')
+})
+
 it('Undo leaves the menu before asking, and Keep never rolls back', async () => {
   const store = harness.previewStore()
   const fixture = vi.spyOn(harness, 'previewStore').mockReturnValue(store)
