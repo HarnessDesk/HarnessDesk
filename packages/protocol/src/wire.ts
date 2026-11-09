@@ -814,6 +814,10 @@ export interface HostMethods {
   /** Start with the desk's ordinary runtime and settings; a project is a displayed, admitted name. */
   'workspace/session/start': { params: { readonly text: string; readonly project?: string; readonly agent?: string; readonly model?: string; readonly effort?: 'low' | 'medium' | 'high' | 'extra' }; result: { readonly id: string; readonly problem?: string } }
   'workspace/session/send': { params: { readonly id: string; readonly text: string }; result: { readonly queued?: boolean } }
+  'workspace/session/rename': { params: { readonly id: string; readonly title: string }; result: HostMethods['session/setTitle']['result'] }
+  'workspace/session/archive': { params: { readonly id: string; readonly archived: boolean }; result: HostMethods['session/archive']['result'] }
+  'workspace/session/pin': { params: { readonly id: string; readonly pinned: boolean }; result: null }
+  'workspace/session/delete': { params: { readonly id: string }; result: HostMethods['session/delete']['result'] }
   'workspace/stop': { params: { readonly id: string }; result: { readonly queued?: boolean } }
   /** One session's conversation for the phone: its words scrubbed, no command output, no lines of a change. */
   'workspace/thread/read': { params: { readonly id: string }; result: PhoneWorkThread }

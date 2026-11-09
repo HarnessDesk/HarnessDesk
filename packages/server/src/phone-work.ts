@@ -58,7 +58,7 @@ export interface PhoneWorkPorts {
 
 /** The controls the desk honours for a phone so far. The rest are left false, and the phone leaves them out. */
 const CAPABILITIES: PhoneWorkCapabilities = {
-  startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false,
+  startSession: true, startTeam: false, reply: true, stop: true, delete: true, rename: true, archive: true, pin: true, chooseModel: false, chooseAgent: false,
   choosePermissions: false, attach: false, undo: false, decide: true,
 }
 
@@ -247,6 +247,11 @@ export class PhoneWork {
     const runtime = runtimeId(id.slice(0, at)), session = makeSessionId(id.slice(at + 1))
     if (this.#ports.seatName(runtime) === null || !this.#ports.isOwn(runtime, session, includeArchived)) return refuse('That is not a session this desk can show.')
     return { runtime, session, key: `${runtime}:${session}` }
+  }
+
+  sessionAddress(id: string): { runtime: RuntimeId; sessionId: SessionId } {
+    const target = this.#target(id, true)
+    return { runtime: target.runtime, sessionId: target.session }
   }
 
   async threadRead(params: { id: string }, admit?: DispatchAdmission<string>): Promise<PhoneWorkThread> {

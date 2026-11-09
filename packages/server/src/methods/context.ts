@@ -154,7 +154,7 @@ export interface HostContext {
   /** Redacted, phone-sized projections of sessions, Teams and spend; what a paired phone may read of the desk's work. */
   readonly phoneWorkspace: Pick<import('../phone-workspace.js').PhoneWorkspace, 'sessionsList' | 'teamsList' | 'dashboardRead'>
   /** The phone's projected work, ordinary session controls and approval answers. */
-  readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'sessionsList' | 'sessionStart' | 'sessionSend' | 'stop' | 'threadRead' | 'approvalDecide' | 'teamWrap'>
+  readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'sessionsList' | 'sessionAddress' | 'sessionStart' | 'sessionSend' | 'stop' | 'threadRead' | 'approvalDecide' | 'teamWrap'>
   /** Person-owned controls, reachable from the window only. */
   readonly leadChatControl: {
     reset(): Promise<import('@harnessdesk/protocol').LeadChatControlList>

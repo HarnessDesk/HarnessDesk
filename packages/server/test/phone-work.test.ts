@@ -136,7 +136,7 @@ test('the snapshot says what the desk honours, in micro-dollars, with usage left
   const empty = await rig().work.snapshot()
   assert.deepEqual(empty, {
     deskName: 'Studio Mac', items: [], projects: [], models: [], agents: [{ id: String(RT), name: 'Agent A', models: [], default: true }], flows: [], commands: [], threads: [],
-    capabilities: { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true },
+    capabilities: { startSession: true, startTeam: false, reply: true, stop: true, delete: true, rename: true, archive: true, pin: true, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true },
   })
   assert.ok(!('usage' in empty))
   const usage = { spentToday: { micros: 1_250_000 } } as never
