@@ -369,11 +369,14 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       if (!restoring) await host.start()
       for (const [id, providerName] of (options.ordinaryChats ? [['rig-writer', 'synthetic-writer']] : [['rig-writer', 'synthetic-writer'], ['rig-reviewer', 'synthetic-reviewer']]) as readonly (readonly [string, string])[]) {
         const codexHome = join(home, id); await mkdir(codexHome, { recursive: true })
+        // The first write names its run. Step 2 starts from step 1's reviewed commit, and step 1 is not always
+        // repaired (a review that finds no finished check re-reviews the same commit), so the same bytes would
+        // leave step 2's writer nothing to commit and stall its Team.
         const runtime = new RigRuntime({ id: id as RuntimeId, name: id === 'rig-writer' ? 'Scripted writer' : 'Scripted reviewer', codexHome,
           binaryPath: join(root, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
           capabilities: new GatedRegistry(extensions!, () => host.ceilingGate),
           env: { ...(options.ordinaryChats ? { FAKE_CODEX_MODE: 'hold' } : {}), FAKE_CODEX_PROCESS_CALLS: workerLog, FAKE_CODEX_FLOW: options.ordinaryChats ? '' : JSON.stringify({ state: passes, gates, approvalLog: workerLog, passPerRun: true, reviewGateOnHead: options.checksBeforeReview === true, approvalBeforeWork: options.scenario === 'worker-approval', approvalCommand: options.workerApprovalCommand, steps: {
-            write: { kind: 'write', title: 'Implement the approved goal', outcomes: ['committed'], file: 'retry.txt', contents: 'Incomplete retry status list\n' },
+            write: { kind: 'write', title: 'Implement the approved goal', outcomes: ['committed'], file: 'retry.txt', contents: 'Incomplete retry status list for {{run}}\n' },
             repair: { kind: 'write', title: 'Repair the blocking findings and rerun required checks', outcomes: ['committed'], file: 'retry.txt', contents: options.publication ? 'Complete retry status list {{intent}}\n' : 'Complete retry status list\n' },
             ...(options.publication ? { followRepair: { kind: 'write', title: 'Repair the followed pull request', outcomes: ['committed'], file: 'retry.txt', contents: 'Followed retry status list {{intent}}\n' } } : {}),
             review: { kind: 'review', title: 'Check and review the committed result', outcomes: options.publication ? ['approve'] : ['request-changes', 'approve'] },
