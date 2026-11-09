@@ -924,3 +924,29 @@ export const parseLeadWakeRecord: Validator<LeadWakeRecord> = object({ id, at: i
 export const parseLeadWakeLog: Validator<LeadWakeLog> = object({ revision: integer(), wakes: list(parseLeadWakeRecord, 128, 0, wake => wake.id) })
 
 export const parseLeadApprovalRevoke: Validator<{ readonly id: string; readonly contractDigest: string }> = object({ id, contractDigest: digest })
+
+
+/** Counts of unarchived ordinary chats (Team seats excluded) and Teams, across the desk. */
+export interface LeadDeskCounts { readonly running: number; readonly needsYou: number; readonly idle: number }
+export interface LeadDeskTotals { readonly chats: LeadDeskCounts; readonly teams: LeadDeskCounts }
+/** Titles are untrusted data. Project is a display name, never a filesystem path. */
+export interface LeadDeskItem {
+  readonly id: string
+  readonly title: string
+  readonly project: string | null
+  readonly state: 'running' | 'needs-you' | 'idle'
+  readonly updatedAt: number
+  readonly kind: 'chat' | 'team'
+}
+export interface LeadDeskSummary {
+  readonly totals: LeadDeskTotals
+  readonly projects: readonly (LeadDeskTotals & { readonly project: string | null })[]
+  /** Newest first, default eight, at most twenty. */
+  readonly recent: readonly LeadDeskItem[]
+  /** All working items, including those outside recent. */
+  readonly running: readonly LeadDeskItem[]
+  /** Every attention item, including those outside recent. May overlap recent. */
+  readonly needsYou: readonly LeadDeskItem[]
+  /** Items outside the recent window, including any also listed in needsYou. */
+  readonly olderCount: number
+}

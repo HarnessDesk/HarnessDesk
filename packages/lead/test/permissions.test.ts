@@ -502,3 +502,11 @@ test('approved Team scope works before a first run and refuses other Team ids', 
     assert.equal(decide({ ...request(), method, params: other, runId: null }, c).effect, 'deny')
   }
 })
+
+
+test('desk summary is read-only without a selected project; chat listings still need one', () => {
+  const c = { ...context(), project: null, approved: null }
+  const r = { method: 'lead/desk/summary', params: {}, project: null, runId: null, start: null }
+  assert.equal(decide(r, c).effect, 'allow')
+  assert.equal(decide({ ...r, method: 'lead/chat/list' }, c).effect, 'deny')
+})

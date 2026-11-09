@@ -2,6 +2,7 @@ import { leadStage, isWaitingOnYou } from '@harnessdesk/protocol'
 import { teamLeadStage } from './work-stage.js'
 import {
   sessionIndexCursorOf, sessionLabel,
+  type LeadDeskSummary, type LeadDeskItem, type LeadStage,
   type GoalView, type LedgerQuery, type LedgerReport, type PhoneDashboard, type PhoneProjectShare, type PhoneRange, type PhoneSeatUsage,
   type PhoneSessionRow, type PhoneSessionsList, type PhoneSessionState, type PhoneTeamRow, type PhoneTeamsList, type PhoneTeamStage,
   type PhoneTeamStatus, type PhoneWorkAllowance, type PhoneWorkItem, type PhoneWorkPeriod, type PhoneWorkUsage, type PhoneWorkWorker,
@@ -191,6 +192,42 @@ export class PhoneWorkspace {
       cursor = page.nextCursor
     }
     return { rows, counts: this.#counts(liveSessions), next }
+  }
+
+  /** The same own-session index and host stages as Sessions, with no preview/message fallback. */
+  async deskSummary(params: { limit?: number }): Promise<LeadDeskSummary> {
+    const limit = clamp(params.limit, 8, 20)
+    const inputs = await this.#ports.teams()
+    const live = new Map(this.#ports.live().map(one => [keyOf(one.runtime, one.id), one]))
+    const items: LeadDeskItem[] = []
+    const stateOf = (stage: LeadStage): LeadDeskItem['state'] => isWaitingOnYou(stage) ? 'needs-you'
+      : stage === 'working' ? 'running' : 'idle'
+    let cursor: string | undefined
+    do {
+      const page = this.#ports.sessions.page({ archived: false, cursor, pageSize: 200 })
+      for (const { summary } of page.rows) items.push({
+        id: `${summary.runtime}:${summary.id}`, title: scrub(summary.title ?? '') || 'Untitled',
+        project: projectOf(summary), kind: 'chat', updatedAt: summary.updatedAt,
+        state: stateOf(this.#sessionStage(live.get(keyOf(summary.runtime, summary.id))).stage),
+      })
+      cursor = page.nextCursor ?? undefined
+    } while (cursor !== undefined)
+    for (const input of inputs) items.push({ id: input.view.goal.id, title: scrub(input.view.goal.sentence) || 'Untitled',
+      project: folderName(input.view.goal.root), kind: 'team', updatedAt: input.view.goal.updatedAt,
+      state: stateOf(workTeamStage(input).stage) })
+    const empty = () => ({ chats: { running: 0, needsYou: 0, idle: 0 }, teams: { running: 0, needsYou: 0, idle: 0 } })
+    const totals = empty(), projects = new Map<string | null, ReturnType<typeof empty>>()
+    // Mutate only local counters: returned fields are readonly to consumers.
+    for (const item of items) {
+      const project = projects.get(item.project) ?? empty()
+      projects.set(item.project, project)
+      const kind = item.kind === 'chat' ? 'chats' : 'teams', state = item.state === 'needs-you' ? 'needsYou' : item.state
+      for (const counts of [totals[kind], project[kind]]) counts[state]++
+    }
+    items.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+    return { totals, projects: [...projects].map(([project, counts]) => ({ project, ...counts }))
+      .sort((a, b) => (a.project ?? '').localeCompare(b.project ?? '')),
+      recent: items.slice(0, limit), running: items.filter(item => item.state === 'running'), needsYou: items.filter(item => item.state === 'needs-you'), olderCount: Math.max(0, items.length - limit) }
   }
 
   // --------------------------------------------------------------------- teams

@@ -49,8 +49,9 @@ const decision = (effect: LeadPermissionEffect, reason: string, rule: LeadPermis
 const deny = (reason: string, floor: LeadPermissionFloor): LeadPermissionDecision => ({ ...decision('deny', reason), floor })
 const record = (value: unknown): Readonly<Record<string, unknown>> =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
-// These two reads expose no project/run data. Collection reads must always be filtered.
-const deskWideReads = new Set(['client/hello', 'library/usage'])
+// Desk context and a read-only summary of titles and states, never transcripts.
+// Other collection reads remain filtered to the selected project.
+const deskWideReads = new Set(['client/hello', 'library/usage', 'lead/desk/summary'])
 const actionOf = (method: string, params: unknown): string | null =>
   Object.hasOwn(CLIENT_ACTION_TIERS, method) && typeof record(params).action === 'string' ? record(params).action as string : null
 // Canonical structural equality: property insertion order never changes authority.
@@ -127,7 +128,7 @@ const decideParsedPermission = (request: LeadPermissionRequest, context: LeadPer
       return deny('Team is outside the approved contract', 'scope')
     if (request.runId !== null && (context.approved === null || !context.approved.runIds.includes(request.runId)))
       return deny('Run is outside the approved contract', 'run')
-    // Listings are scoped to the selected project; single-run reads to the approved contract, intentionally.
+    // Detailed listings stay project-scoped; the desk summary exposes only titles and states.
     if (request.method === 'flow/preview' && (params.retry !== undefined || params.continues !== undefined))
       return deny('Lead previews cannot retry or continue another run', 'scope')
     if (tier === 'read') {

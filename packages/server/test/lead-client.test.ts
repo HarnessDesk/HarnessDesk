@@ -510,3 +510,10 @@ test('private Lead authority refuses repeat controls and allowance raises withou
   const authority = await createLeadClientAuthority({ project, owned: [], host: { async call() { throw new Error('No host effect is authorized') }, clientScopeViews: () => [] } as unknown as LeadClientAuthorityOptions['host'] })
   for (const method of ['lead/repeat/control', 'lead/budget/raise']) assert.equal(await authority.authorize({ id: 1, method, params: {} } as never), 'leadScope')
 })
+
+
+test('Lead client authority allows the title-only desk summary without widening chat reads', async t => {
+  const { authority } = await rig(t)
+  assert.equal(await authority.authorize({ id: 1, method: 'lead/desk/summary', params: {} }), null)
+  assert.equal(await authority.authorize({ id: 2, method: 'lead/chat/read', params: { id: 'fixture:foreign' } }), 'leadScope')
+})

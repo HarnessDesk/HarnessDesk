@@ -603,3 +603,47 @@ test('queued sessions count as neither running nor done', async () => {
     assert.equal(f.workspace.sessionsList({}).counts.done, 0, 'a changed index cannot make done negative')
   } finally { await f.done() }
 })
+
+
+test('Lead summary counts every project, keeps old attention items, and bounds only recents', async () => {
+  const f = await fixture()
+  try {
+    for (const project of ['alpha', 'beta']) {
+      const root = `/workspace/${project}`
+      f.db.prepare('INSERT INTO repos(cwd, repo_root, origin_url, worktree, "exists", checked_at) VALUES (?,?,NULL,0,1,0)').run(root, root)
+      for (let n = 0; n < 15; n++) f.index.upsert(summary(`${project}-${n}`, {
+        title: n === 0 ? `Build ${root}/src/main.ts` : `Task ${project} ${n}`, cwd: root,
+        preview: HOSTILE.transcript, updatedAt: NOW - n * HOUR,
+      }), { archived: false })
+    }
+    f.index.upsert(summary('team-seat'), { archived: false, teamId: 'old-team' })
+    f.index.upsert(summary('archived'), { archived: true })
+    f.live = [{ runtime: agent, id: sessionId('alpha-0'), running: true, waiting: false, cost: null }]
+    const old = team('old-team', { activity: 'needs-you', updatedAt: NOW - 1000 * HOUR })
+    f.teams = [{ ...old, view: { ...old.view, goal: { ...old.view.goal, root: '/workspace/beta' } } }]
+    // Dynamic lookup permits the missing feature to fail as an assertion before its contract exists.
+    const summarize = (f.workspace as unknown as { deskSummary?: (params: { limit?: number }) => Promise<any> }).deskSummary
+    assert.equal(typeof summarize, 'function', 'a desk-wide projection must exist')
+    const result = await summarize!.call(f.workspace, { limit: 2 })
+    assert.deepEqual(result.totals, { chats: { running: 1, needsYou: 0, idle: 29 }, teams: { running: 0, needsYou: 1, idle: 0 } })
+    assert.deepEqual(result.projects, [
+      { project: 'alpha', chats: { running: 1, needsYou: 0, idle: 14 }, teams: { running: 0, needsYou: 0, idle: 0 } },
+      { project: 'beta', chats: { running: 0, needsYou: 0, idle: 15 }, teams: { running: 0, needsYou: 1, idle: 0 } },
+    ])
+    assert.equal(result.recent.length, 2)
+    assert.equal(result.olderCount, 29)
+    assert.deepEqual(result.needsYou, [{ id: 'old-team', title: 'Ship the importer', project: 'beta', state: 'needs-you', kind: 'team', updatedAt: NOW - 1000 * HOUR }])
+    assert.ok(result.recent[0].updatedAt >= result.recent[1].updatedAt)
+    assert.equal((await summarize!.call(f.workspace, {})).recent.length, 8)
+    assert.equal((await summarize!.call(f.workspace, { limit: 100 })).recent.length, 20)
+    assert.equal(JSON.stringify(result).includes(HOSTILE.transcript), false)
+    assert.equal(JSON.stringify(result).includes('/workspace/'), false)
+    assert.deepEqual(Object.keys(result.recent[0]).sort(), ['id', 'kind', 'project', 'state', 'title', 'updatedAt'])
+    const phone = await f.workspace.workItems(100)
+    assert.equal(phone.filter(item => item.stage === 'working').length, result.totals.chats.running + result.totals.teams.running)
+    assert.equal(phone.filter(item => item.stage?.startsWith('you-')).length, result.needsYou.length)
+    const wired = await dispatch({ leadDeskSummary: (params: { limit?: number }) => summarize!.call(f.workspace, params) } as unknown as HostContext,
+      'lead/desk/summary' as never, { limit: 2 } as never)
+    assert.deepEqual(wired, result)
+  } finally { await f.done() }
+})

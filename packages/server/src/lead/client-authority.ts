@@ -48,6 +48,8 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
     authorize: async request => {
       try {
         if (clientTierFor(request.method, request.params) === 'answer') return 'tierNotGranted'
+        // This projection contains only desk-wide titles and states, even if the pinned folder vanished.
+        if (request.method === 'lead/desk/summary') return null
         // Re-resolve the pinned location, including on reads, rather than allowing
         // a renamed/deleted project to be replaced by a new alias at dispatch.
         if (!await inProject(project)) return 'leadScope'
