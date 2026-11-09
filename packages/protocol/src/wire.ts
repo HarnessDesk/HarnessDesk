@@ -830,6 +830,8 @@ export interface HostMethods {
    * The desk writes the receipt from the cards; anything that needs a choice is refused and stays on the desk.
    */
   'workspace/team/wrap': { params: { readonly team: string }; result: Record<string, never> }
+  /** Cached account allowance without identities or vendor refreshes. */
+  'lead/usage/summary': { params: Record<string, never>; result: import('./lead.js').LeadUsageSummary }
   /** Desk-wide titles and host states only; never grants cross-project transcript access. */
   'lead/desk/summary': {
     params: { readonly limit?: number }

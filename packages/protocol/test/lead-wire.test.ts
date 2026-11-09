@@ -7,7 +7,7 @@ const chatNames = ['lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
 test('the closed Lead window controls validate and none is on the client surface', () => {
-  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary'].sort())
+  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary'].sort())
   for (const name of names) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false)
   for (const name of ['lead/wakes/read', 'lead/thread/read', 'lead/settings/read']) assert.doesNotThrow(() => request(name, {}))
   assert.doesNotThrow(() => request('lead/thread/send', { idempotencyKey: 'send-1', text: 'Inspect the check' }))
@@ -106,4 +106,9 @@ test('desk summary accepts only a bounded whole recent limit', () => {
   for (const limit of [0, -1, 21, 1.5, '8', null])
     assert.throws(() => request('lead/desk/summary', { limit }), { name: 'ValidationError' })
   assert.throws(() => request('lead/desk/summary', { root: '/workspace/other' }), { name: 'ValidationError' })
+})
+
+test('allowance summary accepts only empty params', () => {
+  assert.doesNotThrow(() => request('lead/usage/summary', {}))
+  assert.throws(() => request('lead/usage/summary', { refresh: true }), { name: 'ValidationError' })
 })

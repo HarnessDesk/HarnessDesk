@@ -13,9 +13,9 @@ import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
 /** A real host over a fake agent and an index seeded the way a desk's own is, asked the phone's way. */
-const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?: boolean) => {
+const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?: boolean, metered = false) => {
   const root = tempDir('hd-phone-host-')
-  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt, ...(startTimes === undefined ? {} : { startTimes }) } })
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt, metered, ...(startTimes === undefined ? {} : { startTimes }) } })
   const row = (id: string, over: Partial<SessionSummary>): SessionSummary =>
     ({ runtime: runtime.info.id, id: sessionId(id), title: id, cwd: join(root, 'acme-api'), createdAt: 10, updatedAt: 20, status: { type: 'notLoaded' }, archived: false, ...over })
   const index = new SessionIndex(join(root, 'sessions.sqlite'))
@@ -432,4 +432,17 @@ test('a phone offers the admitted projects to start in, never a folder the host 
   const snapshot = await phoneCall(host, 'workspace/read', {})
   assert.deepEqual(snapshot.projects, ['acme-api'])
   assert.ok(!JSON.stringify(snapshot.projects).includes(root))
+})
+
+test('Lead allowance uses only cached Dashboard reports and never asks a runtime', async t => {
+  const { host, runtime } = await desk(t, false, true, undefined, true)
+  // Populate the same cache the Dashboard uses, through a scripted runtime only.
+  await host.call('usage/reports', {})
+  let calls = 0
+  runtime.getRateLimits = async () => { calls++; throw new Error('Lead must not refresh allowance') }
+  const result = await host.call('lead/usage/summary', {})
+  assert.equal(calls, 0)
+  assert.equal(typeof result.asOf, 'number')
+  assert.equal(result.accounts.length, 1)
+  assert.equal(result.accounts[0]!.windows[0]!.remaining, 42)
 })

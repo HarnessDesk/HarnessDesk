@@ -1,3 +1,4 @@
+import { WireCallError } from '@harnessdesk/client'
 import { leadToolDefinitions, parseLeadToolCall, LeadToolFencedError, LeadToolRefusedError } from './tools.js'
 import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
   type LeadAsk, type LeadProactive, parseLeadAsk, parseLeadProactiveOutput, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
@@ -361,14 +362,14 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       safeJson(output)
     } catch { return { status: 'invalid-response', reason: 'lead-messages-output', usage: used } }
     const uses = content.flatMap((use, index) => use.type === 'tool_use' ? [{ use, index }] : [])
-    const results: MessagesToolResult[] = uses.map(({ use }) => ({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: 'Tool refused' }))
+    const results: MessagesToolResult[] = uses.map(({ use }) => ({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: 'Tool was not permitted: tool or arguments are outside the allowed API.' }))
     const continuation: MessagesTurn[] = [...messages, { role: 'assistant', content }, ...(results.length ? [{ role: 'user' as const, content: results }] : [])]
     const bytes = (text: string) => new TextEncoder().encode(text).byteLength
-    const predecessorRefusal = (index: number) => `Step ${index} is not yet awaiting acceptance; wait for desk activity.`
-    const terminalRefusal = (index: number, reason: string) => `Step ${index + 1} cannot start: step ${index}'s result ${reason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`
-    // A preceding read cannot consume the space needed to explain a later start refusal.
-    const refusalSpace = Math.max(...[predecessorRefusal(LEAD_LIMITS.steps), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unavailable'), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unverifiable')].map(text => bytes(json(text)))) - bytes(json('Tool refused'))
-    const reserved = uses.map(({ use }) => use.name === 'flow_start_goal' ? refusalSpace : 0)
+    const predecessorRefusal = (index: number) => `Tool was not permitted: step ${index} is not yet awaiting acceptance; wait for desk activity.`
+    const terminalRefusal = (index: number, reason: string) => `Tool was not permitted: step ${index + 1} cannot start: step ${index}'s result ${reason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`
+    // Reserve short diagnostics for every call, including a later start refusal after a large read.
+    const refusalSpace = Math.max(...[predecessorRefusal(LEAD_LIMITS.steps), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unavailable'), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unverifiable')].map(text => bytes(json(text)))) - bytes(json('Tool was not permitted: tool or arguments are outside the allowed API.'))
+    const reserved = uses.map(({ use }) => Math.max(512, use.name === 'flow_start_goal' ? refusalSpace : 0))
     let available: number
     try {
       // Leave room for the next request's fixed tools/model/system wrapper too.
@@ -394,6 +395,22 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
               catch (error) { dispatchError = error; throw error }
             })
           if (executed.decision.effect !== 'allow') permissionDeniedTools.push(use.id)
+          // Gate reasons are policy facts. Dispatch exceptions are not refusals and raw exceptions may contain secrets.
+          const errorText = executed.decision.effect !== 'allow'
+            ? `Tool was not permitted: ${executed.decision.rule ? `${executed.decision.rule.layer} policy rule refused this operation.` : executed.decision.reason.slice(0, 240)}`
+            : executed.outcome === 'uncertain'
+              ? 'Tool failed: completion could not be confirmed; inspect before retrying.'
+            : dispatchError instanceof LeadToolFencedError
+              ? 'Tool failed: desk activity changed; read fresh state.'
+              : dispatchError instanceof WireCallError && dispatchError.code === 'leadScope'
+                ? 'Tool failed: the selected project access check failed.'
+                : 'Tool failed: the desk request could not complete.'
+          if (executed.outcome !== 'succeeded') {
+            const result = { ...results[position]!, content: errorText }
+            available -= bytes(json(result)) - bytes(json(results[position]))
+            results[position] = result
+          }
+
           if (executed.outcome === 'denied' && ['lead-predecessor-unavailable', 'lead-predecessor-unverifiable'].includes(executed.decision.reason)) {
             predecessorReason = executed.decision.reason
             const index = journal.state.contract?.steps.findIndex(step => step.id === scope.stepId) ?? 0
@@ -425,7 +442,12 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
           }
         } catch (error) {
           if (error instanceof LeadToolFencedError) transientTools.push(use.id)
-          // Static correlated error: no raw exception, argument or credential is echoed.
+          const result = { ...results[position]!, content: error instanceof LeadToolRefusedError
+            ? 'Tool was not permitted: tool or arguments are outside the allowed API.'
+            : 'Tool failed: the desk request could not complete.' }
+          available -= bytes(json(result)) - bytes(json(results[position]))
+          results[position] = result
+          // No raw exception, argument or credential is echoed.
         }
       }
     }

@@ -5544,6 +5544,11 @@ export class Host {
       },
       leadChats: { list: params => this.leadChats.list(params), read: params => this.leadChats.read(params),
         start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
+      // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
+      leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary([...this.#runtimes.values()].flatMap(runtime => {
+        const report = this.#usageService.cached(runtime.info.id)
+        return report ? [report] : []
+      })),
       leadDeskSummary: params => this.#phoneWorkspaceView().deskSummary(params),
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       leadThreadSend: async (params) => (await this.#leadWindow()).send(params),

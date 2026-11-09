@@ -952,3 +952,43 @@ export interface LeadDeskSummary {
   /** Items outside the recent window, including any also listed in needsYou. */
   readonly olderCount: number
 }
+
+/** Allowance only, projected field by field from cached Dashboard reports. No account identifiers. */
+export interface LeadUsageWindow {
+  readonly label: string
+  readonly kind: '5h' | 'weekly' | 'monthly' | 'window' | 'allowance' | 'balance'
+  readonly unlimited?: boolean
+  readonly windowMinutes: number | null
+  readonly remainingPercent: number | null
+  readonly remaining: number | null
+  readonly unit: string | null
+  /** Absolute epoch milliseconds, never relative text. */
+  readonly resetsAt: number | null
+  readonly reached: boolean
+  readonly projection: {
+    readonly kind: 'runs-out' | 'lasts-to-reset'
+    readonly at: number
+    readonly basis: 'average consumption since window start'
+    readonly since: number
+    readonly asOf: number
+  } | null
+}
+export interface LeadUsageSummary {
+  readonly asOf: number
+  /** Totals by presentation name, including running agents with no cached allowance. */
+  readonly runtimes: readonly { readonly name: string; readonly runningSessions: number }[]
+  readonly accounts: readonly {
+    readonly runtime: string
+    /** Presentation name, plan, and ordinal when several accounts share a name. */
+    readonly label: string
+    readonly plan: string | null
+    /** Desk-wide runtime total; repeated accounts do not divide or multiply it. */
+    readonly runningSessions: number
+    readonly windows: readonly LeadUsageWindow[]
+    readonly reached: boolean
+    readonly fetchedAt: number
+    readonly stale: boolean
+    readonly error: string | null
+    readonly spend: { readonly currency: string; readonly today: number | null; readonly last30Days: number | null; readonly provenance: import('./usage.js').SpendProvenance } | null
+  }[]
+}

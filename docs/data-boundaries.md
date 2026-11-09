@@ -153,7 +153,14 @@ Chat reads are bounded to 12,000 serialized bytes, with separate counts for
 omitted raw source turns (`omittedSourceTurns`) and projected phone entries
 (`omittedPhoneEntries`); partial text still sets `truncated`. The phone wire
 does not serialize this projection metadata.
-Only ordinary sessions in the selected canonical project are available; Team
+Desk-wide read-only tools can also send summary counts, titles, project display
+names and states across every project, plus cached account allowance windows,
+balances, reset/run-out timestamps and their basis, freshness/errors, running
+session totals and cached spend. Allowance is projected field by field from the
+Dashboard cache without requesting a vendor refresh; account addresses,
+identifiers and credentials are omitted. Accounts share a presentation name and
+are distinguished by plan and ordinal. Skill-use counts are a separate read.
+For transcript reads and chat actions, only ordinary sessions in the selected canonical project are available; Team
 seats and other projects are refused. Chat state notifications contain ids and
 state, not transcript bytes. Ordinary delegated chats use the desk's saved session
 permissions and their agent's existing connection and spend. Provider credentials stay in the

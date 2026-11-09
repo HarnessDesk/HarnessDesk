@@ -234,10 +234,10 @@ test('Lead project lists and subscriptions agree with ownership-scoped single re
   assert.equal(peer.messages.slice(after).some(frame => frame.method === 'flow/execution-changed' && frame.params.execution.id === unrelated.id), false)
 })
 
-test('Lead refuses desk-wide library usage', async t => {
+test('Lead can dispatch desk-wide skill counts after permission admission', async t => {
   const { peer } = await rig(t)
   await peer.hello()
-  assert.equal((await peer.call('library/usage', {})).error?.code, 'leadScope')
+  assert.equal((await peer.call('library/usage', {})).ok, true)
 })
 
 test('Lead library definitions require the approved canonical project cwd', async t => {

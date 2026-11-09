@@ -1,40 +1,39 @@
 import type { ClientMethodName } from '@harnessdesk/protocol'
 
-/** Human vocabulary for the closed client surface. Raw methods remain hover facts. */
-export const PERMISSION_LABELS = {
-  'lead/desk/summary': 'Read the desk summary',
-  'lead/chat/list': 'List project chats', 'lead/chat/read': 'Read a project chat', 'lead/chat/start': 'Start a project chat',
-  'lead/chat/send': 'Message a project chat', 'lead/chat/stop': 'Stop a project chat',
-  'client/hello': 'Connect to the desk', 'client/subscribe': 'Watch desk activity', 'session/loadout': 'Read conversation context',
-  'attachment/seat': 'Read worker attachments', 'goal/list': 'List Teams', 'goal/read': 'Read a Team', 'team/intent': 'Update a Team',
-  'flow/catalog': 'Browse Flows', 'flow/source': 'Read a Flow', 'flow/preview': 'Preview a run', 'flow/start-goal': 'Start a run',
-  'workspace/open': 'Open a project', 'flow/execution': 'Read a run', 'flow/execution/stop': 'Stop a run', 'flow/executions': 'List runs',
-  'finding/run': 'Read run findings', 'finding/list': 'List findings', 'evidence/board': 'Read board evidence', 'evidence/seat': 'Read worker evidence',
-  'insight/goal': 'Read Team insights', 'library/read': 'Browse the library', 'library/definition': 'Read a library item', 'library/usage': 'Count skill use',
-} satisfies Record<ClientMethodName, string>
-
-/** One vocabulary for host-observed desk operations; unknown calls stay Thinking. */
-export const LEAD_ACTIVITY_LABELS: Readonly<Record<string, string>> = {
-  'lead/desk/summary': 'Reading the desk',
-  'lead/chat/list': 'Finding chats',
-  'lead/chat/read': 'Reading a chat',
-  'lead/chat/start': 'Starting a chat',
-  'lead/chat/send': 'Messaging a chat',
-  'lead/chat/stop': 'Stopping a chat',
-  'flow/catalog': 'Finding workflows',
-  'flow/source': 'Reading a workflow',
-  'flow/preview': 'Checking the plan',
-  'flow/start-goal': 'Starting work',
-  'flow/execution': 'Checking work',
-  'flow/execution/stop': 'Stopping work',
-  'flow/executions': 'Checking runs',
-  'goal/list': 'Finding Teams',
-  'goal/read': 'Reading a Team',
-  'insight/goal': 'Checking a Team',
-  'evidence/board': 'Reading the board',
-  'evidence/seat': 'Checking a worker',
-  'library/usage': 'Counting skill use',
+/** One human vocabulary for permission cards and host-observed activity. Unknown calls stay Thinking. */
+const LEAD_METHOD_LABELS: Readonly<Record<ClientMethodName, { readonly permission: string; readonly activity?: string }>> = {
+  'lead/usage/summary': { permission: 'Read account allowance', activity: 'Checking what is left' },
+  'lead/desk/summary': { permission: 'Read the desk summary', activity: 'Reading the desk' },
+  'lead/chat/list': { permission: 'List project chats', activity: 'Finding chats' },
+  'lead/chat/read': { permission: 'Read a project chat', activity: 'Reading a chat' },
+  'lead/chat/start': { permission: 'Start a project chat', activity: 'Starting a chat' },
+  'lead/chat/send': { permission: 'Message a project chat', activity: 'Messaging a chat' },
+  'lead/chat/stop': { permission: 'Stop a project chat', activity: 'Stopping a chat' },
+  'client/hello': { permission: 'Connect to the desk' },
+  'client/subscribe': { permission: 'Watch desk activity' },
+  'session/loadout': { permission: 'Read conversation context' },
+  'attachment/seat': { permission: 'Read worker attachments' },
+  'goal/list': { permission: 'List Teams', activity: 'Finding Teams' },
+  'goal/read': { permission: 'Read a Team', activity: 'Reading a Team' },
+  'team/intent': { permission: 'Update a Team' },
+  'flow/catalog': { permission: 'Browse Flows', activity: 'Finding workflows' },
+  'flow/source': { permission: 'Read a Flow', activity: 'Reading a workflow' },
+  'flow/preview': { permission: 'Preview a run', activity: 'Checking the plan' },
+  'flow/start-goal': { permission: 'Start a run', activity: 'Starting work' },
+  'workspace/open': { permission: 'Open a project' },
+  'flow/execution': { permission: 'Read a run', activity: 'Checking work' },
+  'flow/execution/stop': { permission: 'Stop a run', activity: 'Stopping work' },
+  'flow/executions': { permission: 'List runs', activity: 'Checking runs' },
+  'finding/run': { permission: 'Read run findings' },
+  'finding/list': { permission: 'List findings' },
+  'evidence/board': { permission: 'Read board evidence', activity: 'Reading the board' },
+  'evidence/seat': { permission: 'Read worker evidence', activity: 'Checking a worker' },
+  'insight/goal': { permission: 'Read Team insights', activity: 'Checking a Team' },
+  'library/read': { permission: 'Browse the library' },
+  'library/definition': { permission: 'Read a library item' },
+  'library/usage': { permission: 'Count skill use', activity: 'Counting skill use' },
 }
-
+export const PERMISSION_LABELS = Object.fromEntries(Object.entries(LEAD_METHOD_LABELS)
+  .map(([method, labels]) => [method, labels.permission])) as Record<ClientMethodName, string>
 export const leadActivityLabel = (method?: string | null): string =>
-  method && Object.hasOwn(LEAD_ACTIVITY_LABELS, method) ? LEAD_ACTIVITY_LABELS[method]! : 'Thinking'
+  method && Object.hasOwn(LEAD_METHOD_LABELS, method) ? LEAD_METHOD_LABELS[method as ClientMethodName].activity ?? 'Thinking' : 'Thinking'

@@ -1300,7 +1300,7 @@ account name shown, and the per-account cap tightens from three windows to two
 so the band stays a row of comparable charts rather than a list.
 
 Everything on it comes from one value. `burn(lane, now)` in
-[`lib/burn.ts`](../packages/ui/src/lib/burn.ts) returns the geometry — elapsed,
+[`protocol/usage-burn.ts`](../packages/protocol/src/usage-burn.ts) returns the geometry — elapsed,
 left, the ideal, the margin, the slope, where the projection ends and whether
 it reaches the floor — and `pace()` is now a presenter over it rather than a
 second calculation. Those four coordinates were always computed; they were

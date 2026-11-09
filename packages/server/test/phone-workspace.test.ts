@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { PhoneSim } from '@harnessdesk/phone-link/sim'
-import { runtimeId, sessionId, type GoalView, type LedgerQuery, type LedgerReport, type PhoneTier, type PhoneWorkAllowance, type SessionSummary, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, burn, type GoalView, type LedgerQuery, type LedgerReport, type PhoneTier, type PhoneWorkAllowance, type SessionSummary, type UsageReport } from '@harnessdesk/protocol'
 import { Logger } from '../src/log.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { phoneLinkOff, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
@@ -645,5 +645,70 @@ test('Lead summary counts every project, keeps old attention items, and bounds o
     const wired = await dispatch({ leadDeskSummary: (params: { limit?: number }) => summarize!.call(f.workspace, params) } as unknown as HostContext,
       'lead/desk/summary' as never, { limit: 2 } as never)
     assert.deepEqual(wired, result)
+  } finally { await f.done() }
+})
+
+test('Lead allowance is private, cached, account-distinct and counts running chats across projects', async () => {
+  const f = await fixture()
+  try {
+    for (const [id, cwd] of [['alpha-chat', '/workspace/alpha'], ['beta-chat', '/workspace/beta']] as const) {
+      f.index.upsert(summary(id, { cwd }))
+      f.live.push({ runtime: agent, id: sessionId(id), running: true, waiting: false, cost: null })
+    }
+    // Neither archived chats nor Team seats are ordinary running chats in desk_summary.
+    for (const id of ['archived', 'team-seat']) {
+      f.index.upsert(summary(id), id === 'archived' ? { archived: true } : { teamId: 'team-1' })
+      f.live.push({ runtime: agent, id: sessionId(id), running: true, waiting: false, cost: null })
+    }
+    const lane = { id: 'session', label: '5-hour', usedPercent: 80, windowMinutes: 300, resetsAt: NOW + 2 * HOUR }
+    const reports = [report('dev@example.com', { lanes: [lane], credits: { remaining: 12, unit: 'USD' },
+      spend: { currency: 'USD', todayCost: 2, windowCost: 30, windowDays: 30, provenance: 'listPrice' } as UsageReport['spend'] }),
+      report('Jane Doe', { planLabel: 'Team', fetchedAt: NOW - HOUR, reached: 'session',
+        error: { message: `Jane Doe dev@example.com: API_KEY=${HOSTILE.token} failed` } })]
+    Object.assign(reports[0]!, { apiKey: HOSTILE.token, userName: 'Jane Doe' })
+    // Ignore the normal reports port: Lead passes already cached reports explicitly.
+    f.reports = [report('not a cached account')]
+    const result = await f.workspace.usageSummary(reports)
+    assert.deepEqual(result.runtimes, [{ name: 'Fake Agent', runningSessions: 2 }])
+    assert.equal(result.accounts[0]!.runningSessions, (await f.workspace.deskSummary({})).totals.chats.running)
+    assert.deepEqual(result.accounts.map(account => account.label), ['Fake Agent · Pro · account 1', 'Fake Agent · Team · account 2'])
+    assert.deepEqual(result.accounts.map(account => [account.stale, account.reached]), [[false, false], [true, true]])
+    assert.match(result.accounts[1]!.error!, /failed/)
+    const text = JSON.stringify(result)
+    for (const forbidden of ['@', 'Jane Doe', HOSTILE.token, 'not a cached account']) assert.equal(text.includes(forbidden), false, forbidden)
+    const window = result.accounts[0]!.windows[0]!
+    assert.equal(window.remainingPercent, 20)
+    assert.equal(window.kind, '5h')
+    assert.deepEqual(window.projection, { kind: 'runs-out', at: NOW + 0.75 * HOUR,
+      basis: 'average consumption since window start', since: NOW - 3 * HOUR, asOf: NOW })
+    assert.equal(window.projection!.at, NOW + burn(lane, NOW)!.etaMs!)
+    assert.equal(result.accounts[1]!.windows[0]!.projection, null, 'failed readings cannot forecast')
+    assert.deepEqual(result.accounts[0]!.spend, { currency: 'USD', today: 2, last30Days: 30, provenance: 'listPrice' })
+    assert.equal(result.accounts[0]!.windows[1]!.kind, 'balance')
+    assert.equal(result.accounts[0]!.windows[1]!.remaining, 12)
+    assert.equal(result.accounts[0]!.windows[1]!.resetsAt, null)
+    const wired = await dispatch({ leadUsageSummary: () => f.workspace.usageSummary(reports) } as unknown as HostContext,
+      'lead/usage/summary', {})
+    assert.deepEqual(wired, result)
+  } finally { await f.done() }
+})
+
+test('Lead allowance keeps unknown figures unknown and shares the Dashboard lasts-to-reset projection', async () => {
+  const f = await fixture()
+  try {
+    const value = report('dev@example.com', { credits: { remaining: null, unit: 'USD', unlimited: true }, lanes: [
+      { id: 'weekly', label: 'Weekly', usedPercent: 20, windowMinutes: 10080, resetsAt: NOW + 84 * HOUR },
+      { id: 'monthly', label: 'Monthly', usedPercent: 60, used: 60, limit: 100, unit: 'requests', windowMinutes: 43200, resetsAt: NOW + 240 * HOUR },
+      { id: 'unknown', label: 'Unknown', usedPercent: 0, usageKnown: false, windowMinutes: null, resetsAt: null },
+    ] })
+    const result = await f.workspace.usageSummary([value])
+    assert.equal(result.accounts[0]!.windows[0]!.projection?.kind, 'lasts-to-reset')
+    assert.equal(result.accounts[0]!.windows[0]!.projection?.at, NOW + 84 * HOUR)
+    assert.equal(result.accounts[0]!.windows[1]!.remaining, 40)
+    assert.equal(result.accounts[0]!.windows[1]!.kind, 'monthly')
+    assert.equal(result.accounts[0]!.windows[2]!.remainingPercent, null)
+    assert.equal(result.accounts[0]!.windows[2]!.projection, null)
+    assert.equal(result.accounts[0]!.spend, null)
+    assert.equal(result.accounts[0]!.windows[3]!.unlimited, true)
   } finally { await f.done() }
 })

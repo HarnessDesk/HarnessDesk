@@ -852,6 +852,11 @@ it('keeps a working turn after send, maps host activity, and replaces it with th
   expect(working.textContent).toContain('Reading the desk')
   expect(working.textContent).toContain('6s')
   expect(working.textContent).not.toContain('lead/desk/summary')
+  for (const [method, label] of [['library/usage', 'Counting skill use'], ['lead/usage/summary', 'Checking what is left']]) {
+    await update({ requestInFlight: true, thread: { ...base.thread, messages: [goalMessage] }, activity: { since: Date.now() - 6000, method } } as any)
+    expect(working.textContent).toContain(label)
+    expect(working.textContent).not.toContain(method)
+  }
   const avatar = working.closest('article')!.querySelector('[data-slot="lead-avatar"]')
   const stop = vi.spyOn(store.lead, 'stop').mockResolvedValue(undefined as never)
   await act(async () => [...working.querySelectorAll('button')].find(node => node.textContent === 'Stop')!.click())

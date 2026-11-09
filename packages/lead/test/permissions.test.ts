@@ -510,3 +510,8 @@ test('desk summary is read-only without a selected project; chat listings still 
   assert.equal(decide(r, c).effect, 'allow')
   assert.equal(decide({ ...r, method: 'lead/chat/list' }, c).effect, 'deny')
 })
+
+test('allowance summary is a desk-wide read with no selected project', () => {
+  const c = { ...context(), project: null, approved: null }
+  assert.equal(decide({ method: 'lead/usage/summary', params: {}, project: null, runId: null, start: null }, c).effect, 'allow')
+})

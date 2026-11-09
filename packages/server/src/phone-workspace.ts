@@ -1,8 +1,8 @@
-import { leadStage, isWaitingOnYou } from '@harnessdesk/protocol'
+import { burn, remainingOf, leadStage, isWaitingOnYou } from '@harnessdesk/protocol'
 import { teamLeadStage } from './work-stage.js'
 import {
   sessionIndexCursorOf, sessionLabel,
-  type LeadDeskSummary, type LeadDeskItem, type LeadStage,
+  type LeadUsageSummary, type LeadUsageWindow, type LeadDeskSummary, type LeadDeskItem, type LeadStage,
   type GoalView, type LedgerQuery, type LedgerReport, type PhoneDashboard, type PhoneProjectShare, type PhoneRange, type PhoneSeatUsage,
   type PhoneSessionRow, type PhoneSessionsList, type PhoneSessionState, type PhoneTeamRow, type PhoneTeamsList, type PhoneTeamStage,
   type PhoneTeamStatus, type PhoneWorkAllowance, type PhoneWorkItem, type PhoneWorkPeriod, type PhoneWorkUsage, type PhoneWorkWorker,
@@ -228,6 +228,72 @@ export class PhoneWorkspace {
     return { totals, projects: [...projects].map(([project, counts]) => ({ project, ...counts }))
       .sort((a, b) => (a.project ?? '').localeCompare(b.project ?? '')),
       recent: items.slice(0, limit), running: items.filter(item => item.state === 'running'), needsYou: items.filter(item => item.state === 'needs-you'), olderCount: Math.max(0, items.length - limit) }
+  }
+
+  /** Cached Dashboard reports only. Runtime activity uses the same own-session index and stages as deskSummary. */
+  async usageSummary(reports: readonly UsageReport[]): Promise<LeadUsageSummary> {
+    const now = this.#ports.now()
+    const live = new Map(this.#ports.live().map(one => [keyOf(one.runtime, one.id), one]))
+    // Free text may repeat an account identity; redact known identities before the path/address/key scrub.
+    const identities = reports.flatMap(report => report.account ? [report.account] : [])
+    const safe = (text: string): string => scrub(identities.reduce((value, identity) => value.split(identity).join('…'), text), 400)
+    const names = new Map<RuntimeId, string>()
+    const running = new Map<string, number>()
+    const nameOf = (runtime: RuntimeId) => {
+      const name = names.get(runtime) ?? safe(this.#ports.seatName(runtime) ?? 'Agent')
+      names.set(runtime, name)
+      if (!running.has(name)) running.set(name, 0)
+      return name
+    }
+    let cursor: string | undefined
+    do {
+      const page = this.#ports.sessions.page({ archived: false, cursor, pageSize: 200 })
+      for (const { summary } of page.rows) {
+        const name = nameOf(summary.runtime)
+        if (this.#sessionStage(live.get(keyOf(summary.runtime, summary.id))).stage === 'working')
+          running.set(name, running.get(name)! + 1)
+      }
+      cursor = page.nextCursor ?? undefined
+    } while (cursor !== undefined)
+    const totals = new Map<string, number>(), ordinals = new Map<string, number>()
+    for (const report of reports) { const name = nameOf(report.runtime); totals.set(name, (totals.get(name) ?? 0) + 1) }
+    const accounts = reports.map(report => {
+      const runtime = nameOf(report.runtime), ordinal = (ordinals.get(runtime) ?? 0) + 1
+      ordinals.set(runtime, ordinal)
+      const plan = report.planLabel ?? report.plan
+      const windows: LeadUsageWindow[] = report.lanes.map(lane => {
+        const view = report.error ? null : burn(lane, now)
+        const projection: LeadUsageWindow['projection'] = view?.forecast && lane.placeholder !== true ? {
+          kind: view.runsOut ? 'runs-out' : 'lasts-to-reset',
+          at: view.runsOut ? now + (view.etaMs ?? 0) : view.resetsAt,
+          basis: 'average consumption since window start', since: view.startsAt, asOf: now,
+        } : null
+        const minutes = lane.windowMinutes
+        return {
+          label: safe(lane.scope ? `${lane.label} · ${lane.scope}` : lane.label),
+          kind: minutes === 300 ? '5h' : minutes === 10080 ? 'weekly'
+            : minutes !== null && minutes >= 28 * 24 * 60 && minutes <= 31 * 24 * 60 ? 'monthly'
+            : minutes === null ? 'allowance' : 'window',
+          windowMinutes: minutes, remainingPercent: lane.placeholder === true ? null : remainingOf(lane),
+          remaining: lane.usageKnown !== false && lane.placeholder !== true && lane.used != null && lane.limit != null ? Math.max(0, lane.limit - lane.used) : null,
+          unit: lane.unit ? safe(lane.unit) : null, resetsAt: lane.resetsAt,
+          reached: lane.placeholder !== true && (report.reached === lane.id || report.reached === lane.label || remainingOf(lane) === 0), projection,
+        }
+      })
+      if (report.credits) windows.push({ label: 'Balance', kind: 'balance', unlimited: report.credits.unlimited === true, windowMinutes: null,
+        remainingPercent: null, remaining: report.credits.remaining, unit: safe(report.credits.unit), resetsAt: null,
+        reached: report.reached === 'credits' || report.credits.unlimited !== true && report.credits.remaining !== null && report.credits.remaining <= 0, projection: null })
+      return {
+        runtime, label: `${runtime}${plan ? ` · ${safe(plan)}` : ''}${totals.get(runtime)! > 1 ? ` · account ${ordinal}` : ''}`,
+        plan: plan === null ? null : safe(plan), runningSessions: running.get(runtime) ?? 0, windows,
+        reached: report.reached !== null, fetchedAt: report.fetchedAt,
+        stale: now - report.fetchedAt >= report.staleAfterMs,
+        error: report.error ? safe(report.error.message) : null,
+        spend: report.spend ? { currency: safe(report.spend.currency), today: report.spend.todayCost,
+          last30Days: report.spend.windowDays === 30 ? report.spend.windowCost : null, provenance: report.spend.provenance } : null,
+      }
+    })
+    return { asOf: now, runtimes: [...running].map(([name, runningSessions]) => ({ name, runningSessions })), accounts }
   }
 
   // --------------------------------------------------------------------- teams

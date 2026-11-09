@@ -162,6 +162,7 @@ export interface HostContext {
   }
   readonly leadChats: Pick<import('../lead/chats.js').LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop'>
   leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
+  leadUsageSummary(): Promise<HostResult<'lead/usage/summary'>>
   leadDeskSummary(params: HostParams<'lead/desk/summary'>): Promise<HostResult<'lead/desk/summary'>>
   leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
   leadThreadSend(params: HostParams<'lead/thread/send'>): Promise<HostResult<'lead/thread/send'>>

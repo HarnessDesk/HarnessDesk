@@ -9,6 +9,7 @@ export type ClientTopic = 'runs' | 'cards' | 'teams' | 'waiting' | 'notices' | '
  * The typed SDK uses them, while public discovery and the CLI exclude them. */
 export const PRIVATE_CLIENT_METHODS = {
   'lead/desk/summary': 'read',
+  'lead/usage/summary': 'read',
   'lead/chat/list': 'read',
   'lead/chat/read': 'read',
   'lead/chat/start': 'run',

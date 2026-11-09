@@ -572,3 +572,20 @@ test('rebuilt conversation history retains ordinary and proactive decision conte
     assert.match(prior, /recommended/)
   }
 })
+
+test('model results distinguish a permission refusal from an admitted dispatch failure', async () => {
+  const denied = await setup([message([tool('usage', 'library_usage')], { stop_reason: 'tool_use' })])
+  await denied.journal.setPolicy({ ...policy, revision: 2, rules: [{ id: 'deny', method: 'library/usage', action: null, project: null, effect: 'deny' }] })
+  const refusal = await denied.client.request(input, new AbortController().signal)
+  assert.match(refusal.toolResults[0].content, /^Tool was not permitted: /)
+  assert.match(refusal.toolResults[0].content, /rule/i)
+  assert.deepEqual(denied.dispatched, [])
+  const failed = await setup([message([tool('usage', 'library_usage')], { stop_reason: 'tool_use' })],
+    { dispatch: async () => { throw new Error(key) } })
+  const failure = await failed.client.request(input, new AbortController().signal)
+  assert.match(failure.toolResults[0].content, /^Tool failed: /)
+  assert.match(failure.toolResults[0].content, /desk request could not complete/i)
+  assert.deepEqual(failure.permissionDeniedTools, [])
+  assert.equal(failure.toolResults[0].is_error, true)
+  assert.ok(!JSON.stringify(failure).includes(key))
+})

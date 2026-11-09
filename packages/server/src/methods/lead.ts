@@ -6,6 +6,7 @@ export const leadMethods = {
   'lead/chats/control': ctx => ctx.leadChatControl.list(),
   'lead/chat/takeOver': (ctx, params) => ctx.leadChatControl.takeOver(params.id),
   'lead/chat/handBack': (ctx, params) => ctx.leadChatControl.handBack(params.id),
+  'lead/usage/summary': ctx => ctx.leadUsageSummary(),
   'lead/desk/summary': (ctx, params) => ctx.leadDeskSummary(params),
   'lead/chat/list': (ctx, params) => ctx.leadChats.list(params),
   'lead/chat/read': (ctx, params) => ctx.leadChats.read(params),

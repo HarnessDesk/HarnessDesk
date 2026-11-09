@@ -49,9 +49,9 @@ const decision = (effect: LeadPermissionEffect, reason: string, rule: LeadPermis
 const deny = (reason: string, floor: LeadPermissionFloor): LeadPermissionDecision => ({ ...decision('deny', reason), floor })
 const record = (value: unknown): Readonly<Record<string, unknown>> =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
-// Desk context and a read-only summary of titles and states, never transcripts.
-// Other collection reads remain filtered to the selected project.
-const deskWideReads = new Set(['client/hello', 'library/usage', 'lead/desk/summary'])
+// Read-only desk context: titles/states, skill counts and cached allowance, never transcripts or account identities.
+// Detailed collection reads remain filtered to the selected project.
+const deskWideReads = new Set(['client/hello', 'library/usage', 'lead/desk/summary', 'lead/usage/summary'])
 const actionOf = (method: string, params: unknown): string | null =>
   Object.hasOwn(CLIENT_ACTION_TIERS, method) && typeof record(params).action === 'string' ? record(params).action as string : null
 // Canonical structural equality: property insertion order never changes authority.
@@ -128,7 +128,7 @@ const decideParsedPermission = (request: LeadPermissionRequest, context: LeadPer
       return deny('Team is outside the approved contract', 'scope')
     if (request.runId !== null && (context.approved === null || !context.approved.runIds.includes(request.runId)))
       return deny('Run is outside the approved contract', 'run')
-    // Detailed listings stay project-scoped; the desk summary exposes only titles and states.
+    // Detailed listings stay project-scoped; desk reads expose titles/states, skill counts and cached allowance, never transcripts or account identities.
     if (request.method === 'flow/preview' && (params.retry !== undefined || params.continues !== undefined))
       return deny('Lead previews cannot retry or continue another run', 'scope')
     if (tier === 'read') {
