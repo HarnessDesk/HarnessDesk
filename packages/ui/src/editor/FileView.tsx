@@ -170,16 +170,20 @@ export const FileView = (props: FileViewProps) => {
     const sharedBaselineChanged = () => !!callbacks.current.readLiveDocument && sharedBase !== baseOf(callbacks.current.readLiveDocument?.())
     try {
       const mediaType = IMAGE_TYPES[path.split('.').pop()?.toLowerCase() ?? '']
-      const [file, meta] = builtinAgentId
+      const [file, meta, absentBuiltin] = builtinAgentId
         ? await store.transport.request('authoring/read', { target: { kind: 'agent', origin: 'builtin', id: builtinAgentId } })
-          .then(document => [{ kind: 'text' as const, content: document.source, hash: document.digest, truncated: false }, null] as const)
+          .then(document => [document.exists
+            ? { kind: 'text' as const, content: document.source, hash: document.digest, truncated: false }
+            : { kind: 'unreadable' as const, message: `This build has no agent named ${document.target.kind === 'agent' ? document.target.id : builtinAgentId}.` },
+          null, !document.exists] as const)
         : await Promise.all([
         store.transport.request('workspace/readFile', { path, runtime, maxBytes: WORKSPACE_BINARY_LIMIT_BYTES, ...(mediaType ? { encoding: 'base64' as const } : {}) }),
         store.transport.request('workspace/stat', { path, runtime }).catch(() => null),
-      ])
+      ]).then(([file, meta]) => [file, meta, false] as const)
       if (identity !== epoch.current || reading !== loadId.current) return
       if (sharedBaselineChanged()) { void load(identity); return }
       modifiedAt.current = meta?.modifiedAt ?? null
+      builtinMissing.current = absentBuiltin
       if (file.kind === 'unreadable') readFailed()
       else { readFailures.current = 0; retryAt.current = 0 }
       diskRead.current = file; ++headRevision.current

@@ -409,3 +409,18 @@ it('stops automatic built-in retries only after the owning host confirms absence
   expect(container.textContent).toContain('There is no Agent called')
   expect(button('Retry')).toBeTruthy()
 })
+
+it('explains an absent built-in Agent using the sanitized response identity', async () => {
+  vi.useFakeTimers()
+  request.mockResolvedValue({
+    target: { kind: 'agent', origin: 'builtin', id: 'retired-\u001b[31mreviewer' },
+    source: '', digest: '', writable: false, exists: false, issues: [],
+  })
+  await render('/installed/node_modules/@harnessdesk/server/agents/code-reviewer/AGENT.md', { view: 'source' })
+  expect(container.textContent).toContain('This build has no agent named retired-reviewer.')
+  expect(container.textContent).not.toContain('\u001b')
+  expect(container.querySelector('textarea')).toBeNull()
+  expect(button('Create this file')).toBeUndefined()
+  await act(async () => { vi.advanceTimersByTime(120000) }); await settle()
+  expect(request).toHaveBeenCalledTimes(1)
+})
