@@ -291,27 +291,49 @@ it('reads a restored built-in Agent through its logical identity in the running 
   expect(request).toHaveBeenCalledTimes(1)
 })
 
-it('stops polling a built-in Agent whose owning read fails', async () => {
+it('recovers after three failed reads at the next backoff tick', async () => {
   vi.useFakeTimers()
-  request.mockRejectedValue(new Error('The built-in file is unavailable'))
-  await render('/installed/node_modules/@harnessdesk/server/agents/code-reviewer/AGENT.md')
-  const initial = request.mock.calls.length
-  await poll(); await poll(); await poll()
-  expect(request).toHaveBeenCalledTimes(initial)
-  expect(request).toHaveBeenCalledTimes(1)
-  expect(container.textContent).toContain('The built-in file is unavailable')
+  let attempts = 0
+  request.mockImplementation(async (method: string) => {
+    if (method === 'workspace/readFile') {
+      if (++attempts <= 3) throw new Error('Desk restarting')
+      return text('recovered file')
+    }
+    return { modifiedAt: 2 }
+  })
+  await render()
+  await poll() // 3 seconds
+  await poll(); await poll() // 6 seconds
+  expect(attempts).toBe(3)
+  await act(async () => { vi.advanceTimersByTime(11999) }); await settle()
+  expect(attempts).toBe(3)
+  await act(async () => { vi.advanceTimersByTime(1) }); await settle()
+  expect(container.querySelector('textarea')?.value).toBe('recovered file')
 })
 
-it('stops automatic retries after an unreadable workspace file instead of logging forever', async () => {
+it('keeps an unsaved draft visible through a transient read error and offers Retry', async () => {
   vi.useFakeTimers()
-  request.mockRejectedValue(new Error('File is outside every open workspace'))
-  await render('/another-install/notes.md')
-  await poll(); await poll(); await poll()
-  const stopped = request.mock.calls.length
-  await poll(); await poll(); await poll()
-  expect(request).toHaveBeenCalledTimes(stopped)
-  expect(stopped).toBeLessThanOrEqual(8)
-  expect(container.textContent).toContain('File is outside every open workspace')
+  await render(); await edit('my unsaved draft')
+  disk = { kind: 'unreadable', message: 'Desk restarting' }; modified = 2
+  await poll()
+  expect(container.querySelector('textarea')?.value).toBe('my unsaved draft')
+  expect(container.textContent).toContain('Desk restarting')
+  disk = text()
+  await click('Retry')
+  expect(container.querySelector('textarea')?.value).toBe('my unsaved draft')
+  expect(container.textContent).not.toContain('Desk restarting')
+})
+
+it('retries transient built-in Agent failures with backoff', async () => {
+  vi.useFakeTimers()
+  request.mockRejectedValueOnce(new Error('Desk restarting'))
+  request.mockResolvedValue({ source: 'Recovered Agent', digest: 'hash', writable: false, exists: true, issues: [] })
+  await render('/installed/node_modules/@harnessdesk/server/agents/code-reviewer/AGENT.md', { view: 'source' })
+  await poll()
+  expect(container.querySelector('textarea')?.value).toBe('Recovered Agent')
+  expect(request).toHaveBeenCalledTimes(2)
+  await poll()
+  expect(request).toHaveBeenCalledTimes(2)
 })
 
 for (const suffix of ['packages/server/agents/code-reviewer/AGENT.md', 'node_modules/@harnessdesk/server/agents/code-reviewer/AGENT.md']) {
@@ -340,4 +362,50 @@ it('keeps the running build’s catalogued Agent file editable when it is inside
     expect(request.mock.calls.some(([method]) => method === 'authoring/read')).toBe(false)
     expect(container.querySelector('textarea')?.readOnly).toBe(false)
   } finally { Object.assign(snapshot, { agents }) }
+})
+
+it.each(['focus', 'reconnect'])('resets read backoff and reads immediately on %s', async trigger => {
+  vi.useFakeTimers()
+  const status = snapshot.status
+  try {
+    Object.assign(snapshot, { status: 'open' })
+    request.mockRejectedValue(new Error('Desk restarting'))
+    await render(); await poll(); await poll(); await poll()
+    request.mockImplementation(async (method: string) => method === 'workspace/readFile' ? text('reconnected file') : { modifiedAt: 1 })
+    if (trigger === 'focus') await act(async () => window.dispatchEvent(new Event('focus')))
+    else {
+      Object.assign(snapshot, { status: 'reconnecting' }); await render()
+      Object.assign(snapshot, { status: 'open' }); await render()
+    }
+    await settle()
+    expect(container.querySelector('textarea')?.value).toBe('reconnected file')
+    disk = text('next edit'); modified = 2
+    request.mockImplementation(async (method: string) => method === 'workspace/readFile' ? disk : { modifiedAt: modified })
+    await poll()
+    expect(container.querySelector('textarea')?.value).toBe('next edit')
+  } finally { Object.assign(snapshot, { status }) }
+})
+
+it('caps repeated read backoff at sixty seconds', async () => {
+  vi.useFakeTimers()
+  const reads = () => request.mock.calls.filter(([method]) => method === 'workspace/readFile').length
+  request.mockRejectedValue(new Error('Queue full'))
+  await render()
+  for (const delay of [3000, 6000, 12000, 24000, 48000, 60000, 60000]) {
+    const before = reads()
+    await act(async () => { vi.advanceTimersByTime(delay - 1) }); await settle()
+    expect(reads()).toBe(before)
+    await act(async () => { vi.advanceTimersByTime(1) }); await settle()
+    expect(reads()).toBe(before + 1)
+  }
+})
+
+it('stops automatic built-in retries only after the owning host confirms absence', async () => {
+  vi.useFakeTimers()
+  request.mockRejectedValue(new Error('There is no Agent called "code-reviewer" here.'))
+  await render('/installed/node_modules/@harnessdesk/server/agents/code-reviewer/AGENT.md')
+  await act(async () => { vi.advanceTimersByTime(120000) }); await settle()
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(container.textContent).toContain('There is no Agent called')
+  expect(button('Retry')).toBeTruthy()
 })

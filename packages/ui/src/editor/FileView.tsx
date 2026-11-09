@@ -148,7 +148,12 @@ export const FileView = (props: FileViewProps) => {
   const [frameGeneration, setFrameGeneration] = useState(0)
   const mode = props.view ?? chosen
   const changeView = (view: FileViewMode) => { setChosen(view); callbacks.current.onViewChange?.(view) }
-  const readFailures = useRef(0)
+  const readFailures = useRef(0), retryAt = useRef(0), builtinMissing = useRef(false)
+  const retryRead = useRef<() => void>(() => {})
+  const readFailed = () => {
+    ++readFailures.current
+    retryAt.current = Date.now() + Math.min(60_000, 3000 * 2 ** Math.min(readFailures.current - 1, 5))
+  }
   const epoch = useRef(0), loadId = useRef(0), pollId = useRef(0), modifiedAt = useRef<number | null>(null)
   const diskRead = useRef<WorkspaceReadFileResult | null>(null)
   const headRevision = useRef(0), headInFlight = useRef(false), headQueued = useRef(false)
@@ -175,15 +180,18 @@ export const FileView = (props: FileViewProps) => {
       if (identity !== epoch.current || reading !== loadId.current) return
       if (sharedBaselineChanged()) { void load(identity); return }
       modifiedAt.current = meta?.modifiedAt ?? null
-      readFailures.current = file.kind === 'unreadable' ? readFailures.current + 1 : 0
+      if (file.kind === 'unreadable') readFailed()
+      else { readFailures.current = 0; retryAt.current = 0 }
       diskRead.current = file; ++headRevision.current
       update(before => reconcileRead(before, file, mediaType))
       refreshHead.current()
     } catch (error) {
       if (identity !== epoch.current || reading !== loadId.current) return
       if (sharedBaselineChanged()) { void load(identity); return }
-      ++readFailures.current
-      update(before => ({ ...before, problem: { kind: 'unreadable', message: error instanceof Error ? error.message : String(error) } }))
+      readFailed()
+      const message = error instanceof Error ? error.message : String(error)
+      builtinMissing.current = !!builtinAgentId && message === `There is no Agent called "${builtinAgentId}" here.`
+      update(before => ({ ...before, problem: { kind: 'unreadable', message } }))
     }
   }
   // HEAD can move without changing this file's mtime. Reuse the latest disk
@@ -205,7 +213,7 @@ export const FileView = (props: FileViewProps) => {
 
   useEffect(() => {
     const identity = ++epoch.current
-    diskRead.current = null; readFailures.current = 0; ++headRevision.current
+    diskRead.current = null; readFailures.current = 0; retryAt.current = 0; builtinMissing.current = false; ++headRevision.current
     const latest = callbacks.current.readLiveDocument?.()
     const saved = latest === undefined ? callbacks.current.liveDocument === undefined ? callbacks.current.document : callbacks.current.liveDocument : latest
     update(() => saved ? withDocument(blank(), saved) : blank())
@@ -255,11 +263,15 @@ export const FileView = (props: FileViewProps) => {
   }, [native, path, runtime, store, frameGeneration])
 
   useEffect(() => {
-    // Shipped definitions cannot change under this build. Retry transient
-    // refusals, but stop after three failed reads until an explicit reopen.
-    if (builtinAgentId) return
+    // A successful shipped definition is immutable. Transient refusals still
+    // recover; only the owning host's explicit absent-Agent answer stops them.
     const timer = window.setInterval(() => {
-      if (current.current.saving || readFailures.current >= 3) return
+      if (current.current.saving || Date.now() < retryAt.current || builtinMissing.current) return
+      if (builtinAgentId) {
+        if (readFailures.current > 0) void load(epoch.current)
+        return
+      }
+      if (readFailures.current > 0 && !pdf) { void load(epoch.current); return }
       const identity = epoch.current, polling = ++pollId.current
       void store.transport.request('workspace/stat', { path, runtime }).then(meta => {
         if (identity !== epoch.current || polling !== pollId.current || current.current.saving) return
@@ -276,6 +288,25 @@ export const FileView = (props: FileViewProps) => {
     }, 3000)
     return () => window.clearInterval(timer)
   }, [path, runtime, store, native, builtinAgentId])
+
+  retryRead.current = () => {
+    if (current.current.saving) return
+    readFailures.current = 0; retryAt.current = 0; builtinMissing.current = false
+    ++pollId.current
+    if (!pdf) void load(epoch.current)
+    if (native) setFrameGeneration(value => value + 1)
+  }
+  useEffect(() => {
+    const focused = () => retryRead.current()
+    window.addEventListener('focus', focused)
+    return () => window.removeEventListener('focus', focused)
+  }, [])
+  const previousStatus = useRef(snapshot.status)
+  useEffect(() => {
+    const previous = previousStatus.current
+    previousStatus.current = snapshot.status
+    if (snapshot.status === 'open' && previous !== 'open') retryRead.current()
+  }, [snapshot.status])
 
   const save = async (requestedHash?: string): Promise<boolean> => {
     const before = latestState(), expectedHash = requestedHash ?? before.base?.hash
@@ -421,12 +452,14 @@ export const FileView = (props: FileViewProps) => {
       <BannerAction variant="secondary" disabled={state.saving} onClick={reload}>Reload</BannerAction>
       <BannerAction disabled={state.saving} onClick={() => void save(conflict.hash)}>Keep mine</BannerAction>
     </> : undefined} />}
+    {state.problem?.kind === 'unreadable' && <ToolPaneMessage as="div"><p>{sanitizeText(state.problem.message)}</p><Button variant="outline" size="sm" onClick={() => retryRead.current()}>Retry</Button></ToolPaneMessage>}
     <ToolPaneBody ref={surface} bleed className={styles.body} data-preview={actualMode === 'preview' ? '' : undefined}>
       {native ? frameError ? <ToolPaneMessage>{frameError}</ToolPaneMessage> : frameSrc === null ? <ToolPaneMessage>Loading…</ToolPaneMessage> : <ToolPaneStage><ToolPaneGuest title={path} src={frameSrc} {...(html ? { sandbox: 'allow-scripts allow-forms allow-popups' } : {})} /></ToolPaneStage>
         : deleted && actualMode === 'changes' ? <Suspense fallback={<div className={styles.editor} />}><MergeView {...editorProps} original={state.head ?? ''} /></Suspense>
-        : state.problem ? state.problem.kind === 'missing' ? <ToolPaneMessage as="div"><p>{sanitizeText(path.split('/').pop() ?? path)} does not exist yet.</p><Button variant="outline" size="sm" onClick={() => { update(one => ({ ...one, base: { content: '', hash: '', truncated: false }, draft: '', pending: true, problem: null })); changeView('source') }}>Create this file</Button></ToolPaneMessage> : <ToolPaneMessage>{state.problem.kind === 'tooLarge' ? `File too large — ${(state.problem.size / (1024 * 1024)).toFixed(1)} MB` : state.problem.message}</ToolPaneMessage>
+        : state.problem?.kind === 'missing' ? <ToolPaneMessage as="div"><p>{sanitizeText(path.split('/').pop() ?? path)} does not exist yet.</p><Button variant="outline" size="sm" onClick={() => { update(one => ({ ...one, base: { content: '', hash: '', truncated: false }, draft: '', pending: true, problem: null })); changeView('source') }}>Create this file</Button></ToolPaneMessage>
+        : state.problem?.kind === 'tooLarge' ? <ToolPaneMessage>{`File too large — ${(state.problem.size / (1024 * 1024)).toFixed(1)} MB`}</ToolPaneMessage>
         : state.binary ? state.binary.imageSrc ? <div className={styles.imageStage}><img className={styles.image} src={state.binary.imageSrc} alt={sanitizeText(path.split('/').pop() ?? path)} onError={() => update(one => ({ ...one, binary: one.binary ? { ...one.binary, imageSrc: null } : null }))} /></div> : <ToolPaneMessage>Binary file — {(state.binary.size / 1024).toFixed(1)} KB</ToolPaneMessage>
-        : !state.base ? <ToolPaneMessage>Loading…</ToolPaneMessage>
+        : !state.base ? state.problem?.kind === 'unreadable' ? null : <ToolPaneMessage>Loading…</ToolPaneMessage>
         : actualMode === 'preview' && markdown ? <div className={styles.document}><div className={styles.documentControls}><Button variant="ghost" size="sm" onClick={() => changeView('source')}>{builtinAgentId ? 'Source' : 'Edit'}</Button></div><MarkdownView text={content} /></div>
         : <Suspense fallback={<div className={styles.editor} />}>
           {state.comparing && conflict?.kind === 'text' ? <MergeView {...editorProps} original={conflict.content} /> : actualMode === 'changes' ? <MergeView {...editorProps} original={state.head ?? ''} /> : <CodeView {...editorProps} />}
