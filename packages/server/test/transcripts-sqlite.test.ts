@@ -1155,3 +1155,29 @@ test('an import cannot overwrite a durable row changed after its version check',
   const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
   try { assert.equal(db.read(original.runtime, original.id)?.title, 'external newer') } finally { db.close() }
 })
+
+
+test('replay conflict detection does not read SQLite without owned pending bodies', async t => {
+  const { store } = await fixture(t)
+  const body = session([turn('one', [message('a', 'saved')])])
+  const read = t.mock.method(TranscriptDatabase.prototype, 'read', () => { throw new Error('unexpected SQLite read') })
+  assert.equal(store.pendingReplayConflict(body, 'g', 1), false)
+  assert.equal(read.mock.callCount(), 0)
+})
+
+
+test('resuming replay also covers captured bodies after the owned queue is replaced', async t => {
+  const { store } = await fixture(t)
+  const captured = session([turn('one', [message('answer', 'original unsaved')])])
+  const later = session([turn('one', [message('answer', 'replacement')])])
+  const owner = {}, capture = new PendingTranscript({ runtime: captured.runtime, sessionId: captured.id, owner })
+  capture.retainLocal(captured, owner)
+  const base = store.observeBase(captured, true)!
+  store.bindBase(captured, 'g', base)
+  store.record(captured, { generation: 'g', authorityEpoch: 1 })
+  assert.equal(store.protectPending(captured.runtime, captured.id, 'g', 1), true)
+  store.record(later, { generation: 'g', authorityEpoch: 1 })
+  assert.equal(store.resumeAfterReplay(later, 'g', 1, capture), false, 'a matching current queue cannot retire missing captured content')
+  await assert.rejects(store.flush(), /protected/)
+  await store.forget(captured.runtime, captured.id)
+})

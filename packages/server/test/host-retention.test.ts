@@ -1600,9 +1600,10 @@ test('a failed read preserves the closed recovery body and can be verified after
   const before = await host.call('session/cache-snapshot', address); assert.ok(before)
   assert.ok(await host.call('session/prepare-eviction', { ...address, identity: before.identity }))
   const read = runtime.readSession.bind(runtime), recover = TranscriptStore.prototype.recover
-  runtime.readSession = async () => { throw new Error('synthetic read failure') }
+  const failure = new Error('synthetic read failure')
+  runtime.readSession = async () => { throw failure }
   const recovery = t.mock.method(TranscriptStore.prototype, 'recover', async function(this: TranscriptStore, ...args: Parameters<typeof recover>) { return null })
-  await assert.rejects(host.call('session/read', address), error => wireCodeOf(error) === 'historyUnavailable')
+  await assert.rejects(host.call('session/read', address), error => error === failure)
   recovery.mock.restore(); runtime.readSession = read
   const after = await host.call('session/cache-snapshot', address); assert.ok(after, 'failed read must leave closed recovery available')
   assert.deepEqual(after.session.turns, before.session.turns)

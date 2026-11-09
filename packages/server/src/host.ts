@@ -10,7 +10,7 @@ import { readChecks } from './evidence/checks-file.js'
 import { LeadRepeats } from './lead/repeats.js'
 import { HarnessDeskAccount } from './harnessdesk-account.js'
 import { gitSteerContext } from './git-gateway/steer-context.js'
-import { redactGitCommand, wireCodeOf } from '@harnessdesk/protocol'
+import { redactGitCommand } from '@harnessdesk/protocol'
 import { GitSteering, type SteerScope } from './git-gateway/steering.js'
 import { parseGitCommand } from '@harnessdesk/protocol'
 import { LeadAutomaticGoals } from './lead/automatic-goals.js'
@@ -259,7 +259,7 @@ import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
 import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
-import { TranscriptStore } from './transcripts.js'
+import { TranscriptSaveRefusedError, TranscriptStore } from './transcripts.js'
 import { HistoryImport } from './history-import.js'
 import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
@@ -904,8 +904,6 @@ export class Host {
   readonly #descriptorReleases = new Set<string>()
   readonly #pendingTranscriptOverlays = new Map<string, PendingSessionOverlay>()
   readonly #conflictingTranscripts = new Map<string, { runtime: RuntimeId; id: SessionId; owner: object; capture: PendingTranscript }>()
-  /** Reconciliation releases the write fence, never the observed alternatives. */
-  readonly #reconciledTranscriptCaptures: PendingTranscript[] = []
   readonly #pendingTranscriptBases = new Map<string, Session>()
   readonly #recoveredTranscriptBases = new Map<string, { base: import('./transcripts.js').DurableTranscriptBase; saving: Promise<void> | null }>()
   readonly #protectedReadBases = new WeakMap<Session, import('./transcripts.js').DurableTranscriptBase>()
@@ -7803,23 +7801,26 @@ export class Host {
   async #read(runtime: AgentRuntime, id: SessionId): Promise<Session> {
     const finishRead = this.#beginTranscriptOperation(runtime.info.id, id)
     try {
-      const pending = this.registry.get(runtime.info.id, id)
-      if (pending?.transcriptIncomplete && !this.#restorePendingTranscript(pending)) {
-        return this.#pendingTranscriptView(pending)
-      }
-      if (pending && this.#recoveredTranscriptBases.has(pending.bodyGeneration)) {
-        this.#saveRecoveredTranscript(pending)
-        await this.#recoveredTranscriptBases.get(pending.bodyGeneration)?.saving
-        if (this.registry.get(runtime.info.id, id) !== pending) throw new Error('The conversation changed while its history was being recovered.')
-        return { ...pending.session, ...(this.#recoveredTranscriptBases.has(pending.bodyGeneration) ? { historyPending: true } : {}) }
-      }
       const indexed = this.#sessionIndex.get(runtime.info.id, id)
       if (indexed?.archived) await archiveConversation(this.#context, { runtime: runtime.info.id, sessionId: id, archived: false })
       const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
-      const read = await this.#readTranscript(runtime, id)
-      if (read.historyPending) return read
+      const pending = this.registry.get(runtime.info.id, id)
+      if (pending) this.#clearSettledHistoryPending(pending)
+      let read: Session
+      if (pending?.transcriptIncomplete && !this.#restorePendingTranscript(pending)) {
+        read = await this.#pendingTranscriptView(pending)
+      } else if (pending && this.#recoveredTranscriptBases.has(pending.bodyGeneration)) {
+        this.#saveRecoveredTranscript(pending)
+        await this.#recoveredTranscriptBases.get(pending.bodyGeneration)?.saving
+        if (this.registry.get(runtime.info.id, id) !== pending) throw new Error('The conversation changed while its history was being recovered.')
+        read = { ...pending.session, ...(this.#recoveredTranscriptBases.has(pending.bodyGeneration) ? { historyPending: true } : {}) }
+      } else read = await this.#readTranscript(runtime, id)
       const cwd = restored.cwd || indexed?.cwd || read.cwd
       const session = this.#preserveReadRecency({ ...read, cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) })
+      if (read.historyPending) {
+        this.#sessionIndex.opened(runtime.info.id, id)
+        return session
+      }
       this.#transcripts.rememberReadBase(session, this.#transcripts.readBase(read))
       const protectedBase = this.#protectedReadBases.get(read)
       if (protectedBase) {
@@ -7906,13 +7907,17 @@ export class Host {
         if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
         return this.#pendingTranscriptView(pending)
       }
-      return await this.#readTranscriptUntracked(runtime, id, allowReopen, admitCwd)
-    }
-    catch (error) {
-      // A complete, reconciled body can still have a refused save.
-      const record = this.registry.get(runtime.info.id, id)
-      if (!admitCwd && record && this.#transcripts.hasProtectedChanges(runtime.info.id, id)) return this.#pendingTranscriptView(record)
-      throw error
+      if (pending) this.#clearSettledHistoryPending(pending)
+      try {
+        return await this.#readTranscriptUntracked(runtime, id, allowReopen, admitCwd)
+      } catch (error) {
+        // Only a refused persistence operation permits this projection. Runtime,
+        // scope and programming errors retain their original meaning.
+        const record = this.registry.get(runtime.info.id, id)
+        if (error instanceof TranscriptSaveRefusedError && !admitCwd && record &&
+            this.#transcripts.hasProtectedChanges(runtime.info.id, id)) return this.#pendingTranscriptView(record)
+        throw error
+      }
     }
     finally { finishRead() }
   }
@@ -7996,10 +8001,7 @@ export class Host {
       // happen. A read-only copy beats an unopenable conversation.
       const recovered = await this.#transcripts.recover(runtime.info.id, id) ??
         await readKeptTranscriptFile(join(this.#state.directory, 'transcripts'), runtime.info.id, id)
-      if (!recovered) {
-        if (wireCodeOf(error)) throw error
-        throw Object.assign(error instanceof Error ? error : new Error('Conversation history is unavailable.'), { wireCode: 'historyUnavailable' })
-      }
+      if (!recovered) throw error
       this.#logger.warn(`session/read fell back to the stored transcript for ${id}`, {
         runtime: runtime.info.id,
         error: error instanceof Error ? error.message : String(error),
@@ -9231,22 +9233,20 @@ export class Host {
     if (held) {
       const key = `${held.bodyGeneration}\u0000${held.bodyAuthorityEpoch}`
       let conflict = this.#conflictingTranscripts.get(key)
-      // Only an exact, full replay of this epoch's retained view can release
-      // quarantine. Keep all alternative observations even after agreement.
+      // Only a full replay of this epoch's retained view can release
+      // quarantine, after the original captured items are covered too.
       if (conflict && event.type === 'session/started' && event.session.itemsLoaded && !event.session.partialHistory &&
           held.session.itemsLoaded && isDeepStrictEqual(event.session.turns, held.session.turns) &&
           ![...this.#conflictingTranscripts.keys()].some(entry => entry !== key && entry.startsWith(`${held.bodyGeneration}\u0000`))) {
         held.transcriptIncomplete = false
         const { historyPending: _pending, ...complete } = held.session
         held.session = complete
-        if (this.#transcripts.resumeAfterReplay(held.session, held.bodyGeneration, held.bodyAuthorityEpoch)) {
-          this.#reconciledTranscriptCaptures.push(conflict.capture)
+        if (this.#transcripts.resumeAfterReplay(held.session, held.bodyGeneration, held.bodyAuthorityEpoch, conflict.capture)) {
           this.#conflictingTranscripts.delete(key)
           conflict = undefined
           this.#invalidateTranscriptCache(held)
         } else {
           held.transcriptIncomplete = true
-          this.#logger.warn('Conversation history pending', { reason: 'replay-conflict', runtime, sessionId: held.session.id })
         }
       }
       const hasOldConflict = [...this.#conflictingTranscripts.keys()].some(entry => entry.startsWith(`${held.bodyGeneration}\u0000`))
@@ -9265,7 +9265,10 @@ export class Host {
         this.#transcripts.protectPending(runtime, held.session.id, held.bodyGeneration, held.bodyAuthorityEpoch)
         this.#invalidateTranscriptCache(held)
       }
-      if (conflict) conflict.capture.observeLocal(event, conflict.owner)
+      if (conflict) {
+        if (event.type === 'session/started') conflict.capture.quarantine(event, conflict.owner)
+        else conflict.capture.observeLocal(event, conflict.owner)
+      }
       // The replay remains in capture, but cannot replace the faithful held
       // view. Later ordered activity continues to fold into that view.
       if (conflict && event.type === 'session/started') event = { ...event, session: { ...held.session, historyPending: true } }
@@ -9302,12 +9305,22 @@ export class Host {
           message: 'Saved conversation history is unavailable. New activity is being kept in memory.' } } })
       }
     }
+    let replayOnlyBody = false
+    if (held && !held.transcriptIncomplete && event.type === 'session/started') {
+      const enriched = this.#transcripts.enrichReplay(event.session, held.session)
+      // Restoring an unchanged body from a lossy replay adds no source work.
+      // Recording it would invalidate the last reconciled source fingerprint.
+      replayOnlyBody = !this.#transcripts.hasOutstandingWrite(runtime, held.session.id) &&
+        enriched !== event.session && isDeepStrictEqual(enriched.turns, held.session.turns) &&
+        isDeepStrictEqual(enriched.usage, held.session.usage)
+      event = { ...event, session: enriched }
+    }
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
     if (event.type === 'catalog/changed' || event.type === 'runtime/options') {
       const owner = this.#runtimeSources.get(String(runtime))
       if (owner?.observations && owner.health().state === 'ready') this.#recordObservations(owner, owner.observations())
     }
-    withCanonicalPaths(() => this.#foldEvent(runtime, event, initial?.kind === 'missing' ? initial : undefined, source))
+    withCanonicalPaths(() => this.#foldEvent(runtime, event, initial?.kind === 'missing' ? initial : undefined, source, replayOnlyBody))
     if (hydrated && held?.session.itemsLoaded && !this.#pendingTranscriptOverlays.has(held.bodyGeneration)) {
       this.#recoveryDescriptors.remove(held.bodyGeneration)
       this.#descriptorOwners.delete(held.bodyGeneration)
@@ -9320,6 +9333,13 @@ export class Host {
     this.#transcriptSequences.set(record, sequence)
     this.#push({ method: 'session/cache-invalidated', params: { runtime: record.runtime, sessionId: record.session.id,
       watermark: { epoch: this.#transcriptEpoch, generation: record.bodyGeneration, revision: record.bodyRevision, sequence } } })
+  }
+
+  #clearSettledHistoryPending(record: SessionRecord): void {
+    if (!record.session.historyPending || record.transcriptIncomplete || this.#recoveredTranscriptBases.has(record.bodyGeneration) ||
+        this.#transcripts.hasProtectedChanges(record.runtime, record.session.id)) return
+    const { historyPending: _pending, ...session } = record.session
+    record.session = session
   }
 
   /** Read-only projections never grant the missing base's write authority. */
@@ -9354,7 +9374,8 @@ export class Host {
     let recovered: Session
     try { recovered = overlay.materialize({ ...base, turns, itemsLoaded: true }) }
     catch { return false }
-    record.session = recovered
+    const { historyPending: _pending, ...complete } = recovered
+    record.session = complete
     record.transcriptIncomplete = false
     this.#pendingTranscriptOverlays.delete(generation)
     this.#pendingTranscriptBases.delete(generation)
@@ -9391,12 +9412,15 @@ export class Host {
       this.#durableTranscriptBases.set(record, base)
       this.#transcripts.bindBase(snapshot, generation, base)
       if (this.registry.get(record.runtime, record.session.id) !== record) return
-      if (record.running.size === 0 && record.bodyRevision === revision && isDeepStrictEqual(record.session, snapshot)) this.#recoveredTranscriptBases.delete(generation)
+      if (record.running.size === 0 && record.bodyRevision === revision && isDeepStrictEqual(record.session, snapshot)) {
+        this.#recoveredTranscriptBases.delete(generation)
+        this.#clearSettledHistoryPending(record)
+      }
       else if (record.running.size === 0) this.#saveRecoveredTranscript(record)
     })()
   }
 
-  #foldEvent(runtime: RuntimeId, event: AgentEvent, initialBase?: import('./transcripts.js').DurableTranscriptBase, source?: AgentRuntime): void {
+  #foldEvent(runtime: RuntimeId, event: AgentEvent, initialBase?: import('./transcripts.js').DurableTranscriptBase, source?: AgentRuntime, replayOnlyBody = false): void {
     if (event.type === 'approval/requested') {
       this.#abandonedApprovals.delete(`${runtime}\u0000${event.approval.sessionId}\u0000${event.approval.id}`)
     } else if (event.type === 'approval/resolved' && this.#abandonedApprovals.has(`${runtime}\u0000${event.sessionId}\u0000${event.approvalId}`)) {
@@ -9628,7 +9652,7 @@ export class Host {
     // What the host just folded in is what a read tomorrow will be missing.
     if (record && event.type !== 'approval/requested' && event.type !== 'approval/resolved') {
       if (event.type === 'turn/completed') this.#turnInsight.complete(runtime, record.session.id, String(event.turn.id), Date.now(), record.session.usage ?? null)
-      if (!record.transcriptIncomplete && !this.#recoveredTranscriptBases.has(record.bodyGeneration)) this.#transcripts.record(record.session, { now: event.type === 'turn/completed', insight: this.#turnInsight.forSession(runtime, record.session.id), generation: record.bodyGeneration, revision: record.bodyRevision, authorityEpoch: record.bodyAuthorityEpoch })
+      if (!replayOnlyBody && !record.transcriptIncomplete && !this.#recoveredTranscriptBases.has(record.bodyGeneration)) this.#transcripts.record(record.session, { now: event.type === 'turn/completed', insight: this.#turnInsight.forSession(runtime, record.session.id), generation: record.bodyGeneration, revision: record.bodyRevision, authorityEpoch: record.bodyAuthorityEpoch })
       this.#recordSessionIndex(record.session, event.type === 'turn/completed' || event.type === 'session/started' || event.type === 'session/title')
     }
     // The numbers moved because a turn just spent some: re-read that agent
@@ -10937,8 +10961,11 @@ export class Host {
         const held = this.registry.get(runtime, id)
         const seat = this.#sessionIndex.get(runtime, id)?.archived ? this.#evidence.seats.latestKeptOf(runtime, id) : undefined
         const scopedArchive = !!seat && await this.#carriesFilter(seat, 'read')
+        if (held) this.#clearSettledHistoryPending(held)
         const session = !admitCwd && held?.session.itemsLoaded && !scopedArchive
-          ? held.session : await this.#readTranscript(this.#runtime({ runtime }), id, false, admitCwd)
+          ? held.transcriptIncomplete || this.#recoveredTranscriptBases.has(held.bodyGeneration) || this.#transcripts.hasProtectedChanges(runtime, id)
+            ? await this.#pendingTranscriptView(held) : held.session
+          : await this.#readTranscript(this.#runtime({ runtime }), id, false, admitCwd)
         if (!this.#sessionIndex.isOwn(runtime, id, true)) throw new Error('That is not a session this desk can show.')
         return session
       },

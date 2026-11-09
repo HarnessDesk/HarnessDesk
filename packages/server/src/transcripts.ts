@@ -22,6 +22,9 @@ import { publicationsIn, withPublications } from './publications.js'
 /** The runtime has no retained transcript store yet (or it became unavailable). */
 export class MissingTranscriptRuntimeError extends Error {}
 
+/** The owned body remains readable even though persistence was refused. */
+export class TranscriptSaveRefusedError extends Error {}
+
 /**
  * The transcript the host watched, kept.
  *
@@ -173,7 +176,7 @@ const withDeskContext = (turns: readonly Turn[], stored: readonly Turn[]): reado
  */
 const restorableUsage = (
   session: Session,
-  stored: Stored,
+  stored: Pick<Stored, 'turns' | 'usage'>,
   pairs: ReadonlyMap<Turn, Turn>,
 ): SessionUsage | null => {
   if (session.usage) return null
@@ -313,6 +316,8 @@ export class TranscriptStore {
   /** Detect, without choosing a winner, when a replay conflicts with unsaved items. */
   pendingReplayConflict(replay: Session, generation: string, epoch: number, held?: Session): boolean {
     if (!replay.itemsLoaded) return false
+    const pending = this.pendingBodies(replay.runtime, replay.id, generation, epoch)
+    if (!pending.length) return false
     replay = this.replayWithPendingMetadata(replay, generation, epoch)
     // A cold reopen queues the retained body before asking the agent to replay.
     // That queue entry is not unsaved activity. Compare only bodies that differ
@@ -320,7 +325,7 @@ export class TranscriptStore {
     let durable: readonly Turn[] | undefined
     try { durable = this.#database.read(replay.runtime, replay.id)?.turns } catch { /* Unknown storage stays protected. */ }
     const durableBody = durable && canonicalTranscriptBody(durable).canonical
-    const bodies = this.pendingBodies(replay.runtime, replay.id, generation, epoch).filter(body =>
+    const bodies = pending.filter(body =>
       durableBody === undefined || canonicalTranscriptBody(body.turns).canonical !== durableBody)
     if (bodies.length && held && held.runtime === replay.runtime && held.id === replay.id) bodies.push(held)
     for (const body of bodies) {
@@ -349,23 +354,31 @@ export class TranscriptStore {
   }
 
   /** A full replay agreed with the current held body; keep the existing CAS base. */
-  resumeAfterReplay(session: Session, generation: string, epoch: number): boolean {
+  resumeAfterReplay(session: Session, generation: string, epoch: number, capture: PendingTranscript): boolean {
     const key = keyOf(session.runtime, session.id)
     if (this.#generationConflicts.has(key) || this.#writes.has(key) || this.#retryHeld.has(key) ||
         this.#authorities.get(key)?.generation !== generation ||
         !this.generationCurrent(session.runtime, session.id, generation, session, undefined, epoch)) return false
     const pending = this.#pending.get(key)
     if (pending && (pending.generation !== generation || pending.authorityEpoch !== epoch)) return false
-    // Agreement with the held view must cover every still-owned queued item,
-    // including turns omitted by a partial or stale replay.
+    const covers = (items: readonly AgentItem[], item: AgentItem): boolean => items.some(candidate => {
+      if (isDeepStrictEqual(candidate, item)) return true
+      if (item.type !== 'assistantMessage' || candidate.type !== 'assistantMessage' || !candidate.text.startsWith(item.text)) return false
+      const { text: _old, ...previous } = item, { text: _new, ...next } = candidate
+      return isDeepStrictEqual(previous, next)
+    })
+    // The queue can have been replaced since quarantine began. Its original
+    // owned alternatives must also be covered before their capture is released.
+    const captured = capture.inspect()
+    if (captured.runtime !== session.runtime || captured.sessionId !== session.id ||
+        !captured.local.turns.every(turn => {
+          const agreed = session.turns.find(candidate => candidate.id === turn.id)
+          return agreed && turn.items.every(item => [...item.candidates, ...(item.replacement ? [item.replacement] : [])]
+            .every(candidate => covers(agreed.items, candidate)))
+        })) return false
     if (pending && !pending.session.turns.every(turn => {
       const agreed = session.turns.find(candidate => candidate.id === turn.id)
-      return agreed && turn.items.every(item => agreed.items.some(candidate => {
-        if (isDeepStrictEqual(candidate, item)) return true
-        if (item.type !== 'assistantMessage' || candidate.type !== 'assistantMessage' || !candidate.text.startsWith(item.text)) return false
-        const { text: _old, ...previous } = item, { text: _new, ...next } = candidate
-        return isDeepStrictEqual(previous, next)
-      }))
+      return agreed && turn.items.every(item => covers(agreed.items, item))
     })) return false
     this.#protectedWrites.delete(key)
     this.#protectedNotified.delete(key)
@@ -757,14 +770,14 @@ export class TranscriptStore {
     const key = keyOf(runtime, id)
     const inProgress = this.#settling.get(key)
     if (inProgress) { await inProgress; return this.#settle(runtime, id) }
-    if (this.#protectedWrites.has(key)) throw new Error('Transcript has protected changes that could not be saved')
+    if (this.#protectedWrites.has(key)) throw new TranscriptSaveRefusedError('Transcript has protected changes that could not be saved')
     const pending = this.#pending.get(key)
     if (pending) {
       if (pending.generation) {
         const work = this.#settleGeneration(key, pending)
         this.#settling.set(key, work)
         try { await work } finally { if (this.#settling.get(key) === work) this.#settling.delete(key) }
-        if (this.#protectedWrites.has(key)) throw new Error('Transcript has protected changes that could not be saved')
+        if (this.#protectedWrites.has(key)) throw new TranscriptSaveRefusedError('Transcript has protected changes that could not be saved')
         if (this.#pending.get(key) === pending) throw new Error('Transcript write authority is not established')
         return this.#settle(runtime, id)
       }
@@ -876,7 +889,7 @@ export class TranscriptStore {
   async refresh(session: Session, source: SessionSource | null, observedBase?: DurableTranscriptBase): Promise<{ saved: true; base: DurableTranscriptBase } | { saved: false; base: DurableTranscriptBase }> {
     await this.#settle(session.runtime, session.id)
     const key = keyOf(session.runtime, session.id)
-    if (this.#protectedWrites.has(key)) throw new Error('Transcript has protected changes that could not be saved')
+    if (this.#protectedWrites.has(key)) throw new TranscriptSaveRefusedError('Transcript has protected changes that could not be saved')
     const retained = new Set(session.turns.map(turn => String(turn.id)))
     const contexts = (this.#insight.get(key) ?? []).filter(context => retained.has(context.turn))
     const base = observedBase ?? (session.partialHistory ? undefined : this.observeBase(session, true))
@@ -888,7 +901,7 @@ export class TranscriptStore {
       if (!this.#pending.has(key)) this.#pending.set(key, held)
       else if (!this.#retryHeld.has(key)) this.#retryHeld.set(key, held)
       if (base && this.#baseStillMatches(session, base)) return { saved: false, base }
-      throw new Error('Transcript refresh could not be verified; changes are protected')
+      throw new TranscriptSaveRefusedError('Transcript refresh could not be verified; changes are protected')
     }
     if (contexts.length) this.#insight.set(key, contexts)
     else this.#insight.delete(key)
@@ -958,7 +971,12 @@ export class TranscriptStore {
     return { session: this.#enrichFromStored(session, stored), base }
   }
 
-  #enrichFromStored(session: Session, stored: Stored | null): Session {
+  /** Enrich a non-conflicting synchronous replay before it can queue a write. */
+  enrichReplay(session: Session, held: Session): Session {
+    return held.itemsLoaded ? this.#enrichFromStored(session, held) : session
+  }
+
+  #enrichFromStored(session: Session, stored: Pick<Stored, 'turns' | 'usage'> | null): Session {
     if (!stored) return session
     // A backend that answers with no turns at all — an ACP agent restarted
     // out of its idle sessions serves the session but not its past — is not
@@ -999,7 +1017,22 @@ export class TranscriptStore {
       // host recorded. Put back at its place, whichever list stands.
       const published = publicationsIn(kept.items)
       const carry = (items: readonly AgentItem[]): readonly AgentItem[] => {
-        const classified = preserveDeskContext(preserveNoticeItems(items, kept.items, true), kept.items)
+        const enriched = items.map(item => {
+          const previous = kept.items.filter(candidate => candidate.id === item.id)
+          if (previous.length !== 1) return item
+          const saved = previous[0]!
+          if (item.type === 'command' && saved.type === 'command' && saved.output &&
+              saved.output.startsWith(item.output ?? '') && saved.output !== item.output) return { ...item, output: saved.output }
+          if (item.type === 'reasoning' && saved.type === 'reasoning') {
+            const restore = (read: readonly string[], stored: readonly string[]): readonly string[] =>
+              read.length <= stored.length && read.every((text, index) => stored[index]!.startsWith(text)) ? stored : read
+            const summary = restore(item.summary, saved.summary), content = restore(item.content, saved.content)
+            if (!isDeepStrictEqual(summary, item.summary) || !isDeepStrictEqual(content, item.content)) return { ...item, summary, content }
+          }
+          return item
+        })
+        const restored = enriched.some((item, index) => item !== items[index]) ? enriched : items
+        const classified = preserveDeskContext(preserveNoticeItems(restored, kept.items, true), kept.items)
         return published.every(({ item }) => classified.some((entry) => entry.id === item.id))
           ? classified
           : withPublications(classified, published)
@@ -1278,7 +1311,7 @@ export class TranscriptStore {
     await Promise.all(waiting.map(entry => this.#settle(entry.session.runtime, entry.session.id)))
     await Promise.all([...this.#settling.values()])
     await Promise.all([...this.#writes.values()])
-    if (this.#protectedWrites.size) throw new Error('Transcript has protected changes that could not be saved')
+    if (this.#protectedWrites.size) throw new TranscriptSaveRefusedError('Transcript has protected changes that could not be saved')
   }
   async close(): Promise<void> {
     try { await this.flush() }
