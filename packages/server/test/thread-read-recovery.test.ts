@@ -131,6 +131,7 @@ test('settling a pending unloaded projection pushes the saved body', async t => 
   const durable = db.read(created.runtime, created.id)!
   const base = { kind: 'body' as const, identity: db.stateIdentity(durable, created.runtime, created.id) }
   const record = host.registry.get(created.runtime, created.id)!
+  record.session = { ...record.session, settings: { cwd: root, model: 'fake-1' } }
   const saved = structuredClone(record.session)
   record.session = { ...record.session, turns: [], itemsLoaded: false }
   record.transcriptIncomplete = true
@@ -152,6 +153,7 @@ test('settling a pending unloaded projection pushes the saved body', async t => 
   assert.equal(pushes.length, 1, 'settling a served projection must update the open conversation')
   assert.equal(pushes[0]!.historyPending, undefined)
   assert.deepEqual(pushes[0]!.turns, saved.turns)
+  assert.deepEqual(pushes[0]!.settings, saved.settings, 'clearing the mark must preserve the record settings')
   assert.equal(await store.persistEvolvedBody(saved, store.verifiedBase(saved)!), true)
   assert.equal(pushes.length, 1, 'a later successful save must not repeat the cleared push')
 })

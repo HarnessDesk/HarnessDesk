@@ -9365,7 +9365,7 @@ export class Host {
     void this.#transcripts.recover(record.runtime, session.id).then(body => {
       if (!body || this.#disposed || this.registry.get(record.runtime, session.id) !== record ||
           record.session !== session || record.bodyGeneration !== generation || record.bodyRevision !== revision || !served() || !settled()) return
-      push(body)
+      push({ ...record.session, turns: body.turns, itemsLoaded: true })
     }).catch(() => { /* Keep the served mark so a later read can clear it. */ })
   }
 
