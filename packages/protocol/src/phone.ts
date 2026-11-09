@@ -438,7 +438,19 @@ export type PhoneApprovalState = 'pending' | 'allowed' | 'allowedForSession' | '
 export type PhoneWorkTurn =
   | { readonly type: 'you'; readonly id: string; readonly text: string; readonly attachments: readonly string[]; readonly lead?: { readonly name: string } }
   | { readonly type: 'agent'; readonly id: string; readonly markdown: string }
-  | { readonly type: 'work'; readonly id: string; readonly seconds: number; readonly summary: string; readonly steps: readonly PhoneWorkStep[] }
+  | {
+      readonly type: 'work'
+      readonly id: string
+      /**
+       * How long the fold took, in whole seconds. 0 when the desk never
+       * measured it — a conversation replayed from the agent's store carries
+       * no times — or it took under a second; a reader shows no time then, as
+       * the desktop does, rather than "0s".
+       */
+      readonly seconds: number
+      readonly summary: string
+      readonly steps: readonly PhoneWorkStep[]
+    }
   | { readonly type: 'changes'; readonly id: string; readonly files: readonly PhoneWorkFileChange[] }
   | {
       readonly type: 'approval'
