@@ -704,3 +704,33 @@ test('reading a held body retains its creation time instead of sparse index or r
   assert.equal(read.createdAt, 10)
   assert.equal(read.updatedAt, 100)
 })
+
+for (const method of ['session/read', 'workspace/thread/read'] as const) test(`${method} replay does not change activity time or list position`, async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-index-replay-recency-')
+  const runtime = new FakeRuntime()
+  const old = { runtime: runtime.info.id, id: sessionId('older'), cwd: root,
+    title: 'Older conversation', createdAt: 10, updatedAt: 100, status: { type: 'idle' as const } }
+  const newer = { ...old, id: sessionId('newer'), updatedAt: 200 }
+  runtime.history.push(old, newer)
+  runtime.readSession = async id => {
+    const row = runtime.history.find(row => row.id === id)!
+    const replay = { ...row, createdAt: Date.now(), updatedAt: Date.now(), turns: [], itemsLoaded: true }
+    // ACP loads history to read it and announces the session before returning.
+    runtime.emit({ type: 'session/started', session: replay })
+    return replay
+  }
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert(old); index.upsert(newer); index.close()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  const before = await host.call('session/index', {})
+  if (method === 'session/read') await host.call(method, { runtime: runtime.info.id, sessionId: old.id })
+  else await host.call(method, { id: `${runtime.info.id}:${old.id}` })
+  const after = await host.call('session/index', {})
+  assert.deepEqual(after.data.map(row => row.id), before.data.map(row => row.id))
+  assert.equal(after.data.find(row => row.id === old.id)?.updatedAt, 100)
+  assert.equal(host.registry.get(runtime.info.id, old.id)?.session.updatedAt, 100)
+})

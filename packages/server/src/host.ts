@@ -9237,6 +9237,10 @@ export class Host {
     const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
     if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     const held = id ? this.registry.get(runtime, id) : undefined
+    // Loading history can announce a whole session with the adapter's open
+    // time. Replay is a read, so retain the desk's activity clock before it
+    // reaches either the registry, the index, or connected clients.
+    if (event.type === 'session/started') event = { ...event, session: this.#preserveReadRecency(event.session) }
     const initial = !held && source && this.ownsRuntime(source) && !this.#creatingTranscripts.has(runtime) && event.type === 'session/started' &&
       event.session.runtime === runtime && event.session.itemsLoaded && !event.session.partialHistory &&
       !this.#sessionIndex.isRemoved(runtime, event.session.id) && this.#transcripts.mayObserveInitialBase(event.session)
