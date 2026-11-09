@@ -13,6 +13,102 @@ import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
+for (const source of [false, true]) for (const method of ['session/read', 'workspace/thread/read'] as const) {
+  if (!source && method === 'workspace/thread/read') continue
+  test(`the first refused refresh is pending through ${method} with source=${source}`, async t => {
+    const root = tempDir('hd-first-pending-read-')
+    const options = { logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 }
+    const first = new Host(options), writer = new FakeRuntime()
+    first.register(writer); await first.start()
+    const created = await first.call('session/create', { runtime: writer.info.id, options: { cwd: root } }) as Session
+    const turn = { id: turnId('one'), status: 'inProgress' as const, items: [] }
+    writer.emit({ type: 'turn/started', sessionId: created.id, turn })
+    writer.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id,
+      item: { id: itemId('saved'), type: 'assistantMessage', text: 'saved answer' } })
+    writer.emit({ type: 'turn/completed', sessionId: created.id, turn: { ...turn, status: 'completed' } })
+    const saved = structuredClone(first.registry.get(created.runtime, created.id)!.session)
+    await first.dispose()
+    const host = new Host(options), runtime = new FakeRuntime()
+    Object.assign(runtime.info.capabilities, { sourceTranscript: source })
+    if (source) Object.assign(runtime, { sourceOf: async () => null })
+    host.register(runtime); await host.start()
+    t.after(() => host.dispose().catch(() => {}))
+    const replay: Session = { ...saved, turns: [{ ...saved.turns[0]!, items: [...saved.turns[0]!.items,
+      { id: itemId('recent'), type: 'assistantMessage', text: 'recent unsaved answer' }] }] }
+    runtime.readSession = async () => replay
+    // Start with a known record so reopen preparation does not queue a write
+    // of the old body before the refresh under test.
+    host.registry.upsert({ ...saved, turns: [], itemsLoaded: false }, null)
+    const db = new TranscriptDatabase(join(root, 'sessions.sqlite'))
+    t.after(() => db.close())
+    db.db.exec("CREATE TRIGGER refuse_body BEFORE INSERT ON bodies BEGIN SELECT RAISE(FAIL, 'synthetic storage refusal'); END")
+    const read = method === 'session/read'
+      ? await host.call(method, { runtime: created.runtime, sessionId: created.id })
+      : await host.call(method, { id: `${created.runtime}:${created.id}` })
+    assert.equal(read.historyPending, true, 'the read that establishes protection must carry the pending mark')
+    assert.match(JSON.stringify(read.turns), /recent unsaved answer/)
+    assert.deepEqual(db.read(created.runtime, created.id)!.turns, saved.turns)
+    const record = host.registry.get(created.runtime, created.id)!
+    assert.equal(record.session.historyPending, undefined, 'a served mark must not change writable session facts')
+    const pushes: Session[] = []
+    const stop = host.addBroadcaster(notification => {
+      if ('method' in notification && notification.method === 'event' && notification.params.event.type === 'session/started') pushes.push(notification.params.event.session)
+    })
+    t.after(stop)
+    db.db.exec('DROP TRIGGER refuse_body')
+    const healed = await host.call('session/read', { runtime: created.runtime, sessionId: created.id })
+    assert.equal(healed.historyPending, undefined)
+    assert.deepEqual(db.read(created.runtime, created.id)!.turns, replay.turns)
+    assert.equal(pushes.length, 1, 'a recovered save must push one cleared session')
+    assert.equal(pushes[0]!.historyPending, undefined)
+    await host.call('session/read', { runtime: created.runtime, sessionId: created.id })
+    assert.equal(pushes.length, 1, 'later reads must not repeat the cleared push')
+  })
+}
+
+test('settling a pending phone projection pushes one cleared session', async t => {
+  const root = tempDir('hd-pending-projection-settle-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 })
+  const runtime = new FakeRuntime(); host.register(runtime); await host.start()
+  t.after(() => host.dispose().catch(() => {}))
+  let store!: TranscriptStore
+  const recordWrite = TranscriptStore.prototype.record
+  t.mock.method(TranscriptStore.prototype, 'record', function(this: TranscriptStore, ...args: Parameters<typeof recordWrite>) {
+    store = this; return recordWrite.apply(this, args)
+  })
+  const created = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } }) as Session
+  const turn = { id: turnId('one'), status: 'inProgress' as const, items: [] }
+  runtime.emit({ type: 'turn/started', sessionId: created.id, turn })
+  runtime.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id,
+    item: { id: itemId('answer'), type: 'assistantMessage', text: 'saved answer' } })
+  runtime.emit({ type: 'turn/completed', sessionId: created.id, turn: { ...turn, status: 'completed' } })
+  await store.flush()
+  const db = new TranscriptDatabase(join(root, 'sessions.sqlite'))
+  t.after(() => db.close())
+  const durable = db.read(created.runtime, created.id)!
+  const base = { kind: 'body' as const, identity: db.stateIdentity(durable, created.runtime, created.id) }
+  db.db.exec("CREATE TRIGGER refuse_body BEFORE INSERT ON bodies BEGIN SELECT RAISE(FAIL, 'synthetic storage refusal'); END")
+  runtime.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id,
+    item: { id: itemId('recent'), type: 'assistantMessage', text: 'recent unsaved answer' } })
+  await assert.rejects(store.flush(), /protected|refusal/i)
+  const record = host.registry.get(created.runtime, created.id)!
+  const read = await host.call('workspace/thread/read', { id: `${created.runtime}:${created.id}` })
+  assert.equal(read.historyPending, true)
+  assert.equal(record.session.historyPending, undefined, 'only the projection carries the pending mark')
+  const pushes: Session[] = []
+  const stop = host.addBroadcaster(notification => {
+    if ('method' in notification && notification.method === 'event' && notification.params.event.type === 'session/started') pushes.push(notification.params.event.session)
+  })
+  t.after(stop)
+  db.db.exec('DROP TRIGGER refuse_body')
+  assert.equal(await store.retryProtectedBody(record.session, base), true)
+  assert.equal(pushes.length, 1, 'settling a served projection must update the open conversation')
+  assert.equal(pushes[0]!.historyPending, undefined)
+  assert.deepEqual(pushes[0]!.turns, record.session.turns)
+  assert.equal(await store.persistEvolvedBody(record.session, store.verifiedBase(record.session)!), true)
+  assert.equal(pushes.length, 1, 'a later successful save must not repeat the cleared push')
+})
+
 for (const recent of [false, true]) test(`opening an idle conversation from the phone twice accepts thin replay${recent ? ' beside unrelated unsaved activity' : ''}`, async t => {
   const root = tempDir('hd-read-saved-replay-')
   const options = { logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 }

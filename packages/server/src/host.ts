@@ -907,6 +907,8 @@ export class Host {
   readonly #pendingTranscriptBases = new Map<string, Session>()
   readonly #recoveredTranscriptBases = new Map<string, { base: import('./transcripts.js').DurableTranscriptBase; saving: Promise<void> | null }>()
   readonly #protectedReadBases = new WeakMap<Session, import('./transcripts.js').DurableTranscriptBase>()
+  /** A client may have received a pending projection without changing writable facts. */
+  readonly #servedHistoryPending = new WeakSet<SessionRecord>()
   readonly #transcriptSequences = new WeakMap<SessionRecord, number>()
   readonly #runtimeFolds = new Map<string, number>()
   readonly #durableTranscriptBases = new WeakMap<SessionRecord, import('./transcripts.js').DurableTranscriptBase>()
@@ -1242,12 +1244,7 @@ export class Host {
       },
       (runtime, id) => {
         const record = this.registry.get(runtime, id)
-        if (record?.session.historyPending) {
-          this.#clearSettledHistoryPending(record)
-          if (!record.session.historyPending) this.#push({ method: 'event', params: { runtime,
-            event: { type: 'session/started', session: record.session },
-            transcriptFence: { epoch: this.#transcriptEpoch, generation: record.bodyGeneration, revision: record.bodyRevision } } })
-        }
+        if (record) this.#clearSettledHistoryPending(record)
       },
     )
     this.#sessionIndex = new SessionIndex(join(this.#state.directory, 'sessions.sqlite'), (change) => {
@@ -7819,7 +7816,7 @@ export class Host {
         this.#saveRecoveredTranscript(pending)
         await this.#recoveredTranscriptBases.get(pending.bodyGeneration)?.saving
         if (this.registry.get(runtime.info.id, id) !== pending) throw new Error('The conversation changed while its history was being recovered.')
-        read = { ...pending.session, ...(this.#recoveredTranscriptBases.has(pending.bodyGeneration) ? { historyPending: true } : {}) }
+        read = this.#recoveredTranscriptBases.has(pending.bodyGeneration) ? this.#historyPendingView(pending) : { ...pending.session }
       } else read = await this.#readTranscript(runtime, id)
       const cwd = restored.cwd || indexed?.cwd || read.cwd
       const session = this.#preserveReadRecency({ ...read, cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) })
@@ -7830,8 +7827,7 @@ export class Host {
       this.#transcripts.rememberReadBase(session, this.#transcripts.readBase(read))
       const protectedBase = this.#protectedReadBases.get(read)
       if (protectedBase) {
-        this.#holdProtectedRead(session, protectedBase)
-        return session
+        return this.#holdProtectedRead(session, protectedBase)
       }
       this.#recordSessionIndex(session, true)
       this.#sessionIndex.opened(runtime.info.id, id)
@@ -7841,7 +7837,7 @@ export class Host {
         (this.#sessionIndex.isImported(runtime.info.id, id) || !this.registry.get(runtime.info.id, id)?.live)) {
         const owner = this.#readBaseOwner(session)
         const result = await this.#transcripts.refresh(session, null, this.#transcripts.readBase(read))
-        if (!result.saved) this.#holdProtectedRead(session, result.base)
+        if (!result.saved) return this.#holdProtectedRead(session, result.base)
         else {
           const verified = result.base
           this.#transcripts.rememberReadBase(session, verified)
@@ -7934,7 +7930,7 @@ export class Host {
     const held = this.registry.get(runtime.info.id, id)
     if (held && this.#recoveredTranscriptBases.has(held.bodyGeneration)) {
       if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
-      return { ...held.session, historyPending: true }
+      return this.#historyPendingView(held)
     }
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) {
       await admitCwd?.(held.live.settings().cwd)
@@ -9346,15 +9342,26 @@ export class Host {
   }
 
   #clearSettledHistoryPending(record: SessionRecord): void {
-    if (!record.session.historyPending || record.transcriptIncomplete || this.#recoveredTranscriptBases.has(record.bodyGeneration) ||
+    if ((!record.session.historyPending && !this.#servedHistoryPending.has(record)) || record.transcriptIncomplete || this.#recoveredTranscriptBases.has(record.bodyGeneration) ||
         this.#transcripts.hasProtectedChanges(record.runtime, record.session.id)) return
-    const { historyPending: _pending, ...session } = record.session
-    record.session = session
+    if (record.session.historyPending) {
+      const { historyPending: _pending, ...session } = record.session
+      record.session = session
+    }
+    this.#servedHistoryPending.delete(record)
+    this.#push({ method: 'event', params: { runtime: record.runtime,
+      event: { type: 'session/started', session: record.session },
+      transcriptFence: { epoch: this.#transcriptEpoch, generation: record.bodyGeneration, revision: record.bodyRevision } } })
+  }
+
+  #historyPendingView(record: SessionRecord, session: Session = record.session): Session {
+    this.#servedHistoryPending.add(record)
+    return { ...session, historyPending: true }
   }
 
   /** Read-only projections never grant the missing base's write authority. */
   async #pendingTranscriptView(record: SessionRecord): Promise<Session> {
-    if (record.session.itemsLoaded) return structuredClone({ ...record.session, historyPending: true })
+    if (record.session.itemsLoaded) return structuredClone(this.#historyPendingView(record))
     let kept: Session | null = null
     try { kept = await this.#transcripts.recover(record.runtime, record.session.id) }
     catch { /* Protected or unavailable storage still permits an independent memory view. */ }
@@ -9362,12 +9369,12 @@ export class Host {
       const overlay = this.#pendingTranscriptOverlays.get(record.bodyGeneration)
       const base = this.#pendingTranscriptBases.get(record.bodyGeneration)
       if (overlay && base) try {
-        return { ...overlay.materialize({ ...base, turns: kept.turns, itemsLoaded: true }), historyPending: true }
+        return this.#historyPendingView(record, overlay.materialize({ ...base, turns: kept.turns, itemsLoaded: true }))
       } catch { /* A different durable body is readable, but cannot receive this overlay. */ }
-      return { ...kept, historyPending: true }
+      return this.#historyPendingView(record, kept)
     }
     const available = this.#pendingTranscriptOverlays.get(record.bodyGeneration)?.available(record.session)
-    if (available) return { ...available, historyPending: true }
+    if (available) return this.#historyPendingView(record, available)
     throw Object.assign(new Error('Conversation history is unavailable. Recent activity is being kept in memory.'), { wireCode: 'historyUnavailable' })
   }
 
@@ -9397,9 +9404,10 @@ export class Host {
     return true
   }
 
-  #holdProtectedRead(session: Session, base: import('./transcripts.js').DurableTranscriptBase): void {
+  #holdProtectedRead(session: Session, base: import('./transcripts.js').DurableTranscriptBase): Session {
     const record = this.registry.upsert(session, this.registry.get(session.runtime, session.id)?.live ?? null)
     if (!this.#recoveredTranscriptBases.has(record.bodyGeneration)) this.#recoveredTranscriptBases.set(record.bodyGeneration, { base, saving: null })
+    return this.#historyPendingView(record, session)
   }
 
   /** Persist a reconstituted body against its independently verified old base. */
@@ -10977,6 +10985,8 @@ export class Host {
             ? await this.#pendingTranscriptView(held) : held.session
           : await this.#readTranscript(this.#runtime({ runtime }), id, false, admitCwd)
         if (!this.#sessionIndex.isOwn(runtime, id, true)) throw new Error('That is not a session this desk can show.')
+        const protectedBase = this.#protectedReadBases.get(session)
+        if (protectedBase) return this.#holdProtectedRead(session, protectedBase)
         return session
       },
       live: (runtime, id) => {
