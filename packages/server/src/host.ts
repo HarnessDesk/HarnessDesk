@@ -10633,6 +10633,7 @@ export class Host {
           for (const row of page.rows) this.#sessionIndexRepos.read(row.summary.cwd, true)
           return page
         },
+        isOwn: (runtime, id) => this.#sessionIndex.isOwn(runtime, id),
         counts: () => this.#sessionIndex.phoneCounts(),
         touchedSince: (since) => this.#sessionIndex.touchedSince(since),
         costliestSince: (since, limit) => this.#sessionIndex.costliestSince(since, limit),

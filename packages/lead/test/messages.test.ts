@@ -274,6 +274,17 @@ test('aggregate tool results retain every correlation when the continuation appr
   assert.ok(new TextEncoder().encode(JSON.stringify(result.messages)).byteLength <= 1_048_576)
 })
 
+test('many parallel reads fit beside near-full history without a fixed per-call reserve', async () => {
+  const uses = Array.from({ length: 64 }, (_, index) => tool(`use-${index}`, 'library_usage'))
+  const s = await setup([message(uses, { stop_reason: 'tool_use' }), message()])
+  const request = { ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(15_600) })) }] }
+  const result = await s.client.request(request, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.toolResults.length, 64)
+  assert.ok(result.toolResults.every((item: any) => item.is_error === false))
+  assert.equal((await s.client.request({ ...input, messages: result.messages }, new AbortController().signal)).status, 'completed')
+})
+
 test('abort during a stalled tool dispatch records a failed read and answers every tool once', async () => {
   const controller = new AbortController()
   let calls = 0, passedSignal: AbortSignal | null = null
@@ -588,4 +599,21 @@ test('model results distinguish a permission refusal from an admitted dispatch f
   assert.deepEqual(failure.permissionDeniedTools, [])
   assert.equal(failure.toolResults[0].is_error, true)
   assert.ok(!JSON.stringify(failure).includes(key))
+})
+
+test('many parallel tools with near-full history reserve only their actual diagnostic text', async () => {
+  const probe = await setup([message()])
+  await probe.client.request(input, new AbortController().signal)
+  const body = JSON.parse(probe.fake.requests[0].body)
+  const history = [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: '' })) }]
+  const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
+  const chars = 1_048_576 - 18_000 - bytes({ ...body, messages: history })
+  history[0]!.content.forEach((block, index) => { block.text = 'x'.repeat(Math.floor(chars / 64) + (index < chars % 64 ? 1 : 0)) })
+  const uses = Array.from({ length: 40 }, (_, index) => tool(`use-${index}`, 'library_usage'))
+  const s = await setup([message(uses, { stop_reason: 'tool_use' })])
+  const result = await s.client.request({ ...input, messages: history }, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.toolResults.length, 40)
+  assert.equal(result.toolResults.every((item: any) => item.is_error === false), true)
+  assert.ok(bytes(result.messages) <= 1_048_576)
 })

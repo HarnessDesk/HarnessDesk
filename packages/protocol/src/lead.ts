@@ -941,14 +941,21 @@ export interface LeadDeskItem {
   readonly kind: 'chat' | 'team'
 }
 export interface LeadDeskSummary {
+  /** Exact aggregate counts, independent of the bounded detail scan. */
   readonly totals: LeadDeskTotals
+  /** Per-project counts cover only sessionsScanned when true; totals stay exact. */
+  readonly countsPartial: boolean
+  readonly sessionsScanned: number
+  readonly projectsMore: number
   readonly projects: readonly (LeadDeskTotals & { readonly project: string | null })[]
   /** Newest first, default eight, at most twenty. */
   readonly recent: readonly LeadDeskItem[]
-  /** All working items, including those outside recent. */
+  /** Up to twenty working items, including those outside recent. */
   readonly running: readonly LeadDeskItem[]
-  /** Every attention item, including those outside recent. May overlap recent. */
+  readonly runningMore: number
+  /** Up to twenty attention items, including those outside recent. May overlap recent. */
   readonly needsYou: readonly LeadDeskItem[]
+  readonly needsYouMore: number
   /** Items outside the recent window, including any also listed in needsYou. */
   readonly olderCount: number
 }
@@ -974,21 +981,24 @@ export interface LeadUsageWindow {
   } | null
 }
 export interface LeadUsageSummary {
+  /** Runtime running counts are lower bounds when the session scan is partial. */
+  readonly countsPartial: boolean
+  readonly sessionsScanned: number
   readonly asOf: number
-  /** Totals by presentation name, including running agents with no cached allowance. */
+  /** Counts by presentation name, including running agents with no cached allowance. */
   readonly runtimes: readonly { readonly name: string; readonly runningSessions: number }[]
   readonly accounts: readonly {
     readonly runtime: string
     /** Presentation name, plan, and ordinal when several accounts share a name. */
     readonly label: string
     readonly plan: string | null
-    /** Desk-wide runtime total; repeated accounts do not divide or multiply it. */
+    /** Desk-wide runtime count, a lower bound when countsPartial; repeated accounts share it. */
     readonly runningSessions: number
     readonly windows: readonly LeadUsageWindow[]
     readonly reached: boolean
     readonly fetchedAt: number
     readonly stale: boolean
-    readonly error: string | null
+    readonly error: 'sign-in needed' | 'reading failed' | null
     readonly spend: { readonly currency: string; readonly today: number | null; readonly last30Days: number | null; readonly provenance: import('./usage.js').SpendProvenance } | null
   }[]
 }

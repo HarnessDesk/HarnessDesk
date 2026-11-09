@@ -13,6 +13,16 @@ const LIMIT = Object.freeze({ bytes: 1_048_576, text: 16_384, blocks: 64, turns:
   /** One reasoning field (the thinking text, its signature, or redacted data): a reply of the largest
    * allowed `max_tokens` at four characters a token. The whole body is still held to `bytes`. */
   reasoning: 262_144 })
+const TOOL_ERROR = Object.freeze({
+  refused: 'Tool was not permitted: tool or arguments are outside the allowed API.',
+  policy: 'Tool was not permitted: policy refused this operation.',
+  uncertain: 'Tool failed: completion could not be confirmed; inspect before retrying.',
+  changed: 'Tool failed: desk activity changed; read fresh state.',
+  scope: 'Tool failed: the selected project access check failed.',
+  failed: 'Tool failed: the desk request could not complete.',
+  overflow: 'Tool failed: its result exceeded the conversation limit.',
+})
+const policyRefusal = (layer: 'desk' | 'project') => `Tool was not permitted: ${layer} policy rule refused this operation.`
 const fail = (): never => { throw new Error('lead-messages-invalid') }
 const object = (value: unknown, allowed?: readonly string[]): Record<string, unknown> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return fail()
@@ -362,14 +372,16 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       safeJson(output)
     } catch { return { status: 'invalid-response', reason: 'lead-messages-output', usage: used } }
     const uses = content.flatMap((use, index) => use.type === 'tool_use' ? [{ use, index }] : [])
-    const results: MessagesToolResult[] = uses.map(({ use }) => ({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: 'Tool was not permitted: tool or arguments are outside the allowed API.' }))
+    const results: MessagesToolResult[] = uses.map(({ use }) => ({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: TOOL_ERROR.refused }))
     const continuation: MessagesTurn[] = [...messages, { role: 'assistant', content }, ...(results.length ? [{ role: 'user' as const, content: results }] : [])]
     const bytes = (text: string) => new TextEncoder().encode(text).byteLength
     const predecessorRefusal = (index: number) => `Tool was not permitted: step ${index} is not yet awaiting acceptance; wait for desk activity.`
     const terminalRefusal = (index: number, reason: string) => `Tool was not permitted: step ${index + 1} cannot start: step ${index}'s result ${reason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`
-    // Reserve short diagnostics for every call, including a later start refusal after a large read.
-    const refusalSpace = Math.max(...[predecessorRefusal(LEAD_LIMITS.steps), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unavailable'), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unverifiable')].map(text => bytes(json(text)))) - bytes(json('Tool was not permitted: tool or arguments are outside the allowed API.'))
-    const reserved = uses.map(({ use }) => Math.max(512, use.name === 'flow_start_goal' ? refusalSpace : 0))
+    // The placeholder already pays for most diagnostics. Reserve only the extra serialized bytes.
+    const extraSpace = (texts: readonly string[]) => Math.max(0, ...texts.map(text => bytes(json(text)) - bytes(json(TOOL_ERROR.refused))))
+    const errorSpace = extraSpace([...Object.values(TOOL_ERROR), policyRefusal('desk'), policyRefusal('project')])
+    const refusalSpace = extraSpace([predecessorRefusal(LEAD_LIMITS.steps), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unavailable'), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unverifiable')])
+    const reserved = uses.map(({ use }) => Math.max(errorSpace, use.name === 'flow_start_goal' ? refusalSpace : 0))
     let available: number
     try {
       // Leave room for the next request's fixed tools/model/system wrapper too.
@@ -397,18 +409,24 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
           if (executed.decision.effect !== 'allow') permissionDeniedTools.push(use.id)
           // Gate reasons are policy facts. Dispatch exceptions are not refusals and raw exceptions may contain secrets.
           const errorText = executed.decision.effect !== 'allow'
-            ? `Tool was not permitted: ${executed.decision.rule ? `${executed.decision.rule.layer} policy rule refused this operation.` : executed.decision.reason.slice(0, 240)}`
+            ? executed.decision.rule ? policyRefusal(executed.decision.rule.layer) : `Tool was not permitted: ${executed.decision.reason.slice(0, 240)}`
             : executed.outcome === 'uncertain'
-              ? 'Tool failed: completion could not be confirmed; inspect before retrying.'
+              ? TOOL_ERROR.uncertain
             : dispatchError instanceof LeadToolFencedError
-              ? 'Tool failed: desk activity changed; read fresh state.'
+              ? TOOL_ERROR.changed
               : dispatchError instanceof WireCallError && dispatchError.code === 'leadScope'
-                ? 'Tool failed: the selected project access check failed.'
-                : 'Tool failed: the desk request could not complete.'
+                ? TOOL_ERROR.scope
+                : TOOL_ERROR.failed
           if (executed.outcome !== 'succeeded') {
             const result = { ...results[position]!, content: errorText }
-            available -= bytes(json(result)) - bytes(json(results[position]))
-            results[position] = result
+            const extra = bytes(json(result)) - bytes(json(results[position]))
+            // A longer policy reason is useful when it fits; the correlated refusal is already present.
+            if (extra <= available) { available -= extra; results[position] = result }
+            else if (executed.decision.effect !== 'allow') {
+              const fallback = { ...results[position]!, content: TOOL_ERROR.policy }
+              available -= bytes(json(fallback)) - bytes(json(results[position]))
+              results[position] = fallback
+            }
           }
 
           if (executed.outcome === 'denied' && ['lead-predecessor-unavailable', 'lead-predecessor-unverifiable'].includes(executed.decision.reason)) {
@@ -439,7 +457,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
             const extra = bytes(json(result)) - bytes(json(results[position]))
             if (extra <= available) { results[position] = result; available -= extra; succeededTools.push(use.id) }
             else {
-              const overflow = { ...results[position]!, content: 'Tool failed: its result exceeded the conversation limit.' }
+              const overflow = { ...results[position]!, content: TOOL_ERROR.overflow }
               available -= bytes(json(overflow)) - bytes(json(results[position]))
               results[position] = overflow
               transientTools.push(use.id)
@@ -448,8 +466,8 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
         } catch (error) {
           if (error instanceof LeadToolFencedError) transientTools.push(use.id)
           const result = { ...results[position]!, content: error instanceof LeadToolRefusedError
-            ? 'Tool was not permitted: tool or arguments are outside the allowed API.'
-            : 'Tool failed: the desk request could not complete.' }
+            ? TOOL_ERROR.refused
+            : TOOL_ERROR.failed }
           available -= bytes(json(result)) - bytes(json(results[position]))
           results[position] = result
           // No raw exception, argument or credential is echoed.

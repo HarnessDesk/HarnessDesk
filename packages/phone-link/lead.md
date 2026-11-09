@@ -1,6 +1,16 @@
 # Lead repeats, second looks and allowance warnings on the phone
 
-These are the inner method/params values carried by the existing encrypted phone request. Results remain the same versioned host projections used by the desktop; error envelopes remain unchanged. New methods are absent from the Lead client door. No existing phone tier is widened.
+These are the inner method/params values carried by the existing encrypted phone request. Results remain the same versioned host projections used by the desktop; error envelopes remain unchanged. The phone control methods in the table below are absent from the Lead client door. No existing phone tier is widened.
+
+The private Lead client door exposes the read-only `lead/desk/summary`
+(`LeadDeskSummary`, optional `limit`) and `lead/usage/summary`
+(`LeadUsageSummary`, `{}`) methods. These desk-wide summaries carry bounded,
+scrubbed metadata without transcripts or account identities; they grant no
+cross-project action permission and are not paired-phone methods. The desk
+summary caps running, attention and project lists at 20 with omitted counts.
+Both scan at most 2,000 sessions and expose `sessionsScanned` and
+`countsPartial`; desk totals stay exact, while per-project and usage running
+counts cover the scanned sessions when partial.
 
 | Method | Required tier | Params | Result |
 | --- | --- | --- | --- |

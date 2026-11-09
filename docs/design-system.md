@@ -218,6 +218,7 @@ Two default running sizes: 13px for chrome and 14px for reading. 12px carries me
 | `--hd-line-heading` | `28px` |
 | `--hd-line-title` | `30px` |
 | `--hd-line-display` | `40px` |
+| `--hd-leading-reading` | `1.625` |
 | `--hd-weight-normal` | `400` |
 | `--hd-weight-medium` | `400` |
 | `--hd-weight-semibold` | `580` |

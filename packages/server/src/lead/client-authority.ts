@@ -52,6 +52,7 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
         if (request.method === 'lead/desk/summary' || request.method === 'lead/usage/summary' || request.method === 'library/usage') return null
         // Re-resolve the pinned location, including on reads, rather than allowing
         // a renamed/deleted project to be replaced by a new alias at dispatch.
+        // The three desk-wide reads above deliberately return before this project check.
         if (!await inProject(project)) return 'leadScope'
         // Goal-level reads cover every execution on an owned Goal, including
         // one a person continued. Run-level reads stay ownership-scoped.

@@ -1091,9 +1091,10 @@ test('a connected outside client cannot call any Lead window control even with a
   const { door } = await rig(t)
   const peer = await Peer.open(door.socketPath)
   t.after(() => peer.socket.close())
-  await peer.hello()
+  const hello = await peer.hello()
   for (const method of ['lead/action/perform', 'lead/approval/revoke', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume',
-    'lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
+    'lead/desk/summary', 'lead/usage/summary', 'lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
+    assert.equal(hello.result.methods.includes(method), false, method)
     const result = await peer.call(method, {})
     assert.equal(result.ok, false)
     assert.equal(result.error.code, 'notOnClientSurface')
@@ -1199,8 +1200,8 @@ test('outside clients cannot subscribe to chat baselines or live changes', async
   assert.equal(peer.messages.some(message => message.method === 'lead/chat/changed'), false)
 })
 
-test('private chat methods and subscriptions require host-policy access before dispatch', () => {
-  for (const method of ['lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
+test('private summaries, chat methods and subscriptions require host-policy access before dispatch', () => {
+  for (const method of ['lead/desk/summary', 'lead/usage/summary', 'lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
     assert.equal(doorModule.clientRefusal(method, true, ['read', 'run', 'answer'], {}), 'notOnClientSurface')
     assert.equal(doorModule.clientRefusal(method, true, ['read', 'run'], {}, true), null)
   }

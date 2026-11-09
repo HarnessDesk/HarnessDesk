@@ -58,6 +58,7 @@ const fixture = async (): Promise<Fixture> => {
     now: () => NOW,
     sessions: {
       page: options => index.phoneList(options),
+      isOwn: (runtime, id) => index.isOwn(runtime, id),
       counts: () => index.phoneCounts(),
       touchedSince: since => index.touchedSince(since),
       costliestSince: (since, limit) => index.costliestSince(since, limit),
@@ -713,5 +714,71 @@ test('Lead allowance keeps unknown figures unknown and shares the Dashboard last
     assert.equal(result.accounts[0]!.windows[2]!.projection, null)
     assert.equal(result.accounts[0]!.spend, null)
     assert.equal(result.accounts[0]!.windows[3]!.unlimited, true)
+  } finally { await f.done() }
+})
+
+test('Lead allowance emits only closed error words and preserves ordinary words around short identities', async () => {
+  const f = await fixture()
+  try {
+    const result = await f.workspace.usageSummary([
+      report('dev@example.com', { error: { message: 'jane-d at Acme Example Org: token xy failed' } }),
+      report('other@example.com', { error: { message: 'jane-d at Acme Example Org', needsSignIn: true } }),
+      report('a', { planLabel: 'Standard', fetchedAt: NOW - 1000 }),
+    ])
+    assert.deepEqual(result.accounts.map(account => account.error), ['reading failed', 'sign-in needed', null])
+    assert.equal(result.accounts[2]!.plan, 'Standard')
+    assert.equal(result.accounts[2]!.stale, false, 'the Dashboard boundary is strictly greater than the TTL')
+    assert.ok(!JSON.stringify(result).includes('jane-d'))
+    assert.ok(!JSON.stringify(result).includes('Acme Example Org'))
+  } finally { await f.done() }
+})
+
+test('Lead allowance redacts one- and two-character account identities in report labels', async () => {
+  const f = await fixture()
+  try {
+    for (const account of ['a', 'xy']) {
+      const result = await f.workspace.usageSummary([report(account, {
+        planLabel: `${account} Standard`,
+        lanes: [{ id: 'short', label: `Plan for ${account}`, scope: account, windowMinutes: 300, usedPercent: 10, resetsAt: NOW + HOUR }],
+      })])
+      assert.equal(result.accounts[0]!.plan, '… Standard')
+      assert.equal(result.accounts[0]!.windows[0]!.label, 'Plan for … · …')
+      assert.equal(result.runtimes[0]!.name, 'Fake Agent')
+    }
+  } finally { await f.done() }
+})
+
+test('Lead summary caps running and attention lists while keeping exact totals and omitted counts', async () => {
+  const f = await fixture()
+  try {
+    for (let n = 0; n < 120; n++) {
+      const id = `chat-${n}`
+      f.index.upsert(summary(id, { updatedAt: NOW - n }))
+      f.live.push({ runtime: agent, id: sessionId(id), running: n < 60, waiting: n >= 60, cost: null })
+    }
+    const result = await f.workspace.deskSummary({})
+    assert.deepEqual(result.totals.chats, { running: 60, needsYou: 60, idle: 0 })
+    assert.equal(result.running.length, 20)
+    assert.equal(result.runningMore, 40)
+    assert.equal(result.needsYou.length, 20)
+    assert.equal(result.needsYouMore, 40)
+    assert.equal(result.countsPartial, false)
+  } finally { await f.done() }
+})
+
+test('Lead summary scans stop at the Sessions paging bound and expose partial counts', async () => {
+  const f = await fixture()
+  try {
+    for (let n = 0; n < 2001; n++) f.index.upsert(summary(`chat-${n}`, { updatedAt: NOW - n }))
+    f.live.push({ runtime: agent, id: sessionId('chat-2000'), running: true, waiting: false, cost: null })
+    const result = await f.workspace.deskSummary({})
+    assert.equal(result.sessionsScanned, 2000)
+    assert.equal(result.countsPartial, true)
+    assert.deepEqual(result.totals.chats, { running: 1, needsYou: 0, idle: 2000 })
+    assert.equal(result.runningMore, 1, 'exact live totals include old items outside the scan')
+    const usage = await f.workspace.usageSummary([report('dev@example.com')])
+    assert.equal(usage.sessionsScanned, 2000)
+    assert.equal(usage.countsPartial, true)
+    assert.equal(usage.accounts[0]!.runningSessions, 0, 'a partial count is explicitly marked, never presented as exact')
   } finally { await f.done() }
 })

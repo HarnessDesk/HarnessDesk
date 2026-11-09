@@ -61,6 +61,7 @@ export interface PhoneWorkspacePorts {
   readonly now: () => number
   readonly sessions: {
     page(options: { archived: boolean; cursor?: string; pageSize: number }): { rows: { summary: SessionSummary; cost: number | null }[]; nextCursor: string | null }
+    isOwn(runtime: RuntimeId, id: SessionId): boolean
     counts(): { active: number; archived: number }
     touchedSince(since: number): number
     costliestSince(since: number, limit: number): { summary: SessionSummary; cost: number }[]
@@ -194,24 +195,34 @@ export class PhoneWorkspace {
     return { rows, counts: this.#counts(liveSessions), next }
   }
 
+  /** Same 200-row pages and 2,000-session ceiling as filtered Sessions reads; also bound empty pages. */
+  #summarySessions(): { rows: SessionSummary[]; partial: boolean } {
+    const rows: SessionSummary[] = []
+    let cursor: string | undefined
+    for (let pages = 0; pages < SCAN_LIMIT / 200; pages++) {
+      const page = this.#ports.sessions.page({ archived: false, cursor, pageSize: 200 })
+      rows.push(...page.rows.slice(0, 200).map(entry => entry.summary))
+      if (page.nextCursor === null) return { rows, partial: false }
+      cursor = page.nextCursor
+    }
+    return { rows, partial: true }
+  }
+
   /** The same own-session index and host stages as Sessions, with no preview/message fallback. */
   async deskSummary(params: { limit?: number }): Promise<LeadDeskSummary> {
     const limit = clamp(params.limit, 8, 20)
     const inputs = await this.#ports.teams()
-    const live = new Map(this.#ports.live().map(one => [keyOf(one.runtime, one.id), one]))
+    const liveSessions = this.#ports.live().filter(one => this.#ports.sessions.isOwn(one.runtime, one.id))
+    const live = new Map(liveSessions.map(one => [keyOf(one.runtime, one.id), one]))
     const items: LeadDeskItem[] = []
     const stateOf = (stage: LeadStage): LeadDeskItem['state'] => isWaitingOnYou(stage) ? 'needs-you'
       : stage === 'working' ? 'running' : 'idle'
-    let cursor: string | undefined
-    do {
-      const page = this.#ports.sessions.page({ archived: false, cursor, pageSize: 200 })
-      for (const { summary } of page.rows) items.push({
-        id: `${summary.runtime}:${summary.id}`, title: scrub(summary.title ?? '') || 'Untitled',
-        project: projectOf(summary), kind: 'chat', updatedAt: summary.updatedAt,
-        state: stateOf(this.#sessionStage(live.get(keyOf(summary.runtime, summary.id))).stage),
-      })
-      cursor = page.nextCursor ?? undefined
-    } while (cursor !== undefined)
+    const scan = this.#summarySessions()
+    for (const summary of scan.rows) items.push({
+      id: `${summary.runtime}:${summary.id}`, title: scrub(summary.title ?? '') || 'Untitled',
+      project: projectOf(summary), kind: 'chat', updatedAt: summary.updatedAt,
+      state: stateOf(this.#sessionStage(live.get(keyOf(summary.runtime, summary.id))).stage),
+    })
     for (const input of inputs) items.push({ id: input.view.goal.id, title: scrub(input.view.goal.sentence) || 'Untitled',
       project: folderName(input.view.goal.root), kind: 'team', updatedAt: input.view.goal.updatedAt,
       state: stateOf(workTeamStage(input).stage) })
@@ -224,10 +235,22 @@ export class PhoneWorkspace {
       const kind = item.kind === 'chat' ? 'chats' : 'teams', state = item.state === 'needs-you' ? 'needsYou' : item.state
       for (const counts of [totals[kind], project[kind]]) counts[state]++
     }
+    // The index already has an exact aggregate. Live membership is checked without walking old session rows.
+    const active = this.#ports.sessions.counts().active
+    totals.chats.running = liveSessions.filter(one => this.#sessionStage(one).stage === 'working').length
+    totals.chats.needsYou = liveSessions.filter(one => isWaitingOnYou(this.#sessionStage(one).stage)).length
+    totals.chats.idle = Math.max(0, active - totals.chats.running - totals.chats.needsYou)
     items.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
-    return { totals, projects: [...projects].map(([project, counts]) => ({ project, ...counts }))
-      .sort((a, b) => (a.project ?? '').localeCompare(b.project ?? '')),
-      recent: items.slice(0, limit), running: items.filter(item => item.state === 'running'), needsYou: items.filter(item => item.state === 'needs-you'), olderCount: Math.max(0, items.length - limit) }
+    const running = items.filter(item => item.state === 'running').slice(0, 20)
+    const needsYou = items.filter(item => item.state === 'needs-you').slice(0, 20)
+    const projectRows = [...projects].map(([project, counts]) => ({ project, ...counts }))
+      .sort((a, b) => (a.project ?? '').localeCompare(b.project ?? ''))
+    const recent = items.slice(0, limit)
+    return { totals, countsPartial: scan.partial, sessionsScanned: scan.rows.length,
+      projects: projectRows.slice(0, 20), projectsMore: Math.max(0, projectRows.length - 20), recent,
+      running, runningMore: Math.max(0, totals.chats.running + totals.teams.running - running.length),
+      needsYou, needsYouMore: Math.max(0, totals.chats.needsYou + totals.teams.needsYou - needsYou.length),
+      olderCount: Math.max(0, active + inputs.length - recent.length) }
   }
 
   /** Cached Dashboard reports only. Runtime activity uses the same own-session index and stages as deskSummary. */
@@ -236,7 +259,12 @@ export class PhoneWorkspace {
     const live = new Map(this.#ports.live().map(one => [keyOf(one.runtime, one.id), one]))
     // Free text may repeat an account identity; redact known identities before the path/address/key scrub.
     const identities = reports.flatMap(report => report.account ? [report.account] : [])
-    const safe = (text: string): string => scrub(identities.reduce((value, identity) => value.split(identity).join('…'), text), 400)
+    const safe = (text: string): string => scrub(identities.reduce((value, identity) => {
+      if (identity.length >= 3) return value.split(identity).join('…')
+      // Short account names still identify a person, but must not erase letters inside ordinary words.
+      const literal = identity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return value.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${literal}(?![\\p{L}\\p{N}_])`, 'gu'), '…')
+    }, text), 400)
     const names = new Map<RuntimeId, string>()
     const running = new Map<string, number>()
     const nameOf = (runtime: RuntimeId) => {
@@ -245,16 +273,12 @@ export class PhoneWorkspace {
       if (!running.has(name)) running.set(name, 0)
       return name
     }
-    let cursor: string | undefined
-    do {
-      const page = this.#ports.sessions.page({ archived: false, cursor, pageSize: 200 })
-      for (const { summary } of page.rows) {
-        const name = nameOf(summary.runtime)
-        if (this.#sessionStage(live.get(keyOf(summary.runtime, summary.id))).stage === 'working')
-          running.set(name, running.get(name)! + 1)
-      }
-      cursor = page.nextCursor ?? undefined
-    } while (cursor !== undefined)
+    const scan = this.#summarySessions()
+    for (const summary of scan.rows) {
+      const name = nameOf(summary.runtime)
+      if (this.#sessionStage(live.get(keyOf(summary.runtime, summary.id))).stage === 'working')
+        running.set(name, running.get(name)! + 1)
+    }
     const totals = new Map<string, number>(), ordinals = new Map<string, number>()
     for (const report of reports) { const name = nameOf(report.runtime); totals.set(name, (totals.get(name) ?? 0) + 1) }
     const accounts = reports.map(report => {
@@ -287,13 +311,13 @@ export class PhoneWorkspace {
         runtime, label: `${runtime}${plan ? ` · ${safe(plan)}` : ''}${totals.get(runtime)! > 1 ? ` · account ${ordinal}` : ''}`,
         plan: plan === null ? null : safe(plan), runningSessions: running.get(runtime) ?? 0, windows,
         reached: report.reached !== null, fetchedAt: report.fetchedAt,
-        stale: now - report.fetchedAt >= report.staleAfterMs,
-        error: report.error ? safe(report.error.message) : null,
+        stale: now - report.fetchedAt > report.staleAfterMs,
+        error: report.error ? report.error.needsSignIn === true ? 'sign-in needed' as const : 'reading failed' as const : null,
         spend: report.spend ? { currency: safe(report.spend.currency), today: report.spend.todayCost,
           last30Days: report.spend.windowDays === 30 ? report.spend.windowCost : null, provenance: report.spend.provenance } : null,
       }
     })
-    return { asOf: now, runtimes: [...running].map(([name, runningSessions]) => ({ name, runningSessions })), accounts }
+    return { countsPartial: scan.partial, sessionsScanned: scan.rows.length, asOf: now, runtimes: [...running].map(([name, runningSessions]) => ({ name, runningSessions })), accounts }
   }
 
   // --------------------------------------------------------------------- teams
