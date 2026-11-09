@@ -402,6 +402,8 @@ export interface LeadWindowProjection extends LeadHostProjection {
   readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions?: readonly LeadAction[]
   readonly requestInFlight: boolean
+  /** Host request clock and admitted desk operation; presentation only, no model prose. */
+  readonly activity?: { readonly since: number; readonly method: string | null }
   readonly wayOut: LeadPersonAction
   readonly waitReason: typeof LEAD_MANAGEMENT_REASONS[number] | null
   readonly planConsentExpiresAt: number | null
@@ -910,7 +912,7 @@ const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
     : object<Extract<LeadAction, { kind: 'check' }>>({ ...actionBase, kind: literalUnion('check'), name: text(40), command: boundedText(2000, false, proseControls) })(value, path)
 }
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
-  version, revision, stage: optional(literalUnion(...LEAD_STAGES)), stageReason: optional(text(80)), thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),
+  version, revision, stage: optional(literalUnion(...LEAD_STAGES)), stageReason: optional(text(80)), thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, activity: optional(object({ since: integer(0, Number.MAX_SAFE_INTEGER), method: nullable(text(120)) })), wayOut: nullable(literalUnion('resume', 'decide-plan')),
   waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
   savedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
   revokedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),

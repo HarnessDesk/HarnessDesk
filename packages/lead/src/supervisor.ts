@@ -166,6 +166,8 @@ export interface LeadSupervisorOptions {
   readonly onExit?: (reason: string) => Promise<void> | void
   readonly onWaitEnded?: (runId: string, reason: 'ownership-withdrawn') => void
   /** The child's checks between model turns, for the person's window; a malformed one is a broken protocol. */
+  /** Admitted desk dispatch only; disposer ends this exact call, even on failure. */
+  readonly onToolActivity?: (method: LeadPermissionCall['method']) => () => void
   readonly onActivity?: (busy: boolean) => void
   readonly onPresence?: (presence: LeadPresence) => void
   readonly startupMs?: number
@@ -367,11 +369,12 @@ export class LeadSupervisor {
   #reverse(running: Running, message: Record<string, unknown>): Promise<unknown> {
     if (running.exited || running.poisoned || this.#stopping) return Promise.reject(error('stopping'))
     const id = ++running.id
+    const finish = message.type === 'dispatch' ? this.options.onToolActivity?.(callFrom(message.call).method) : undefined
     return new Promise((resolve, reject) => {
       running.replies.set(id, { resolve, reject, type: message.type as 'dispatch' | 'read', correlationId: message.correlationId as string | undefined })
       try { write(running, { ...message, id } as Omit<LeadIpcMessage, 'version'>) }
       catch { running.replies.delete(id); reject(error('exited')) }
-    })
+    }).finally(() => finish?.())
   }
   async #rpc(running: Running, id: number, operation: LeadRpcOperation, args: unknown[]): Promise<void> {
     const journal = this.options.journal

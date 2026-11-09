@@ -1189,3 +1189,18 @@ test('closing the service fences recovery timers synchronously before lifecycle 
   assert.equal(reasons[0], 'lead-host-shutdown')
   await closed
 })
+
+
+test('host tool activity ends without clearing a newer overlapping tool', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true); await s.service.send(input)
+  const activity = s.options().onToolActivity
+  assert.equal(typeof activity, 'function', 'the host must observe admitted tool dispatches')
+  const finishDesk = activity('lead/desk/summary')
+  assert.equal(s.service.activeTool, 'lead/desk/summary')
+  const finishChat = activity('lead/chat/read')
+  finishDesk()
+  assert.equal(s.service.activeTool, 'lead/chat/read')
+  finishChat()
+  assert.equal(s.service.activeTool, null)
+})

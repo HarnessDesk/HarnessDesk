@@ -63,6 +63,8 @@ export class LeadService {
   #publicScans: Promise<void> = Promise.resolve()
   #enabled = false
   #requestInFlight = false
+  readonly #activeTools = new Map<symbol, LeadPermissionCall['method']>()
+  get activeTool(): LeadPermissionCall['method'] | null { return [...this.#activeTools.values()].at(-1) ?? null }
   get requestInFlight(): boolean { return this.#requestInFlight }
   /** Host dispatches, including accepted queued work, must observe lifecycle revocation immediately. */
   get managementAvailable(): boolean { return this.#enabled && !this.#closed && !this.#changingKeys && !this.#cleanupFailed }
@@ -70,6 +72,7 @@ export class LeadService {
     const next = busy && !this.#closed
     if (this.#requestInFlight === next) return
     this.#requestInFlight = next
+    if (!next) this.#activeTools.clear()
     // Activity outlives an individual send response; give its projection a fresh
     // revision without deriving liveness from durable billing reservations.
     void this.options.journal.settingsChanged().catch(() => {})
@@ -125,6 +128,14 @@ export class LeadService {
         } catch (error) { await this.#release(); throw error }
       },
       onActivity: busy => this.#activity(busy),
+      onToolActivity: method => {
+        const key = Symbol()
+        this.#activeTools.set(key, method)
+        void options.journal.settingsChanged().catch(() => {})
+        return () => {
+          if (this.#activeTools.delete(key)) void options.journal.settingsChanged().catch(() => {})
+        }
+      },
       ...(options.onPresence ? { onPresence: options.onPresence } : {}),
       admitCardOffer: card => admitLeadCard(options.journal.state, card, options.project, options.model ?? LEAD_MESSAGES_DEFAULTS.model),
       // What the model says is written for the person to read, so it gets the scan every other public text gets.

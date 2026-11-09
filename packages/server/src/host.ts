@@ -4208,6 +4208,7 @@ export class Host {
         await this.#leadChats?.projectChanged()
       },
       readRequestInFlight: () => this.#leadService?.requestInFlight ?? false,
+      readActiveTool: () => this.#leadService?.activeTool ?? null,
       readChatEffectQueued: () => this.#leadChats?.effectsQueued ?? false,
       service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),

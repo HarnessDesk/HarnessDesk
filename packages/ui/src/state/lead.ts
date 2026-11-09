@@ -19,6 +19,7 @@ export interface LeadState {
   readonly thread: LeadThread | null
   readonly settings: LeadSettingsProjection | null
   readonly requestInFlight: boolean
+  readonly activity?: LeadWindowProjection['activity']
   readonly wayOut: 'resume' | 'decide-plan' | null
   readonly waitReason: LeadWindowProjection['waitReason']
   readonly planConsentExpiresAt: number | null
@@ -63,12 +64,12 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       // Worker approvals are live host relays. Their cards may change while
       // the journal revision used by settings and Resume stays unchanged.
       const approvals = (thread: LeadThread | null) => thread?.cards.filter(card => card.type === 'waiting' && card.kind === 'worker-approval') ?? []
-      if (projection.stage === state.stage && projection.stageReason === state.stageReason && JSON.stringify(approvals(projection.thread)) === JSON.stringify(approvals(state.thread)) && JSON.stringify(projection.personActions ?? []) === JSON.stringify(state.personActions)) return
+      if (JSON.stringify(projection.activity) === JSON.stringify(state.activity) && projection.requestInFlight === state.requestInFlight && projection.stage === state.stage && projection.stageReason === state.stageReason && JSON.stringify(approvals(projection.thread)) === JSON.stringify(approvals(state.thread)) && JSON.stringify(projection.personActions ?? []) === JSON.stringify(state.personActions)) return
     }
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
       : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], stage: projection.stage, stageReason: projection.stageReason, revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
-        requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
+        requestInFlight: projection.requestInFlight, activity: projection.activity, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
     for (const listener of listeners) listener()
   }
   let controlVersion = 0
