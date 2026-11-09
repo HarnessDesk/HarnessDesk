@@ -1317,3 +1317,71 @@ it('map navigation keeps its destination through a transcript resize', async () 
     await act(async () => {})
   } finally { geometry.mockRestore(); vi.unstubAllGlobals() }
 })
+
+it('a window PageUp releases follow through native scroll events', async () => {
+  render(rig(transcriptSession()).store)
+  const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+  Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    scroll.scrollTop = 100
+    scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  expect(jumpToLatest()).toBeDefined()
+  await act(async () => {})
+})
+
+it('keeps gesture intent through a near-bottom first frame and a distant last frame', async () => {
+  render(rig(transcriptSession()).store)
+  const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+  Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 }))
+    scroll.scrollTop = 1150
+    scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  expect(jumpToLatest()).toBeUndefined()
+  act(() => {
+    scroll.scrollTop = 100
+    scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  expect(jumpToLatest()).toBeDefined()
+  await act(async () => {})
+})
+
+it.each(['textarea', 'input', 'div'])('ignores scroll keys while an editable %s has focus', async tag => {
+  render(rig(transcriptSession()).store)
+  const editor = document.createElement(tag)
+  if (tag === 'div') { editor.setAttribute('contenteditable', 'true'); editor.tabIndex = 0 }
+  container.append(editor)
+  const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+  Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    editor.focus()
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    scroll.scrollTop = 100
+    scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  expect(jumpToLatest()).toBeUndefined()
+  await act(async () => {})
+})
+
+it.each(['scrollend', 'timeout'])('expires gesture intent on %s before a later layout scroll', async end => {
+  vi.useFakeTimers()
+  try {
+    render(rig(transcriptSession()).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+    act(() => {
+      scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 }))
+      scroll.scrollTop = 1150
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+      if (end === 'scrollend') scroll.dispatchEvent(new Event('scrollend', { bubbles: true }))
+      else vi.advanceTimersByTime(151)
+      scroll.scrollTop = 100
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    expect(jumpToLatest()).toBeUndefined()
+    await act(async () => {})
+  } finally { vi.useRealTimers() }
+})

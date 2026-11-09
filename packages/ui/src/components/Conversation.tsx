@@ -1,5 +1,5 @@
 import { fileLink, filePathInRoot } from '../lib/file-link'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { editorConversation } from '../editor'
 import { sanitizeText } from '../lib/sanitize'
@@ -9,6 +9,7 @@ import { useInstalledAgents } from '../lib/first-run'
 import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
 import {
+  KeyboardHereContext,
   useActiveSession,
   usePane, PaneProvider,
   useRuntime,
@@ -398,8 +399,30 @@ export const Conversation = ({
   const transcriptContent = useRef<HTMLDivElement>(null)
   const [pinned, setPinned] = useState(true)
   const releaseFollow = useCallback(() => { setPinned(false) }, [])
+  const keyboardHere = useContext(KeyboardHereContext)
   const scrollIntent = useRef(false)
-  const markScrollIntent = useCallback(() => { scrollIntent.current = true }, [])
+  const scrollIntentTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const clearScrollIntent = useCallback(() => {
+    scrollIntent.current = false
+    clearTimeout(scrollIntentTimer.current)
+  }, [])
+  const markScrollIntent = useCallback(() => {
+    scrollIntent.current = true
+    clearTimeout(scrollIntentTimer.current)
+    scrollIntentTimer.current = setTimeout(clearScrollIntent, 150)
+  }, [clearScrollIntent])
+  useEffect(() => clearScrollIntent, [clearScrollIntent])
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (keyboardHere === false || !scroll.current?.hasAttribute('data-live-transcript')) return
+      if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return
+      const focused = document.activeElement
+      if (focused instanceof Element && focused.closest('input, textarea, [contenteditable]:not([contenteditable="false"]), [data-slot="conversation-dock"]')) return
+      markScrollIntent()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [markScrollIntent, keyboardHere])
   const status = paneStatus(session, snapshot.approvals, key)
   const worktree = session
     ? snapshot.worktrees.find((entry) => entry.managed && entry.path === session.cwd)
@@ -450,11 +473,11 @@ export const Conversation = ({
     // Scroll anchoring and late transcript layout also emit scroll. Only an
     // input gesture can release follow; opening a long history never does.
     if (!scrollIntent.current) return
-    scrollIntent.current = false
+    markScrollIntent()
     delete element.dataset.autoscrolling
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight
     setPinned(distance < NEAR_BOTTOM_PX)
-  }, [])
+  }, [markScrollIntent])
 
   // A reader who is selecting a word out of a streaming answer must not have
   // it yanked out from under the cursor by the next token — release follow
@@ -505,7 +528,7 @@ export const Conversation = ({
     if (!element) return
     let frame = 0
     const follow = () => {
-      scrollIntent.current = false
+      if (scrollIntent.current) return
       element.dataset.autoscrolling = 'true'
       element.scrollTop = element.scrollHeight
       // A no-op assignment fires no event; do not swallow the reader's next scroll.
@@ -524,9 +547,9 @@ export const Conversation = ({
 
   // Switching sessions always starts at the bottom of the new transcript.
   useEffect(() => {
-    scrollIntent.current = false
+    clearScrollIntent()
     setPinned(true)
-  }, [session?.id])
+  }, [session?.id, clearScrollIntent])
 
   // A turn that was not there a moment ago is either a message the reader
   // just sent or a fresh reply starting — either way the point of sending is
@@ -546,10 +569,11 @@ export const Conversation = ({
   const dockArea = useComposerHeightVar(conversationRoot)
 
   const jumpToBottom = useCallback(() => {
+    clearScrollIntent()
     const element = scroll.current
     if (element) element.scrollTo({ top: element.scrollHeight, behavior: scriptedScrollBehavior() })
     setPinned(true)
-  }, [])
+  }, [clearScrollIntent])
 
   const [renaming, setRenaming] = useState(false)
   const [rename, setRename] = useState('')
@@ -613,13 +637,11 @@ export const Conversation = ({
           <ConversationThread
             ref={scroll}
             onScroll={onScroll}
+            onScrollEnd={clearScrollIntent}
             onWheelCapture={markScrollIntent}
             onTouchMoveCapture={markScrollIntent}
             onPointerDownCapture={event => { if (event.target === event.currentTarget) markScrollIntent() }}
             onPointerMoveCapture={event => { if (event.buttons === 1) markScrollIntent() }}
-            onKeyDownCapture={event => {
-              if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) markScrollIntent()
-            }}
             onClick={onScrollClick}
             data-transcript
             data-live-transcript
