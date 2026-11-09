@@ -48,6 +48,7 @@ const Bar = ({
   paintedRule = false,
   active = false,
   grow = false,
+  surface,
   ...props
 }: React.ComponentProps<'div'> & {
   as?: 'div' | 'header' | 'footer'
@@ -59,6 +60,8 @@ const Bar = ({
   paintedRule?: boolean
   active?: boolean
   grow?: boolean
+  /** Paint a ground when the bar stays over scrolling content. */
+  surface?: 'page' | 'sidebar'
 }) => (
   <Element
     data-slot="bar"
@@ -68,6 +71,8 @@ const Bar = ({
     {...(active ? { 'data-active': '' } : {})}
     className={cn(
       'flex shrink-0 items-center gap-(--hd-bar-gap)',
+      surface === 'page' && 'bg-(--hd-background)',
+      surface === 'sidebar' && 'bg-(--hd-sidebar-plate)',
       inset === 'rail' ? 'pr-(--hd-rail-inset)' : 'pr-(--hd-bar-pad)',
       size === 'lg' ? 'h-(--hd-bar-h-lg)' : 'h-(--hd-bar-h)',
       grow && ['h-auto py-(--hd-space-1)', 'min-h-(--hd-bar-h)'],

@@ -23,7 +23,7 @@ if (workerData.mode === 'reader') {
     if (Atomics.load(signal, 0) !== 1) throw new Error('The opener did not attempt migration')
     // Keep the writer lock briefly after the opener reaches BEGIN IMMEDIATE.
     Atomics.wait(signal, 1, 0, 150)
-    db.exec('PRAGMA user_version = 8; COMMIT')
+    db.exec('PRAGMA user_version = 10; COMMIT')
   } finally { db.close() }
 } else {
   // Both real connections have read the old version before either acquires

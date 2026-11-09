@@ -64,7 +64,7 @@ test('opening WAL mode waits for a short independent read lock', { timeout: 15_0
   try {
     assert.equal(Atomics.load(new Int32Array(signal), 1), 1, 'the peer finished its bounded hold')
     assert.equal(db.prepare('PRAGMA journal_mode').get()?.['journal_mode'], 'wal')
-    assert.equal(db.prepare('PRAGMA user_version').get()?.['user_version'], 7)
+    assert.equal(db.prepare('PRAGMA user_version').get()?.['user_version'], 9)
     assert.equal(db.prepare('SELECT value FROM fixture_marker').get()?.['value'], 'preserved')
   } finally { db.close() }
 })
@@ -80,7 +80,7 @@ test('concurrent initializers apply each migration only once after acquiring its
   for (const result of opened) {
     assert.notEqual(result, 'locked')
     const value = result as Opened
-    assert.equal(value.version, 7)
+    assert.equal(value.version, 9)
     assert.equal(value.marker, 'preserved')
     assert.ok(value.worktreeColumns.includes('title'))
     assert.ok(value.worktreeColumns.includes('updated_at'))
@@ -106,7 +106,7 @@ test('a newer schema committed while migration waits is rejected without modific
   assert.throws(() => { openSessionDatabase(file).close() }, /newer schema/)
   const after = new DatabaseSync(file, { readOnly: true })
   try {
-    assert.equal(after.prepare('PRAGMA user_version').get()?.['user_version'], 8)
+    assert.equal(after.prepare('PRAGMA user_version').get()?.['user_version'], 10)
     assert.equal(after.prepare('SELECT value FROM fixture_marker').get()?.['value'], 'preserved')
     assert.equal(after.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'sessions'").get()?.['n'], 0)
   } finally { after.close() }
@@ -123,7 +123,7 @@ test('a lock that outlasts the busy budget still raises the real SQLite error', 
 test('database opening still rejects corrupted files and a newer schema', async t => {
   const { file } = await fixture(t)
   const newer = new DatabaseSync(file)
-  newer.exec('PRAGMA user_version = 8')
+  newer.exec('PRAGMA user_version = 10')
   newer.close()
   assert.throws(() => openSessionDatabase(file), /newer schema/)
   await writeFile(file, 'not a SQLite database')

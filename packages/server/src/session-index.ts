@@ -40,6 +40,8 @@ interface Row {
   worktree: number | null
   origin_url: string | null
   exists: number | null
+  last_opened_at: number | null
+  last_completed_at: number | null
   pinned_order: number | null
   usage: string | null
 }
@@ -72,6 +74,8 @@ const summaryOf = (row: Row): SessionSummary => ({
   ...(row.git ? { git: JSON.parse(row.git) as SessionSummary['git'] } : {}),
   repo: row.cached_root ? { root: row.cached_root, worktree: Boolean(row.worktree), ...(row.origin_url ? { origin: row.origin_url } : {}) } : null,
   ...(row.worktree_path && row.worktree_state ? { worktree: { path: row.worktree_path, branch: row.worktree_branch, state: row.worktree_state } } : {}),
+  ...(row.last_opened_at === null ? {} : { lastOpenedAt: row.last_opened_at }),
+  ...(row.last_completed_at === null ? {} : { lastCompletedAt: row.last_completed_at }),
   pinned: row.pinned_order !== null,
   archived: Boolean(row.archived), ...(row.exists === null ? {} : { folderGone: !row.exists }),
 })
@@ -197,7 +201,15 @@ export class SessionIndex {
   }
 
   opened(runtime: RuntimeId, id: SessionId): void {
-    this.#db.prepare('UPDATE sessions SET last_opened_at=? WHERE runtime=? AND id=?').run(Date.now(), runtime, id)
+    this.#db.prepare('UPDATE sessions SET last_opened_at=MAX(?,COALESCE(last_completed_at,0)) WHERE runtime=? AND id=?').run(Date.now(), runtime, id)
+    this.#notify(runtime, id, false)
+  }
+
+  /** Observation order uses the host clock, never a provider's rounded timestamp. Replay of the same turn is inert. */
+  completed(runtime: RuntimeId, id: SessionId, at: number, turn: string): void {
+    const result = this.#db.prepare(`UPDATE sessions SET last_completed_at=MAX(?,COALESCE(last_opened_at,0)+1),last_completed_turn=?
+      WHERE runtime=? AND id=? AND last_completed_turn IS NOT ?`).run(at, turn, runtime, id, turn)
+    if (result.changes) this.#notify(runtime, id, false)
   }
 
   list(options: { cursor?: string; pageSize?: number; archived?: 'exclude' | 'only'; runtimes?: readonly RuntimeId[] } = {}): Page<SessionSummary> {

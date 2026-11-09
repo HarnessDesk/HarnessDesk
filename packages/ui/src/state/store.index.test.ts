@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import {
-  runtimeId, sessionId, sessionKey, sessionIndexCursorOf,
+  runtimeId, sessionId, sessionKey, sessionIndexCursorOf, turnId,
   type AgentEvent, type HostMethodName, type Session, type SessionSummary, type WireNotification,
 } from '@harnessdesk/protocol'
 import { AppStore } from './store'
@@ -546,4 +546,24 @@ it('writes session pins to the host and receives phone pins through index change
   store.setListPrefs({ sort: 'name' })
   const write = request.mock.calls.find(([method]: readonly unknown[]) => method === 'app/state/set')
   expect((write?.[1] as any)?.patch.listPrefs).not.toHaveProperty('pinnedSessions')
+})
+
+
+it('marks a turn seen when it finishes in the currently open conversation', () => {
+  const key = sessionKey(runtime, sessionId('one'))
+  Object.assign(store.getSnapshot(), { activeSessionKey: key, sessions: new Map([[key, session('one')]]) })
+  handlers().onEvent(runtime, { type: 'turn/completed', sessionId: sessionId('one'), turn: { id: turnId('turn'), status: 'completed', items: [], completedAt: 20 } } as AgentEvent)
+  expect(request).toHaveBeenCalledWith('session/opened', { runtime, sessionId: 'one' })
+})
+
+
+it('keeps newer phone pins when the initial pin read arrives late', async () => {
+  const pins = deferred<readonly string[]>()
+  request.mockImplementation((async (method: HostMethodName) => method === 'app/state/get' ? {} : method === 'session/pins' ? pins.promise : null) as never)
+  const loading = store.loadPreferences()
+  await vi.waitFor(() => expect(request).toHaveBeenCalledWith('session/pins', {}))
+  handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [], pinnedSessions: ['agent:two'] } } as WireNotification)
+  pins.resolve(['agent:one'])
+  await loading
+  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual(['agent:two'])
 })

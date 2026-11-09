@@ -210,7 +210,7 @@ test('repository answers persist, enrich rows and notify only eligible rows', as
   } finally { reopened.close() }
   const db = new DatabaseSync(file)
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 8)
+    assert.equal(db.prepare('PRAGMA user_version').get()?.user_version, 9)
     assert.equal(db.prepare('SELECT repo_root FROM sessions WHERE id = ?').get('one')?.repo_root, '/demo')
   } finally { db.close() }
 })
@@ -466,5 +466,27 @@ test('host pins retain their order and migrate renderer pins only once', async (
     index.upsert(row('two', 20))
     assert.equal(index.list().data[0]?.pinned, true)
     assert.equal(index.get(runtime, idOf('two'))?.updatedAt, 20)
+  } finally { index.close() }
+})
+
+
+test('opening and completing a session publish unread facts without changing activity', async () => {
+  const changed: any[] = []
+  const index = new SessionIndex(':memory:', change => changed.push(change))
+  try {
+    index.upsert(row('one', 10))
+    index.completed(runtime, idOf('one'), 20, 'first')
+    await tick()
+    assert.equal(index.get(runtime, idOf('one'))?.lastCompletedAt, 20)
+    index.opened(runtime, idOf('one'))
+    await tick()
+    const latest = changed.at(-1).upserted[0]
+    assert.ok(latest.lastOpenedAt >= latest.lastCompletedAt)
+    assert.equal(latest.updatedAt, 10)
+    index.completed(runtime, idOf('one'), latest.lastOpenedAt + 100, 'first')
+    assert.equal(index.get(runtime, idOf('one'))?.lastCompletedAt, 20, 'a duplicate completion never restores unread')
+    index.completed(runtime, idOf('one'), latest.lastOpenedAt, 'second')
+    assert.ok(index.get(runtime, idOf('one'))!.lastCompletedAt! > latest.lastOpenedAt, 'same-clock-tick completion follows the open')
+    assert.equal(index.get(runtime, idOf('one'))?.updatedAt, 10)
   } finally { index.close() }
 })

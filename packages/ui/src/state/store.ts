@@ -1639,6 +1639,7 @@ export class AppStore {
             ...(state.state !== 'running' ? { historyRevision: this.#snapshot.historyRevision + 1 } : {}) })
         }
         if (notification.method === 'session/indexChanged') {
+          if (notification.params.pinnedSessions) this.#sessionPinsRevision++
           this.#patch({ historyRevision: this.#snapshot.historyRevision + 1, ...(notification.params.pinnedSessions ? { listPrefs: { ...this.#snapshot.listPrefs, pinnedSessions: notification.params.pinnedSessions } } : {}) })
           this.#changeHistory(notification.params.upserted, notification.params.removed, notification.params.firstPageCursor)
         }
@@ -8404,6 +8405,8 @@ export class AppStore {
           ? (rawAccounts as AccountPrefsMap)
           : {}
       const rawList = preferences['listPrefs'] as Partial<AppSnapshot['listPrefs']> | undefined
+      const pinsRevision = this.#sessionPinsRevision
+      const hostPins = await this.transport.request('session/pins', {})
       const listPrefs: AppSnapshot['listPrefs'] = {
         // Compact unless the user has said otherwise: one line per
         // conversation is what both Codex and Claude Code open with.
@@ -8419,7 +8422,7 @@ export class AppStore {
         pinned: Array.isArray(rawList?.pinned)
           ? rawList.pinned.filter((entry): entry is string => typeof entry === 'string')
           : [],
-        pinnedSessions: await this.transport.request('session/pins', {}) ?? [],
+        pinnedSessions: this.#sessionPinsRevision === pinsRevision ? hostPins ?? [] : this.#snapshot.listPrefs.pinnedSessions,
         gitColumns: readColumnWidths(rawList?.gitColumns),
         collapsed: Array.isArray(rawList?.collapsed)
           ? rawList.collapsed.filter((entry): entry is string => typeof entry === 'string')
@@ -9760,6 +9763,9 @@ export class AppStore {
   }
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
     this.#notifyPublication(event)
+    if (event.type === 'turn/completed' && this.#snapshot.activeSessionKey === sessionKey(runtime, event.sessionId)) {
+      void this.transport.request('session/opened', { runtime, sessionId: event.sessionId }).catch(error => this.resultNotice('error', describe(error)))
+    }
     if (event.type === 'approval/requested') {
       const key = sessionKey(runtime, event.approval.sessionId)
       if (this.#snapshot.approvals.some((entry) => entry.key === key && entry.approval.id === event.approval.id)) return
@@ -9901,6 +9907,7 @@ export class AppStore {
   #historyQuery = ''
   #historyCursor: string | null = null
   #historyCapacity = 50
+  #sessionPinsRevision = 0
   #historyLoaded = false
   #historyRows: readonly SessionSummary[] = []
   #historyAgent: RuntimeId | null = null

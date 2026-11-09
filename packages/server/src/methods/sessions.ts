@@ -311,6 +311,7 @@ export const sessionMethods = {
     return ctx.sessions.attach(runtime, live.id, live)
   },
 
+  'session/opened': (ctx, params) => { ctx.sessionIndex.opened(params.runtime, params.sessionId); return null },
   'session/pins': ctx => ctx.sessionIndex.pins(),
   'session/pin': (ctx, params) => {
     ctx.sessionIndex.setPinned(params.runtime, makeSessionId(params.sessionId), params.pinned)

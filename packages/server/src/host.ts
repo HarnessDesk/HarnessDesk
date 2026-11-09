@@ -5437,6 +5437,7 @@ export class Host {
           for (const row of page.data) this.#sessionIndexRepos.read(row.cwd, true)
           return page
         },
+        opened: (runtime, id) => this.#sessionIndex.opened(runtime, id),
         pins: () => this.#sessionIndex.pins(),
         setPinned: (runtime, id, pinned) => this.#sessionIndex.setPinned(runtime, id, pinned),
         record: (session) => this.#recordSessionIndex(session, true),
@@ -9698,6 +9699,7 @@ export class Host {
       if (event.type === 'turn/completed') this.#turnInsight.complete(runtime, record.session.id, String(event.turn.id), Date.now(), record.session.usage ?? null)
       if (!replayOnlyBody && !record.transcriptIncomplete && !this.#recoveredTranscriptBases.has(record.bodyGeneration)) this.#transcripts.record(record.session, { now: event.type === 'turn/completed', insight: this.#turnInsight.forSession(runtime, record.session.id), generation: record.bodyGeneration, revision: record.bodyRevision, authorityEpoch: record.bodyAuthorityEpoch })
       this.#recordSessionIndex(record.session, event.type === 'turn/completed' || event.type === 'session/started' || event.type === 'session/title')
+      if (!replayOnlyBody && event.type === 'turn/completed') this.#sessionIndex.completed(runtime, record.session.id, Date.now(), String(event.turn.id))
     }
     // The numbers moved because a turn just spent some: re-read that agent
     // only, and only when someone could be looking. Cheaper and fresher than

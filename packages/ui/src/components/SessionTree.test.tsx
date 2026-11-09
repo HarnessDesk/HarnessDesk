@@ -3085,3 +3085,90 @@ it.each(['empty', 'refused'] as const)('an unnamed Team menu retries an %s histo
   await act(async () => { open() })
   expect(loadTeamRuns).toHaveBeenCalledTimes(2)
 })
+
+
+it('selects sessions with Cmd and Shift, shows bulk actions and clears with Escape or plain click', () => {
+  const rows = ['one', 'two', 'three'].map(id => summary({ id, updatedAt: 10 - ['one', 'two', 'three'].indexOf(id) }))
+  const { container: tree, store } = treeWith([], rows)
+  const button = (id: string) => tree.querySelector<HTMLButtonElement>(`button[aria-label="${id}"]`)!
+  act(() => button('one').dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })))
+  expect(store.openSession).not.toHaveBeenCalled()
+  act(() => button('three').dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })))
+  expect(tree.querySelectorAll('[data-multi-selected]')).toHaveLength(3)
+  expect(tree.querySelector('[aria-label="Manage selected conversations"]')?.textContent).toContain('3 selected')
+  act(() => button('one').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' })))
+  expect([...tree.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')].every(button => button.tabIndex === 0)).toBe(true)
+  expect(tree.querySelector('[aria-label="Manage selected conversations"]')?.textContent).not.toContain('Delete')
+  act(() => button('three').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' })))
+  expect(tree.querySelectorAll('[data-multi-selected]')).toHaveLength(0)
+  act(() => button('one').dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })))
+  act(() => button('two').dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })))
+  act(() => button('three').click())
+  expect(store.openSession).toHaveBeenCalledWith(rows[2]!.id, { runtime: rows[2]!.runtime })
+  expect(tree.querySelector('[aria-label="Manage selected conversations"]')).toBeNull()
+})
+
+it('marks unread completions with the Team news dot, below working and failures', () => {
+  const rows = [summary({ id: 'unread', lastOpenedAt: 10, lastCompletedAt: 20 }),
+    summary({ id: 'seen', lastOpenedAt: 20, lastCompletedAt: 10 }),
+    summary({ id: 'working', lastCompletedAt: 20, status: { type: 'active' } }),
+    summary({ id: 'failed', lastCompletedAt: 20, status: { type: 'error', message: 'Failed' } })]
+  const { container: tree } = treeWith([], rows)
+  const row = (id: string) => tree.querySelector(`button[aria-label="${id}"]`)!.closest('[data-region="session-row"]')!
+  expect(row('unread').querySelector('[aria-label="New"]')).not.toBeNull()
+  expect(row('seen').querySelector('[aria-label="New"]')).toBeNull()
+  expect(row('working').querySelector('[aria-label="Working"]')).not.toBeNull()
+  expect(row('working').querySelector('[aria-label="New"]')).toBeNull()
+  expect(row('failed').querySelector('[aria-label="New"]')).toBeNull()
+})
+
+
+it('bulk pins only unpinned rows, archives all selected rows and confirms an allowed delete', async () => {
+  const rows = ['one', 'two'].map(id => summary({ id }))
+  const pin = vi.fn(), archive = vi.fn(async () => {}), remove = vi.fn(async () => ({ disposition: 'trash' as const }))
+  const view = treeWith([], rows, [], { pinnedSessions: [String(sessionKey(rows[0]!.runtime, rows[0]!.id))] }, undefined, null, new Map(), {
+    toggleSessionPinned: pin, archiveSessions: archive, deleteSession: remove,
+  })
+  view.update({ runtimes: [{ id: rows[0]!.runtime, capabilities: { deleteHistory: 'trash' }, presentation: { name: 'Agent' } } as RuntimeInfo] })
+  const select = () => {
+    for (const id of ['one', 'two']) act(() => view.container.querySelector<HTMLButtonElement>(`button[aria-label="${id}"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })))
+  }
+  const action = (label: string) => [...view.container.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')].find(button => button.textContent === label)!
+  select()
+  act(() => action('Pin').click())
+  expect(pin).toHaveBeenCalledExactlyOnceWith(String(sessionKey(rows[1]!.runtime, rows[1]!.id)))
+  select()
+  act(() => action('Archive').click())
+  expect(archive).toHaveBeenCalledExactlyOnceWith(expect.arrayContaining(rows))
+  select()
+  act(() => action('Delete').click())
+  expect(remove).not.toHaveBeenCalled()
+  const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(button => button.textContent === 'Move to Trash')!
+  await act(async () => confirm.click())
+  expect(remove).toHaveBeenCalledTimes(2)
+  expect(remove).toHaveBeenCalledWith(rows[0]!.id, rows[0]!.runtime)
+  expect(remove).toHaveBeenCalledWith(rows[1]!.id, rows[1]!.runtime)
+})
+
+
+it('keeps the failed remainder of a bulk deletion retryable', async () => {
+  const rows = ['one', 'two'].map(id => summary({ id }))
+  let failed = false
+  const remove = vi.fn(async (id: unknown) => {
+    if (id === 'one') view.update({ history: [rows[1]!] })
+    else if (!failed) { failed = true; throw new Error('Trash is busy') }
+    else view.update({ history: [] })
+    return { disposition: 'trash' as const }
+  })
+  const view = treeWith([], rows, [], {}, undefined, null, new Map(), { deleteSession: remove })
+  view.update({ runtimes: [{ id: rows[0]!.runtime, capabilities: { deleteHistory: 'trash' }, presentation: { name: 'Agent' } } as RuntimeInfo] })
+  for (const id of ['one', 'two']) act(() => view.container.querySelector<HTMLButtonElement>(`button[aria-label="${id}"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })))
+  act(() => [...view.container.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')].find(button => button.textContent === 'Delete')!.click())
+  const confirm = () => [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(button => button.textContent === 'Move to Trash')!
+  await act(async () => confirm().click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Trash is busy')
+  expect(confirm().disabled).toBe(false)
+  await act(async () => confirm().click())
+  expect(remove.mock.calls.map(call => call[0])).toEqual(['one', 'two', 'two'])
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+})

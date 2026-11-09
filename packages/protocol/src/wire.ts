@@ -1549,6 +1549,7 @@ export interface HostMethods {
     }
     result: Session
   }
+  'session/opened': { params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }; result: null }
   'session/pins': { params: Record<string, never>; result: readonly string[] }
   'session/pin': { params: { readonly runtime: RuntimeId; readonly sessionId: string; readonly pinned: boolean }; result: null }
   'session/archive': {
