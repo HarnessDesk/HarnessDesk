@@ -109,6 +109,53 @@ test('settling a pending phone projection pushes one cleared session', async t =
   assert.equal(pushes.length, 1, 'a later successful save must not repeat the cleared push')
 })
 
+test('settling a pending unloaded projection pushes the saved body', async t => {
+  const root = tempDir('hd-pending-unloaded-settle-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 })
+  const runtime = new FakeRuntime(); host.register(runtime); await host.start()
+  t.after(() => host.dispose().catch(() => {}))
+  let store!: TranscriptStore
+  const recordWrite = TranscriptStore.prototype.record
+  t.mock.method(TranscriptStore.prototype, 'record', function(this: TranscriptStore, ...args: Parameters<typeof recordWrite>) {
+    store = this; return recordWrite.apply(this, args)
+  })
+  const created = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } }) as Session
+  const turn = { id: turnId('one'), status: 'inProgress' as const, items: [] }
+  runtime.emit({ type: 'turn/started', sessionId: created.id, turn })
+  runtime.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id,
+    item: { id: itemId('answer'), type: 'assistantMessage', text: 'saved answer' } })
+  runtime.emit({ type: 'turn/completed', sessionId: created.id, turn: { ...turn, status: 'completed' } })
+  await store.flush()
+  const db = new TranscriptDatabase(join(root, 'sessions.sqlite'))
+  t.after(() => db.close())
+  const durable = db.read(created.runtime, created.id)!
+  const base = { kind: 'body' as const, identity: db.stateIdentity(durable, created.runtime, created.id) }
+  const record = host.registry.get(created.runtime, created.id)!
+  const saved = structuredClone(record.session)
+  record.session = { ...record.session, turns: [], itemsLoaded: false }
+  record.transcriptIncomplete = true
+  const read = await host.call('workspace/thread/read', { id: `${created.runtime}:${created.id}` })
+  assert.equal(read.historyPending, true)
+  assert.equal(record.session.historyPending, undefined, 'only the projection carries the pending mark')
+  assert.equal(record.session.itemsLoaded, false, 'the pending view must leave the record unloaded')
+  const pushes: Session[] = []
+  let pushed!: () => void
+  const cleared = new Promise<void>(resolve => { pushed = resolve })
+  const stop = host.addBroadcaster(notification => {
+    if ('method' in notification && notification.method === 'event' && notification.params.event.type === 'session/started') { pushes.push(notification.params.event.session); pushed() }
+  })
+  t.after(stop)
+  record.transcriptIncomplete = false
+  assert.equal(await store.persistEvolvedBody(saved, base), true)
+  await cleared
+  assert.equal(pushes[0]!.itemsLoaded, true, 'clearing the mark must never replace history with an unloaded body')
+  assert.equal(pushes.length, 1, 'settling a served projection must update the open conversation')
+  assert.equal(pushes[0]!.historyPending, undefined)
+  assert.deepEqual(pushes[0]!.turns, saved.turns)
+  assert.equal(await store.persistEvolvedBody(saved, store.verifiedBase(saved)!), true)
+  assert.equal(pushes.length, 1, 'a later successful save must not repeat the cleared push')
+})
+
 for (const recent of [false, true]) test(`opening an idle conversation from the phone twice accepts thin replay${recent ? ' beside unrelated unsaved activity' : ''}`, async t => {
   const root = tempDir('hd-read-saved-replay-')
   const options = { logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 }

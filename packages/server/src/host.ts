@@ -9342,16 +9342,31 @@ export class Host {
   }
 
   #clearSettledHistoryPending(record: SessionRecord): void {
-    if ((!record.session.historyPending && !this.#servedHistoryPending.has(record)) || record.transcriptIncomplete || this.#recoveredTranscriptBases.has(record.bodyGeneration) ||
-        this.#transcripts.hasProtectedChanges(record.runtime, record.session.id)) return
-    if (record.session.historyPending) {
-      const { historyPending: _pending, ...session } = record.session
-      record.session = session
+    const settled = () => !record.transcriptIncomplete && !this.#recoveredTranscriptBases.has(record.bodyGeneration) &&
+      !this.#transcripts.hasProtectedChanges(record.runtime, record.session.id)
+    const served = () => record.session.historyPending || this.#servedHistoryPending.has(record)
+    if (!served() || !settled()) return
+    const push = (session: Session) => {
+      if (!session.itemsLoaded) return
+      const { historyPending: _pending, ...complete } = session
+      if (record.session.historyPending) {
+        const { historyPending: _mark, ...unmarked } = record.session
+        record.session = unmarked
+      }
+      this.#servedHistoryPending.delete(record)
+      this.#push({ method: 'event', params: { runtime: record.runtime,
+        event: { type: 'session/started', session: complete },
+        transcriptFence: { epoch: this.#transcriptEpoch, generation: record.bodyGeneration, revision: record.bodyRevision } } })
     }
-    this.#servedHistoryPending.delete(record)
-    this.#push({ method: 'event', params: { runtime: record.runtime,
-      event: { type: 'session/started', session: record.session },
-      transcriptFence: { epoch: this.#transcriptEpoch, generation: record.bodyGeneration, revision: record.bodyRevision } } })
+    if (record.session.itemsLoaded) { push(record.session); return }
+    // A pending projection may have shown durable turns that the record no
+    // longer holds. Clearing its mark must not replace that view with an empty body.
+    const session = record.session, generation = record.bodyGeneration, revision = record.bodyRevision
+    void this.#transcripts.recover(record.runtime, session.id).then(body => {
+      if (!body || this.#disposed || this.registry.get(record.runtime, session.id) !== record ||
+          record.session !== session || record.bodyGeneration !== generation || record.bodyRevision !== revision || !served() || !settled()) return
+      push(body)
+    }).catch(() => { /* Keep the served mark so a later read can clear it. */ })
   }
 
   #historyPendingView(record: SessionRecord, session: Session = record.session): Session {
