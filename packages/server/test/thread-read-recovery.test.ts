@@ -143,17 +143,16 @@ for (const saveFails of [false, true]) test(`a genuine replay conflict stays rea
   if (saveFails) {
     db.db.exec('DROP TRIGGER refuse_body')
     const base = { kind: 'body' as const, identity: db.stateIdentity(durable, created.runtime, created.id) }
-    assert.equal(await store.retryProtectedBody(consistent, base), true)
-    // Settling storage clears the mark before another read or event.
-    assert.equal(record.session.historyPending, undefined)
     let pushed: Session | undefined
     const stop = host.addBroadcaster(notification => {
       if ('method' in notification && notification.method === 'event' && notification.params.event.type === 'session/started') pushed = notification.params.event.session
     })
-    runtime.emit({ type: 'session/started', session: structuredClone(record.session) })
+    assert.equal(await store.retryProtectedBody(consistent, base), true)
     stop()
+    // Settling storage clears the mark and updates open windows immediately.
+    assert.equal(record.session.historyPending, undefined)
     assert.ok(pushed)
-    assert.equal(pushed.historyPending, undefined, 'the next pushed replay must not carry a stale mark')
+    assert.equal(pushed.historyPending, undefined, 'settling storage pushes the cleared session')
     const settledPhone = await host.call('workspace/thread/read', { id: `${created.runtime}:${created.id}` })
     assert.equal(settledPhone.historyPending, undefined)
     assert.equal(record.session.historyPending, undefined)
@@ -254,10 +253,11 @@ const replayCases = [
     newer: { ...savedSearch, results: [...savedSearch.results, { title: 'New result', url: 'https://example.com/new' }] } },
   { name: 'subagent model dropped', saved: savedSubagent, thin: { ...savedSubagent, model: undefined },
     newer: { ...savedSubagent, prompt: savedSubagent.prompt + ' with more work', members: [...savedSubagent.members, { sessionId: 'child-2', nickname: 'Helper 2' }] } },
-  { name: 'one changed field vetoes an extended result', saved: savedTool,
+  { name: 'a changed field keeps its saved value beside an extended result', saved: savedTool,
     thin: { ...savedTool, args: { p: 2 }, result: [...savedTool.result, { type: 'text' as const, text: 'continued result' }] },
+    preserved: { ...savedTool, result: [...savedTool.result, { type: 'text' as const, text: 'continued result' }] },
     newer: { ...savedTool, result: [...savedTool.result, { type: 'text' as const, text: 'continued result' }] } },
-] satisfies { name: string; saved: AgentItem; thin: AgentItem; newer: AgentItem }[]
+] satisfies { name: string; saved: AgentItem; thin: AgentItem; newer: AgentItem; preserved?: AgentItem }[]
 
 for (const method of ['session/read', 'workspace/thread/read'] as const) for (const scenario of replayCases) {
   test(`generic replay preservation: ${scenario.name} through ${method}`, async t => {
@@ -291,7 +291,7 @@ for (const method of ['session/read', 'workspace/thread/read'] as const) for (co
     // Both thin reads preserve the saved body. An actual extension then wins,
     // and a later thin replay must also preserve that newly saved extension.
     for (const phase of [
-      { replay: scenario.thin, expected: scenario.saved },
+      { replay: scenario.thin, expected: 'preserved' in scenario ? scenario.preserved! : scenario.saved },
       { replay: scenario.newer, expected: scenario.newer },
       { replay: scenario.thin, expected: scenario.newer },
     ]) for (let i = 0; i < 2; i++) {
@@ -339,31 +339,100 @@ for (const field of ['title', 'preview', 'cwd'] as const) test(`an enriched repl
   try { assert.equal(db.read(created.runtime, created.id)![field], changed[field]) } finally { db.close() }
 })
 
-for (const method of ['session/read', 'workspace/thread/read'] as const) test(`an enriched replay merges saved-only and replay-only items through ${method}`, async t => {
+const itemMergeCases = [
+  { saved: 4, replay: ['command', 'new-1', 'old-1'], expected: ['command', 'new-1', 'old-1', 'old-2', 'old-3'] },
+  { saved: 2, replay: ['command', 'new-1'], expected: ['command', 'new-1', 'old-1'] },
+  { saved: 2, replay: ['command', 'new-1', 'new-2', 'new-3'], expected: ['command', 'new-1', 'new-2', 'new-3', 'old-1'] },
+  { saved: 2, replay: ['new-1', 'new-2'], expected: ['new-1', 'new-2', 'command', 'old-1'] },
+]
+for (const method of ['session/read', 'workspace/thread/read'] as const) for (const scenario of itemMergeCases) test(`an enriched replay merges [${scenario.replay}] into ${scenario.saved} saved items through ${method}`, async t => {
   const root = tempDir('hd-replay-merge-')
   const options = { logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 }
   const first = new Host(options), writer = new FakeRuntime(); first.register(writer); await first.start()
   const created = await first.call('session/create', { runtime: writer.info.id, options: { cwd: root } }) as Session
   const turn = { id: turnId('one'), status: 'inProgress' as const, items: [] }
   writer.emit({ type: 'turn/started', sessionId: created.id, turn })
-  const old = [savedCommand, ...['old-1', 'old-2', 'old-3'].map(id => ({ ...savedAnswer, id: itemId(id), text: id }))]
+  const old = [savedCommand, ...['old-1', 'old-2', 'old-3'].slice(0, scenario.saved - 1).map(id => ({ ...savedAnswer, id: itemId(id), text: id }))]
   for (const item of old) writer.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id, item })
   writer.emit({ type: 'turn/completed', sessionId: created.id, turn: { ...turn, status: 'completed' } })
   const saved = structuredClone(first.registry.get(created.runtime, created.id)!.session); await first.dispose()
   const host = new Host(options), runtime = new FakeRuntime(); host.register(runtime); await host.start()
   t.after(() => host.dispose().catch(() => {}))
-  const added = ['new-1', 'new-2'].map(id => ({ ...savedAnswer, id: itemId(id), text: id }))
+  const itemsById = new Map([...old, ...['new-1', 'new-2', 'new-3'].map(id => ({ ...savedAnswer, id: itemId(id), text: id }))].map(item => [String(item.id), item]))
   runtime.readSession = async () => {
-    const replay = { ...saved, turns: [{ ...saved.turns[0]!, items: [savedCommand, ...added] }] }
+    const replay = { ...saved, turns: [{ ...saved.turns[0]!, items: scenario.replay.map(id => itemsById.get(id)!) }] }
     runtime.emit({ type: 'session/started', session: replay }); return replay
   }
   const read = method === 'session/read' ? await host.call(method, { runtime: created.runtime, sessionId: created.id })
     : await host.call(method, { id: `${created.runtime}:${created.id}` })
-  assert.match(JSON.stringify(read), /new-1.*new-2/)
+  assert.match(JSON.stringify(read), /new-1/)
   const db = new TranscriptDatabase(join(root, 'sessions.sqlite'))
   try {
     const items = db.read(created.runtime, created.id)!.turns[0]!.items
-    assert.deepEqual(items.filter(item => String(item.id).startsWith('new-')), added)
+    assert.deepEqual(items, scenario.expected.map(id => itemsById.get(id)!))
     for (const item of old) assert.ok(items.some(candidate => candidate.id === item.id))
   } finally { db.close() }
 })
+
+const runningCommand = { ...savedCommand, status: 'inProgress' as const, output: 'partial', exitCode: null, durationMs: 5 }
+const runningTool = { ...savedTool, status: 'inProgress' as const, result: undefined, error: undefined }
+const lifecycleCases: { name: string; saved: AgentItem; replay: AgentItem; expected: AgentItem }[] = [
+  { name: 'command completes after restart', saved: runningCommand,
+    replay: { ...runningCommand, status: 'completed', output: 'partial and the rest', exitCode: 0, durationMs: 10 },
+    expected: { ...runningCommand, status: 'completed', output: 'partial and the rest', exitCode: 0, durationMs: 10 } },
+  { name: 'tool completes after restart', saved: runningTool,
+    replay: { ...runningTool, status: 'completed', result: [{ type: 'text', text: 'finished result' }] },
+    expected: { ...runningTool, status: 'completed', result: [{ type: 'text', text: 'finished result' }] } },
+  { name: 'running file diff rewrite wins', saved: { ...savedChanges, status: 'inProgress' },
+    replay: { ...savedChanges, status: 'inProgress', changes: [{ ...savedChanges.changes[0]!, diff: 'rewritten diff' }] },
+    expected: { ...savedChanges, status: 'inProgress', changes: [{ ...savedChanges.changes[0]!, diff: 'rewritten diff' }] } },
+  { name: 'running tool content rewrite wins', saved: { ...runningTool, result: [{ type: 'text', text: 'old content' }] },
+    replay: { ...runningTool, tool: 'Updated tool title', result: [{ type: 'text', text: 'rewritten content' }] },
+    expected: { ...runningTool, tool: 'Updated tool title', result: [{ type: 'text', text: 'rewritten content' }] } },
+  { name: 'completed item rejects running replay', saved: savedCommand,
+    replay: { ...runningCommand, output: savedCommand.output + ' stale extension' }, expected: savedCommand },
+  { name: 'completion keeps missing output and takes exit code', saved: runningCommand,
+    replay: { ...runningCommand, status: 'completed', output: undefined, exitCode: 0, durationMs: 0 },
+    expected: { ...runningCommand, status: 'completed', exitCode: 0, durationMs: 0 } },
+]
+for (const method of ['session/read', 'workspace/thread/read'] as const) for (const scenario of lifecycleCases) {
+  test(`lifecycle replay: ${scenario.name} through ${method}`, async t => {
+    const root = tempDir('hd-lifecycle-replay-')
+    const options = { logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 }
+    const first = new Host(options), writer = new FakeRuntime(); first.register(writer); await first.start()
+    const created = await first.call('session/create', { runtime: writer.info.id, options: { cwd: root } }) as Session
+    const turn = { id: turnId('one'), status: 'inProgress' as const, items: [] }
+    writer.emit({ type: 'turn/started', sessionId: created.id, turn })
+    writer.emit({ type: 'item/started', sessionId: created.id, turnId: turn.id, item: scenario.saved })
+    const saved = structuredClone(first.registry.get(created.runtime, created.id)!.session)
+    await first.dispose()
+    const host = new Host(options), runtime = new FakeRuntime(); host.register(runtime); await host.start()
+    t.after(() => host.dispose().catch(() => {}))
+    const db = new TranscriptDatabase(join(root, 'sessions.sqlite')); t.after(() => db.close())
+    let reads = 0, enrichedRead: Session | undefined
+    const enrich = TranscriptStore.prototype.enrichForRefresh
+    t.mock.method(TranscriptStore.prototype, 'enrichForRefresh', async function(this: TranscriptStore, body: Session) {
+      const result = await enrich.call(this, body); enrichedRead = result.session; return result
+    })
+    runtime.readSession = async () => {
+      reads++
+      const replay = { ...saved, updatedAt: saved.updatedAt + 60_000,
+        turns: [{ ...saved.turns[0]!, status: 'completed' as const, items: [scenario.replay] }] }
+      runtime.emit({ type: 'session/started', session: replay }); return replay
+    }
+    for (let i = 0; i < 2; i++) {
+      if (i) await host.call('session/close', { runtime: created.runtime, sessionId: created.id })
+      const result = method === 'session/read'
+        ? await host.call(method, { runtime: created.runtime, sessionId: created.id })
+        : await host.call(method, { id: `${created.runtime}:${created.id}` })
+      const fullRead = method === 'session/read' ? result as Session : enrichedRead!
+      // SQLite omits optional undefined properties; compare the serialized item.
+      const expected = JSON.parse(JSON.stringify(scenario.expected)) as AgentItem
+      assert.deepEqual(JSON.parse(JSON.stringify(fullRead.turns[0]!.items)), [expected])
+      assert.deepEqual(db.read(created.runtime, created.id)!.turns[0]!.items, [expected])
+      assert.equal(result.historyPending, undefined)
+      assert.equal(host.registry.get(created.runtime, created.id)!.transcriptIncomplete, false)
+    }
+    assert.equal(reads, 2)
+  })
+}

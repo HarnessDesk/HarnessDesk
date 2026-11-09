@@ -1242,7 +1242,12 @@ export class Host {
       },
       (runtime, id) => {
         const record = this.registry.get(runtime, id)
-        if (record) this.#clearSettledHistoryPending(record)
+        if (record?.session.historyPending) {
+          this.#clearSettledHistoryPending(record)
+          if (!record.session.historyPending) this.#push({ method: 'event', params: { runtime,
+            event: { type: 'session/started', session: record.session },
+            transcriptFence: { epoch: this.#transcriptEpoch, generation: record.bodyGeneration, revision: record.bodyRevision } } })
+        }
       },
     )
     this.#sessionIndex = new SessionIndex(join(this.#state.directory, 'sessions.sqlite'), (change) => {
@@ -7938,14 +7943,14 @@ export class Host {
     // Reading the desk's own history needs no working agent process.
     const health = runtime.health()
     if (health.state === 'unavailable' && health.reason !== 'unknown' && !held?.live) {
-      if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its agent is unavailable.'), { wireCode: 'historyUnavailable' })
+      if (admitCwd) throw new Error('The chat project location cannot be verified while its agent is unavailable.')
       const kept = await this.#transcripts.recover(runtime.info.id, id) ??
         await readKeptTranscriptFile(join(this.#state.directory, 'transcripts'), runtime.info.id, id)
       if (kept) return { ...kept, deskCopy: true }
     }
     const scoped = await this.#scopedRead(runtime, id, allowReopen)
     if (scoped) {
-      if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified from its retained transcript.'), { wireCode: 'historyUnavailable' })
+      if (admitCwd) throw new Error('The chat project location cannot be verified from its retained transcript.')
       return scoped
     }
     const source = await this.#sourceState(runtime, id)

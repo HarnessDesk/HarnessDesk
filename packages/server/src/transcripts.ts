@@ -18,6 +18,7 @@ import { PendingTranscript, canonicalTranscriptBody, isNoticeTurn, openingOfCont
 import { decodeBody, durableStateIdentity, InvalidTranscriptBodyError, NewerTranscriptFormatError, readTranscriptFacts, TranscriptDatabase, TOOL_INDEX_CAP } from './transcript-database.js'
 import { DailySessionSnapshots } from './session-snapshots.js'
 import { publicationsIn, withPublications } from './publications.js'
+import { mergeReplayItem } from './replay-item.js'
 
 /** The runtime has no retained transcript store yet (or it became unavailable). */
 export class MissingTranscriptRuntimeError extends Error {}
@@ -39,8 +40,11 @@ export class TranscriptSaveRefusedError extends Error {}
  * Turn and item rows in the index's `<state>/sessions.sqlite`,
  * written a beat after the last event and at once when a turn completes. On
  * a read, the backend's turns are *enriched*, not replaced: a turn with the
- * same id keeps stored-only items alongside replay-only items. Shared items
- * use the replay only when every saved field is preserved or extended; the
+ * same id keeps stored-only items alongside replay-only items, unless replay
+ * split the turn across other turns. Shared items
+ * preserve final saved fields unless replay equals or extends them; running
+ * items accept replay rewrites and completion, retaining missing or truncated
+ * fields. Replay-only items follow their preceding shared replay neighbour; the
  * backend's own turn status and diff still win wherever it has them. A turn
  * the backend no longer lists — after a rollback — is not brought back.
  *
@@ -206,19 +210,6 @@ const sameStoredSessionFacts = (stored: Stored, session: Session): boolean =>
 export const transcriptSessionFacts = (value: Session) => ({ runtime: value.runtime, id: value.id, turns: value.turns,
   usage: value.usage ?? null, title: value.title ?? null, preview: value.preview ?? null,
   cwd: value.cwd, createdAt: value.createdAt, updatedAt: value.updatedAt })
-
-/** A replay may add facts, but cannot discard or rewrite any saved field. */
-const replayExtends = (saved: unknown, replay: unknown): boolean => {
-  if (isDeepStrictEqual(saved, replay) || saved === undefined) return true
-  if (typeof saved === 'string') return typeof replay === 'string' && replay.startsWith(saved)
-  if (Array.isArray(saved)) return Array.isArray(replay) && replay.length >= saved.length &&
-    saved.every((value, index) => isDeepStrictEqual(value, replay[index]))
-  if (saved && replay && typeof saved === 'object' && typeof replay === 'object' && !Array.isArray(replay)) {
-    return Object.entries(saved).every(([field, value]) => value === undefined ||
-      Object.hasOwn(replay, field) && replayExtends(value, (replay as Record<string, unknown>)[field]))
-  }
-  return false
-}
 
 export class TranscriptStore {
   readonly #pending = new Map<string, PendingWrite>()
@@ -1043,9 +1034,7 @@ export class TranscriptStore {
           const previous = kept.items.filter(candidate => candidate.id === item.id)
           if (previous.length !== 1) return item
           const saved = previous[0]!
-          // Keep the saved item whole if even one field is thin. Combining
-          // individual fields could fabricate an item neither side observed.
-          return replayExtends(saved, item) ? item : saved
+          return mergeReplayItem(saved, item)
         })
         const restored = enriched.some((item, index) => item !== items[index]) ? enriched : items
         const classified = preserveDeskContext(preserveNoticeItems(restored, kept.items, true), kept.items)
@@ -1053,33 +1042,33 @@ export class TranscriptStore {
           ? classified
           : withPublications(classified, published)
       }
-      if (kept.items.length <= turn.items.length) {
-        const items = carry(turn.items)
-        if (items === turn.items) return turn
-        changed = true
-        return { ...turn, items }
-      }
-      if (
-        kept.items.some((entry) => {
-          const home = homes.get(String(entry.id))
-          return home !== undefined && home !== turn
-        })
-      ) {
-        const items = carry(turn.items)
-        if (items === turn.items) return turn
-        changed = true
-        return { ...turn, items }
-      }
-      changed = true
-      // Retain the stored order, enrich shared ids, then keep replay-only
-      // items in their own order instead of dropping them on count alone.
+      // Use the same id merge regardless of counts. Do not copy an item the
+      // runtime moved to another turn. Insert each new replay run immediately
+      // after its preceding shared neighbour (or before all saved items).
       const replay = carry(turn.items)
       const byId = new Map(replay.map(item => [item.id, item]))
-      const storedIds = new Set(kept.items.map(item => item.id))
-      return {
+      // A split turn cannot claim the missing items' placement. Likewise a
+      // renumbered, equally full turn may use fresh message ids for the same
+      // prose. Preserve the existing segmentation guard in those cases.
+      const moved = kept.items.some(item => homes.has(String(item.id)) && homes.get(String(item.id)) !== turn)
+      const restoreMissing = !moved && (kept.id === turn.id || kept.items.length > turn.items.length)
+      const retained = restoreMissing ? kept.items : replay
+      const storedIds = new Set(retained.map(item => item.id))
+      const additions = new Map<AgentItem['id'] | null, AgentItem[]>()
+      let anchor: AgentItem['id'] | null = null
+      for (const item of replay) {
+        if (storedIds.has(item.id)) anchor = item.id
+        else {
+          const group = additions.get(anchor) ?? []
+          group.push(item)
+          additions.set(anchor, group)
+        }
+      }
+      const items = [...(additions.get(null) ?? []), ...retained.flatMap(item => [byId.get(item.id) ?? item, ...(additions.get(item.id) ?? [])])]
+      const enriched = !restoreMissing || kept.items.length <= turn.items.length ? { ...turn, items } : {
         ...kept,
         ...turn,
-        items: [...kept.items.map(item => byId.get(item.id) ?? item), ...replay.filter(item => !storedIds.has(item.id))],
+        items,
         diff: turn.diff ?? kept.diff ?? null,
         plan: turn.plan ?? kept.plan,
         // The host's own stored time, never the backend read's: a replay
@@ -1091,6 +1080,9 @@ export class TranscriptStore {
         startedAt: kept.startedAt ?? turn.startedAt ?? null,
         completedAt: kept.completedAt ?? turn.completedAt ?? null,
       }
+      if (isDeepStrictEqual(enriched, turn)) return turn
+      changed = true
+      return enriched
     })
     // These rows are host-owned and have no vendor turn to pair with.
     // Keep only their missing items; omitted work turns still belong to rollback.
