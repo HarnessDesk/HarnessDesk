@@ -6976,7 +6976,9 @@ export class Host {
 
   /** A read for the host's own bookkeeping — the same rule as a client's: a filtered Seat's conversation is never opened unfiltered. */
   async #hostRead(runtime: AgentRuntime, id: SessionId): Promise<Session> {
-    return (await this.#scopedRead(runtime, id)) ?? runtime.readSession(id)
+    const finishRead = this.#beginHistoryRead(runtime.info.id, id)
+    try { return (await this.#scopedRead(runtime, id)) ?? await runtime.readSession(id) }
+    finally { finishRead() }
   }
 
   /** Why a fork of this conversation is refused, or null: a fork would run with no filter, and a fork is not the Seat. */
@@ -7411,6 +7413,8 @@ export class Host {
   /** How many callers are waiting on a reopen already in flight, per conversation. */
   readonly #reopenWaiters = new Map<string, number>()
   readonly #transcriptOperations = new Map<string, number>()
+  /** Nested and overlapping reads retain replay provenance until the last read settles. */
+  readonly #historyReads = new Map<string, number>()
 
   /**
    * How many callers are waiting on a reopen of this conversation that is
@@ -7791,6 +7795,16 @@ export class Host {
    * flight the held transcript *is* the read; the rest of the time the store is
    * asked, and what it says is folded in (`SessionRegistry.upsert`).
    */
+  #beginHistoryRead(runtime: RuntimeId, id: SessionId): () => void {
+    const key = String(sessionKey(runtime, id))
+    this.#historyReads.set(key, (this.#historyReads.get(key) ?? 0) + 1)
+    return () => {
+      const remaining = this.#historyReads.get(key)! - 1
+      if (remaining) this.#historyReads.set(key, remaining)
+      else this.#historyReads.delete(key)
+    }
+  }
+
   #beginTranscriptOperation(runtime: RuntimeId, id: SessionId): () => void {
     const key = String(sessionKey(runtime, id))
     this.#transcriptOperations.set(key, (this.#transcriptOperations.get(key) ?? 0) + 1)
@@ -7810,6 +7824,7 @@ export class Host {
 
   async #read(runtime: AgentRuntime, id: SessionId): Promise<Session> {
     const finishRead = this.#beginTranscriptOperation(runtime.info.id, id)
+    const finishHistoryRead = this.#beginHistoryRead(runtime.info.id, id)
     try {
       const indexed = this.#sessionIndex.get(runtime.info.id, id)
       if (indexed?.archived) await archiveConversation(this.#context, { runtime: runtime.info.id, sessionId: id, archived: false })
@@ -7853,6 +7868,7 @@ export class Host {
       }
       return session
     } finally {
+      finishHistoryRead()
       finishRead()
     }
   }
@@ -7910,6 +7926,7 @@ export class Host {
 
   async #readTranscript(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
     const finishRead = this.#beginTranscriptOperation(runtime.info.id, id)
+    const finishHistoryRead = this.#beginHistoryRead(runtime.info.id, id)
     try {
       const pending = this.registry.get(runtime.info.id, id)
       if (pending?.transcriptIncomplete && !this.#restorePendingTranscript(pending)) {
@@ -7930,7 +7947,7 @@ export class Host {
         throw error
       }
     }
-    finally { finishRead() }
+    finally { finishHistoryRead(); finishRead() }
   }
 
   async #readTranscriptUntracked(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
@@ -9001,6 +9018,7 @@ export class Host {
           const id = omitted[next++]!
           if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
           const key = String(sessionKey(runtime.info.id, id))
+          const finishRead = this.#beginHistoryRead(runtime.info.id, id)
           try {
             const read = await runtime.readSession(id)
             if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime && this.#sessionIndex.fillMissingMetadata(read)) this.#sessionIndexRepos.read(read.cwd)
@@ -9009,6 +9027,7 @@ export class Host {
               this.#sessionIndex.confirmArchived(runtime.info.id, id, read.archived)
             }
           } catch { /* Retry unresolved rows on the next completed pass. */ }
+          finally { finishRead() }
         }
       }))
       if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime) this.#sessionIndex.clearArchiveError(runtime.info.id)
@@ -9237,10 +9256,11 @@ export class Host {
     const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
     if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     const held = id ? this.registry.get(runtime, id) : undefined
-    // Loading history can announce a whole session with the adapter's open
-    // time. Replay is a read, so retain the desk's activity clock before it
-    // reaches either the registry, the index, or connected clients.
-    if (event.type === 'session/started') event = { ...event, session: this.#preserveReadRecency(event.session) }
+    // Loading history can announce the adapter's open time. Only announcements
+    // within a read are replay; activity announcements keep their own clock.
+    if (event.type === 'session/started' && this.#historyReads.has(String(sessionKey(runtime, event.session.id)))) {
+      event = { ...event, session: this.#preserveReadRecency(event.session) }
+    }
     const initial = !held && source && this.ownsRuntime(source) && !this.#creatingTranscripts.has(runtime) && event.type === 'session/started' &&
       event.session.runtime === runtime && event.session.itemsLoaded && !event.session.partialHistory &&
       !this.#sessionIndex.isRemoved(runtime, event.session.id) && this.#transcripts.mayObserveInitialBase(event.session)
