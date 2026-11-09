@@ -196,7 +196,7 @@ test('the phone surface carries the three workspace names at the tiers a phone n
   assert.equal(PHONE_POLICY.methods['workspace/approval/decide'], 'answer')
   assert.equal(PHONE_POLICY.methods['workspace/team/wrap'], 'run')
   assert.equal(PHONE_POLICY.topics.workspace, 'read')
-  assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/session/send', 'workspace/session/start', 'workspace/sessions/list', 'workspace/stop', 'workspace/team/wrap', 'workspace/thread/read'])
+  assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/session/archive', 'workspace/session/delete', 'workspace/session/pin', 'workspace/session/rename', 'workspace/session/send', 'workspace/session/start', 'workspace/sessions/list', 'workspace/stop', 'workspace/team/wrap', 'workspace/thread/read'])
 })
 
 test('a phone that may read gets the snapshot and a conversation, and both scrub machine paths, addresses and output tokens', async () => {
@@ -207,7 +207,7 @@ test('a phone that may read gets the snapshot and a conversation, and both scrub
     assert.equal(snapshot.ok, true, JSON.stringify(snapshot))
     assert.equal(snapshot.result.deskName, 'Studio Mac')
     assert.deepEqual(snapshot.result.items.map((item: any) => item.id), [KEY])
-    assert.deepEqual(snapshot.result.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
+    assert.deepEqual(snapshot.result.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, rename: true, archive: true, pin: true, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
     const thread = await phone.request('workspace/thread/read', { id: KEY })
     assert.equal(thread.ok, true, JSON.stringify(thread))
     assert.equal(thread.result.status, 'asksYou')

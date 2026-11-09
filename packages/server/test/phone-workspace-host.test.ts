@@ -194,10 +194,11 @@ test('the host answers the phone’s snapshot of the work in the phone’s own u
     [`${runtime.info.id}:priced`, 'session', 'done', 'Done', { micros: 750_000 }, { name: runtime.info.presentation.name }],
     [`${runtime.info.id}:free`, 'session', 'done', 'Done', undefined, { name: runtime.info.presentation.name }],
   ])
+  assert.ok(snapshot.items.every(item => item.canDelete === (runtime.info.capabilities.deleteHistory === 'trash')))
   assert.equal(snapshot.items[0]!.title, 'Fix the sign-in for … in …')
   assert.equal(snapshot.items[0]!.project, undefined, 'a folder that is no repository names no project, in the list or in the conversation')
   assert.equal(snapshot.deskName, 'Desk')
-  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: true, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
+  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: runtime.info.capabilities.deleteHistory === 'trash', rename: true, archive: true, pin: true, chooseModel: true, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
   assert.deepEqual(snapshot.models.map(model => model.id), runtime.models.map(model => model.id))
   // The desk starts its default agent in the background; once it answers it is listed with its own models.
   const ready = await host.call('workspace/read', {})
