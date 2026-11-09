@@ -3172,3 +3172,17 @@ it('keeps the failed remainder of a bulk deletion retryable', async () => {
   expect(remove.mock.calls.map(call => call[0])).toEqual(['one', 'two', 'two'])
   expect(document.querySelector('[role="alertdialog"]')).toBeNull()
 })
+
+
+it('reports one kept-worktree notice after bulk deletion', async () => {
+  const rows = ['one', 'two'].map(id => summary({ id }))
+  const resultNotice = vi.fn()
+  const view = treeWith([], rows, [], {}, undefined, null, new Map(), {
+    deleteSession: vi.fn(async () => ({ disposition: 'trash' as const, warning: 'Worktree kept' })), resultNotice,
+  })
+  view.update({ runtimes: [{ id: rows[0]!.runtime, capabilities: { deleteHistory: 'trash' }, presentation: { name: 'Agent' } } as RuntimeInfo] })
+  for (const id of ['one', 'two']) act(() => view.container.querySelector<HTMLButtonElement>(`button[aria-label="${id}"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })))
+  act(() => [...view.container.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')].find(button => button.textContent === 'Delete')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(button => button.textContent === 'Move to Trash')!.click())
+  expect(resultNotice).toHaveBeenCalledExactlyOnceWith('info', '2 worktrees stayed. Review them in Archive.')
+})

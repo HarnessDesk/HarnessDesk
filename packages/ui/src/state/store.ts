@@ -8406,7 +8406,7 @@ export class AppStore {
           : {}
       const rawList = preferences['listPrefs'] as Partial<AppSnapshot['listPrefs']> | undefined
       const pinsRevision = this.#sessionPinsRevision
-      const hostPins = await this.transport.request('session/pins', {})
+      const hostPins = await this.transport.request('session/pins', {}).catch(() => this.#snapshot.listPrefs.pinnedSessions)
       const listPrefs: AppSnapshot['listPrefs'] = {
         // Compact unless the user has said otherwise: one line per
         // conversation is what both Codex and Claude Code open with.

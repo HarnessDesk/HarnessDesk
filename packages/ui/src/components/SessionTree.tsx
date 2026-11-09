@@ -1629,16 +1629,21 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
   const deleteSelected = async () => {
     if (!bulkDelete?.length || !bulkDelete.every(row => snapshot.runtimes.find(runtime => runtime.id === row.runtime)?.capabilities.deleteHistory === 'trash') || bulkBusy) return
     setBulkBusy(true); setBulkError(null)
+    let kept = 0
     try {
       for (const row of bulkDelete) {
-        await store.deleteSession(row.id, row.runtime)
+        const outcome = await store.deleteSession(row.id, row.runtime)
+        if (outcome?.warning) kept++
         const key = String(sessionKey(row.runtime, row.id))
         setBulkDelete(current => current?.filter(one => String(sessionKey(one.runtime, one.id)) !== key) ?? null)
         setSelection(current => { const next = new Set(current); next.delete(key); return next })
       }
       setBulkDelete(null); clearSelection()
     } catch (error) { setBulkError(error instanceof Error ? error.message : String(error)) }
-    finally { setBulkBusy(false) }
+    finally {
+      if (kept > 0) store.resultNotice('info', `${kept} worktree${kept === 1 ? '' : 's'} stayed. Review them in Archive.`)
+      setBulkBusy(false)
+    }
   }
 
   const tree = (
