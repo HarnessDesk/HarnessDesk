@@ -53,7 +53,7 @@ for (const recent of [false, true]) test(`opening an idle conversation from the 
   assert.ok(reads >= 1, 'the phone read must actually reopen and replay through the runtime')
 })
 
-test('a genuine replay conflict stays readable on desktop and phone and a consistent replay heals it', async t => {
+for (const saveFails of [false, true]) test(`a genuine replay conflict stays readable and a consistent replay heals it${saveFails ? ' while saving is refused' : ''}`, async t => {
   const root = tempDir('hd-read-conflict-')
   const logs: unknown[] = []
   t.mock.method(Logger.prototype, 'warn', (message: string, details: unknown) => { logs.push([message, details]) })
@@ -97,13 +97,17 @@ test('a genuine replay conflict stays readable on desktop and phone and a consis
     delta: { kind: 'assistantText', text: ' with later activity' } })
   // The runtime replays the body, without the host's read-projection mark.
   const { historyPending: _pending, ...consistent } = structuredClone(record.session)
+  if (saveFails) db.db.exec("CREATE TRIGGER refuse_body BEFORE INSERT ON bodies BEGIN SELECT RAISE(FAIL, 'synthetic storage refusal'); END")
   runtime.emit({ type: 'session/started', session: consistent })
   runtime.readSession = async () => consistent
   assert.equal(record.transcriptIncomplete, false)
-  await store.flush()
+  if (saveFails) await assert.rejects(store.flush(), /protected|refusal/i)
+  else await store.flush()
   const healed = await host.call('session/read', { runtime: created.runtime, sessionId: created.id }) as Session & { historyPending?: boolean }
-  assert.equal(healed.historyPending, undefined)
-  assert.deepEqual(db.read(created.runtime, created.id)?.turns, consistent.turns)
+  assert.equal(healed.historyPending, saveFails ? true : undefined)
+  const phoneAfter = await host.call('workspace/thread/read', { id: `${created.runtime}:${created.id}` })
+  assert.equal(phoneAfter.historyPending, saveFails ? true : undefined)
+  assert.deepEqual(db.read(created.runtime, created.id)?.turns, saveFails ? durable.turns : consistent.turns)
 })
 
 test('a pending conversation with no body reports a stable unavailable code on desktop and phone', async t => {

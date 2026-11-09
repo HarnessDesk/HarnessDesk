@@ -7908,6 +7908,12 @@ export class Host {
       }
       return await this.#readTranscriptUntracked(runtime, id, allowReopen, admitCwd)
     }
+    catch (error) {
+      // A complete, reconciled body can still have a refused save.
+      const record = this.registry.get(runtime.info.id, id)
+      if (!admitCwd && record && this.#transcripts.hasProtectedChanges(runtime.info.id, id)) return this.#pendingTranscriptView(record)
+      throw error
+    }
     finally { finishRead() }
   }
 
