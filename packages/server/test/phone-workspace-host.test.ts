@@ -456,3 +456,52 @@ for (const capability of [false, 'erase', 'trash'] as const) test(`phone rows fo
   const rows = await host.call('phone/sessions/list', {})
   assert.ok(rows.rows.every(row => row.canDelete === (capability === 'trash')))
 })
+
+test('desk transcript reads and background attachment do not mark a conversation opened', async t => {
+  const { host, runtime, root } = await desk(t)
+  const id = sessionId('priced')
+  runtime.minted.set(id, join(root, 'acme-api'))
+  const indexed = async () => (await host.call('session/index', {})).data.find(row => row.id === id)!
+  assert.equal((await indexed()).lastOpenedAt ?? 0, 0)
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: id })
+  assert.equal((await indexed()).lastOpenedAt ?? 0, 0)
+  await host.call('session/resume', { runtime: runtime.info.id, sessionId: id })
+  assert.equal((await indexed()).lastOpenedAt ?? 0, 0)
+  await host.call('session/opened', { runtime: runtime.info.id, sessionId: id })
+  assert.ok((await indexed()).lastOpenedAt! > 0)
+})
+
+test('host migrates only existing pins after seeding and clears the legacy preference', async t => {
+  const root = tempDir('hd-pin-migration-')
+  const state = new StateStore(join(root, 'state.json'))
+  await state.load()
+  await state.setPreferences({ listPrefs: { sort: 'name', pinnedSessions: ['fake:kept', 'fake:seeded', 'fake:missing'] } })
+  await mkdir(join(root, 'transcripts', 'fake'), { recursive: true })
+  await writeFile(join(root, 'transcripts', 'fake', 'seeded.json'), JSON.stringify({ version: 1, runtime: 'fake', id: 'seeded', savedAt: 1, turns: [] }))
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert({ runtime: runtimeId('fake'), id: sessionId('kept'), cwd: root, status: { type: 'notLoaded' }, createdAt: 1, updatedAt: 2 })
+  index.close()
+  const host = new Host({ state, logger: silent, builtinAgents: root, catalogRefreshMs: 0 })
+  host.register(new FakeRuntime())
+  t.after(() => host.dispose())
+  await host.start()
+  const deadline = Date.now() + 5_000
+  while (Object.hasOwn(state.state.preferences['listPrefs'] as object, 'pinnedSessions')) {
+    assert.ok(Date.now() < deadline, 'migration finishes after the index seed')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.deepEqual(await host.call('session/pins', {}), ['fake:kept', 'fake:seeded'])
+  assert.deepEqual(state.state.preferences['listPrefs'], { sort: 'name' })
+  const savedList = async () => {
+    const saved = new StateStore(join(root, 'state.json'))
+    await saved.load()
+    return saved.state.preferences['listPrefs'] as object
+  }
+  let persisted = await savedList()
+  while (Object.hasOwn(persisted, 'pinnedSessions')) {
+    assert.ok(Date.now() < deadline, 'legacy pins are removed from durable preferences')
+    await new Promise(resolve => setTimeout(resolve, 10))
+    persisted = await savedList()
+  }
+  assert.deepEqual(persisted, { sort: 'name' })
+})

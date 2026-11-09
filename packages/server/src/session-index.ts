@@ -194,7 +194,9 @@ export class SessionIndex {
       if (this.#db.prepare("SELECT 1 FROM meta WHERE key='session-pins:migrated'").get()) return
       for (const key of keys) {
         const at = key.indexOf(':')
-        if (at > 0 && at < key.length - 1) this.setPinned(key.slice(0, at) as RuntimeId, key.slice(at + 1) as SessionId, true)
+        if (at <= 0 || at === key.length - 1) continue
+        const runtime = key.slice(0, at) as RuntimeId, id = key.slice(at + 1) as SessionId
+        if (this.#row(runtime, id) && !this.isRemoved(runtime, id)) this.setPinned(runtime, id, true)
       }
       this.#db.prepare("INSERT INTO meta(key,value) VALUES('session-pins:migrated','1')").run()
     })
@@ -362,6 +364,7 @@ export class SessionIndex {
     return this.#transaction(() => {
       const rows = this.#db.prepare("SELECT runtime,id FROM sessions WHERE runtime=? AND origin='imported' AND removed_at IS NULL").all(runtime) as unknown as { runtime: RuntimeId; id: SessionId }[]
       for (const row of rows) {
+        this.setPinned(row.runtime, row.id, false)
         dropSessionBody(this.#db, row.runtime, row.id)
         this.#db.prepare('DELETE FROM sessions WHERE runtime=? AND id=?').run(row.runtime, row.id)
         this.#clearFacts(row.runtime, row.id)

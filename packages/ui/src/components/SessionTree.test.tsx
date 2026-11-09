@@ -3098,7 +3098,7 @@ it('selects sessions with Cmd and Shift, shows bulk actions and clears with Esca
   expect(tree.querySelector('[aria-label="Manage selected conversations"]')?.textContent).toContain('3 selected')
   act(() => button('one').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' })))
   expect([...tree.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')].every(button => button.tabIndex === 0)).toBe(true)
-  expect(tree.querySelector('[aria-label="Manage selected conversations"]')?.textContent).not.toContain('Delete')
+  expect([...tree.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')].find(button => button.textContent === 'Delete')?.disabled).toBe(true)
   act(() => button('three').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' })))
   expect(tree.querySelectorAll('[data-multi-selected]')).toHaveLength(0)
   act(() => button('one').dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })))
@@ -3185,4 +3185,52 @@ it('reports one kept-worktree notice after bulk deletion', async () => {
   act(() => [...view.container.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')].find(button => button.textContent === 'Delete')!.click())
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(button => button.textContent === 'Move to Trash')!.click())
   expect(resultNotice).toHaveBeenCalledExactlyOnceWith('info', '2 worktrees stayed. Review them in Archive.')
+})
+
+
+it('unpins an entirely pinned selection and exposes its menu on a selected row', async () => {
+  const rows = ['one', 'two'].map(id => summary({ id }))
+  const pin = vi.fn(), archive = vi.fn(async () => {})
+  const view = treeWith([], rows, [], { pinnedSessions: rows.map(row => String(sessionKey(row.runtime, row.id))) }, undefined, null, new Map(), { toggleSessionPinned: pin, archiveSessions: archive })
+  for (const id of ['one', 'two']) act(() => view.container.querySelector<HTMLButtonElement>(`button[aria-label="${id}"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })))
+  expect(view.container.querySelector('[role="toolbar"]')?.textContent).toContain('Unpin')
+  await act(async () => view.container.querySelector<HTMLButtonElement>('button[aria-label="one"]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  expect(document.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe('Actions for selected conversations')
+  const unpin = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Unpin'))!
+  await act(async () => unpin.click())
+  expect(pin.mock.calls.map(call => call[0])).toEqual(rows.map(row => String(sessionKey(row.runtime, row.id))))
+})
+
+it('shows the count of undeletable selected conversations', () => {
+  const rows = [summary({ id: 'one' }), summary({ id: 'two', runtime: runtimeId('other') })]
+  const view = treeWith([], rows)
+  view.update({ runtimes: [{ id: rows[0]!.runtime, capabilities: { deleteHistory: 'trash' }, presentation: { name: 'Agent' } }, { id: rows[1]!.runtime, capabilities: { deleteHistory: 'erase' }, presentation: { name: 'Other' } }] as RuntimeInfo[] })
+  for (const id of ['one', 'two']) act(() => view.container.querySelector<HTMLButtonElement>(`button[aria-label="${id}"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })))
+  const button = [...view.container.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')].find(button => button.textContent === 'Delete')!
+  expect(button.disabled).toBe(true)
+  expect(button.title).toBe('1 selected conversation cannot be deleted from here.')
+})
+
+it('toggles focused rows with Shift+Space and Cmd+Space and limits aria-pressed to a selection', () => {
+  const rows = ['one', 'two'].map(id => summary({ id }))
+  const view = treeWith([], rows)
+  const button = (id: string) => view.container.querySelector<HTMLButtonElement>(`button[aria-label="${id}"]`)!
+  expect(button('one').hasAttribute('aria-pressed')).toBe(false)
+  act(() => button('one').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: ' ', shiftKey: true })))
+  expect(button('one').getAttribute('aria-pressed')).toBe('true')
+  expect(button('two').getAttribute('aria-pressed')).toBe('false')
+  act(() => button('two').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: ' ', metaKey: true })))
+  expect(view.container.querySelectorAll('[data-multi-selected]')).toHaveLength(2)
+  expect(view.store.openSession).not.toHaveBeenCalled()
+  act(() => button('one').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' })))
+  expect(button('one').hasAttribute('aria-pressed')).toBe(false)
+})
+
+it('never shows New for the adjacent conversation on screen', () => {
+  const row = summary({ id: 'visible', lastCompletedAt: 20, lastOpenedAt: 10 })
+  const view = treeWith([], [row])
+  view.update({ adjacentSession: { key: sessionKey(row.runtime, row.id), subject: 'session:agent:main', loading: false, error: null } })
+  expect(view.container.querySelector('[aria-label="New"]')).toBeNull()
+  view.update({ adjacentSession: null })
+  expect(view.container.querySelector('[aria-label="New"]')).not.toBeNull()
 })

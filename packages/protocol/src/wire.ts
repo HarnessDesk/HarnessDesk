@@ -3124,8 +3124,9 @@ export type WireNotification =
       readonly params: {
         readonly upserted: readonly SessionSummary[]
         readonly removed: readonly { readonly runtime: RuntimeId; readonly id: SessionId }[]
-        /** Continues the current first page while an upgrade fills an initially empty index. */
+        /** Ordered host-owned pins shared by every window and phone. */
         readonly pinnedSessions?: readonly string[]
+        /** Continues the current first page while an upgrade fills an initially empty index. */
         readonly firstPageCursor?: string | null
       }
     }

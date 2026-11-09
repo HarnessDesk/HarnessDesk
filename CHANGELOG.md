@@ -7,6 +7,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Manage conversations from your phone.** Rename, archive, unarchive and pin the desk's conversations; delete those whose agent moves them to the Trash. Pins follow you between the desk and phone.
+
+- **Select conversations together.** Cmd-click or Shift-click rows to pin, unpin, archive or delete a selection. Shift+Space and Cmd+Space toggle the focused row too.
+
+- **New marks work you have not seen.** A conversation gets a New dot when a turn finishes off screen. Opening it, including in the reader on the right, clears the mark.
+
 - **Simulator input on Intel builds needs an Intel-capable Xcode.** With an Xcode whose simulator frameworks are Apple silicon only, the Intel build's simulator input is unavailable; the app stays usable.
 
 - **Ask in chat keeps the removed text you selected.** An editor redraw or scroll no longer replaces the quote with an older selection from the current file.

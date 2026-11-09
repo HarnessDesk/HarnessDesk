@@ -1,3 +1,4 @@
+import { sessionVisible } from './session-visible'
 import { AdjacentReadChanges, preserveAdjacentLocal, reconcileAdjacentRead } from './adjacent-read'
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
 import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
@@ -1639,8 +1640,13 @@ export class AppStore {
             ...(state.state !== 'running' ? { historyRevision: this.#snapshot.historyRevision + 1 } : {}) })
         }
         if (notification.method === 'session/indexChanged') {
-          if (notification.params.pinnedSessions) this.#sessionPinsRevision++
-          this.#patch({ historyRevision: this.#snapshot.historyRevision + 1, ...(notification.params.pinnedSessions ? { listPrefs: { ...this.#snapshot.listPrefs, pinnedSessions: notification.params.pinnedSessions } } : {}) })
+          const pins = notification.params.pinnedSessions
+          if (pins) this.#sessionPinsRevision++
+          const pinsChanged = pins && (pins.length !== this.#snapshot.listPrefs.pinnedSessions.length || pins.some((key, index) => key !== this.#snapshot.listPrefs.pinnedSessions[index]))
+          this.#patch({ historyRevision: this.#snapshot.historyRevision + 1, ...(pinsChanged ? { listPrefs: { ...this.#snapshot.listPrefs, pinnedSessions: pins } } : {}) })
+          for (const row of notification.params.upserted) if ((row.lastCompletedAt ?? 0) > (row.lastOpenedAt ?? 0) && sessionVisible(this.#snapshot, sessionKey(row.runtime, row.id))) {
+            void this.transport.request('session/opened', { runtime: row.runtime, sessionId: row.id }).catch(error => this.resultNotice('error', describe(error)))
+          }
           this.#changeHistory(notification.params.upserted, notification.params.removed, notification.params.firstPageCursor)
         }
         if (notification.method === 'session/removed') {
@@ -3618,6 +3624,7 @@ export class AppStore {
         readOwner.collectingFences = false
       }
       read = true
+      void this.transport.request('session/opened', { runtime, sessionId: id }).catch(error => this.resultNotice('error', describe(error)))
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       if (!current()) return
       if (live.runtime !== runtime || live.id !== id) throw new Error('The conversation returned a different identity.')
@@ -3745,6 +3752,7 @@ export class AppStore {
       if (!stillHeld()) return false
       this.#setSession(session)
       readSucceeded = true
+      if (options.reveal !== false || sessionVisible(this.#snapshot, key)) void this.transport.request('session/opened', { runtime, sessionId: id }).catch(error => this.resultNotice('error', describe(error)))
       if (!options.preview && !options.restoring) this.#ensureHistorySummary(session)
       await followFolder(session)
       if (!stillHeld()) return false
@@ -9763,7 +9771,7 @@ export class AppStore {
   }
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
     this.#notifyPublication(event)
-    if (event.type === 'turn/completed' && this.#snapshot.activeSessionKey === sessionKey(runtime, event.sessionId)) {
+    if (event.type === 'turn/completed' && sessionVisible(this.#snapshot, sessionKey(runtime, event.sessionId))) {
       void this.transport.request('session/opened', { runtime, sessionId: event.sessionId }).catch(error => this.resultNotice('error', describe(error)))
     }
     if (event.type === 'approval/requested') {

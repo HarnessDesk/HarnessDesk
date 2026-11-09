@@ -381,9 +381,9 @@ export interface AppSnapshot {
    * never reaches the agent: a hidden model is still perfectly usable, and a
    * session already running on one keeps its row.
    */
+  readonly hiddenModels: Readonly<Record<string, readonly string[]>>
   /** Machine-local Team read and Hide marks, bound to the last observed change. */
   readonly teamsPrefs: import('../lib/teams-list').TeamsPrefs
-  readonly hiddenModels: Readonly<Record<string, readonly string[]>>
   /** Model routes usable (or greyed) for the selected runtime. */
   readonly routes: readonly RouteInfo[]
   /** The route the next session should run on; null is the backend's own provider. */
@@ -686,7 +686,6 @@ export interface AppSnapshot {
    * design/foundation/tokens.sheet.css.
    */
   readonly surface: 'cards' | 'sheet'
-  /** How the session list draws itself; persisted like the theme. */
   /**
    * Tasks the person reworded, by session key. The Tasks panel is a read of
    * the conversation, so an edit is the one thing in it the transcript does
@@ -695,6 +694,7 @@ export interface AppSnapshot {
    * See `lib/plan-edits.ts`.
    */
   readonly planEdits: Readonly<Record<string, readonly PlanEdit[]>>
+  /** How the session list draws itself; persisted like the theme. */
   readonly listPrefs: {
     readonly density: 'comfortable' | 'compact'
     /**
@@ -794,9 +794,9 @@ export interface AppSnapshot {
    * which is what keeps a palette change reaching the editor — a family
    * copied out of the token at pick time would freeze it.
    */
+  readonly editorState: EditorState
   /** Stored preference; effectiveWindowMode applies it only to a conversation destination. */
   readonly windowMode: WindowMode
-  readonly editorState: EditorState
   readonly editorDocuments: EditorDocuments
   /** Shared full baselines, including clean saves; renderer-only. Null explicitly discards. */
   readonly editorLiveDocuments: EditorLiveDocuments
@@ -826,8 +826,6 @@ export interface AppSnapshot {
    * workspace's layout; whether this app keeps cookies is a standing
    * answer, so it lives here beside the theme.
    */
-  /** Live tile owners; never persisted with the workspace. */
-  readonly browserTiles: ReadonlyMap<string, BrowserTileMount>
   readonly browserPrefs: {
     /** Default-profile guests use a persistent partition when enabled; lane profiles are independently retained. */
     readonly persistSession: boolean
@@ -844,6 +842,8 @@ export interface AppSnapshot {
     /** Whether that browser's profile — its logins — survives a restart. */
     readonly keepExternalProfile: boolean
   }
+  /** Live tile owners; never persisted with the workspace. */
+  readonly browserTiles: ReadonlyMap<string, BrowserTileMount>
   /**
    * "What it cost"'s own Bars/Line toggle. A standing answer like
    * `editorPrefs`, not this window's state: a person who switches to Line

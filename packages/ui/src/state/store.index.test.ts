@@ -551,7 +551,7 @@ it('writes session pins to the host and receives phone pins through index change
 
 it('marks a turn seen when it finishes in the currently open conversation', () => {
   const key = sessionKey(runtime, sessionId('one'))
-  Object.assign(store.getSnapshot(), { activeSessionKey: key, sessions: new Map([[key, session('one')]]) })
+  Object.assign(store.getSnapshot(), { activeSessionKey: key, layout: { ...store.getSnapshot().layout, root: { kind: 'pane', id: 'visible', view: { kind: 'conversation', session: key } } }, sessions: new Map([[key, session('one')]]) })
   handlers().onEvent(runtime, { type: 'turn/completed', sessionId: sessionId('one'), turn: { id: turnId('turn'), status: 'completed', items: [], completedAt: 20 } } as AgentEvent)
   expect(request).toHaveBeenCalledWith('session/opened', { runtime, sessionId: 'one' })
 })
@@ -566,4 +566,29 @@ it('keeps newer phone pins when the initial pin read arrives late', async () => 
   pins.resolve(['agent:one'])
   await loading
   expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual(['agent:two'])
+})
+
+it('keeps the list preference reference on unchanged pin notifications', () => {
+  const before = store.getSnapshot().listPrefs
+  handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [], pinnedSessions: [] } } as WireNotification)
+  expect(store.getSnapshot().listPrefs).toBe(before)
+})
+
+it('marks a completion read in the adjacent reader even when another conversation is focused', () => {
+  const key = sessionKey(runtime, 'one')
+  Object.assign(store.getSnapshot(), { adjacentSession: { key, subject: 'session:agent:other', loading: false, error: null }, sessions: new Map([[key, session('one')]]) })
+  handlers().onEvent(runtime, { type: 'turn/completed', sessionId: sessionId('one'), turn: { id: turnId('turn'), status: 'completed', items: [] } } as AgentEvent)
+  expect(request).toHaveBeenCalledWith('session/opened', { runtime, sessionId: 'one' })
+})
+
+
+it('marks index completions read in any visible pane and leaves off-screen completions unread', () => {
+  const key = sessionKey(runtime, 'one')
+  const snapshot = store.getSnapshot()
+  Object.assign(snapshot, { activeSessionKey: sessionKey(runtime, 'other'), layout: { ...snapshot.layout, root: { kind: 'pane', id: 'visible', view: { kind: 'conversation', session: key } } } })
+  change([row('one', { lastOpenedAt: 10, lastCompletedAt: 20 })])
+  expect(request).toHaveBeenCalledWith('session/opened', { runtime, sessionId: 'one' })
+  request.mockClear()
+  change([row('offscreen', { lastOpenedAt: 10, lastCompletedAt: 20 })])
+  expect(request).not.toHaveBeenCalledWith('session/opened', expect.anything())
 })

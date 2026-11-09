@@ -1,3 +1,4 @@
+import { sessionVisible } from '../state/session-visible'
 import { isChatFolder } from '../lib/chats'
 import { teamsInput } from '../lib/teams-snapshot'
 import { goneProjectFolders, roomsByProjectFor } from '../lib/room-folders'
@@ -109,6 +110,7 @@ type SessionRowSlice = {
   error: string | null
   folderGone: string | null
   active: boolean
+  visible: boolean
   needsYou: boolean
   busy: boolean
   /** What a seat nobody typed to is called: its job and its Team. */
@@ -121,7 +123,7 @@ const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boo
   left.liveTitle === right.liveTitle && left.livePreview === right.livePreview &&
   left.deskCopy === right.deskCopy && left.trace === right.trace &&
   left.backgrounded === right.backgrounded && left.error === right.error && left.folderGone === right.folderGone &&
-  left.active === right.active && left.needsYou === right.needsYou && left.busy === right.busy &&
+  left.visible === right.visible && left.active === right.active && left.needsYou === right.needsYou && left.busy === right.busy &&
   left.seatLabel === right.seatLabel
 
 const SessionRow = memo(({
@@ -131,6 +133,7 @@ const SessionRow = memo(({
   suppressSelection = false,
   multiSelected,
   onPick,
+  onSelectionMenu,
   virtualKey,
   virtualIndex,
   virtualCount,
@@ -138,6 +141,7 @@ const SessionRow = memo(({
   summary: SessionSummary
   now: number
   multiSelected?: boolean
+  onSelectionMenu?: (event: ReactMouseEvent) => void
   onPick?: (summary: SessionSummary, event: ReactMouseEvent<HTMLButtonElement>) => void
   suppressSelection?: boolean
   /** Raises the confirmation; the dialog belongs to the list, not to a row. */
@@ -153,7 +157,7 @@ const SessionRow = memo(({
   const key = sessionKey(summary.runtime, summary.id)
   const {
     runtime, pinned, liveTitle, livePreview, deskCopy, trace, backgrounded, error,
-    folderGone, active, needsYou, busy, seatLabel,
+    folderGone, active, visible, needsYou, busy, seatLabel,
   } = useSnapshotSelector((snapshot): SessionRowSlice => {
     const live = snapshot.sessions.get(key)
     const status = live?.status ?? summary.status
@@ -171,6 +175,7 @@ const SessionRow = memo(({
       backgrounded: (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length,
       folderGone: snapshot.foldersGone.get(summary.cwd) ?? null,
       active: snapshot.activeSessionKey === key,
+      visible: sessionVisible(snapshot, key),
       needsYou: needsYou || trace === 'waiting',
       busy: live ? isBusy(live) : summary.status.type === 'active',
       seatLabel: seatLabelsOf(snapshot).get(String(key)) ?? null,
@@ -217,7 +222,7 @@ const SessionRow = memo(({
     pinned ? 'Pinned' : null,
     backgrounded > 0 ? `${backgrounded} running in the background` : null,
   ].filter(Boolean).join(' · ')
-  const unread = !active && (summary.lastCompletedAt ?? 0) > (summary.lastOpenedAt ?? 0)
+  const unread = !visible && (summary.lastCompletedAt ?? 0) > (summary.lastOpenedAt ?? 0)
   const trailing: LeftColumnTrail | undefined = needsYou
     ? { kind: 'mark', icon: <SidebarMenuState label="Needs you" tone="warning" state="limit" compact />, label: 'Needs you' }
     : error !== null || trace === 'failed'
@@ -228,7 +233,7 @@ const SessionRow = memo(({
           : unread ? { kind: 'mark', icon: <SidebarMenuState label="New" tone="info" state="new" compact />, label: 'New' } : undefined
 
   return <div data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex}
-    data-virtual-count={virtualCount} onContextMenu={menu.open}>
+    data-session-key={String(key)} data-virtual-count={virtualCount} onContextMenu={multiSelected && onSelectionMenu ? onSelectionMenu : menu.open}>
     {renaming ? <LeftColumnRename input={<Input variant="quiet" controlSize="row"
       value={draft} autoFocus onChange={event => setDraft(event.target.value)} onBlur={commitRename}
       onKeyDown={event => {
@@ -238,7 +243,7 @@ const SessionRow = memo(({
       onClick={event => { if (onPick) onPick(summary, event); else void store.openSession(summary.id, { runtime: summary.runtime }) }}
       icon={<SessionHoverCard session={summary}><span aria-label={agentName}>{runtime ? <RuntimeMark runtime={runtime} size={16} /> : <AgentIcon size={16} />}</span></SessionHoverCard>}
       trailing={trailing} action={{ label: `Actions for ${label}`, expanded: menu.at !== null,
-        onClick: event => { rowRef.current?.focus({ preventScroll: true }); menu.open(event) } }} />}
+        onClick: event => { rowRef.current?.focus({ preventScroll: true }); if (multiSelected && onSelectionMenu) onSelectionMenu(event); else menu.open(event) } }} />}
       <ContextMenu at={menu.at} label={`Actions for ${label}`} onClose={menu.close} icons="all">
         <MenuItem
           icon={<PencilIcon size={13} />}
@@ -1207,11 +1212,15 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkError, setBulkError] = useState<string | null>(null)
   const selectionOrder: SessionSummary[] = [...pinnedRows]
-  const clearSelection = () => { setSelection(new Set()); anchor.current = null }
-  const pickSession = (summary: SessionSummary, event: ReactMouseEvent<HTMLButtonElement>) => {
+  const clearSelection = useCallback(() => { setSelection(new Set()); anchor.current = null }, [])
+  const picks = useRef({ rows: selectionOrder, activeKey: snapshot.activeSessionKey as string | null })
+  picks.current = { rows: selectionOrder, activeKey: snapshot.activeSessionKey }
+  const selectionMenu = useContextMenu()
+  const pickSession = useCallback((summary: SessionSummary, event: Pick<ReactMouseEvent, 'shiftKey' | 'metaKey' | 'ctrlKey'>) => {
     const key = String(sessionKey(summary.runtime, summary.id))
+    const { rows, activeKey } = picks.current
     if (event.shiftKey) {
-      const keys = selectionOrder.map(row => String(sessionKey(row.runtime, row.id)))
+      const keys = rows.map(row => String(sessionKey(row.runtime, row.id)))
       const from = keys.indexOf(anchor.current ?? activeKey ?? key), to = keys.indexOf(key)
       const range = from < 0 ? [key] : keys.slice(Math.min(from, to), Math.max(from, to) + 1)
       setSelection(current => new Set([...(event.metaKey || event.ctrlKey ? current : []), ...range]))
@@ -1224,7 +1233,7 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
       anchor.current = key
       void store.openSession(summary.id, { runtime: summary.runtime })
     }
-  }
+  }, [store, clearSelection])
 
   // The project the folder you have open belongs to — its home, or a clone of
   // it — read from the groups, never by comparing the folder with a home.
@@ -1254,6 +1263,12 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
     if (event.key === 'Escape') { setSelection(new Set()); anchor.current = null; return }
     const target = event.target
     if (!(target instanceof HTMLButtonElement) || !target.matches('[data-slot="sidebar-menu-button"]')) return
+    if (event.key === ' ' && (event.shiftKey || event.metaKey || event.ctrlKey)) {
+      const key = target.closest<HTMLElement>('[data-session-key]')?.dataset.sessionKey
+      const row = picks.current.rows.find(row => String(sessionKey(row.runtime, row.id)) === key)
+      if (row) { event.preventDefault(); pickSession(row, { metaKey: true, ctrlKey: false, shiftKey: false }) }
+      return
+    }
     if (event.altKey || event.ctrlKey || event.metaKey && event.key !== '.') return
     const rows = [...(treeRef.current?.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]') ?? [])]
     const index = rows.indexOf(target)
@@ -1569,7 +1584,7 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
                 })
               }} /> : undefined}
             renderRow={(row, index) => {
-              if (row.kind === 'session') return <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} suppressSelection={suppressSelection} multiSelected={selection.has(String(sessionKey(row.summary.runtime, row.summary.id)))} onPick={pickSession} virtualKey={`session:${row.summary.runtime}:${row.summary.id}`} virtualIndex={index} virtualCount={rows.length} />
+              if (row.kind === 'session') return <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} suppressSelection={suppressSelection} multiSelected={selection.size ? selection.has(String(sessionKey(row.summary.runtime, row.summary.id))) : undefined} onSelectionMenu={selection.size > 1 ? selectionMenu.open : undefined} onPick={pickSession} virtualKey={`session:${row.summary.runtime}:${row.summary.id}`} virtualIndex={index} virtualCount={rows.length} />
               const selected = activeTeam?.id === row.room.id || panes(snapshot.layout.root).some(pane => pane.view.kind === 'room' && pane.view.room === row.room.id)
               const matchingMembers = searching || snapshot.listPrefs.agent !== null
                 ? roomMembers(row.room, group.sessions, snapshot, liftedKeys, historyByKey)
@@ -1625,7 +1640,15 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
 
   const noFolderContent = (hasChatRooms || noFolder.some(summary => !teamKeys.has(String(sessionKey(summary.runtime, summary.id))) && !liftedKeys.has(String(sessionKey(summary.runtime, summary.id))))) ? renderGroup(noFolderGroup, true) : null
   const selectedRows = selectionOrder.filter(row => selection.has(String(sessionKey(row.runtime, row.id))))
-  const canDeleteSelection = selectedRows.length > 1 && selectedRows.every(row => snapshot.runtimes.find(runtime => runtime.id === row.runtime)?.capabilities.deleteHistory === 'trash')
+  const cannotDeleteCount = selectedRows.filter(row => snapshot.runtimes.find(runtime => runtime.id === row.runtime)?.capabilities.deleteHistory !== 'trash').length
+  const deleteTitle = cannotDeleteCount ? `${cannotDeleteCount} selected conversation${cannotDeleteCount === 1 ? '' : 's'} cannot be deleted from here.` : undefined
+  const allPinned = selectedRows.every(row => snapshot.listPrefs.pinnedSessions.includes(String(sessionKey(row.runtime, row.id))))
+  const pinSelected = () => {
+    for (const row of selectedRows) if (allPinned || !snapshot.listPrefs.pinnedSessions.includes(String(sessionKey(row.runtime, row.id)))) store.toggleSessionPinned(String(sessionKey(row.runtime, row.id)))
+    clearSelection()
+  }
+  const archiveSelected = () => { void store.archiveSessions(selectedRows); clearSelection() }
+  const confirmDeleteSelected = () => { setBulkError(null); setBulkDelete(selectedRows) }
   const deleteSelected = async () => {
     if (!bulkDelete?.length || !bulkDelete.every(row => snapshot.runtimes.find(runtime => runtime.id === row.runtime)?.capabilities.deleteHistory === 'trash') || bulkBusy) return
     setBulkBusy(true); setBulkError(null)
@@ -1657,7 +1680,7 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
       {pinnedRows.length > 0 && (
         <div data-sidebar-band="pinned">
           <LeftColumnGroup label={`Pinned · ${pinnedRows.length}`}>
-            {pinnedRows.map(summary => <SessionRow key={`p-${summary.runtime}-${summary.id}`} summary={summary} now={now} onDelete={setDeleting} suppressSelection={suppressSelection} multiSelected={selection.has(String(sessionKey(summary.runtime, summary.id)))} onPick={pickSession} />)}
+            {pinnedRows.map(summary => <SessionRow key={`p-${summary.runtime}-${summary.id}`} summary={summary} now={now} onDelete={setDeleting} suppressSelection={suppressSelection} multiSelected={selection.size ? selection.has(String(sessionKey(summary.runtime, summary.id))) : undefined} onSelectionMenu={selection.size > 1 ? selectionMenu.open : undefined} onPick={pickSession} />)}
             <Separator />
           </LeftColumnGroup>
         </div>
@@ -1683,10 +1706,15 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
       {far.length === 0 && goneLine}
       {noFolderContent}
       {selectedRows.length > 1 && <LeftColumnBulkBar count={selectedRows.length} onCancel={clearSelection}>
-        <Button variant="ghost" size="sm" onClick={() => { for (const row of selectedRows) if (!snapshot.listPrefs.pinnedSessions.includes(String(sessionKey(row.runtime, row.id)))) store.toggleSessionPinned(String(sessionKey(row.runtime, row.id))); clearSelection() }}>Pin</Button>
-        <Button variant="ghost" size="sm" onClick={() => { void store.archiveSessions(selectedRows); clearSelection() }}>Archive</Button>
-        {canDeleteSelection && <Button variant="ghost" size="sm" onClick={() => { setBulkError(null); setBulkDelete(selectedRows) }}>Delete</Button>}
+        <Button variant="ghost" size="sm" onClick={pinSelected}>{allPinned ? 'Unpin' : 'Pin'}</Button>
+        <Button variant="ghost" size="sm" onClick={archiveSelected}>Archive</Button>
+        <Button variant="ghost" size="sm" disabled={cannotDeleteCount > 0} title={deleteTitle} onClick={confirmDeleteSelected}>Delete</Button>
       </LeftColumnBulkBar>}
+      <ContextMenu at={selectionMenu.at} label="Actions for selected conversations" onClose={selectionMenu.close} icons="all">
+        <MenuItem icon={allPinned ? <UnpinIcon size={13} /> : <PinIcon size={13} />} label={allPinned ? 'Unpin' : 'Pin'} onSelect={pinSelected} />
+        <MenuItem icon={<ArchiveIcon size={13} />} label="Archive" onSelect={archiveSelected} />
+        <MenuItem icon={<TrashIcon size={13} />} label="Delete" disabled={cannotDeleteCount > 0} title={deleteTitle} onSelect={confirmDeleteSelected} />
+      </ContextMenu>
       {bulkDelete && <ConfirmDialog title={`Delete ${bulkDelete.length} ${bulkDelete.length === 1 ? 'conversation' : 'conversations'} everywhere?`} confirmLabel="Move to Trash" tone="destructive"
         busy={bulkBusy} pending={!bulkDelete.length || !bulkDelete.every(row => snapshot.runtimes.find(runtime => runtime.id === row.runtime)?.capabilities.deleteHistory === 'trash')} onConfirm={() => void deleteSelected()} onCancel={() => setBulkDelete(null)}>
         <p>They move to the Trash. Running conversations stop first.</p>

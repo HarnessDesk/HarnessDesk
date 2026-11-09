@@ -490,3 +490,16 @@ test('opening and completing a session publish unread facts without changing act
     assert.equal(index.get(runtime, idOf('one'))?.updatedAt, 10)
   } finally { index.close() }
 })
+
+test('pin migration ignores missing and removed sessions and removing imports drops their pins', () => {
+  const index = new SessionIndex(':memory:')
+  try {
+    index.upsert(row('kept'))
+    index.upsert(row('removed')); index.remove(runtime, idOf('removed'))
+    index.upsert(row('imported'), { origin: 'imported' })
+    index.migratePins(['fake:missing', 'fake:removed', 'fake:kept', 'fake:imported'])
+    assert.deepEqual(index.pins(), ['fake:kept', 'fake:imported'])
+    index.removeImported(runtime)
+    assert.deepEqual(index.pins(), ['fake:kept'])
+  } finally { index.close() }
+})
