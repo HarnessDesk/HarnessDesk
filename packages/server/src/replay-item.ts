@@ -5,7 +5,8 @@ import type { AgentItem } from '@harnessdesk/protocol'
  * Reconcile one uniquely matched item, field by field. ItemStatus is shared by
  * command, fileChange, toolCall, webSearch and subagent: completed, failed and
  * declined are terminal; items without that lifecycle are final observations.
- * Final fields accept only equality or append-only strings/arrays. Running
+ * Final items accept replay fields only with the same status. Final fields
+ * accept only missing values, equality or append-only strings/arrays. Running
  * fields accept rewrites and lifecycle updates, retaining only missing values
  * and strict prefixes of saved strings/arrays. Arrays are atomic leading
  * slices, never paired by position to combine unrelated content.
@@ -13,10 +14,10 @@ import type { AgentItem } from '@harnessdesk/protocol'
 export const mergeReplayItem = (saved: AgentItem, replay: AgentItem): AgentItem => {
   if (saved.type !== replay.type) return saved
   const final = !('status' in saved) || saved.status === 'completed' || saved.status === 'failed' || saved.status === 'declined'
-  if (final && 'status' in replay && replay.status === 'inProgress') return saved
+  if (final && 'status' in saved && (!('status' in replay) || replay.status !== saved.status)) return saved
 
   const merge = (before: unknown, after: unknown): unknown => {
-    if (before === undefined || isDeepStrictEqual(before, after)) return after
+    if (before === undefined || before === null || isDeepStrictEqual(before, after)) return after
     if (after === undefined) return before
     if (typeof before === 'string' && typeof after === 'string') {
       return final ? after.startsWith(before) ? after : before

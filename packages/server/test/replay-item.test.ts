@@ -31,6 +31,22 @@ test('final fields preserve omissions and rewrites independently of extensions',
     result: [...tool.result, { type: 'text' as const, text: 'second result' }] }
   assert.deepEqual(mergeReplayItem(saved, replay), { ...saved, result: replay.result })
 })
+test('a final tool does not take an error from a replay with a different final status', () => {
+  const saved = { ...tool, status: 'completed' as const }
+  const replay = { ...saved, status: 'failed' as const, result: undefined, error: 'boom' }
+  assert.deepEqual(mergeReplayItem(saved, replay), saved)
+})
+test('a final command does not take an exit code from a replay with a different final status', () => {
+  const { exitCode: _, ...fields } = command
+  const saved = { ...fields, status: 'completed' as const, output: 'all good' }
+  const replay = { ...saved, status: 'failed' as const, output: '', exitCode: 1 }
+  assert.deepEqual(mergeReplayItem(saved, replay), saved)
+})
+test('a final command takes a replay exit code when the saved value is null and statuses match', () => {
+  const saved = { ...command, status: 'completed' as const }
+  const replay = { ...saved, exitCode: 0 }
+  assert.deepEqual(mergeReplayItem(saved, replay), replay)
+})
 test('items without a lifecycle preserve saved strings, arrays and nested facts', () => {
   const saved: AgentItem = { id: itemId('answer'), type: 'assistantMessage', text: 'saved answer', citation: { label: 'source', href: 'https://example.com' } }
   const replay = { ...saved, text: 'saved answer extended', citation: { label: 'changed' } }

@@ -1182,6 +1182,14 @@ test('resuming replay also covers captured bodies after the owned queue is repla
   await store.forget(captured.runtime, captured.id)
 })
 
+test('replay enrichment emits a duplicate saved id once without merging ambiguous saved values', async t => {
+  const { store } = await fixture(t)
+  const original = session([turn('one', [message('answer', 'first saved'), message('answer', 'second saved')])])
+  const replay = message('answer', 'runtime answer')
+  const read = session([turn('one', [replay])])
+  assert.deepEqual(store.enrichReplay(read, original).turns[0]!.items, [replay])
+})
+
 const thinReplayItems: readonly { name: string; saved: AgentItem; replay: AgentItem }[] = [
   { name: 'tool error', saved: { ...tool('saved result'), error: 'saved error' } as AgentItem,
     replay: tool('saved result') },

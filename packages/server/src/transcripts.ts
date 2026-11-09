@@ -1052,7 +1052,12 @@ export class TranscriptStore {
       // prose. Preserve the existing segmentation guard in those cases.
       const moved = kept.items.some(item => homes.has(String(item.id)) && homes.get(String(item.id)) !== turn)
       const restoreMissing = !moved && (kept.id === turn.id || kept.items.length > turn.items.length)
-      const retained = restoreMissing ? kept.items : replay
+      const retainedIds = new Set<AgentItem['id']>()
+      const retained = (restoreMissing ? kept.items : replay).filter(item => {
+        if (retainedIds.has(item.id)) return false
+        retainedIds.add(item.id)
+        return true
+      })
       const storedIds = new Set(retained.map(item => item.id))
       const additions = new Map<AgentItem['id'] | null, AgentItem[]>()
       let anchor: AgentItem['id'] | null = null
