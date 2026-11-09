@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { wrapContext, reduceSession, runtimeId, sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
 
 import { seatAgentKey } from '../lib/agents'
-import { PaneProvider, StoreProvider } from '../state/context'
+import { KeyboardHereContext, PaneProvider, StoreProvider } from '../state/context'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { Conversation } from './Conversation'
 import styles from './Conversation.module.css'
@@ -142,7 +142,7 @@ const rig = (
   return { store }
 }
 
-const render = (store: AppStore, key: string | null = KEY, props: Partial<React.ComponentProps<typeof Conversation>> = {}): void => {
+const render = (store: AppStore, key: string | null = KEY, props: Partial<React.ComponentProps<typeof Conversation>> = {}, keyboardHere: boolean | null = null): void => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
@@ -154,13 +154,13 @@ const render = (store: AppStore, key: string | null = KEY, props: Partial<React.
           }}
         >
           <TopBarOutlet owner="p1" fallback={{ place: 'New session', more: () => null }} /><WorkDetailsOutlet owner="p1" />
-          <Conversation
+          <KeyboardHereContext.Provider value={keyboardHere}><Conversation
             {...props}
             onChooseProject={() => undefined}
             onSignIn={() => undefined}
             onOpenUsage={() => undefined}
             onOpenRuntimes={() => undefined}
-          />
+          /></KeyboardHereContext.Provider>
         </PaneProvider></TopBarProvider>
       </StoreProvider>,
     )
@@ -1326,8 +1326,8 @@ it.each(['earlier', 'latest'])('map navigation to the %s reply preserves follow 
   } finally { geometry.mockRestore(); vi.unstubAllGlobals() }
 })
 
-it('a window PageUp releases follow through native scroll events', async () => {
-  render(rig(transcriptSession()).store)
+it('a window PageUp releases follow through native scroll events in the keyboard pane', async () => {
+  render(rig(transcriptSession()).store, KEY, {}, true)
   const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
   Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
   act(() => {
@@ -1392,4 +1392,80 @@ it.each(['scrollend', 'timeout'])('expires gesture intent on %s before a later l
     expect(jumpToLatest()).toBeUndefined()
     await act(async () => {})
   } finally { vi.useRealTimers() }
+})
+
+
+it.each(['scrollend', 'timeout'])('catches up with content grown during intent after %s', async end => {
+  vi.useFakeTimers()
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => { if (this.active) callback([], this as unknown as ResizeObserver) }) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  try {
+    render(rig(transcriptSession()).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    let height = 1600
+    // Clamp like a browser: assigning scrollHeight ends at scrollHeight - clientHeight.
+    let top = 0
+    Object.defineProperties(scroll, {
+      scrollHeight: { get: () => height }, clientHeight: { value: 400 },
+      scrollTop: { get: () => top, set: value => { top = Math.min(value, height - 400) } },
+    })
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(1200)
+    act(() => {
+      scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -10 }))
+      scroll.scrollTop = 1190
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    height = 1800
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(1190)
+    act(() => {
+      if (end === 'scrollend') scroll.dispatchEvent(new Event('scrollend', { bubbles: true }))
+      else vi.advanceTimersByTime(151)
+    })
+    expect(scroll.scrollTop).toBe(1400)
+    expect(jumpToLatest()).toBeUndefined()
+    await act(async () => {})
+  } finally { vi.useRealTimers(); vi.unstubAllGlobals() }
+})
+
+it('ignores a sidebar scroll key when this transcript does not hold the keyboard or pointer', async () => {
+  render(rig(transcriptSession()).store)
+  const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+  Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    scroll.scrollTop = 100
+    scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  expect(jumpToLatest()).toBeUndefined()
+  await act(async () => {})
+})
+
+it('routes window scroll keys only to the last transcript touched by the pointer', async () => {
+  const store = rig(transcriptSession()).store
+  act(() => root.render(<StoreProvider store={store}><TopBarProvider>
+    <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+    <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+  </TopBarProvider></StoreProvider>))
+  const scrolls = [...container.querySelectorAll<HTMLElement>('[data-live-transcript]')]
+  expect(scrolls).toHaveLength(2)
+  for (const scroll of scrolls) Object.defineProperties(scroll, { scrollHeight: { value: 1600 }, clientHeight: { value: 400 } })
+  act(() => {
+    scrolls[0]!.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }))
+    scrolls[1]!.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    for (const scroll of scrolls) {
+      scroll.scrollTop = 100
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }))
+    }
+  })
+  expect([...container.querySelectorAll('button')].filter(button => button.textContent === 'Jump to latest')).toHaveLength(1)
+  await act(async () => {})
 })

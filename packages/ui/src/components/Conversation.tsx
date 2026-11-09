@@ -399,28 +399,41 @@ export const Conversation = ({
   const transcriptContent = useRef<HTMLDivElement>(null)
   const [pinned, setPinned] = useState(true)
   const keyboardHere = useContext(KeyboardHereContext)
+  const pointerHere = useRef(false)
+  const followTranscript = useRef<() => void>(() => {})
   const scrollIntent = useRef(false)
   const scrollIntentTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const clearScrollIntent = useCallback(() => {
     scrollIntent.current = false
     clearTimeout(scrollIntentTimer.current)
+    followTranscript.current()
   }, [])
   const markScrollIntent = useCallback(() => {
     scrollIntent.current = true
     clearTimeout(scrollIntentTimer.current)
     scrollIntentTimer.current = setTimeout(clearScrollIntent, 150)
   }, [clearScrollIntent])
-  useEffect(() => clearScrollIntent, [clearScrollIntent])
+  useEffect(() => () => clearTimeout(scrollIntentTimer.current), [])
   useEffect(() => {
+    const onPointer = (event: PointerEvent) => {
+      const scroller = event.target instanceof Element ? event.target.closest('[data-live-transcript]') : null
+      if (scroller) pointerHere.current = scroller === scroll.current
+    }
     const onKey = (event: KeyboardEvent) => {
-      if (keyboardHere === false || !scroll.current?.hasAttribute('data-live-transcript')) return
+      if ((keyboardHere !== true && !pointerHere.current) || !scroll.current?.hasAttribute('data-live-transcript')) return
       if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return
       const focused = document.activeElement
       if (focused instanceof Element && focused.closest('input, textarea, [contenteditable]:not([contenteditable="false"]), [data-slot="conversation-dock"]')) return
       markScrollIntent()
     }
     window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    window.addEventListener('pointermove', onPointer, true)
+    window.addEventListener('pointerdown', onPointer, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('pointermove', onPointer, true)
+      window.removeEventListener('pointerdown', onPointer, true)
+    }
   }, [markScrollIntent, keyboardHere])
   const status = paneStatus(session, snapshot.approvals, key)
   const worktree = session
@@ -534,6 +547,7 @@ export const Conversation = ({
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => delete element.dataset.autoscrolling)
     }
+    followTranscript.current = follow
     follow()
     // A tile can finish laying out after its transcript mounts. Dock padding,
     // viewport changes and late text layout also change the bottom without a
@@ -541,7 +555,7 @@ export const Conversation = ({
     const observer = new ResizeObserver(follow)
     observer.observe(element)
     if (transcriptContent.current) observer.observe(transcriptContent.current)
-    return () => {observer.disconnect(); cancelAnimationFrame(frame)}
+    return () => {followTranscript.current = () => {}; observer.disconnect(); cancelAnimationFrame(frame)}
   }, [items, pinned, session?.id, Boolean(mainContent)])
 
   // Switching sessions always starts at the bottom of the new transcript.
