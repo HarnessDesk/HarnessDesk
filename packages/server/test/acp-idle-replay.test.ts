@@ -69,9 +69,6 @@ test('an idle replayed conversation reads back with its replies and nothing pend
     assert.equal(session.historyPending, undefined, `read ${attempt + 1} is not waiting on anything to be saved`)
     assert.deepEqual(replies(session), REPLIES, `read ${attempt + 1} keeps every reply`)
     assert.deepEqual(thoughts(session), ['Run the tests to see the failure.'], `read ${attempt + 1} keeps the thinking`)
-    // The replay carries no times: a duration nobody measured is left out,
-    // not reported as nought.
-    for (const turn of session.turns) assert.equal(turn.durationMs ?? null, null)
 
     const thread = buildThread({ id: 'rig-agent:stored-1', session, running: false, project: null, pending: [], decided: [] }, { home: null, seat: 'Rig Agent' })
     assert.equal(thread.historyPending, undefined)

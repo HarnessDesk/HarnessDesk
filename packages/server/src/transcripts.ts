@@ -1078,7 +1078,10 @@ export class TranscriptStore {
       // again on whatever day it happens to be reopened (#1047 review).
       // A duration is the backend's where it measured one; an ACP load
       // measures nothing, and a replay as full as the stored turn used to
-      // drop the time the desk watched it take (#2044).
+      // drop the time the desk watched it take (#2044). The completion time
+      // only fills a gap the same way: a read with its own end time keeps it,
+      // and a turn the read still has running (or has re-opened on the same
+      // id) is not ended, whatever the stored copy says.
       // The plan and diff the host recorded fill in for a read silent on them,
       // as the branch below already does. Only what the host holds is laid
       // over: a turn with nothing to add stays the read's own object, so an
@@ -1086,7 +1089,7 @@ export class TranscriptStore {
       // not the one that was timed.
       const recorded = moved ? {} : {
         ...(kept.startedAt != null ? { startedAt: kept.startedAt } : {}),
-        ...(kept.completedAt != null ? { completedAt: kept.completedAt } : {}),
+        ...(turn.completedAt == null && turn.status !== 'inProgress' && kept.completedAt != null ? { completedAt: kept.completedAt } : {}),
         ...(turn.durationMs == null && kept.durationMs != null ? { durationMs: kept.durationMs } : {}),
         ...(turn.plan === undefined && kept.plan !== undefined ? { plan: kept.plan } : {}),
         ...(turn.diff == null && kept.diff != null ? { diff: kept.diff } : {}),

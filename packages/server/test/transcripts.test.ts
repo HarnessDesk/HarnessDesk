@@ -143,6 +143,20 @@ test('a full replay that carries no times keeps the turn timing the host recorde
   })
 })
 
+test("a stored completion time only fills a gap: the read's own end time stands and a running turn is not ended", async () => {
+  await withStore(async (store) => {
+    const items = [item('u', 'userMessage'), item('a', 'assistantMessage')]
+    store.record(session([turn('t1', items, { startedAt: 1_000, completedAt: 75_000 })]), { now: true })
+    await store.flush()
+
+    const own = await store.enrich(session([turn('t1', items, { startedAt: null, completedAt: 90_000 })]))
+    assert.equal(own.turns[0]?.completedAt, 90_000, 'a backend that measured the end keeps it')
+
+    const running = await store.enrich(session([turn('t1', items, { startedAt: null, completedAt: null, status: 'inProgress' })]))
+    assert.equal(running.turns[0]?.completedAt ?? null, null, 'a turn still running is not given a stale end time')
+  })
+})
+
 test('reopening a session twice, on two different days, never changes which day its turn counts on', async () => {
   await withStore(async (store) => {
     const full = session([
