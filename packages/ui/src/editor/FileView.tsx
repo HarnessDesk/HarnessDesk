@@ -301,7 +301,9 @@ export const FileView = (props: FileViewProps) => {
     if (native) setFrameGeneration(value => value + 1)
   }
   useEffect(() => {
-    const focused = () => retryRead.current()
+    const focused = () => {
+      if (readFailures.current > 0 || builtinMissing.current || current.current.problem?.kind === 'unreadable') retryRead.current()
+    }
     window.addEventListener('focus', focused)
     return () => window.removeEventListener('focus', focused)
   }, [])

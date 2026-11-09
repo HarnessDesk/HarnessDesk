@@ -424,3 +424,27 @@ it('explains an absent built-in Agent using the sanitized response identity', as
   await act(async () => { vi.advanceTimersByTime(120000) }); await settle()
   expect(request).toHaveBeenCalledTimes(1)
 })
+
+
+it.each(['notes.txt', 'preview.html', 'document.pdf'])('preserves a healthy %s pane on window focus', async name => {
+  await render(`/work/${name}`)
+  const frame = container.querySelector('iframe')
+  request.mockClear()
+  await act(async () => window.dispatchEvent(new Event('focus')))
+  await settle()
+  expect(request).not.toHaveBeenCalled()
+  expect(container.querySelector('iframe')).toBe(frame)
+})
+
+it('refreshes a healthy preview on reconnect', async () => {
+  const status = snapshot.status
+  try {
+    Object.assign(snapshot, { status: 'open' })
+    await render('/work/preview.html')
+    request.mockClear()
+    Object.assign(snapshot, { status: 'reconnecting' }); await render('/work/preview.html')
+    Object.assign(snapshot, { status: 'open' }); await render('/work/preview.html')
+    expect(request).toHaveBeenCalledWith('workspace/readFile', expect.anything())
+    expect(request).toHaveBeenCalledWith('preview/ticket', expect.anything())
+  } finally { Object.assign(snapshot, { status }) }
+})
