@@ -69,11 +69,23 @@ export const leadContextPressure = (input: LeadContextPressureInput): number =>
 export const leadNextSoftShare = (after: number): number =>
   after < LEAD_CONTEXT.softShare ? LEAD_CONTEXT.softShare : Math.min(LEAD_CONTEXT.hardShare, after + LEAD_CONTEXT.hysteresis)
 
+/**
+ * The one clip for every bounded field the desk writes (a checkpoint, a person message, a turn, a tool call or result, a desk stub): at
+ * most `max` UTF-16 units, the mark included, and never half of a surrogate pair, so what it returns is always
+ * well formed and passes the wire's check.
+ */
+export const leadClip = (text: string, max: number, mark = '…'): string => {
+  if (text.length <= max) return text
+  let end = Math.max(0, max - mark.length)
+  const last = text.charCodeAt(end - 1)
+  if (last >= 0xd800 && last <= 0xdbff) end--
+  return `${text.slice(0, end)}${mark}`
+}
 /** The one-line stand-in a desk-context block leaves in stored history. */
 export const LEAD_DESK_STUB_PREFIX = '[Desk context at that time, left out'
 export const leadDeskStub = (text: string): string => {
   const first = text.split('\n').find(line => line.trim())?.trim() ?? ''
-  return `${LEAD_DESK_STUB_PREFIX}: ${first.length > 100 ? `${first.slice(0, 99)}…` : first}]`
+  return `${LEAD_DESK_STUB_PREFIX}: ${leadClip(first, 100)}]`
 }
 const isStub = (block: { readonly type: string; readonly text?: string }) => block.type === 'text' && block.text!.startsWith(LEAD_DESK_STUB_PREFIX)
 
@@ -243,20 +255,20 @@ export const leadCloseOpenLoop = (turns: readonly MessagesTurn[]): MessagesTurn[
     if (block.type !== 'tool_use') return block
     names.set(block.id, block.name)
     const input = JSON.stringify(block.input ?? null)
-    return { type: 'text', text: `[Called ${block.name} with ${input.length > 400 ? `${input.slice(0, 399)}…` : input}]` }
+    return { type: 'text', text: `[Called ${block.name} with ${leadClip(input, 400)}]` }
   }) }
   const answered = turns.slice(at + 1).map((turn): MessagesTurn => ({ role: turn.role, content: turn.content.map(block => block.type === 'tool_result'
-    ? { type: 'text', text: `[${block.is_error ? 'Error from' : 'Result of'} ${names.get(block.tool_use_id) ?? 'a tool'}: ${block.content.length > 1500 ? `${block.content.slice(0, 1499)}…` : block.content}]` }
+    ? { type: 'text', text: `[${block.is_error ? 'Error from' : 'Result of'} ${names.get(block.tool_use_id) ?? 'a tool'}: ${leadClip(block.content, 1500)}]` }
     : block) }))
   return [...turns.slice(0, at), said, ...answered]
 }
 
 const calledInWords = (name: string, input: unknown): MessagesText => {
   const text = JSON.stringify(input ?? null)
-  return { type: 'text', text: `[Called ${name} with ${text.length > 400 ? `${text.slice(0, 399)}…` : text}]` }
+  return { type: 'text', text: `[Called ${name} with ${leadClip(text, 400)}]` }
 }
 const resultInWords = (block: MessagesToolResult, name: string | undefined): MessagesText =>
-  ({ type: 'text', text: `[${block.is_error ? 'Error from' : 'Result of'} ${name ?? 'a tool'}: ${block.content.length > 1500 ? `${block.content.slice(0, 1499)}…` : block.content}]` })
+  ({ type: 'text', text: `[${block.is_error ? 'Error from' : 'Result of'} ${name ?? 'a tool'}: ${leadClip(block.content, 1500)}]` })
 /**
  * Every tool call followed by its answer and every answer by its call, as a provider requires. A stored conversation
  * can hold a call whose answer never arrived (a step cut short), and a compaction can cut between them; either is

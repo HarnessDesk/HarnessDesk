@@ -1,6 +1,6 @@
 import { LEAD_CHECKPOINT_PERSON, LEAD_CHECKPOINT_SECTIONS, type LeadCheckpointPerson } from '@harnessdesk/protocol'
 import type { MessagesTurn } from './messages-types.js'
-import { LEAD_CONTEXT, leadContextBoundary, leadContextBytes, leadPairedTurns } from './context.js'
+import { LEAD_CONTEXT, leadClip, leadContextBoundary, leadContextBytes, leadPairedTurns } from './context.js'
 
 /**
  * Checkpoint compaction, as pure functions. The model writes a checkpoint of the region before the kept tail from the
@@ -199,18 +199,6 @@ export const leadPersonWords = (turns: readonly MessagesTurn[]): { readonly id: 
   return words
 })
 
-/**
- * The one clip for every bounded field the desk writes (a checkpoint, a person message, a turn, a tool result): at
- * most `max` UTF-16 units, the mark included, and never half of a surrogate pair, so what it returns is always
- * well formed and passes the wire's check.
- */
-export const leadClip = (text: string, max: number, mark = '…'): string => {
-  if (text.length <= max) return text
-  let end = Math.max(0, max - mark.length)
-  const last = text.charCodeAt(end - 1)
-  if (last >= 0xd800 && last <= 0xdbff) end--
-  return `${text.slice(0, end)}${mark}`
-}
 const clip = leadClip
 const render = (turn: MessagesTurn): string => `${turn.role === 'user' ? 'Person or desk' : 'Lead'}: ${turn.content.map(block =>
   block.type === 'text' ? block.text : block.type === 'tool_use' ? `[called ${block.name}]` : block.type === 'tool_result' ? `[tool result: ${clip(block.content, 300)}]` : '').filter(Boolean).join(' ')}`

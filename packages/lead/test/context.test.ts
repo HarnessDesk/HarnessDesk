@@ -582,6 +582,26 @@ test('every clipped field ends on a whole character, so the facts stay readable'
   assert.equal(lead.leadClip('short', 10), 'short')
 })
 
+test('a stub, a call or a result put in words ends on a whole character', () => {
+  const wellFormed = (value: string) => (value as string & { isWellFormed(): boolean }).isWellFormed()
+  const words = (turns: readonly lead.MessagesTurn[]) => turns.flatMap(turn => turn.content.flatMap(block => block.type === 'text' ? [block.text] : []))
+  // An emoji across each bound: a stub's first line at 100, a call's input at 400 (after `{"x":"`), a result at 1500.
+  const input = { x: `${'a'.repeat(392)}😀 and more` }, result = `${'a'.repeat(1498)}😀 and more`
+  const call = { role: 'assistant' as const, content: [{ type: 'tool_use' as const, id: 't-1', name: 'read', input }] }
+  const answer = { role: 'user' as const, content: [{ type: 'tool_result' as const, tool_use_id: 't-1', content: result, is_error: false }] }
+  const closed = words(lead.leadCloseOpenLoop([{ role: 'user', content: [text('Go')] }, call, answer]))
+  const paired = words(lead.leadPairedTurns([{ role: 'user', content: [text('Go')] }, call, { role: 'user', content: [text('Later')] }, { role: 'assistant', content: [text('Ok')] }, answer]))
+  const sites: Record<string, string | undefined> = {
+    'desk stub': lead.leadDeskStub(`${'a'.repeat(98)}😀 and more`),
+    'open loop call': closed.find(line => line.startsWith('[Called read')),
+    'open loop result': closed.find(line => line.startsWith('[Result of')),
+    'unanswered call': paired.find(line => line.startsWith('[Called read')),
+    'result without its call': paired.find(line => line.startsWith('[Result of')),
+  }
+  assert.deepEqual(Object.entries(sites).filter(([, value]) => value === undefined || !wellFormed(value)).map(([name]) => name), [])
+  assert.ok(sites['desk stub']!.endsWith('…]') && sites['open loop result']!.endsWith('…]'), 'clipped, with the mark')
+})
+
 test('a person-owed retry files the second request\'s counts as the conversation\'s size, never the sum of both', async () => {
   const s = await loopFixture([message([text('[quiet]')], { usage: { input_tokens: 500, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }), message()])
   const context = contextPort()

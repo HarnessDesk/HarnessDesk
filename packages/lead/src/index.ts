@@ -34,8 +34,8 @@ export type { LeadSeatChoices, LeadInstructionFacts, LeadContinuationFacts } fro
 export { leadDataContainsCredential } from './journal-security.js'
 export { leadWorkCards } from './work.js'
 export { LEAD_CONTEXT, LEAD_CONTEXT_WINDOWS, LEAD_DESK_STUB_PREFIX, leadContextWindow, leadContextBytes, leadEstimatedTokens, leadContextPressure, leadNextSoftShare,
-  leadDeskStub, leadContextMarkOf, leadStubVolatile, leadContextRecord, leadWithoutReasoning, leadPruneContext, leadContextBoundary, leadContextSplit, leadCloseOpenLoop, leadPairedTurns, leadMergedTurns, leadAppendUser, leadWithPlan, LEAD_EPOCH_ADDENDA, leadEpochAddendum } from './context.js'
+  leadDeskStub, leadContextMarkOf, leadStubVolatile, leadContextRecord, leadWithoutReasoning, leadPruneContext, leadContextBoundary, leadContextSplit, leadCloseOpenLoop, leadPairedTurns, leadMergedTurns, leadAppendUser, leadWithPlan, LEAD_EPOCH_ADDENDA, leadEpochAddendum, leadClip } from './context.js'
 export type { LeadContextMark, LeadContextRecord, LeadContextPressureInput } from './context.js'
 export { LEAD_CHECKPOINT_SECTIONS, LEAD_CHECKPOINT_OPEN, leadCheckpointInstruction, leadCheckpointRefusal, leadCheckpointTurn, leadCheckpointText, leadPersonWords,
-  leadFallbackCheckpoint, leadCheckpointMessages, leadRegionBytes, leadPersonSection, leadPersonQuotes, leadCheckpointCompose, leadCheckpointModelPart, leadFitTurns, leadClip } from './compaction.js'
+  leadFallbackCheckpoint, leadCheckpointMessages, leadRegionBytes, leadPersonSection, leadPersonQuotes, leadCheckpointCompose, leadCheckpointModelPart, leadFitTurns } from './compaction.js'
 export type { LeadCheckpointRequestFacts } from './compaction.js'
