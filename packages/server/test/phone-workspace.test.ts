@@ -897,3 +897,23 @@ test('the phone and the Lead both learn which allowance is about to expire unspe
     assert.deepEqual(summary.accounts.map(one => one.useFirst), [true, undefined, undefined, undefined])
   } finally { await f.done() }
 })
+
+test('another sign-in\'s figures reach the phone apart from the agent\'s own, under whose they are', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    const borrowed = { whose: 'agy CLI sign-in', reached: null, fetchedAt: NOW - 60_000, staleAfterMs: HOUR,
+      lanes: [{ id: 'gemini', label: 'Gemini 3 Pro', usedPercent: 25, windowMinutes: 300, resetsAt: NOW + HOUR }, { id: 'ghost', label: 'Unread', usedPercent: 0, windowMinutes: null, resetsAt: null, placeholder: true }] }
+    f.reports = [
+      report('jane.doe@example.com', { lanes: [], unverified: borrowed } as never),
+      report('dev@example.com', { lanes: [], unverified: { ...borrowed, fetchedAt: NOW - 2 * HOUR } } as never),
+      report('team@acme.dev'),
+    ]
+    const rows = (await f.workspace.workUsage())!.runtimes
+    assert.deepEqual(rows[0]!.unverified, { whose: 'agy CLI sign-in', readAt: NOW - 60_000, lanes: [{ label: 'Gemini 3 Pro', left: 0.75, resetsAt: NOW + HOUR }] })
+    assert.equal(rows[0]!.lanes, undefined, 'the borrowed figures are never the agent\'s own lanes')
+    assert.equal(rows[1]!.unverified?.stale, true)
+    assert.equal(rows[2]!.unverified, undefined)
+    assert.ok(!JSON.stringify(rows).includes('@'), 'no account leaves the desk')
+  } finally { await f.done() }
+})

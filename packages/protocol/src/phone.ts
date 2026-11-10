@@ -313,6 +313,12 @@ export interface PhoneWorkAllowance {
   readonly problem?: string
   /** Allowance that expires unspent: more than half is left and the window is about to refill. Computed by the desk (`useFirstNote`). */
   readonly useFirst?: true
+  /**
+   * Another sign-in's figures for this agent, filed apart from its own (`UsageReport.unverified`): an Antigravity
+   * account read through the separate `agy` command line. The desk decides nothing on them and neither does the phone;
+   * they are drawn under `whose`. Left out when there are none, and by a desk older than this field.
+   */
+  readonly unverified?: { readonly whose: string; readonly lanes: readonly PhoneWorkLane[]; readonly readAt: number; readonly stale?: true }
   readonly models: readonly string[]
   /** Never an account: the phone shows none, so the desk sends none. */
   readonly running: readonly string[]

@@ -16,6 +16,7 @@ counts cover the scanned sessions when partial.
 | --- | --- | --- | --- |
 | `lead/schedule/read` | `read` | `{}` | `LeadSchedule` |
 | `lead/context/read` | `read` | `{}` | `LeadContextFacts` |
+| `lead/context/use` | `read` | `{}` | `LeadContextUse`: `{version: 1, windowTokens, usedTokens, percent, lastSummaryAt, compacting, full?}`, the figure the Lead reads about itself |
 | `lead/repeat/control` | `run` | `taskId`, `action` | updated `LeadSchedule` |
 | `lead/budget/raise` | `answer` | `logicalGoalId`, `caps`, `expectedRevision` | `LeadWindowProjection` |
 | `lead/spendLimit/set` | `answer` | `usdMicros`, `expectedRevision` | `LeadWindowProjection` |
@@ -534,6 +535,21 @@ No new method or tier is needed. An older phone ignores the optional fields and
 keeps showing the proactive question line. For an ordinary reply it shows the
 existing prose, including the question when it also appears in `text`.
 
+
+## Links a reply names
+
+An assistant `LeadMessage` may also carry `refs`, one to eight pointers to what
+the reply names, never on a person message or with `proactive`:
+
+```json
+{"version": 1, "id": "message-5", "revision": 5, "role": "assistant", "text": "The docs Team is on it.",
+ "refs": [{"kind": "team", "id": "room-docs", "title": "Docs"}, {"kind": "work", "id": "work-3"}]}
+```
+
+`kind` is `team`, `goal`, `session`, `chat` or `work`; a `session` or `chat`
+id is `runtime:session`, a `work` id names an item of `lead/work/list`. The
+model writes them, so a client links only what its desk lists, under the desk's
+own title, and drops the rest; `title` is the model's and is a fallback only.
 
 ## Delegated chat incidents
 

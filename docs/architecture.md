@@ -1044,7 +1044,9 @@ fractions, and reset, back and run-out times as epoch milliseconds the phone
 counts down to; a source's error is scrubbed and the account is never sent. A row also carries
 `useFirst` when the desk's `useFirstNote` finds more than half of an account-wide window unused with its
 reset close (inside a quarter of the window's length, or a day when the length is unstated); the phone
-repeats it as a quiet note and never works it out. The same module orders an agent's accounts for
+repeats it as a quiet note and never works it out. Another sign-in's figures for the agent (`UsageReport.unverified`, an
+Antigravity account read through `agy`) travel apart as `unverified: {whose, lanes, readAt, stale?}`, never as the row's own
+lanes. The same module orders an agent's accounts for
 *Prefer the account that resets soonest* (`pacedOrder`) and picks the account the Lead's chat start runs on.
 `workspace/sessions/list` pages the same session index for active
 and archived conversations, so the recent snapshot is not a limit on what a

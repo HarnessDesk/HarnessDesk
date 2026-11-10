@@ -588,12 +588,15 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
   // A balance that decided Out or Overdrawn is the whole story: a window's figures beside it would contradict it.
   const onBalance = standing.lane === null && (standing.status === 'out' || standing.status === 'overdrawn') &&
     typeof report.credits?.remaining === 'number'
-  const lanes = report.lanes.filter(lane => !lane.placeholder).map(lane => ({
+  const laneRows = (from: readonly UsageLane[], known: boolean) => from.filter(lane => !lane.placeholder).map(lane => ({
     label: scrub(lane.label, 40),
     ...(lane.scope ? { scope: scrub(lane.scope, 40) } : {}),
-    ...(lane.usageKnown === false || unread ? {} : { left: fraction(100 - lane.usedPercent) }),
+    ...(lane.usageKnown === false || !known ? {} : { left: fraction(100 - lane.usedPercent) }),
     ...(lane.resetsAt === null || lane.resetsAt <= now ? {} : { resetsAt: lane.resetsAt }),
   }))
+  const lanes = laneRows(report.lanes, !unread)
+  // Another sign-in's figures travel apart from the agent's own, as the desk's card keeps them: never a lane of its own.
+  const borrowed = report.unverified ? laneRows(report.unverified.lanes, true) : []
   const scoped = standing.scopedOut
   // A non-finite amount turns into null on the wire and breaks the phone's numeric field.
   const raw = report.credits?.remaining
@@ -615,6 +618,8 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
     ...(remaining === null || unread || report.credits?.unlimited ? {} : { balance: { amount: remaining, unit: scrub(report.credits!.unit, 12) } }),
     ...(plan ? { plan: scrub(plan, 40) } : {}),
     ...(useFirstNote(report, now) ? { useFirst: true as const } : {}),
+    ...(report.unverified && borrowed.length ? { unverified: { whose: scrub(report.unverified.whose, 60), lanes: borrowed, readAt: report.unverified.fetchedAt,
+      ...(report.unverified.error || now - report.unverified.fetchedAt > report.unverified.staleAfterMs ? { stale: true as const } : {}) } } : {}),
     readAt: report.fetchedAt,
     ...(now - report.fetchedAt > report.staleAfterMs ? { stale: true } : {}),
     ...(report.error ? { problem: scrub(report.error.message, 120) } : {}),
