@@ -150,10 +150,10 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     timer = setTimeout(refresh, Math.max(0, Math.min(state.planConsentExpiresAt - Date.now() + 50, 2147483647)))
     return () => { cancelled = true; clearTimeout(timer) }
   }, [active, state.planConsentExpiresAt, state.wayOut, state.thread?.state, store])
-  const send = async (text = goal) => {
+  const send = async (text = goal, ask?: string) => {
     if (unavailable || inFlight.current || state.requestInFlight || !text.trim()) return
     inFlight.current = true; sendBaseline.current = [...store.lead.state.thread?.messages ?? []].reverse().find(message => message.role === 'user')?.id ?? null; setSending(true); setError(null)
-    try { await store.lead.send(text.trim(), crypto.randomUUID()); setGoal(current => current === text ? '' : current) }
+    try { await store.lead.send(text.trim(), crypto.randomUUID(), ask); setGoal(current => current === text ? '' : current) }
     catch (error) { refusal(error) }
     finally { inFlight.current = false; setSending(false); input.current?.focus() }
   }
@@ -261,7 +261,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {entries.map(entry => entry.kind === 'message'
           ? entry.message.role === 'notice' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={entry.message.id === firstReply?.id ? replyKey : `message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             ask={entry.message.ask} settled={asks.get(entry.message.id)} proactive={entry.message.proactive} disabled={sendDisabled} picked={answers.get(entry.message.id)}
-            onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) && asks.get(entry.message.id)?.status !== 'expired' ? label => { if (!sendDisabled) void send(label) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
+            onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) && asks.get(entry.message.id)?.status !== 'expired' ? label => { if (!sendDisabled) void send(label, entry.message.id) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
           : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
             note={<Chip variant="quiet" tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />

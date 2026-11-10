@@ -25,7 +25,7 @@ import { leadChatCandidates, readLeadChatLimits } from './lead/chat-candidates.j
 import type { RateLimits, WrapChoices } from '@harnessdesk/protocol'
 import { LeadChats, LeadChatBusyError } from './lead/chats.js'
 import { LeadWorkLedger, wakeForLeadWork } from './lead/work.js'
-import { LeadPresenceStore, leadWaitingDecisions } from './lead/presence.js'
+import { LeadPresenceStore, leadTurnContext, leadWaitingDecisions } from './lead/presence.js'
 import { createLeadDigestObserver } from './lead/digest-observer.js'
 import { leadProviderTransport } from './lead/provider-transport.js'
 import { teamLeadStage } from './work-stage.js'
@@ -4264,11 +4264,11 @@ export class Host {
     // Recovery uses only journaled person authority and freshly verified worker/forge identity.
     void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
     this.#leadControls = new LeadControls({ journal,
-      readWorkContext: async () => {
+      readWorkContext: async turn => {
         const note = presence.takeExpiryNote()
         let cards: string | null = null
-        try { cards = leadWorkCards(await work.board(), Date.now()) } catch (error) { if (!note) throw error }
-        return [cards, note ? `<host-note>${note}</host-note>` : null].filter(Boolean).join('\n\n') || null
+        try { cards = leadWorkCards(await work.board(), Date.now()) } catch (error) { if (!note || turn.proactive) throw error }
+        return leadTurnContext(cards, note, turn.proactive)
       },
       approveRepeat: async (id, contract, reactivate) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now(), reactivate) },
       freezeRepeat: async contract => ({ ...contract, digest: leadContractDigest(contract) }),
@@ -5671,7 +5671,7 @@ export class Host {
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       leadThreadSend: async (params) => {
         // A text that answers the question just asked is checked against its expiry first, and its receipt names this device.
-        const answered = await this.leadPresence.beforeSend(params.device, params.text)
+        const answered = await this.leadPresence.beforeSend(params.device, params.text, params.ask)
         try {
           const receipt = await (await this.#leadWindow()).send(params)
           if (answered) await answered(true).catch(() => {})
@@ -5679,7 +5679,7 @@ export class Host {
         } catch (error) {
           if (answered) await answered(false).catch(() => {})
           throw error
-        }
+        } finally { this.leadPresence.endSend() }
       },
       leadApprovalRevoke: async params => (await this.#leadWindow()).revokeApproval(params),
       leadActionPerform: async params => (await this.#leadWindow()).perform(params),

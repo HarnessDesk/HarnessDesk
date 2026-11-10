@@ -74,7 +74,7 @@ interface LeadControlsOptions {
   /** Hands the text to the goal's worker that is in a turn; false when none took it. */
   readonly steerWorker?: (text: string) => Promise<boolean>
   /** The open work cards, already bounded; they ride the end of each request and are never stored in the thread. */
-  readonly readWorkContext?: () => Promise<string | null>
+  readonly readWorkContext?: (turn: { readonly proactive: boolean }) => Promise<string | null>
 }
 /** One host owner, no transport or rendering. Child ports never contain these operations. */
 export class LeadControls {
@@ -363,7 +363,7 @@ export class LeadControls {
       ] })
       // The work ledger is desk context, read fresh for each request: it closes the request and is never kept in history.
       let work: string | null = null
-      try { work = await this.options.readWorkContext?.() ?? null } catch { /* A request without the cards still answers. */ }
+      try { work = await this.options.readWorkContext?.({ proactive: !!proactive }) ?? null } catch { /* A request without the cards still answers. */ }
       if (work) {
         const last = messages.at(-1)
         if (last?.role === 'user' && Array.isArray(last.content)) messages[messages.length - 1] = { ...last, content: [...last.content, { type: 'text', text: work }] } as MessagesTurn

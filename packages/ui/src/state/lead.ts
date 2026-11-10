@@ -169,8 +169,8 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     async closeWork(id: string, outcome: LeadWorkOutcome) { check(); const board = await transport.request('lead/work/close', { id, outcome }); applyWork(board); return board },
     async readThread() { check(); const before = state; const result = await transport.request('lead/thread/read', {}).catch(refusedRead); apply(result, before); return result.thread },
     async readSettings() { check(); const before = state; const result = await transport.request('lead/settings/read', {}).catch(refusedRead); apply(result, before); return result.settings },
-    async send(text: string, idempotencyKey: string) {
-      check(); const receipt = await transport.request('lead/thread/send', { text, idempotencyKey, device: device() })
+    async send(text: string, idempotencyKey: string, ask?: string) {
+      check(); const receipt = await transport.request('lead/thread/send', { text, idempotencyKey, device: device(), ...(ask ? { ask } : {}) })
       check()
       const before = state, result = await transport.request('lead/thread/read', {}); apply(result, before); return receipt
     },

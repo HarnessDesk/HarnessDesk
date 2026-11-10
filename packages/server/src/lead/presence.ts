@@ -1,5 +1,5 @@
 import type { LeadState } from '@harnessdesk/lead'
-import { LEAD_PRESENCE_LIMITS, capLeadPushText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView,
+import { LEAD_PRESENCE_LIMITS, capLeadPushText, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView,
   type LeadAsk, type LeadAskState, type LeadBriefSettings, type LeadBriefUpdate, type LeadDeviceRef, type LeadDigest, type LeadDigestItem,
   type LeadDigestKind, type LeadPresenceView, type LeadWorkBoard } from '@harnessdesk/protocol'
 import { rename } from 'node:fs/promises'
@@ -46,7 +46,7 @@ interface Mark {
   /** The id of the brief this device dismissed. */
   briefDone?: string
 }
-interface Plan { baseline?: { from: number; spent: number; revision: number }; kind: LeadDigestKind; from: number; to: number; items: LeadDigestItem[]; more: number; spent: number }
+interface Plan { replaces?: string; baseline?: { from: number; spent: number; revision: number }; kind: LeadDigestKind; from: number; to: number; items: LeadDigestItem[]; more: number; spent: number }
 interface AskRecord { seenAt: number; expiresAt?: number; answer?: { option: string; by: string; at: number } }
 interface Stored {
   version: 1
@@ -218,6 +218,7 @@ export class LeadPresenceStore {
       }
       mark.label = device.label
       let plan: Plan | undefined
+      const pendingBefore = mark.pending?.id
       if (options.recap) {
         const from = Math.min(mark.last?.from ?? now - LEAD_PRESENCE_LIMITS.recapMs, now)
         plan = await this.#plan('recap', from, { spent: mark.last?.spent ?? spent, revision: mark.last?.revision ?? 0 })
@@ -230,6 +231,7 @@ export class LeadPresenceStore {
       // The mark moves at most twice a minute: looking is frequent, and half a minute never changes a half-hour rule.
       // A clock that went backwards moves it back too, rather than leaving it ahead of now for good.
       if (options.active && (now < mark.seenAt || now - mark.seenAt >= 30_000)) { mark.seenAt = now; mark.revision = revision; mark.spent = spent }
+      if (plan) plan.replaces = pendingBefore
       return { view: this.#view(mark), plan }
     })
     if (!step.plan) return step.view
@@ -237,6 +239,8 @@ export class LeadPresenceStore {
     return this.#write(() => {
       const mark = this.#stored.devices[device.id]
       if (!mark) return step.view
+      // The digest read in step one may have been dismissed (or replaced) while the paragraph was fetched: it stays so.
+      if (mark.pending?.id !== plan.replaces) return this.#view(mark)
       const digest = this.#finish(plan, result)
       if (plan.kind === 'recap' || digest.items.length || digest.more || digest.spentUsdMicros > 0) {
         mark.pending = digest
@@ -278,6 +282,9 @@ export class LeadPresenceStore {
   }
   #expiryNote: string | undefined
 
+  /** The send is over, however it went: a note meant for it must not wait for the next one. */
+  endSend(): void { this.#expiryNote = undefined }
+
   /** A line for the model's next turn when the person's words arrive after a question went stale; read once. */
   takeExpiryNote(): string | undefined { const note = this.#expiryNote; this.#expiryNote = undefined; return note }
 
@@ -287,22 +294,20 @@ export class LeadPresenceStore {
    * device is refused. Other words after an expired question carry a note to the model that nothing was done.
    * Returns a step to run once sent.
    */
-  async beforeSend(device: LeadDeviceRef | undefined, text: string): Promise<((sent: boolean) => Promise<void>) | null> {
+  async beforeSend(device: LeadDeviceRef | undefined, text: string, askId?: string): Promise<((sent: boolean) => Promise<void>) | null> {
     this.#expiryNote = undefined
-    const open = this.#openAsk()
+    // A tap names the question it answers, so a later message in the thread cannot turn it into plain words.
+    const open = askId ? this.#askById(askId) : this.#openAsk()
     if (!open) return null
     const option = open.ask.options.find(candidate => candidate.label === text)
     const by = device?.label ?? 'Desktop'
     return this.#write(() => {
       this.#observeAsks()
       const record = this.#stored.asks[open.id], now = this.ports.now()
-      if (record?.answer) {
-        if (option) throw Object.assign(new Error(`Already answered on ${record.answer.by}`), { wireCode: 'lead-ask-answered' })
-        return null
-      }
-      const expired = record?.expiresAt !== undefined && record.expiresAt <= now
+      if (option && record?.answer) throw Object.assign(new Error(`Already answered on ${record.answer.by}`), { wireCode: 'lead-ask-answered' })
+      const expired = !record?.answer && record?.expiresAt !== undefined && record.expiresAt <= now
       if (!option) {
-        if (expired) this.#expiryNote = `The question "${clip(open.ask.question, 120)}" expired at ${new Date(record!.expiresAt!).toISOString()}; nothing was done. Treat the person's words below as a new request, not as an answer to it.`
+        if (expired && !askId) this.#expiryNote = `The question ${quoteLeadWorkText(open.ask.question, 120)} expired at ${new Date(record!.expiresAt!).toISOString()}; nothing was done. The person's message above is a new request, not an answer to it.`
         return null
       }
       if (expired) throw refused()
@@ -314,6 +319,10 @@ export class LeadPresenceStore {
         this.ports.changed?.()
       }
     })
+  }
+  #askById(id: string): { id: string; ask: LeadAsk } | undefined {
+    const message = this.ports.messages().find(candidate => candidate.id === id)
+    return message?.role === 'assistant' && message.ask ? { id: message.id, ask: message.ask } : undefined
   }
 
   brief(): Promise<LeadBriefSettings> { return this.#tail.then(() => this.#stored.brief) }
@@ -373,3 +382,7 @@ export const leadWaitingDecisions = (state: LeadState): readonly { readonly id: 
       : card.type === 'result' && card.outcome === 'reviewed' ? 'A result is ready for your review' : null
     return title ? [{ id: card.id, title, position: state.cardPositions[card.id] ?? state.seq }] : []
   })
+
+/** What rides a turn's work context: the ledger cards, and the host note, which belongs to a person's turn only. */
+export const leadTurnContext = (cards: string | null, note: string | undefined, proactive: boolean): string | null =>
+  [cards, note && !proactive ? `<host-note>${note}</host-note>` : null].filter(Boolean).join('\n\n') || null

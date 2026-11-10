@@ -795,7 +795,7 @@ it('renders the latest proactive ask as buttons, recommends the primary pick and
   let finish!: () => void
   const send = vi.spyOn(store.lead, 'send').mockImplementation(() => new Promise<Awaited<ReturnType<typeof store.lead.send>>>(resolve => { finish = () => resolve({ messageId: 'answer', revision: 2 }) }))
   await act(async () => button('Start it').click())
-  expect(send).toHaveBeenCalledWith('Start it', expect.any(String))
+  expect(send).toHaveBeenCalledWith('Start it', expect.any(String), 'ask')
   expect(button('Start it').disabled).toBe(true)
   expect(button('Not now').disabled).toBe(true)
   await act(async () => finish())
@@ -825,7 +825,7 @@ it('sends an option label with its internal spacing unchanged', async () => {
   const { store } = await mount({ ...base, thread: { ...base.thread, messages: [{ version: 1, id: 'ask-spaces', revision: 1, role: 'assistant', text: 'Choose.', ask: { ...askFixture, options: [{ id: 'start', label }, askFixture.options[1]!] } }] } })
   const send = vi.spyOn(store.lead, 'send').mockResolvedValue({ messageId: 'answer', revision: 2 })
   await act(async () => button(label).click())
-  expect(send).toHaveBeenCalledWith(label, expect.any(String))
+  expect(send).toHaveBeenCalledWith(label, expect.any(String), expect.any(String))
 })
 
 

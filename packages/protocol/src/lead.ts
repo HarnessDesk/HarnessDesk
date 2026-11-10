@@ -454,6 +454,8 @@ export interface LeadThreadSend {
   readonly text: string
   /** Which device wrote it, so an answer to a question can name who answered. The phone link sets it itself. */
   readonly device?: import('./lead-presence.js').LeadDeviceRef
+  /** The id of the message whose option this text answers, when it is a tapped option. */
+  readonly ask?: string
 }
 /** Stable first result, retained across retries and journal recovery. */
 export interface LeadSendReceipt { readonly messageId: string; readonly revision: LeadRevision }
@@ -874,7 +876,7 @@ export const nextLeadRevision = (current: LeadRevision): LeadRevision => {
   return revision(parsed + 1)
 }
 
-export const parseLeadThreadSend: Validator<LeadThreadSend> = omitUnset(object<LeadThreadSend>({ idempotencyKey: id, text: prose, device: optional(parseLeadDeviceRef) }), ['device'])
+export const parseLeadThreadSend: Validator<LeadThreadSend> = omitUnset(object<LeadThreadSend>({ idempotencyKey: id, text: prose, device: optional(parseLeadDeviceRef), ask: optional(id) }), ['device', 'ask'])
 export const parseLeadResume: Validator<{ readonly expectedRevision: number }> = object({ expectedRevision: revision })
 export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
   follow: optional(parseLeadFollowPreferences), expectedRevision: revision, name: optional(literalUnion('dex', 'lex')), policy: optional(parseLeadPermissionPolicy), caps: optional(parseLeadCaps),

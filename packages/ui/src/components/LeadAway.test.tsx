@@ -70,6 +70,12 @@ it('sends the device with every message so the receipt can name it', async () =>
   expect(calls.find(call => call.method === 'lead/thread/send')!.params.device.label).toBe('Desktop')
 })
 
+it('a tapped option sends the id of the question it answers', async () => {
+  const { store, calls } = await mount()
+  await act(async () => { await store.lead.send('Start it', 'key-2', 'message-3') })
+  expect(calls.filter(call => call.method === 'lead/thread/send').at(-1)!.params.ask).toBe('message-3')
+})
+
 it('"What happened?" asks the host for a recap of the last day', async () => {
   const store = createLeadFixtureStore('presence'), box = document.createElement('div'); document.body.append(box)
   const calls: any[] = [], request = store.transport.request.bind(store.transport)
