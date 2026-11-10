@@ -634,3 +634,42 @@ test('a checkpoint request files its spend marked as compaction; an ordinary req
   assert.equal(reserves[1].purpose, 'compaction')
   assert.equal(s.journal.state.budget!.reservedUsdMicros, 0, 'both settled')
 })
+
+test('a credential-shaped piece of the history is withheld from the body and the stored continuation, and the rest is sent', async () => {
+  const github = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
+  const s = await setup([message()])
+  const messages = [{ role: 'user', content: [{ type: 'text', text: 'Read the loader chat' }] },
+    { role: 'assistant', content: [tool('read-1', 'chat_read', { id: 'chat-1' })] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read-1', content: JSON.stringify({ output: [`  token: ${github}`] }), is_error: false }] }]
+  const result = await s.client.request({ ...input, messages }, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  const sent = JSON.parse(s.fake.requests[0].body)
+  assert.equal(sent.messages[2].content[0].content, lead.LEAD_WITHHELD_TEXT)
+  assert.ok(!s.fake.requests[0].body.includes(github))
+  assert.equal(result.messages[2].content[0].content, lead.LEAD_WITHHELD_TEXT)
+  assert.equal(sent.messages[0].content[0].text, 'Read the loader chat')
+})
+
+test('instructions that look like they hold a credential are not sent, reserve nothing, and say so', async () => {
+  const s = await setup([])
+  const result = await s.client.request({ ...input, system: 'Deploy with password=hunter2 when asked.' }, new AbortController().signal)
+  assert.deepEqual(result, { status: 'failed', reason: 'lead-messages-withheld' })
+  assert.equal(s.fake.requests.length, 0)
+  assert.equal(s.records.filter(r => r.type === 'budget' && r.event.type === 'reserve').length, 0)
+})
+
+test('a request the host refuses before sending settles at zero instead of being written off as uncertain', async () => {
+  for (const [wireCode, reason] of [['lead-provider-refused', 'lead-messages-unsent'], ['lead-provider-withheld', 'lead-messages-withheld']] as const) {
+    const s = await setup([async () => { throw Object.assign(new Error(wireCode), { wireCode }) }])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.deepEqual(result, { status: 'failed', reason })
+    const events = s.records.flatMap(r => r.type === 'budget' ? [r.event.type] : [])
+    assert.deepEqual(events.slice(-2), ['reserve', 'settle'])
+    const budget = s.journal.state.budget!
+    assert.equal(budget.requests.length, 0); assert.equal(budget.reservedUsdMicros, 0); assert.equal(budget.leadUsdMicros, 0)
+  }
+  // A send that failed for any other reason may have reached the provider: that stays uncertain.
+  const s = await setup([async () => { throw new Error('synthetic ETIMEDOUT') }])
+  assert.equal((await s.client.request(input, new AbortController().signal)).status, 'uncertain')
+  assert.equal(s.journal.state.budget!.requests[0]?.uncertain, true)
+})

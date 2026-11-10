@@ -295,6 +295,10 @@ const providerBody = (patch: object = {}) => JSON.stringify({ ...providerTemplat
 const providerReserve = (journal: any, requestId: string, body = providerBody(), maxOutputTokens = 32) => journal.updateBudget({
   version: 1, type: 'reserve', now: 100, requestId, inputTokens: Buffer.byteLength(body) + 1024, maxOutputTokens, ...providerPrice,
 })
+/** A reservation the way the child makes one, through the host, so the host knows it reserved it. */
+const childReserve = (s: { journalRpc(operation: string, args: unknown[]): Promise<unknown> }, requestId: string, body = providerBody(), maxOutputTokens = 32) => s.journalRpc('updateBudget', [{
+  version: 1, type: 'reserve', now: 100, requestId, inputTokens: Buffer.byteLength(body) + 1024, maxOutputTokens, ...providerPrice,
+}])
 const providerFrame = (message: unknown) => {
   const body = Buffer.from(JSON.stringify(message)), head = Buffer.alloc(4)
   head.writeUInt32BE(body.length); return Buffer.concat([head, body])
@@ -304,7 +308,7 @@ const providerUntil = async (predicate: () => boolean) => {
   assert.ok(predicate(), 'provider boundary did not answer')
 }
 /** Real service, supervisor and journal; only the child pipes, broker and provider are synthetic. */
-const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: { resolveLead?: () => Promise<string>; holdExit?: boolean; journal?: Awaited<ReturnType<typeof createLeadJournal>>; recover?: () => Promise<void>; shutdownMs?: number; probeRuntime?: () => Promise<{ supported: true }>; prices?: Record<string, typeof providerPrice> } = {}) => {
+const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: { onRequestRefused?: (refusal: any) => void; resolveLead?: () => Promise<string>; holdExit?: boolean; journal?: Awaited<ReturnType<typeof createLeadJournal>>; recover?: () => Promise<void>; shutdownMs?: number; probeRuntime?: () => Promise<{ supported: true }>; prices?: Record<string, typeof providerPrice> } = {}) => {
   const home = await mkdtemp('/tmp/hd-provider-')
   t.after(() => rm(home, { recursive: true, force: true }))
   const journal = hooks.journal ?? await createLeadJournal({ read: async () => [], append: async () => {} })
@@ -332,7 +336,8 @@ const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: 
       if (message.type === 'reply') {
         replies.push(message)
         const waiter = waiters.get(message.id); waiters.delete(message.id)
-        if (message.ok) waiter?.resolve(message.value); else waiter?.reject(new Error('synthetic provider refusal'))
+        // As the child does: a refusal the host names arrives with its code, anything else as a bare denial.
+        if (message.ok) waiter?.resolve(message.value); else waiter?.reject(Object.assign(new Error('synthetic provider refusal'), typeof message.value === 'string' ? { wireCode: message.value } : {}))
       }
       if (message.type === 'shutdown' && !hooks.holdExit) child.kill()
     }
@@ -341,6 +346,7 @@ const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: 
   let supervisor!: LeadSupervisor
   const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, model: 'synthetic-model', prices: hooks.prices ?? { 'synthetic-model': providerPrice },
     ...(hooks.probeRuntime ? { probeRuntime: hooks.probeRuntime } : {}),
+    ...(hooks.onRequestRefused ? { onRequestRefused: hooks.onRequestRefused } : {}),
     messagesTransport: { send }, broker: { leadStatus: async () => ({ configured: true, protection: 'synthetic' }),
       resolveLead: hooks.resolveLead ?? (async () => key), storeLead: async () => {}, deleteLead: async () => {} },
     resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('unused') },
@@ -362,17 +368,18 @@ for (const name of ['unreserved', 'body', 'max_tokens', 'model', 'stream', 'json
   test(`provider reservation refuses ${name} before key resolution or transport`, async t => {
     let calls = 0, resolutions = 0
     const s = await providerRig(t, async () => { calls++; return { status: 200, body: '{}' } }, { resolveLead: async () => { resolutions++; return key } })
-    if (name !== 'unreserved') await providerReserve(s.journal, 'reserved')
+    if (name !== 'unreserved') await childReserve(s, 'reserved')
     if (name === 'uncertain') await s.journal.updateBudget({ version: 1, type: 'uncertain', now: 100, requestId: 'reserved' })
     if (name === 'settled') await s.journal.updateBudget({ version: 1, type: 'settle', now: 100, requestId: 'reserved', inputTokens: 0, outputTokens: 0 })
     const body = name === 'body' ? providerBody({ system: 'oversized' }) : name === 'max_tokens' ? providerBody({ max_tokens: 33 })
       : name === 'model' ? providerBody({ model: 'another-model' }) : name === 'stream' ? providerBody({ stream: true }) : name === 'json' ? '{' : providerBody()
-    const before = resolutions
+    const before = resolutions, replied = s.replies.length
     void s.rpc('reserved', body).catch(() => {})
-    await providerUntil(() => s.replies.length > 0 || s.killed())
+    await providerUntil(() => s.replies.length > replied || s.killed())
     assert.equal(s.supervisor.live, true, 'policy refusal must keep child live')
-    assert.equal(s.replies[0]?.ok, false)
-    assert.equal(s.replies[0]?.value, null)
+    assert.equal(s.replies.at(-1)?.ok, false)
+    // A body refused for what it is says so, and the child settles it at zero; a reservation that is not open is not named.
+    assert.equal(s.replies.at(-1)?.value, ['unreserved', 'uncertain', 'settled'].includes(name) ? null : 'lead-provider-refused')
     assert.equal(calls, 0); assert.equal(resolutions, before)
     assert.equal(s.stopped(), 0)
   })
@@ -1203,4 +1210,67 @@ test('host tool activity ends without clearing a newer overlapping tool', async 
   assert.equal(s.service.activeTool, 'lead/chat/read')
   finishChat()
   assert.equal(s.service.activeTool, null)
+})
+
+// The read that stuck a desk: a worker chat stopped mid-run, one line of a command's output clipped to the desk's marker,
+// and text cut through a surrogate pair. The child builds, sizes and reserves it; the host checks and sends the same body.
+const stuckChatRead = JSON.stringify({ id: 'chat-1', title: 'Fix the config loader', agent: { name: 'Agent' }, status: 'stopped', turns: [
+  { type: 'work', id: 'm2', summary: 'Ran a command', steps: [{ kind: 'run', title: 'a command', output: ['config:', '  name: demo', '  authorization: … keys}', 'done \ud83d'] }] }],
+  omittedSourceTurns: 0, omittedPhoneEntries: 0, truncated: true })
+const stuckHistory = [{ role: 'user', content: [{ type: 'text', text: 'What happened to the loader chat?' }] },
+  { role: 'assistant', content: [{ type: 'tool_use', id: 'read-1', name: 'chat_read', input: { id: 'chat-1' } }] },
+  { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read-1', content: stuckChatRead, is_error: false }] }]
+const childMessages = (s: Awaited<ReturnType<typeof providerRig>>, sent: (body: string) => void, countInput = async (body: string) => new TextEncoder().encode(body).length + 1024) =>
+  createLeadMessages({ apiKey: 'host-owned-provider-key', model: 'synthetic-model', prices: { 'synthetic-model': providerPrice }, // hd-secrets-ok: public child marker, never a credential
+    journal: { ...s.journal, updateBudget: (event: any) => s.journalRpc('updateBudget', [event]) } as any, now: () => 100, nextId: () => `child-${Math.random().toString(36).slice(2)}`,
+    countInput, wait: async () => {}, transport: { send: request => { sent(request.body); return s.rpc((request as any).requestId, request.body) } },
+    resolveTool: async () => { throw new Error('unused') }, dispatch: async () => { throw new Error('unused') } })
+const reply = { status: 200, body: JSON.stringify({ id: 'synthetic', type: 'message', role: 'assistant', model: 'synthetic-model',
+  content: [{ type: 'text', text: 'The loader chat was stopped while it printed its config.' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 2 } }) }
+
+test('the chat read that stuck the desk reaches the provider, and the child and host measure the same body', async t => {
+  let built = '', delivered = ''
+  const refusals: unknown[] = []
+  const s = await providerRig(t, async request => { delivered = request.body; return reply }, { onRequestRefused: refusal => refusals.push(refusal) })
+  const result = await childMessages(s, body => { built = body }).request({ messages: stuckHistory as any, maxTokens: 32 }, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.deepEqual(refusals, [])
+  assert.equal(delivered, built, 'one serialisation: the host sends the body the child sized')
+  assert.equal(Buffer.byteLength(delivered), new TextEncoder().encode(built).length)
+  assert.match(delivered, /authorization: … keys}/)
+  assert.equal(s.journal.state.budget?.requests.length, 0); assert.equal(s.supervisor.live, true)
+})
+
+test('a request the host refuses before sending is settled at zero, logged by its check, and the next one is sent', async t => {
+  let calls = 0
+  const refusals: any[] = []
+  const s = await providerRig(t, async () => { calls++; return reply }, { onRequestRefused: refusal => refusals.push(refusal) })
+  const spent = s.journal.state.budget!.leadUsdMicros
+  // A child that counts short: the host refuses the body as larger than its reservation.
+  const short = await childMessages(s, () => {}, async body => new TextEncoder().encode(body).length).request({ messages: stuckHistory as any, maxTokens: 32 }, new AbortController().signal)
+  assert.deepEqual(short, { status: 'failed', reason: 'lead-messages-unsent' })
+  assert.equal(calls, 0)
+  assert.equal(refusals.length, 1)
+  assert.deepEqual(Object.keys(refusals[0]).sort(), ['bodyBytes', 'guard', 'requestId', 'reservedTokens'])
+  assert.equal(refusals[0].guard, 'size'); assert.ok(refusals[0].bodyBytes > refusals[0].reservedTokens - 1024)
+  assert.ok(!JSON.stringify(refusals).includes('loader'), 'the refusal carries sizes, never content')
+  const budget = s.journal.state.budget!
+  assert.equal(budget.requests.length, 0); assert.equal(budget.leadUsdMicros, spent); assert.equal(budget.reservedUsdMicros, 0)
+  assert.equal(s.supervisor.live, true); assert.equal(s.stopped(), 0)
+  // Nothing about the refusal sticks: the next request goes.
+  assert.equal((await childMessages(s, () => {}).request({ messages: stuckHistory as any, maxTokens: 32 }, new AbortController().signal)).status, 'completed')
+  assert.equal(calls, 1)
+})
+
+test('credential-shaped text the child did not withhold is refused by name, with no key in the log and nothing spent', async t => {
+  let calls = 0
+  const refusals: any[] = []
+  const s = await providerRig(t, async () => { calls++; return reply }, { onRequestRefused: refusal => refusals.push(refusal) })
+  const body = providerBody({ system: 'Deploy with password=hunter2 when asked.' })
+  await childReserve(s, 'withheld', body)
+  await assert.rejects(s.rpc('withheld', body))
+  assert.equal(s.replies.at(-1)?.value, 'lead-provider-withheld')
+  assert.equal(calls, 0)
+  assert.deepEqual(refusals.map(refusal => refusal.guard), ['credential'])
+  assert.ok(!JSON.stringify(refusals).includes('hunter2') && !JSON.stringify(refusals).includes(key))
 })

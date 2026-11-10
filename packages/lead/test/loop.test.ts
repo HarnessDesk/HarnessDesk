@@ -1907,13 +1907,15 @@ test('a quiet reply whose only card is a summary the host never offers is still 
   } finally { await loop.close() }
 })
 
+// Real preview tokens are UUIDs: any other value under a `token` field is credential-shaped and withheld before sending.
+const previewToken = '123e4567-e89b-42d3-a456-426614174000' // hd-secrets-ok: a flow preview's UUID, not a credential
 for (const coalesced of [false, true]) test(`a two-step goal starts step 2 through a desk-woken preview continuation${coalesced ? ' with another desk change' : ''}`, async () => {
   const s = await fixture([message(), message([tool('preview-second', 'flow_preview', {
     root: contract.project.path, source: lead.leadReviewedResultSource,
   })], { stop_reason: 'tool_use' }), async request => {
     const latest = JSON.parse(request.body).messages.at(-1).content
     const preview = latest.find((block: any) => block.type === 'tool_result' && block.tool_use_id === 'preview-second' && !block.is_error)
-    return preview && JSON.parse(preview.content).token === 'preview-1'
+    return preview && JSON.parse(preview.content).token === previewToken
       ? message([tool('start-second', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })
       : message()
   }])
@@ -1927,7 +1929,7 @@ for (const coalesced of [false, true]) test(`a two-step goal starts step 2 throu
   const readings: string[] = []
   s.options.readEvidence = async (runId: string) => { readings.push(runId); return { ...spendEvidence(), runId, reviews: [] } }
   s.options.resolveTool = async (request: any) => ({ ...await resolve(request), stepId: 'second', start: second, predecessor: { runId: 'run-1', ready: true } })
-  s.options.desk.call = async (method: string, params: unknown) => method === 'flow/preview' ? { token: 'preview-1' }
+  s.options.desk.call = async (method: string, params: unknown) => method === 'flow/preview' ? { token: previewToken }
     : method === 'flow/start-goal' ? { id: 'run-2', goal: 'team-2', rounds: [{ n: 1 }], state: 'running' } : call(method, params)
   const loop = exported('createLeadLoop')(s.options)
   try {
@@ -2360,5 +2362,40 @@ test('a stuck-chat observation wakes once with candidates and uses the existing 
     assert.equal(s.journal.state.messages.at(-1)?.proactive?.recommended, 'move')
     s.emit(structuredClone(event)); await s.drain(); await s.tick(); await loop.idle()
     assert.equal(s.fake.requests.length, 2, 'the same incident cannot buy a second model turn')
+  } finally { await loop.close() }
+})
+
+test('a request the desk refused before sending waits as unsent, costs nothing, records a failed wake, and the next one goes', async () => {
+  for (const [wireCode, reason] of [['lead-provider-refused', 'lead-request-unsent'], ['lead-provider-withheld', 'lead-request-withheld']] as const) {
+    const s = await fixture([async () => { throw Object.assign(new Error(wireCode), { wireCode }) }, message()])
+    const loop = exported('createLeadLoop')(s.options)
+    try {
+      const spent = s.journal.state.budget?.leadUsdMicros ?? 0
+      await loop.request({ ...input, wakeSource: 'desk-change' })
+      assert.equal(s.journal.state.phase, 'waiting-for-user')
+      assert.equal(s.journal.state.managementReason, reason)
+      assert.equal(protocol.leadStage({ kind: 'lead', state: s.journal.state.phase, pendingPersonCard: null, resultReady: false, workerApproval: false,
+        checkToRun: false, waitReason: reason, requestInFlight: false, chatEffectQueued: false }).stage, 'idle', 'not sent is not waiting on the person')
+      const budget = s.journal.state.budget
+      assert.equal(budget?.requests.length ?? 0, 0); assert.equal(budget?.leadUsdMicros ?? 0, spent)
+      assert.ok(!s.records.some(record => record.type === 'budget' && (record.event.type === 'uncertain' || record.event.type === 'write-off')))
+      const wake = s.journal.state.wakes.at(-1)!
+      assert.equal(wake.decision, 'failed'); assert.equal(wake.modelTurn, false)
+      await s.journal.resume()
+      await loop.request({ ...input, wakeSource: 'person' })
+      assert.equal(s.fake.requests.length, 2)
+      assert.equal(s.journal.state.managementReason, null)
+    } finally { await loop.close() }
+  }
+})
+
+test('a wake whose request was sent and lost is recorded as failed, not as silence', async () => {
+  const s = await fixture([async () => { throw new Error('lost after send') }])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request({ ...input, wakeSource: 'desk-change' })
+    assert.equal(s.journal.state.managementReason, 'lead-request-uncertain')
+    const wake = s.journal.state.wakes.at(-1)!
+    assert.equal(wake.decision, 'failed'); assert.equal(wake.modelTurn, true)
   } finally { await loop.close() }
 })

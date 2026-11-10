@@ -407,8 +407,11 @@ export class LeadSupervisor {
           try {
             if (!this.options.providerSend) throw error('provider-unavailable')
             value = await this.options.providerSend(args[0], args[1], running.providerAbort.signal)
-          } catch {
-            if (!running.exited) write(running, { type: 'reply', id, ok: false, value: null, state: journal.state })
+          } catch (refusal) {
+            // A request the host refused by name before sending is told apart, so the child settles it at zero.
+            const guard = (refusal as { leadRequestRefused?: unknown })?.leadRequestRefused
+            const value = guard === 'credential' ? 'lead-provider-withheld' : typeof guard === 'string' ? 'lead-provider-refused' : null
+            if (!running.exited) write(running, { type: 'reply', id, ok: false, value, state: journal.state })
             return
           }
           break

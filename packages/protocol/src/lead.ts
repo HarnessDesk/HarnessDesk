@@ -6,6 +6,7 @@ import type { FlowSeat } from './flow.js'
 import { flowSeatValidator } from './flow-seat.js'
 import { parseLeadDeviceRef } from './lead-presence.js'
 import { LEAD_AUTONOMY_KINDS } from './lead-autonomy.js'
+import { LEAD_REQUEST_FAILURES, type LeadRequestFailure } from './lead-recovery.js'
 import { isBoolean, isObject, literalUnion, optional, optionalNullable, ValidationError, type Validator } from './validate.js'
 
 /** Versioned plain data only. Provider credentials and transport descriptors are private to the child bootstrap. */
@@ -256,6 +257,7 @@ export const LEAD_MANAGEMENT_REASONS = [
   'lead-result-awaiting-person', 'lead-handback-limit', 'lead-handback-pending', 'lead-publication-needs-you', 'lead-pr-head-changed', 'lead-pr-branch-rewritten', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
   'lead-repair-failed', 'lead-repair-withdrawn', 'lead-repair-abandoned', 'lead-repair-unverified', 'lead-repair-recovery-failed',
   'lead-card-too-large', 'lead-send-deadline', 'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
+  'lead-request-unsent', 'lead-request-withheld',
   'lead-worker-audit-failed', 'lead-chat-effect-uncertain', 'lead-run-not-started', 'lead-budget-unknown', 'lead-plan-unseatable', 'lead-plan-not-independent',
 ] as const
 export interface LeadThread {
@@ -356,7 +358,8 @@ export interface LeadPresence {
 export interface LeadWakeRecord {
   readonly id: string; readonly at: number
   readonly source: 'schedule' | 'desk-change' | 'person' | 'trigger'
-  readonly decision: 'silent' | 'spoke' | 'asked'
+  /** `failed`: the wake's request did not complete, and nothing was said. */
+  readonly decision: 'silent' | 'spoke' | 'asked' | 'failed'
   readonly modelTurn: boolean
   readonly usdMicros: number | null
   /** What the wake's model requests reported, summed. Absent for a wake without a model turn and on older records. */
@@ -418,6 +421,8 @@ export interface LeadWindowProjection extends LeadHostProjection {
   readonly activity?: { readonly since: number; readonly method: string | null }
   readonly wayOut: LeadPersonAction
   readonly waitReason: typeof LEAD_MANAGEMENT_REASONS[number] | null
+  /** Present while the wait is a request that did not complete: its code and the sentence a surface shows. Absent on older desks. */
+  readonly failure?: LeadRequestFailure
   readonly planConsentExpiresAt: number | null
   /** Present only while the goal is running; it is read from the journal and grants nothing. */
   readonly progress?: LeadProgress
@@ -942,7 +947,7 @@ const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
 }
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
   version, revision, stage: optional(literalUnion(...LEAD_STAGES)), stageReason: optional(text(80)), thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, activity: optional(object({ since: integer(0, Number.MAX_SAFE_INTEGER), method: nullable(text(120)) })), wayOut: nullable(literalUnion('resume', 'decide-plan')),
-  waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
+  waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), failure: optional(object<LeadRequestFailure>({ reason: literalUnion(...LEAD_REQUEST_FAILURES), detail: text(400) })), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
   savedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
   revokedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
   personActions: optional(list(parseLeadAction, 1024, 0, action => action.id)), presence: optional(parseLeadPresence),
@@ -953,7 +958,7 @@ export const parseLeadActionInput: Validator<LeadActionInput> = object({ id, con
 
 const wakeTokens = integer(0, 1_000_000_000)
 const parseLeadWakeTokens: Validator<LeadWakeTokens> = object({ input: wakeTokens, output: wakeTokens, cacheRead: wakeTokens, cacheWrite: wakeTokens })
-export const parseLeadWakeRecord: Validator<LeadWakeRecord> = omitUnset(object<LeadWakeRecord>({ id, at: integer(0, Number.MAX_SAFE_INTEGER), source: literalUnion('schedule', 'desk-change', 'person', 'trigger'), decision: literalUnion('silent', 'spoke', 'asked'), modelTurn: isBoolean, usdMicros: nullable(micros), tokens: optional(parseLeadWakeTokens), observed: optional(literalUnion(...LEAD_AUTONOMY_KINDS)) }), ['tokens', 'observed'])
+export const parseLeadWakeRecord: Validator<LeadWakeRecord> = omitUnset(object<LeadWakeRecord>({ id, at: integer(0, Number.MAX_SAFE_INTEGER), source: literalUnion('schedule', 'desk-change', 'person', 'trigger'), decision: literalUnion('silent', 'spoke', 'asked', 'failed'), modelTurn: isBoolean, usdMicros: nullable(micros), tokens: optional(parseLeadWakeTokens), observed: optional(literalUnion(...LEAD_AUTONOMY_KINDS)) }), ['tokens', 'observed'])
 export const parseLeadWakeLog: Validator<LeadWakeLog> = object({ revision: integer(), wakes: list(parseLeadWakeRecord, 128, 0, wake => wake.id) })
 
 export const parseLeadApprovalRevoke: Validator<{ readonly id: string; readonly contractDigest: string }> = object({ id, contractDigest: digest })

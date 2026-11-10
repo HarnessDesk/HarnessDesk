@@ -79,6 +79,7 @@ export const GROUPS = [
       'packages/server/dist/test/lead-service.test.js',
       'packages/server/dist/test/lead-client.test.js',
       'packages/server/dist/test/lead-assembly-child.test.js',
+      'packages/server/dist/test/lead-stuck-recovery.test.js',
       'packages/server/dist/test/lead-repair-host.test.js',
       'packages/server/dist/test/lead-note-host.test.js',
     ],

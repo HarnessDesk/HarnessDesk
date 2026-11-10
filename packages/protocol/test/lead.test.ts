@@ -584,6 +584,22 @@ test('an older host window projection without stage fields remains readable', ()
   assert.equal(result.wayOut, 'resume')
 })
 
+test('a request that did not complete reaches the window as a failure with its code and sentence; other waits carry none', () => {
+  // Every request wait but a cancelled one is a failure of the request, not the Lead waiting on the person.
+  const requestWaits = protocol.LEAD_MANAGEMENT_REASONS.filter(reason => reason.startsWith('lead-request-') && reason !== 'lead-request-cancelled')
+  assert.deepEqual([...protocol.LEAD_REQUEST_FAILURES].sort(), [...requestWaits].sort())
+  assert.deepEqual(protocol.leadRequestFailure('lead-request-uncertain', 'Dex'), { reason: 'lead-request-uncertain', detail: protocol.LEAD_REQUEST_FAILURE_TEXT['lead-request-uncertain'] })
+  const withheld = protocol.leadRequestFailure('lead-request-withheld', 'Dex')!
+  assert.match(withheld.detail, /^Dex's instructions/); assert.ok(!withheld.detail.includes('{label}'))
+  for (const reason of ['lead-request-cancelled', 'lead-plan-refused', null, undefined, 'toString']) assert.equal(protocol.leadRequestFailure(reason, 'Dex'), null)
+  const window = { version: 1, revision: 2, thread, settings, requestInFlight: false, wayOut: null, waitReason: 'lead-request-unsent', planConsentExpiresAt: null }
+  const failure = protocol.leadRequestFailure('lead-request-unsent', 'Dex')
+  assert.deepEqual(protocol.parseLeadWindowProjection({ ...window, failure }).failure, failure)
+  assert.equal(protocol.parseLeadWindowProjection(window).failure, undefined)
+  assert.throws(() => protocol.parseLeadWindowProjection({ ...window, failure: { reason: 'lead-plan-refused', detail: 'x' } }))
+  assert.throws(() => protocol.parseLeadWindowProjection({ ...window, failure: { reason: 'lead-request-unsent', detail: 'two\nlines' } }))
+})
+
 test('strict asks and new proactive output require bounded unique options and a recommendation; stored legacy reports survive', () => {
   const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
   const parse = validator('parseLeadAsk'), strict = validator('parseLeadProactiveOutput')

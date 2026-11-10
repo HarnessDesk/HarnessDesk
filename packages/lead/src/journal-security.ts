@@ -47,8 +47,10 @@ const snapshotLeadData = (input: unknown): unknown => {
 const prose = new Set(['goal', 'title', 'description', 'summary', 'reason', 'text'])
 const tokenShape = /\b(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{60,}|sk-ant-[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9]{24,}|xox[abpr]-\d{10,13}-\d{10,13}-(?:\d{10,13}-)?[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,})\b/
 const tokens = new RegExp(tokenShape.source, 'g')
-const headers = /\b(Cookie|Authorization|x-api-key):[ \t]*(?:(?:Bearer|Basic|Token)[ \t]+)?[^\s,;]+/gi
-const assignments = /\b(api[_-]?key|access[_-]?token|token|secret|password)\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi
+// A bare value names a credential only when it has a letter or digit in it: `authorization: …` is a line the desk clipped,
+// and `password=***` one already masked. Read as credentials, either refused every request whose history held it.
+const headers = /\b(Cookie|Authorization|x-api-key):[ \t]*(?:(?:Bearer|Basic|Token)[ \t]+)?[^\s,;]*[A-Za-z0-9][^\s,;]*/gi
+const assignments = /\b(api[_-]?key|access[_-]?token|token|secret|password)\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]*[A-Za-z0-9][^\s,;]*)/gi
 const secretName = /^(?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|token|secret|password|cookie|authorization|bearer)$/i
 const paginationName = /^(?:page|next|continuation)_(?:token|cursor)$/i
 const reference = /^broker:[A-Za-z0-9._:/-]{1,200}$/

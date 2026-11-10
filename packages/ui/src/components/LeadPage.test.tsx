@@ -87,6 +87,16 @@ it.each([null, 'resume', 'decide-plan'] as const)('shows Resume only for wayOut=
   if (wayOut === 'resume') expect(box.textContent).toContain('Sending a message also continues')
   if (wayOut === 'decide-plan') { expect(button('Review plan')).toBeUndefined(); await focusDecision('plan'); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('plan') }
 })
+it.each([
+  ['lead-request-unsent', "The desk did not send Dex's last request, so nothing was spent."],
+  ['lead-request-withheld', "Dex's instructions, memory or rules look like they hold a password, key or token"],
+] as const)('says %s was not sent, without Resume or a promise that sending again continues', async (waitReason, words) => {
+  const base = leadProjection(), { box } = await mount({ ...base, wayOut: null, waitReason, thread: { ...base.thread, state: 'waiting-for-user' } })
+  expect(box.textContent).toContain(words)
+  expect(button('Resume')).toBeUndefined()
+  expect(box.textContent).not.toContain('also continues')
+  expect(box.textContent).not.toContain('{label}')
+})
 it('offers the rail toggle only where a shell draws the rail', async () => {
   expect((await mount()).box.querySelector('[aria-label="Toggle rail"]')).toBeNull()
   expect((await mount(leadProjection(), false, true)).box.querySelector('[aria-label="Toggle rail"]')).not.toBeNull()

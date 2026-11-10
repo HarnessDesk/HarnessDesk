@@ -7,6 +7,20 @@ the rule is the last line of its section.
 
 ---
 
+## The Lead withholds a credential-shaped piece instead of refusing the whole request — 2026-11-10
+
+Before a Lead request leaves the machine the host checks the whole body for anything shaped like a password, key or token, and refuses it if one is there. The conversation that body carries is stored, so a refused piece was in every request after it: one config line a worker printed, read back by the Lead, stopped the Lead for good. The child now runs the same check block by block before it builds the body, and puts a one-line notice in place of each piece the host would refuse: a text keeps its place, a tool result keeps its correlation, a tool call keeps its id and loses its arguments. The body the host checks is then the one the child counted and reserved, built once. What cannot be withheld piece by piece — the instructions, memory and rules every request starts with — is not sent at all, and reserves nothing.
+
+A request the host still refuses before handing it to the transport is refused by name: the child settles it at zero rather than writing the reservation off as an unknown charge, the host log gets one warning naming the check, the request id and the sizes, and the Lead's wait says the request was not sent (`lead-request-unsent`, `lead-request-withheld`) instead of telling the person to send a message to continue. A send that may have reached the provider stays uncertain, as before. A bare header or assignment value now has to hold a letter or a digit to count as a credential, so a line the desk clipped to `authorization: …` is text.
+
+Rejected:
+
+- **Dropping the whole tool result or turn.** It breaks the tool-use correlation the provider requires and loses everything else the read said.
+- **Letting the host rewrite the body.** The host would send a body the child never sized; the reservation and the request would disagree again.
+- **Writing a refused request off.** Nothing was sent, so nothing was spent; a write-off charged the reservation's price for every attempt.
+
+**Rule:** a piece the host would refuse is withheld before the body is built; a request refused before sending is settled at zero and says it was not sent.
+
 ## Review threads are settled by outcome — 2026-11-10
 
 After a repair round, a pull request is left full of open review threads: the ones the fix addressed and the ones the seat chose not to take. A reader cannot tell them apart without opening each, and a bot reviewer opens new ones on every push. The desk now settles each thread by what happened to it. A fixed thread is resolved and nothing is posted, because the commit is the answer and a "done" reply is noise in the reviewer's inbox. A declined thread gets exactly one plain sentence saying why and is left open, because the decision belongs to the reviewer, not to the seat that disagreed with them.

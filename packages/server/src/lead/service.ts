@@ -11,6 +11,11 @@ import { admitLeadCard } from './projection.js'
 import { leadContainsSecret, leadMessagesContainSecret } from './secrets.js'
 
 const publicRefusal = (wireCode: LeadControlRefusal) => Object.assign(new Error(wireCode), { wireCode })
+/** The check that kept a request on this machine: its shape, its size against the body or the reservation, its model or
+ * reply allowance, or credential-shaped text. A code only — the host log never carries the body. */
+export type LeadRequestGuard = 'shape' | 'size' | 'model' | 'max-tokens' | 'credential'
+export interface LeadRequestRefusal { readonly requestId: string; readonly guard: LeadRequestGuard; readonly bodyBytes: number; readonly reservedTokens: number | null }
+const refusedBy = (guard: LeadRequestGuard) => Object.assign(new Error('lead-provider-refused'), { leadRequestGuard: guard })
 
 export interface LeadProcess {
   readonly live: boolean
@@ -27,6 +32,8 @@ export interface LeadServiceOptions {
   readonly probeRuntime?: LeadRuntimeProber
   /** Told once, the first time no runtime passes the probe, so the host can log why. */
   readonly onRuntimeUnavailable?: (reason: string) => void
+  /** Told once for each request refused before it was sent: which check, the request id and the sizes, never content. */
+  readonly onRequestRefused?: (refusal: LeadRequestRefusal) => void
   readonly journal: LeadJournal
   readonly project: LeadProject
   readonly broker: Pick<CredentialBroker, 'leadStatus' | 'resolveLead' | 'storeLead' | 'deleteLead'>
@@ -171,27 +178,32 @@ export class LeadService {
         else if (event.type === 'settle' || event.type === 'write-off') this.#reservedHere.delete(event.requestId)
       },
       providerSend: async (requestId, body, signal) => {
-        let admitted = false
+        let admitted = false, reservedTokens: number | null = null
+        const bodyBytes = Buffer.byteLength(body)
         try {
           this.#assertOpen()
           if (this.#changingKeys) throw new Error('lead-lifecycle-changed')
           const generation = this.#generation
-          const payload = parseLeadMessagesBody(body)
+          let payload: ReturnType<typeof parseLeadMessagesBody>
+          try { payload = parseLeadMessagesBody(body) } catch { throw refusedBy('shape') }
           body = JSON.stringify(payload)
-          if (Buffer.byteLength(body) > 1_048_576) throw new Error('lead-provider-failed')
+          if (Buffer.byteLength(body) > 1_048_576) throw refusedBy('size')
           const budget = options.journal.state.budget
           const request = budget?.requests.find(item => item.reservation.requestId === requestId)
           if (!request || request.uncertain || this.#providerUsage.get(requestId) === null || this.#providerFinalized.has(requestId) || budget?.settled.some(item => item.id === requestId)) throw new Error('lead-provider-failed')
           const reservation = request.reservation
-          if (payload.model !== (options.model ?? LEAD_MESSAGES_DEFAULTS.model) ||
-            payload.max_tokens > reservation.maxOutputTokens || Buffer.byteLength(body) + 1024 > reservation.inputTokens ||
-            this.#providerSends.has(requestId) || this.#providerSends.size >= 2) throw new Error('lead-provider-failed')
+          reservedTokens = reservation.inputTokens
+          if (payload.model !== (options.model ?? LEAD_MESSAGES_DEFAULTS.model)) throw refusedBy('model')
+          if (payload.max_tokens > reservation.maxOutputTokens) throw refusedBy('max-tokens')
+          if (Buffer.byteLength(body) + 1024 > reservation.inputTokens) throw refusedBy('size')
+          if (this.#providerSends.has(requestId) || this.#providerSends.size >= 2) throw new Error('lead-provider-failed')
           // Hold the slot across key resolution and transport; retries may reuse it only after settlement of this send.
           this.#providerSends.add(requestId); admitted = true
           const key = await options.broker.resolveLead('anthropic')
           this.#assertOpen()
           if (generation !== this.#generation || this.#changingKeys) throw new Error('lead-lifecycle-changed')
-          if (signal.aborted || leadMessagesContainSecret(payload, key)) throw new Error('lead-provider-failed')
+          if (signal.aborted) throw new Error('lead-provider-failed')
+          if (leadMessagesContainSecret(payload, key)) throw refusedBy('credential')
           const previousUsage = this.#providerUsage.get(requestId)
           this.#providerUsage.set(requestId, null)
           const response = await (options.messagesTransport ?? leadProviderTransport).send({
@@ -235,7 +247,16 @@ export class LeadService {
             else this.#providerUsage.set(requestId, previousUsage)
           }
           return result
-        } catch { throw new Error('lead-provider-failed') }
+        } catch (error) {
+          // Refused by name and never handed to the transport: the child settles it at zero rather than writing it off.
+          const guard = (error as { leadRequestGuard?: LeadRequestGuard }).leadRequestGuard
+          const open = options.journal.state.budget?.requests.some(item => item.reservation.requestId === requestId && !item.uncertain)
+          if (guard && open && this.#reservedHere.has(requestId) && !this.#providerFinalized.has(requestId) && this.#providerUsage.get(requestId) !== null) {
+            options.onRequestRefused?.({ requestId: /^[A-Za-z0-9._:/-]{1,100}$/.test(requestId) ? requestId : 'invalid', guard, bodyBytes, reservedTokens })
+            throw Object.assign(new Error('lead-provider-refused'), { leadRequestRefused: guard })
+          }
+          throw new Error('lead-provider-failed')
+        }
         finally { if (admitted) this.#providerSends.delete(requestId) }
       },
       resolveTool: async call => {

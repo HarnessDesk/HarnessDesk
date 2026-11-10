@@ -4285,6 +4285,7 @@ export class Host {
       },
       ...(this.options.leadRuntimes ? { runtimes: this.options.leadRuntimes } : {}),
       onRuntimeUnavailable: reason => this.#logger.warn('Lead runtime unavailable', { reason }),
+      onRequestRefused: refusal => this.#logger.warn('Lead request refused before sending', { ...refusal }),
       onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
       // A `Remember:` line in a reply is read as the same proposal memory_propose makes: scanned, then to the inbox.
       onRemember: lines => {
