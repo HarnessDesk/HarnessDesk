@@ -5,24 +5,24 @@ export type { LeadPermissionEffect, LeadPermissionFloor, LeadPermissionCall, Lea
   LeadAuthorityChange, LeadPolicyProposal, LeadPolicyChange } from './permissions.js'
 export { LEAD_JOURNAL_BYTES, summarizeLeadArguments, parseLeadOwnedPush, parseLeadPublicationSource, parseLeadPublicationOperation, parseLeadJournalRecord, prepareLeadJournalRecord, parseLeadRunIdentity, LeadJournal, createLeadJournal } from './journal.js'
 export type { LeadJournalEvent, LeadJournalRecord, LeadJournalStorage, LeadRunIdentity, LeadRunObservation, LeadOwnedPush, LeadPublicationSource, LeadPublicationOperation, LeadArgumentSummary,
-  LeadAttemptOutcome, LeadToolAttempt, LeadDispatch, LeadDispatchResult, LeadRecoveryAction } from './journal.js'
-export { hasPendingLeadPlan, isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, leadHandbackTerminal, leadRepairResultReady, leadWorkerDispatchBlockedByOpenPr, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadGoalTeams, leadOwnedTeams, LEAD_ACCEPTED_TEAMS, leadLimitedCaps, leadDraftCaps, leadGoalSpendCap, initialLeadState, reduceLeadRecord, replayLeadJournal } from './state.js'
+  LeadAttemptOutcome, LeadCompactionTrigger, LeadToolAttempt, LeadDispatch, LeadDispatchResult, LeadRecoveryAction } from './journal.js'
+export { hasPendingLeadPlan, isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, leadHandbackTerminal, leadRepairResultReady, leadWorkerDispatchBlockedByOpenPr, canBeginLeadGoal, canReplaceLeadPlan, initialLeadContext, LEAD_CHECKPOINT_NOTICE, leadPlanRuns, leadGoalTeams, leadOwnedTeams, LEAD_ACCEPTED_TEAMS, leadLimitedCaps, leadDraftCaps, leadGoalSpendCap, initialLeadState, reduceLeadRecord, replayLeadJournal } from './state.js'
 export type { LeadAcceptedTeam, LeadOwnedTeam } from './state.js'
-export type { LeadState, LeadStepState, LeadAttemptState, LeadChatEffects } from './state.js'
+export type { LeadState, LeadStepState, LeadAttemptState, LeadChatEffects, LeadContextState } from './state.js'
 
 export type { LeadJournalSecurity } from './journal-security.js'
 export { leadCheckpoint, parseLeadCheckpoint } from './checkpoint.js'
 export type { LeadJournalCheckpoint } from './checkpoint.js'
 export { leadRoundId, reduceLeadBudget, leadBudgetProjection, parseLeadBudgetLedger } from './budget.js'
 export type { LeadBudgetLedger } from './budget.js'
-export { createLeadMessages, parseLeadMessagesBody, leadHistory, LEAD_HISTORY_TURNS, LEAD_HISTORY_BYTES, LEAD_MESSAGES_DEFAULTS } from './messages.js'
+export { createLeadMessages, parseLeadMessagesBody, parseLeadContextTurns, leadHistory, LEAD_HISTORY_TURNS, LEAD_HISTORY_BYTES, LEAD_MESSAGES_DEFAULTS } from './messages.js'
 export type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, LeadMessagesStatus,
   MessagesTransport, MessagesHttpRequest, MessagesHttpResponse, MessagesPrice, MessagesUsage, MessagesToolScope,
   MessagesTurn, MessagesText, MessagesThinking, MessagesRedactedThinking, MessagesToolUse, MessagesToolResult } from './messages-types.js'
 export { createLeadLoop } from './loop.js'
 export { classifyLeadRuns, createLeadWakeGate, leadChatFingerprint, leadDeskFingerprint, LEAD_STUCK_MS, type LeadRunClass, type LeadRunReading, type LeadWakeCounts } from './wake.js'
 export { LEAD_QUIET, LEAD_REMEMBER, isLeadQuiet, leadRememberLines } from './instructions.js'
-export type { LeadLoop, LeadLoopOptions, LeadLoopState, LeadLoopClock } from './loop.js'
+export type { LeadLoop, LeadLoopOptions, LeadLoopState, LeadLoopClock, LeadContextPort, LeadContextRecordInput } from './loop.js'
 export { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay } from './tools.js'
 export type { LeadTools, LeadToolsOptions, LeadResolvedTool } from './tools.js'
 export { evaluateLeadAcceptance, leadPublicationEvidenceRevision, leadResultSummary, leadVerifyLine, LEAD_HEDGE_PHRASES, LEAD_REPAIR_INSTRUCTIONS, leadAssertionsToRerun, leadRepairInput, leadRepairDetail, leadAcceptanceObservation } from './acceptance.js'
@@ -33,3 +33,9 @@ export type { LeadSeatChoices, LeadInstructionFacts, LeadContinuationFacts } fro
 
 export { leadDataContainsCredential } from './journal-security.js'
 export { leadWorkCards } from './work.js'
+export { LEAD_CONTEXT, LEAD_CONTEXT_WINDOWS, LEAD_DESK_STUB_PREFIX, leadContextWindow, leadContextBytes, leadEstimatedTokens, leadContextPressure, leadNextSoftShare,
+  leadDeskStub, leadContextMarkOf, leadStubVolatile, leadContextRecord, leadWithoutReasoning, leadPruneContext, leadContextBoundary, leadContextSplit, leadCloseOpenLoop, leadPairedTurns } from './context.js'
+export type { LeadContextMark, LeadContextRecord, LeadContextPressureInput } from './context.js'
+export { LEAD_CHECKPOINT_SECTIONS, LEAD_CHECKPOINT_OPEN, leadCheckpointInstruction, leadCheckpointRefusal, leadCheckpointTurn, leadCheckpointText, leadPersonWords,
+  leadFallbackCheckpoint, leadCheckpointMessages, leadRegionBytes } from './compaction.js'
+export type { LeadCheckpointRequestFacts } from './compaction.js'

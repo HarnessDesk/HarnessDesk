@@ -38,4 +38,6 @@ export const leadMethods = {
   'lead/work/read': (ctx, params) => ctx.leadWork.read(params),
   'lead/work/note': (ctx, params) => ctx.leadWork.note(params),
   'lead/work/close': (ctx, params) => ctx.leadWork.close(params),
+  'lead/context/read': ctx => ctx.leadContextRead(),
+  'lead/context/compact': ctx => ctx.leadContextCompact(),
 } satisfies MethodsUnder<'lead/'>

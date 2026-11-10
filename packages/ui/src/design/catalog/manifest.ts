@@ -693,6 +693,7 @@ const UI_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'key-value': ['KeyValue', 'KeyValueRow', 'MiddleTruncate', 'SummaryItem', 'SummaryList'],
   'label': ['Label'],
   'list-row': ['ListRow', 'ListRowDetail', 'ListRows'],
+  'marker': ['Marker', 'MarkerContent', 'MarkerIcon'],
   'message': ['Message', 'MessageContent', 'MessageFooter'],
   'menu-row': ['MenuListboxOption', 'MenuPresentation', 'MenuRowContent'],
   'native-select': ['NativeSelect'],

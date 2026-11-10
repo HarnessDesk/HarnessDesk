@@ -107,6 +107,15 @@ export type LeadJournalEvent =
   | { readonly type: 'dispatch-start'; readonly id: string; readonly dispatched: boolean }
   | { readonly type: 'result'; readonly id: string; readonly outcome: LeadAttemptOutcome; readonly identity: LeadRunIdentity | null }
   | { readonly type: 'reconciliation'; readonly id: string; readonly identity: LeadRunIdentity | null; readonly count: number; readonly evidence: string }
+  /** Context compaction: started, one model attempt that failed (or `interrupted` by a restart), and applied. The
+   * stored conversation changes only after `applied`; a crash in between leaves the old conversation in place. */
+  | { readonly type: 'context-compaction-started'; readonly id: string; readonly at: number; readonly trigger: LeadCompactionTrigger }
+  | { readonly type: 'context-compaction-failed'; readonly id: string; readonly reason: string }
+  | { readonly type: 'context-compaction-applied'; readonly id: string; readonly at: number; readonly fromSeq: number; readonly toSeq: number
+      readonly beforeTokens: number; readonly afterTokens: number; readonly model: string; readonly usdMicros: number; readonly fallback: boolean }
+  /** The pruning stage alone brought the conversation back under its line: a new epoch, no checkpoint. */
+  | { readonly type: 'context-pruned'; readonly id: string; readonly at: number; readonly beforeTokens: number; readonly afterTokens: number }
+export type LeadCompactionTrigger = 'soft' | 'hard' | 'manual' | 'overflow'
 export type LeadJournalRecord = Base & LeadJournalEvent
 export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown, previous?: LeadState): LeadJournalRecord; checkpoint?(): LeadState | null; journalSecurity?(): LeadJournalSecurity }
 const object = (value: unknown, keys?: readonly string[]): Record<string, unknown> => {
@@ -191,6 +200,9 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'person-caps': ['logicalGoalId', 'caps', 'now'], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
+    'context-compaction-started': ['id', 'at', 'trigger'], 'context-compaction-failed': ['id', 'reason'],
+    'context-compaction-applied': ['id', 'at', 'fromSeq', 'toSeq', 'beforeTokens', 'afterTokens', 'model', 'usdMicros', 'fallback'],
+    'context-pruned': ['id', 'at', 'beforeTokens', 'afterTokens'],
   }
   const type = choice(source.type, Object.keys(keys))
   object(source, ['version', 'seq', 'type', ...keys[type]!])
@@ -269,6 +281,16 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
         JSON.stringify(identity) !== JSON.stringify(count === 1 ? runIdentity(live[0]!) : null)) throw new Error('lead-journal-match-count')
       event = { type, id: identifier(source.id), identity, count, evidence: source.evidence as string }; break
     }
+    case 'context-compaction-started': event = { type, id: identifier(source.id), at: integer(source.at), trigger: choice(source.trigger, ['soft', 'hard', 'manual', 'overflow']) }; break
+    case 'context-compaction-failed':
+      if (typeof source.reason !== 'string' || !/^[a-z-]{1,64}$/.test(source.reason)) throw new Error('lead-journal-record')
+      event = { type, id: identifier(source.id), reason: source.reason }; break
+    case 'context-compaction-applied': {
+      if (typeof source.fallback !== 'boolean' || integer(source.toSeq) < integer(source.fromSeq)) throw new Error('lead-journal-record')
+      event = { type, id: identifier(source.id), at: integer(source.at), fromSeq: integer(source.fromSeq), toSeq: integer(source.toSeq),
+        beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens), model: identifier(source.model), usdMicros: integer(source.usdMicros), fallback: source.fallback }; break
+    }
+    case 'context-pruned': event = { type, id: identifier(source.id), at: integer(source.at), beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens) }; break
     default: throw new Error('lead-journal-type')
   }
   const record = { version: 1 as const, seq, ...event }
@@ -443,6 +465,23 @@ export class LeadJournal {
       return
     }
     return this.#append({ type: 'wake', wake: parsed })
+  }) }
+  /** Host only. The conversation the model reads is compacted in the host's context store, fenced by these records. */
+  contextCompactionStarted(id: string, at: number, trigger: LeadCompactionTrigger): Promise<void> { return this.#queue(async () => {
+    if (this.#state.context.pending) throw new Error('lead-context-pending')
+    return this.#append({ type: 'context-compaction-started', id, at, trigger })
+  }) }
+  contextCompactionFailed(id: string, reason: string): Promise<void> { return this.#queue(async () => {
+    if (this.#state.context.pending?.id !== id) throw new Error('lead-context-pending')
+    return this.#append({ type: 'context-compaction-failed', id, reason })
+  }) }
+  contextCompactionApplied(applied: Omit<Extract<LeadJournalEvent, { type: 'context-compaction-applied' }>, 'type'>): Promise<void> { return this.#queue(async () => {
+    if (this.#state.context.pending?.id !== applied.id) throw new Error('lead-context-pending')
+    return this.#append({ type: 'context-compaction-applied', ...applied })
+  }) }
+  contextPruned(pruned: Omit<Extract<LeadJournalEvent, { type: 'context-pruned' }>, 'type'>): Promise<void> { return this.#queue(async () => {
+    if (this.#state.context.pending?.id !== pruned.id) throw new Error('lead-context-pending')
+    return this.#append({ type: 'context-pruned', ...pruned })
   }) }
   settingsChanged(name?: LeadName, follow?: LeadFollowPreferences): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }), ...(follow === undefined ? {} : { follow }) })) }
   publication(operation: LeadPublicationOperation, pr: LeadPullRequest | null = null): Promise<void> { return this.#queue(() => this.#append({ type: 'publication', operation, pr })) }

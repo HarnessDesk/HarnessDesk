@@ -53,6 +53,9 @@ export interface LeadServiceOptions {
   readonly readMemory?: () => Promise<readonly string[]>
   /** Lines a reply offered to keep; they wait for the person's Keep. */
   readonly onRemember?: (lines: readonly string[]) => void
+  /** The host's stored conversation: what each step adds, and the conversation again after a compaction. */
+  readonly recordContext?: LeadSupervisorOptions['recordContext']
+  readonly readContext?: LeadSupervisorOptions['readContext']
 }
 /** The host owns this lifecycle and its only journal writer. This service never
  * stores a plaintext key: resolution is transient and host-only.
@@ -253,6 +256,8 @@ export class LeadService {
           context: { ...resolved.context, desk, project: options.project, projectPolicy: this.#policy } }
       },
       freezePlan: options.freezePlan, readEvidence: options.readEvidence,
+      ...(options.recordContext ? { recordContext: async record => { this.#assertOpen(); await options.recordContext!(record) } } : {}),
+      ...(options.readContext ? { readContext: async epoch => { this.#assertOpen(); return options.readContext!(epoch) } } : {}),
       onStarted: () => { this.#endLive = options.childStarted() },
       onExit: reason => this.#exited(reason),
     })

@@ -28,6 +28,7 @@ import { LeadWorkLedger, wakeForLeadWork } from './lead/work.js'
 import { teamLeadStage } from './work-stage.js'
 import { loadLeadProjectPolicy } from './lead/project-policy.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
+import type { LeadContextStore } from './lead/context-store.js'
 import { phoneLinkOff } from './phone-link.js'
 import { PhoneWorkspace } from './phone-workspace.js'
 import { PhoneWork, phoneSessionValues } from './phone-work.js'
@@ -170,7 +171,7 @@ import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { leadContractDigest, readLeadEvidence, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
 import type { LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
@@ -3815,7 +3816,9 @@ export class Host {
 
   /** One host-owned supervisor, enabled explicitly by the authenticated Lead
    * service owner in the next slice step. Construction itself never spawns. */
-  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'> & { readonly recovery?: { readonly now: () => number; readonly schedule: (run: () => void, delay: number) => () => void } }): LeadService {
+  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'> & { readonly recovery?: { readonly now: () => number; readonly schedule: (run: () => void, delay: number) => () => void }
+    /** The stored conversation (the context engine); absent, each request is rebuilt from the thread's words. */
+    readonly context?: LeadContextStore }): LeadService {
     if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
     if (this.#disposed) throw new Error('lead-host-closed')
     if (!this.#leadListenersAvailable) throw new Error('lead-listener-unavailable')
@@ -4097,7 +4100,12 @@ export class Host {
       return operation
     }
     let leadPresence: LeadPresence | null = null
-    this.#leadService = new LeadService({ ...options,
+    const { context: leadContext, ...serviceOptions } = options
+    this.#leadService = new LeadService({ ...serviceOptions,
+      ...(leadContext ? {
+        recordContext: async (record: LeadContextRecordInput) => { await leadContext.record(record); this.#leadControls?.contextChanged() },
+        readContext: (epoch: number) => leadContext.read(epoch),
+      } : {}),
       onManagementStopped: reason => {
         if (reason === 'lead-host-shutdown') void this.#leadChats?.close()
         else if (reason === 'lead-disabled' || reason === 'lead-request-cancelled') this.#leadChats?.incidents?.cancel()
@@ -4289,6 +4297,7 @@ export class Host {
       reclaimBranch: (card, decision) => follow.reclaim(card, decision),
       readPersonActions: () => personActions.read(),
       readPresence: () => leadPresence,
+      ...(leadContext ? { context: leadContext } : {}),
       // The goal's latest run owns a board; a seat on it that is mid-turn takes the words without a restart.
       steerWorker: async text => {
         const board = journal.state.runs.at(-1)?.teamId
@@ -5662,6 +5671,8 @@ export class Host {
       leadScheduleUpdate: async params => this.#leadRepeats ? this.#leadRepeats.write(params.schedule) : this.#leadPlanner().writeSchedule(params.schedule),
       leadMemoryRead: async () => this.#leadPlanner().readMemory(),
       leadMemoryUpdate: async params => this.#leadPlanner().writeMemory(params.memory),
+      leadContextRead: async () => (await this.#leadWindow()).readContext(),
+      leadContextCompact: async () => (await this.#leadWindow()).compactContext(),
       leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,
       authoring: this.#authoring,

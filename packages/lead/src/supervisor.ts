@@ -10,7 +10,9 @@ import { LeadBudgetAdmissionRefused } from './budget.js'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadResolvedTool } from './tools.js'
 import type { LeadAcceptanceEvidence } from './acceptance.js'
-import type { LeadMessagesRequest, LeadMessagesResult, MessagesPrice, MessagesHttpResponse } from './messages-types.js'
+import type { LeadMessagesRequest, LeadMessagesResult, MessagesPrice, MessagesHttpResponse, MessagesText, MessagesTurn } from './messages-types.js'
+import { parseLeadContextTurns } from './messages.js'
+import type { LeadContextRecordInput } from './loop.js'
 import { LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadRpcOperation } from './child-ipc.js'
 
 export type { LeadChildBootstrap } from './child-ipc.js'
@@ -154,6 +156,9 @@ export interface LeadSupervisorOptions {
   readonly resolveTool: (call: LeadPermissionCall) => Promise<LeadResolvedTool>
   readonly freezePlan: (contract: LeadAcceptanceContract) => Promise<LeadAcceptanceContract>
   readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence>
+  /** The host's stored conversation (the context engine). Absent, the child keeps history in memory only. */
+  readonly recordContext?: (record: LeadContextRecordInput) => Promise<void>
+  readonly readContext?: (epoch: number) => Promise<{ readonly epoch: number; readonly messages: readonly MessagesTurn[] } | null>
   readonly admitCardOffer?: (card: LeadCard) => void
   readonly admitBudgetEvent?: (event: LeadBudgetEvent) => void
   readonly committedBudgetEvent?: (event: LeadBudgetEvent) => void
@@ -195,6 +200,7 @@ interface Running {
   markReady(): void
 }
 const error = (code: string) => new Error(`lead-child-${code}`)
+const ipcEpoch = (value: unknown): number => { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw error('protocol'); return value }
 const callFrom = (value: unknown): LeadPermissionCall => {
   const source = ipcObject(value, ['method', 'params'])
   const parsed = parseClientMessage({ id: 1, method: source.method, params: source.params })
@@ -385,7 +391,8 @@ export class LeadSupervisor {
     }
     try {
       const arity = { recordWake: 1, execute: 1, updateBudget: 1, setManagementPhase: 2, invalidateResults: 0, offerCard: 1,
-        restoreResult: 2, recoverUnsettledRequests: 0, appendReply: 1, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 2 }[operation]
+        restoreResult: 2, recoverUnsettledRequests: 0, appendReply: 1, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 2,
+        recordContext: 1, readContext: 1 }[operation]
       if (args.length !== arity && !(operation === 'appendReply' && (args.length === 2 || args.length === 3))) throw error('protocol')
       let value: unknown = null
       switch (operation) {
@@ -465,6 +472,20 @@ export class LeadSupervisor {
         case 'freezePlan': value = await this.options.freezePlan(parseLeadAcceptanceContract(args[0])); break
         case 'readEvidence': value = await this.options.readEvidence(ipcText(args[0], 256), call =>
           this.#reverse(running, { type: 'read', call })); break
+        case 'recordContext': {
+          // The child's words are parsed again here: provider-shaped, text blocks only to extend, and no reasoning.
+          const input = ipcObject(args[0], ['epoch', 'base', 'extend', 'turns', 'usage'])
+          const epoch = ipcEpoch(input.epoch), base = ipcEpoch(input.base)
+          if (!Array.isArray(input.extend) || input.extend.length > 64 || input.extend.some(block => !block || typeof block !== 'object' || (block as { type?: unknown }).type !== 'text')) throw error('protocol')
+          const extend = (parseLeadContextTurns([{ role: 'user', content: input.extend.length ? input.extend : [{ type: 'text', text: '-' }] }]).turns[0]!.content as MessagesText[]).slice(0, input.extend.length)
+          const { turns } = parseLeadContextTurns(input.turns)
+          if (turns.some(turn => turn.content.some(block => block.type === 'thinking' || block.type === 'redacted_thinking'))) throw error('protocol')
+          const usage = input.usage === null ? null : ipcObject(input.usage, ['input', 'cacheRead', 'cacheWrite'])
+          const count = (value: unknown) => { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw error('protocol'); return value }
+          await this.options.recordContext?.({ epoch, base, extend, turns, usage: usage ? { input: count(usage.input), cacheRead: count(usage.cacheRead), cacheWrite: count(usage.cacheWrite) } : null })
+          break
+        }
+        case 'readContext': value = await this.options.readContext?.(ipcEpoch(args[0])) ?? null; break
       }
       if (!running.exited) write(running, { type: 'reply', id, ok: true, value: value ?? null, state: journal.state })
     } catch (failure) {

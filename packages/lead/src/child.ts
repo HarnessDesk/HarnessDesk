@@ -15,6 +15,7 @@ import { leadBudgetProjection } from './budget.js'
 import { parseLeadSeatChoices } from './instructions.js'
 import { createLeadTools, type LeadResolvedTool } from './tools.js'
 import type { LeadMessagesRequest, MessagesTransport } from './messages-types.js'
+import { parseLeadContextTurns } from './messages.js'
 import { LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
 
 const denied = () => new Error('lead-child-operation-failed')
@@ -170,7 +171,16 @@ export const runLeadChild = (options: ChildOptions = {}) => {
               const timer = setTimeout(done, ms); signal.addEventListener('abort', aborted, { once: true })
             }) },
           resolveTool, freezePlan: async contract => await rpc('freezePlan', [contract]) as typeof contract,
-          readEvidence: async runId => await rpc('readEvidence', [runId]) as LeadAcceptanceEvidence })
+          readEvidence: async runId => await rpc('readEvidence', [runId]) as LeadAcceptanceEvidence,
+          // The host parses what it reads back; what it sends here is parsed again before a request carries it.
+          context: { record: async record => { await rpc('recordContext', [record]) },
+            read: async epoch => {
+              const value = await rpc('readContext', [epoch])
+              if (value === null) return null
+              const fresh = ipcObject(value, ['epoch', 'messages'])
+              if (typeof fresh.epoch !== 'number' || !Number.isSafeInteger(fresh.epoch) || fresh.epoch < 0) throw denied()
+              return { epoch: fresh.epoch, messages: parseLeadContextTurns(fresh.messages).turns }
+            } } })
         // A run that goes quiet sends no event; a minute's tick lets the gate call it stuck. It costs no request unless it is.
         setInterval(() => { if (!closed) loop?.poke() }, 60_000).unref()
         send({ type: 'ready' }); void loop.start().catch(fail); return
@@ -222,7 +232,18 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         if (!loop || (message.id as number) <= requestId) throw denied()
         requestId = message.id as number
         const input = ipcObject(message.input)
-        ipcObject(input, ['messages', 'maxTokens', ...(['system', 'proactive', 'conversation', 'wakeSource'] as const).filter(key => Object.hasOwn(input, key))])
+        ipcObject(input, ['messages', 'maxTokens', ...(['system', 'proactive', 'conversation', 'wakeSource', 'stable', 'compaction', 'epoch', 'base'] as const).filter(key => Object.hasOwn(input, key))])
+        if (input.compaction !== undefined && input.compaction !== true) throw denied()
+        if (input.epoch !== undefined && (typeof input.epoch !== 'number' || !Number.isSafeInteger(input.epoch) || input.epoch < 0)) throw denied()
+        for (const key of ['stable', 'base'] as const) if (input[key] !== undefined) {
+          const mark = ipcObject(input[key], ['turns', 'blocks'])
+          if (![mark.turns, mark.blocks].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 1)) throw denied()
+        }
+        if (input.compaction) {
+          const result = await loop.compact(message.input as unknown as LeadMessagesRequest)
+          send({ type: 'response', id: message.id, result })
+          return
+        }
         if (input.wakeSource !== undefined && !['schedule', 'desk-change', 'person', 'trigger'].includes(String(input.wakeSource))) throw denied()
         if (input.proactive !== undefined && typeof input.proactive !== 'boolean') throw denied()
         if (input.conversation !== undefined && typeof input.conversation !== 'boolean') throw denied()

@@ -3,6 +3,8 @@ import { leadToolDefinitions, parseLeadToolCall, LeadToolFencedError, LeadToolRe
 import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
   type LeadAsk, type LeadProactive, parseLeadAsk, parseLeadProactiveOutput, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
 import type { LeadPermissionCall } from './permissions.js'
+import { LEAD_CONTEXT } from './context.js'
+import { LEAD_CHECKPOINT_OPEN } from './compaction.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
   MessagesRedactedThinking, MessagesText, MessagesThinking, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
 
@@ -113,10 +115,11 @@ const blocks = (value: unknown, provider = false): Block[] => {
   if (new Set(ids).size !== ids.length) return fail()
   return result
 }
-/** A continuation may never contain orphan, reordered, duplicate or unanswered results. */
-const history = (value: unknown): MessagesTurn[] => {
-  if (!Array.isArray(value) || value.length === 0 || value.length > LIMIT.turns - 2) return fail()
-  let pending: string[] = []
+/** Turns as a fragment: a continuation of a conversation whose last assistant turn left `pending` tool uses open.
+ * No orphan, reordered, duplicate or unanswered result is admitted; what is still open at the end is returned. */
+const fragment = (value: unknown, open: readonly string[] = []): { turns: MessagesTurn[]; pending: string[] } => {
+  if (!Array.isArray(value) || value.length > LIMIT.turns) return fail()
+  let pending: string[] = [...open]
   const result: MessagesTurn[] = []
   for (const item of value) {
     const source = object(item, ['role', 'content'])
@@ -145,9 +148,46 @@ const history = (value: unknown): MessagesTurn[] => {
       result.push({ role: 'user', content })
     }
   }
+  return { turns: result, pending }
+}
+/** A continuation may never contain orphan, reordered, duplicate or unanswered results. */
+const history = (value: unknown): MessagesTurn[] => {
+  if (!Array.isArray(value) || value.length === 0 || value.length > LIMIT.turns - 2) return fail()
+  const { turns: result, pending } = fragment(value)
   if (pending.length || result[0]!.role !== 'user' || result.at(-1)!.role !== 'user') fail()
   return result
 }
+/** Stored context turns the child reports, checked as this client checks a continuation: a fragment that may follow
+ * a stored assistant turn whose tool uses are `open`. Throws on anything else. */
+export const parseLeadContextTurns = (value: unknown, open: readonly string[] = []): { readonly turns: MessagesTurn[]; readonly pending: string[] } => {
+  json(value)
+  return fragment(value, open)
+}
+/** The provider's cache mark, the one field a request block may carry beyond its type's own. */
+const CACHE_MARK = Object.freeze({ type: 'ephemeral' as const })
+/**
+ * Cache marks, at most `LEAD_CONTEXT.breakpoints` (a provider honours four): the end of the instructions, the end of a
+ * checkpoint turn that opens the conversation, and the last stable block of the history (rolling forward as it grows).
+ * Desk context of the moment always comes after the last mark, so it never enters the cached prefix. A mark never
+ * sits on reasoning, which a provider does not cache on its own.
+ */
+const withCacheMarks = (messages: readonly MessagesTurn[], stable: { readonly turns: number; readonly blocks: number } | undefined): unknown[] => {
+  const marks = new Set<string>()
+  const mark = (turn: number, upto: number) => {
+    const content = messages[turn]?.content
+    if (!content) return
+    for (let index = Math.min(upto, content.length - 1); index >= 0; index--) {
+      const type = content[index]!.type
+      if (type !== 'thinking' && type !== 'redacted_thinking') { marks.add(`${turn}:${index}`); return }
+    }
+  }
+  const first = messages[0]?.content[0]
+  if (messages[0]?.role === 'user' && first?.type === 'text' && first.text.startsWith(LEAD_CHECKPOINT_OPEN)) mark(0, messages[0].content.length - 1)
+  if (stable && stable.turns > 0 && stable.blocks > 0 && stable.turns <= messages.length) mark(stable.turns - 1, stable.blocks - 1)
+  return messages.map((turn, index) => ({ role: turn.role, content: turn.content.map((block, position) =>
+    marks.has(`${index}:${position}`) ? { ...block, cache_control: CACHE_MARK } : block) }))
+}
+const systemBlocks = (system: string) => [{ type: 'text' as const, text: system, cache_control: CACHE_MARK }]
 /** The most turns of the person's readable conversation one request carries. The request admits LIMIT.turns - 2;
  * the rest is room for the host's own closing turns and for a tool loop's continuations within the request. */
 export const LEAD_HISTORY_TURNS = 128
@@ -208,9 +248,41 @@ export const parseLeadMessagesBody = (body: string) => {
     source.stream !== false || !same(source.tools, leadToolDefinitions)) fail()
   const maxTokens = integer(source.max_tokens, Number.MAX_SAFE_INTEGER)
   if (maxTokens === 0) fail()
+  // A block may carry the provider's cache mark and nothing else beyond its own fields; at most four in all.
+  let marks = 0
+  const unmark = (value: unknown): unknown => {
+    const entry = object(value)
+    if (!Object.hasOwn(entry, 'cache_control')) return entry
+    if (!same(entry.cache_control, CACHE_MARK) || ++marks > LEAD_CONTEXT.breakpoints) return fail()
+    const { cache_control: _mark, ...rest } = entry
+    return rest
+  }
+  const marked = new Set<string>()
+  if (!Array.isArray(source.messages)) fail()
+  const plain = (source.messages as unknown[]).map((turn, index) => {
+    const entry = object(turn)
+    if (!Array.isArray(entry.content)) return entry
+    return { ...entry, content: entry.content.map((block: unknown, position: number) => {
+      const bare = unmark(block)
+      if (bare !== block) marked.add(`${index}:${position}`)
+      return bare
+    }) }
+  })
+  let system: string | undefined
+  if (Object.hasOwn(source, 'system')) {
+    if (typeof source.system === 'string') system = string(source.system)
+    else {
+      if (!Array.isArray(source.system) || source.system.length !== 1) fail()
+      const only = object(unmark((source.system as unknown[])[0]), ['type', 'text'])
+      if (only.type !== 'text') fail()
+      system = string(only.text, LIMIT.bytes)
+    }
+  }
+  const messages = history(plain).map((turn, index) => ({ role: turn.role, content: turn.content.map((block, position) =>
+    marked.has(`${index}:${position}`) ? { ...block, cache_control: CACHE_MARK } : block) }))
   return { model: string(source.model, 128), max_tokens: maxTokens, stream: false as const,
-    messages: history(source.messages), tools: leadToolDefinitions,
-    ...(Object.hasOwn(source, 'system') ? { system: string(source.system) } : {}) }
+    messages, tools: leadToolDefinitions,
+    ...(system === undefined ? {} : { system: Array.isArray(source.system) ? systemBlocks(system) : system }) }
 }
 const usage = (value: unknown): MessagesUsage => {
   const source = object(value)
@@ -284,16 +356,20 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
   }
   return { async request(input, signal): Promise<LeadMessagesResult> {
     if (signal.aborted) return { status: 'cancelled' }
-    let requestId: string, body: string, messages: MessagesTurn[], maxTokens: number
+    let requestId: string, body: string, messages: MessagesTurn[], maxTokens: number, compaction = false
     try {
       const captured = JSON.parse(safeJson(input)) as unknown
-      const source = object(captured, ['messages', 'system', 'maxTokens', 'proactive', 'conversation', 'wakeSource'])
+      const source = object(captured, ['messages', 'system', 'maxTokens', 'proactive', 'conversation', 'wakeSource', 'stable', 'compaction'])
       if (source.conversation !== undefined && typeof source.conversation !== 'boolean') fail()
+      if (source.compaction !== undefined && source.compaction !== true) fail()
+      compaction = source.compaction === true
       messages = history(source.messages)
+      const stable = source.stable === undefined ? undefined : object(source.stable, ['turns', 'blocks'])
+      const mark = stable && { turns: integer(stable.turns, LIMIT.turns), blocks: integer(stable.blocks, LIMIT.blocks) }
       maxTokens = integer(source.maxTokens, LIMIT.maxTokens)
       if (maxTokens === 0) fail()
-      body = safeJson({ model, max_tokens: maxTokens, stream: false, messages, tools: leadToolDefinitions,
-        ...(source.system === undefined ? {} : { system: string(source.system) }) })
+      body = safeJson({ model, max_tokens: maxTokens, stream: false, messages: withCacheMarks(messages, mark), tools: leadToolDefinitions,
+        ...(source.system === undefined ? {} : { system: systemBlocks(string(source.system, LIMIT.bytes)) }) })
       const inputTokens = integer(await cancellable(() => countInput(body, signal), signal))
       requestId = string(nextId(), 100)
       if (!/^[A-Za-z0-9._:/-]{1,100}$/.test(requestId) || requestId.includes(apiKey)) fail()
@@ -341,7 +417,8 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       // Naming its cause lets the owner fix a key instead of losing the goal's budget.
       if (response.status >= 400 && response.status < 500 && response.processing === 'not-started') {
         try { await zero() } catch { return uncertain() }
-        return { status: 'failed', reason: response.status === 401 || response.status === 403 ? 'lead-messages-auth' : 'lead-messages-request' }
+        return { status: 'failed', reason: response.status === 401 || response.status === 403 ? 'lead-messages-auth'
+          : response.status === 400 && typeof response.body === 'string' && /prompt is too long|too many tokens|context (?:length|window)/i.test(response.body.slice(0, 4096)) ? 'lead-messages-too-long' : 'lead-messages-request' }
       }
       // No other status or transport rejection proves a zero charge.
       if (response.status !== 200) return uncertain()
@@ -371,6 +448,10 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       // Scans the decoded text as well, so an escaped key cannot hide in JSON-shaped prose.
       safeJson(output)
     } catch { return { status: 'invalid-response', reason: 'lead-messages-output', usage: used } }
+    // A checkpoint is words only. A tool call there is never dispatched and the answer is refused.
+    if (compaction) return content.some(item => item.type === 'tool_use') || parsed.stop_reason === 'max_tokens'
+      ? { status: 'invalid-response', reason: 'lead-messages-checkpoint', usage: used }
+      : { status: 'completed', usage: used, text: content.filter(item => item.type === 'text').map(item => item.text).join('\n') }
     const uses = content.flatMap((use, index) => use.type === 'tool_use' ? [{ use, index }] : [])
     const results: MessagesToolResult[] = uses.map(({ use }) => ({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: TOOL_ERROR.refused }))
     const continuation: MessagesTurn[] = [...messages, { role: 'assistant', content }, ...(results.length ? [{ role: 'user' as const, content: results }] : [])]

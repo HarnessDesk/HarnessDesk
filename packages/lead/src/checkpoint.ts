@@ -1,7 +1,7 @@
 import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, LEAD_APPROVAL_HISTORY_BYTES, LEAD_LIMITS, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import { parseLeadDecisionMessage, parseLeadWakeLog, parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy, parseLeadCaps } from '@harnessdesk/protocol'
 import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
-import { LEAD_ACCEPTED_TEAMS, initialLeadState, removedWorkerApprovalNotice, retireLeadWorkerApprovals, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
+import { LEAD_ACCEPTED_TEAMS, initialLeadState, initialLeadContext, removedWorkerApprovalNotice, retireLeadWorkerApprovals, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
 
 export interface LeadJournalCheckpoint {
@@ -31,8 +31,15 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const positioned = repairSource && !Object.hasOwn(repairSource, 'cardPositions')
     ? { ...repairSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : repairSource
   // Checkpoints before accepted Teams were kept across goals carry none.
-  const source = positioned && { ...positioned, acceptedTeams: Object.hasOwn(positioned, 'acceptedTeams') ? positioned.acceptedTeams : [] }
+  const accepted = positioned && { ...positioned, acceptedTeams: Object.hasOwn(positioned, 'acceptedTeams') ? positioned.acceptedTeams : [] }
+  // Checkpoints before the context engine carry no epoch: the stored conversation starts at the first.
+  const source = accepted && { ...accepted, context: Object.hasOwn(accepted, 'context') ? accepted.context : initialLeadContext() }
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
+  const context = source.context
+  assert(context && typeof context === 'object' && Object.keys(context).sort().join() === 'epoch,failures,last,pending' &&
+    Number.isSafeInteger(context.epoch) && context.epoch >= 0 && Number.isSafeInteger(context.failures) && context.failures >= 0 &&
+    (context.pending === null || typeof context.pending === 'object' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(context.pending.id) && ['soft', 'hard', 'manual', 'overflow'].includes(context.pending.trigger)) &&
+    (context.last === null || typeof context.last === 'object' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(context.last.id)))
   assert(Number.isSafeInteger(source.decisionRevision) && source.decisionRevision >= 0 && source.decisionRevision <= source.seq)
   assert(Number.isSafeInteger(source.goalStartedSeq) && source.goalStartedSeq >= 0 && source.goalStartedSeq <= source.seq)
   const effects = source.chatEffectsSinceReply

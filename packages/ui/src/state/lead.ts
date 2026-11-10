@@ -197,5 +197,9 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     async readMemory() { check(); return transport.request('lead/memory/read', {}) },
     async updateMemory(memory: LeadMemory) { check(); return transport.request('lead/memory/update', { memory }) },
     async resume() { checkRead(); const before = state, result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result, before); return result },
+    /** How full the conversation is, the cache's share and the checkpoints kept: facts, read when shown. */
+    async readContext() { check(); return transport.request('lead/context/read', {}) },
+    /** The person's "Summarise now". Refused while the Lead is answering. */
+    async compactContext() { check(); return transport.request('lead/context/compact', {}) },
   }
 }

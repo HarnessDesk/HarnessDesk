@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { CLIENT_METHODS, LEAD_LIMITS, knownMethods, parseClientMessage } from '../src/index.js'
 
-const names = ['lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/approval/revoke', 'lead/repeat/control', 'lead/budget/raise', 'lead/spendLimit/set', 'lead/wakes/read', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/schedule/read', 'lead/schedule/update']
+const names = ['lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/approval/revoke', 'lead/repeat/control', 'lead/budget/raise', 'lead/spendLimit/set', 'lead/wakes/read', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/schedule/read', 'lead/schedule/update', 'lead/context/read', 'lead/context/compact']
 const chatNames = ['lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
@@ -138,4 +138,28 @@ test('the work ledger methods take bounded shapes: notes never carry a stage, an
     ['lead/chat/start', { text: 'Fix the docs', ledgerItem: 'anything' }],
   ]
   for (const [method, params] of bad) assert.throws(() => request(method, params), { name: 'ValidationError' }, `${method} ${JSON.stringify(params)}`)
+})
+
+test('the context methods take nothing, and a checkpoint marker rides only on a host notice', async () => {
+  const { parseLeadMessage, parseLeadContextFacts, parseLeadWakeRecord } = await import('../src/index.js')
+  for (const name of ['lead/context/read', 'lead/context/compact']) {
+    assert.doesNotThrow(() => request(name, {}))
+    assert.throws(() => request(name, { id: 'x' }), { name: 'ValidationError' })
+  }
+  const notice = { version: 1, id: 'context-checkpoint-c1', revision: 4, role: 'notice', text: 'Earlier conversation summarised', checkpoint: { id: 'c1' } }
+  assert.deepEqual(parseLeadMessage(notice).checkpoint, { id: 'c1' })
+  assert.deepEqual(parseLeadMessage({ ...notice, checkpoint: { id: 'c1', fallback: true } }).checkpoint, { id: 'c1', fallback: true })
+  assert.equal(Object.hasOwn(parseLeadMessage({ ...notice, checkpoint: undefined }), 'checkpoint'), false)
+  assert.throws(() => parseLeadMessage({ ...notice, role: 'assistant' }))
+  assert.throws(() => parseLeadMessage({ ...notice, checkpoint: { id: 'c1', fallback: false } }))
+  assert.throws(() => parseLeadMessage({ ...notice, checkpoint: { id: 'c1', text: 'smuggled' } }))
+  const wake = { id: 'w', at: 1, source: 'person', decision: 'spoke', modelTurn: true, usdMicros: 3 }
+  assert.equal(Object.hasOwn(parseLeadWakeRecord(wake), 'tokens'), false)
+  assert.deepEqual(parseLeadWakeRecord({ ...wake, tokens: { input: 10, output: 5, cacheRead: 900, cacheWrite: 90 } }).tokens, { input: 10, output: 5, cacheRead: 900, cacheWrite: 90 })
+  assert.throws(() => parseLeadWakeRecord({ ...wake, tokens: { input: -1, output: 0, cacheRead: 0, cacheWrite: 0 } }))
+  const facts = { version: 1, windowTokens: 200_000, usedTokens: 50_000, cacheHitRate: 0.8, compacting: false,
+    checkpoints: [{ id: 'c1', at: 5, fallback: false, beforeTokens: 170_000, afterTokens: 30_000, text: 'What the person wants' }] }
+  assert.deepEqual(parseLeadContextFacts(facts), facts)
+  assert.throws(() => parseLeadContextFacts({ ...facts, cacheHitRate: 1.5 }))
+  assert.throws(() => parseLeadContextFacts({ ...facts, checkpoints: Array.from({ length: 9 }, (_, i) => ({ ...facts.checkpoints[0], id: `c${i}` })) }))
 })

@@ -328,7 +328,7 @@ test('plans are frozen by a trusted port before a card, and the API brain receiv
   assert.equal(frozen, 1)
   const card = s.journal.state.cards.find(c => c.type === 'plan')!
   assert.equal(card.contractDigest, 'b'.repeat(64))
-  assert.ok(JSON.parse(s.fake.requests[0].body).system.includes((lead as any).leadReviewedResultSource))
+  assert.ok(JSON.parse(s.fake.requests[0].body).system[0].text.includes((lead as any).leadReviewedResultSource))
   await loop.close()
 })
 
@@ -1325,7 +1325,8 @@ for (const terminalReason of ['lead-predecessor-unavailable', 'lead-predecessor-
 // The system text is built once for a goal, from the loop's project and the journal's policy and caps.
 const crew = { implement: [{ runtime: 'acme-writer', model: 'acme/writer-1' }, { runtime: 'acme-writer', model: 'acme/writer-2', thinking: true }],
   review: [{ runtime: 'acme-reviewer', model: 'acme/reviewer-1', effort: 'high' }, { runtime: 'acme-reviewer', model: 'acme/reviewer-2' }] }
-const systemOf = (request: any): string => JSON.parse(request.body).system
+/** The standing instructions arrive as one text block carrying the cache mark that ends them. */
+const systemOf = (request: any): string => JSON.parse(request.body).system[0].text
 const exampleLine = (system: string) => system.split('\n').find(line => line.startsWith('{"version":1,"type":"lead-output"'))
 const exampleOf = (system: string): any => JSON.parse(exampleLine(system)!)
 

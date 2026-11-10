@@ -84,9 +84,22 @@ export interface LeadState {
    * `runs`; these stay so the person can still wrap them. Wrapping is the desk's; this is only who owns what.
    */
   readonly acceptedTeams: readonly LeadAcceptedTeam[]
+  /** The stored conversation's epoch and its compaction state. The conversation itself lives in the host's context
+   * store; this is the fence that says which version of it is current. Carried across goals. */
+  readonly context: LeadContextState
 }
+export interface LeadContextState {
+  /** Bumped by every applied compaction or prune: the child reads the stored conversation again at a new epoch. */
+  readonly epoch: number
+  /** Model attempts that failed since the last applied checkpoint; at `LEAD_CONTEXT.breaker` the desk writes it itself. */
+  readonly failures: number
+  readonly pending: { readonly id: string; readonly at: number; readonly trigger: import('./journal.js').LeadCompactionTrigger } | null
+  readonly last: Omit<Extract<import('./journal.js').LeadJournalEvent, { type: 'context-compaction-applied' }>, 'type'> | null
+}
+export const initialLeadContext = (): LeadContextState => ({ epoch: 0, failures: 0, pending: null, last: null })
+export const LEAD_CHECKPOINT_NOTICE = 'Earlier conversation summarised'
 export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 }, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, spendLimit: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
-  cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [], acceptedTeams: [] })
+  cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [], acceptedTeams: [], context: initialLeadContext() })
 /** A figure the Lead drafted, before the person sees it: Off drafts at the portable ceiling (which still trips the
  * overflow stop) so the card never shows a cap the person turned off; a set limit caps it. Rounds are untouched. */
 export const leadDraftCaps = (limit: LeadState['spendLimit'], caps: LeadCaps): LeadCaps => limit === null ? caps
@@ -402,10 +415,31 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const acceptedTeams = state.phase === 'accepted' ? [...state.acceptedTeams, ...leadGoalTeams(state)] : state.acceptedTeams
       state = { ...initialLeadState(), acceptedTeams: acceptedTeams.filter((one, index) => acceptedTeams.findLastIndex(other => other.team === one.team) === index).slice(-LEAD_ACCEPTED_TEAMS),
         seq: event.seq, goalStartedSeq: event.seq, name: state.name, nameChosen: state.nameChosen, wakes: state.wakes, follow: state.follow, policy: state.policy, spendLimit: state.spendLimit, budget,
-        completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends,
+        completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends, context: state.context,
         decisionMessages }
       break
     }
+    case 'context-compaction-started': state = { ...state, context: { ...state.context, pending: { id: event.id, at: event.at, trigger: event.trigger } } }; break
+    case 'context-compaction-failed':
+      ensure(state.context.pending?.id === event.id)
+      state = { ...state, context: event.reason === 'interrupted' ? { ...state.context, pending: null } : { ...state.context, failures: state.context.failures + 1 } }
+      break
+    case 'context-compaction-applied': {
+      ensure(state.context.pending?.id === event.id)
+      const { type: _type, version: _version, seq: _seq, ...last } = event
+      const notice: LeadMessage = { version: 1, id: `context-checkpoint-${event.id}`, revision: event.seq, role: 'notice', text: LEAD_CHECKPOINT_NOTICE,
+        checkpoint: { id: event.id, ...(event.fallback ? { fallback: true as const } : {}) } }
+      const all = [...state.messages, notice], excess = Math.max(0, all.length - 256)
+      state = { ...state, messages: all.slice(excess), olderMessages: state.olderMessages + excess,
+        // A checkpoint the desk wrote itself leaves the failure count standing: the next compaction tries the model
+        // once, not three times, until one it writes is accepted (a half-open breaker).
+        context: { epoch: state.context.epoch + 1, failures: event.fallback ? state.context.failures : 0, pending: null, last } }
+      break
+    }
+    case 'context-pruned':
+      ensure(state.context.pending?.id === event.id)
+      state = { ...state, context: { ...state.context, epoch: state.context.epoch + 1, pending: null } }
+      break
     case 'wake': state = { ...state, wakes: [...state.wakes.filter(wake => wake.id !== event.wake.id), event.wake].sort((a, b) => a.at - b.at).slice(-128) }; break
     case 'settings-changed': state = { ...state, ...(event.name === undefined ? {} : { name: event.name, nameChosen: true }), ...(event.follow === undefined ? {} : { follow: event.follow }) }; break
     case 'publication': {
@@ -863,7 +897,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   // recovery reader and checkpoint uses this one fence. A marked new-writer
   // revoke keeps the wait after removing the intent; legacy renewal may lift it.
   if (event.type !== 'worker-rule-dispatch') state = fenceLeadWorkerDispatch(state)
-  return { ...state, decisionRevision: event.type === 'wake' ? previous.decisionRevision : event.seq }
+  return { ...state, decisionRevision: event.type === 'wake' || event.type.startsWith('context-') ? previous.decisionRevision : event.seq }
 }
 /** Retire authority without discarding evidence, shared with checkpoint migration. */
 export const retireLeadWorkerApprovals = (state: LeadState): LeadState => ({ ...state,

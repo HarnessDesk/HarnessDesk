@@ -1,0 +1,234 @@
+import type { MessagesText, MessagesToolResult, MessagesTurn } from './messages-types.js'
+
+/**
+ * The Lead's context engine, as pure functions: how full the conversation is, what the desk may trim without a
+ * model, which blocks carry a cache mark, and which blocks were desk context of the moment. Files belong to the
+ * host (`packages/server/src/lead/context-store.ts`); the model request belongs to `messages.ts`.
+ */
+export const LEAD_CONTEXT = Object.freeze({
+  /** Compaction runs between turns, when the Lead is idle, once this share of the window is used. */
+  softShare: 0.70,
+  /** And before the next request, whatever else is happening, at this share. */
+  hardShare: 0.85,
+  /** After a checkpoint that still leaves the conversation past the soft line, the next soft run waits this much more. */
+  hysteresis: 0.10,
+  /** The latest tool pairs the pruning stage never touches. */
+  keepToolPairs: 3,
+  /** An older tool result longer than this keeps only its head and tail. */
+  trimAbove: 4096, trimHead: 1536, trimTail: 1024,
+  /** The kept tail: at least this share of the window, and at least this many turns. */
+  tailShare: 0.16, tailTurns: 6,
+  /** The stored conversation never grows past this on disk. */
+  diskBytes: 2 * 1024 * 1024,
+  /** Bytes the desk has not yet seen a provider count for are estimated at this many per token. */
+  bytesPerToken: 3.5,
+  /** History one request carries: half of the request limit, the rest for instructions, tools and closing turns. */
+  requestBytes: 524_288,
+  /** And turns: a request admits 254, the rest are closing turns and a tool loop's continuations. */
+  requestTurns: 200,
+  /** A window the table below does not name. */
+  defaultWindow: 200_000,
+  /** Cache marks the provider honours in one request. */
+  breakpoints: 4,
+  /** Model attempts per compaction (one and two retries), and failures before the desk writes the checkpoint itself. */
+  attempts: 3, breaker: 3,
+  /** A checkpoint the model writes may be at most this long (the request's text limit). */
+  checkpointChars: 16_384,
+  /** Output allowed for the checkpoint request. */
+  checkpointTokens: 4096,
+})
+
+/** Context windows by model. A model this table does not name is held to `LEAD_CONTEXT.defaultWindow`. */
+export const LEAD_CONTEXT_WINDOWS: Readonly<Record<string, number>> = Object.freeze({
+  'claude-sonnet-5-5': 200_000,
+  'claude-haiku-5-5': 200_000,
+  'claude-opus-5-5': 200_000,
+})
+export const leadContextWindow = (model: string): number =>
+  Object.hasOwn(LEAD_CONTEXT_WINDOWS, model) ? LEAD_CONTEXT_WINDOWS[model]! : LEAD_CONTEXT.defaultWindow
+
+/** Bytes of a value as it is sent. */
+export const leadContextBytes = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).byteLength
+export const leadEstimatedTokens = (bytes: number): number => Math.ceil(bytes / LEAD_CONTEXT.bytesPerToken)
+
+export interface LeadContextPressureInput {
+  readonly window: number
+  /** The tokens the last request used as the provider reported them (input + cache read + cache write), plus an
+   * estimate for the bytes added since; or an estimate alone when nothing was measured in this epoch. */
+  readonly tokens: number
+  readonly bytes: number
+  readonly turns: number
+}
+/** The fullest of the three limits a request meets: the model's window, the request's bytes and its turns. */
+export const leadContextPressure = (input: LeadContextPressureInput): number =>
+  Math.max(input.tokens / Math.max(1, input.window), input.bytes / LEAD_CONTEXT.requestBytes, input.turns / LEAD_CONTEXT.requestTurns)
+
+/** The soft line after a checkpoint left the conversation at `after`: back to normal when below it, otherwise raised
+ * so the next idle turn does not summarise again for a few words. Never past the hard line. */
+export const leadNextSoftShare = (after: number): number =>
+  after < LEAD_CONTEXT.softShare ? LEAD_CONTEXT.softShare : Math.min(LEAD_CONTEXT.hardShare, after + LEAD_CONTEXT.hysteresis)
+
+/** The one-line stand-in a desk-context block leaves in stored history. */
+export const LEAD_DESK_STUB_PREFIX = '[Desk context at that time, left out'
+export const leadDeskStub = (text: string): string => {
+  const first = text.split('\n').find(line => line.trim())?.trim() ?? ''
+  return `${LEAD_DESK_STUB_PREFIX}: ${first.length > 100 ? `${first.slice(0, 99)}…` : first}]`
+}
+const isStub = (block: { readonly type: string; readonly text?: string }) => block.type === 'text' && block.text!.startsWith(LEAD_DESK_STUB_PREFIX)
+
+/** Where the stored (stable) part of a request ends: the last stable block is `blocks - 1` of turn `turns - 1`. */
+export interface LeadContextMark { readonly turns: number; readonly blocks: number }
+export const leadContextMarkOf = (messages: readonly MessagesTurn[]): LeadContextMark | undefined =>
+  messages.length ? { turns: messages.length, blocks: messages.at(-1)!.content.length } : undefined
+
+/**
+ * The stored form of a request's turns: every user text block after the stable mark was desk context of that moment
+ * (host closing turns, desk observations, wake notes) and becomes one stub per run of such blocks. Assistant turns
+ * and tool results are kept. Person messages are always inside the stable part, so they are never stubbed.
+ */
+export const leadStubVolatile = (messages: readonly MessagesTurn[], mark: LeadContextMark | undefined): MessagesTurn[] =>
+  messages.map((turn, index) => {
+    if (turn.role !== 'user' || !mark || index < mark.turns - 1) return turn
+    const from = index === mark.turns - 1 ? mark.blocks : 0
+    const content: MessagesTurn['content'][number][] = []
+    let run: string[] = []
+    const flush = () => { if (run.length) content.push({ type: 'text', text: leadDeskStub(run.join('\n')) }); run = [] }
+    turn.content.forEach((block, position) => {
+      if (position >= from && block.type === 'text' && !isStub(block)) run.push(block.text)
+      else { flush(); content.push(block) }
+    })
+    flush()
+    return { role: turn.role, content }
+  })
+
+/** What one step adds to the stored conversation: blocks to add to the last stored turn and the turns after it. */
+export interface LeadContextRecord {
+  readonly extend: readonly MessagesText[]
+  readonly turns: readonly MessagesTurn[]
+}
+/** Reasoning is never stored. A turn made only of reasoning keeps a placeholder so the turn order survives. */
+export const leadWithoutReasoning = (turn: MessagesTurn): MessagesTurn => {
+  if (turn.role !== 'assistant') return turn
+  const content = turn.content.filter(block => block.type !== 'thinking' && block.type !== 'redacted_thinking')
+  return { role: 'assistant', content: content.length ? content : [{ type: 'text', text: '(no words)' }] }
+}
+/** The record a step leaves, from the conversation it ended with (already stubbed) and the stable mark it started from. */
+export const leadContextRecord = (stubbed: readonly MessagesTurn[], mark: LeadContextMark | undefined): LeadContextRecord => {
+  const turns = mark ? mark.turns : 0
+  const last = turns > 0 ? stubbed[turns - 1] : undefined
+  const extend = last && last.role === 'user' ? last.content.slice(mark!.blocks).filter((block): block is MessagesText => block.type === 'text') : []
+  return { extend, turns: stubbed.slice(turns).map(leadWithoutReasoning) }
+}
+
+/** Indexes of the turns a tool pair occupies, newest first: the assistant turn that called and the user turn answering. */
+const toolPairs = (turns: readonly MessagesTurn[]): number[] => {
+  const pairs: number[] = []
+  turns.forEach((turn, index) => { if (turn.role === 'user' && turn.content.some(block => block.type === 'tool_result')) pairs.push(index) })
+  return pairs.reverse()
+}
+const trimmed = (text: string): string => {
+  const bytes = new TextEncoder().encode(text)
+  if (bytes.byteLength <= LEAD_CONTEXT.trimAbove) return text
+  const decoder = new TextDecoder()
+  const head = decoder.decode(bytes.slice(0, LEAD_CONTEXT.trimHead)).replace(/�$/, '')
+  const tail = decoder.decode(bytes.slice(bytes.byteLength - LEAD_CONTEXT.trimTail)).replace(/^�/, '')
+  return `${head}\n[… ${bytes.byteLength - LEAD_CONTEXT.trimHead - LEAD_CONTEXT.trimTail} bytes trimmed by the desk …]\n${tail}`
+}
+/**
+ * The pruning stage, which needs no model: the latest `keepToolPairs` tool pairs stay whole; an older tool result
+ * longer than `trimAbove` keeps its head and tail with a marker between; a desk-context block that was not yet a
+ * stub becomes one. Returns the same array when nothing changed.
+ */
+export const leadPruneContext = (turns: readonly MessagesTurn[]): readonly MessagesTurn[] => {
+  const keep = new Set(toolPairs(turns).slice(0, LEAD_CONTEXT.keepToolPairs))
+  let changed = false
+  const pruned = turns.map((turn, index) => {
+    if (turn.role !== 'user' || keep.has(index)) return turn
+    const content = turn.content.map(block => {
+      if (block.type !== 'tool_result') return block
+      const content = trimmed(block.content)
+      if (content === block.content) return block
+      changed = true
+      return { ...block, content } satisfies MessagesToolResult
+    })
+    return { role: turn.role, content }
+  })
+  return changed ? pruned : turns
+}
+
+/** A tail may begin only where the person or the desk spoke: a user turn that answers no tool call. */
+export const leadContextBoundary = (turns: readonly MessagesTurn[], index: number): boolean =>
+  index > 0 && index < turns.length && turns[index]!.role === 'user' && turns[index]!.content[0]?.type === 'text'
+
+/**
+ * Where the kept tail begins: the latest boundary that keeps at least `tailTurns` turns and at least `tailShare` of
+ * the window. The region before it is what a checkpoint replaces. With no such boundary the latest boundary that
+ * keeps anything is used; null when there is nothing to replace.
+ */
+export const leadContextSplit = (turns: readonly MessagesTurn[], window: number): number | null => {
+  const want = LEAD_CONTEXT.tailShare * window
+  let tokens = 0, fallback: number | null = null
+  for (let index = turns.length - 1; index > 0; index--) {
+    tokens += leadEstimatedTokens(leadContextBytes(turns[index]))
+    if (!leadContextBoundary(turns, index)) continue
+    fallback ??= index
+    if (turns.length - index >= LEAD_CONTEXT.tailTurns && tokens >= want) return index
+  }
+  return fallback
+}
+
+/**
+ * A history whose last assistant turn called tools that are still unanswered by a later assistant turn ends inside a
+ * tool loop. Its reasoning was not stored, so the desk rewrites that loop as words before sending it on.
+ */
+export const leadCloseOpenLoop = (turns: readonly MessagesTurn[]): MessagesTurn[] => {
+  const at = turns.findLastIndex(turn => turn.role === 'assistant')
+  const assistant = turns[at]
+  if (!assistant || !assistant.content.some(block => block.type === 'tool_use')) return [...turns]
+  const names = new Map<string, string>()
+  const said: MessagesTurn = { role: 'assistant', content: assistant.content.map(block => {
+    if (block.type !== 'tool_use') return block
+    names.set(block.id, block.name)
+    const input = JSON.stringify(block.input ?? null)
+    return { type: 'text', text: `[Called ${block.name} with ${input.length > 400 ? `${input.slice(0, 399)}…` : input}]` }
+  }) }
+  const answered = turns.slice(at + 1).map((turn): MessagesTurn => ({ role: turn.role, content: turn.content.map(block => block.type === 'tool_result'
+    ? { type: 'text', text: `[${block.is_error ? 'Error from' : 'Result of'} ${names.get(block.tool_use_id) ?? 'a tool'}: ${block.content.length > 1500 ? `${block.content.slice(0, 1499)}…` : block.content}]` }
+    : block) }))
+  return [...turns.slice(0, at), said, ...answered]
+}
+
+const calledInWords = (name: string, input: unknown): MessagesText => {
+  const text = JSON.stringify(input ?? null)
+  return { type: 'text', text: `[Called ${name} with ${text.length > 400 ? `${text.slice(0, 399)}…` : text}]` }
+}
+const resultInWords = (block: MessagesToolResult, name: string | undefined): MessagesText =>
+  ({ type: 'text', text: `[${block.is_error ? 'Error from' : 'Result of'} ${name ?? 'a tool'}: ${block.content.length > 1500 ? `${block.content.slice(0, 1499)}…` : block.content}]` })
+/**
+ * Every tool call followed by its answer and every answer by its call, as a provider requires. A stored conversation
+ * can hold a call whose answer never arrived (a step cut short), and a compaction can cut between them; either is
+ * rewritten in words. Deterministic, and the same array when nothing needed it, so a request's cached prefix holds.
+ */
+export const leadPairedTurns = (turns: readonly MessagesTurn[]): readonly MessagesTurn[] => {
+  let changed = false
+  const out = [...turns], names = new Map<string, string>()
+  out.forEach((turn, index) => {
+    if (turn.role === 'assistant') {
+      const calls = turn.content.flatMap(block => block.type === 'tool_use' ? [block] : [])
+      if (!calls.length) return
+      const next = out[index + 1]
+      const answered = new Set(next?.role === 'user' ? next.content.flatMap(block => block.type === 'tool_result' ? [block.tool_use_id] : []) : [])
+      if (calls.every(call => answered.has(call.id))) return
+      changed = true
+      out[index] = { role: 'assistant', content: turn.content.map(block => block.type === 'tool_use' ? calledInWords(block.name, block.input) : block) }
+      return
+    }
+    const previous = out[index - 1]
+    const called = new Map(previous?.role === 'assistant' ? previous.content.flatMap(block => block.type === 'tool_use' ? [[block.id, block.name] as const] : []) : [])
+    for (const block of turns[index - 1]?.content ?? []) if (block.type === 'tool_use') names.set(block.id, block.name)
+    if (!turn.content.some(block => block.type === 'tool_result' && !called.has(block.tool_use_id))) return
+    changed = true
+    out[index] = { role: 'user', content: turn.content.map(block => block.type === 'tool_result' && !called.has(block.tool_use_id) ? resultInWords(block, names.get(block.tool_use_id)) : block) }
+  })
+  return changed ? out : turns
+}

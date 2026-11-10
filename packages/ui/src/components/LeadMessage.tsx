@@ -5,6 +5,7 @@ import { itemId, type LeadName } from '@harnessdesk/protocol'
 import { Button, Chip, CodeText, Dialog, Text, LeadAvatar, LeadLineNote, LeadTurn, LeadAskOptions } from '../design'
 import { ItemView } from './Items'
 import { sanitizeText } from '../lib/sanitize'
+import { LeadCheckpointNotice } from './LeadCheckpoint'
 
 /** The same item renderer as a session, without inventing a protocol Session. A Lead line keeps a face column; only a turn's first line fills it. */
 export const LeadMessage = ({ role, text, name = 'Lead', lead = null, face = false, note, proactive, ask, onAnswer, disabled, picked, onAction, working }: { readonly working?: ReactNode; readonly role: 'user' | 'assistant'; readonly text: string; readonly name?: string; readonly lead?: LeadName | null; readonly face?: boolean; readonly note?: ReactNode; readonly proactive?: LeadProactive; readonly ask?: LeadAsk; readonly onAnswer?: (label: string) => void; readonly disabled?: boolean; readonly picked?: string; readonly onAction?: (action: NonNullable<LeadProactive['action']>) => void }) => {
@@ -17,6 +18,7 @@ export const LeadMessage = ({ role, text, name = 'Lead', lead = null, face = fal
 /** A host acknowledgement is data, never an assistant turn or Markdown authored by the Lead. */
 export const LeadHostNotice = ({ message }: { readonly message: import('@harnessdesk/protocol').LeadMessage }) => {
   const [open, setOpen] = useState(false), approval = message.approval
+  if (message.checkpoint) return <LeadCheckpointNotice checkpoint={message.checkpoint} />
   return <article aria-label="Desk">
     <Text as="p" role="meta">{sanitizeText(message.text)}</Text>
     {approval?.diff !== undefined && <Button variant="secondary" onClick={() => setOpen(true)}>View changes</Button>}
