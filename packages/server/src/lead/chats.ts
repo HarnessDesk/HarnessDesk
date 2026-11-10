@@ -12,6 +12,7 @@ import { scrub } from '../phone-redact.js'
 import { LeadChatIncidents } from './incidents.js'
 import type { AgentError, LeadChatCandidate, LeadChatIncidentObservation, RateLimits, Turn } from '@harnessdesk/protocol'
 import { boundLeadChatRead } from './chat-read.js'
+import type { LeadWorkLedger, LeadWorkLinkState } from './work.js'
 
 export class LeadChatBusyError extends Error { constructor() { super('That chat is busy; defer the recovery retry.') } }
 
@@ -53,6 +54,8 @@ export interface LeadChatsPorts {
    * desk can start on now; the label is the presentation name the Lead may say, never an address.
    */
   readonly pacing?: { readonly choose: () => Promise<{ readonly agent: string; readonly label: string } | null> }
+  /** The work ledger's duplicate guard: a start joins an open item or makes one, and a duplicate is refused. */
+  readonly ledger?: Pick<LeadWorkLedger, 'claim' | 'started' | 'release'>
 }
 const refuse = (message: string): never => { throw new Error(message) }
 const MUTATIONS = new Set(['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'])
@@ -379,22 +382,24 @@ export class LeadChats {
     return boundLeadChatRead(result)
   }
   #envelope(text: string): string { return leadMessageEnvelope(leadDisplayName(this.ports.state().name), text) }
+  /** The person messages a start comes from: the ones it quotes, or the latest that was not an option's answer. */
+  #quoteIds(params: HostParams<'lead/chat/start'>): readonly string[] {
+    if (params.quote !== undefined) return params.quote
+    const messages = this.ports.state().messages
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const person = messages[index]!
+      if (person.role !== 'user') continue
+      const previous = messages[index - 1]
+      const options = previous?.role === 'assistant' ? previous.ask?.options ?? previous.proactive?.options : undefined
+      if (options?.some(option => option.label === person.text)) continue
+      return [person.id]
+    }
+    return []
+  }
   #startText(params: HostParams<'lead/chat/start'>): string | { readonly problem: string } {
     const messages = this.ports.state().messages
     const people = messages.filter(message => message.role === 'user')
-    let ids = params.quote
-    if (ids === undefined) {
-      ids = []
-      for (let index = messages.length - 1; index >= 0; index--) {
-        const person = messages[index]!
-        if (person.role !== 'user') continue
-        const previous = messages[index - 1]
-        const options = previous?.role === 'assistant' ? previous.ask?.options ?? previous.proactive?.options : undefined
-        if (options?.some(option => option.label === person.text)) continue
-        ids = [person.id]
-        break
-      }
-    }
+    const ids = this.#quoteIds(params)
     if (ids.some(id => !people.some(message => message.id === id)))
       return { problem: 'Quote only a person message in the current conversation window.' }
     const quoted = people.filter(message => ids.includes(message.id))
@@ -438,13 +443,32 @@ export class LeadChats {
       const candidates = params.agent === undefined ? [] : await this.ports.recovery?.candidates(params.moveFrom) ?? []
       const matches = candidates.filter(one => one.key === params.agent || one.name === params.agent)
       if (params.agent !== undefined && matches.length !== 1) refuse('That agent is not in the available candidate list.')
-      const paced = params.agent === undefined && !params.moveFrom ? await this.ports.pacing?.choose().catch(() => null) ?? null : null
-      const agent = matches[0]?.agent ?? matches[0]?.key ?? paced?.agent
       const text = params.moveFrom ? await this.#moveText(params) : this.#startText(params)
       if (typeof text !== 'string') {
         this.ports.noteDispatchNotStarted(attemptId)
         return { id: '', problem: text.problem }
       }
+      // The duplicate guard reads the ledger before anything is created, so a refusal starts nothing.
+      const claim = this.ports.ledger ? await this.ports.ledger.claim({ title: params.text, quotes: this.#quoteIds(params),
+        ...(params.ledgerItem !== undefined ? { ledgerItem: params.ledgerItem } : {}), ...(params.moveFrom !== undefined ? { moveFrom: params.moveFrom } : {}) }) : undefined
+      if (claim && 'problem' in claim) {
+        this.ports.noteDispatchNotStarted(attemptId)
+        return { id: '', problem: claim.problem }
+      }
+      try {
+        // Claim first, then pace, then create: a refused duplicate never reads usage, and the fallback retry inside
+        // #create runs under this one claim.
+        const paced = params.agent === undefined && !params.moveFrom ? await this.ports.pacing?.choose().catch(() => null) ?? null : null
+        const agent = matches[0]?.agent ?? matches[0]?.key ?? paced?.agent
+        const result = await this.#create(params, call, text, agent, paced, admit, effectStarted, attemptId)
+        if (claim && result.id) return { ...result, ledgerItem: await this.ports.ledger!.started(claim, result.id) }
+        return result
+      } finally { if (claim) this.ports.ledger!.release(claim) }
+    })
+  }
+  async #create(params: Omit<HostParams<'lead/chat/start'>, 'effectId'>, call: { readonly method: 'lead/chat/start'; readonly params: Omit<HostParams<'lead/chat/start'>, 'effectId'> },
+    text: string, agent: string | undefined, paced: { readonly agent: string; readonly label: string } | null, admit: (id?: string) => Promise<void>, effectStarted: () => void, attemptId: string): Promise<HostResult<'lead/chat/start'>> {
+    {
       const envelope = this.#envelope(text)
       await this.ports.control?.assertCanStart?.(this.ports.project.path)
       let createdId: string | undefined, moveClaimed = false, creationStarted = false, firstMessageStarted = false
@@ -484,7 +508,19 @@ export class LeadChats {
         if (params.moveFrom && moveClaimed && !createdId && !creationStarted) await this.incidents!.releaseMove(params.moveFrom)
         throw error
       }
-    })
+    }
+  }
+  /** The host stage the work ledger reads for a linked chat; null once the desk no longer holds it. */
+  workState(id: string): LeadWorkLinkState | null {
+    const at = id.indexOf(':')
+    if (at <= 0) return null
+    const runtime = runtimeId(id.slice(0, at)), session = sessionId(id.slice(at + 1))
+    const summary = this.ports.index.get(runtime, session)
+    if (!summary) return null
+    if (this.incidents?.get(id)?.state === 'asked') return { stage: 'you-blocked', reason: 'failed' }
+    const live = this.ports.live(runtime, session), recovering = this.incidents?.waiting(id) ?? false
+    return leadStage({ kind: 'session', archived: summary.archived === true, waiting: live.approvalWaiting ?? live.waiting, running: recovering || live.running,
+      failed: recovering ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false })
   }
   send(input: HostParams<'lead/chat/send'>, currentRetry?: () => boolean, retryStarted?: () => void, retryBusy?: () => void): Promise<HostResult<'lead/chat/send'>> {
     const { effectId, ...params } = input

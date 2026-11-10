@@ -937,3 +937,31 @@ test('pacing that fails does not stop the chat from starting on the desk default
   r.authorize('lead/chat/start', params)
   assert.equal((await r.service.start(params)).id, 'fixture:created')
 })
+
+test('the ledger claim comes first: a refused duplicate never asks pacing, and the paced fallback retry claims once', async t => {
+  const r = await rig(t)
+  const events: string[] = []
+  let refuse = true
+  ;(r.ports as any).ledger = {
+    claim: async () => { events.push('claim'); return refuse ? { problem: 'Already open as work-1.' } : { token: 1 } },
+    started: async () => { events.push('started'); return 'work-2' },
+    release: () => { events.push('release') },
+  }
+  ;(r.ports as any).pacing = { choose: async () => { events.push('pace'); return { agent: 'fixture-2', label: 'Agent · account 2' } } }
+  const real = r.ports.work.startInProject
+  ;(r.ports.work as any).startInProject = async (params: any, ...rest: any[]) => {
+    events.push(`create:${params.agent ?? 'default'}`)
+    return params.agent === 'fixture-2' ? { id: '', problem: 'That agent is not available on this desk. Refresh and try again.' } : (real as any)(params, ...rest)
+  }
+  const first = { text: 'Add the helper' }
+  r.authorize('lead/chat/start', first)
+  assert.equal((await r.service.start(first)).problem, 'Already open as work-1.')
+  assert.deepEqual(events, ['claim'], 'a refused duplicate reads no usage and creates nothing')
+  events.length = 0; refuse = false
+  const second = { text: 'Add the other helper' }
+  r.authorize('lead/chat/start', second)
+  const result = await r.service.start(second)
+  assert.equal(result.id, 'fixture:created')
+  assert.equal((result as any).ledgerItem, 'work-2')
+  assert.deepEqual(events, ['claim', 'pace', 'create:fixture-2', 'create:default', 'started', 'release'])
+})
