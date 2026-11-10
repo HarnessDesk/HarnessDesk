@@ -10,29 +10,24 @@ import { createLeadRig } from './fixtures/lead-rig.js'
 // One of the Lead end-to-end files (publication, repair, external merge and Stop after a settled step); they share only the rig,
 // so CI runs them side by side, and the cases of each run one at a time.
 
-for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restart' : 'in one sitting'}: person PR creation, one same-Team repair, green evidence and external merge`, { timeout: 240_000 }, async t => {
-  const started = Date.now()
-  // Run 40234619739 reached the repair's open acceptance gate, then hit the
-  // 60s publication wait at 115–118s overall. Use the rig's 240s wait budget,
-  // as the two-run repair walk does; the whole case still has a 240s ceiling.
-  const rig = await createLeadRig({ publication: true, offlineForge: true, holdWorkers: true })
-  t.after(() => rig.dispose())
-  const offline = rig.offline
-  assert.ok(offline, 'the rig exposes an offline fake forge and local bare remote')
-  let recoveredHost = false
-  const waitForObservedResult = async (label: string, ready: () => boolean = () => true) => {
-    await rig.waitFor(() => ready() && rig.host.registry.all().every(record => record.running.size === 0), `${label}: worker turns ended`)
-    await rig.host.flowsPlane.flush()
-    const observing = rig.childLive
-    assert.ok(observing || recoveredHost, 'the one-sitting case must retain its live child observation fence')
-    const observedAfter = Date.now(), previousWakes = new Set(rig.journal.state.wakes.map(wake => wake.id))
-    // Recovery restores host-owned repair state without starting a child. With
-    // no child there is no delayed child notification, nor a child wake to await.
-    if (observing) rig.service.evidenceChanged()
-    await rig.waitFor(() => ready() && !rig.service.requestInFlight && rig.journal.state.managementReason === 'lead-result-awaiting-person' &&
-      (observing ? rig.journal.state.wakes.some(wake => !previousWakes.has(wake.id) && !wake.modelTurn && wake.at > observedAfter) : !rig.childLive) &&
-      !!rig.pending('result'), label)
-  }
+type LeadRig = Awaited<ReturnType<typeof createLeadRig>>
+
+const observedResult = async (rig: LeadRig, label: string, recoveredHost: boolean, ready: () => boolean = () => true) => {
+  await rig.waitFor(() => ready() && rig.host.registry.all().every(record => record.running.size === 0), `${label}: worker turns ended`)
+  await rig.host.flowsPlane.flush()
+  const observing = rig.childLive
+  assert.ok(observing || recoveredHost, 'the one-sitting case must retain its live child observation fence')
+  const observedAfter = Date.now(), previousWakes = new Set(rig.journal.state.wakes.map(wake => wake.id))
+  // Recovery restores host-owned repair state without starting a child. With
+  // no child there is no delayed child notification, nor a child wake to await.
+  if (observing) rig.service.evidenceChanged()
+  await rig.waitFor(() => ready() && !rig.service.requestInFlight && rig.journal.state.managementReason === 'lead-result-awaiting-person' &&
+    (observing ? rig.journal.state.wakes.some(wake => !previousWakes.has(wake.id) && !wake.modelTurn && wake.at > observedAfter) : !rig.childLive) &&
+    !!rig.pending('result'), label)
+}
+
+/** Plan, reviewed result and the person's own PR creation, as E3 walks them. */
+const publishReviewedResult = async (rig: LeadRig) => {
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
   await rig.decide(rig.pending('plan')!, 'approve'); await rig.releaseWorkers()
   await rig.waitFor(() => !!rig.pending('result'), 'reviewed result')
@@ -40,8 +35,23 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   // The Flow can open its person round before the child's final worker/gate
   // notifications arrive. Merely seeing the first result is not an observation
   // barrier: those notifications fence it until the child reads the desk again.
-  await waitForObservedResult('reviewed result after final worker and person-gate observations')
+  await observedResult(rig, 'reviewed result after final worker and person-gate observations', false)
   await rig.decide(rig.pending('result')!, 'accept-open-pr')
+}
+
+for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restart' : 'in one sitting'}: person PR creation, one same-Team repair, green evidence and external merge`, { timeout: 240_000 }, async t => {
+  const started = Date.now()
+  // A healthy walk waits about 10s for any one step, even on CI. A wait as long
+  // as the case's own 240s ceiling meant a stalled repair was cut by the runner
+  // before the rig could say which state it was stuck in; 120s still leaves a
+  // slow step a dozen times its usual time, and a stall names itself.
+  const rig = await createLeadRig({ publication: true, offlineForge: true, holdWorkers: true, waitMs: 120_000 })
+  t.after(() => rig.dispose())
+  const offline = rig.offline
+  assert.ok(offline, 'the rig exposes an offline fake forge and local bare remote')
+  let recoveredHost = false
+  const waitForObservedResult = (label: string, ready?: () => boolean) => observedResult(rig, label, recoveredHost, ready)
+  await publishReviewedResult(rig)
   t.diagnostic(`initial reviewed PR published after ${Date.now() - started}ms`)
   const initial = structuredClone(rig.journal.state.pr)!, team = rig.journal.state.runs[0]!.teamId
   assert.equal(rig.journal.state.phase, 'following')
@@ -87,6 +97,38 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   assert.equal(rig.journal.state.phase, 'accepted'); assert.equal(rig.journal.state.pr?.state, 'merged')
   await rig.assertAccounting(); await rig.assertNoForbiddenEffects()
   assert.equal((await offline.pushes()).length, 2)
+})
+
+test('a Lead request that starts while a repair push is admitted does not park the repair on the person', { timeout: 240_000 }, async t => {
+  const rig = await createLeadRig({ publication: true, offlineForge: true, holdWorkers: true, waitMs: 120_000 }); t.after(() => rig.dispose())
+  const offline = rig.offline!
+  type BudgetEvent = Parameters<typeof rig.journal.updateBudget>[0]
+  const reserves: Extract<BudgetEvent, { type: 'reserve' }>[] = [], updateBudget = rig.journal.updateBudget.bind(rig.journal)
+  t.mock.method(rig.journal, 'updateBudget', async (event: BudgetEvent, ...rest: [Parameters<typeof updateBudget>[1]?]) => {
+    if (event.type === 'reserve') reserves.push(structuredClone(event))
+    return updateBudget(event, ...rest)
+  })
+  await publishReviewedResult(rig)
+  // A desk change wakes the Lead's model and starts the repair push alike. Start
+  // the Lead's request exactly between pushOwned's two validations: it journals
+  // its reservation first, as the child does, and is still out when the second
+  // validation reads the budget.
+  const ownedPush = rig.journal.ownedPush.bind(rig.journal)
+  let reserved = false
+  t.mock.method(rig.journal, 'ownedPush', async (operation: Parameters<typeof ownedPush>[0]) => {
+    await ownedPush(operation)
+    if (operation.stage !== 'prepared' || reserved) return
+    reserved = true
+    assert.ok(reserves.length, 'the walk made a real Lead request to model this one on')
+    await updateBudget({ ...reserves.at(-1)!, requestId: 'lead-request-during-repair-push', now: Date.now() })
+  })
+  await offline.failChecks(); await offline.poll()
+  await rig.waitFor(() => rig.journal.state.handbacks[0]?.stage === 'awaiting-ci' || rig.journal.state.ownedPush?.stage === 'needs-you', 'repair push outcome')
+  assert.equal(reserved, true, 'the Lead request started inside the push')
+  assert.equal(rig.journal.state.budget!.requests.length, 1, 'and was still out when the push validated')
+  assert.equal(rig.journal.state.ownedPush?.stage, 'completed')
+  assert.equal(rig.journal.state.handbacks[0]?.stage, 'awaiting-ci')
+  assert.notEqual(rig.journal.state.managementReason, 'lead-publication-needs-you')
 })
 
 test('Stop goal preserves a settled accepted step and its prepared postings', async t => {
