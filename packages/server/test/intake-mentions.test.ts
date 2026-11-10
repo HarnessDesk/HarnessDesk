@@ -130,7 +130,7 @@ test('a comment addresses the handle only in its own words: never inside code, a
   assert.equal(addressesHandle('@dex please fix the flaky test', 'dex'), true)
   assert.equal(addressesHandle('Could you look, @Dex?', 'dex'), true)
   assert.equal(addressesHandle('cc @dexter', 'dex'), false)
-  assert.equal(addressesHandle('mail me at jane@dex.example', 'dex'), false)
+  assert.equal(addressesHandle('mail me at dev@acme.dev', 'acme'), false)
   assert.equal(addressesHandle('> @dex fix it\n\nI disagree with the above', 'dex'), false)
   assert.equal(addressesHandle('run `@dex fix` to see', 'dex'), false)
   assert.equal(addressesHandle('```\n@dex fix\n```', 'dex'), false)
