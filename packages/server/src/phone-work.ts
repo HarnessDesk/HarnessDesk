@@ -1,5 +1,5 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
-import type { LeadChatControl, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
+import type { LeadChatControl, LeadWorkBoard, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
 import {
   findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, wireCodeOf, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
@@ -20,6 +20,8 @@ export interface PhoneWorkPorts {
   /** Host-only provenance, never supplied by the phone. */
   readonly chatControl?: (id: string, cwd: string) => Promise<LeadChatControl | undefined>
   readonly workspace: Pick<PhoneWorkspace, 'workItems' | 'workUsage' | 'workSessions'>
+  /** The Lead's work board, the same projection the window's right rail draws; null while no Lead runs here. */
+  readonly leadWork?: () => Promise<LeadWorkBoard | null>
   /** What the desk is called to the phone that paired with it. */
   readonly deskName: () => string
   readonly home: string | null
@@ -176,6 +178,20 @@ const guarded = async <T>(work: () => Promise<T>): Promise<T> => {
   }
 }
 
+/** The board as the phone gets it: the same items in the same order, its prose through the same scrub as any other. */
+export const phoneWorkBoard = (board: LeadWorkBoard): LeadWorkBoard => ({
+  version: 1, more: board.more,
+  items: board.items.map(card => {
+    const out = { ...card, title: scrub(card.title, 120) || 'Work' }
+    for (const key of ['blocker', 'fact', 'note'] as const) {
+      const text = card[key] === undefined ? '' : scrub(card[key], key === 'note' ? 300 : 160)
+      if (text) out[key] = text
+      else delete out[key]
+    }
+    return out
+  }),
+})
+
 export class PhoneWork {
   readonly #ports: PhoneWorkPorts
   /** What the phone answered lately, so a thread read after the answer still shows it. In memory only. */
@@ -220,8 +236,9 @@ export class PhoneWork {
     const reads = [...new Set(runtime ? [runtime, ...ids] : ids)]
     // Only the default agent is started for its models; a snapshot never starts any other agent.
     const read = (one: RuntimeId) => one === runtime ? this.#ports.models(one) : this.#knownModels(one)
-    const [items, usage, catalogues] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
-      Promise.all(reads.map(one => read(one).then(modelChoices).catch((): PhoneModelChoice[] => [])))])
+    const [items, usage, catalogues, work] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
+      Promise.all(reads.map(one => read(one).then(modelChoices).catch((): PhoneModelChoice[] => []))),
+      this.#ports.leadWork?.().catch(() => null) ?? null])
     const choices = new Map(reads.map((one, index) => [one, catalogues[index]!]))
     const models = runtime ? choices.get(runtime)! : []
     const agents: PhoneAgentChoice[] = ids.map(id => ({ id: String(id), name: scrub(this.#ports.seatName(id) ?? '', 60) || 'Agent', models: choices.get(id)!, ...(id === runtime ? { default: true as const } : {}) }))
@@ -231,6 +248,7 @@ export class PhoneWork {
       deskName: scrub(this.#ports.deskName(), 60) || 'Desk',
       items, projects,
       ...(usage ? { usage } : {}),
+      ...(work ? { work: phoneWorkBoard(work) } : {}),
       models, agents, flows: [], commands: [],
       capabilities: { ...CAPABILITIES, delete: this.#ports.readyRuntimes().some(id => this.#ports.canDelete?.(id) === true), chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
       threads: [],

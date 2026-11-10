@@ -73,6 +73,8 @@ interface LeadControlsOptions {
   readonly readPresence?: () => LeadPresence | null
   /** Hands the text to the goal's worker that is in a turn; false when none took it. */
   readonly steerWorker?: (text: string) => Promise<boolean>
+  /** The open work cards, already bounded; they ride the end of each request and are never stored in the thread. */
+  readonly readWorkContext?: () => Promise<string | null>
 }
 /** One host owner, no transport or rendering. Child ports never contain these operations. */
 export class LeadControls {
@@ -359,6 +361,14 @@ export class LeadControls {
       else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
         { type: 'text', text: 'Continue the conversation from the person\'s latest message. Answer directly or use an ordinary chat for a task. Offer a reviewed plan only when the work needs that workflow; no plan has been approved.' },
       ] })
+      // The work ledger is desk context, read fresh for each request: it closes the request and is never kept in history.
+      let work: string | null = null
+      try { work = await this.options.readWorkContext?.() ?? null } catch { /* A request without the cards still answers. */ }
+      if (work) {
+        const last = messages.at(-1)
+        if (last?.role === 'user' && Array.isArray(last.content)) messages[messages.length - 1] = { ...last, content: [...last.content, { type: 'text', text: work }] } as MessagesTurn
+        else messages.push({ role: 'user', content: [{ type: 'text', text: work }] })
+      }
       const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages, conversation: this.#requestConversation, ...(proactive ? { proactive: true, wakeSource: journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const } : {}) })
       if (result.text) await service.assertPublic(result.text)
       if (result.ask) {
@@ -479,6 +489,23 @@ export class LeadControls {
   }) }
   /** A schedule slot redeems only a previously person-approved contract, and gets
    * its own logical goal, step ids, budget and fresh host-clock consent. */
+  /**
+   * A reminder the Lead set on a work item wakes it while a conversation is open, as the same schedule-sourced
+   * proactive request a scheduled run makes. False when it cannot go now (a request in flight, an uncertain effect,
+   * a closed or waiting thread, no key); the host's minute timer offers it again. A closed thread takes it through
+   * the automatic-goal path instead.
+   */
+  remind(key: string, text: string): Promise<boolean> { return this.#queue(async () => {
+    const { journal, service } = this.options
+    if (journal.state.sends.some(send => send.key === key)) return true
+    if (this.#inFlight() || hasUncertainLeadChatEffect(journal.state) || journal.state.budget?.stop) return false
+    if (!['draft', 'running', 'following'].includes(journal.state.phase)) return false
+    if (leadContainsSecret([text])) return false
+    const status = await service.status('anthropic').catch(() => null)
+    if (!status?.configured || status.unavailable) return false
+    await this.#commitRequest(committed => journal.appendMessage(key, text, 'schedule', committed), true)
+    return true
+  }) }
   runScheduled(task: LeadScheduledTask, slot: number): Promise<{ logicalGoalId: string; approved: boolean; reason?: string }> { return this.#queue(async () => {
     const { journal, service } = this.options
     if (this.#inFlight() || !(canBeginLeadGoal(journal.state) || journal.state.phase === 'draft' && !journal.state.messages.length)) throw leadRefusal('lead-request-in-flight')

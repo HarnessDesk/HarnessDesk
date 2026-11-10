@@ -6,8 +6,10 @@ const names = ['lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeO
 const chatNames = ['lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
+const workNames = ['lead/work/list', 'lead/work/read', 'lead/work/note', 'lead/work/close']
+
 test('the closed Lead window controls validate and none is on the client surface', () => {
-  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary'].sort())
+  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames].sort())
   for (const name of names) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false)
   for (const name of ['lead/wakes/read', 'lead/thread/read', 'lead/settings/read']) assert.doesNotThrow(() => request(name, {}))
   assert.doesNotThrow(() => request('lead/thread/send', { idempotencyKey: 'send-1', text: 'Inspect the check' }))
@@ -111,4 +113,29 @@ test('desk summary accepts only a bounded whole recent limit', () => {
 test('allowance summary accepts only empty params', () => {
   assert.doesNotThrow(() => request('lead/usage/summary', {}))
   assert.throws(() => request('lead/usage/summary', { refresh: true }), { name: 'ValidationError' })
+})
+
+test('the work ledger methods take bounded shapes: notes never carry a stage, and only the person closes', () => {
+  // The Lead reads and annotates its ledger through the client door; closing is the person's alone.
+  assert.equal(CLIENT_METHODS['lead/work/note' as keyof typeof CLIENT_METHODS], 'read')
+  assert.equal(Object.hasOwn(CLIENT_METHODS, 'lead/work/close'), false)
+  assert.doesNotThrow(() => request('lead/work/list', {}))
+  assert.doesNotThrow(() => request('lead/work/list', { state: 'all' }))
+  assert.doesNotThrow(() => request('lead/work/read', { id: 'work-3' }))
+  assert.doesNotThrow(() => request('lead/work/note', { id: 'work-3', note: 'Waiting on the review', remindAt: 1_800_000_000_000 }))
+  assert.doesNotThrow(() => request('lead/work/note', { id: 'work-3', after: null, remindAt: null }))
+  assert.doesNotThrow(() => request('lead/work/close', { id: 'work-3', outcome: 'dropped' }))
+  assert.doesNotThrow(() => request('lead/chat/start', { text: 'Fix the docs', ledgerItem: 'work-3' }))
+  const bad: [string, unknown][] = [
+    ['lead/work/list', { state: 'closed' }],
+    ['lead/work/read', { id: '3' }],
+    ['lead/work/note', { id: 'work-3' }],
+    ['lead/work/note', { id: 'work-3', stage: 'done' }],
+    ['lead/work/note', { id: 'work-3', note: 'x'.repeat(301) }],
+    ['lead/work/note', { id: 'work-3', after: 'work-3' }],
+    ['lead/work/note', { id: 'work-3', remindAt: -1 }],
+    ['lead/work/close', { id: 'work-3', outcome: 'merged' }],
+    ['lead/chat/start', { text: 'Fix the docs', ledgerItem: 'anything' }],
+  ]
+  for (const [method, params] of bad) assert.throws(() => request(method, params), { name: 'ValidationError' }, `${method} ${JSON.stringify(params)}`)
 })
