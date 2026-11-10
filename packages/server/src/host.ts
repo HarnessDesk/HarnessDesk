@@ -3854,6 +3854,8 @@ export class Host {
         return pr ? [{ ref: `${pr.repository}#${pr.number}`, state: pr.state, failing: pr.check?.state === 'failed' }] : []
       },
       replies: () => journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0),
+      asked: () => journal.state.messages.reduce((mark, message) => message.role === 'user' && (message.source === undefined || message.source === 'person') ? Math.max(mark, message.revision) : mark, 0),
+      noted: text => this.#logger.warn(text),
       publish: board => this.#push({ method: 'lead/work/changed', params: board }),
     })
     this.#leadWork = work

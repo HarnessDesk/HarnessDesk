@@ -22,8 +22,21 @@ export const LEAD_WORK_LIMITS = Object.freeze({
   cardsBytes: 3072,
   /** The furthest a reminder may be set ahead. */
   remindMs: 30 * 24 * 60 * 60 * 1000,
+  /** The nearest a reminder may be set: a reminder is never sooner than this from when it is set. */
+  remindGapMs: 15 * 60 * 1000,
+  /** Reminder wakes one item may have before the person writes again. */
+  remindWakes: 3,
+  /** An open item with no link the host can see for this long closes as stopped. */
+  quietMs: 7 * 24 * 60 * 60 * 1000,
   idChars: 64,
 } as const)
+
+/**
+ * One line of untrusted prose for a model's eyes: whitespace flattened, clipped, JSON-quoted, and `<` escaped, so it can
+ * never close a surrounding block or pass for an instruction or a field. The request cards and reminder wakes both use it.
+ */
+export const quoteLeadWorkText = (text: string, max: number): string =>
+  JSON.stringify(text.replace(/\s+/g, ' ').trim().slice(0, max)).replace(/</g, '\\u003c')
 
 export type LeadWorkStage = 'queued' | 'working' | 'needs-you' | 'in-review' | 'blocked' | 'done' | 'stopped'
 export const LEAD_WORK_STAGES = ['queued', 'working', 'needs-you', 'in-review', 'blocked', 'done', 'stopped'] as const satisfies readonly LeadWorkStage[]

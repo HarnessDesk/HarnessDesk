@@ -169,7 +169,7 @@ own agent connections. Lead's journal, plan decisions, allowances and worker
 observations stay in the desk's state folder, as does its work ledger,
 `lead/work.json`: work titles, project display names, chat, Team and pull
 request references, host-written stage facts and the Lead's own notes, at most
-256 items and closed items for 30 days. Up to 3 KB of the open items rides each
+256 items and closed items for 30 days. A ledger file that cannot be parsed is renamed beside it as `work.json.corrupt-<time>`, never sent anywhere. Up to 3 KB of the open items rides each
 Lead model request; a paired phone reads the same board, scrubbed. Stop ends the active request and
 owned work without deleting files; disabling the startup opt-in leaves the
 journal on disk. The desktop probes its embedded runtime first, then its bundled or locally

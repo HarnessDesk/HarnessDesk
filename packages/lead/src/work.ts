@@ -1,12 +1,10 @@
-import { LEAD_WORK_LIMITS, type LeadWorkBoard, type LeadWorkCard } from '@harnessdesk/protocol'
+import { LEAD_WORK_LIMITS, quoteLeadWorkText as quoted, type LeadWorkBoard, type LeadWorkCard } from '@harnessdesk/protocol'
 
 const bytes = (text: string): number => new TextEncoder().encode(text).byteLength
 const age = (ms: number): string => {
   const minutes = Math.max(0, Math.floor(ms / 60_000))
   return minutes < 60 ? `${minutes}m` : minutes < 48 * 60 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 1440)}d`
 }
-/** One line of untrusted prose, JSON-quoted with `<` escaped, so it can never close the block or pass for a field. */
-const quoted = (text: string, max: number): string => JSON.stringify(text.replace(/\s+/g, ' ').trim().slice(0, max)).replace(/</g, '\\u003c')
 const line = (card: LeadWorkCard, now: number): string => [
   `- ${card.id} [${card.stage}] ${quoted(card.title, LEAD_WORK_LIMITS.titleChars)}`,
   card.project ? ` project ${quoted(card.project, 60)}` : '',
