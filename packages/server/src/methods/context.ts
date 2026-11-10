@@ -340,7 +340,7 @@ export interface HostContext {
    * and the person's own controls. The only way a handler reaches triggers;
    * every mutation here is a person's, and none is ever an Agent's tool.
    */
-  readonly intake: Pick<IntakePlane, 'list' | 'preview' | 'arm' | 'disarm' | 'rebaseline' | 'preferences' | 'setPreferences' | 'history' | 'goal' | 'decisions' | 'reevaluate' | 'setMode' | 'triage'>
+  readonly intake: Pick<IntakePlane, 'list' | 'preview' | 'arm' | 'disarm' | 'rebaseline' | 'preferences' | 'setPreferences' | 'history' | 'goal' | 'decisions' | 'reevaluate' | 'setMode' | 'triage' | 'triageTriggers'>
 
   /** The extension kernel, or a refusal that names the build. */
   extensions(): ExtensionHost

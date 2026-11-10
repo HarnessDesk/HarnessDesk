@@ -244,7 +244,10 @@ Each such request is held against the Lead's spend limit before it is sent:
 a reserve, then a settle at the usage the provider reports (or the whole hold
 when that cannot be known), are written to the Lead's journal like the Lead's
 own requests. With no Lead goal open, or the limit reached, nothing is sent.
-The paired phone reads the decisions list (`phone/triage/list`) read-only.
+The paired phone reads the decisions list (`phone/triage/list`) read-only, with
+the armed mention triggers beside it: each one's id, project folder name,
+repository, mode on this machine, `from`, and its named people and bots (forge
+logins the triggers file already names).
 
 **Retention:** yours. Deleting the folder, or disarming the trigger, stops it.
 

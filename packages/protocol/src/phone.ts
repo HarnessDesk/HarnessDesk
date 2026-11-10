@@ -537,7 +537,30 @@ export interface PhoneTriageRow {
   readonly url: string
 }
 
+/**
+ * One armed mention trigger as the phone lists it, read-only: where it watches, its mode on this machine, and who may
+ * ask besides the person. Logins are forge names, plain text; `project` is the folder's name, never a path.
+ */
+export interface PhoneTriageTrigger {
+  /** The trigger's id in its project's triggers file; two projects may use the same one. */
+  readonly id: string
+  readonly project: string
+  /** `owner/name` the arm observes, when it has one. */
+  readonly repository?: string
+  readonly mode: 'observe' | 'act'
+  /** Whose comments it takes, in the file's word (`me`, `collaborators`). */
+  readonly from?: 'me' | 'collaborators' | 'anyone'
+  /** Named people and bots also allowed to ask, at most ten each. */
+  readonly people: readonly string[]
+  readonly bots: readonly string[]
+}
+
+/** At most this many triggers are listed. */
+export const PHONE_TRIAGE_TRIGGERS_MAX = 50
+
 export interface PhoneTriageList {
   /** Newest first, across every project on this desk, at most `limit` (default 50, at most 100). */
   readonly rows: readonly PhoneTriageRow[]
+  /** The armed mention triggers on this desk, by project then id; empty when none is armed. Absent from an older desk. */
+  readonly triggers?: readonly PhoneTriageTrigger[]
 }
