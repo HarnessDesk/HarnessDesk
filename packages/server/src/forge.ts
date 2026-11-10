@@ -359,17 +359,20 @@ export class ForgePlane implements ForgeEngine {
    * Settles one review thread by outcome, after the same destination,
    * ceiling and embargo gates every forge write passes. The round a bot
    * reviewer's cap counts is the calling seat's: its Team and review round,
-   * or — a conversation outside a Team — the turn it is in. The person is
-   * never capped.
+   * or — a conversation outside a Team — the turn the host has running for
+   * it. The person is never capped.
    */
   async settleThread(args: ForgeThreadSettle, scope: ForgeScope): Promise<ForgeThreadSettled> {
     const { gateway, checkout, requester, repository } = await this.#destination(scope, 'settleThread', args)
     const seat = requester.kind === 'session' ? requester.seat ?? null : null
+    // No Team round and no running turn the host can name is no round at
+    // all: the gateway then leaves a bot reviewer's thread for the person
+    // rather than count a round it cannot tell apart from the next.
     const round = scope.actor === 'human' ? null
       : seat?.round != null ? `round ${seat.team ?? ''}#${seat.round}`
-        : `turn ${scope.runtime}/${scope.sessionId}/${scope.turnId ?? randomUUID()}`
+        : scope.turnId ? `turn ${scope.runtime}/${scope.sessionId}/${scope.turnId}` : undefined
     this.#live(scope)
-    const settled = await gateway.settleReviewThread({ ...args, repository, requester, round, steeredFrom: gitSteerContext.getStore()?.command, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) })
+    const settled = await gateway.settleReviewThread({ ...args, repository, requester, ...(round !== undefined ? { round } : {}), steeredFrom: gitSteerContext.getStore()?.command, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) })
     return { ...settled, repository }
   }
   async repository(scope: ForgeScope): Promise<string | null> {

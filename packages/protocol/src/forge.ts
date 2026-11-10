@@ -54,6 +54,8 @@ export interface ForgeReviewThreads {
   readonly url: string
   readonly state: 'open' | 'closed' | 'merged' | null
   readonly threads: readonly ForgeReviewThread[]
+  /** More than one page exists (over 100 threads, or a thread over 50 comments): the list is cut off. */
+  readonly truncated?: boolean
 }
 /**
  * One review thread settled by outcome: `fixed` resolves it and posts

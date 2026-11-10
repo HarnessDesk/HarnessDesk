@@ -31,7 +31,19 @@ interface GitWrite { readonly beforeWrite?: () => Promise<void>; readonly before
  * variables (`-f`, `-F` for the validated number); nothing a seat or a
  * reviewer wrote is ever spliced into the query text.
  */
-const REVIEW_THREADS_QUERY = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number title url state reviewThreads(first:100){nodes{id isResolved path line comments(first:50){nodes{author{login __typename} body}}}}}}}'
+const REVIEW_THREADS_QUERY = 'query($owner:String!,$name:String!,$number:Int!){viewer{login} repository(owner:$owner,name:$name){pullRequest(number:$number){number title url state reviewThreads(first:100){pageInfo{hasNextPage} nodes{id isResolved path line comments(first:50){pageInfo{hasNextPage} nodes{author{login __typename} body}}}}}}}'
+/**
+ * Whether a failed forge call is a definite GraphQL refusal — the forge
+ * answered and wrote nothing — rather than a call whose outcome is unknown.
+ */
+const graphQLRefusal = (error: unknown): boolean => {
+  const failure = error as { message?: unknown; stderr?: unknown; stdout?: unknown } | null
+  if ([failure?.message, failure?.stderr].some(part => typeof part === 'string' && /(?:^|[\s:])GraphQL: /.test(part))) return true
+  try {
+    const body = JSON.parse(typeof failure?.stdout === 'string' ? failure.stdout : '') as { errors?: unknown; data?: unknown } | null
+    return Array.isArray(body?.errors) && body.errors.length > 0 && !body.data
+  } catch { return false }
+}
 const RESOLVE_THREAD = 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}'
 const ANSWER_THREAD = 'mutation($thread:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$thread,body:$body}){comment{url}}}'
 /** How much of a thread's opening comment a seat is shown, in characters. */
@@ -41,8 +53,12 @@ export interface GitThreadSettle extends GitWrite {
   readonly thread: string
   readonly outcome: 'fixed' | 'declined'
   readonly answer?: string
-  /** The calling seat's repair round; null when the caller is the person, whom no round cap holds. */
-  readonly round: string | null
+  /**
+   * The calling seat's repair round; null when the caller is the person, whom
+   * no round cap holds; absent when no round can be named, which settles no
+   * bot reviewer's thread.
+   */
+  readonly round?: string | null
 }
 export interface GitThreadSettled {
   readonly outcome: 'resolved' | 'already-resolved' | 'answered'
@@ -598,6 +614,15 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
     }
     const answered = new Set(await this.threads.answered(pinned, number))
     const text = (input: unknown): string | null => typeof input === 'string' ? input : null
+    /** A name that has to stay on one line: a file path, a title. */
+    const oneLine = (input: unknown): string | null => {
+      const value = text(input)
+      return value === null ? null : value.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/ {2,}/g, ' ').trim()
+    }
+    // Only a marked reply from the account the desk is signed in as counts as the desk's answer.
+    const viewer = text((value as { data?: { viewer?: { login?: unknown } | null } }).data?.viewer?.login)?.toLowerCase() ?? null
+    const pageInfoMore = (input: unknown): boolean => (input as { pageInfo?: { hasNextPage?: unknown } | null } | null | undefined)?.pageInfo?.hasNextPage === true
+    let truncated = pageInfoMore(pr.reviewThreads)
     const bounded = (input: unknown): string => {
       const clean = (text(input) ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim()
       return clean.length > THREAD_BODY_LIMIT ? `${clean.slice(0, THREAD_BODY_LIMIT)}…` : clean
@@ -607,17 +632,19 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       if (!node || typeof node !== 'object' || !isReviewThreadId(node.id)) return []
       const list = (node.comments as { nodes?: unknown } | null | undefined)?.nodes
       const comments = (Array.isArray(list) ? list : []) as ({ author?: { login?: unknown; __typename?: unknown } | null; body?: unknown } | null)[]
-      const first = comments[0], author = text(first?.author?.login)
+      if (pageInfoMore(node.comments)) truncated = true
+      const first = comments[0], author = oneLine(first?.author?.login)
       return [{
-        id: node.id, path: text(node.path), line: Number.isSafeInteger(node.line) ? node.line as number : null, author,
+        id: node.id, path: oneLine(node.path), line: Number.isSafeInteger(node.line) ? node.line as number : null, author,
         bot: first?.author?.__typename === 'Bot' || (!!author && /\[bot\]$/i.test(author)),
         resolved: node.isResolved === true,
-        answered: answered.has(node.id) || comments.slice(1).some(comment => typeof comment?.body === 'string' && isDeskPost(comment.body)),
+        answered: answered.has(node.id) || (viewer !== null && comments.slice(1).some(comment =>
+          typeof comment?.body === 'string' && isDeskPost(comment.body) && text(comment.author?.login)?.toLowerCase() === viewer)),
         body: bounded(first?.body),
       }]
     })
     const state = pr.state === 'OPEN' ? 'open' : pr.state === 'CLOSED' ? 'closed' : pr.state === 'MERGED' ? 'merged' : null
-    return { repository: pinned, number, title: text(pr.title), url: pr.url, state, threads }
+    return { repository: pinned, number, title: oneLine(pr.title), url: pr.url, state, threads, truncated }
   }
   /**
    * Settles one review thread by outcome, as the signed-in person: a fixed
@@ -636,9 +663,14 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       }
       try {
         if (!['fixed', 'declined'].includes(target.outcome) || (target.outcome === 'fixed') !== (target.answer === undefined)) throw new Error('git-gateway-target-invalid')
-        if (target.round !== null && (typeof target.round !== 'string' || !target.round)) throw new Error('git-gateway-target-invalid')
+        if (target.round !== null && target.round !== undefined && (typeof target.round !== 'string' || !target.round)) throw new Error('git-gateway-target-invalid')
         await this.#validateWrite(target, op)
       } catch (error) { await this.gitRecord.append({ ...entry, ...this.#failure(error) }); throw error }
+      // An unreadable record was set aside: until the person settles one here, agents settle nothing on this pull request.
+      if (target.round !== null) {
+        const held = await this.threads.held(target.repository, target.number)
+        if (held) throw await refused(held)
+      }
       let read: ForgeReviewThreads
       try { read = await this.#threads(target.repository, target.number) }
       catch (error) { await this.gitRecord.append({ ...entry, at: Date.now(), outcome: 'failed', reason: error instanceof Error ? error.message : String(error) }); throw error }
@@ -646,10 +678,16 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       const thread = read.threads.find(one => one.id === target.thread)
       if (!thread) throw await refused(`${target.thread} is not a review thread on pull request #${target.number}; nothing was written.`)
       if (target.outcome === 'fixed' && thread.resolved) {
+        if (target.round === null) await this.threads.clear(target.repository, target.number)
         return { outcome: 'already-resolved', url: null, pullRequest, output: `The review thread ${thread.id} on pull request #${target.number} is already resolved; nothing was written.` }
       }
       if (target.outcome === 'declined' && thread.answered) throw await refused('This review thread has already been answered once; nothing was posted.')
-      const reviewer = thread.bot && target.round !== null ? thread.author : null
+      // A bot, or an author the forge no longer names, is held to the round cap.
+      const capped = (thread.bot || thread.author === null) && target.round !== null
+      if (capped && target.round === undefined) {
+        throw await refused(`No repair round can be named for this call, so a bot reviewer's thread on pull request #${target.number} is left for the person; nothing was written.`)
+      }
+      const reviewer = capped ? thread.author ?? 'an unknown author' : null
       if (reviewer) {
         const rounds = await this.threads.rounds(target.repository, target.number, reviewer)
         if (!rounds.includes(target.round!) && rounds.length >= BOT_REVIEWER_ROUNDS) {
@@ -657,16 +695,26 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
         }
       }
       const answer = target.answer?.trim()
-      let submitted = false
-      const undo = await this.threads.note({ repository: target.repository, number: target.number, reviewer, round: target.round, answered: answer === undefined ? null : thread.id })
+      let submitted = false, refusedByForge = false
+      const undo = await this.threads.note({ repository: target.repository, number: target.number, reviewer, round: target.round ?? null, answered: answer === undefined ? null : thread.id })
       try {
         return await this.#effect(entry, async (): Promise<GitThreadSettled> => {
           await target.beforeWrite?.()
-          const raw = await this.#gh(target.repository, answer === undefined
-            ? ['api', 'graphql', '-f', `query=${RESOLVE_THREAD}`, '-f', `thread=${thread.id}`]
-            : ['api', 'graphql', '-f', `query=${ANSWER_THREAD}`, '-f', `thread=${thread.id}`, '-f', `body=${DESK_POST_MARKER}\n${answer}`], () => { submitted = true })
-          const value = JSON.parse(raw) as { errors?: unknown; data?: { resolveReviewThread?: { thread?: { id?: unknown; isResolved?: unknown } }; addPullRequestReviewThreadReply?: { comment?: { url?: unknown } } } }
-          if (value?.errors) throw new Error('The forge refused the review thread change.')
+          let raw: string
+          try {
+            raw = await this.#gh(target.repository, answer === undefined
+              ? ['api', 'graphql', '-f', `query=${RESOLVE_THREAD}`, '-f', `thread=${thread.id}`]
+              : ['api', 'graphql', '-f', `query=${ANSWER_THREAD}`, '-f', `thread=${thread.id}`, '-f', `body=${DESK_POST_MARKER}\n${answer}`], () => { submitted = true })
+          } catch (error) {
+            refusedByForge = graphQLRefusal(error)
+            throw error
+          }
+          const value = JSON.parse(raw) as { errors?: unknown; data?: { resolveReviewThread?: { thread?: { id?: unknown; isResolved?: unknown } | null } | null; addPullRequestReviewThreadReply?: { comment?: { url?: unknown } | null } | null } | null }
+          if (value?.errors) {
+            // The forge answered with errors and no change: nothing was written, so the note is taken back.
+            refusedByForge = !value.data?.resolveReviewThread && !value.data?.addPullRequestReviewThreadReply
+            throw new Error('The forge refused the review thread change.')
+          }
           if (answer === undefined) {
             const resolved = value?.data?.resolveReviewThread?.thread
             if (resolved?.id !== thread.id || resolved.isResolved !== true) throw new Error('The review thread was not confirmed resolved.')
@@ -675,9 +723,13 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
           const url = value?.data?.addPullRequestReviewThreadReply?.comment?.url
           if (typeof url !== 'string' || !url.toLowerCase().startsWith(`${read.url.toLowerCase()}#`)) throw new Error('The answer was not confirmed posted on that pull request.')
           return { outcome: 'answered', url, pullRequest, output: `Answered review thread ${thread.id} on pull request #${target.number}.\n${url}` }
+        }).then(async settled => {
+          if (target.round === null) await this.threads.clear(target.repository, target.number)
+          return settled
         })
       } catch (error) {
-        if (!submitted) await undo().catch(() => {})
+        // Kept when the write may have reached the forge; taken back when it never left or was definitely refused.
+        if (!submitted || refusedByForge) await undo().catch(() => {})
         throw error
       }
     })

@@ -361,3 +361,27 @@ test('bridge invocation forwards the host-recorded checkout, never a tool argume
     {},
   ])
 })
+
+test('bridge invocation forwards the turn the host has running, read at each call, never a tool argument', async () => {
+  const seen: ScopeQuery[] = []
+  const tools = {
+    list: () => [{ id: 'git-status', namespace: 'git', name: 'git_status' }],
+    invokeTool: async (_id: unknown, _args: unknown, scope: ScopeQuery) => {
+      seen.push(scope)
+      return { ok: true, content: [] }
+    },
+  } as unknown as CapabilityRegistry
+  let turn: string | undefined = 'turn-1'
+  const callers = new Map([['seat-token', { runtime: 'fake', sessionId: 'seat', get turnId() { return turn } }]])
+  const call = { namespace: 'git', name: 'git_status', args: { turnId: 'forged' }, caller: 'seat-token' }
+  await invokeForBridge(tools, callers, call)
+  turn = 'turn-2'
+  await invokeForBridge(tools, callers, call)
+  turn = undefined
+  await invokeForBridge(tools, callers, call)
+  assert.deepEqual(seen, [
+    { runtime: 'fake', sessionId: 'seat', turnId: 'turn-1' },
+    { runtime: 'fake', sessionId: 'seat', turnId: 'turn-2' },
+    { runtime: 'fake', sessionId: 'seat' },
+  ])
+})

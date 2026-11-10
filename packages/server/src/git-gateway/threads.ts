@@ -9,9 +9,26 @@ interface ThreadState {
   readonly rounds: Record<string, string[]>
   /** `repository#number` → the threads the desk has answered. */
   readonly answered: Record<string, string[]>
+  /**
+   * Set when an earlier record could not be read and was moved aside: what
+   * it held is unknown, so agents settle nothing on a pull request until the
+   * person has settled one there (`cleared`).
+   */
+  readonly unreadable?: { readonly at: number; readonly file: string; readonly cleared: string[] }
 }
 
 const empty = (): ThreadState => ({ version: 1, rounds: {}, answered: {} })
+
+const isLists = (input: unknown): input is Record<string, string[]> =>
+  !!input && typeof input === 'object' && !Array.isArray(input)
+  && Object.values(input).every(list => Array.isArray(list) && list.every(item => typeof item === 'string'))
+
+const isUnreadable = (input: unknown): input is ThreadState['unreadable'] => {
+  if (input === undefined) return true
+  const value = input as { at?: unknown; file?: unknown; cleared?: unknown } | null
+  return !!value && typeof value === 'object' && Number.isSafeInteger(value.at) && typeof value.file === 'string'
+    && Array.isArray(value.cleared) && value.cleared.every(item => typeof item === 'string')
+}
 
 /**
  * Host state for review threads settled by outcome: which repair rounds each
@@ -30,20 +47,29 @@ export class ReviewThreadLedger {
     return `${ReviewThreadLedger.pullRequestKey(repository, number)}#${reviewer.toLowerCase()}`
   }
 
+  /**
+   * The record as it stands. One that cannot be parsed, or is not exactly
+   * this shape, is never read as empty — that would reset every count and
+   * answered note. It is moved aside as `review-threads.json.corrupt-<time>`
+   * and replaced by a record that holds agents back until the person acts.
+   */
   async #read(): Promise<ThreadState> {
-    try {
-      const value = JSON.parse(await readFile(this.#path, 'utf8')) as Partial<ThreadState> | null
-      if (!value || typeof value !== 'object' || value.version !== 1) return empty()
-      const lists = (input: unknown): Record<string, string[]> => {
-        if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
-        return Object.fromEntries(Object.entries(input as Record<string, unknown>)
-          .filter((entry): entry is [string, string[]] => Array.isArray(entry[1]) && entry[1].every(item => typeof item === 'string')))
-      }
-      return { version: 1, rounds: lists(value.rounds), answered: lists(value.answered) }
-    } catch (error) {
+    let text: string
+    try { text = await readFile(this.#path, 'utf8') }
+    catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return empty()
       throw error
     }
+    let value: Partial<ThreadState> | null = null
+    try { value = JSON.parse(text) as Partial<ThreadState> | null } catch { value = null }
+    if (value && typeof value === 'object' && value.version === 1 && isLists(value.rounds) && isLists(value.answered) && isUnreadable(value.unreadable)) {
+      return { version: 1, rounds: value.rounds, answered: value.answered, ...(value.unreadable ? { unreadable: value.unreadable } : {}) }
+    }
+    const at = Date.now(), file = `review-threads.json.corrupt-${at}`
+    await rename(this.#path, join(this.stateDirectory, file))
+    const state: ThreadState = { ...empty(), unreadable: { at, file, cleared: [] } }
+    await this.#write(state)
+    return state
   }
 
   async #write(state: ThreadState): Promise<void> {
@@ -66,6 +92,29 @@ export class ReviewThreadLedger {
   /** The distinct rounds a reviewer's threads on one pull request were settled in. */
   rounds(repository: string, number: number, reviewer: string): Promise<readonly string[]> {
     return this.#serial(async () => (await this.#read()).rounds[ReviewThreadLedger.reviewerKey(repository, number, reviewer)] ?? [])
+  }
+
+  /**
+   * Why agents may settle nothing on this pull request right now, or null:
+   * an earlier record was unreadable and the person has not settled a
+   * thread here since.
+   */
+  held(repository: string, number: number): Promise<string | null> {
+    return this.#serial(async () => {
+      const { unreadable } = await this.#read()
+      if (!unreadable || unreadable.cleared.includes(ReviewThreadLedger.pullRequestKey(repository, number))) return null
+      return `The review-thread record could not be read and was set aside as ${unreadable.file}, so its round counts and answers are unknown; settle a thread on pull request #${number} yourself first. Nothing was written.`
+    })
+  }
+
+  /** The person settled a thread on this pull request: agents may settle it again. */
+  clear(repository: string, number: number): Promise<void> {
+    return this.#serial(async () => {
+      const state = await this.#read()
+      const key = ReviewThreadLedger.pullRequestKey(repository, number)
+      if (!state.unreadable || state.unreadable.cleared.includes(key)) return
+      await this.#write({ ...state, unreadable: { ...state.unreadable, cleared: [...state.unreadable.cleared, key] } })
+    })
   }
 
   /** The threads on one pull request the desk has answered. */
