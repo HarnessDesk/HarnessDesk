@@ -366,7 +366,7 @@ export class LeadContextStore {
       // The person's words come from the desk, never from the model: only a message the desk recorded as theirs.
       const person = this.#personSection(region, this.#turns.slice(from))
       const attempts = journal.state.context.failures >= LEAD_CONTEXT.breaker ? 1 : LEAD_CONTEXT.attempts
-      let text: string | null = null, usdMicros = 0
+      let text: string | null = null, usdMicros = 0, turnedAway = 0
       for (let attempt = 0; attempt < attempts && text === null; attempt++) {
         const spent = journal.state.budget?.leadUsdMicros ?? 0
         let reason: string
@@ -395,8 +395,9 @@ export class LeadContextStore {
         }
         if (text === null) await journal.contextCompactionFailed(id, reason.slice(0, 64))
         // The provider refused the checkpoint request itself: the same request again fares no better, and stopping
-        // here would leave the conversation to grow until it is too long. The desk writes this one.
-        if (reason === 'lead-messages-request') break
+        // here would leave the conversation to grow until it is too long. The desk writes this one. A refusal of the
+        // moment (a timeout, a conflict) gets one more ask first.
+        if (reason === 'lead-messages-request' || reason === 'lead-messages-transient' && turnedAway++) break
       }
       const fallback = text === null
       text ??= leadFallbackCheckpoint({ region, previous, ledgerIds: requiredIds, person })

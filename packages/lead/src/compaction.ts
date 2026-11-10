@@ -58,18 +58,22 @@ const MODEL_KEYS = new Map(MODEL_SECTIONS.map(section => [titleKey(section), sec
 const QUOTED = /^(?:\s*>)*\s*/
 const ATX = /^((?:\s*>)*)\s*#{1,6}(?:\s+(.*?))?\s*$/u
 const UNDERLINE = /^(?:\s*>)*\s*(?:=+|-+)\s*$/
-/** A bracketed reference after a quotation mark: the shape of the desk's quote of a person message. */
-const QUOTE_MARKS = '"\'\u00ab\u00bb\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f\u2039\u203a\u300c\u300d\u300e\u300f'
-const QUOTE_LIKE = new RegExp(`[${QUOTE_MARKS}].*\\[[^[\\]\\n]{1,128}\\]`, 'u')
-/** A line of the model's that could read as the desk quoting the person loses that standing: its brackets become
- * parentheses and it says whose it is. Its words stay. */
+/** The desk's quote of a person message, in any of its marks: an optional list marker, a double quotation mark that
+ * opens the content, its closing mark, then a bracketed reference that ends the line. Apostrophes and single marks are
+ * not quotation here: "It's" and "the worker's" are ordinary text. */
+const OPENS = '"\u201c\u201d\u201e\u201f\u00ab\u00bb\u2039\u203a\u05f4\u02ba\u300c\u300e\uff02'
+const BRACKET_OPEN = '[\u3010\u3014\u3016\u27e6\uff3b', BRACKET_CLOSE = '\\]\u3011\u3015\u3017\u27e7\uff3d'
+const DESK_QUOTE = new RegExp(`^((?:\\s*>)*\\s*)(?:(?:[-*+\u2022]|\\d+[.)])\\s*)?([${OPENS}].*[${OPENS}\u300d\u300f])\\s*[${BRACKET_OPEN}]\\s*([^${BRACKET_CLOSE}${BRACKET_OPEN}]{1,128}?)\\s*[${BRACKET_CLOSE}]\\s*$`, 'u')
+/** A line of the model's in the desk's quote shape loses that standing: it says it is the Lead's note and its trailing
+ * reference is put in parentheses. Every other line, brackets and links included, is kept byte for byte. */
 const defang = (line: string): string => {
-  const flat = plain(line)
-  if (!QUOTE_LIKE.test(flat)) return line
-  let body = flat.replace(QUOTED, '').replace(/^(?:[-*+\u2022]|\d+[.)])\s*/u, '')
-  while (/\[[^[\]\n]*\]/.test(body)) body = body.replace(/\[([^[\]\n]*)\]/g, '($1)')
-  return `${QUOTED.exec(flat)![0]}- The Lead's note, not a desk quote: ${body}`
+  const match = DESK_QUOTE.exec(plain(line))
+  return match ? `${match[1]}- The Lead's note, not a desk quote: ${match[2]} (${match[3]})` : line
 }
+/** Every line terminator a renderer or a model reads as a break becomes one newline, and other control characters
+ * (a tab aside) are dropped, before anything is read: the heading and quote checks, and the fallback after them, see
+ * the very lines a reader does. */
+const lines = (text: string): string[] => text.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n').replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u0084\u0086-\u009f]/g, '').split('\n')
 /**
  * The model's checkpoint read structurally: only the five headings it was asked for open a section (spelt however it
  * likes, kept under the desk's spelling); a heading that names the person's section is dropped with what follows it up
@@ -77,20 +81,20 @@ const defang = (line: string): string => {
  * the shape of a desk quote. What comes before the first section is dropped.
  */
 const modelSections = (text: string): { readonly section: string; readonly body: string }[] => {
-  const lines = text.split('\n'), parts: { section: string; body: string[] }[] = []
+  const all = lines(text), parts: { section: string; body: string[] }[] = []
   let skipping = false
   const keep = (line: string) => { if (!skipping) parts.at(-1)?.body.push(defang(line)) }
-  for (let index = 0; index < lines.length; index++) {
-    const flat = plain(lines[index]!)
+  for (let index = 0; index < all.length; index++) {
+    const flat = plain(all[index]!)
     let heading: { readonly quote: string; readonly title: string } | null = null
     const atx = ATX.exec(flat)
     if (atx) heading = { quote: atx[1] ?? '', title: (atx[2] ?? '').replace(/\s+#+$/, '') }
-    else if (flat.trim() && !UNDERLINE.test(flat) && index + 1 < lines.length && UNDERLINE.test(plain(lines[index + 1]!))) {
+    else if (flat.trim() && !UNDERLINE.test(flat) && index + 1 < all.length && UNDERLINE.test(plain(all[index + 1]!))) {
       const quote = QUOTED.exec(flat)![0]
       heading = { quote: quote.includes('>') ? quote : '', title: flat.slice(quote.length) }
       index++
     }
-    if (!heading) { keep(lines[index]!); continue }
+    if (!heading) { keep(all[index]!); continue }
     const key = titleKey(heading.title)
     if (key === PERSON_KEY) { skipping = true; continue }
     skipping = false

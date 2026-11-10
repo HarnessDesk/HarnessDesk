@@ -313,7 +313,7 @@ test('tool results cannot execute hidden JSON serializers or disclose their retu
 })
 
 test('an unbilled client error zero-settles, names its cause and leaves the budget open', async () => {
-  for (const [status, reason] of [[401, 'lead-messages-auth'], [403, 'lead-messages-auth'], [400, 'lead-messages-request'], [413, 'lead-messages-request']] as const) {
+  for (const [status, reason] of [[401, 'lead-messages-auth'], [403, 'lead-messages-auth'], [400, 'lead-messages-request'], [413, 'lead-messages-request'], [408, 'lead-messages-transient'], [409, 'lead-messages-transient']] as const) {
     const s = await setup([{ status, processing: 'not-started', body: key }, message()])
     const result = await s.client.request(input, new AbortController().signal)
     assert.deepEqual(result, { status: 'failed', reason })

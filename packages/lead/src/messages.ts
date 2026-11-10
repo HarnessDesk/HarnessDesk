@@ -421,6 +421,8 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       if (response.status >= 400 && response.status < 500 && response.processing === 'not-started') {
         try { await zero() } catch { return uncertain() }
         return { status: 'failed', reason: response.status === 401 || response.status === 403 ? 'lead-messages-auth'
+          // A timeout or conflict the provider names is about that moment, not the request: the same one may pass next.
+          : response.status === 408 || response.status === 409 ? 'lead-messages-transient'
           : response.status === 400 && typeof response.body === 'string' && /prompt is too long|too many tokens|context (?:length|window)/i.test(response.body.slice(0, 4096)) ? 'lead-messages-too-long' : 'lead-messages-request' }
       }
       // No other status or transport rejection proves a zero charge.
