@@ -18,6 +18,8 @@ export interface LeadBudgetPort {
   acceptance?(run: StoredFlowExecution, journal: LeadJournal): Promise<LeadAcceptanceResult>
   canRerunChecks?(run: StoredFlowExecution, journal: LeadJournal): Promise<boolean>
   now(): number
+  /** Whether the goal's deadline has passed: no new round starts for it, as for a spending cap. */
+  deadlinePassed?(logicalGoalId: string): boolean
   runs(): readonly StoredFlowExecution[]
   /** Re-check the canonical project is still admitted, before every effect. */
   member(project: LeadProject): Promise<boolean>
@@ -288,6 +290,10 @@ export class LeadBudgets implements FlowLeadGuard {
   async round(run: StoredFlowExecution, roundId: string): Promise<void> {
     const journal = this.#journal(run)
     if (journal.state.budget!.rounds.some(item => item.executionId === run.id && item.roundId === roundId)) return
+    if (this.port.deadlinePassed?.(journal.state.budget!.logicalGoalId)) {
+      if (!journal.state.budget!.stop) await journal.updateBudget({ version: 1, type: 'stop', now: this.port.now(), reason: 'deadline' })
+      throw new Error('lead-round-refused')
+    }
     try { await journal.updateBudget({ version: 1, type: 'round', now: this.port.now(), executionId: run.id, roundId }) }
     catch {
       const view = leadBudgetProjection(journal.state.budget!, this.port.now())

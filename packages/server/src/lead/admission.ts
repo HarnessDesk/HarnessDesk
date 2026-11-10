@@ -67,6 +67,8 @@ export interface LeadAdmissionOptions {
   readonly now: () => number
   readonly readIntents: (goal: string) => readonly Pick<Intent, 'id' | 'state' | 'outcome'>[]
   readonly nextId: () => string
+  /** The reserved run: automatic work does not take the last slot. */
+  readonly slots?: { admit(): { readonly ok: boolean } }
 }
 /** Installed by the trusted host on the private connection. Admission annotates
  * the held token, so even redemption through another door retains its guard. */
@@ -98,6 +100,9 @@ export class LeadAdmission {
       !same(params.seats ?? {}, seats) || step.assignments.some(assignment =>
       !((assignment.role === 'implement' && assignment.agent === 'implementer' && assignment.ceiling === 'edit') ||
         (assignment.role === 'review' && assignment.agent === 'code-reviewer' && assignment.ceiling === 'read')))) return false
+    // The goal's time is up: no new step starts, as with a spent allowance.
+    if (budgets.port.deadlinePassed?.(budget.logicalGoalId)) return false
+    if (this.options.slots && !this.options.slots.admit().ok) return false
     const projection = budgets.startBudget(journal, attempt.correlationId)
     if (projection.stop || projection.spend !== 'known' || projection.reservedUsdMicros > 0) return false
     // Array order is execution order. Only the host's frozen review seating can

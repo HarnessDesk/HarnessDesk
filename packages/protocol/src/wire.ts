@@ -2953,6 +2953,14 @@ export interface HostMethods {
   /** The morning brief setting: whether it runs and at what time. Quiet hours come from the Lead's schedule. */
   'lead/brief/read': { params: Record<string, never>; result: import('./lead-presence.js').LeadBriefSettings }
   'lead/brief/update': { params: import('./lead-presence.js').LeadBriefUpdate; result: import('./lead-presence.js').LeadBriefSettings }
+  /** Off, Observe or Act for each thing the Lead does unasked; Observe only records. Read on the phone too. */
+  'lead/autonomy/read': { params: Record<string, never>; result: import('./lead-autonomy.js').LeadAutonomyView }
+  'lead/autonomy/set': { params: import('./lead-autonomy.js').LeadAutonomySet; result: import('./lead-autonomy.js').LeadAutonomyView }
+  /** The three sections the person writes, with versions; an edit reaches the model at its next epoch. */
+  'lead/rules/read': { params: Record<string, never>; result: import('./lead-autonomy.js').LeadRulesView }
+  'lead/rules/update': { params: import('./lead-autonomy.js').LeadRulesUpdate; result: import('./lead-autonomy.js').LeadRulesView }
+  /** A goal's deadline, or none: the Lead reports at 80% of the time and starts no new round at 100%. */
+  'lead/deadline/set': { params: import('./lead-autonomy.js').LeadDeadlineSet; result: import('./lead-autonomy.js').LeadAutonomyView }
 }
 
 /** One browser HarnessDesk found, and can start with remote debugging. */

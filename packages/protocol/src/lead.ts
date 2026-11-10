@@ -5,6 +5,7 @@ import type { CeilingLevel } from './evidence.js'
 import type { FlowSeat } from './flow.js'
 import { flowSeatValidator } from './flow-seat.js'
 import { parseLeadDeviceRef } from './lead-presence.js'
+import { LEAD_AUTONOMY_KINDS } from './lead-autonomy.js'
 import { isBoolean, isObject, literalUnion, optional, optionalNullable, ValidationError, type Validator } from './validate.js'
 
 /** Versioned plain data only. Provider credentials and transport descriptors are private to the child bootstrap. */
@@ -105,7 +106,7 @@ export interface LeadPermissionPolicy {
   readonly mode: LeadPermissionMode
   readonly rules: readonly LeadPermissionRule[]
 }
-export type LeadStopReason = 'budget' | 'rounds' | 'unknown-spend' | 'cancelled' | 'connection-lost' | 'recovery' | 'error'
+export type LeadStopReason = 'budget' | 'rounds' | 'unknown-spend' | 'cancelled' | 'connection-lost' | 'recovery' | 'error' | 'deadline'
 export interface LeadBudgetState {
   readonly version: 1
   /** Present in host thread projections to fence controls to the current goal. */
@@ -360,6 +361,8 @@ export interface LeadWakeRecord {
   readonly usdMicros: number | null
   /** What the wake's model requests reported, summed. Absent for a wake without a model turn and on older records. */
   readonly tokens?: LeadWakeTokens
+  /** Set when the person's setting was Observe: the host saw this kind of thing and did nothing about it. */
+  readonly observed?: import('./lead-autonomy.js').LeadAutonomyKind
 }
 export interface LeadWakeLog { readonly revision: number; readonly wakes: readonly LeadWakeRecord[] }
 /** A goal the Lead opens on its own at a set time. It only ever reaches a plan card: the person still approves. */
@@ -437,7 +440,7 @@ export const LEAD_CONTROL_REFUSALS = ['lead-runtime-unsupported', 'lead-unavaila
   'lead-approval-not-live', 'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
-  'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending', 'lead-ask-expired', 'lead-ask-answered'] as const
+  'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending', 'lead-ask-expired', 'lead-ask-answered', 'lead-slot-reserved', 'lead-rules-stale'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
@@ -615,7 +618,7 @@ const rule: Validator<LeadPermissionRule> = (value, path = '') => {
 export const parseLeadPermissionPolicy: Validator<LeadPermissionPolicy> = object({
   version, revision, mode: literalUnion('plan', 'default', 'manage'), rules: list(rule, LEAD_LIMITS.rules, 0, rule => rule.id),
 })
-const stopReason = literalUnion('budget', 'rounds', 'unknown-spend', 'cancelled', 'connection-lost', 'recovery', 'error')
+const stopReason = literalUnion('budget', 'rounds', 'unknown-spend', 'cancelled', 'connection-lost', 'recovery', 'error', 'deadline')
 const budgetState: Validator<LeadBudgetState> = object({
   version, logicalGoalId: optional(id), revision, caps: parseLeadCaps, leadUsdMicros: micros, workerUsdMicros: micros, reservedUsdMicros: micros,
   roundsAdmitted: integer(0, LEAD_LIMITS.rounds), spend: literalUnion('known', 'unknown', 'stale', 'partial', 'ambiguous'),
@@ -949,7 +952,7 @@ export const parseLeadActionInput: Validator<LeadActionInput> = object({ id, con
 
 const wakeTokens = integer(0, 1_000_000_000)
 const parseLeadWakeTokens: Validator<LeadWakeTokens> = object({ input: wakeTokens, output: wakeTokens, cacheRead: wakeTokens, cacheWrite: wakeTokens })
-export const parseLeadWakeRecord: Validator<LeadWakeRecord> = omitUnset(object<LeadWakeRecord>({ id, at: integer(0, Number.MAX_SAFE_INTEGER), source: literalUnion('schedule', 'desk-change', 'person', 'trigger'), decision: literalUnion('silent', 'spoke', 'asked'), modelTurn: isBoolean, usdMicros: nullable(micros), tokens: optional(parseLeadWakeTokens) }), ['tokens'])
+export const parseLeadWakeRecord: Validator<LeadWakeRecord> = omitUnset(object<LeadWakeRecord>({ id, at: integer(0, Number.MAX_SAFE_INTEGER), source: literalUnion('schedule', 'desk-change', 'person', 'trigger'), decision: literalUnion('silent', 'spoke', 'asked'), modelTurn: isBoolean, usdMicros: nullable(micros), tokens: optional(parseLeadWakeTokens), observed: optional(literalUnion(...LEAD_AUTONOMY_KINDS)) }), ['tokens', 'observed'])
 export const parseLeadWakeLog: Validator<LeadWakeLog> = object({ revision: integer(), wakes: list(parseLeadWakeRecord, 128, 0, wake => wake.id) })
 
 export const parseLeadApprovalRevoke: Validator<{ readonly id: string; readonly contractDigest: string }> = object({ id, contractDigest: digest })

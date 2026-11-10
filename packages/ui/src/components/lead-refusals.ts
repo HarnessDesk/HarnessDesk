@@ -20,6 +20,8 @@ export const REFUSALS: Record<LeadControlRefusal, string> = {
   'lead-repeat-quiet': 'Quiet hours are holding this run. Try again after they end.',
   'lead-ask-expired': 'This question expired. Nothing was done.',
   'lead-ask-answered': 'This question was already answered. Nothing was done.',
+  'lead-slot-reserved': 'The last run is kept for your own follow-up, so automatic work waits.',
+  'lead-rules-stale': 'These words changed since you opened them. Read them again.',
   'lead-project-missing': 'Open a folder first, then send your goal.',
 }
 

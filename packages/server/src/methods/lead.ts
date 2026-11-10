@@ -45,4 +45,9 @@ export const leadMethods = {
   'lead/presence/dismiss': (ctx, params) => ctx.leadPresence.dismiss(params.device, params.digest),
   'lead/brief/read': ctx => ctx.leadPresence.brief(),
   'lead/brief/update': (ctx, params) => ctx.leadPresence.updateBrief(params),
+  'lead/autonomy/read': ctx => ctx.leadAutonomy.view(),
+  'lead/autonomy/set': (ctx, params) => ctx.leadAutonomy.set(params),
+  'lead/rules/read': ctx => ctx.leadAutonomy.rules(),
+  'lead/rules/update': (ctx, params) => ctx.leadAutonomy.updateRules(params),
+  'lead/deadline/set': (ctx, params) => ctx.leadAutonomy.setDeadline(params),
 } satisfies MethodsUnder<'lead/'>

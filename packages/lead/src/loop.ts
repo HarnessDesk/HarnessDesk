@@ -4,6 +4,7 @@ import type { LeadJournalPort } from './child-ipc.js'
 import { leadProactiveReport, type LeadWakeRecord, clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
 import { isLeadQuiet, leadApprovedPlan, leadInstructions, leadObservation, type LeadSeatChoices } from './instructions.js'
+import { leadWakeAutonomy } from './autonomy.js'
 import { classifyLeadRuns, createLeadWakeGate, leadChatFingerprint, type LeadRunReading, type LeadWakeCounts } from './wake.js'
 import { createLeadMessages } from './messages.js'
 import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesTurn, MessagesUsage } from './messages-types.js'
@@ -549,7 +550,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         const fromStore = owed || changed
         const activity = dirty, continueTools = continuationPending
         dirty = false; continuationPending = false
-        const pendingWake: LeadWakeRecord = { id: nextId(), at: clock.now(), source: continueTools ? requestTemplate?.wakeSource ?? 'person' : 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null }
+        let pendingWake: LeadWakeRecord = { id: nextId(), at: clock.now(), source: continueTools ? requestTemplate?.wakeSource ?? 'person' : 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null }
         let stepped = false
         try {
           if (journal.state.phase === 'following') return
@@ -568,6 +569,18 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           const look = activity ? gate.look(snapshot, owned(), personActions, clock.now(), observedChats()) : null
           report()
           if (look && !look.wake && !continueTools && !deskOwed && !chatChanges.length) return
+          // The person's Off and Observe for unasked reports: the host looked, nothing woke the model. Observe says what it
+          // would have done in the wake ledger; the change is taken as seen, so it is said once and not at every check.
+          if (!continueTools && !deskOwed && (look?.wake || chatChanges.length)) {
+            const gated = leadWakeAutonomy(journal.state, look?.why ?? null)
+            if (!gated.allow) {
+              if (look) gate.shown(look.fingerprint)
+              for (const [id, state] of chatChanges) if (changedChats.get(id) === state) changedChats.delete(id)
+              if (gated.observe) pendingWake = { ...pendingWake, observed: gated.observe }
+              report()
+              return
+            }
+          }
           deskOwed = false
           if (look) gate.shown(look.fingerprint)
           // The desk compacted the stored conversation since this copy was taken: read it again. A tool loop still in

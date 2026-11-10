@@ -48,6 +48,8 @@ export interface LeadChatsPorts {
     readonly schedule?: (run: () => void, delay: number) => () => void
   }
   readonly publish?: (event: LeadChatActivity) => void
+  /** The reserved run: a start the Lead makes for automatic work is refused while only the person's slot is left. */
+  readonly slots?: { assert(): void }
   /**
    * Account pacing. Asked only for a start the Lead made without naming an agent, and answered only when the person
    * turned on "Prefer the account that resets soonest" for the agent the desk would start on. The agent is one the
@@ -95,6 +97,12 @@ export class LeadChats {
     void this.#ready.catch(() => {})
   }
   restore(): Promise<void> { return this.#ready }
+  /** Chats the Lead holds that are working right now. */
+  liveHeld(): number {
+    const chats = this.ports.control?.current?.(this.ports.project.path).chats ?? []
+    return chats.filter(chat => { if (chat.holder !== 'lead') return false
+      const at = chat.id.indexOf(':'); return at > 0 && this.ports.live(runtimeId(chat.id.slice(0, at)), sessionId(chat.id.slice(at + 1))).running }).length
+  }
   async idle(retries = true): Promise<void> {
     await this.#ready
     for (;;) { const changes = this.#changes; await changes; if (retries) await this.incidents?.idle(); if (changes === this.#changes) return }
@@ -470,6 +478,7 @@ export class LeadChats {
     text: string, agent: string | undefined, paced: { readonly agent: string; readonly label: string } | null, admit: (id?: string) => Promise<void>, effectStarted: () => void, attemptId: string): Promise<HostResult<'lead/chat/start'>> {
     {
       const envelope = this.#envelope(text)
+      this.ports.slots?.assert()
       await this.ports.control?.assertCanStart?.(this.ports.project.path)
       let createdId: string | undefined, moveClaimed = false, creationStarted = false, firstMessageStarted = false
       const scope = this.#liveScope(call, attemptId, () => createdId)

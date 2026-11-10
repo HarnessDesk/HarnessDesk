@@ -43,6 +43,8 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/presence/read': 'read',
     'lead/presence/dismiss': 'read',
     'lead/brief/read': 'read',
+    // The table of what the Lead does unasked, with the rule words in force: read here, switches below.
+    'lead/autonomy/read': 'read',
     // The work itself, read-only and redacted: projections written for the phone, never the desk's own records.
     'phone/sessions/list': 'read',
     'phone/teams/list': 'read',
@@ -74,6 +76,8 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/budget/raise': 'answer',
     // The money limit alone, as narrow as a raise: `lead/settings/update`, which also writes policy and keys, stays off the phone.
     'lead/spendLimit/set': 'answer',
+    // One switch of the autonomy table; rules and deadlines are written on the desk.
+    'lead/autonomy/set': 'answer',
     // Mention triage, read only: switching a trigger to act or evaluating a request again is the desk's.
     'phone/triage/list': 'read',
   },

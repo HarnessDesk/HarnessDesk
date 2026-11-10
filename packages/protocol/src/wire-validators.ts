@@ -43,6 +43,7 @@ import type { LibraryIntent, LibraryPlannedOp } from './library.js'
 import { runtimeId, type RuntimeId, type SessionId } from './ids.js'
 import type { ReviewRequest } from './runtime.js'
 import { parseLeadWorkClose, parseLeadWorkList, parseLeadWorkNote, parseLeadWorkRead } from './lead-work.js'
+import { parseLeadAutonomySet, parseLeadDeadlineSet, parseLeadRulesUpdate } from './lead-autonomy.js'
 import { parseLeadBriefUpdate, parseLeadPresenceDismiss, parseLeadPresenceRead } from './lead-presence.js'
 
 /**
@@ -1756,6 +1757,11 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'lead/presence/dismiss': parseLeadPresenceDismiss,
   'lead/brief/read': parseLeadEmpty,
   'lead/brief/update': parseLeadBriefUpdate,
+  'lead/autonomy/read': parseLeadEmpty,
+  'lead/autonomy/set': parseLeadAutonomySet,
+  'lead/rules/read': parseLeadEmpty,
+  'lead/rules/update': parseLeadRulesUpdate,
+  'lead/deadline/set': parseLeadDeadlineSet,
 }
 
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]
