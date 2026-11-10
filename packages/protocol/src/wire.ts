@@ -4,7 +4,7 @@ import type {
   PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
   PhoneWorkItem, PhoneWorkSnapshot, PhoneWorkThread,
 } from './phone.js'
-import type { LeadChatControlList, LeadRepeatControl, LeadBudgetRaise, LeadSpendLimitSet, LeadWakeLog, LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged, LeadSchedule, LeadMemory, LeadContextFacts } from './lead.js'
+import type { LeadChatControlList, LeadRepeatControl, LeadBudgetRaise, LeadSpendLimitSet, LeadWakeLog, LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged, LeadSchedule, LeadMemory, LeadContextFacts, LeadContextUse } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
@@ -885,6 +885,8 @@ export interface HostMethods {
   'lead/context/read': { params: Record<string, never>; result: LeadContextFacts }
   /** Window only. Summarise the earlier conversation now, instead of when it fills; refused while the Lead is busy. */
   'lead/context/compact': { params: Record<string, never>; result: LeadContextFacts }
+  /** How full the Lead's conversation is, as one figure: read by the Lead about itself and by a phone. */
+  'lead/context/use': { params: Record<string, never>; result: LeadContextUse }
   'client/hello': {
     params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }
     result: {

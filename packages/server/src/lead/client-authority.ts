@@ -79,6 +79,8 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
         if (request.method === 'lead/work/list' || request.method === 'lead/work/read' || request.method === 'lead/work/note') return null
         // The Lead's memory is the person's and this Lead's, kept by the host; a proposal only reaches the person's inbox.
         if (request.method === 'lead/memory/propose' || request.method === 'lead/memory/search') return null
+        // How full its own conversation is: a figure, with no summary text.
+        if (request.method === 'lead/context/use') return null
         // Re-resolve the pinned location, including on reads, rather than allowing
         // a renamed/deleted project to be replaced by a new alias at dispatch.
         // The three desk-wide reads above deliberately return before this project check.

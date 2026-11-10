@@ -515,3 +515,9 @@ test('allowance summary is a desk-wide read with no selected project', () => {
   const c = { ...context(), project: null, approved: null }
   assert.equal(decide({ method: 'lead/usage/summary', params: {}, project: null, runId: null, start: null }, c).effect, 'allow')
 })
+
+test('the Lead reads its own context use with no selected project, and never the summaries through its client', () => {
+  const c = { ...context(), project: null, approved: null }
+  assert.equal(decide({ method: 'lead/context/use', params: {}, project: null, runId: null, start: null }, c).effect, 'allow')
+  assert.notEqual(decide({ method: 'lead/context/read', params: {}, project: null, runId: null, start: null }, c).effect, 'allow')
+})

@@ -517,3 +517,8 @@ test('Lead client authority allows the title-only desk summary without widening 
   assert.equal(await authority.authorize({ id: 1, method: 'lead/desk/summary', params: {} }), null)
   assert.equal(await authority.authorize({ id: 2, method: 'lead/chat/read', params: { id: 'fixture:foreign' } }), 'leadScope')
 })
+
+test('Lead client authority lets the Lead read its own context use', async t => {
+  const { authority } = await rig(t)
+  assert.equal(await authority.authorize({ id: 1, method: 'lead/context/use', params: {} } as never), null)
+})

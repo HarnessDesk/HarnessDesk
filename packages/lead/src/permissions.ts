@@ -55,7 +55,9 @@ const deskWideReads = new Set(['client/hello', 'library/usage', 'lead/desk/summa
   // The Lead's own ledger: titles, host stages and its notes, kept by the host, never transcripts.
   'lead/work/list', 'lead/work/read', 'lead/work/note',
   // Its own memory: a proposal waits for the person in their inbox; a search reads its own notes and conversation.
-  'lead/memory/propose', 'lead/memory/search'])
+  'lead/memory/propose', 'lead/memory/search',
+  // How full its own conversation is: a figure, never the conversation.
+  'lead/context/use'])
 const actionOf = (method: string, params: unknown): string | null =>
   Object.hasOwn(CLIENT_ACTION_TIERS, method) && typeof record(params).action === 'string' ? record(params).action as string : null
 // Canonical structural equality: property insertion order never changes authority.

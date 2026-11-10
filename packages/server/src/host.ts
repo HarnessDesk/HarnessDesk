@@ -10,7 +10,7 @@ import { readChecks } from './evidence/checks-file.js'
 import { LeadRepeats } from './lead/repeats.js'
 import { HarnessDeskAccount } from './harnessdesk-account.js'
 import { gitSteerContext } from './git-gateway/steer-context.js'
-import { redactGitCommand } from '@harnessdesk/protocol'
+import { leadContextUse, redactGitCommand } from '@harnessdesk/protocol'
 import { GitSteering, type SteerScope } from './git-gateway/steering.js'
 import { parseGitCommand } from '@harnessdesk/protocol'
 import { LeadAutomaticGoals } from './lead/automatic-goals.js'
@@ -5986,6 +5986,7 @@ export class Host {
       leadMemoryPropose: async params => (await this.#leadMemory()).propose(params, this.#leadJournal?.state.seq ?? 0),
       leadMemorySearch: async params => this.#leadMemorySearch(params.query, params.limit),
       leadContextRead: async () => (await this.#leadWindow()).readContext(),
+      leadContextUse: async () => leadContextUse(await (await this.#leadWindow()).readContext()),
       leadContextCompact: async () => (await this.#leadWindow()).compactContext(),
       leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,

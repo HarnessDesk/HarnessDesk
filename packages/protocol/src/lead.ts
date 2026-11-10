@@ -1087,6 +1087,27 @@ export interface LeadContextFacts {
    * turns: no compaction runs until it grows further. Absent otherwise. */
   readonly full?: true
 }
+
+/** How full the Lead's conversation is, as one figure: what the Lead reads about itself and what a phone shows. No
+ * summary text, so it carries none of the conversation. */
+export interface LeadContextUse {
+  readonly version: 1
+  readonly windowTokens: number
+  /** The prompt of the latest request, or null before the first. */
+  readonly usedTokens: number | null
+  /** `usedTokens` as a whole percent of the window, or null before the first request. */
+  readonly percent: number | null
+  /** When the earlier conversation was last summarised, or null when it never was. */
+  readonly lastSummaryAt: number | null
+  readonly compacting: boolean
+  readonly full?: true
+}
+export const leadContextUse = (facts: LeadContextFacts): LeadContextUse => ({
+  version: 1, windowTokens: facts.windowTokens, usedTokens: facts.usedTokens,
+  percent: facts.usedTokens === null || facts.windowTokens <= 0 ? null : Math.round(facts.usedTokens / facts.windowTokens * 100),
+  lastSummaryAt: facts.checkpoints.reduce<number | null>((latest, one) => latest === null || one.at > latest ? one.at : latest, null),
+  compacting: facts.compacting, ...(facts.full ? { full: true as const } : {}),
+})
 export const LEAD_CONTEXT_CHECKPOINT_CHARS = 32_768
 const parseLeadCheckpointPerson: Validator<LeadCheckpointPerson> = object({
   messages: list(object({ id, text: boundedText(LEAD_CHECKPOINT_PERSON.messageChars, true, /[\u0000-\u001f\u007f-\u009f]/) }), LEAD_CHECKPOINT_PERSON.messages),

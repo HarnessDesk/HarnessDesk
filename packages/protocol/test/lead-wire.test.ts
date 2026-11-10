@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { CLIENT_METHODS, LEAD_LIMITS, knownMethods, parseClientMessage, parseLeadAsk, parseLeadThreadSend } from '../src/index.js'
+import { CLIENT_METHODS, LEAD_LIMITS, knownMethods, leadContextUse, parseClientMessage, parseLeadAsk, parseLeadThreadSend } from '../src/index.js'
 
 const names = ['lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/approval/revoke', 'lead/repeat/control', 'lead/budget/raise', 'lead/spendLimit/set', 'lead/wakes/read', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/memory/view', 'lead/memory/change', 'lead/schedule/read', 'lead/schedule/update', 'lead/context/read', 'lead/context/compact']
 const chatNames = ['lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']
@@ -11,10 +11,13 @@ const presenceNames = ['lead/presence/read', 'lead/presence/dismiss', 'lead/brie
 const autonomyNames = ['lead/autonomy/read', 'lead/autonomy/set', 'lead/rules/read', 'lead/rules/update', 'lead/deadline/set']
 
 test('the closed Lead window controls validate and none is on the client surface', () => {
-  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames, ...presenceNames, ...autonomyNames, 'lead/memory/propose', 'lead/memory/search'].sort())
+  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames, ...presenceNames, ...autonomyNames, 'lead/memory/propose', 'lead/memory/search', 'lead/context/use'].sort())
   for (const name of names) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false)
   // The Lead's own two memory methods are the only memory methods its client may call.
   for (const name of ['lead/memory/propose', 'lead/memory/search']) assert.equal(Object.hasOwn(CLIENT_METHODS, name), true)
+  // The Lead reads its own context use; it never summarises or reads the summaries' words through its client.
+  assert.equal(CLIENT_METHODS['lead/context/use' as keyof typeof CLIENT_METHODS], 'read')
+  assert.equal(Object.hasOwn(CLIENT_METHODS, 'lead/context/read'), false)
   for (const name of ['lead/wakes/read', 'lead/thread/read', 'lead/settings/read']) assert.doesNotThrow(() => request(name, {}))
   assert.doesNotThrow(() => request('lead/thread/send', { idempotencyKey: 'send-1', text: 'Inspect the check' }))
   assert.doesNotThrow(() => request('lead/resume', { expectedRevision: 0 }))
@@ -216,4 +219,17 @@ test('autonomy and rules take closed shapes: a kind with a mode, a section with 
   assert.doesNotThrow(() => request('lead/deadline/set', { logicalGoalId: 'goal-1', deadlineAt: null }))
   for (const params of [{ logicalGoalId: 'goal-1', deadlineAt: 1.5 }, { logicalGoalId: 'goal-1' }, { deadlineAt: 5 }, { logicalGoalId: 'goal-1', deadlineAt: -1 }])
     assert.throws(() => request('lead/deadline/set', params), { name: 'ValidationError' }, JSON.stringify(params))
+})
+
+test('context use is one figure: percent of the window, tokens, and when the conversation was last summarised', () => {
+  const facts = { version: 1 as const, windowTokens: 200_000, usedTokens: 73_622, cacheHitRate: 0.9, compacting: false,
+    checkpoints: [{ id: 'c1', at: 1_000, fallback: false, beforeTokens: 150_000, afterTokens: 20_000, text: 'Earlier summary words' },
+      { id: 'c2', at: 2_000, fallback: false, beforeTokens: 150_000, afterTokens: 20_000, text: 'Later summary words' }] }
+  const use = leadContextUse(facts as never)
+  assert.deepEqual(use, { version: 1, windowTokens: 200_000, usedTokens: 73_622, percent: 37, lastSummaryAt: 2_000, compacting: false })
+  assert.ok(!JSON.stringify(use).includes('summary words'), 'no summary text: a figure, not the conversation')
+  assert.deepEqual(leadContextUse({ ...facts, usedTokens: null, checkpoints: [] } as never), { version: 1, windowTokens: 200_000, usedTokens: null, percent: null, lastSummaryAt: null, compacting: false })
+  assert.equal(leadContextUse({ ...facts, full: true } as never).full, true)
+  assert.doesNotThrow(() => request('lead/context/use', {}))
+  assert.throws(() => request('lead/context/use', { more: 1 }))
 })

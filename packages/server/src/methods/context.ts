@@ -199,6 +199,8 @@ export interface HostContext {
   leadMemorySearch(params: HostParams<'lead/memory/search'>): Promise<HostResult<'lead/memory/search'>>
   /** How full the Lead's conversation is, how much of it the provider read from its cache, and its checkpoints. */
   leadContextRead(): Promise<HostResult<'lead/context/read'>>
+  /** The same, as one figure with no summary text: what the Lead reads about itself and a phone shows. */
+  leadContextUse(): Promise<HostResult<'lead/context/use'>>
   /** The person's "Summarise now": one compaction, refused while the Lead is answering. */
   leadContextCompact(): Promise<HostResult<'lead/context/compact'>>
   readonly leadStarts?: Pick<import('../lead/budgets.js').LeadBudgets, 'validateStart'>
