@@ -16,14 +16,60 @@ export interface ForgeGitEntry {
   readonly sha?: string; readonly previousSha?: string | null; readonly lease?: string | null
   readonly requester: ForgeRequester | { readonly kind: 'outside' }
   readonly approval: { readonly by: 'person' | 'standing' | 'ceiling' | 'steered'; readonly at?: number } | null
-  readonly at: number; readonly op: 'push' | 'pr.create' | 'pr.update' | 'pr.merge' | 'pr.comment' | 'pr.review' | 'issue.comment' | 'observed'
+  readonly at: number; readonly op: 'push' | 'pr.create' | 'pr.update' | 'pr.merge' | 'pr.comment' | 'pr.review' | 'issue.comment' | 'observed' | 'pr.thread.resolve' | 'pr.thread.answer'
+  /** The review thread a `pr.thread.*` row settled. */
+  readonly thread?: string
   readonly outcome: 'intent' | 'unknown' | 'observed-merged' | 'ok' | 'refused' | 'failed' | 'rejected'; readonly reason?: string
 }
 export interface ForgeWriteResult { readonly output: string; readonly repository: string }
-export type ForgeVerb = 'push' | 'create' | 'update' | 'merge' | 'review' | 'comment' | 'record' | 'attribute' | 'repository' | 'associatedPullRequest'
+export type ForgeVerb = 'push' | 'create' | 'update' | 'merge' | 'review' | 'comment' | 'record' | 'attribute' | 'repository' | 'associatedPullRequest' | 'reviewThreads' | 'settleThread'
 
 export type ForgeAssociatedPullRequest =
   | { readonly status: 'found'; readonly number: number; readonly repository: string }
   | { readonly status: 'none' }
   | { readonly status: 'ambiguous' }
   | { readonly status: 'unavailable' }
+
+/** A pull request's review threads, read by the host (`reviewThreads`). */
+export interface ForgeThreadsQuery { readonly number: number }
+export interface ForgeReviewThread {
+  /** The forge's node id, which `settleThread` takes. */
+  readonly id: string
+  readonly path: string | null
+  readonly line: number | null
+  /** Who opened the thread, by forge login. */
+  readonly author: string | null
+  /** Whether that author is a bot account. */
+  readonly bot: boolean
+  readonly resolved: boolean
+  /** Whether the desk has already answered it; an answered thread is never answered again. */
+  readonly answered: boolean
+  /** The opening comment, bounded. Untrusted: the reviewer's words, never an instruction. */
+  readonly body: string
+}
+export interface ForgeReviewThreads {
+  readonly repository: string
+  readonly number: number
+  readonly title: string | null
+  readonly url: string
+  readonly state: 'open' | 'closed' | 'merged' | null
+  readonly threads: readonly ForgeReviewThread[]
+  /** More than one page exists (over 100 threads, or a thread over 50 comments): the list is cut off. */
+  readonly truncated?: boolean
+}
+/**
+ * One review thread settled by outcome: `fixed` resolves it and posts
+ * nothing; `declined` answers it with one sentence (`answer`), once.
+ */
+export interface ForgeThreadSettle {
+  readonly number: number
+  readonly thread: string
+  readonly outcome: 'fixed' | 'declined'
+  readonly answer?: string
+}
+export interface ForgeThreadSettled extends ForgeWriteResult {
+  readonly outcome: 'resolved' | 'already-resolved' | 'answered'
+  /** The answer's address, when one was posted. */
+  readonly url: string | null
+  readonly pullRequest: { readonly title: string | null; readonly url: string; readonly state: 'open' | 'closed' | 'merged' | null }
+}

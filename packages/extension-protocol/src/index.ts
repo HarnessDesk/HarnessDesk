@@ -1,5 +1,5 @@
 import type { IosCapability, IosInvocationAuthority } from '@harnessdesk/protocol'
-import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult } from '@harnessdesk/protocol'
+import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult, ForgeThreadsQuery, ForgeReviewThreads, ForgeThreadSettle, ForgeThreadSettled } from '@harnessdesk/protocol'
 import type {
   CapabilityContribution,
   DecideFindingInput,
@@ -396,6 +396,8 @@ export interface ChildToHostMethods {
   'forge/repository': { params: { readonly scope: TeamCallScope; readonly args: Record<string, never> }; result: string | null }
   'forge/record': { params: { readonly scope: TeamCallScope; readonly args: ForgeRecordQuery }; result: readonly ForgeGitEntry[] }
   'forge/attribute': { params: { readonly scope: TeamCallScope; readonly args: ForgeAttribute }; result: ForgeRequester | 'outside' }
+  'forge/reviewThreads': { params: { readonly scope: TeamCallScope; readonly args: ForgeThreadsQuery }; result: ForgeReviewThreads }
+  'forge/settleThread': { params: { readonly scope: TeamCallScope; readonly args: ForgeThreadSettle }; result: ForgeThreadSettled }
   'forge/seat': { params: { readonly scope: TeamCallScope }; result: ForgeSeatInfo | null }
   'forge/identity': { params: { readonly scope: TeamCallScope }; result: ForgeIdentityInfo }
   'forge/publish': {
