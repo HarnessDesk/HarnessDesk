@@ -1,6 +1,7 @@
 import { LEAD_RULE_LIMITS, LEAD_RULE_SECTIONS, LEAD_RULE_TITLES } from '@harnessdesk/protocol'
 import type { MessagesText, MessagesToolResult, MessagesTurn } from './messages-types.js'
 import type { LeadState } from './state.js'
+import { leadMemorySnapshot } from './memory.js'
 import { leadCleanUntrusted } from './untrusted.js'
 
 /**
@@ -163,6 +164,7 @@ const leadCarriesPlan = (turns: readonly MessagesTurn[], plan: readonly Messages
  * child passes to the loop as its `onEpoch` hook.
  */
 export const LEAD_EPOCH_ADDENDA: readonly ((state: LeadState) => string | null)[] = Object.freeze([
+  state => leadMemorySnapshot(state.memory),
   leadRulesAddendum,
 ])
 /**

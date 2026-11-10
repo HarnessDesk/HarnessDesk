@@ -395,11 +395,13 @@ export class LeadSupervisor {
     try {
       const arity = { recordWake: 1, execute: 1, updateBudget: 1, setManagementPhase: 2, invalidateResults: 0, offerCard: 1,
         restoreResult: 2, recoverUnsettledRequests: 0, appendReply: 1, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 2,
-        recordContext: 1, readContext: 1, compactContext: 1 }[operation]
+        recordContext: 1, readContext: 1, compactContext: 1, memoryEpoch: 3 }[operation]
       if (args.length !== arity && !(operation === 'appendReply' && (args.length === 2 || args.length === 3))) throw error('protocol')
       let value: unknown = null
       switch (operation) {
         case 'recordWake': await durable(journal.recordWake(args[0] as import('@harnessdesk/protocol').LeadWakeRecord)); break
+        // The journal parses all three: a goal id, an epoch and a Core within its budget.
+        case 'memoryEpoch': await durable(journal.memoryEpoch(args[0] as string, args[1] as number, args[2] as import('./memory.js').LeadMemoryCore)); break
         case 'provider-send': {
           if (typeof args[0] !== 'string' || typeof args[1] !== 'string' || new TextEncoder().encode(args[1]).length > 1_048_576) throw error('protocol')
           try {

@@ -11,6 +11,7 @@ import { LeadTriggerSettings } from './LeadTriggerSettings'
 import { LeadPlanSettingsSection } from './LeadPlanSettings'
 import { LeadContextSection } from './LeadCheckpoint'
 import { LeadBriefSettingsSection } from './LeadBriefSettings'
+import { LeadMemorySection } from './LeadMemory'
 import { LeadAutonomySection } from './LeadAutonomySettings'
 import { LeadRulesSection } from './LeadRulesSettings'
 
@@ -141,5 +142,6 @@ export const LeadSettingsSection = ({ focus }: { readonly focus?: string | null 
     <LeadAutonomySection />
     <LeadRulesSection />
     <LeadBriefSettingsSection label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} />
-    <LeadPlanSettingsSection focus={focus} label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} cards={state.thread?.cards} /></> : error ? <Banner role="alert" tone="warning">{error}</Banner> : null
+    <LeadPlanSettingsSection focus={focus} label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} />
+    <LeadMemorySection label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} cards={state.thread?.cards} /></> : error ? <Banner role="alert" tone="warning">{error}</Banner> : null
 }

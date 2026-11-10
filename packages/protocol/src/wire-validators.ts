@@ -45,6 +45,7 @@ import type { ReviewRequest } from './runtime.js'
 import { parseLeadWorkClose, parseLeadWorkList, parseLeadWorkNote, parseLeadWorkRead } from './lead-work.js'
 import { parseLeadAutonomySet, parseLeadDeadlineSet, parseLeadRulesUpdate } from './lead-autonomy.js'
 import { parseLeadBriefUpdate, parseLeadPresenceDismiss, parseLeadPresenceRead } from './lead-presence.js'
+import { parseLeadMemoryChange, parseLeadMemoryProposal, parseLeadMemorySearch } from './lead-memory.js'
 
 /**
  * Validators for messages the host accepts from a renderer.
@@ -1763,6 +1764,10 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'lead/rules/read': parseLeadEmpty,
   'lead/rules/update': parseLeadRulesUpdate,
   'lead/deadline/set': parseLeadDeadlineSet,
+  'lead/memory/view': parseLeadEmpty,
+  'lead/memory/change': parseLeadMemoryChange,
+  'lead/memory/propose': parseLeadMemoryProposal,
+  'lead/memory/search': parseLeadMemorySearch,
 }
 
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]

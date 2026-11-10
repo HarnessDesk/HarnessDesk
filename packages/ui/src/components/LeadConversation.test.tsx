@@ -127,7 +127,7 @@ it('uses a neutral Lead label until the stored Lex preference loads', async () =
   const store = new AppStore('ws://localhost:0/')
   Object.assign(store.getSnapshot(), previewStore({ leadAvailable: true }).getSnapshot())
   let resolve!: (value: any) => void
-  vi.spyOn(store.transport, 'request').mockImplementation(method => method === 'lead/wakes/read' ? Promise.resolve({ revision: 0, wakes: [] }) : new Promise(done => { resolve = done }))
+  vi.spyOn(store.transport, 'request').mockImplementation(method => method === 'lead/wakes/read' ? Promise.resolve({ revision: 0, wakes: [] }) : method === 'lead/memory/view' ? new Promise(() => {}) : new Promise(done => { resolve = done }))
   const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
   cleanup.push(() => { act(() => root.unmount()); box.remove() })
   await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><DestinationPageScope owner="test" active><LeadPage /></DestinationPageScope></TopBarProvider></StoreProvider>))

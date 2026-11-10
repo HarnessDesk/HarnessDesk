@@ -33,6 +33,10 @@ export const leadMethods = {
   'lead/schedule/update': (ctx, params) => ctx.leadScheduleUpdate(params),
   'lead/memory/read': ctx => ctx.leadMemoryRead(),
   'lead/memory/update': (ctx, params) => ctx.leadMemoryUpdate(params),
+  'lead/memory/view': ctx => ctx.leadMemoryView(),
+  'lead/memory/change': (ctx, params) => ctx.leadMemoryChange(params),
+  'lead/memory/propose': (ctx, params) => ctx.leadMemoryPropose(params),
+  'lead/memory/search': (ctx, params) => ctx.leadMemorySearch(params),
   // One board for the window, the phone and the Lead; the Lead's own write is a note, never a stage or a close.
   'lead/work/list': (ctx, params) => ctx.leadWork.board(params.state),
   'lead/work/read': (ctx, params) => ctx.leadWork.read(params),

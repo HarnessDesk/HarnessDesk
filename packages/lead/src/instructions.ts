@@ -18,7 +18,6 @@ export interface LeadInstructionFacts {
   /** Absent means the desk offers no seat, and the text says so instead of inviting a guess. */
   readonly seats?: LeadSeatChoices
   /** What the person kept for the Lead between goals, numbered for a plan to cite. */
-  readonly memory?: readonly string[]
 }
 
 /** One plan the real parser accepts, built from the facts a plan must repeat. Placeholders are in
@@ -72,9 +71,7 @@ export const leadInstructions = (facts: LeadInstructionFacts): string => {
   ]
   // The portable ceiling stands in for Off in the caps; the model must not read it as a figure to quote or lower.
   if (leadNoSpendLimit(facts.caps.usdMicros)) lines.push('The person has turned the spending limit off: no dollar limit applies to this goal. Never invent one or tell the person about a dollar limit. In a plan keep caps.usdMicros exactly as shown, which the desk reads as no limit.')
-  if (facts.memory?.length) lines.push(
-    `The person asked you to keep these between goals:\n${facts.memory.map((line, index) => `[m${index + 1}] ${line}`).join('\n')}\nWhen a plan follows one, put its tag in that step's title, for example "Add the export (m2)".`)
-  lines.push(`When the person tells you something worth keeping for later goals, add one line to your reply that starts with "${LEAD_REMEMBER}" and says it in one sentence. The person decides whether it is kept; never repeat a line already listed.`)
+  lines.push(`When the person tells you something worth keeping for later goals, or a result teaches a lasting lesson, call memory_propose with it in one sentence. The person decides whether it is kept, so say nothing about keeping it in your reply, and never propose a line already kept. A reply line that starts with "${LEAD_REMEMBER}" is read as the same proposal.`)
   if (!seats) lines.push('No seats are configured for a reviewed plan, so do not propose one. You can still answer directly and use ordinary chat tools if the desk permits them. Explain missing agents only when they block the requested work.')
   else {
     const example = examplePlan(facts, seats.implement[0]!, seats.review[0]!)

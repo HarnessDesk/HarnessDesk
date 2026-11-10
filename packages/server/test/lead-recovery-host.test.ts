@@ -610,12 +610,14 @@ test('a stuck-chat retry the host schedules is refused once the goal\'s deadline
   const r = await rig(t)
   const created = await r.start()
   const reset = r.now() + 200
-  await r.host.leadAutonomy.setDeadline({ logicalGoalId: 'recovery-fixture', deadlineAt: Date.now() + 400 })
+  const deadlineAt = Date.now() + 1000
+  await r.host.leadAutonomy.setDeadline({ logicalGoalId: 'recovery-fixture', deadlineAt })
   r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id,
     limits: { reached: 'Weekly', windows: [{ label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: reset }] } })
   r.fail(created.id, 'rateLimit')
   await after(r, async () => (await r.stored().catch(() => null))?.records[0]?.state === 'waiting-reset' ? true : null, 'persisted reset wait')
-  await new Promise(resolve => setTimeout(resolve, 500)) // the autonomy store keeps real time; the retry clock is the rig's
+  // The autonomy store keeps real time, the retry clock is the rig's: wait until the deadline has really passed.
+  await new Promise(resolve => setTimeout(resolve, Math.max(0, deadlineAt - Date.now()) + 100))
   await r.advance(500)
   await r.idle()
   assert.equal(r.prompts.length, 1, 'no continue goes out after the time has run out')

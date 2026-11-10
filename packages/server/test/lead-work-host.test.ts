@@ -160,9 +160,11 @@ test('host: a goal whose deadline passed stops automatic chat work and answers t
   const { host } = r
   const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the date parser', cause: 'person' } })
   const chat = (first.value as { id: string }).id
-  await host.leadAutonomy.setDeadline({ logicalGoalId: 'ordinary-delegation', deadlineAt: Date.now() + 1500 })
+  // The autonomy store reads the real clock: a margin a slow runner cannot use up, then a wait measured from the deadline itself.
+  const deadlineAt = Date.now() + 3000
+  await host.leadAutonomy.setDeadline({ logicalGoalId: 'ordinary-delegation', deadlineAt })
   assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'A second job before the time is up', cause: 'automatic' } })).outcome, 'succeeded')
-  await new Promise(resolve => setTimeout(resolve, 1600))
+  await new Promise(resolve => setTimeout(resolve, Math.max(0, deadlineAt - Date.now()) + 100))
   const late = await r.execute({ method: 'lead/chat/start', params: { text: 'A third job after the time is up', cause: 'automatic' } })
   assert.match((late.value as { problem: string }).problem, /time for this goal has run out/)
   const sent = await r.execute({ method: 'lead/chat/send', params: { id: chat, text: 'Keep going on the parser', cause: 'automatic' } })
@@ -176,8 +178,10 @@ test('host: a goal whose deadline passed stops automatic chat work and answers t
 test('host: a start and a send that name no cause are automatic', async t => {
   const r = await workRig(t)
   assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'Automatic job, no cause named' } })).outcome, 'succeeded')
-  await r.host.leadAutonomy.setDeadline({ logicalGoalId: 'ordinary-delegation', deadlineAt: Date.now() + 1 })
-  await new Promise(resolve => setTimeout(resolve, 10))
+  // A margin the deadline check cannot outrun on a slow runner, then a wait until it has passed.
+  const deadlineAt = Date.now() + 1000
+  await r.host.leadAutonomy.setDeadline({ logicalGoalId: 'ordinary-delegation', deadlineAt })
+  await new Promise(resolve => setTimeout(resolve, Math.max(0, deadlineAt - Date.now()) + 100))
   const id = (await r.host.call('lead/chat/list', {})).items[0]!.id
   assert.equal((await r.execute({ method: 'lead/chat/send', params: { id, text: 'Keep going' } })).outcome, 'failed', 'a send that names no cause stops at the deadline')
 })

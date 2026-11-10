@@ -1,5 +1,5 @@
 import type {
-  LeadAutonomySet, LeadAutonomyView, LeadDeadlineSet, LeadRulesUpdate, LeadRulesView, LeadBriefSettings, LeadDeviceRef, LeadPresenceView, LeadChatControl, LeadWorkBoard, LeadWorkOutcome, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  LeadAutonomySet, LeadAutonomyView, LeadDeadlineSet, LeadRulesUpdate, LeadRulesView, LeadBriefSettings, LeadDeviceRef, LeadPresenceView, LeadChatControl, LeadWorkBoard, LeadWorkOutcome, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadMemoryChange, LeadMemoryView, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
@@ -14,6 +14,8 @@ export interface LeadState {
   readonly work?: LeadWorkBoard | null
   /** What the host says changed while this window was away and what became of each ask; null until read. */
   readonly away?: LeadPresenceView | null
+  /** The Lead's memory: Core, Archive, the proposals waiting and the history; null until read. */
+  readonly memory?: LeadMemoryView | null
   readonly savedApprovals?: readonly LeadSavedApproval[]
   readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions: readonly LeadAction[]
@@ -72,7 +74,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     }
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
-      : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], work: state.work ?? null, savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], stage: projection.stage, stageReason: projection.stageReason, revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
+      : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], work: state.work ?? null, memory: state.memory ?? null, savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], stage: projection.stage, stageReason: projection.stageReason, revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
         requestInFlight: projection.requestInFlight, activity: projection.activity, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
     for (const listener of listeners) listener()
   }
@@ -82,6 +84,13 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     state = { ...state, work: board }
     for (const listener of listeners) listener()
   }
+  // Each view is whole; one older than what is shown never replaces it.
+  const applyMemory = (view: LeadMemoryView) => {
+    if (!available() || !Array.isArray(view?.core) || (state.memory && view.revision < state.memory.revision)) return
+    state = { ...state, memory: view }
+    for (const listener of listeners) listener()
+  }
+  const readMemoryView = async () => { check(); const view = await transport.request('lead/memory/view', {}); applyMemory(view); return view }
   let controlVersion = 0
   const retriedControl = new Set<'transient' | 'escalated'>()
   let controlRetry: ReturnType<typeof setTimeout> | undefined
@@ -146,6 +155,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       else if (notification.method === 'lead/chats/controlChanged') applyChats(notification.params)
       else if (notification.method === 'lead/work/changed') applyWork(notification.params)
       else if (notification.method === 'lead/presence/changed') void transport.request('lead/presence/read', { device: device() }).then(applyAway, () => {})
+      else if (notification.method === 'lead/memory/changed' && notification.params.revision > (state.memory?.revision ?? -1)) void readMemoryView().catch(() => {})
     },
     readChatControl,
     async resetChatControl() { check(); applyChats(await transport.request('lead/chats/resetControl', {})) },
@@ -224,6 +234,9 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       apply(result, before); return result
     },
     async readMemory() { check(); return transport.request('lead/memory/read', {}) },
+    readMemoryView,
+    /** Keep, Edit, No, Forget, Undo and the rest: the host answers with the whole view. */
+    async changeMemory(change: LeadMemoryChange) { check(); const view = await transport.request('lead/memory/change', change); applyMemory(view); return view },
     async updateMemory(memory: LeadMemory) { check(); return transport.request('lead/memory/update', { memory }) },
     async resume() { checkRead(); const before = state, result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result, before); return result },
     /** How full the conversation is, the cache's share and the checkpoints kept: facts, read when shown. */

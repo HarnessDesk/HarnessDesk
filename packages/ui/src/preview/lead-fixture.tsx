@@ -1,4 +1,4 @@
-import { leadStage, leadWorkGroup, type LeadPresenceView, NO_CAPABILITIES, type LeadWorkBoard, type LeadWorkCard, type LeadWorkStage, runtimeId, type LeadAcceptanceContract, type LeadStageFacts, type LeadCard, type LeadContextFacts, type LeadMemory, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
+import { leadStage, leadWorkGroup, type LeadPresenceView, NO_CAPABILITIES, type LeadWorkBoard, type LeadWorkCard, type LeadWorkStage, runtimeId, type LeadAcceptanceContract, type LeadStageFacts, type LeadCard, type LeadContextFacts, type LeadMemory, type LeadMemoryView, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
 
 /** Synthetic data only. No desktop, key store, transport connection or provider. */
 export const leadRuntime: RuntimeInfo = { id: runtimeId('fixture'), name: 'Fixture', capabilities: NO_CAPABILITIES, presentation: { name: 'Demo runtime' } }
@@ -45,7 +45,20 @@ export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', 
 export const leadMemory: LeadMemory = { version: 1, items: [
   { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
   { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
-export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'settings-autonomy', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence', 'context-checkpoint'] as const
+/** The Lead's memory as Settings and the thread show it: two of the person's notes, two of the Lead's, one in Archive,
+ * one proposal waiting under the reply it came with, and a tidy that can be undone. */
+export const leadMemoryView: LeadMemoryView = { version: 1, revision: 7, auto: false, lastTidyAt: Date.parse('2026-11-09T03:00:00Z'), coreBytes: 1180,
+  core: [
+    { id: 'm1', text: 'Keep each pull request small enough to review in one sitting.', kind: 'preference', by: 'person', tier: 'core', source: { kind: 'settings', id: 'migration' }, createdAt: 1, usedAt: null, version: 1 },
+    { id: 'm2', text: 'Release notes go in CHANGELOG.md under Unreleased.', kind: 'rule', by: 'person', tier: 'core', source: { kind: 'settings', id: 'settings' }, createdAt: 2, usedAt: null, version: 1 },
+    { id: 'm5', text: 'Staging Postgres listens on port 5433 and is reachable from the desk.', kind: 'fact', by: 'lead', tier: 'core', source: { kind: 'consolidation', id: 'm3,m4' }, createdAt: 5, usedAt: 6, version: 1 }],
+  archive: [
+    { id: 'm6', text: 'The docs site builds from the website folder with its own lockfile.', kind: 'fact', by: 'lead', tier: 'archive', source: { kind: 'result', id: 'work-2' }, createdAt: 3, usedAt: null, version: 1 }],
+  inbox: [{ id: 'c9', text: 'Run the linter before asking for review.', kind: 'lesson', source: { kind: 'message', id: 'memory-reply' }, proposedAt: 9, afterSeq: 1 }],
+  history: [
+    { version: 7, at: Date.parse('2026-11-09T03:00:00Z'), by: 'tidy', added: 1, removed: 2, changed: 1, tidy: { merged: 2, replaced: 0, archived: 1 }, undoable: true },
+    { version: 6, at: Date.parse('2026-11-08T17:20:00Z'), by: 'person', added: 1, removed: 0, changed: 0, undoable: true }] }
+export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'settings-autonomy', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence', 'context-checkpoint', 'memory-proposal', 'settings-memory'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -142,6 +155,10 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
     { version: 1, id: 'context-checkpoint', revision: 3, role: 'notice', text: 'Earlier conversation summarised.', checkpoint: { id: leadContextFacts.checkpoints[0]!.id } },
     { version: 1, id: 'later', revision: 4, role: 'user', text: 'What did we decide about the docs?' },
     { version: 1, id: 'later-reply', revision: 5, role: 'assistant', text: 'Keep each one under a page; you asked for that at the start.' }]
+  // The Lead offered a note to keep: Keep, Edit and No sit under the reply that offered it.
+  if (scene === 'memory-proposal') thread.messages = [
+    { version: 1, id: 'memory-ask', revision: 1, role: 'user', text: 'Why did the review bounce?' },
+    { version: 1, id: 'memory-reply', revision: 2, role: 'assistant', text: 'The linter failed on two files, so review stopped before it started. I can run it first next time.' }]
   return leadProjection({ ...projection, thread, stage: undefined, stageReason: undefined })
 }
 

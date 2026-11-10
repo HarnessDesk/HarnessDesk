@@ -62,7 +62,7 @@ interface ChildOptions {
 }
 const parseBootstrap = (value: unknown): LeadChildConfig => {
   const source = ipcObject(value)
-  if (Object.keys(source).some(key => !['key', 'descriptor', 'project', 'model', 'prices', 'projectPolicy', 'seats', 'memory'].includes(key))) throw denied()
+  if (Object.keys(source).some(key => !['key', 'descriptor', 'project', 'model', 'prices', 'projectPolicy', 'seats'].includes(key))) throw denied()
   const project = ipcObject(source.project, ['id', 'path']); ipcText(project.id, 256); ipcText(project.path, 4096)
   if (source.model !== undefined) ipcText(source.model, 256)
   const prices = ipcObject(source.prices)
@@ -73,10 +73,6 @@ const parseBootstrap = (value: unknown): LeadChildConfig => {
   }
   if (source.projectPolicy !== undefined && source.projectPolicy !== null) parseLeadPermissionPolicy(source.projectPolicy)
   if (source.seats !== undefined) source.seats = parseLeadSeatChoices(source.seats)
-  if (source.memory !== undefined) {
-    if (!Array.isArray(source.memory) || source.memory.length > 100) throw denied()
-    for (const line of source.memory) ipcText(line, 400)
-  }
   // Legacy in-process fixtures may supply host bootstrap fields. Never retain
   // those fields in the memory-visible child configuration.
   const { key: _key, descriptor: _descriptor, ...config } = source
@@ -119,6 +115,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
     restoreResult: async (id, revision) => { await rpc('restoreResult', [id, revision]) },
     recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
     recordWake: async wake => { await rpc('recordWake', [wake]) },
+    memoryEpoch: async (goal, epoch, memory) => { await rpc('memoryEpoch', [goal, epoch, memory]) },
     appendReply: async (text, proactive, ask) => {
       const message = parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}), ...(ask ? { ask } : {}) })
       await rpc('appendReply', message.ask ? [message.text, null, message.ask] : message.proactive ? [message.text, message.proactive] : [message.text])
@@ -159,7 +156,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
             }
           },
         }) }
-        loop = createLeadLoop({ journal, desk, project, ...(config.seats ? { seats: config.seats } : {}), ...(config.memory?.length ? { memory: config.memory } : {}),
+        loop = createLeadLoop({ journal, desk, project, ...(config.seats ? { seats: config.seats } : {}),
           onActivity: busy => { if (!closed) send({ type: 'activity', busy }) },
           onPresence: ({ wakes, readings }) => { if (!closed) send({ type: 'presence', presence: { ...wakes, readings } }) },
           clock: { now: Date.now, schedule: callback => { const timer = setTimeout(callback, 50); return () => clearTimeout(timer) } },
@@ -174,7 +171,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
           resolveTool, freezePlan: async contract => await rpc('freezePlan', [contract]) as typeof contract,
           readEvidence: async runId => await rpc('readEvidence', [runId]) as LeadAcceptanceEvidence,
           // The host parses what it reads back; what it sends here is parsed again before a request carries it.
-          onEpoch: () => ({ standingAddendum: leadEpochAddendum(journal.state) }),
+          onEpoch: at => ({ standingAddendum: leadEpochAddendum(at ? { ...journal.state, memory: at.memory } : journal.state) }),
           context: { record: async record => { await rpc('recordContext', [record]) },
             compact: async trigger => (await rpc('compactContext', [trigger])) === true,
             read: async epoch => {

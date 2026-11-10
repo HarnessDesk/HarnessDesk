@@ -17,6 +17,7 @@ import { leadBudgetProjection } from './budget.js'
 import { leadRepairResultReady, leadPlanRuns } from './state.js'
 import type { LeadDeskPort } from './ports.js'
 import type { LeadPermissionCall } from './permissions.js'
+import type { LeadMemoryCore } from './memory.js'
 
 export interface LeadLoopClock {
   now(): number
@@ -41,7 +42,6 @@ export interface LeadLoopOptions {
   readonly freshnessMs?: number
   /** What a plan's assignments may name. Absent means the desk offers no seat, and the model is told so. */
   readonly seats?: LeadSeatChoices
-  readonly memory?: readonly string[]
   /** How long a running run may go without moving before it is called stuck and the model is woken for it. */
   readonly stuckMs?: number
   /** Told whenever the wake counts or run readings change, so the host can show them without asking. */
@@ -54,8 +54,10 @@ export interface LeadLoopOptions {
    * Called when a new epoch of the conversation begins (a new goal, or a compaction or prune the desk applied), and
    * only then: what it returns is added to the standing instructions for that epoch. A provider caches the
    * instructions and refuses replayed reasoning behind changed ones, so memory and rules refresh here and nowhere else.
+   * `memory` is the Core this epoch reads: the one the journal recorded for it, so a restart builds the same bytes, or
+   * the latest when the epoch is new.
    */
-  readonly onEpoch?: () => { readonly standingAddendum?: string }
+  readonly onEpoch?: (at?: { readonly memory: LeadMemoryCore }) => { readonly standingAddendum?: string }
 }
 /** What the child reports to, and reads from, the host's stored conversation. */
 export interface LeadContextPort {
@@ -166,13 +168,22 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   // A compaction is also an epoch boundary: the conversation after it carries no reasoning, so the instructions may
   // change there too, and only there (onEpoch).
   let instructionsFor: string | null = null, instructions = '', epoch = journal.state.context?.epoch ?? 0
-  const standingInstructions = (): string => {
+  // The Core an epoch first read is journaled, so a restart in the same epoch reads it again rather than a later one.
+  let memoryRecorded: Promise<unknown> = Promise.resolve()
+  const standingInstructions = (record = true): string => {
     const state = journal.state, goal = state.budget?.logicalGoalId ?? '', key = `${goal}\u0000${epoch}`
     if (instructionsFor !== key) {
+      const held = state.memoryEpoch, same = !!held && held.goal === goal && held.epoch === epoch
+      const memory = same ? held!.memory : state.memory
+      // Nothing was ever kept (revision 0): no record, so a desk without memory writes nothing per epoch.
+      if (!same && record && state.memory.revision > 0) {
+        const at = epoch
+        memoryRecorded = memoryRecorded.then(() => journal.memoryEpoch?.(goal, at, memory)).catch(() => {})
+      }
       let addendum = ''
-      try { addendum = options.onEpoch?.().standingAddendum?.trim() ?? '' } catch { /* An epoch hook never blocks a turn. */ }
+      try { addendum = options.onEpoch?.({ memory }).standingAddendum?.trim() ?? '' } catch { /* An epoch hook never blocks a turn. */ }
       instructions = [leadInstructions({ name: state.name === 'lex' ? 'Lex' : 'Dex', project, policyRevision: state.policy?.revision ?? 1,
-        caps: state.budget!.caps, ...(options.seats ? { seats: options.seats } : {}), ...(options.memory?.length ? { memory: options.memory } : {}) }), addendum].filter(Boolean).join('\n')
+        caps: state.budget!.caps, ...(options.seats ? { seats: options.seats } : {}) }), addendum].filter(Boolean).join('\n')
       instructionsFor = key
     }
     return instructions
@@ -181,7 +192,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   const standingInstructionsAt = (at: number): string => {
     const kept = { instructionsFor, instructions, epoch }
     epoch = at
-    try { return standingInstructions() } finally { ({ instructionsFor, instructions, epoch } = kept) }
+    try { return standingInstructions(false) } finally { ({ instructionsFor, instructions, epoch } = kept) }
   }
   /** A step's own record of a host request that overflowed: the host compacts and sends it again, so the first one
    * does not wait for the person; a second in a row does. */
@@ -777,7 +788,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     async close() {
       closed = true; synchronized = false; generation++; active?.abort(); cancelBatch?.(); cancelBatch = null; reportActivity()
       await iterator?.return?.()
-      await pump; await tail
+      await pump; await tail; await memoryRecorded
     },
   }
 }

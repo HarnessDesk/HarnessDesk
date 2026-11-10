@@ -1,5 +1,5 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
-import type { LeadAutonomyView, LeadChatControl, LeadWorkBoard, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
+import type { LeadAutonomyView, LeadChatControl, LeadWorkBoard, PhoneLeadMemory, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
 import {
   findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, wireCodeOf, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
@@ -24,6 +24,8 @@ export interface PhoneWorkPorts {
   readonly leadWork?: () => Promise<LeadWorkBoard | null>
   /** Autonomy modes, rules and deadline for the phone's Lead settings; null while no Lead runs here. */
   readonly leadAutonomy?: () => Promise<LeadAutonomyView | null>
+  /** The Lead's memory as the thread needs it: the proposals waiting and how much is kept; null while no Lead runs. */
+  readonly leadMemory?: () => Promise<PhoneLeadMemory | null>
   /** What the desk is called to the phone that paired with it. */
   readonly deskName: () => string
   readonly home: string | null
@@ -238,9 +240,10 @@ export class PhoneWork {
     const reads = [...new Set(runtime ? [runtime, ...ids] : ids)]
     // Only the default agent is started for its models; a snapshot never starts any other agent.
     const read = (one: RuntimeId) => one === runtime ? this.#ports.models(one) : this.#knownModels(one)
-    const [items, usage, catalogues, work, autonomy] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
+    const [items, usage, catalogues, work, autonomy, memory] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
       Promise.all(reads.map(one => read(one).then(modelChoices).catch((): PhoneModelChoice[] => []))),
-      this.#ports.leadWork?.().catch(() => null) ?? null, this.#ports.leadAutonomy?.().catch(() => null) ?? null])
+      this.#ports.leadWork?.().catch(() => null) ?? null, this.#ports.leadAutonomy?.().catch(() => null) ?? null,
+      this.#ports.leadMemory?.().catch(() => null) ?? null])
     const choices = new Map(reads.map((one, index) => [one, catalogues[index]!]))
     const models = runtime ? choices.get(runtime)! : []
     const agents: PhoneAgentChoice[] = ids.map(id => ({ id: String(id), name: scrub(this.#ports.seatName(id) ?? '', 60) || 'Agent', models: choices.get(id)!, ...(id === runtime ? { default: true as const } : {}) }))
@@ -252,6 +255,7 @@ export class PhoneWork {
       ...(usage ? { usage } : {}),
       ...(work ? { work: phoneWorkBoard(work) } : {}),
       ...(autonomy ? { autonomy } : {}),
+      ...(memory ? { memory } : {}),
       models, agents, flows: [], commands: [],
       capabilities: { ...CAPABILITIES, delete: this.#ports.readyRuntimes().some(id => this.#ports.canDelete?.(id) === true), chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
       threads: [],

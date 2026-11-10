@@ -2961,6 +2961,14 @@ export interface HostMethods {
   'lead/rules/update': { params: import('./lead-autonomy.js').LeadRulesUpdate; result: import('./lead-autonomy.js').LeadRulesView }
   /** A goal's deadline, or none: the Lead reports at 80% of the time and starts no new round at 100%. */
   'lead/deadline/set': { params: import('./lead-autonomy.js').LeadDeadlineSet; result: import('./lead-autonomy.js').LeadAutonomyView }
+  /** The Lead's memory: Core, Archive, the proposals waiting for the person and the versions Undo can restore. */
+  'lead/memory/view': { params: Record<string, never>; result: import('./lead-memory.js').LeadMemoryView }
+  /** The person's change, from Settings or a Keep chip. Every change is a version; Forget erases the text from them too. */
+  'lead/memory/change': { params: import('./lead-memory.js').LeadMemoryChange; result: import('./lead-memory.js').LeadMemoryView }
+  /** The Lead's proposal. The desk scans it before it reaches the inbox; it is never kept without the person unless they said so. */
+  'lead/memory/propose': { params: import('./lead-memory.js').LeadMemoryProposal; result: import('./lead-memory.js').LeadMemoryProposalResult }
+  /** The Lead's search over Archive and its own past conversation, summarised parts included. */
+  'lead/memory/search': { params: import('./lead-memory.js').LeadMemorySearch; result: import('./lead-memory.js').LeadMemorySearchResult }
 }
 
 /** One browser HarnessDesk found, and can start with remote debugging. */
@@ -3280,6 +3288,8 @@ export type WireNotification =
   | { readonly method: 'lead/work/changed'; readonly params: import('./lead-work.js').LeadWorkBoard }
   /** A digest was made for the devices (the morning brief), or an ask's state moved. Clients read `lead/presence/read` again. */
   | { readonly method: 'lead/presence/changed'; readonly params: { readonly notice?: import('./lead-presence.js').LeadPushNotice } }
+  /** The Lead's memory changed: an entry, a proposal or a version. Clients read `lead/memory/view` again. */
+  | { readonly method: 'lead/memory/changed'; readonly params: { readonly revision: number } }
 
 export type ClientToHost = WireRequest
 export type HostToClient = WireResponse | WireNotification

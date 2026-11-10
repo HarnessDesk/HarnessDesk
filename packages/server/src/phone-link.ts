@@ -80,6 +80,11 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/autonomy/set': 'answer',
     // Mention triage, read only: switching a trigger to act or evaluating a request again is the desk's.
     'phone/triage/list': 'read',
+    // The Lead's memory: the lists, and of its changes only Keep or No on a proposal and Forget of one entry
+    // (`phoneActionRefusal`). Forget all, Undo, Add, Edit, Move and the auto-keep switch are the desk's; the Lead's own
+    // propose and search stay off the phone.
+    'lead/memory/view': 'read',
+    'lead/memory/change': 'answer',
   },
   topics: { lead: 'read', workspace: 'read', notices: 'read', presence: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.
@@ -124,7 +129,7 @@ const WORKSPACE_EVENTS = new Set([
   'session/started', 'session/status', 'session/title', 'session/closed', 'turn/started', 'turn/completed',
   'approval/requested', 'approval/resolved',
 ])
-const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed'])
+const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed', 'lead/memory/changed'])
 
 /** The methods whose receipts and marks name the device that made them. */
 const PHONE_DEVICE_METHODS = new Set(['lead/presence/read', 'lead/presence/dismiss', 'lead/thread/send'])
@@ -133,11 +138,26 @@ const phoneDeviceRef = (device: Device) => ({
   label: device.name.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').trim().slice(0, 40) || 'Phone',
 })
 
+/** The memory changes a phone may make: answer a proposal, or forget one entry. */
+const PHONE_MEMORY_ACTIONS = new Set(['keep', 'dismiss', 'forget'])
+/**
+ * Narrower than a method's tier: a method the phone may call, with an action it may not take. The refusal is the
+ * sentence the phone shows; null lets the call through.
+ */
+export const phoneActionRefusal = (method: string, params: unknown): string | null => {
+  if (method !== 'lead/memory/change') return null
+  const action = params && typeof params === 'object' && !Array.isArray(params) ? (params as { action?: unknown }).action : undefined
+  return typeof action === 'string' && PHONE_MEMORY_ACTIONS.has(action) ? null
+    : 'From a phone you can keep or decline a proposed note, or forget one entry; make other memory changes at the desk.'
+}
+
 /** Starts the LAN listener against a running host and hands the window its controls. */
 export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' | 'attachPhoneLink'>, logger: Logger, options: PhoneLinkOptions): Promise<RunningPhoneLink> {
   const log = logger.child('phone-link')
   const call = async (method: string, params: unknown, device: Device): Promise<unknown> => {
     let parsed
+    const refusal = phoneActionRefusal(method, params)
+    if (refusal) throw new PhoneCallError('notOnPhoneSurface', refusal)
     // Who is asking is what the link proved, never what the phone's request says about itself.
     if (PHONE_DEVICE_METHODS.has(method) && params && typeof params === 'object' && !Array.isArray(params)) params = { ...params, device: phoneDeviceRef(device) }
     try { parsed = parseClientMessage({ id: 0, method, params: params ?? {} }) } catch (error) {

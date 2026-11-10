@@ -1,7 +1,7 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
 import { isDeepStrictEqual } from 'node:util'
 import { firstAsk, leadMessageWords, isLeadMessageSource, leadDisplayName, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
-import { canonicalTranscriptBody, PendingTranscript } from '@harnessdesk/protocol'
+import { canonicalTranscriptBody, PendingTranscript, type LeadMemoryView } from '@harnessdesk/protocol'
 import { DescriptorCache, PendingSessionOverlay, recoveryDescriptor } from './recovery-descriptor.js'
 import { LeadChatControlStore, LeadChatHeldError } from './lead/chat-control.js'
 import { leadOwnedTeams } from './lead/owned-teams.js'
@@ -33,6 +33,9 @@ import { teamLeadStage } from './work-stage.js'
 import { loadLeadProjectPolicy } from './lead/project-policy.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
 import type { LeadContextStore } from './lead/context-store.js'
+import { LeadMemoryStore } from './lead/memory.js'
+import { LeadConversationCorpus, leadMemoryRank, type LeadMemoryDoc } from './lead/memory-search.js'
+import { createLeadMemoryTidier, runLeadMemoryTidy } from './lead/memory-tidy.js'
 import { phoneLinkOff } from './phone-link.js'
 import { PhoneWorkspace } from './phone-workspace.js'
 import { PhoneWork, phoneSessionValues } from './phone-work.js'
@@ -894,6 +897,16 @@ export class Host {
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
   #leadRepeats: LeadRepeats | null = null
   #leadPlannerFiles: LeadPlanner | null = null
+  /** The Lead's memory and the conversation search reads, opened on first use and kept for the host's life. */
+  #leadMemoryOpen: Promise<LeadMemoryStore> | null = null
+  #leadMemoryReady: LeadMemoryStore | null = null
+  #leadCorpusOpen: Promise<LeadConversationCorpus> | null = null
+  /** Set while the journal refuses the store's Core, so the memory view says the Lead is reading an older copy. */
+  #leadMemoryFault: 'journal' | null = null
+  #leadContextStore: LeadContextStore | null = null
+  /** Memory writes started outside a request (a reply's proposal, the conversation copy, Core to the journal, a
+   * tidy): disposal waits for them, so nothing writes into a home after the host has let it go. */
+  readonly #leadMemoryWork = new Set<Promise<unknown>>()
   #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
   #phoneWorkspace: PhoneWorkspace | null = null
   #phoneWork: PhoneWork | null = null
@@ -4257,6 +4270,9 @@ export class Host {
     }
     let leadPresence: LeadPresence | null = null
     const { context: leadContext, ...serviceOptions } = options
+    this.#leadContextStore = leadContext ?? null
+    this.onDispose(() => { if (this.#leadContextStore === leadContext) this.#leadContextStore = null })
+    this.#connectLeadMemory(journal, options)
     this.#leadService = new LeadService({ ...serviceOptions,
       ...(leadContext ? {
         recordContext: async (record: LeadContextRecordInput) => { await leadContext.record(record); this.#leadControls?.contextChanged() },
@@ -4270,9 +4286,10 @@ export class Host {
       ...(this.options.leadRuntimes ? { runtimes: this.options.leadRuntimes } : {}),
       onRuntimeUnavailable: reason => this.#logger.warn('Lead runtime unavailable', { reason }),
       onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
-      readMemory: () => this.#leadPlanner().kept(),
+      // A `Remember:` line in a reply is read as the same proposal memory_propose makes: scanned, then to the inbox.
       onRemember: lines => {
-        for (const line of lines) void this.#leadPlanner().suggest(line, `memory-${randomUUID()}`, Date.now()).catch(() => { this.#logger.warn('Lead memory suggestion was not saved') })
+        const after = journal.state.seq
+        for (const line of lines) this.#leadMemoryTrack(this.#leadMemory().then(store => store.propose({ text: line, kind: 'preference' }, after)), 'Lead memory proposal was not saved')
       },
       readEvidence: async (runId, read) => { await secondLook(runId); return { ...await options.readEvidence(runId, read), personActions: (await personActions.read()).filter(action => action.runId === runId) } }, broker: this.#credentials,
       resolveTool: async call => {
@@ -4294,7 +4311,7 @@ export class Host {
       },
       recover: () => { this.#clearLeadChatEffects(); return this.#leadBudgets.recover() },
       openDoor: async admission => openLeadClientDoor({ host: this, logger: this.#logger, home: this.#state.directory,
-        hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission, readChatTarget: id => this.#leadChats!.canRead(id) }) }),
+        hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission, readChatTarget: id => this.#leadChats!.canRead(id), memoryLines: () => this.#leadMemoryReady?.entries().map(entry => entry.text) ?? [] }) }),
       stopOwned,
     })
     const ownedWorker = (runtime: string, sessionId: string, includeClosed = false) => {
@@ -4577,6 +4594,96 @@ export class Host {
         await service.setEnabled(true)
         await service.recoverInterrupted()
       } })
+  }
+
+  /** The Lead's memory: Core, Archive, the inbox and their versions, beside the journal. Opened once; the first open
+   * carries today's kept and offered lines across from the planner's file, which is left where it is. */
+  #leadMemory(): Promise<LeadMemoryStore> {
+    if (this.options.leadEnabled !== true) return Promise.reject(leadRefusal('lead-unavailable'))
+    return this.#leadMemoryOpen ??= LeadMemoryStore.open({ dir: join(this.#state.directory, 'lead'), legacy: () => this.#leadPlanner().readMemory(),
+      // Forgotten is forgotten in search too: the conversation the desk kept loses the passages that said it.
+      onForget: async texts => { const corpus = await this.#leadCorpus(); await (texts === 'all' ? corpus.clear() : corpus.forget(texts)) } }).then(store => {
+      this.#leadMemoryReady = store
+      this.onDispose(store.onChange(revision => this.#push({ method: 'lead/memory/changed', params: { revision } })))
+      return store
+    }, error => { this.#leadMemoryOpen = null; throw error })
+  }
+
+  #leadMemoryShown(view: LeadMemoryView): LeadMemoryView { return this.#leadMemoryFault ? { ...view, fault: this.#leadMemoryFault } : view }
+
+  #leadMemoryTrack(work: Promise<unknown>, failure: string): void {
+    const tracked = work.catch(() => { if (!this.#disposed) this.#logger.warn(failure) }).finally(() => { this.#leadMemoryWork.delete(tracked) })
+    this.#leadMemoryWork.add(tracked)
+  }
+
+  #leadCorpus(): Promise<LeadConversationCorpus> {
+    return this.#leadCorpusOpen ??= LeadConversationCorpus.open(join(this.#state.directory, 'lead')).catch(error => { this.#leadCorpusOpen = null; throw error })
+  }
+
+  /**
+   * The Lead reads Core through a journal record, so what it sees changes only when its epoch does: each change to the
+   * store is journaled at once, and the loop takes it up at the next boundary. The conversation is copied for search as
+   * the journal grows, and a tidy runs at most once a day, only while the Lead is idle and no goal is running.
+   */
+  #connectLeadMemory(journal: LeadJournal, options: { readonly prices: LeadServiceOptions['prices']; readonly messagesTransport?: LeadServiceOptions['messagesTransport'] }): void {
+    let closed = false
+    this.onDispose(async () => { closed = true; await Promise.all([...this.#leadMemoryWork]) })
+    const fault = (next: 'journal' | null, revision: number) => {
+      if (this.#leadMemoryFault === next) return
+      this.#leadMemoryFault = next
+      this.#push({ method: 'lead/memory/changed', params: { revision } })
+    }
+    const publish = async (store: LeadMemoryStore) => {
+      const current = journal.state.memory, core = store.core()
+      if (closed) return
+      if (JSON.stringify(current.entries) === JSON.stringify(core.entries)) return fault(null, store.revision)
+      try {
+        await journal.memoryCore({ revision: Math.max(core.revision, current.revision + 1), entries: core.entries })
+        fault(null, store.revision)
+      } catch (error) {
+        // Never quietly: the Lead goes on reading the copy the journal last accepted, and the window says so.
+        fault('journal', store.revision)
+        throw error
+      }
+    }
+    this.#leadMemoryTrack(this.#leadMemory().then(store => {
+      if (closed) return
+      this.onDispose(store.onChange(() => { if (!closed) this.#leadMemoryTrack(publish(store), 'Lead memory could not reach the journal') }))
+      return publish(store)
+    }), 'Lead memory could not be opened')
+    // Messages carry no time of their own: each is dated when the desk first sees it, which is when it was sent for
+    // every message after this desk started.
+    const seen = new Map<string, number>()
+    const copy = () => {
+      if (closed) return
+      const messages = journal.state.messages, now = Date.now()
+      for (const message of messages) if (!seen.has(message.id)) seen.set(message.id, now)
+      if (seen.size > messages.length + 1000) { const live = new Set(messages.map(message => message.id)); for (const id of seen.keys()) if (!live.has(id)) seen.delete(id) }
+      this.#leadMemoryTrack(this.#leadCorpus().then(corpus => closed ? undefined : corpus.add(messages, id => seen.get(id))), 'The Lead conversation was not copied for search')
+    }
+    copy()
+    this.onDispose(journal.onChange(copy))
+    const tidier = createLeadMemoryTidier({ prices: options.prices, transport: options.messagesTransport ?? leadProviderTransport,
+      resolveKey: async () => (await this.#credentials.leadStatus('anthropic')).configured ? await this.#credentials.resolveLead('anthropic') : null })
+    const tidy = setInterval(() => {
+      const phase = journal.state.phase
+      if (closed || this.#leadService?.requestInFlight || phase === 'running' || phase === 'planning' || phase === 'following') return
+      this.#leadMemoryTrack(this.#leadMemory().then(store => runLeadMemoryTidy(store, tidier)), 'Lead memory tidy did not run')
+    }, 60 * 60 * 1000)
+    tidy.unref?.()
+    this.onDispose(() => clearInterval(tidy))
+  }
+
+  /** Search for the Lead: Archive, the conversation the desk kept, and the summaries that replaced parts of it. */
+  async #leadMemorySearch(query: string, limit?: number) {
+    const store = await this.#leadMemory()
+    const corpus = await this.#leadCorpus().catch(() => null)
+    const summaries: LeadMemoryDoc[] = (this.#leadContextStore?.facts().checkpoints ?? []).flatMap(checkpoint => checkpoint.text ? [{ id: checkpoint.id, text: checkpoint.text, at: checkpoint.at, kind: 'summary' as const }] : [])
+    const docs: LeadMemoryDoc[] = [...store.archive().map(entry => ({ id: entry.id, text: entry.text, at: entry.createdAt, kind: 'memory' as const, by: entry.by })), ...corpus?.docs() ?? [], ...summaries]
+    const results = leadMemoryRank(docs, query, limit)
+    const used = results.filter(hit => hit.source.kind === 'memory').map(hit => hit.source.id)
+    if (used.length) await store.touch(used).catch(() => {})
+    return { results }
   }
 
   /** The timetable and kept lines live beside the journal and stay readable while no Lead goal is open. */
@@ -5865,8 +5972,13 @@ export class Host {
       },
       leadScheduleRead: async () => this.#leadPlanner().readSchedule(),
       leadScheduleUpdate: async params => this.#leadRepeats ? this.#leadRepeats.write(params.schedule) : this.#leadPlanner().writeSchedule(params.schedule),
-      leadMemoryRead: async () => this.#leadPlanner().readMemory(),
-      leadMemoryUpdate: async params => this.#leadPlanner().writeMemory(params.memory),
+      // The earlier read and update keep working, over the new store.
+      leadMemoryRead: async () => (await this.#leadMemory()).legacy(),
+      leadMemoryUpdate: async params => (await this.#leadMemory()).replaceLegacy(params.memory),
+      leadMemoryView: async () => this.#leadMemoryShown((await this.#leadMemory()).view()),
+      leadMemoryChange: async params => this.#leadMemoryShown(await (await this.#leadMemory()).change(params)),
+      leadMemoryPropose: async params => (await this.#leadMemory()).propose(params, this.#leadJournal?.state.seq ?? 0),
+      leadMemorySearch: async params => this.#leadMemorySearch(params.query, params.limit),
       leadContextRead: async () => (await this.#leadWindow()).readContext(),
       leadContextCompact: async () => (await this.#leadWindow()).compactContext(),
       leadStarts: this.#leadBudgets,
@@ -11336,6 +11448,11 @@ export class Host {
       workspace: this.#phoneWorkspaceView(),
       leadWork: async () => this.#leadWork && !this.#disposed ? await this.#leadWork.board() : null,
       leadAutonomy: async () => this.#leadAutonomy && !this.#disposed ? await this.#leadAutonomy.view() : null,
+      leadMemory: async () => {
+        if (!this.#leadWork || this.#disposed) return null
+        const view = (await this.#leadMemory()).view()
+        return { revision: view.revision, inbox: view.inbox, core: view.core.length, archive: view.archive.length, auto: view.auto }
+      },
       wrapTeam: team => this.#wrapLeadTeam(team),
       cancelRecovery: async id => {
         const project = this.#leadChatProject
