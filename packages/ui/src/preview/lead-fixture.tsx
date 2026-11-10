@@ -1,4 +1,4 @@
-import { leadStage, leadWorkGroup, NO_CAPABILITIES, type LeadWorkBoard, type LeadWorkCard, type LeadWorkStage, runtimeId, type LeadAcceptanceContract, type LeadStageFacts, type LeadCard, type LeadContextFacts, type LeadMemory, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
+import { leadStage, leadWorkGroup, type LeadPresenceView, NO_CAPABILITIES, type LeadWorkBoard, type LeadWorkCard, type LeadWorkStage, runtimeId, type LeadAcceptanceContract, type LeadStageFacts, type LeadCard, type LeadContextFacts, type LeadMemory, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
 
 /** Synthetic data only. No desktop, key store, transport connection or provider. */
 export const leadRuntime: RuntimeInfo = { id: runtimeId('fixture'), name: 'Fixture', capabilities: NO_CAPABILITIES, presentation: { name: 'Demo runtime' } }
@@ -45,7 +45,7 @@ export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', 
 export const leadMemory: LeadMemory = { version: 1, items: [
   { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
   { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
-export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'context-checkpoint'] as const
+export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence', 'context-checkpoint'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -97,6 +97,11 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
         options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' } },
   ]
   if (scene === 'proactive' || scene === 'away-digest') thread.messages = [{ version: 1, id: 'proactive', revision: 2, role: 'assistant', text: 'The review is ready.\nChecks still need you.\nOpen changes', proactive: { finding: 'The review is ready.', caveat: 'Checks still need you.', ask: 'Open changes', action: 'changes' } }]
+  if (scene === 'presence') thread.messages = [
+    { version: 1, id: 'ask-answered', revision: 1, role: 'assistant', text: 'I recommend keeping this change small.', ask: { question: 'How much should this change cover?', options: [{ id: 'focus', label: 'Fix focus only' }, { id: 'all', label: 'Include the whole form' }], recommended: 'focus', expiresInMinutes: 60 } },
+    { version: 1, id: 'answer-1', revision: 2, role: 'user', text: 'Fix focus only' },
+    { version: 1, id: 'ask-expired', revision: 3, role: 'assistant', text: 'The rename touches two screens.', ask: { question: 'Rename the column on both screens?', options: [{ id: 'both', label: 'Both screens' }, { id: 'one', label: 'This one only' }], recommended: 'both', expiresInMinutes: 30 } },
+  ]
   if (scene === 'runtime-unavailable') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, unavailable: 'runtime', unavailableReason: "this app's runtime (Node 24.19.0) rejected the Lead flags (exit 9)" } } }
   if (scene === 'first-name') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, nameChosen: false } } }
   if (scene === 'missing-plan') projection = { ...projection, wayOut: 'decide-plan' }
@@ -163,3 +168,11 @@ export const leadWorkFixture: LeadWorkBoard = { version: 1, more: 0, items: [
   workCard(2, 'Fix the retry status list', 'in-review', { links: { chats: ['fixture:chat-2'], teams: [], prs: ['acme/widgets#42'], issues: [] }, fact: 'Pull request acme/widgets#42 is open' }),
   workCard(1, 'Update the onboarding copy', 'done', { closedAt: Date.now() - 600_000, outcome: 'done' }),
 ] }
+
+/** What the host tells a window that has been away: one digest, and what became of the questions in the thread. */
+export const leadPresenceFixture = (now = Date.now()): LeadPresenceView => ({ version: 1, brief: { enabled: false, at: '07:30' },
+  digest: { version: 1, id: `away-${now - 10_800_000}-${now}`, kind: 'away', from: now - 10_800_000, to: now, spentUsdMicros: 1_200_000, more: 0, items: [
+    { kind: 'waiting', id: 'work-4', title: 'Rename the status column', fact: 'An approval waits for you' },
+    { kind: 'done', id: 'work-1', title: 'Update the onboarding copy' },
+    { kind: 'stopped', id: 'work-5', title: 'Ship the changelog after the rename', fact: 'Waits for the column rename' }] },
+  asks: [{ id: 'ask-answered', status: 'answered', answer: { option: 'Fix focus only', by: 'iPhone', at: now - 3_600_000 } }, { id: 'ask-expired', status: 'expired', expiresAt: now - 600_000 }] })

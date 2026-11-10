@@ -76,7 +76,7 @@ interface LeadControlsOptions {
   /** Hands the text to the goal's worker that is in a turn; false when none took it. */
   readonly steerWorker?: (text: string) => Promise<boolean>
   /** The open work cards, already bounded; they ride the end of each request and are never stored in the thread. */
-  readonly readWorkContext?: () => Promise<string | null>
+  readonly readWorkContext?: (turn: { readonly proactive: boolean }) => Promise<string | null>
   /** The stored conversation. Absent, each request is rebuilt from the words the person can read, as before. */
   readonly context?: Pick<LeadContextStore, 'request' | 'due' | 'compact' | 'facts' | 'compacting' | 'epoch'> & Partial<Pick<LeadContextStore, 'settle'>>
   /** Test seam for the idle check after a step was recorded. */
@@ -387,7 +387,7 @@ export class LeadControls {
           text: 'Continue the conversation from the person\'s latest message. Answer directly or use an ordinary chat for a task. Offer a reviewed plan only when the work needs that workflow; no plan has been approved.' })
         // The work ledger is desk context, read fresh for each request: it closes the request and is never kept in history.
         let work: string | null = null
-        try { work = await this.options.readWorkContext?.() ?? null } catch { /* A request without the cards still answers. */ }
+        try { work = await this.options.readWorkContext?.({ proactive: !!proactive }) ?? null } catch { /* A request without the cards still answers. */ }
         if (work) desk.push({ type: 'text', text: work })
         // One user turn: the person's words, the plan and the desk's context of this moment are never two turns in a row.
         messages = leadAppendUser(messages, desk)

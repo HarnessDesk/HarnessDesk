@@ -1949,7 +1949,8 @@ Works outside a group too; only grouped readings contribute to its card.
 
 `packages/ui/src/design/patterns/LeadAskOptions.tsx`
 
-The composer is the free-text answer; settled choices remain readable without controls.
+The composer is the free-text answer; settled choices remain readable without controls. A question the host has
+expired offers no answer and says so; one that was answered says who answered it, on which device and when.
 
 ### `LeadAvatar`
 

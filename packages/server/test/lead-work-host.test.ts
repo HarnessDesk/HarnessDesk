@@ -38,7 +38,7 @@ const workRig = async (t: TestContext) => {
     t.after(() => made.close())
     return made
   }
-  return { ...desk, project, journal, records, execute, controls }
+  return { ...desk, project, journal, records, execute, controls, state }
 }
 
 test('a duplicate chat start is refused naming the open item; ledgerItem adds the chat to it instead', async t => {
@@ -122,4 +122,19 @@ test('the open cards reach every model request, capped, and a reminder wakes the
   assert.equal(await controls.remind(key, 'Reminder you set for work work-1. Check on it.'), true, 'the same reminder is delivered once')
   await controls.idle()
   assert.equal(sent.length, 2)
+})
+
+test('an ask gets its expiry clock when the journal appends it, with nobody looking', async t => {
+  const { readFile } = await import('node:fs/promises')
+  const { join } = await import('node:path')
+  const r = await workRig(t)
+  await r.journal.appendReply('Start it?', undefined, { question: 'Start it?', options: [{ id: 'a', label: 'Start it' }, { id: 'b', label: 'Not now' }], recommended: 'a', expiresInMinutes: 60 })
+  const id = r.journal.state.messages.at(-1)!.id
+  const file = join(r.state.directory, 'lead', 'presence.json')
+  let stored: { asks?: Record<string, { expiresAt?: number }> } = {}
+  for (let attempt = 0; attempt < 100 && !stored.asks?.[id]; attempt++) {
+    stored = await readFile(file, 'utf8').then(text => JSON.parse(text), () => ({}))
+    if (!stored.asks?.[id]) await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.ok(stored.asks?.[id]?.expiresAt, 'the clock was started by the append, not by a read')
 })

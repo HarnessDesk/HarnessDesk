@@ -19,7 +19,7 @@ import { LeadDetails } from '../components/LeadDetails'
 import { LeadAskOptions, LeadAvatar, LeadNameChoice, LeadPlanFlow, LeadTurn, LeadWorking, Text } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
-import { LEAD_SCENES, leadContextFacts, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
+import { LEAD_SCENES, leadContextFacts, leadPresenceFixture, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
 import { LEAD_LIMITS, type HostMethodName, type LeadWorkBoard, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
@@ -34,6 +34,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   const shellRequest = store.transport.request.bind(store.transport)
   let current = leadSceneProjection(scene), schedule = leadSchedule, memory = leadMemory
   let work: LeadWorkBoard = scene === 'work-ledger' ? leadWorkFixture : { version: 1, items: [], more: 0 }
+  let presence = scene === 'presence' ? leadPresenceFixture() : { version: 1 as const, digest: null, asks: [], brief: { enabled: false, at: '07:30' } }
   const emit = (next: LeadWindowProjection) => { current = next; store.lead.changed({ method: 'lead/changed', params: current }) }
   store.transport.request = (async (method: HostMethodName, input: unknown) => {
     const params = input as Record<string, any>
@@ -80,6 +81,10 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
     if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
     if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }
+    if (method === 'lead/presence/read') return presence
+    if (method === 'lead/presence/dismiss') return presence = { ...presence, digest: presence.digest?.id === params.digest ? null : presence.digest }
+    if (method === 'lead/brief/read') return presence.brief
+    if (method === 'lead/brief/update') { presence = { ...presence, brief: { ...presence.brief, ...(params.enabled === undefined ? {} : { enabled: params.enabled }), ...(params.at === undefined ? {} : { at: params.at }) } }; return presence.brief }
     if (method === 'lead/work/list') return work
     if (method === 'lead/work/close') {
       // As on the desk: the person's close moves the item to Done, newest first, and is never undone.

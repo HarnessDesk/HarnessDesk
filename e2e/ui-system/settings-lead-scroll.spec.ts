@@ -7,8 +7,9 @@ for (const theme of ['light', 'dark'] as const) test(`Settings Lead groups stay 
   const groups = page.locator('[data-slot="rows"]')
   // Every group on the page is held to the same checks, however many sections Settings › Lead has: the eight that
   // render at once, and the Conversation group, which waits for the context read.
+  await expect(groups.nth(7)).toBeVisible()
   await expect(page.locator('[data-slot="rows"]', { hasText: 'Context in use' })).toHaveCount(1)
-  expect(await groups.count()).toBeGreaterThanOrEqual(9)
+  expect(await groups.count(), 'the Lead settings groups').toBeGreaterThanOrEqual(9)
   for (const group of await groups.all()) {
     const metrics = await group.evaluate(node => ({ client: node.clientHeight, scroll: node.scrollHeight, bottom: node.getBoundingClientRect().bottom, lastBottom: node.lastElementChild?.getBoundingClientRect().bottom ?? null }))
     expect(metrics.client).toBeGreaterThan(0)

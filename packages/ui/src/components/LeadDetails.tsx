@@ -6,6 +6,7 @@ import { sanitizeText } from '../lib/sanitize'
 import { leadRefusalText } from './lead-refusals'
 import { leadDollars, leadSpendCap } from './LeadCards'
 import { PencilIcon } from './Icons'
+import { LeadRecap } from './LeadAway'
 import { LeadWork } from './LeadWork'
 
 /** A Flow role is an id (`implement`); the rail says it in the plan card's word, capitalised for a row title. */
@@ -72,6 +73,7 @@ export const LeadDetails = () => {
       <ToolProse variant="note">{state.projectMissing ? 'Open a folder, then send a goal. Its plan, workers and spend show here.' : 'Send a goal. Its plan, workers and spend show here.'}</ToolProse>
     </ToolSection>}
     <LeadWork />
+    {thread && thread.messages.length > 0 && <LeadRecap />}
     {contract && phase && <>
       <ToolSection label="Goal" fold><ToolProse>{sanitizeText(contract.goal)}</ToolProse></ToolSection>
       <ToolSection label="Plan" fold value={planWord(phase, state.progress)}>

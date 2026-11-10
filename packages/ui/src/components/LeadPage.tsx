@@ -9,7 +9,7 @@ import { LeadNameIntro } from './LeadNameIntro'
 import { LeadWakeLedger } from './LeadWakeLedger'
 import { LeadOpening } from './LeadOpening'
 import { leadOpeningJobs } from '../lib/lead-opening'
-import { LeadAway } from './LeadAway'
+import { LeadAway, useLeadAsks } from './LeadAway'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { LeadHostNotice, LeadMessage } from './LeadMessage'
@@ -82,6 +82,7 @@ const STOPPED: Record<LeadStopReason, string> = {
 }
 const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs'}` : 'no runs yet'
 /** Elapsed time beside Stop: minutes under an hour, then hours and minutes. */
+const EMPTY_ASKS: readonly never[] = []
 export const leadElapsed = (ms: number) => { const minutes = Math.max(0, Math.floor(ms / 60000)); return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m` }
 
 export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
@@ -104,7 +105,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     if (element) { element.focus({ preventScroll: true }); requestedDecisionFocus.current = null }
   }
   // A missing folder is the store's state and the greeting's step, never a warning banner as well.
-  const refusal = (error: unknown) => { if (!store.lead.state.projectMissing || leadRefusalText(error) !== REFUSALS['lead-project-missing']) setError(leadRefusalText(error)) }
+  const refusal = (error: unknown, typed = false) => { if (!store.lead.state.projectMissing || leadRefusalText(error) !== REFUSALS['lead-project-missing']) setError(leadRefusalText(error, typed)) }
   const { owner } = useDestinationPage(), controls = useLeadControls(), { name, face, label, presence } = controls
   const shellActions = useShell()
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
@@ -149,11 +150,11 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     timer = setTimeout(refresh, Math.max(0, Math.min(state.planConsentExpiresAt - Date.now() + 50, 2147483647)))
     return () => { cancelled = true; clearTimeout(timer) }
   }, [active, state.planConsentExpiresAt, state.wayOut, state.thread?.state, store])
-  const send = async (text = goal) => {
+  const send = async (text = goal, ask?: string) => {
     if (unavailable || inFlight.current || state.requestInFlight || !text.trim()) return
     inFlight.current = true; sendBaseline.current = [...store.lead.state.thread?.messages ?? []].reverse().find(message => message.role === 'user')?.id ?? null; setSending(true); setError(null)
-    try { await store.lead.send(text.trim(), crypto.randomUUID()); setGoal(current => current === text ? '' : current) }
-    catch (error) { refusal(error) }
+    try { await store.lead.send(text.trim(), crypto.randomUUID(), ask); setGoal(current => current === text ? '' : current) }
+    catch (error) { refusal(error, !ask) }
     finally { inFlight.current = false; setSending(false); input.current?.focus() }
   }
   const steer = async () => {
@@ -170,6 +171,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const sendDisabled = unavailable || requestPending || !!state.error || state.revision < 0
   const messages = state.thread?.messages ?? []
   const latestAsk = [...messages].reverse().find(message => message.role === 'assistant' && (message.ask || message.proactive?.options))
+  const asks = new Map(useLeadAsks(state.away?.asks ?? EMPTY_ASKS).map(ask => [ask.id, ask] as const))
   const answers = new Map(messages.flatMap((message, index) => {
     const answer = messages.slice(index + 1).find(next => next.role === 'user')
     return answer ? [[message.id, answer.text] as const] : []
@@ -258,8 +260,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {origin && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{leadOriginText(origin)}</Button> : leadOriginText(origin)}</Text>}
         {entries.map(entry => entry.kind === 'message'
           ? entry.message.role === 'notice' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={entry.message.id === firstReply?.id ? replyKey : `message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
-            ask={entry.message.ask} proactive={entry.message.proactive} disabled={sendDisabled} picked={answers.get(entry.message.id)}
-            onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) ? label => { if (!sendDisabled) void send(label) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
+            ask={entry.message.ask} settled={asks.get(entry.message.id)} proactive={entry.message.proactive} disabled={sendDisabled} picked={answers.get(entry.message.id)}
+            onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) && asks.get(entry.message.id)?.status !== 'expired' ? label => { if (!sendDisabled) void send(label, entry.message.id) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
           : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
             note={<Chip variant="quiet" tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
