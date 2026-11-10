@@ -5,6 +5,7 @@ import type {
   TriggerBudget,
   TriggerBudgetState,
   TriggerCommentFrom,
+  TriggerDecision,
   TriggerDefinition,
   TriggerField,
   TriggerFiring,
@@ -50,7 +51,9 @@ const triggerWhenWords = (definition: TriggerDefinition): string => definition.o
   ? `Every ${scheduleWords(definition.on.everyMinutes)}`
   : definition.on.kind === 'pull-request'
     ? `When a pull request ${joinEither(definition.on.events.map((event) => PR_EVENT_WORDS[event]))}`
-    : `When an issue ${joinEither(definition.on.events.map((event) => ISSUE_EVENT_WORDS[event]))}`
+    : definition.on.kind === 'mention'
+      ? `When a comment asks ${definition.handle ? `@${definition.handle}` : 'the Lead'}`
+      : `When an issue ${joinEither(definition.on.events.map((event) => ISSUE_EVENT_WORDS[event]))}`
 
 /** The list and both reviews name the target once, with the trigger id and concurrency below. */
 export const triggerRowWords = (definition: TriggerDefinition): { readonly title: string; readonly facts: string } => {
@@ -203,6 +206,7 @@ const FIELD_WORDS: Readonly<Record<TriggerField, string>> = {
   event: 'event',
   issue: 'issue',
   slot: 'scheduled time',
+  thread: 'thread',
 }
 
 const joinBoth = (words: readonly string[]): string =>
@@ -258,3 +262,24 @@ export const triggerProblemPlace = (at: string): string => {
   if (at === 'flow' || at.startsWith('flow.')) return 'Its flow'
   return 'This trigger'
 }
+
+/**
+ * One triage decision's verdict as its chip reads: an accept in observe mode
+ * is "Would accept", since it opened nothing.
+ */
+export const triageWords = (decision: Pick<TriggerDecision, 'decision' | 'mode' | 'acted'>): string => {
+  switch (decision.decision) {
+    case 'accept':
+      return decision.mode === 'observe' && !decision.acted ? 'Would accept' : 'Accepted'
+    case 'ignore':
+      return 'Ignored'
+    case 'stop':
+      return decision.mode === 'observe' && !decision.acted ? 'Would stop' : 'Stopped'
+    case 'ask':
+      return 'Waits for you'
+  }
+}
+
+/** Where a triage decision's comment was: "Issue #42", "Pull request #7". */
+export const triageThreadWords = (thread: TriggerDecision['thread']): string =>
+  `${thread.kind === 'pull-request' ? 'Pull request' : 'Issue'} #${thread.number}`

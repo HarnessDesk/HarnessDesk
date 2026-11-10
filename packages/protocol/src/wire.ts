@@ -126,6 +126,8 @@ import type {
   SessionSummary,
 } from './session.js'
 import type { Intent, PersonNotice, Plan, TeamInbound, TeamPeerInfo, TeamState } from './team.js'
+import type { TriggerDecision, TriggerDecisionsPage, TriggerMode } from './intake.js'
+import type { PhoneTriageList } from './phone.js'
 import type {
   LedgerQuery,
   LedgerReport,
@@ -1016,6 +1018,12 @@ export interface HostMethods {
   'trigger/history': { params: { readonly root: string; readonly id: string; readonly cursor?: string }; result: TriggerHistoryPage }
   /** A trigger Goal's origin, budget and named waits; null for any other Goal. */
   'trigger/goal': { params: { readonly goal: GoalId }; result: TriggerGoalStatus | null }
+  /** A mention trigger's triage decisions, newest first, its mode on this machine, and its threads of work. */
+  'trigger/decisions': { params: { readonly root: string; readonly id: string }; result: TriggerDecisionsPage }
+  /** Judges one decision again, on the comment as the forge holds it now. */
+  'trigger/decision/reevaluate': { params: { readonly root: string; readonly id: string; readonly decision: string }; result: TriggerDecision }
+  /** Switches an armed mention trigger between observing and acting, on this machine, until it is armed again. */
+  'trigger/mode': { params: { readonly root: string; readonly id: string; readonly mode: TriggerMode }; result: TriggerDecisionsPage }
 
   'host/hello': {
     params: { readonly clientVersion: string }
@@ -2923,6 +2931,8 @@ export interface HostMethods {
    * installs Brave the week after they chose Chrome.
    */
   'app/browsers': { params: Record<string, never>; result: readonly InstalledBrowser[] }
+  /** What a paired phone reads of mention triage: every decision, newest first, read only. */
+  'phone/triage/list': { params: { readonly limit?: number }; result: PhoneTriageList }
 }
 
 /** One browser HarnessDesk found, and can start with remote debugging. */

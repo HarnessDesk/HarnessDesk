@@ -96,7 +96,7 @@ const isMap = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const cursorOf = (value: unknown): SourceCursor | null => {
-  if (!isMap(value) || value['version'] !== 1 || !['pull-request', 'issue', 'schedule'].includes(String(value['source']))) return null
+  if (!isMap(value) || value['version'] !== 1 || !['pull-request', 'issue', 'schedule', 'mention'].includes(String(value['source']))) return null
   const { repository, baseline, observedThrough, continuation, subjects } = value
   if (!(repository === null || typeof repository === 'string') || !Number.isSafeInteger(baseline) || !Number.isSafeInteger(observedThrough) ||
     !(continuation === null || typeof continuation === 'string') || !isMap(subjects)) return null

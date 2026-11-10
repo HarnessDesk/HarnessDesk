@@ -66,6 +66,8 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/budget/raise': 'answer',
     // The money limit alone, as narrow as a raise: `lead/settings/update`, which also writes policy and keys, stays off the phone.
     'lead/spendLimit/set': 'answer',
+    // Mention triage, read only: switching a trigger to act or evaluating a request again is the desk's.
+    'phone/triage/list': 'read',
   },
   topics: { lead: 'read', workspace: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.

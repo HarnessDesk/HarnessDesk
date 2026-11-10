@@ -265,6 +265,9 @@ import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
+import { observerAssessor } from './intake/assess.js'
+import type { MentionAssessor } from './intake/mentions.js'
+import { leadProviderTransport } from './lead/provider-transport.js'
 import { NO_WAITS, actorWords, type HostWaits } from './intake/waits.js'
 import type { UsageSample } from './ledger/insight.js'
 import { InsightContexts } from './insight/context.js'
@@ -646,6 +649,11 @@ export interface HostOptions {
     readonly monotonic?: () => number
     readonly timers?: IntakeTimers
     readonly usage?: (project: string, from: number, to: number) => Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
+    /** Mention triggers' observer model, and the pull requests a Goal's work opened, scripted. */
+    readonly mentions?: {
+      readonly assess?: MentionAssessor | null
+      readonly pullRequests?: (repository: string, goals: readonly string[], firings: readonly string[]) => Promise<readonly number[]>
+    }
   }
 }
 
@@ -2537,8 +2545,40 @@ export class Host {
       monotonic: options.intake?.monotonic ?? (() => performance.now()),
       ...(options.intake?.gh ? { gh: options.intake.gh } : {}),
       ...(options.intake?.timers ? { timers: options.intake.timers } : {}),
+      mentions: {
+        // The Lead's observer model, with the Lead's own key: none while the Lead is off or has no key, so a request waits for the person.
+        assess: options.intake?.mentions?.assess !== undefined ? options.intake.mentions.assess : observerAssessor({
+          transport: this.options.leadMessagesTransport ?? leadProviderTransport,
+          key: async () => this.options.leadEnabled && (await this.#credentials.leadStatus('anthropic')).configured ? this.#credentials.resolveLead('anthropic') : null,
+          model: LEAD_MESSAGES_DEFAULTS.observerModel,
+        }),
+        leadName: () => this.#leadJournal?.state.name ?? 'dex',
+        pullRequests: options.intake?.mentions?.pullRequests ?? ((repository, goals, firings) => this.#mentionPullRequests(repository, goals, firings)),
+      },
     })
     this.#context = this.#buildContext()
+  }
+
+  /**
+   * The pull requests a mention's work opened: those the git record says a
+   * Seat on one of its Goals created, and the Lead's own when a firing of it
+   * started the Lead's goal. Read only; a record that cannot be read is none.
+   */
+  async #mentionPullRequests(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]> {
+    const found = new Set<number>()
+    const boards = new Set(goals)
+    const sessions = new Set(this.#evidence.seats.all().filter((seat) => seat.board !== null && boards.has(seat.board))
+      .map((seat) => `${seat.session.runtime}/${seat.session.sessionId}`))
+    if (sessions.size > 0) {
+      const rows = await this.#gitGateway.record({ repository, limit: 500 }).catch(() => [])
+      for (const row of rows) {
+        if (row.op === 'pr.create' && row.outcome === 'ok' && row.number !== undefined && row.requester.kind === 'session' && sessions.has(row.requester.id)) found.add(row.number)
+      }
+    }
+    const lead = this.#leadJournal?.state
+    if (lead?.pr && lead.originKey && firings.some((firing) => lead.originKey === `trigger-${firing}`) &&
+      lead.pr.repository.toLowerCase() === repository.toLowerCase()) found.add(lead.pr.number)
+    return [...found]
   }
 
   /**

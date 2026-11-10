@@ -229,7 +229,7 @@ export const faultSetAside = (reason: string): string =>
 
 /** `again` compares changed PR heads, or the distinct check/review/issue event; nothing for a schedule. */
 const comparison = (fact: TriggerFact): string | null =>
-  fact.source === 'pull-request' ? (fact.action === 'checks-failed' || fact.action === 'review-commented' ? fact.event : fact.head) : fact.source === 'issue' ? fact.event : null
+  fact.source === 'pull-request' ? (fact.action === 'checks-failed' || fact.action === 'review-commented' ? fact.event : fact.head) : fact.source === 'issue' || fact.source === 'mention' ? fact.event : null
 
 /** What a firing's history row keeps of its fact: validated scalars, never prose. */
 const historyOf = (fact: TriggerFact): Pick<IntakeFiring, 'source' | 'subject' | 'head' | 'repository'> => ({
@@ -245,6 +245,8 @@ const sentenceOf = (definition: TriggerDefinition, fact: TriggerFact): string =>
       return `Issue #${fact.subject}, from trigger ${definition.id}`
     case 'schedule':
       return `Scheduled run at ${new Date(Number(fact.subject)).toISOString()}, from trigger ${definition.id}`
+    case 'mention':
+      return `${fact.thread === 'pull-request' ? 'Pull request' : 'Issue'} #${fact.subject}, asked for on the forge, from trigger ${definition.id}`
   }
 }
 

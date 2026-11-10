@@ -99,3 +99,23 @@ test('explicit PR follow events validate without broadening or duplicating the v
     assert.throws(() => request('authoring/triggers/render', { definitions: [{ ...definition, on: { kind: 'pull-request', events } }] }), ValidationError)
   }
 })
+
+test('mention triage controls take a trigger, a decision id and a mode, and nothing that could steer what is admitted', () => {
+  const valid: Record<string, Record<string, unknown>> = {
+    'trigger/decisions': { root: ROOT, id: 'ask' },
+    'trigger/decision/reevaluate': { root: ROOT, id: 'ask', decision: `d-${'a'.repeat(20)}` },
+    'trigger/mode': { root: ROOT, id: 'ask', mode: 'act' },
+    'phone/triage/list': { limit: 50 },
+  }
+  for (const [method, params] of Object.entries(valid)) {
+    assert.doesNotThrow(() => request(method, params), `${method} accepts its own shape`)
+    for (const field of ['decision-text', 'reason', 'opens', 'budget', 'again', 'fact', 'comment', 'grant']) {
+      assert.throws(() => request(method, { ...params, [field]: 'x' }), ValidationError, `${method} refuses a forged ${field}`)
+    }
+  }
+  assert.throws(() => request('trigger/mode', { root: ROOT, id: 'ask', mode: 'auto' }), ValidationError)
+  assert.throws(() => request('trigger/decision/reevaluate', { root: ROOT, id: 'ask', decision: 'accept' }), ValidationError)
+  assert.throws(() => request('phone/triage/list', { limit: 101 }), ValidationError)
+  assert.throws(() => request('phone/triage/list', { limit: 0 }), ValidationError)
+  assert.doesNotThrow(() => request('phone/triage/list', {}))
+})

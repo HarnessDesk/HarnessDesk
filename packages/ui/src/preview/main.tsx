@@ -113,7 +113,7 @@ import {
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import { captureHealth, commitProvenance, provenanceDetail, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
 import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
-import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
+import { GOAL_INTAKE_SCENES, mentionDefinition, sceneArmPreview, sceneGoalStatus, triggerDecisionsPage, triggerFiring, triggerHistoryPage, triggerProjectView, triggerView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { BOARD_TOOL_FRAMES, boardToolFrame } from './approval-fixture'
@@ -371,9 +371,22 @@ const setPreviewGoalIntakeScene = (scene: GoalIntakeScene): void => {
   })
 }
 
-let previewTriggers = triggerProjectView()
+const baseTriggers = triggerProjectView()
+// The last row is an armed mention trigger still observing: its History lists triage decisions with Re-evaluate.
+let previewTriggers = { ...baseTriggers, triggers: [...baseTriggers.triggers, triggerView({ id: 'ask-dex', definition: mentionDefinition(), armed: true, state: 'armed' })] }
+let previewDecisions = triggerDecisionsPage()
 Object.assign(store as unknown as Record<string, unknown>, {
   projectTriggers: async () => previewTriggers,
+  triggerDecisions: async () => previewDecisions,
+  setTriggerMode: async (_root: string, _id: string, mode: 'observe' | 'act') => {
+    previewDecisions = { ...previewDecisions, mode }
+    return previewDecisions
+  },
+  reevaluateTriggerDecision: async (_root: string, _id: string, decision: string) => {
+    const found = previewDecisions.decisions.find((one) => one.id === decision)
+    if (!found) throw new Error(`[preview] no decision named ${decision}`)
+    return { ...found, evaluations: found.evaluations + 1 }
+  },
   previewTrigger: async (_root: string, id: string) => sceneArmPreview((TRIGGER_ARM_SCENES as readonly string[]).includes(id) ? (id as TriggerArmScene) : 'ready'),
   armTrigger: async (_root: string, id: string) => {
     const armed = previewTriggers.triggers.find((one) => one.id === id)

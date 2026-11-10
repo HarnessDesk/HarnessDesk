@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Ask the Lead from a comment.** A new trigger kind, `on: mention`, reads comments on issues and pull requests that address the Lead's name, or the trigger's own `handle`. Only the arming account, collaborators if you choose, and the people and bots the trigger names can ask. Each request is checked against the trigger's rules first and then judged by a small model, and every decision shows in the trigger's history with the reason and a Re-evaluate button; the phone lists them read-only. A new mention trigger only observes: it records what it would have accepted and opens nothing until you choose Switch to act. Accepted work stays one thread: a later comment on the issue or its pull requests joins the same work, and the thread closes when its pull requests merge or close.
+
 - **Idle conversations read back whole.** A conversation an agent replays from its own store, such as an OpenCode one, keeps its replies, its thinking and the turn times the desk recorded, on the desktop and the phone. It no longer says recent activity is still being saved when nothing is.
 
 - **Manage conversations from your phone.** Rename, archive, unarchive and pin the desk's conversations; delete those whose agent moves them to the Trash. Pins follow you between the desk and phone.

@@ -6,6 +6,7 @@ import type { RuntimeInfo, WireNotification } from '@harnessdesk/protocol'
 import { Host, StateStore } from '../../src/index.js'
 import type { QuestionTimers } from '../../src/host.js'
 import type { IntakeTimers } from '../../src/intake/plane.js'
+import type { MentionAssessor } from '../../src/intake/mentions.js'
 import { makeRepo, type Repo } from './evidence-desk.js'
 import { FakeRuntime } from './fake-runtime.js'
 import { HoldFake } from './hold-runtime.js'
@@ -97,6 +98,11 @@ export const intakeDesk = async (options: {
   /** The timers an unattended Seat's question wait runs on, so a test ends the wait when it says. */
   readonly seatReadDeadlineMs?: number
   readonly questionTimers?: QuestionTimers
+  /** Mention triggers' observer model and the pull requests a Goal's work opened: scripted, never a model or a forge write. */
+  readonly mentions?: {
+    readonly assess?: MentionAssessor | null
+    readonly pullRequests?: (repository: string, goals: readonly string[], firings: readonly string[]) => Promise<readonly number[]>
+  }
 } = {}): Promise<IntakeDesk> => {
   const repo = options.repo ?? await makeRepo('hd-intake-host-')
   if (!options.repo && options.triggers !== null) await commitTriggers(repo, options.triggers ?? TRIGGERS)
@@ -119,6 +125,7 @@ export const intakeDesk = async (options: {
       timers,
       // Every read covers everything and finds nothing yet: a fresh Seat's spend is a known zero.
       usage: async () => ({ samples: [], complete: true }),
+      ...(options.mentions ? { mentions: options.mentions } : {}),
     },
     ...(options.questionTimers ? { questionTimers: options.questionTimers } : {}),
   })

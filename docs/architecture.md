@@ -507,7 +507,18 @@ sample.
   trigger's run (`FlowIntake.heldFor`) rather than stopping it, and a firing
   whose effects keep failing holds only its own project. Machine consent and
   its signing key are excluded from backup; the declaration itself is an
-  ordinary project file.
+  ordinary project file. A mention trigger (`on: mention`, `packages/server/src/intake/mentions.ts`)
+  is polled from the repository's issue comments like any other source, but
+  its facts go to `MentionTriage` rather than straight to admission: ordered
+  rules (addressed, allowed, project, label, handled, stop word) and then one
+  observer-model assessment (`packages/server/src/intake/assess.ts`, through the Lead's provider
+  transport) decide accept, ignore, stop or ask. Decisions, this machine's
+  observe/act mode and the work threads live in `triggers-mentions.json`; an
+  accept in act mode admits through the same `Admission.offer`, and a later
+  comment on a linked thread offers the thread's origin so it joins the same
+  Goal. The sweep links pull requests from the Git gateway's record and closes
+  a thread when they merge or close. `WorkItemsPort.attach` is the one call
+  the work ledger plugs into.
 - **Authoring and the front door** (`packages/server/src/authoring/`) — the
   one owner of an Agent's file, a flow and a project's triggers, read exactly
   and written only through a preview a person saw: `authoring/read`,

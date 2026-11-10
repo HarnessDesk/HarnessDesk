@@ -5507,3 +5507,39 @@ Editor mode. Opening explicitly reads then resumes the other conversation for
 live updates; the operation may reopen a runtime or restore a worktree. Closing
 its reader does not close a shared Host handle. This deliberately avoids a
 second composer, persisted layout or general-purpose conversation dock.
+
+## A mention is triaged by rules, then by a model that only chooses — 2026-11-10
+
+Asking the Lead from an issue or pull request comment is the most direct way
+to hand it work, and also the easiest way for a stranger to try to. A mention
+trigger therefore never admits on the comment alone. Deterministic rules run
+first, in a fixed order, and the first one that fails decides: the comment
+must address the handle, its author must be on the trigger's list (compared
+by the forge's account id, never a login), the thread must be in the
+project, carry one of the trigger's labels if it names any, and still be
+open, and a comment that asks the handle to stop is a stop. Only then does
+one small observer-model request judge whether it is a request for work, and
+that answer can only pick accept, ignore, stop or ask with one sentence.
+What accepting opens, the budget and the Flow are the trigger's own and are
+never read from the comment or the answer, so text in a comment that tries
+to instruct the model changes at most the verdict, never what is admitted.
+The assessment uses the Lead's key and transport only when the Lead is
+enabled, sends no comment that looks like it carries a credential, and stops
+at 200 a day; without an answer the decision is `ask` and waits for the
+person, who can Re-evaluate it.
+
+A new mention trigger observes first: it records "would have accepted" and
+acts on nothing until this machine switches it to act, and every arm starts
+it observing again, because a changed file is a new consent. Accepted work
+is one thread. A later comment from someone allowed on the issue or any
+linked pull request joins the same Goal without a second triage; a comment
+from anyone else is counted as an observation and never acted on. The thread
+closes when its linked pull requests merge or close.
+
+Rejected: a webhook (a public endpoint and a secret to hold, for a desk that
+already polls the forge); a separate bot identity (a second credential, and
+the desk's marker line already tells its own posts apart); triaging every
+comment (cost and noise, and a stranger's comment would reach the model);
+and letting the assessment choose the Flow or the role (that would hand
+control of what runs to whoever writes the comment).
+
