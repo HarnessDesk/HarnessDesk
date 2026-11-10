@@ -1,0 +1,57 @@
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { LEAD_AUTONOMY_KINDS, LEAD_AUTONOMY_LABELS, type LeadAutonomyKind, type LeadAutonomyMode, type LeadAutonomyView } from '@harnessdesk/protocol'
+import { NativeSelect, Row, Rows, Section, Segmented, Text } from '../design'
+import { useDestinationActive } from '../panels/destination-page'
+import { useStore } from '../state/context'
+import { leadRefusalText } from './lead-refusals'
+
+const MODES: readonly { readonly value: LeadAutonomyMode; readonly label: string }[] = [
+  { value: 'off', label: 'Off' }, { value: 'observe', label: 'Observe' }, { value: 'act', label: 'Act' },
+]
+const HOUR = 3_600_000
+const DEADLINES: readonly { readonly value: string; readonly label: string; readonly ms: number | null }[] = [
+  { value: 'none', label: 'No deadline', ms: null }, { value: '1', label: 'In 1 hour', ms: HOUR }, { value: '4', label: 'In 4 hours', ms: 4 * HOUR }, { value: '24', label: 'In 24 hours', ms: 24 * HOUR },
+]
+const when = (at: number) => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+/**
+ * Settings › Lead › Autonomy: what the Lead does without being asked, one row per kind. The host enforces each row at
+ * the point it would act. Observe does nothing but write what it would have done, so a row can be trusted before it is
+ * switched on.
+ */
+export const LeadAutonomySection = () => {
+  const store = useStore(), active = useDestinationActive()
+  const lead = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
+  const goal = lead.thread?.budget?.logicalGoalId, open = !!goal && !['accepted', 'declined', 'stopped'].includes(lead.thread?.state ?? '')
+  const [view, setView] = useState<LeadAutonomyView | null>(null)
+  const [pending, setPending] = useState<LeadAutonomyKind | null>(null), [error, setError] = useState<string | null>(null)
+  useEffect(() => { if (active) void store.lead.readAutonomy().then(next => setView(next?.modes ? next : null), failure => setError(leadRefusalText(failure))) }, [active, store])
+  const choose = async (kind: LeadAutonomyKind, mode: LeadAutonomyMode) => {
+    setPending(kind); setError(null)
+    try { const next = await store.lead.setAutonomy({ kind, mode }); if (next?.modes) setView(next) } catch (failure) { setError(leadRefusalText(failure)) } finally { setPending(null) }
+  }
+  const setDeadline = async (value: string) => {
+    const ms = DEADLINES.find(one => one.value === value)?.ms ?? null
+    setError(null)
+    try { const next = await store.lead.setDeadline({ logicalGoalId: goal!, deadlineAt: ms === null ? null : Date.now() + ms }); if (next?.modes) setView(next) } catch (failure) { setError(leadRefusalText(failure)) }
+  }
+  if (!view) return error ? <Section title="Autonomy"><Text role="muted">{error}</Text></Section> : null
+  return <Section title="Autonomy">
+    <Rows>
+      {LEAD_AUTONOMY_KINDS.map(kind => <Row key={kind} title={LEAD_AUTONOMY_LABELS[kind].title} tooltip={LEAD_AUTONOMY_LABELS[kind].hint}
+        control={<Segmented label={LEAD_AUTONOMY_LABELS[kind].title} options={MODES.map(mode => ({ ...mode, disabled: pending === kind }))} value={view.modes[kind]} onChange={mode => void choose(kind, mode)} />} />)}
+    </Rows>
+    {open && <Rows>
+      <Row title="Goal deadline" tooltip="At 80% of the time the Lead says so; at the deadline it starts no new round."
+        control={<NativeSelect aria-label="Goal deadline" value={view.deadline ? 'set' : 'none'} onChange={event => void setDeadline(event.target.value)}>
+          {view.deadline && <option value="set" disabled>{`Until ${when(view.deadline.deadlineAt)}`}</option>}
+          {DEADLINES.map(one => <option key={one.value} value={one.value}>{one.label}</option>)}
+        </NativeSelect>} />
+    </Rows>}
+    <Text role="muted">Observe writes what the Lead would have done to its record and does nothing.</Text>
+    {view.observed.length > 0 && <Rows>
+      {view.observed.slice(0, 3).map(item => <Row key={item.id} title={item.note} control={<Text role="meta">{when(item.at)}</Text>} />)}
+    </Rows>}
+    {error && <Text role="muted">{error}</Text>}
+  </Section>
+}

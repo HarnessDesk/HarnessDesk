@@ -367,6 +367,16 @@ test('unregister cancels a pending cleanup retry', async t => {
   assert.equal(stops, 1)
 })
 
+test('a goal whose deadline has passed starts no new round and says so, like a spent allowance', async t => {
+  const s = await leadRig(t), run = await s.start()
+  await s.observe(0)
+  const budgets = new LeadBudgets({ ...s.budgets.port, deadlinePassed: id => id === s.journal.state.budget!.logicalGoalId })
+  const unregister = budgets.register(s.journal); t.after(unregister)
+  await assert.rejects(budgets.round(s.rig.flows.leadRuns()[0]!, leadRoundId(run.id, 2)), /lead-round-refused/)
+  assert.equal(s.journal.state.budget!.stop?.reason, 'deadline')
+  assert.equal(s.journal.state.budget!.rounds.length, 1, 'no second round was admitted')
+})
+
 for (const cause of ['rounds', 'budget', 'unknown-spend', 'reservation', 'terminal']) {
   test(`round refusal reports ${cause} and does not mislabel a rounds cap`, async t => {
     const s = await leadRig(t), run = await s.start()
