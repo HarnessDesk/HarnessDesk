@@ -14,7 +14,9 @@ import {
   type Session,
   type SessionSummary,
   type TeamState,
+  type WireNotification,
 } from '@harnessdesk/protocol'
+import type { TransportEvents } from '../lib/transport'
 
 import { StoreProvider } from '../state/context'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
@@ -55,6 +57,34 @@ it('opens the selected sidebar conversation beside the current subject', async (
   expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.turns[0]?.items[0]).toMatchObject({ text: 'Unique secondary answer' })
   expect(store.getSnapshot().activeSessionKey).toBe(before)
   expect(request.mock.calls.some(([method]) => method === 'session/close')).toBe(false)
+})
+
+it('shows a host pin spelled runtime:id as pinned and first, and unpins it from the row menu', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const runtime = runtimeId('demo')
+  const info = { id: runtime, presentation: { name: 'Demo' }, capabilities: {} } as RuntimeInfo
+  const row = (id: string, title: string, updatedAt: number) =>
+    ({ id: sessionId(id), runtime, title, preview: null, cwd: '/project', status: { type: 'idle' }, createdAt: 1, updatedAt, archived: false }) as SessionSummary
+  Object.assign(store.getSnapshot(), { status: 'open', activeRuntime: runtime, runtimes: [info], workspace: { path: '/project', name: 'project' } })
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async () => null) as never)
+  // The session id carries a colon, so only the first one separates the runtime.
+  const notify = (store.transport as unknown as { handlers: TransportEvents }).handlers.onNotification
+  act(() => notify({ method: 'session/indexChanged', params: {
+    upserted: [row('newer', 'session-newer', 9), row('older:part', 'session-older', 2)], removed: [], pinnedSessions: ['demo:older:part'],
+  } } as WireNotification))
+  await act(async () => root.render(<StoreProvider store={store}><SessionTree now={10} /></StoreProvider>))
+  const pinned = container.querySelector('[data-sidebar-band="pinned"]')
+  expect(pinned).toBeTruthy()
+  expect(rowTitles(pinned as HTMLElement)).toEqual(['session-older'])
+  expect(rowTitles(container)[0]).toBe('session-older')
+  const menu = [...container.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="menu"]')].find(button => button.getAttribute('aria-label')?.includes('session-older'))!
+  act(() => menu.click())
+  const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(items.some(item => item.textContent?.trim() === 'Pin')).toBe(false)
+  const unpin = items.find(item => item.textContent?.includes('Unpin'))!
+  expect(unpin).toBeTruthy()
+  await act(async () => unpin.click())
+  expect(request).toHaveBeenCalledWith('session/pin', { runtime, sessionId: 'older:part', pinned: false })
 })
 
 it('keeps Archive self-explanatory without a subtitle', () => {

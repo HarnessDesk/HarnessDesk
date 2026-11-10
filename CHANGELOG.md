@@ -11,6 +11,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Manage conversations from your phone.** Rename, archive, unarchive and pin the desk's conversations; delete those whose agent moves them to the Trash. Pins follow you between the desk and phone.
 
+- **Pins show on the desktop.** A conversation pinned on the desktop or the phone now reads Unpin and sorts first in the sidebar, and unpinning it from the desktop works. Pins saved by an earlier desktop carry over instead of being dropped.
+
 - **Select conversations together.** Cmd-click or Shift-click rows to pin, unpin, archive or delete a selection. Shift+Space toggles the focused row too.
 
 - **New marks work you have not seen.** A conversation gets a New dot when a turn finishes off screen. Opening it, including in the reader on the right, clears the mark.

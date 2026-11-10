@@ -491,6 +491,15 @@ test('opening and completing a session publish unread facts without changing act
   } finally { index.close() }
 })
 
+test('pin migration accepts the window\'s NUL-separated legacy keys as well as runtime:id', () => {
+  const index = new SessionIndex(':memory:')
+  try {
+    index.upsert(row('one')); index.upsert(row('two')); index.upsert(row('three:part'))
+    index.migratePins(['fake\u0000two', 'fake:one', 'fake\u0000three:part', '\u0000two', 'fake\u0000'])
+    assert.deepEqual(index.pins(), ['fake:two', 'fake:one', 'fake:three:part'])
+  } finally { index.close() }
+})
+
 test('pin migration ignores missing and removed sessions and removing imports drops their pins', () => {
   const index = new SessionIndex(':memory:')
   try {

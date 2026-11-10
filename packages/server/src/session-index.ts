@@ -188,12 +188,16 @@ export class SessionIndex {
     this.#notify(runtime, id, false)
   }
 
-  /** Runs under the database lock, so a second window cannot restore old preferences. */
+  /**
+   * Runs under the database lock, so a second window cannot restore old preferences.
+   * The window stored its pins as `runtime\0id` (`sessionKey`); `runtime:id` is
+   * accepted too. Session ids may contain a colon, so the first separator wins.
+   */
   migratePins(keys: readonly string[]): void {
     this.#transaction(() => {
       if (this.#db.prepare("SELECT 1 FROM meta WHERE key='session-pins:migrated'").get()) return
       for (const key of keys) {
-        const at = key.indexOf(':')
+        const at = key.includes('\u0000') ? key.indexOf('\u0000') : key.indexOf(':')
         if (at <= 0 || at === key.length - 1) continue
         const runtime = key.slice(0, at) as RuntimeId, id = key.slice(at + 1) as SessionId
         if (this.#row(runtime, id) && !this.isRemoved(runtime, id)) this.setPinned(runtime, id, true)
