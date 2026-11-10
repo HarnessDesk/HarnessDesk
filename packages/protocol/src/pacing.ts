@@ -1,4 +1,4 @@
-import { bindingLane, isBlocked, isLaneKnown, remainingOf, type UsageLane, type UsageReport } from './usage.js'
+import { bindingLane, isBlocked, isLaneKnown, reachedLaneOf, remainingOf, type UsageLane, type UsageReport } from './usage.js'
 
 /**
  * Account pacing: which of an agent's accounts to use first so that nothing is
@@ -33,20 +33,29 @@ export interface UseFirstNote {
   readonly resetsAt: number
 }
 
+/** The windows that limit the whole account: known, real, and not narrowed to one model. */
+const wideLanes = (report: UsageReport): UsageLane[] =>
+  report.lanes.filter(lane => lane.placeholder !== true && !lane.scope && isLaneKnown(lane))
+
 /**
  * Whether an account has an account-wide window that is about to reset with more than half still unused: the
  * allowance that expires if nobody spends it. Quiet by construction: a stale or failed reading, a window scoped to
- * one model, a placeholder, a spent account and an unlimited window never raise it.
+ * one model, a placeholder, a spent account and an unlimited window never raise it, and neither does an account
+ * whose *tightest* account-wide window is nearly spent: a roomy five-hour window does not make an account worth
+ * using first when its week is almost gone. The bar for "nearly spent" is `PACE_HEADROOM_PERCENT`, the same one
+ * the ordering uses, so the note and the order cannot disagree.
  */
 export const useFirstNote = (report: UsageReport, now: number): UseFirstNote | null => {
   if (report.error || isStale(report, now) || isBlocked(report)) return null
+  const wide = wideLanes(report)
+  // A window that has already refilled says nothing about what is left; the others still have to have room.
+  const live = wide.filter(lane => lane.resetsAt === null || lane.resetsAt > now)
+  if (live.some(lane => (remainingOf(lane) ?? 100) < PACE_HEADROOM_PERCENT)) return null
   let best: UseFirstNote | null = null
-  for (const lane of report.lanes) {
-    if (lane.placeholder === true || lane.scope || !isLaneKnown(lane)) continue
+  for (const lane of live) {
     const left = remainingOf(lane)
     if (left === null || left <= USE_FIRST_LEFT_PERCENT || lane.resetsAt === null) continue
     const untilReset = lane.resetsAt - now
-    if (untilReset <= 0) continue
     const close = lane.windowMinutes !== null && lane.windowMinutes > 0
       ? lane.windowMinutes * MINUTE * CLOSE_SHARE
       : UNSTATED_WINDOW_CLOSE_MS
@@ -58,21 +67,27 @@ export const useFirstNote = (report: UsageReport, now: number): UseFirstNote | n
 
 /** Where one account stands for ordering: a tier, then the reset that decides ties inside the first tier. */
 export interface PaceRank {
-  /** 0 has room and a known reset; 1 has room, reset unknown; 2 is nearly spent; 3 is out or unreadable. */
+  /** 0 has room and a known reset; 1 has room, reset unknown; 2 is nearly spent; 3 is out. */
   readonly tier: 0 | 1 | 2 | 3
   readonly resetsAt: number | null
 }
 
 const rankOfReport = (report: UsageReport, now: number): PaceRank => {
-  if (isBlocked(report)) return { tier: 3, resetsAt: null }
-  // A failed or stale reading proves nothing about room, so it is tried after every account that has a clear reading.
+  // A failed or stale reading proves nothing, in either direction: a "reached" it still carries may be long over.
   if (report.error || isStale(report, now)) return { tier: 1, resetsAt: null }
-  const lane: UsageLane | null = bindingLane(report.lanes)
-  if (lane === null) return { tier: 1, resetsAt: null }
-  const left = remainingOf(lane)
-  if (left !== null && left < PACE_HEADROOM_PERCENT) return { tier: 2, resetsAt: lane.resetsAt }
-  if (lane.resetsAt === null || lane.resetsAt <= now) return { tier: 1, resetsAt: null }
-  return { tier: 0, resetsAt: lane.resetsAt }
+  if (isBlocked(report)) {
+    // Out until the window that spent it refills; once its reset has passed, nobody has read it since.
+    const spent = reachedLaneOf(report) ?? bindingLane(report.lanes)
+    return spent && spent.resetsAt !== null && spent.resetsAt <= now ? { tier: 1, resetsAt: null } : { tier: 3, resetsAt: null }
+  }
+  const wide = wideLanes(report)
+  // A window whose reset has passed has refilled whatever it last read, so it neither limits nor leads.
+  const live = (wide.length > 0 ? wide : report.lanes.filter(lane => lane.placeholder !== true && isLaneKnown(lane)))
+    .filter(lane => lane.resetsAt === null || lane.resetsAt > now)
+  // An account is only as roomy as its tightest window.
+  if (live.some(lane => (remainingOf(lane) ?? 100) < PACE_HEADROOM_PERCENT)) return { tier: 2, resetsAt: null }
+  const resets = live.flatMap(lane => lane.resetsAt === null ? [] : [lane.resetsAt])
+  return resets.length === 0 ? { tier: 1, resetsAt: null } : { tier: 0, resetsAt: Math.min(...resets) }
 }
 
 /** A runtime's rank is that of its best report; one with no report at all is unmetered, so it has room. */

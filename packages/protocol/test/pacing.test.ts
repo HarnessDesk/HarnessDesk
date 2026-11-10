@@ -93,3 +93,29 @@ test('a weekly window is close inside a quarter of its length, and a window of u
   assert.ok(useFirstNote(open(NOW + 23 * H), NOW))
   assert.equal(useFirstNote(open(NOW + 25 * H), NOW), null)
 })
+
+test('an account whose tightest window is nearly spent is not told to be used first, nor does it lead', () => {
+  const week = (used: number) => lane({ id: 'weekly', label: 'Weekly', usedPercent: used, resetsAt: NOW + 50 * H, windowMinutes: 10080 })
+  const tight = report('a', [lane({ usedPercent: 20, resetsAt: NOW + H }), week(98)])
+  assert.equal(useFirstNote(tight, NOW), null, '80% of the 5h window left, 2% of the week')
+  const roomy = report('b', [lane({ usedPercent: 50, resetsAt: NOW + 4 * H }), week(50)])
+  assert.deepEqual(order([report('a', [lane({ usedPercent: 10, resetsAt: NOW + H }), week(99)]), roomy], ['a', 'b']), ['b', 'a'], '90% of 5h but 1% weekly must not lead')
+  assert.ok(useFirstNote(report('c', [lane({ usedPercent: 20, resetsAt: NOW + H }), week(50)]), NOW), 'a roomy week leaves the note on')
+})
+
+test('a window that has already refilled is neither nearly spent nor the reset that leads', () => {
+  const refilled = report('a', [lane({ usedPercent: 98, resetsAt: NOW - H }), lane({ id: 'weekly', usedPercent: 40, resetsAt: NOW + 60 * H, windowMinutes: 10080 })])
+  const other = report('b', [lane({ usedPercent: 40, resetsAt: NOW + 5 * H })])
+  assert.deepEqual(order([refilled, other], ['a', 'b']), ['b', 'a'], 'the week is the only reset a has; b refills first')
+  assert.notEqual(order([report('a', [lane({ usedPercent: 98, resetsAt: NOW - H })]), report('z', [lane({ usedPercent: 95, resetsAt: NOW + H })])], ['z', 'a'])[0], 'z',
+    'a refilled window outranks one that is nearly spent')
+})
+
+test('a reached limit that is stale, failed or already past its reset is unknown, not out', () => {
+  const spent = (patch: Partial<UsageReport>) => report('a', [lane({ usedPercent: 100, resetsAt: NOW + H })], { reached: 'session', ...patch })
+  const fine = report('b', [lane({ usedPercent: 40, resetsAt: NOW + 5 * H })])
+  assert.deepEqual(order([spent({}), fine], ['a', 'b']), ['b', 'a'], 'a fresh reading of a spent account is last')
+  assert.deepEqual(order([spent({ fetchedAt: NOW - 3 * H }), fine], ['a', 'b']), ['b', 'a'], 'a stale reading proves nothing, so it ranks as unknown')
+  const unknown = order([report('a', [lane({ usedPercent: 100, resetsAt: NOW - H })], { reached: 'session' }), report('c', [lane({ usedPercent: 100, resetsAt: NOW + H })], { reached: 'session' })], ['c', 'a'])
+  assert.deepEqual(unknown, ['a', 'c'], 'a spent window whose reset has passed ranks above one still spent')
+})

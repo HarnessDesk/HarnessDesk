@@ -881,16 +881,53 @@ test('a start with no agent goes to the account pacing chose, and the result nam
   assert.equal(r.calls.find(call => call.method === 'start')!.params.agent, 'fixture-2')
 })
 
-test('a start that names its agent, a move, or a desk that does not pace keeps the desk choice and names no account', async t => {
-  const r = await rig(t)
+test('a start that names its agent, or moves a chat, never asks pacing and names no account', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead')
   let asked = 0
-  ;(r.ports as any).pacing = { choose: async () => { asked++; return null } }
+  ;(r.ports as any).pacing = { choose: async () => { asked++; return { agent: 'fixture-2', label: 'Agent · account 2' } } }
+  const named = { text: 'Add the helper', agent: 'Agent Two' }
+  r.authorize('lead/chat/start', named)
+  const first = await r.service.start(named)
+  assert.equal(first.id, 'fixture:created')
+  assert.equal((first as any).account, undefined)
+  assert.equal(r.calls.at(-1)?.params.agent, 'agent-two')
+  await r.service.read({ id: 'fixture:own' })
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'failed-turn', status: 'failed', items: [], error: { code: 'credits', message: 'Out of credit' } } as any)
+  r.answer()
+  const move = { text: 'Finish the helper', quote: [r.state().messages.at(-1)!.id], agent: 'Agent Two', moveFrom: 'fixture:own' }
+  r.authorize('lead/chat/start', move)
+  const moved = await r.service.start(move)
+  assert.equal(moved.id, 'fixture:created')
+  assert.equal((moved as any).account, undefined)
+  assert.equal(asked, 0, 'pacing is asked only when the Lead named no agent and moved nothing')
+})
+
+test('a desk that does not pace starts on its default and names no account', async t => {
+  const r = await rig(t)
+  ;(r.ports as any).pacing = { choose: async () => null }
   const params = { text: 'Add the helper' }
   r.authorize('lead/chat/start', params)
   const result = await r.service.start(params)
   assert.equal((result as any).account, undefined)
   assert.equal(r.calls.find(call => call.method === 'start')!.params.agent, undefined)
-  assert.equal(asked, 1)
+})
+
+test('a paced account that is gone by creation time gives way to the desk default instead of failing the start', async t => {
+  const r = await rig(t)
+  ;(r.ports as any).pacing = { choose: async () => ({ agent: 'fixture-2', label: 'Agent · account 2' }) }
+  const real = r.ports.work.startInProject
+  const tried: unknown[] = []
+  ;(r.ports.work as any).startInProject = async (params: any, ...rest: any[]) => {
+    tried.push(params.agent)
+    if (params.agent === 'fixture-2') return { id: '', problem: 'That agent is not available on this desk. Refresh and try again.' }
+    return (real as any)(params, ...rest)
+  }
+  const params = { text: 'Add the helper' }
+  r.authorize('lead/chat/start', params)
+  const result = await r.service.start(params)
+  assert.equal(result.id, 'fixture:created')
+  assert.equal((result as any).account, undefined, 'the desk default ran, so no paced account is named')
+  assert.deepEqual(tried, ['fixture-2', undefined])
 })
 
 test('pacing that fails does not stop the chat from starting on the desk default', async t => {

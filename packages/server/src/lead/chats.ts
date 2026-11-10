@@ -450,7 +450,7 @@ export class LeadChats {
       let createdId: string | undefined, moveClaimed = false, creationStarted = false, firstMessageStarted = false
       const scope = this.#liveScope(call, attemptId, () => createdId)
       try {
-        const result = await this.ports.work.startInProject({ text, ...(agent ? { agent } : {}) }, this.ports.project.path, async id => {
+        const begin = (chosen: string | undefined) => this.ports.work.startInProject({ text, ...(chosen ? { agent: chosen } : {}) }, this.ports.project.path, async id => {
           createdId = id
           await admit(id)
           if (params.moveFrom) {
@@ -463,6 +463,10 @@ export class LeadChats {
           // Recorded before the first message leaves, so the transcript can vouch for it on first render.
           if (id) { await this.#watch(id); await this.#record(id, envelope); await admit(id); await this.#notHeld(id) }
         }, () => { creationStarted = true; effectStarted() }, scope, [deskContextContent(envelope)], () => { firstMessageStarted = true })
+        let result = await begin(agent)
+        // A paced pick is only a preference: one that vanished before anything was created gives way to the desk default.
+        let usedPaced = paced !== null
+        if (paced && !result.id && result.problem && !createdId && !creationStarted) { result = await begin(undefined); usedPaced = false }
         if (params.moveFrom && result.problem && !firstMessageStarted) {
           if (moveClaimed) await this.incidents!.releaseMove(params.moveFrom)
           return { id: '', problem: `The move did not start.${result.id ? ' An empty chat was kept on the desk.' : ''} The original chat is unchanged; ask the person before trying again.` }
@@ -475,7 +479,7 @@ export class LeadChats {
             try { await this.incidents!.moved(params.moveFrom, result.id) } catch { /* The durable move claim still prevents another creation. */ }
           }
         } else if (params.moveFrom && moveClaimed && !createdId) await this.incidents!.releaseMove(params.moveFrom)
-        return paced && result.id && !result.problem ? { ...result, account: paced.label } : result
+        return paced && usedPaced && result.id && !result.problem ? { ...result, account: paced.label } : result
       } catch (error) {
         if (params.moveFrom && moveClaimed && !createdId && !creationStarted) await this.incidents!.releaseMove(params.moveFrom)
         throw error
