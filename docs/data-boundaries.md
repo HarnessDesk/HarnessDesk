@@ -193,6 +193,28 @@ free text from a PR or an issue treated as anything but information. Pausing
 or disarming stops the polling immediately; deleting the state folder deletes
 the consent and everything it recorded, the same as any other local file.
 
+A mention trigger also reads the repository's issue comments, the issue or
+pull request a comment is on, the account behind a named person or bot, and
+the comment author's permission, all as the same signed-in person. Its
+decisions, the comment's first 280 characters as an excerpt (left blank when
+the comment looks like it holds a credential, on the desk and on the phone),
+a digest of the comment's text (so Re-evaluate can tell it was edited), its
+observe/act mode and its work threads are kept in `triggers-mentions.json` in
+the state folder, at most 500 decisions and 256 threads. Who may ask is read
+from the forge at most once in five minutes per account. While a work thread
+has no pull request, the issue it follows is read on each sweep to see
+whether it closed. With the Lead
+enabled and a key configured, each comment that passes the trigger's rules is
+sent once, as data, to the Lead's provider for a one-sentence assessment: the
+trigger id, its handle and what it opens, the repository, the thread's kind,
+number and title, and the comment's author and text. A comment that looks
+like it contains a credential is never sent, and at most 200 are sent a day.
+Each such request is held against the Lead's spend limit before it is sent:
+a reserve, then a settle at the usage the provider reports (or the whole hold
+when that cannot be known), are written to the Lead's journal like the Lead's
+own requests. With no Lead goal open, or the limit reached, nothing is sent.
+The paired phone reads the decisions list (`phone/triage/list`) read-only.
+
 **Retention:** yours. Deleting the folder, or disarming the trigger, stops it.
 
 ### Goal backups carry history, not authority

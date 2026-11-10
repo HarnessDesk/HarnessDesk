@@ -552,6 +552,11 @@ const triggerUsd: Validator<number> = (value, path = '') => {
   }
   return number
 }
+const triggerDecisionId: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!/^d-[0-9a-f]{20}$/.test(text)) throw new ValidationError(path, 'expected a triage decision id')
+  return text
+}
 const triggerValidators = {
   'trigger/list': goalShape({ root: triggerRoot }),
   'trigger/preview': goalShape({ root: triggerRoot, id: triggerId }),
@@ -562,6 +567,9 @@ const triggerValidators = {
   'trigger/preferences/set': goalShape({ revision: goalInteger(0), paused: isBoolean, dailyUsd: triggerUsd }),
   'trigger/history': goalShape({ root: triggerRoot, id: triggerId, cursor: optional(triggerOpaque) }),
   'trigger/goal': goalShape({ goal: triggerGoal }),
+  'trigger/decisions': goalShape({ root: triggerRoot, id: triggerId }),
+  'trigger/decision/reevaluate': goalShape({ root: triggerRoot, id: triggerId, decision: triggerDecisionId }),
+  'trigger/mode': goalShape({ root: triggerRoot, id: triggerId, mode: literalUnion('observe', 'act') }),
 }
 
 /**
@@ -792,8 +800,8 @@ const flowPolicyValidator: Validator<FlowPolicy> = goalShape({
  * field, `again` reads only phase-8's fixed title) are `parseTriggers`'s,
  * re-checked by `writeTriggers`'s own round-trip on the host.
  */
-const triggerSourceValidator: Validator<TriggerSource> = literalUnion('pull-request', 'issue', 'schedule')
-const triggerFieldValidator: Validator<TriggerField> = literalUnion('pr', 'head', 'event', 'issue', 'slot')
+const triggerSourceValidator: Validator<TriggerSource> = literalUnion('pull-request', 'issue', 'schedule', 'mention')
+const triggerFieldValidator: Validator<TriggerField> = literalUnion('pr', 'head', 'event', 'issue', 'slot', 'thread')
 const triggerFieldListValidator = flowWordList(5, triggerFieldValidator) as unknown as Validator<TriggerField[]>
 const triggerSlug: Validator<string> = (value, path = '') => {
   const text = isString(value, path)
@@ -825,7 +833,11 @@ const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
   if (kind === 'issue') {
     return { kind: 'issue', events: flowWordList(3, literalUnion('labelled', 'closed', 'commented'))(record['events'], `${path}.events`) }
   }
-  throw new ValidationError(`${path}.kind`, 'expected pull-request, issue or schedule')
+  if (kind === 'mention') {
+    flowWordList(1, literalUnion('commented'))(record['events'], `${path}.events`)
+    return { kind: 'mention', events: ['commented'] as const }
+  }
+  throw new ValidationError(`${path}.kind`, 'expected pull-request, issue, schedule or mention')
 }
 const triggerBudgetValidator: Validator<TriggerBudget> = goalShape({
   usd: ((value: unknown, path = '') => {
@@ -842,6 +854,12 @@ const triggerBudgetValidator: Validator<TriggerBudget> = goalShape({
   withoutProgress: goalInteger(1),
 }) as Validator<TriggerBudget>
 const triggerCommentFromValidator: Validator<TriggerCommentFrom> = literalUnion('me', 'collaborators', 'anyone')
+/** A forge login: what a mention trigger's handle, people and bots name. */
+const triggerLogin: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(text)) throw new ValidationError(path, 'expected a forge login')
+  return text
+}
 const triggerDefinitionValidator: Validator<TriggerDefinition> = goalShape({
   id: triggerSlug,
   on: triggerOnValidator,
@@ -854,6 +872,9 @@ const triggerDefinitionValidator: Validator<TriggerDefinition> = goalShape({
   budget: triggerBudgetValidator,
   label: optional(flowWordList(5, atMost(50, isFilled))),
   from: optional(triggerCommentFromValidator),
+  handle: optional(triggerLogin),
+  people: optional(flowWordList(10, triggerLogin)),
+  bots: optional(flowWordList(10, triggerLogin)),
 }) as Validator<TriggerDefinition>
 const triggerDefinitionsValidator: Validator<TriggerDefinition[]> = (value, path = '') => {
   const definitions = arrayOf(triggerDefinitionValidator)(value, path)
@@ -1002,6 +1023,11 @@ const planBudgetInputValidator = shape({
 })
 
 const phoneTier = literalUnion('read', 'run', 'answer')
+const phoneTriageLimit: Validator<number> = (value, path = '') => {
+  const number = isNumber(value, path)
+  if (!Number.isSafeInteger(number) || number < 1 || number > 100) throw new ValidationError(path, 'expected a whole number from 1 to 100')
+  return number
+}
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'account/status': shape({}),
   'account/signIn': shape({}),
@@ -1718,6 +1744,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
   'app/state/set': shape({ patch: windowPreferences, noticeBase: optional(shape({ inbox: optional(arrayOf(isObject)), noticePolicy: optional(isObject) })) }),
   'app/browsers': isObject,
+  'phone/triage/list': phoneShape({ limit: optional(phoneTriageLimit) }),
   'lead/work/list': parseLeadWorkList,
   'lead/work/read': parseLeadWorkRead,
   'lead/work/note': parseLeadWorkNote,

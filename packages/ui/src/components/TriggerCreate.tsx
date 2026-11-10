@@ -29,14 +29,20 @@ export interface TriggerCreateProps {
 }
 
 const SOURCE_WORDS: Readonly<Record<TriggerSource, string>> = {
-  'pull-request': 'A pull request', issue: 'An issue', schedule: 'On a schedule',
+  'pull-request': 'A pull request', issue: 'An issue', schedule: 'On a schedule', mention: 'A mention',
 }
 const SOURCE_FIELDS: Readonly<Record<TriggerSource, readonly TriggerField[]>> = {
-  'pull-request': ['pr', 'head', 'event'], issue: ['issue', 'event'], schedule: ['slot'],
+  'pull-request': ['pr', 'head', 'event'], issue: ['issue', 'event'], schedule: ['slot'], mention: ['thread', 'event'],
 }
-const SOURCE_SUBJECT: Readonly<Record<TriggerSource, TriggerField>> = { 'pull-request': 'pr', issue: 'issue', schedule: 'slot' }
+const SOURCE_SUBJECT: Readonly<Record<TriggerSource, TriggerField>> = { 'pull-request': 'pr', issue: 'issue', schedule: 'slot', mention: 'thread' }
 const FIELD_WORDS: Readonly<Record<TriggerField, string>> = {
-  pr: 'Pull request', head: 'Head commit', event: 'Event', issue: 'Issue', slot: 'Scheduled time',
+  pr: 'Pull request', head: 'Head commit', event: 'Event', issue: 'Issue', slot: 'Scheduled time', thread: 'Thread',
+}
+/** A mention trigger takes requests from a list, never from anyone. */
+const MENTION_FROM: readonly TriggerCommentFrom[] = TRIGGER_COMMENT_FROM.filter((one) => one !== 'anyone')
+const logins = (text: string): readonly string[] | undefined => {
+  const list = text.split(',').map((one) => one.trim()).filter(Boolean)
+  return list.length > 0 ? list : undefined
 }
 const sentenceCase = (value: string): string => value ? `${value[0]!.toLocaleUpperCase()}${value.slice(1)}` : value
 /** The whole minutes a schedule may name — the same bound the parser holds it to. */
@@ -210,7 +216,7 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
       ) : (
         <>
           <Rows role="radiogroup" aria-label="Source">
-            {(['pull-request', 'issue', 'schedule'] as const).map((one) => (
+            {(['pull-request', 'issue', 'schedule', 'mention'] as const).map((one) => (
               <RowChoice key={one} title={SOURCE_WORDS[one]} selected={source === one} onClick={() => chooseSource(one)} />
             ))}
           </Rows>
@@ -312,6 +318,31 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
                       )}
                     </Field>
                   )}
+                </section>
+              )}
+
+              {source === 'mention' && definition.on.kind === 'mention' && (
+                <section aria-label="Who may ask">
+                  <SectionHead level="label" name="Who may ask" />
+                  <FormStack>
+                    <Field label="Handle" hint="Comments that address @handle. Leave empty to use the Lead’s name.">
+                      {(control) => <Input {...control} value={definition.handle ?? ''} onChange={(event) => edit({ handle: event.target.value.trim() || undefined })} />}
+                    </Field>
+                    <Field label="Requests from">
+                      {(control) => (
+                        <NativeSelect {...control} value={definition.from ?? 'me'} onChange={(event) => edit({ from: event.target.value as TriggerCommentFrom })}>
+                          {MENTION_FROM.map((one) => <option key={one} value={one}>{triggerCommentWords(one)}</option>)}
+                        </NativeSelect>
+                      )}
+                    </Field>
+                    <Field label="Named people" hint="Forge logins, separated by commas.">
+                      {(control) => <Input {...control} value={(definition.people ?? []).join(', ')} onChange={(event) => edit({ people: logins(event.target.value) })} />}
+                    </Field>
+                    <Field label="Named bots" hint="Bot logins without [bot], separated by commas.">
+                      {(control) => <Input {...control} value={(definition.bots ?? []).join(', ')} onChange={(event) => edit({ bots: logins(event.target.value) })} />}
+                    </Field>
+                  </FormStack>
+                  <Note>Starts in observe mode: it records what it would accept and acts on nothing until you switch it to act.</Note>
                 </section>
               )}
 

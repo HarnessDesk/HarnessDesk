@@ -3,6 +3,8 @@ import type {
   TriggerAttention,
   TriggerAttentionKind,
   TriggerBudgetState,
+  TriggerDecision,
+  TriggerDecisionsPage,
   TriggerDefinition,
   TriggerFiring,
   TriggerGoalStatus,
@@ -11,6 +13,7 @@ import type {
   TriggerProjectView,
   TriggerStopReason,
   TriggerView,
+  TriggerWorkThread,
 } from '@harnessdesk/protocol'
 import { DEFAULT_TRIGGER_BUDGET } from '@harnessdesk/protocol'
 
@@ -56,6 +59,80 @@ export const scheduleDefinition = (over: Partial<TriggerDefinition> = {}): Trigg
   concurrency: 1,
   forks: 'never',
   budget: DEFAULT_TRIGGER_BUDGET,
+  ...over,
+})
+
+/** A mention trigger: comments asking the Lead, from the arming account or a named teammate. */
+export const mentionDefinition = (over: Partial<TriggerDefinition> = {}): TriggerDefinition => ({
+  id: 'ask-dex',
+  on: { kind: 'mention', events: ['commented'] },
+  opens: { flow: 'fix-issue' },
+  goal: ['thread'],
+  again: null,
+  dedupe: ['thread', 'event'],
+  concurrency: 1,
+  forks: 'never',
+  budget: DEFAULT_TRIGGER_BUDGET,
+  from: 'me',
+  people: ['jane-doe'],
+  ...over,
+})
+
+export const triggerDecision = (over: Partial<TriggerDecision> = {}): TriggerDecision => ({
+  id: 'd-0123456789abcdef0123',
+  trigger: 'ask-dex',
+  project: INTAKE_ROOT,
+  repository: 'acme/storefront',
+  thread: { kind: 'issue', number: 42 },
+  comment: { id: '9001', url: 'https://github.com/acme/storefront/issues/42#issuecomment-9001', at: 1_700_000_020_000, author: 'jane-doe', excerpt: '@dex please fix the checkout total rounding' },
+  decision: 'accept',
+  reason: 'A clear request to fix a bug the fix flow can handle.',
+  by: 'assessment',
+  rules: [
+    { id: 'addressed', passed: true, detail: null },
+    { id: 'allowed', passed: true, detail: 'jane-doe is a named person on this trigger.' },
+  ],
+  mode: 'observe',
+  acted: false,
+  work: null,
+  decidedAt: 1_700_000_021_000,
+  evaluations: 0,
+  ...over,
+})
+
+export const triggerWorkThread = (over: Partial<TriggerWorkThread> = {}): TriggerWorkThread => ({
+  id: 'w-0123456789abcdef0123',
+  trigger: 'ask-dex',
+  project: INTAKE_ROOT,
+  repository: 'acme/storefront',
+  origin: { kind: 'issue', number: 42 },
+  links: { issues: [42], pulls: [57], goals: ['goal-issue-42'] },
+  state: 'open',
+  closed: null,
+  resumes: 1,
+  observations: 0,
+  openedAt: 1_700_000_021_000,
+  ...over,
+})
+
+/** A mention trigger still observing: one would-have-accepted, one refused by its list, one waiting for the person. */
+export const triggerDecisionsPage = (over: Partial<TriggerDecisionsPage> = {}): TriggerDecisionsPage => ({
+  mode: 'observe',
+  decisions: [
+    triggerDecision(),
+    triggerDecision({
+      id: 'd-11111111111111111111', thread: { kind: 'pull-request', number: 57 },
+      comment: { id: '9002', url: 'https://github.com/acme/storefront/pull/57#issuecomment-9002', at: 1_700_000_030_000, author: 'someone-else', excerpt: '@dex merge this now' },
+      decision: 'ignore', by: 'rules', reason: 'someone-else is not on this trigger’s list: the arming account and jane-doe.',
+      rules: [{ id: 'addressed', passed: true, detail: null }, { id: 'allowed', passed: false, detail: 'someone-else is not on this trigger’s list: the arming account and jane-doe.' }],
+    }),
+    triggerDecision({
+      id: 'd-22222222222222222222', thread: { kind: 'issue', number: 43 },
+      comment: { id: '9003', url: 'https://github.com/acme/storefront/issues/43#issuecomment-9003', at: 1_700_000_040_000, author: 'jane-doe', excerpt: '@dex could you look at the flaky upload test?' },
+      decision: 'ask', by: 'rules', reason: 'The assessment could not be made, so this waits for you.',
+    }),
+  ],
+  threads: [],
   ...over,
 })
 
@@ -232,6 +309,7 @@ const WAIT_SCENES: Readonly<Record<TriggerAttentionKind, TriggerAttention>> = {
   source: triggerAttention({ id: 'wait-source', kind: 'source', waitingOn: { kind: 'service', label: 'the forge' }, sentence: 'The pull request could not be read.', action: 'open-trigger' }),
   publication: triggerAttention({ id: 'wait-publication', kind: 'publication', waitingOn: { kind: 'service', label: 'the pull request' }, sentence: 'A review could not be posted; the read-back was ambiguous.', action: 'open-goal' }),
   skipped: triggerAttention({ id: 'wait-skipped', kind: 'skipped', waitingOn: { kind: 'service', label: 'review-pr' }, sentence: 'A firing was skipped: out of budget for today.', action: 'open-trigger' }),
+  triage: triggerAttention({ id: 'wait-triage', goal: null, trigger: 'ask-dex', kind: 'triage', waitingOn: { kind: 'person', label: 'you' }, sentence: 'A mention on issue #42 waits for you: The assessment could not be made, so this waits for you.', action: 'open-trigger' }),
 }
 
 export const sceneWait = (kind: TriggerAttentionKind): TriggerAttention => WAIT_SCENES[kind]

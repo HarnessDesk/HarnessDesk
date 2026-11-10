@@ -176,3 +176,39 @@ it('the plain path never reads a triggers file — this dialog only mounts on an
   await settle()
   expect(spy.mock.calls.filter((call) => call[0] === 'authoring/read')).toHaveLength(0)
 })
+
+it('a mention trigger asks who may ask — the arming account or collaborators, plus named people and bots — never anyone', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const rendered: TriggerDefinition[] = []
+  fakeHost(store, {
+    'authoring/triggers/draft': (params) => {
+      const { id, on } = params as { id: string; on: string }
+      return on === 'mention'
+        ? { ...DRAFT(id, { kind: 'mention', events: ['commented'] }), goal: ['thread'], dedupe: ['thread', 'event'], from: 'me' }
+        : DRAFT(id, { kind: 'pull-request', events: ['opened', 'pushed'] })
+    },
+    'authoring/triggers/render': (params) => {
+      const { definitions } = params as { definitions: readonly TriggerDefinition[] }
+      rendered.push(definitions[0]!)
+      return { source: JSON.stringify(definitions), issues: [] }
+    },
+  })
+  render(store)
+  await settle()
+  const choice = [...document.body.querySelectorAll('[role="radiogroup"][aria-label="Source"] *')].find((one) => one.textContent?.trim() === 'A mention') as HTMLElement
+  act(() => choice.click())
+  await settle()
+  const section = document.body.querySelector('[aria-label="Who may ask"]')!
+  expect(section).not.toBeNull()
+  const options = [...section.querySelectorAll('option')].map((one) => one.value)
+  expect(options).toEqual(['me', 'collaborators'])
+  expect(document.body.textContent).toContain('Starts in observe mode')
+  const people = [...section.querySelectorAll('input')][1]!
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+  act(() => {
+    setter.call(people, 'jane-doe, a-teammate')
+    people.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+  expect(rendered.at(-1)?.people).toEqual(['jane-doe', 'a-teammate'])
+})

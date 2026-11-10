@@ -116,7 +116,7 @@ import { terminalAttach } from './terminal-fixture'
 import { PREVIEW_GOAL, PREVIEW_GOALS, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
 import { FIX_PREVIEW, PREVIEW_FLOW_CUSTOMIZE, PREVIEW_FLOW_SOURCE, PREVIEW_FLOW_UPDATE, PREVIEW_FLOWS, previewFlowPreviewFor } from './flow-fixture'
 import { frontDoorPreviewFor } from './front-door-fixture'
-import { triggerArmPreview, triggerGoalStatus, triggerHistoryPage, triggerPreferences as triggerPreferencesFixture, triggerProjectView, triggerView } from './intake-fixture'
+import { triggerArmPreview, triggerDecision, triggerDecisionsPage, triggerGoalStatus, triggerHistoryPage, triggerPreferences as triggerPreferencesFixture, triggerProjectView, triggerView } from './intake-fixture'
 /* The editor surface opens this file, and is given this file — its real
    source, read at build time. Edit `brands.ts` and the editor shows the edit;
    nothing here restates what the file says. Not a `design/ui` module on
@@ -1640,6 +1640,12 @@ class PreviewStore {
   armTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerView> => triggerView({ armed: true, state: 'armed' })
   disarmTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerView> => triggerView({ armed: false, state: 'off' })
   triggerHistory = async (): Promise<import('@harnessdesk/protocol').TriggerHistoryPage> => triggerHistoryPage()
+  triggerDecisions = async (): Promise<import('@harnessdesk/protocol').TriggerDecisionsPage> => triggerDecisionsPage()
+  setTriggerMode = async (
+    _root: string, _id: string, mode: import('@harnessdesk/protocol').TriggerMode,
+  ): Promise<import('@harnessdesk/protocol').TriggerDecisionsPage> => triggerDecisionsPage({ mode })
+  reevaluateTriggerDecision = async (_root: string, _id: string, decision: string): Promise<import('@harnessdesk/protocol').TriggerDecision> =>
+    triggerDecision({ id: decision, evaluations: 1 })
   triggerPreferences = async (): Promise<import('@harnessdesk/protocol').TriggerPreferences> => triggerPreferencesFixture()
   setTriggerPreferences = async (
     _revision: number, paused: boolean, dailyUsd: number,

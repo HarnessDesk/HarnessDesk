@@ -167,7 +167,7 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { leadContractDigest, readLeadEvidence, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
+import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
@@ -268,6 +268,9 @@ import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
+import { observerAssessor, type AssessCharge } from './intake/assess.js'
+import type { MentionAssessor } from './intake/mentions.js'
+import { leadProviderTransport } from './lead/provider-transport.js'
 import { NO_WAITS, actorWords, type HostWaits } from './intake/waits.js'
 import type { UsageSample } from './ledger/insight.js'
 import { InsightContexts } from './insight/context.js'
@@ -649,6 +652,11 @@ export interface HostOptions {
     readonly monotonic?: () => number
     readonly timers?: IntakeTimers
     readonly usage?: (project: string, from: number, to: number) => Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
+    /** Mention triggers' observer model, and the pull requests a Goal's work opened, scripted. */
+    readonly mentions?: {
+      readonly assess?: MentionAssessor | null
+      readonly pullRequests?: (repository: string, goals: readonly string[], firings: readonly string[]) => Promise<readonly number[]>
+    }
   }
 }
 
@@ -2541,8 +2549,68 @@ export class Host {
       monotonic: options.intake?.monotonic ?? (() => performance.now()),
       ...(options.intake?.gh ? { gh: options.intake.gh } : {}),
       ...(options.intake?.timers ? { timers: options.intake.timers } : {}),
+      mentions: {
+        // The Lead's observer model, with the Lead's own key: none while the Lead is off or has no key, so a request waits for the person.
+        assess: options.intake?.mentions?.assess !== undefined ? options.intake.mentions.assess : observerAssessor({
+          transport: this.options.leadMessagesTransport ?? leadProviderTransport,
+          key: async () => this.options.leadEnabled && (await this.#credentials.leadStatus('anthropic')).configured ? this.#credentials.resolveLead('anthropic') : null,
+          model: LEAD_MESSAGES_DEFAULTS.observerModel,
+          account: { reserve: (requestId, inputTokens, maxOutputTokens) => this.#holdLeadSpend(requestId, inputTokens, maxOutputTokens) },
+        }),
+        leadName: () => this.#leadJournal?.state.name ?? 'dex',
+        pullRequests: options.intake?.mentions?.pullRequests ?? ((repository, goals, firings) => this.#mentionPullRequests(repository, goals, firings)),
+      },
     })
     this.#context = this.#buildContext()
+  }
+
+  /**
+   * Holds one observer request against the Lead's spend limit, as a journaled
+   * reserve on the Lead's own budget ledger, priced at the Lead's model — at
+   * least what the smaller observer model costs, so the hold is an upper
+   * bound. No ledger (no Lead goal open), or a limit that refuses it, is null:
+   * nothing is sent, and the request waits for the person.
+   */
+  async #holdLeadSpend(requestId: string, inputTokens: number, maxOutputTokens: number): Promise<AssessCharge | null> {
+    const journal = this.#leadJournal
+    const price = LEAD_PRICES[LEAD_MESSAGES_DEFAULTS.model]
+    if (!journal?.state.budget || !price) return null
+    const now = (): number => Math.max(Date.now(), journal.state.budget?.now ?? 0)
+    try {
+      await journal.updateBudget({ version: 1, type: 'reserve', now: now(), requestId, inputTokens, maxOutputTokens, ...price })
+    } catch {
+      return null
+    }
+    return {
+      settle: async (usage) => { await journal.updateBudget({ version: 1, type: 'settle', now: now(), requestId, ...usage }) },
+      unknown: async () => {
+        await journal.updateBudget({ version: 1, type: 'uncertain', now: now(), requestId })
+        // Counted whole at once: an open uncertain hold would stop the Lead's own spending.
+        await journal.updateBudget({ version: 1, type: 'write-off', now: now(), requestId })
+      },
+    }
+  }
+
+  /**
+   * The pull requests a mention's work opened: those the git record says a
+   * Seat on one of its Goals created, and the Lead's own when a firing of it
+   * started the Lead's goal. Read only; a record that cannot be read is none.
+   */
+  async #mentionPullRequests(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]> {
+    const found = new Set<number>()
+    const boards = new Set(goals)
+    const sessions = new Set(this.#evidence.seats.all().filter((seat) => seat.board !== null && boards.has(seat.board))
+      .map((seat) => `${seat.session.runtime}/${seat.session.sessionId}`))
+    if (sessions.size > 0) {
+      const rows = await this.#gitGateway.record({ repository, limit: 500 }).catch(() => [])
+      for (const row of rows) {
+        if (row.op === 'pr.create' && row.outcome === 'ok' && row.number !== undefined && row.requester.kind === 'session' && sessions.has(row.requester.id)) found.add(row.number)
+      }
+    }
+    const lead = this.#leadJournal?.state
+    if (lead?.pr && lead.originKey && firings.some((firing) => lead.originKey === `trigger-${firing}`) &&
+      lead.pr.repository.toLowerCase() === repository.toLowerCase()) found.add(lead.pr.number)
+    return [...found]
   }
 
   /**
