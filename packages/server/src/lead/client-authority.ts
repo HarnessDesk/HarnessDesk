@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import { join } from 'node:path'
+import { LEAD_MEMORY_OPEN } from '@harnessdesk/lead'
 import { clientTierFor, type ClientTier, type HostParams } from '@harnessdesk/protocol'
 import { openClientDoor, type ClientConnectionPolicy, type ClientDoor, type ClientDoorOptions } from '../client-door.js'
 import type { Host } from '../host.js'
@@ -18,6 +19,18 @@ export interface LeadClientAuthorityOptions {
   /** Validates the actual ordinary session without loading its transcript. */
   readonly readChatTarget?: (id: string) => Promise<boolean>
   readonly authorizeStart?: (params: HostParams<'flow/start-goal'>) => boolean | Promise<boolean>
+  /** The Lead's kept entries as they stand: a worker's prompt never carries one, nor the memory block itself. */
+  readonly memoryLines?: () => readonly string[]
+}
+
+/** Writes that put words in front of a worker: a chat's prompt, or a Team's brief. */
+const WORKER_BOUND = new Set(['lead/chat/start', 'lead/chat/send', 'flow/start-goal'])
+/** Memory is the Lead's context alone. A worker-bound write that repeats the memory block, or a kept entry of 40
+ * characters or more word for word, is refused before it reaches the worker. */
+export const leadCarriesMemory = (params: unknown, lines: readonly string[]): boolean => {
+  const text = JSON.stringify(params ?? null).normalize('NFKC').toLowerCase()
+  if (text.includes(LEAD_MEMORY_OPEN.toLowerCase())) return true
+  return lines.some(line => line.length >= 40 && text.includes(JSON.stringify(line.normalize('NFKC').toLowerCase()).slice(1, -1)))
 }
 
 export const createLeadClientAuthority = async (options: LeadClientAuthorityOptions): Promise<ClientConnectionPolicy> => {
@@ -48,10 +61,13 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
     authorize: async request => {
       try {
         if (clientTierFor(request.method, request.params) === 'answer') return 'tierNotGranted'
+        if (WORKER_BOUND.has(request.method) && leadCarriesMemory(request.params, options.memoryLines?.() ?? [])) return 'leadMemoryToWorker'
         // Read-only desk projections and skill counts contain no transcripts or account credentials.
         if (request.method === 'lead/desk/summary' || request.method === 'lead/usage/summary' || request.method === 'library/usage') return null
         // The work ledger is this Lead's own record, kept by the host for this project; a note only annotates it.
         if (request.method === 'lead/work/list' || request.method === 'lead/work/read' || request.method === 'lead/work/note') return null
+        // The Lead's memory is the person's and this Lead's, kept by the host; a proposal only reaches the person's inbox.
+        if (request.method === 'lead/memory/propose' || request.method === 'lead/memory/search') return null
         // Re-resolve the pinned location, including on reads, rather than allowing
         // a renamed/deleted project to be replaced by a new alias at dispatch.
         // The three desk-wide reads above deliberately return before this project check.

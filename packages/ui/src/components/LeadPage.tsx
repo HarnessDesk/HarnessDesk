@@ -27,6 +27,7 @@ import { AtIcon, FolderIcon, FolderOpenIcon, PlusIcon, RouteIcon, SendIcon, Sett
 import { LeadStatusPanel, useLeadControls } from './LeadControls'
 import { sidebarPlacement } from '../state/workbench'
 import { formatLeadConsentTime } from './lead-consent-time'
+import { LeadMemoryProposals, leadMemoryPlacement } from './LeadMemory'
 
 const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-predecessor-unavailable': "The previous step's result wasn't accepted, so the next step can't start. Message {label} to change the plan, or stop this goal.",
@@ -132,6 +133,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { if (!goalActive) return; const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [goalActive])
   useEffect(() => { if (active) void store.lead.readThread().catch(refusal) }, [active, store])
+  // A desk without memory leaves the thread as it was; the notification keeps it current after this.
+  useEffect(() => { if (active) void store.lead.readMemoryView().catch(() => {}) }, [active, store])
   // The host starts the Lead in the first folder opened, so a folder arriving is the cue to read again.
   const folders = snapshot.workspaces.length
   useEffect(() => { if (active && state.projectMissing && folders) void store.lead.readThread().catch(refusal) }, [active, store, state.projectMissing, folders])
@@ -170,6 +173,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const requestPending = sending || state.requestInFlight
   const sendDisabled = unavailable || requestPending || !!state.error || state.revision < 0
   const messages = state.thread?.messages ?? []
+  // The Lead's proposals to keep, each under the reply it came with; Keep, Edit or No go to the same store Settings shows.
+  const proposals = leadMemoryPlacement(messages, state.memory?.inbox ?? [])
   const latestAsk = [...messages].reverse().find(message => message.role === 'assistant' && (message.ask || message.proactive?.options))
   const asks = new Map(useLeadAsks(state.away?.asks ?? EMPTY_ASKS).map(ask => [ask.id, ask] as const))
   const answers = new Map(messages.flatMap((message, index) => {
@@ -261,7 +266,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {entries.map(entry => entry.kind === 'message'
           ? entry.message.role === 'notice' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={entry.message.id === firstReply?.id ? replyKey : `message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             ask={entry.message.ask} settled={asks.get(entry.message.id)} proactive={entry.message.proactive} disabled={sendDisabled} picked={answers.get(entry.message.id)}
-            onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) && asks.get(entry.message.id)?.status !== 'expired' ? label => { if (!sendDisabled) void send(label, entry.message.id) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
+            onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) && asks.get(entry.message.id)?.status !== 'expired' ? label => { if (!sendDisabled) void send(label, entry.message.id) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)}
+            note={proposals.has(entry.message.id) ? <LeadMemoryProposals candidates={proposals.get(entry.message.id)!} /> : undefined} />
           : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
             note={<Chip variant="quiet" tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />

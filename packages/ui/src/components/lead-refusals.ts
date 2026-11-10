@@ -21,6 +21,10 @@ export const REFUSALS: Record<LeadControlRefusal, string> = {
   'lead-ask-expired': 'This question expired. Nothing was done.',
   'lead-ask-answered': 'This question was already answered. Nothing was done.',
   'lead-project-missing': 'Open a folder first, then send your goal.',
+  'lead-memory-missing': 'That note is no longer there.',
+  'lead-memory-stale': 'Memory changed since then, so nothing was undone.',
+  'lead-memory-full': 'Memory is full. Forget a note first.',
+  'lead-memory-core-full': 'Core has no room for it. Move a note to Archive first.',
 }
 
 /** Words the person typed that the host took for a late answer get one more line: how to say it differently. */

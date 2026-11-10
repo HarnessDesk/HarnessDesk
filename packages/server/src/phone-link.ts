@@ -76,6 +76,10 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/spendLimit/set': 'answer',
     // Mention triage, read only: switching a trigger to act or evaluating a request again is the desk's.
     'phone/triage/list': 'read',
+    // The Lead's memory: the lists, and the person's Keep, Edit, No and Forget. The Lead's own propose and search
+    // stay off the phone.
+    'lead/memory/view': 'read',
+    'lead/memory/change': 'answer',
   },
   topics: { lead: 'read', workspace: 'read', notices: 'read', presence: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.
@@ -120,7 +124,7 @@ const WORKSPACE_EVENTS = new Set([
   'session/started', 'session/status', 'session/title', 'session/closed', 'turn/started', 'turn/completed',
   'approval/requested', 'approval/resolved',
 ])
-const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed'])
+const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed', 'lead/memory/changed'])
 
 /** The methods whose receipts and marks name the device that made them. */
 const PHONE_DEVICE_METHODS = new Set(['lead/presence/read', 'lead/presence/dismiss', 'lead/thread/send'])

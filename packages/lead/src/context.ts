@@ -1,5 +1,6 @@
 import type { MessagesText, MessagesToolResult, MessagesTurn } from './messages-types.js'
 import type { LeadState } from './state.js'
+import { leadMemorySnapshot } from './memory.js'
 
 /**
  * The Lead's context engine, as pure functions: how full the conversation is, what the desk may trim without a
@@ -160,7 +161,9 @@ const leadCarriesPlan = (turns: readonly MessagesTurn[], plan: readonly Messages
  * and returns a line, or null. Append-only; an entry that throws is skipped. Joined by `leadEpochAddendum`, which the
  * child passes to the loop as its `onEpoch` hook.
  */
-export const LEAD_EPOCH_ADDENDA: readonly ((state: LeadState) => string | null)[] = Object.freeze([])
+export const LEAD_EPOCH_ADDENDA: readonly ((state: LeadState) => string | null)[] = Object.freeze([
+  state => leadMemorySnapshot(state.memory),
+])
 export const leadEpochAddendum = (state: LeadState, addenda: readonly ((state: LeadState) => string | null)[] = LEAD_EPOCH_ADDENDA): string =>
   addenda.flatMap(addendum => { try { const line = addendum(state)?.trim(); return line ? [line] : [] } catch { return [] } }).join('\n')
 

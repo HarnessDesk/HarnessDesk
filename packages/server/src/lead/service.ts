@@ -49,9 +49,7 @@ export interface LeadServiceOptions {
   readonly onManagementStopped?: (reason: string) => void
   /** The Lead's checks between model turns, as the child reports them. */
   readonly onPresence?: (presence: LeadPresence) => void
-  /** The lines the person kept, read at each start: the Lead is told them, numbered for a plan to cite. */
-  readonly readMemory?: () => Promise<readonly string[]>
-  /** Lines a reply offered to keep; they wait for the person's Keep. */
+  /** Lines a reply offered to keep: each is a memory proposal, scanned before it reaches the person's inbox. */
   readonly onRemember?: (lines: readonly string[]) => void
   /** The host's stored conversation: what each step adds, and the conversation again after a compaction. */
   readonly recordContext?: LeadSupervisorOptions['recordContext']
@@ -122,13 +120,12 @@ export class LeadService {
           this.#door = await options.openDoor(this.#registration.admission)
           if (!this.#door) throw new Error('lead-client-unavailable')
           const key = await options.broker.resolveLead('anthropic')
-          const memory = options.readMemory ? await options.readMemory().catch(() => []) : []
           checkStartup()
           this.#assertOpen()
           if (generation !== this.#generation) throw new Error('lead-lifecycle-changed')
           return { key, descriptor: this.#door.descriptor,
             project: options.project, prices: options.prices, ...(options.model === undefined ? {} : { model: options.model }), projectPolicy: this.#policy,
-            ...(options.seats ? { seats: options.seats } : {}), ...(memory.length ? { memory } : {}) }
+            ...(options.seats ? { seats: options.seats } : {}) }
         } catch (error) { await this.#release(); throw error }
       },
       onActivity: busy => this.#activity(busy),

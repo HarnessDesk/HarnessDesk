@@ -9,6 +9,7 @@ import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecur
 import type { LeadPersistencePort } from './ports.js'
 import { isLeadPlanRenewal, hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, fenceLeadWorkerDispatch, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, leadGoalSpendCap, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
+import { parseLeadMemoryCore, type LeadMemoryCore } from './memory.js'
 
 const boolean = (value: unknown): boolean => { if (typeof value !== 'boolean') throw new Error('lead-journal-boolean'); return value }
 
@@ -123,6 +124,8 @@ export type LeadJournalEvent =
       readonly beforeTokens: number; readonly afterTokens: number; readonly model: string; readonly usdMicros: number; readonly fallback: boolean }
   /** The pruning stage alone brought the conversation back under its line: a new epoch, no checkpoint. */
   | { readonly type: 'context-pruned'; readonly id: string; readonly at: number; readonly beforeTokens: number; readonly afterTokens: number }
+  /** The host's memory store changed Core: the Lead reads this at its next epoch. */
+  | { readonly type: 'memory-core'; readonly memory: LeadMemoryCore }
 export type LeadCompactionTrigger = 'soft' | 'hard' | 'manual' | 'overflow'
 export type LeadJournalRecord = Base & LeadJournalEvent
 export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown, previous?: LeadState): LeadJournalRecord; checkpoint?(): LeadState | null; journalSecurity?(): LeadJournalSecurity }
@@ -211,6 +214,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'context-compaction-started': ['id', 'at', 'trigger'], 'context-compaction-failed': ['id', 'reason'],
     'context-compaction-applied': ['id', 'at', 'fromSeq', 'toSeq', 'beforeTokens', 'afterTokens', 'model', 'usdMicros', 'fallback'],
     'context-pruned': ['id', 'at', 'beforeTokens', 'afterTokens'],
+    'memory-core': ['memory'],
   }
   const type = choice(source.type, Object.keys(keys))
   object(source, ['version', 'seq', 'type', ...keys[type]!])
@@ -300,6 +304,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
         beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens), model: identifier(source.model), usdMicros: integer(source.usdMicros), fallback: source.fallback }; break
     }
     case 'context-pruned': event = { type, id: identifier(source.id), at: integer(source.at), beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens) }; break
+    case 'memory-core': event = { type, memory: parseLeadMemoryCore(source.memory) }; break
     default: throw new Error('lead-journal-type')
   }
   const record = { version: 1 as const, seq, ...event }
@@ -491,6 +496,12 @@ export class LeadJournal {
   contextPruned(pruned: Omit<Extract<LeadJournalEvent, { type: 'context-pruned' }>, 'type'>): Promise<void> { return this.#queue(async () => {
     if (this.#state.context.pending?.id !== pruned.id) throw new Error('lead-context-pending')
     return this.#append({ type: 'context-pruned', ...pruned })
+  }) }
+  /** Host only. Core changed in the memory store; a revision already journaled is not written twice. */
+  memoryCore(memory: LeadMemoryCore): Promise<void> { return this.#queue(async () => {
+    const parsed = parseLeadMemoryCore(memory)
+    if (parsed.revision <= this.#state.memory.revision) return
+    return this.#append({ type: 'memory-core', memory: parsed })
   }) }
   settingsChanged(name?: LeadName, follow?: LeadFollowPreferences): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }), ...(follow === undefined ? {} : { follow }) })) }
   publication(operation: LeadPublicationOperation, pr: LeadPullRequest | null = null): Promise<void> { return this.#queue(() => this.#append({ type: 'publication', operation, pr })) }

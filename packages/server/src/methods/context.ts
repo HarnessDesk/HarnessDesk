@@ -188,6 +188,13 @@ export interface HostContext {
   leadScheduleUpdate(params: HostParams<'lead/schedule/update'>): Promise<HostResult<'lead/schedule/update'>>
   leadMemoryRead(): Promise<HostResult<'lead/memory/read'>>
   leadMemoryUpdate(params: HostParams<'lead/memory/update'>): Promise<HostResult<'lead/memory/update'>>
+  /** The Lead's memory as Settings and the phone show it: Core, Archive, To review and History. */
+  leadMemoryView(): Promise<HostResult<'lead/memory/view'>>
+  /** The person's edits, and Undo; the person's entries change only here. */
+  leadMemoryChange(params: HostParams<'lead/memory/change'>): Promise<HostResult<'lead/memory/change'>>
+  /** A proposal, scanned before it reaches the person's inbox. */
+  leadMemoryPropose(params: HostParams<'lead/memory/propose'>): Promise<HostResult<'lead/memory/propose'>>
+  leadMemorySearch(params: HostParams<'lead/memory/search'>): Promise<HostResult<'lead/memory/search'>>
   /** How full the Lead's conversation is, how much of it the provider read from its cache, and its checkpoints. */
   leadContextRead(): Promise<HostResult<'lead/context/read'>>
   /** The person's "Summarise now": one compaction, refused while the Lead is answering. */

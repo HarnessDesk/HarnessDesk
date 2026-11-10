@@ -53,7 +53,9 @@ const record = (value: unknown): Readonly<Record<string, unknown>> =>
 // Detailed collection reads remain filtered to the selected project.
 const deskWideReads = new Set(['client/hello', 'library/usage', 'lead/desk/summary', 'lead/usage/summary',
   // The Lead's own ledger: titles, host stages and its notes, kept by the host, never transcripts.
-  'lead/work/list', 'lead/work/read', 'lead/work/note'])
+  'lead/work/list', 'lead/work/read', 'lead/work/note',
+  // Its own memory: a proposal waits for the person in their inbox; a search reads its own notes and conversation.
+  'lead/memory/propose', 'lead/memory/search'])
 const actionOf = (method: string, params: unknown): string | null =>
   Object.hasOwn(CLIENT_ACTION_TIERS, method) && typeof record(params).action === 'string' ? record(params).action as string : null
 // Canonical structural equality: property insertion order never changes authority.

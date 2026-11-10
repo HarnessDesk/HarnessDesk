@@ -40,7 +40,6 @@ export interface LeadLoopOptions {
   readonly freshnessMs?: number
   /** What a plan's assignments may name. Absent means the desk offers no seat, and the model is told so. */
   readonly seats?: LeadSeatChoices
-  readonly memory?: readonly string[]
   /** How long a running run may go without moving before it is called stuck and the model is woken for it. */
   readonly stuckMs?: number
   /** Told whenever the wake counts or run readings change, so the host can show them without asking. */
@@ -171,7 +170,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       let addendum = ''
       try { addendum = options.onEpoch?.().standingAddendum?.trim() ?? '' } catch { /* An epoch hook never blocks a turn. */ }
       instructions = [leadInstructions({ name: state.name === 'lex' ? 'Lex' : 'Dex', project, policyRevision: state.policy?.revision ?? 1,
-        caps: state.budget!.caps, ...(options.seats ? { seats: options.seats } : {}), ...(options.memory?.length ? { memory: options.memory } : {}) }), addendum].filter(Boolean).join('\n')
+        caps: state.budget!.caps, ...(options.seats ? { seats: options.seats } : {}) }), addendum].filter(Boolean).join('\n')
       instructionsFor = key
     }
     return instructions

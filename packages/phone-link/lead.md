@@ -597,3 +597,15 @@ While the app is open, read `lead/presence/read` with `active: true` about every
 `asks` says what became of each question by the id of the message that carries it. `open` offers its options. `expired` offers none and reads "Expired · nothing was done"; answering it refuses with `lead-ask-expired`; a question another device already answered refuses with `lead-ask-answered`, naming that device, even when its answer is already in the thread. When the text is a tapped option, send `ask` with `lead/thread/send`: the `id` of the message that carries the question. Without it the host can only judge the newest open question, and a tap that arrives after another device's answer would pass as plain words. An `ask` that names no question the thread holds is refused with `lead-ask-expired`; plain text that equals an option of the newest question is refused the same way, but only while that question is still the Lead's last message and its answer or expiry is under ten minutes old; after that it is an ordinary message. Show the refusal as a sentence ("This question was already answered. Nothing was done."), and for typed text add "If you meant something else, say it in other words." `answered` is a receipt: the option, the device label and the time. The thread itself is not changed. Send `lead/thread/send` as before; the host records the receipt.
 
 The morning brief is a push on the `notices` topic: kind `message`, `deep` is `lead`, the title at most 80 and the body at most 240 characters. Opening it shows the brief digest through `lead/presence/read`. Turning the brief on and choosing its time is the desktop's (`lead/brief/update` is not offered to the phone); the phone reads `brief` to show whether it is on.
+
+## Memory
+
+The workspace snapshot carries `memory` (`PhoneLeadMemory`) when the desk has a Lead: the proposals waiting for the person, the Core and Archive counts and whether automatic keeping is on. Draw each proposal under the first Lead reply whose revision is after its `afterSeq`, or under the latest reply when none is, with Keep, Edit and No. The `lead/memory/changed` notification carries the new `revision`; read again when it is newer than the one you hold.
+
+| Method | Required tier | Params | Result |
+| --- | --- | --- | --- |
+| `lead/memory/view` | `read` | `{}` | `LeadMemoryView` |
+| `lead/memory/change` | `answer` | a `LeadMemoryChange` (`keep`, `edit`, `dismiss`, `move`, `forget`, `forget-all`, `auto`, `undo`, `add`) | `LeadMemoryView` |
+
+`keep` with `text` keeps the person's edited wording, which then counts as the person's note. The phone never gets `lead/memory/propose` or `lead/memory/search`, which are the Lead's own.
+

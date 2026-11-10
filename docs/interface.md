@@ -2417,7 +2417,7 @@ turn is retained for approval before the Lead parks.
 Reads back off to 30 seconds, read once more, then wait for changes.
 
 Settings › Lead exists only with the host capability. Its groups are Name,
-Provider key, Allowances, Permissions and Triggers. The chosen name saves immediately and changes
+Provider key, Allowances, Permissions, Triggers and Memory. The chosen name saves immediately and changes
 no authority. The uncontrolled key input is emptied before its exclusive request,
 including refusal; removing a key asks for confirmation. Changed authority groups
 have a trailing Save. Tightening applies immediately; widening creates a decision
@@ -2443,6 +2443,8 @@ and Review comment; each defaults on and saves independently to settings.follow.
 Open a goal when is a read-only list of project declarations with opens.lead
 true, using the arm preview's lead.summary. Each opens the project's returned
 trigger-file path. This page neither edits nor arms declarations.
+
+Settings › Lead › Memory says the Lead reads Core at the start of each conversation and searches Archive when it needs to. Its header holds Export (the notes as JSON) and Forget all, which confirms first. A switch, Keep the Lead's notes without asking, lets facts and lessons skip To review; an Add a note field adds the person's own note. To review lists waiting proposals with Keep, Edit and No; Core shows how much of its 6 KB is used, with a warning tone past 90%; Archive follows; each note offers Edit, Archive or Move to Core, and Forget, with a chip when the Lead wrote it or when the current plan cites it. History lists the last eight changes, and Undo on any change that can be undone. In the Lead's thread, the same proposals sit under the reply they came with.
 
 A phone start uses the selected runtime’s saved new-session choices after validating them against the current adapter. Replies use the ordinary turn queue while an agent is busy. If creation succeeds but the first message cannot be confirmed, the response retains the session id and a warning; the phone opens that conversation with the draft instead of starting another session on retry.
 

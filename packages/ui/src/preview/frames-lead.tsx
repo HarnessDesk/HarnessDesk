@@ -19,7 +19,7 @@ import { LeadDetails } from '../components/LeadDetails'
 import { LeadAskOptions, LeadAvatar, LeadNameChoice, LeadPlanFlow, LeadTurn, LeadWorking, Text } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
-import { LEAD_SCENES, leadContextFacts, leadPresenceFixture, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
+import { LEAD_SCENES, leadContextFacts, leadPresenceFixture, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadMemoryView, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
 import { LEAD_LIMITS, type HostMethodName, type LeadWorkBoard, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
@@ -33,6 +33,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   })
   const shellRequest = store.transport.request.bind(store.transport)
   let current = leadSceneProjection(scene), schedule = leadSchedule, memory = leadMemory
+  let memoryView = scene === 'memory-proposal' || scene === 'settings-memory' ? leadMemoryView : { ...leadMemoryView, revision: 0, core: [], archive: [], inbox: [], history: [], coreBytes: 0 }
   let work: LeadWorkBoard = scene === 'work-ledger' ? leadWorkFixture : { version: 1, items: [], more: 0 }
   let presence = scene === 'presence' ? leadPresenceFixture() : { version: 1 as const, digest: null, asks: [], brief: { enabled: false, at: '07:30' } }
   const emit = (next: LeadWindowProjection) => { current = next; store.lead.changed({ method: 'lead/changed', params: current }) }
@@ -119,6 +120,15 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/memory/read') return memory
     if (method === 'lead/context/read' || method === 'lead/context/compact') return leadContextFacts
     if (method === 'lead/memory/update') return memory = params.memory
+    if (method === 'lead/memory/view') return memoryView
+    if (method === 'lead/memory/change') {
+      // Enough of the desk's answer for the frames: a decided proposal leaves the inbox, Keep puts it in Core.
+      const decided = memoryView.inbox.find(item => item.id === params.id)
+      memoryView = { ...memoryView, revision: memoryView.revision + 1, inbox: memoryView.inbox.filter(item => item.id !== params.id),
+        ...(params.action === 'keep' && decided ? { core: [...memoryView.core, { id: 'm10', text: params.text ?? decided.text, kind: decided.kind, by: params.text ? 'person' as const : 'lead' as const, tier: 'core' as const, source: decided.source, createdAt: 10, usedAt: null, version: 1 }] } : {}),
+        ...(params.action === 'auto' ? { auto: params.on } : {}) }
+      return memoryView
+    }
     if (method === 'lead/thread/read' || method === 'lead/settings/read') {
       // A desk with no folder open: the host has no Lead journal yet and refuses both reads, as it does live.
       if (scene === 'no-folder') throw Object.assign(new Error('lead-project-missing'), { code: 'lead-project-missing' })
