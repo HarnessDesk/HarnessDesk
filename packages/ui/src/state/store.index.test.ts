@@ -571,6 +571,17 @@ it('keeps newer phone pins when the initial pin read arrives late', async () => 
   expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual([String(sessionKey(runtime, 'two'))])
 })
 
+it('keeps the current pins and still loads preferences when the host pin list is not a list', async () => {
+  const kept = String(sessionKey(runtime, 'kept'))
+  handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [], pinnedSessions: ['agent:kept'] } } as WireNotification)
+  request.mockImplementation((async (method: HostMethodName) =>
+    method === 'app/state/get' ? { listPrefs: { sort: 'name' } } : method === 'session/pins' ? { not: 'a list' } : null) as never)
+  await store.loadPreferences()
+  expect(store.getSnapshot().listPrefs).toMatchObject({ sort: 'name', pinnedSessions: [kept] })
+  handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [], pinnedSessions: { not: 'a list' } } } as unknown as WireNotification)
+  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual([kept])
+})
+
 it('reads the host pin list in the window session key form, splitting at the first colon', async () => {
   request.mockImplementation((async (method: HostMethodName) => method === 'app/state/get' ? {} : method === 'session/pins' ? ['agent:two', 'agent:one:part'] : null) as never)
   await store.loadPreferences()

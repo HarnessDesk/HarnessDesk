@@ -1640,7 +1640,7 @@ export class AppStore {
             ...(state.state !== 'running' ? { historyRevision: this.#snapshot.historyRevision + 1 } : {}) })
         }
         if (notification.method === 'session/indexChanged') {
-          const pins = notification.params.pinnedSessions && pinsFromHost(notification.params.pinnedSessions)
+          const pins = pinsFromHost(notification.params.pinnedSessions)
           if (pins) this.#sessionPinsRevision++
           const pinsChanged = pins && (pins.length !== this.#snapshot.listPrefs.pinnedSessions.length || pins.some((key, index) => key !== this.#snapshot.listPrefs.pinnedSessions[index]))
           this.#patch({ historyRevision: this.#snapshot.historyRevision + 1, ...(pinsChanged ? { listPrefs: { ...this.#snapshot.listPrefs, pinnedSessions: pins } } : {}) })
@@ -8414,7 +8414,7 @@ export class AppStore {
           : {}
       const rawList = preferences['listPrefs'] as Partial<AppSnapshot['listPrefs']> | undefined
       const pinsRevision = this.#sessionPinsRevision
-      const hostPins = await this.transport.request('session/pins', {}).then(pins => pins && pinsFromHost(pins), () => this.#snapshot.listPrefs.pinnedSessions)
+      const hostPins = await this.transport.request('session/pins', {}).then(pins => pinsFromHost(pins) ?? this.#snapshot.listPrefs.pinnedSessions, () => this.#snapshot.listPrefs.pinnedSessions)
       const listPrefs: AppSnapshot['listPrefs'] = {
         // Compact unless the user has said otherwise: one line per
         // conversation is what both Codex and Claude Code open with.
@@ -8430,7 +8430,7 @@ export class AppStore {
         pinned: Array.isArray(rawList?.pinned)
           ? rawList.pinned.filter((entry): entry is string => typeof entry === 'string')
           : [],
-        pinnedSessions: this.#sessionPinsRevision === pinsRevision ? hostPins ?? [] : this.#snapshot.listPrefs.pinnedSessions,
+        pinnedSessions: this.#sessionPinsRevision === pinsRevision ? hostPins : this.#snapshot.listPrefs.pinnedSessions,
         gitColumns: readColumnWidths(rawList?.gitColumns),
         collapsed: Array.isArray(rawList?.collapsed)
           ? rawList.collapsed.filter((entry): entry is string => typeof entry === 'string')
@@ -10107,12 +10107,15 @@ const address = (key: SessionKey): { runtime: RuntimeId; sessionId: SessionId } 
  * The host's pin list, in the window's key spelling. The host and paired phones
  * spell a pin `runtime:id`; the window compares `sessionKey` values. Runtime ids
  * carry no colon and session ids may, so only the first colon separates them.
+ * Anything but a list is `null`, so the caller keeps the pins it has.
  */
-const pinsFromHost = (pins: readonly string[]): string[] => pins.map(pin => {
-  if (pin.includes('\u0000')) return pin
-  const at = pin.indexOf(':')
-  return at > 0 ? String(sessionKey(pin.slice(0, at), pin.slice(at + 1))) : pin
-})
+const pinsFromHost = (pins: unknown): string[] | null => Array.isArray(pins)
+  ? pins.filter((pin): pin is string => typeof pin === 'string').map(pin => {
+    if (pin.includes('\u0000')) return pin
+    const at = pin.indexOf(':')
+    return at > 0 ? String(sessionKey(pin.slice(0, at), pin.slice(at + 1))) : pin
+  })
+  : null
 
 /**
  * A conversation that could not be opened because something else has it.
