@@ -1,5 +1,5 @@
 import type {
-  LeadChatControl, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  LeadChatControl, LeadWorkBoard, LeadWorkOutcome, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
@@ -10,6 +10,8 @@ export interface LeadState {
   readonly chats: readonly LeadChatControl[]
   readonly chatControlProblem: LeadChatControlList['problem'] | null
   readonly wakes?: readonly LeadWakeRecord[]
+  /** The host's work board, the same projection the phone lists; null until it has been read. */
+  readonly work?: LeadWorkBoard | null
   readonly savedApprovals?: readonly LeadSavedApproval[]
   readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions: readonly LeadAction[]
@@ -68,8 +70,14 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     }
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
-      : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], stage: projection.stage, stageReason: projection.stageReason, revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
+      : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], work: state.work ?? null, savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], stage: projection.stage, stageReason: projection.stageReason, revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
         requestInFlight: projection.requestInFlight, activity: projection.activity, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
+    for (const listener of listeners) listener()
+  }
+  // Every board the host sends is whole, so the latest one simply replaces the last.
+  const applyWork = (board: LeadWorkBoard) => {
+    if (!available() || !Array.isArray(board?.items)) return
+    state = { ...state, work: board }
     for (const listener of listeners) listener()
   }
   let controlVersion = 0
@@ -118,6 +126,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       if (!available()) return
       if (notification.method === 'lead/changed') apply(notification.params)
       else if (notification.method === 'lead/chats/controlChanged') applyChats(notification.params)
+      else if (notification.method === 'lead/work/changed') applyWork(notification.params)
     },
     readChatControl,
     async resetChatControl() { check(); applyChats(await transport.request('lead/chats/resetControl', {})) },
@@ -131,6 +140,9 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       }
       return result
     },
+    async readWork() { check(); const board = await transport.request('lead/work/list', {}); applyWork(board); return board },
+    /** The person's Done or Drop. It closes the record only; chats, Teams and pull requests are left as they are. */
+    async closeWork(id: string, outcome: LeadWorkOutcome) { check(); const board = await transport.request('lead/work/close', { id, outcome }); applyWork(board); return board },
     async readThread() { check(); const before = state; const result = await transport.request('lead/thread/read', {}).catch(refusedRead); apply(result, before); return result.thread },
     async readSettings() { check(); const before = state; const result = await transport.request('lead/settings/read', {}).catch(refusedRead); apply(result, before); return result.settings },
     async send(text: string, idempotencyKey: string) {

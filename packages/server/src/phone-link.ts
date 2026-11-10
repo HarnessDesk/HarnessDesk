@@ -56,6 +56,8 @@ export const PHONE_POLICY: PhonePolicy = {
     // Only a Team whose Lead result the person accepted, and only when nothing on it needs a choice. Run, as stop is:
     // wrapping closes seats, archives the Team's conversations and removes its clean worktrees.
     'workspace/team/wrap': 'run',
+    // The person's Done or Drop on a Lead work item: it closes the record, never a chat, Team or pull request.
+    'lead/work/close': 'run',
     'lead/thread/send': 'run',
     'lead/stop': 'run',
     'lead/resume': 'run',
@@ -112,7 +114,7 @@ const WORKSPACE_EVENTS = new Set([
   'session/started', 'session/status', 'session/title', 'session/closed', 'turn/started', 'turn/completed',
   'approval/requested', 'approval/resolved',
 ])
-const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity'])
+const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed'])
 
 /** Starts the LAN listener against a running host and hands the window its controls. */
 export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' | 'attachPhoneLink'>, logger: Logger, options: PhoneLinkOptions): Promise<RunningPhoneLink> {

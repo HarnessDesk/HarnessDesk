@@ -15,11 +15,12 @@ import { Settings } from '../components/Settings'
 import { LeadDecision } from '../components/LeadDecision'
 import { LeadCards } from '../components/LeadCards'
 import { LeadPage } from '../components/LeadPage'
+import { LeadDetails } from '../components/LeadDetails'
 import { LeadAskOptions, LeadAvatar, LeadNameChoice, LeadPlanFlow, LeadTurn, LeadWorking, Text } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
-import { LEAD_SCENES, leadWakeFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
-import { LEAD_LIMITS, type HostMethodName, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_SCENES, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
+import { LEAD_LIMITS, type HostMethodName, type LeadWorkBoard, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
 export const createLeadFixtureStore = (scene: LeadScene) => {
@@ -32,6 +33,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   })
   const shellRequest = store.transport.request.bind(store.transport)
   let current = leadSceneProjection(scene), schedule = leadSchedule, memory = leadMemory
+  let work: LeadWorkBoard = scene === 'work-ledger' ? leadWorkFixture : { version: 1, items: [], more: 0 }
   const emit = (next: LeadWindowProjection) => { current = next; store.lead.changed({ method: 'lead/changed', params: current }) }
   store.transport.request = (async (method: HostMethodName, input: unknown) => {
     const params = input as Record<string, any>
@@ -78,6 +80,16 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
     if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
     if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }
+    if (method === 'lead/work/list') return work
+    if (method === 'lead/work/close') {
+      // As on the desk: the person's close moves the item to Done, newest first, and is never undone.
+      const closed = work.items.find(item => item.id === params.id)
+      if (!closed) throw { code: 'notFound' }
+      if (closed.closedAt !== undefined) return work
+      const done = { ...closed, stage: 'done' as const, group: 'done' as const, closedAt: Date.now(), outcome: params.outcome }
+      const rest = work.items.filter(item => item.id !== params.id)
+      return work = { ...work, items: [...rest.filter(item => item.group !== 'done'), done, ...rest.filter(item => item.group === 'done')] }
+    }
     if (method === 'lead/wakes/read') return { revision: current.revision, wakes: scene === 'wake-ledger' ? leadWakeFixture : [] }
     if (method === 'lead/budget/raise') {
       if (params.expectedRevision !== current.revision) throw { code: 'lead-revision-stale' }
@@ -125,7 +137,7 @@ const LeadSurface = ({ scene }: { readonly scene: LeadScene }) => {
     <ShellOutlets activeOwner="destination:lead" hostOwner="work" />
   </ShellHostsProvider></TopBarProvider></ShellProvider>
   const owner = `lead-${scene}`
-  return <TopBarProvider><div className="flex h-full min-h-0 flex-col"><TopBarOutlet owner={owner} fallback={{ place: null, more: () => null }} /><div className="min-h-0 flex-1 overflow-auto"><DestinationPageScope owner={owner} active>{current.kind === 'settings' ? <Settings route={current.route} onRoute={route => store.openDestination({ kind: 'settings', route })} onSignIn={() => {}} /> : <LeadPage focus={current.kind === 'lead' ? current.focus : null} initialGoal={scene === 'running-message' ? 'Also check keyboard focus' : scene === 'goal-composer' ? 'Make the empty state keyboard accessible' : ''} />}</DestinationPageScope></div></div></TopBarProvider>
+  return <TopBarProvider><div className="flex h-full min-h-0 flex-col"><TopBarOutlet owner={owner} fallback={{ place: null, more: () => null }} /><div className="min-h-0 flex-1 overflow-auto"><DestinationPageScope owner={owner} active>{scene === 'work-ledger' ? <div className="flex h-full min-h-0"><div className="min-w-0 flex-1"><LeadPage focus={null} /></div><aside aria-label="Lead details" className="w-[320px] shrink-0 overflow-auto border-l"><LeadDetails /></aside></div> : current.kind === 'settings' ? <Settings route={current.route} onRoute={route => store.openDestination({ kind: 'settings', route })} onSignIn={() => {}} /> : <LeadPage focus={current.kind === 'lead' ? current.focus : null} initialGoal={scene === 'running-message' ? 'Also check keyboard focus' : scene === 'goal-composer' ? 'Make the empty state keyboard accessible' : ''} />}</DestinationPageScope></div></div></TopBarProvider>
 
 }
 export const LeadFrame = ({ scene }: { readonly scene: LeadScene }) => {

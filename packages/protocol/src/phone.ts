@@ -395,6 +395,11 @@ export interface PhoneWorkSnapshot {
   readonly commands: readonly never[]
   readonly capabilities: PhoneWorkCapabilities
   readonly threads: readonly never[]
+  /**
+   * The Lead's work ledger, the same board the desk's Lead rail draws: Needs you, Working, In review, Done. Left out
+   * while no Lead runs on the desk. Done and Drop go back through `lead/work/close`.
+   */
+  readonly work?: import('./lead-work.js').LeadWorkBoard
 }
 
 export interface PhoneWorkStep {
