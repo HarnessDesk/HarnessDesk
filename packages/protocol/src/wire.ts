@@ -847,7 +847,7 @@ export interface HostMethods {
     result: { readonly items: readonly { readonly id: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly updatedAt: number }[]; readonly nextCursor: string | null }
   }
   'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
-  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly effectId?: string; readonly agent?: string; readonly moveFrom?: string }; result: { readonly id: string; readonly problem?: string } }
+  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly effectId?: string; readonly agent?: string; readonly moveFrom?: string; readonly ledgerItem?: string }; result: { readonly id: string; readonly problem?: string; readonly ledgerItem?: string } }
   'lead/chat/send': { params: { readonly id: string; readonly text: string; readonly effectId?: string; readonly retryAt?: 'reset' }; result: { readonly queued?: boolean } }
   /** Window only. Which Lead-touched chats the person holds, and the keys of what the Lead sent. */
   'lead/chats/resetControl': { params: Record<string, never>; result: LeadChatControlList }
@@ -2923,6 +2923,15 @@ export interface HostMethods {
    * installs Brave the week after they chose Chrome.
    */
   'app/browsers': { params: Record<string, never>; result: readonly InstalledBrowser[] }
+
+  /** The Lead's work ledger, grouped Needs you first. The window, the phone and the Lead read this one projection. */
+  'lead/work/list': { params: { readonly state?: 'open' | 'all' }; result: import('./lead-work.js').LeadWorkBoard }
+  /** One item with its origin and timeline. Titles, notes and facts are untrusted prose. */
+  'lead/work/read': { params: { readonly id: string }; result: import('./lead-work.js').LeadWorkDetail }
+  /** The Lead's only write: a note, what the item waits for, and when to remind it. Never a stage. */
+  'lead/work/note': { params: import('./lead-work.js').LeadWorkNote; result: import('./lead-work.js').LeadWorkCard }
+  /** The person's Done or Drop, from the window or the phone. */
+  'lead/work/close': { params: import('./lead-work.js').LeadWorkClose; result: import('./lead-work.js').LeadWorkBoard }
 }
 
 /** One browser HarnessDesk found, and can start with remote debugging. */
@@ -3238,6 +3247,8 @@ export type WireNotification =
       readonly params: { readonly notice: PersonNotice }
     }
   | { readonly method: 'host/shutdown'; readonly params: { readonly reason: string } }
+  /** The Lead's work board moved: a stage, a link, a note or a close. The whole board, which is small. */
+  | { readonly method: 'lead/work/changed'; readonly params: import('./lead-work.js').LeadWorkBoard }
 
 export type ClientToHost = WireRequest
 export type HostToClient = WireResponse | WireNotification

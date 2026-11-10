@@ -32,3 +32,4 @@ export { leadInstructions, leadContinuation, leadObservation, parseLeadSeatChoic
 export type { LeadSeatChoices, LeadInstructionFacts, LeadContinuationFacts } from './instructions.js'
 
 export { leadDataContainsCredential } from './journal-security.js'
+export { leadWorkCards } from './work.js'

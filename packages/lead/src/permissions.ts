@@ -51,7 +51,9 @@ const record = (value: unknown): Readonly<Record<string, unknown>> =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
 // Read-only desk context: titles/states, skill counts and cached allowance, never transcripts or account identities.
 // Detailed collection reads remain filtered to the selected project.
-const deskWideReads = new Set(['client/hello', 'library/usage', 'lead/desk/summary', 'lead/usage/summary'])
+const deskWideReads = new Set(['client/hello', 'library/usage', 'lead/desk/summary', 'lead/usage/summary',
+  // The Lead's own ledger: titles, host stages and its notes, kept by the host, never transcripts.
+  'lead/work/list', 'lead/work/read', 'lead/work/note'])
 const actionOf = (method: string, params: unknown): string | null =>
   Object.hasOwn(CLIENT_ACTION_TIERS, method) && typeof record(params).action === 'string' ? record(params).action as string : null
 // Canonical structural equality: property insertion order never changes authority.

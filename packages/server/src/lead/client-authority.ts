@@ -50,6 +50,8 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
         if (clientTierFor(request.method, request.params) === 'answer') return 'tierNotGranted'
         // Read-only desk projections and skill counts contain no transcripts or account credentials.
         if (request.method === 'lead/desk/summary' || request.method === 'lead/usage/summary' || request.method === 'library/usage') return null
+        // The work ledger is this Lead's own record, kept by the host for this project; a note only annotates it.
+        if (request.method === 'lead/work/list' || request.method === 'lead/work/read' || request.method === 'lead/work/note') return null
         // Re-resolve the pinned location, including on reads, rather than allowing
         // a renamed/deleted project to be replaced by a new alias at dispatch.
         // The three desk-wide reads above deliberately return before this project check.

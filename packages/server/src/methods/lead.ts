@@ -33,4 +33,9 @@ export const leadMethods = {
   'lead/schedule/update': (ctx, params) => ctx.leadScheduleUpdate(params),
   'lead/memory/read': ctx => ctx.leadMemoryRead(),
   'lead/memory/update': (ctx, params) => ctx.leadMemoryUpdate(params),
+  // One board for the window, the phone and the Lead; the Lead's own write is a note, never a stage or a close.
+  'lead/work/list': (ctx, params) => ctx.leadWork.board(params.state),
+  'lead/work/read': (ctx, params) => ctx.leadWork.read(params),
+  'lead/work/note': (ctx, params) => ctx.leadWork.note(params),
+  'lead/work/close': (ctx, params) => ctx.leadWork.close(params),
 } satisfies MethodsUnder<'lead/'>

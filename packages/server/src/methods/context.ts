@@ -164,6 +164,8 @@ export interface HostContext {
     handBack(id: string): Promise<import('@harnessdesk/protocol').LeadChatControlList>
   }
   readonly leadChats: Pick<import('../lead/chats.js').LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop'>
+  /** The Lead's work ledger; refuses with `lead-unavailable` while no Lead runs here. */
+  readonly leadWork: Pick<import('../lead/work.js').LeadWorkLedger, 'board' | 'read' | 'note' | 'close'>
   leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
   leadUsageSummary(): Promise<HostResult<'lead/usage/summary'>>
   leadDeskSummary(params: HostParams<'lead/desk/summary'>): Promise<HostResult<'lead/desk/summary'>>

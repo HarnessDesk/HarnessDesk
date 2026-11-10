@@ -15,6 +15,10 @@ export const PRIVATE_CLIENT_METHODS = {
   'lead/chat/start': 'run',
   'lead/chat/send': 'run',
   'lead/chat/stop': 'run',
+  // The Lead's own work ledger. A note only annotates an item the host owns; it starts, sends and spends nothing.
+  'lead/work/list': 'read',
+  'lead/work/read': 'read',
+  'lead/work/note': 'read',
 } as const satisfies Partial<Record<HostMethodName, ClientTier>>
 
 /** The methods the client door answers, each with the tier it needs. */
