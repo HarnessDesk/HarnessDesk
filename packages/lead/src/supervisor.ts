@@ -13,7 +13,7 @@ import type { LeadAcceptanceEvidence } from './acceptance.js'
 import type { LeadMessagesRequest, LeadMessagesResult, MessagesPrice, MessagesHttpResponse, MessagesText, MessagesTurn } from './messages-types.js'
 import { parseLeadContextTurns } from './messages.js'
 import type { LeadContextRecordInput } from './loop.js'
-import { LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadRpcOperation } from './child-ipc.js'
+import { LEAD_FRAME_BYTES, LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadRpcOperation } from './child-ipc.js'
 
 export type { LeadChildBootstrap } from './child-ipc.js'
 import type { LeadChildBootstrap } from './child-ipc.js'
@@ -158,7 +158,10 @@ export interface LeadSupervisorOptions {
   readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence>
   /** The host's stored conversation (the context engine). Absent, the child keeps history in memory only. */
   readonly recordContext?: (record: LeadContextRecordInput) => Promise<void>
-  readonly readContext?: (epoch: number) => Promise<{ readonly epoch: number; readonly messages: readonly MessagesTurn[] } | null>
+  /** `room`: the UTF-8 bytes the reply frame has left for the conversation; a longer one is cut to fit or not sent. */
+  readonly readContext?: (epoch: number, room: number) => Promise<{ readonly epoch: number; readonly messages: readonly MessagesTurn[] } | null>
+  /** Before a desk wake: compact if due past the hard line, or after the provider refused the wake as too long. */
+  readonly compactContext?: (trigger: 'due' | 'overflow') => Promise<boolean>
   readonly admitCardOffer?: (card: LeadCard) => void
   readonly admitBudgetEvent?: (event: LeadBudgetEvent) => void
   readonly committedBudgetEvent?: (event: LeadBudgetEvent) => void
@@ -392,7 +395,7 @@ export class LeadSupervisor {
     try {
       const arity = { recordWake: 1, execute: 1, updateBudget: 1, setManagementPhase: 2, invalidateResults: 0, offerCard: 1,
         restoreResult: 2, recoverUnsettledRequests: 0, appendReply: 1, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 2,
-        recordContext: 1, readContext: 1 }[operation]
+        recordContext: 1, readContext: 1, compactContext: 1 }[operation]
       if (args.length !== arity && !(operation === 'appendReply' && (args.length === 2 || args.length === 3))) throw error('protocol')
       let value: unknown = null
       switch (operation) {
@@ -480,12 +483,25 @@ export class LeadSupervisor {
           const extend = (parseLeadContextTurns([{ role: 'user', content: input.extend.length ? input.extend : [{ type: 'text', text: '-' }] }]).turns[0]!.content as MessagesText[]).slice(0, input.extend.length)
           const { turns } = parseLeadContextTurns(input.turns)
           if (turns.some(turn => turn.content.some(block => block.type === 'thinking' || block.type === 'redacted_thinking'))) throw error('protocol')
-          const usage = input.usage === null ? null : ipcObject(input.usage, ['input', 'cacheRead', 'cacheWrite'])
+          const measured = input.usage && typeof input.usage === 'object' && Object.hasOwn(input.usage, 'bytes')
+          const usage = input.usage === null ? null : ipcObject(input.usage, ['input', 'cacheRead', 'cacheWrite', ...(measured ? ['bytes'] : [])])
           const count = (value: unknown) => { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw error('protocol'); return value }
-          await this.options.recordContext?.({ epoch, base, extend, turns, usage: usage ? { input: count(usage.input), cacheRead: count(usage.cacheRead), cacheWrite: count(usage.cacheWrite) } : null })
+          await this.options.recordContext?.({ epoch, base, extend, turns, usage: usage ? { input: count(usage.input), cacheRead: count(usage.cacheRead), cacheWrite: count(usage.cacheWrite),
+            ...(measured ? { bytes: count(usage.bytes) } : {}) } : null })
           break
         }
-        case 'readContext': value = await this.options.readContext?.(ipcEpoch(args[0])) ?? null; break
+        case 'readContext': {
+          // The reply frame also carries the journal state: the conversation gets what is left of it.
+          const framing = Buffer.byteLength(JSON.stringify({ type: 'reply', id, ok: true, value: null, state: journal.state }))
+          value = await this.options.readContext?.(ipcEpoch(args[0]), Math.max(0, LEAD_FRAME_BYTES - framing - 16_384)) ?? null
+          break
+        }
+        case 'compactContext': {
+          const trigger = args[0]
+          if (trigger !== 'due' && trigger !== 'overflow') throw error('protocol')
+          value = await this.options.compactContext?.(trigger) ?? false
+          break
+        }
       }
       if (!running.exited) write(running, { type: 'reply', id, ok: true, value: value ?? null, state: journal.state })
     } catch (failure) {

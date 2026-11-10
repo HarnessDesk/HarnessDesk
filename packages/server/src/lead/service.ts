@@ -56,6 +56,7 @@ export interface LeadServiceOptions {
   /** The host's stored conversation: what each step adds, and the conversation again after a compaction. */
   readonly recordContext?: LeadSupervisorOptions['recordContext']
   readonly readContext?: LeadSupervisorOptions['readContext']
+  readonly compactContext?: LeadSupervisorOptions['compactContext']
 }
 /** The host owns this lifecycle and its only journal writer. This service never
  * stores a plaintext key: resolution is transient and host-only.
@@ -257,7 +258,8 @@ export class LeadService {
       },
       freezePlan: options.freezePlan, readEvidence: options.readEvidence,
       ...(options.recordContext ? { recordContext: async record => { this.#assertOpen(); await options.recordContext!(record) } } : {}),
-      ...(options.readContext ? { readContext: async epoch => { this.#assertOpen(); return options.readContext!(epoch) } } : {}),
+      ...(options.readContext ? { readContext: async (epoch, room) => { this.#assertOpen(); return options.readContext!(epoch, room) } } : {}),
+      ...(options.compactContext ? { compactContext: async trigger => { this.#assertOpen(); return options.compactContext!(trigger) } } : {}),
       onStarted: () => { this.#endLive = options.childStarted() },
       onExit: reason => this.#exited(reason),
     })

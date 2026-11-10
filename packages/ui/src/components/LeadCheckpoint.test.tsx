@@ -67,3 +67,10 @@ it('keeps a refused Summarise now on screen in the person\'s words', async () =>
   await act(async () => button('Summarise now').click())
   expect(container.querySelector('[role="alert"]')?.textContent).toBe('Wait for the current request to finish.')
 })
+
+it('says once the latest messages alone fill the Lead\'s room, and says nothing otherwise', async () => {
+  await act(async () => render(<LeadContextSection />, { readContext: vi.fn(async () => facts()) }))
+  expect(container.textContent).not.toContain('Summaries pause')
+  await act(async () => render(<LeadContextSection key="full" />, { readContext: vi.fn(async () => facts({ full: true })) }))
+  expect(container.textContent).toContain('The latest messages alone fill most of the Lead\'s room. Summaries pause until the conversation grows.')
+})

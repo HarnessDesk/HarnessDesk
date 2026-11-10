@@ -1,4 +1,5 @@
 import type { MessagesText, MessagesToolResult, MessagesTurn } from './messages-types.js'
+import type { LeadState } from './state.js'
 
 /**
  * The Lead's context engine, as pure functions: how full the conversation is, what the desk may trim without a
@@ -82,14 +83,16 @@ export const leadContextMarkOf = (messages: readonly MessagesTurn[]): LeadContex
   messages.length ? { turns: messages.length, blocks: messages.at(-1)!.content.length } : undefined
 
 /**
- * The stored form of a request's turns: every user text block after the stable mark was desk context of that moment
- * (host closing turns, desk observations, wake notes) and becomes one stub per run of such blocks. Assistant turns
- * and tool results are kept. Person messages are always inside the stable part, so they are never stubbed.
+ * The stored form of a request's turns. Everything up to `kept` (the stored part, then the host's own turns such as the
+ * approved plan) stays as it is; every user text block after it was desk context of that moment (desk observations,
+ * wake notes, the work cards, a closing nudge) and becomes one stub per run of such blocks. With no mark at all,
+ * nothing was stored yet and every user text block is desk context. Assistant turns and tool results are kept.
  */
-export const leadStubVolatile = (messages: readonly MessagesTurn[], mark: LeadContextMark | undefined): MessagesTurn[] =>
-  messages.map((turn, index) => {
-    if (turn.role !== 'user' || !mark || index < mark.turns - 1) return turn
-    const from = index === mark.turns - 1 ? mark.blocks : 0
+export const leadStubVolatile = (messages: readonly MessagesTurn[], mark: LeadContextMark | undefined, kept: LeadContextMark | undefined = mark): MessagesTurn[] => {
+  const end = kept ?? { turns: 0, blocks: 0 }
+  return messages.map((turn, index) => {
+    if (turn.role !== 'user' || index < end.turns - 1) return turn
+    const from = index === end.turns - 1 ? end.blocks : 0
     const content: MessagesTurn['content'][number][] = []
     let run: string[] = []
     const flush = () => { if (run.length) content.push({ type: 'text', text: leadDeskStub(run.join('\n')) }); run = [] }
@@ -100,6 +103,39 @@ export const leadStubVolatile = (messages: readonly MessagesTurn[], mark: LeadCo
     flush()
     return { role: turn.role, content }
   })
+}
+
+/**
+ * Adjacent turns of one role, joined into one turn. A provider reads two user turns in a row as one anyway; the desk
+ * never sends or stores them apart, so a mark counted on the request is the mark on what is stored. The same array
+ * when nothing needed it.
+ */
+export const leadMergedTurns = (turns: readonly MessagesTurn[]): readonly MessagesTurn[] => {
+  if (!turns.some((turn, index) => index > 0 && turns[index - 1]!.role === turn.role)) return turns
+  const out: MessagesTurn[] = []
+  for (const turn of turns) {
+    const last = out.at(-1)
+    if (last && last.role === turn.role) out[out.length - 1] = { role: last.role, content: [...last.content, ...turn.content] }
+    else out.push(turn)
+  }
+  return out
+}
+/** Blocks added to the end of a conversation: into its last turn when that is the person's or the desk's, as a turn of
+ * their own after the Lead's. */
+export const leadAppendUser = (turns: readonly MessagesTurn[], blocks: readonly MessagesText[]): MessagesTurn[] => {
+  if (!blocks.length) return [...turns]
+  const last = turns.at(-1)
+  return last?.role === 'user' ? [...turns.slice(0, -1), { role: 'user', content: [...last.content, ...blocks] }] : [...turns, { role: 'user', content: [...blocks] }]
+}
+
+/**
+ * What later areas add to the standing instructions at each new epoch, in order: each entry reads the Lead's state
+ * and returns a line, or null. Append-only; an entry that throws is skipped. Joined by `leadEpochAddendum`, which the
+ * child passes to the loop as its `onEpoch` hook.
+ */
+export const LEAD_EPOCH_ADDENDA: readonly ((state: LeadState) => string | null)[] = Object.freeze([])
+export const leadEpochAddendum = (state: LeadState, addenda: readonly ((state: LeadState) => string | null)[] = LEAD_EPOCH_ADDENDA): string =>
+  addenda.flatMap(addendum => { try { const line = addendum(state)?.trim(); return line ? [line] : [] } catch { return [] } }).join('\n')
 
 /** What one step adds to the stored conversation: blocks to add to the last stored turn and the turns after it. */
 export interface LeadContextRecord {
@@ -135,12 +171,12 @@ const trimmed = (text: string): string => {
   return `${head}\n[… ${bytes.byteLength - LEAD_CONTEXT.trimHead - LEAD_CONTEXT.trimTail} bytes trimmed by the desk …]\n${tail}`
 }
 /**
- * The pruning stage, which needs no model: the latest `keepToolPairs` tool pairs stay whole; an older tool result
+ * The pruning stage, which needs no model: the latest `keepPairs` tool pairs stay whole; an older tool result
  * longer than `trimAbove` keeps its head and tail with a marker between; a desk-context block that was not yet a
  * stub becomes one. Returns the same array when nothing changed.
  */
-export const leadPruneContext = (turns: readonly MessagesTurn[]): readonly MessagesTurn[] => {
-  const keep = new Set(toolPairs(turns).slice(0, LEAD_CONTEXT.keepToolPairs))
+export const leadPruneContext = (turns: readonly MessagesTurn[], keepPairs: number = LEAD_CONTEXT.keepToolPairs): readonly MessagesTurn[] => {
+  const keep = new Set(toolPairs(turns).slice(0, keepPairs))
   let changed = false
   const pruned = turns.map((turn, index) => {
     if (turn.role !== 'user' || keep.has(index)) return turn
@@ -163,15 +199,17 @@ export const leadContextBoundary = (turns: readonly MessagesTurn[], index: numbe
 /**
  * Where the kept tail begins: the latest boundary that keeps at least `tailTurns` turns and at least `tailShare` of
  * the window. The region before it is what a checkpoint replaces. With no such boundary the latest boundary that
- * keeps anything is used; null when there is nothing to replace.
+ * keeps anything is used; null when there is nothing to replace. `smallest` asks for that latest boundary outright: the
+ * thrash guard's one smaller tail.
  */
-export const leadContextSplit = (turns: readonly MessagesTurn[], window: number): number | null => {
-  const want = LEAD_CONTEXT.tailShare * window
+export const leadContextSplit = (turns: readonly MessagesTurn[], window: number, smallest = false): number | null => {
+  const want = smallest ? 0 : LEAD_CONTEXT.tailShare * window
   let tokens = 0, fallback: number | null = null
   for (let index = turns.length - 1; index > 0; index--) {
     tokens += leadEstimatedTokens(leadContextBytes(turns[index]))
     if (!leadContextBoundary(turns, index)) continue
     fallback ??= index
+    if (smallest) return index
     if (turns.length - index >= LEAD_CONTEXT.tailTurns && tokens >= want) return index
   }
   return fallback

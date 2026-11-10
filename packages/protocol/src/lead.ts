@@ -133,7 +133,9 @@ export type LeadBudgetEvent = { readonly version: 1; readonly now: number } & (
   /** Reserve all potential input at the most expensive input/cache rate. */
   | { readonly type: 'reserve'; readonly requestId: string; readonly inputTokens: number; readonly maxOutputTokens: number;
       readonly inputUsdMicrosPerMillion: number; readonly outputUsdMicrosPerMillion: number;
-      readonly cacheReadUsdMicrosPerMillion: number; readonly cacheWriteUsdMicrosPerMillion: number }
+      readonly cacheReadUsdMicrosPerMillion: number; readonly cacheWriteUsdMicrosPerMillion: number
+      /** A request that writes a checkpoint of the conversation rather than answering it. */
+      readonly purpose?: 'compaction' }
   /** Actual inputTokens exclude the separately billed cache-read/write counts. */
   | { readonly type: 'settle'; readonly requestId: string; readonly inputTokens: number; readonly outputTokens: number;
       readonly cacheReadTokens?: number; readonly cacheWriteTokens?: number }
@@ -639,7 +641,7 @@ const budgetEvent = tag<LeadBudgetEvent>({
   },
   reserve: object<BudgetOf<'reserve'>>({ ...budgetBase, type: literalUnion('reserve'), requestId: id, inputTokens: tokenCount,
     maxOutputTokens: tokenCount, inputUsdMicrosPerMillion: micros, outputUsdMicrosPerMillion: micros,
-    cacheReadUsdMicrosPerMillion: micros, cacheWriteUsdMicrosPerMillion: micros }),
+    cacheReadUsdMicrosPerMillion: micros, cacheWriteUsdMicrosPerMillion: micros, purpose: optional(literalUnion('compaction')) }),
   settle: object<BudgetOf<'settle'>>({ ...budgetBase, type: literalUnion('settle'), requestId: id, inputTokens: tokenCount, outputTokens: tokenCount, cacheReadTokens: optional(tokenCount), cacheWriteTokens: optional(tokenCount) }),
   'write-off': object<BudgetOf<'write-off'>>({ ...budgetBase, type: literalUnion('write-off'), requestId: id }),
   uncertain: object<BudgetOf<'uncertain'>>({ ...budgetBase, type: literalUnion('uncertain'), requestId: id }),
@@ -1043,10 +1045,13 @@ export interface LeadContextFacts {
   readonly compacting: boolean
   /** Oldest first, at most eight. */
   readonly checkpoints: readonly LeadContextCheckpoint[]
+  /** The latest compaction could not bring the conversation under the hard line, even keeping the fewest recent
+   * turns: no compaction runs until it grows further. Absent otherwise. */
+  readonly full?: true
 }
 export const LEAD_CONTEXT_CHECKPOINT_CHARS = 32_768
 const parseLeadContextCheckpoint: Validator<LeadContextCheckpoint> = object({ id, at: integer(0, Number.MAX_SAFE_INTEGER), fallback: isBoolean,
   beforeTokens: wakeTokens, afterTokens: wakeTokens, text: nullable(boundedText(LEAD_CONTEXT_CHECKPOINT_CHARS, true, proseControls)) })
-export const parseLeadContextFacts: Validator<LeadContextFacts> = object({ version, windowTokens: integer(1, 100_000_000), usedTokens: nullable(wakeTokens),
+export const parseLeadContextFacts: Validator<LeadContextFacts> = omitUnset(object({ version, windowTokens: integer(1, 100_000_000), usedTokens: nullable(wakeTokens),
   cacheHitRate: nullable((value, path = '') => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : fail(path, 'expected a ratio')),
-  compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id) })
+  compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id), full: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['full'])

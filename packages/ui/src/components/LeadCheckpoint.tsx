@@ -63,6 +63,7 @@ export const LeadContextSection = () => {
   const words = facts ? leadContextWords(facts) : null
   return <Section title="Conversation">
     {error && <Banner role="alert" tone="warning">{error}</Banner>}
+    {facts?.full && <Banner tone="warning">The latest messages alone fill most of the Lead's room. Summaries pause until the conversation grows.</Banner>}
     {words && <Rows>
       <Row title="Context in use" desc={words.used} />
       <Row title="Cache hit rate" desc={words.cache} />

@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as lead from '@harnessdesk/lead'
-import { LEAD_LIMITS } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, parseLeadAcceptanceContract } from '@harnessdesk/protocol'
 import { LeadContextStore } from '../src/lead/context-store.js'
 import { cachingProvider } from './fixtures/caching-provider.js'
 
@@ -48,69 +48,116 @@ const checkpointAnswer = (body: any): string => {
   return ['## What the person wants', quotes.slice(-12).join('\n') || 'None.', '## Decisions made and why', 'None.', '## Work and where each piece stands', 'None.',
     '## Waiting on the person', 'None.', '## Facts learned', [...new Set(facts)].join('\n') || 'None.', '## Open questions / next step', 'None.'].join('\n')
 }
-/** The fake model's ordinary answer: the code word if anything it was sent still holds it. */
-const replyAnswer = (body: any): string => {
+/** The fake model's ordinary answer: the code word if anything it was sent still holds it; a chat list when asked
+ * to check the chats, then what the list said; quiet on a desk wake. */
+const replyAnswer = (body: any): { readonly content: unknown[]; readonly stop_reason?: string } => {
   const all = JSON.stringify(body.messages)
-  const last = body.messages.slice(-2).flatMap((turn: any) => turn.content.map((block: any) => block.text ?? '')).join(' ')
-  if (/What was the code word\?/.test(last)) return /the code word is ([a-z]+-\d+)/.exec(all)?.[1] ? `The code word is ${/the code word is ([a-z]+-\d+)/.exec(all)![1]}.` : 'I do not know.'
-  return 'Noted.'
+  const turn = body.messages.at(-1)
+  const last = body.messages.slice(-2).flatMap((one: any) => one.content.map((block: any) => block.text ?? '')).join(' ')
+  if (turn.content.some((block: any) => block.type === 'tool_result')) return { content: [text('Two chats are open.')] }
+  if (/Check the chats\./.test(last) && !/automatic wake/.test(last)) return { content: [{ type: 'tool_use', id: `call-${++calls}`, name: 'chat_list', input: {} }], stop_reason: 'tool_use' }
+  if (/automatic wake/.test(last)) return { content: [text('[quiet]')] }
+  if (/What was the code word\?/.test(last)) return { content: [text(/the code word is ([a-z]+-\d+)/.exec(all)?.[1] ? `The code word is ${/the code word is ([a-z]+-\d+)/.exec(all)![1]}.` : 'I do not know.')] }
+  return { content: [text('Noted.')] }
 }
+let calls = 0
+/** What the host sends after the person's words once a plan is approved: kept in the stored conversation as it is. */
+const PLAN = 'The person approved your plan. Approved contract: {"steps":[{"id":"step-sign-in-2"},{"id":"step-docs-3"}]}'
 
 /** One Lead, the way the host runs it: a loop with the desk's context port, and the host's request built from the store. */
-const harness = async (t: any, settings: { readonly window: number; readonly failCheckpoints?: boolean; readonly ledgerIds?: readonly string[]; readonly records?: lead.LeadJournalRecord[]; readonly home?: string }) => {
+const harness = async (t: any, settings: { readonly window: number; readonly failCheckpoints?: boolean; readonly ledgerIds?: readonly string[]; readonly records?: lead.LeadJournalRecord[]; readonly home?: string;
+  readonly plan?: boolean; readonly screen?: (text: string) => Promise<void> }) => {
   const home = settings.home ?? await directory(t)
   const { journal, records } = await journalOver(settings.records)
   let id = 0
   const run = ++harnesses
-  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000 + id, nextId: () => `checkpoint-${run}-${++id}`, window: settings.window,
-    ...(settings.ledgerIds ? { ledgerIds: () => settings.ledgerIds! } : {}) })
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000 + id, nextId: () => `checkpoint-${run}-${++id}`, window: settings.window })
+  await store.connect({ ...(settings.ledgerIds ? { ledgerIds: async () => settings.ledgerIds! } : {}), ...(settings.screen ? { screen: settings.screen } : {}) })
   const provider = cachingProvider(body => {
     const last = body.messages.at(-1).content.map((block: any) => block.text ?? '').join('\n')
     if (last.includes(INSTRUCTION)) return { content: [text(settings.failCheckpoints ? 'Here is a short summary without headings.' : checkpointAnswer(body))] }
-    return { content: [text(replyAnswer(body))] }
+    return replyAnswer(body)
   })
-  // A desk with nothing happening on it: its event stream waits until the loop closes it.
-  let ended: ((value: IteratorResult<never>) => void) | null = null
-  const desk = { async call(method: string) { return method === 'client/subscribe' ? { baseline: 1 } : { ok: true } },
-    events() { return { [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<never>>(resolve => { ended = resolve }),
+  // A desk whose only events are the chat changes the test emits; a chat list is long, so old ones are worth pruning.
+  let ended: ((value: IteratorResult<any>) => void) | null = null
+  const events: any[] = []
+  const desk = { async call(method: string) { return method === 'client/subscribe' ? { baseline: 1 } : method === 'lead/chat/list' ? { chats: [{ id: 'a', title: 'Fix the build' }, { id: 'b', title: 'Docs' }], log: 'listing '.repeat(900) } : { ok: true } },
+    events() { return { [Symbol.asyncIterator]: () => ({ next: () => events.length ? Promise.resolve({ done: false, value: events.shift() }) : new Promise<IteratorResult<any>>(resolve => { ended = resolve }),
       async return() { ended?.({ done: true, value: undefined }); return { done: true as const, value: undefined } } }) } },
     async synced() {}, snapshot() { return { teams: [], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] } } }
   const project = { id: 'demo', path: '/workspace/demo' }
   const key = ['synthetic', 'context', 'fixture'].join('-')
-  const loop = lead.createLeadLoop({ journal, desk: desk as any, project, clock: { now: () => 100, schedule: () => () => {} }, nextId: () => `loop-${run}-${++id}`,
+  const emit = (event: any) => { const value = { v: 1, at: '2026-11-10T12:00:00Z', ...event }; if (ended) { const resolve = ended; ended = null; resolve({ done: false, value }) } else events.push(value) }
+  const scheduled: (() => void)[] = []
+  const loop = lead.createLeadLoop({ journal, desk: desk as any, project, clock: { now: () => 100, schedule: callback => { scheduled.push(callback); return () => { const at = scheduled.indexOf(callback); if (at >= 0) scheduled.splice(at, 1) } } }, nextId: () => `loop-${run}-${++id}`,
     messages: { apiKey: key, model: MODEL, prices: { [MODEL]: PRICE }, transport: provider as any, countInput: async body => Buffer.byteLength(body) + 1024, wait: async () => {} },
     freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('no evidence in this test') },
     resolveTool: async () => ({ project, runId: null, start: null, context: { desk: journal.state.policy!, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } }) as any,
-    context: { record: record => store.record(record), read: epoch => store.read(epoch) } })
+    context: { record: record => store.record(record), read: epoch => store.read(epoch),
+      // The host's answer before a desk wake: compact past the hard line, or after the provider refused it as too long.
+      compact: async trigger => { const before = store.epoch; if (trigger === 'overflow' || store.due() === 'hard') await store.compact(trigger === 'overflow' ? 'overflow' : 'hard', send); return store.epoch !== before } } })
   t.after(() => loop.close())
   const send = (input: lead.LeadMessagesRequest) => loop.compact(input)
+  /** Runs what the loop scheduled (tool continuations, desk wakes) until nothing is left. */
+  const settle = async () => {
+    for (let round = 0; round < 20; round++) {
+      for (let i = 0; i < 50; i++) await new Promise(resolve => setImmediate(resolve))
+      await loop.idle()
+      if (!scheduled.length) return
+      for (const callback of scheduled.splice(0)) callback()
+    }
+  }
+  let wakes = 0
+  /** A chat finishing on the desk: one automatic wake. */
+  const deskChange = async () => {
+    const chat = `fixture:chat-${++wakes}`
+    emit({ type: 'chat.changed', id: chat, project: project.path, state: 'running', stage: 'working' }); await settle()
+    emit({ type: 'chat.changed', id: chat, project: project.path, state: 'idle', stage: 'idle' }); await settle()
+  }
   let said = 0
   /** One person turn, as the host's request: the stored conversation, the new words, one line of desk context. */
   const say = async (words: string) => {
     if (store.due() === 'hard') await store.compact('hard', send)
     await journal.appendMessage(`person-${run}-${++said}`, words, 'person')
     const built = await store.request()
-    const result = await loop.request({ maxTokens: 512, messages: [...built.messages, { role: 'user', content: [text(`Desk observation: ${said} messages so far.`)] }],
-      conversation: true, epoch: built.epoch, ...(built.base ? { base: built.base } : {}), ...(built.stable ? { stable: built.stable } : {}) })
+    // As the host builds it: the plan after the person's words (kept as it is), then desk context of the moment.
+    const planned = settings.plan ? lead.leadAppendUser(built.messages, [text(PLAN)]) : built.messages
+    const kept = settings.plan ? lead.leadContextMarkOf(planned) : undefined
+    const result = await loop.request({ maxTokens: 512, messages: lead.leadAppendUser(planned, [text(`Desk observation: ${said} messages so far.`)]),
+      conversation: true, epoch: built.epoch, ...(built.base ? { base: built.base } : {}), ...(built.stable ? { stable: built.stable } : {}), ...(kept ? { kept } : {}) })
     assert.equal(result?.status, 'completed')
+    await settle()
+    await store.settle(built.persons)
     // The loop delivers the reply to the thread itself.
-    const reply = journal.state.messages.at(-1)
+    const reply = journal.state.messages.findLast(message => message.role === 'assistant')
     if (store.due()) await store.compact('soft', send)
     return reply?.role === 'assistant' ? reply.text : ''
   }
-  return { home, journal, records, store, provider, loop, say, send }
+  return { home, journal, records, store, provider, loop, say, send, deskChange, settle }
 }
 let harnesses = 0
 const filler = (n: number) => ` Notes for item ${n}: ${'the build log said nothing new; '.repeat(40)}`
 
-test('a 400-turn conversation keeps a fact from turn 5, reads most of each steady request from the cache, and stays bounded', async t => {
-  const lead1 = await harness(t, { window: 40_000 })
+test('a 400-turn conversation with tool calls and desk wakes keeps a fact from turn 5 and the approved plan, keeps its cache prefix steady, and stays bounded', async t => {
+  const lead1 = await harness(t, { window: 40_000, plan: true })
   for (let n = 1; n <= 199; n++) {
-    const words = n === 3 ? `Remember: the code word is heron-42.${filler(n)}` : `Message ${n}.${filler(n)}`
-    assert.equal(await lead1.say(words), 'Noted.')
+    const words = n === 3 ? `Remember: the code word is heron-42.${filler(n)}` : n % 3 === 0 ? `Check the chats.${filler(n)}` : `Message ${n}.${filler(n)}`
+    assert.equal(await lead1.say(words), n !== 3 && n % 3 === 0 ? 'Two chats are open.' : 'Noted.')
+    if (n % 6 === 0) await lead1.deskChange()
   }
-  // Turn 5 is the person's third message; 199 exchanges and the question make 400 turns.
+  // Turn 5 is the person's third message; 199 exchanges, their tool calls and the desk's wakes make well over 400 turns.
   assert.equal(await lead1.say('What was the code word?'), 'The code word is heron-42.')
+  // Tool calls went out and came back, and the stored conversation never holds a call without its answer.
+  const answered = lead1.provider.requests.filter(request => JSON.stringify(request.body.messages.at(-1)).includes('"tool_result"'))
+  assert.ok(answered.length >= 20, `tool results sent back (${answered.length})`)
+  assert.equal(lead.leadPairedTurns(lead1.store.turns), lead1.store.turns, 'every stored tool call has its answer')
+  // Older tool results were trimmed before the checkpoints took them.
+  assert.ok(lead1.records.some(record => record.type === 'context-pruned') && lead1.provider.requests.some(request => JSON.stringify(request.body).includes('bytes trimmed by the desk')), 'old tool results were pruned')
+  // Desk wakes ran on the stored conversation, and the last one still reads the approved plan's step ids.
+  const deskWakes = lead1.provider.requests.filter(request => JSON.stringify(request.body.messages.at(-1)).includes('automatic wake'))
+  assert.ok(deskWakes.length >= 30, `desk wakes (${deskWakes.length})`)
+  assert.ok(JSON.stringify(deskWakes.at(-1)!.body.messages).includes('step-sign-in-2'), 'the last wake reads the approved plan')
+  assert.ok(lead1.journal.state.wakes.some(wake => wake.source === 'desk-change' && wake.modelTurn && wake.tokens), 'desk wakes are on the wake ledger with their counts')
   const applied = lead1.records.filter(record => record.type === 'context-compaction-applied')
   assert.ok(applied.length >= 3, `the conversation was compacted several times (${applied.length})`)
   assert.ok(applied.every(record => record.type === 'context-compaction-applied' && !record.fallback && record.afterTokens < record.beforeTokens))
@@ -125,8 +172,10 @@ test('a 400-turn conversation keeps a fact from turn 5, reads most of each stead
   const read = steady.reduce((sum, { request }) => sum + request.usage.cacheRead, 0)
   const total = steady.reduce((sum, { request }) => sum + request.usage.cacheRead + request.usage.cacheWrite + request.usage.input, 0)
   assert.ok(steady.length > 150)
-  assert.ok(read / total > 0.7, `cache reads on steady wakes: ${(read / total).toFixed(3)}`)
-  t.diagnostic(`${steady.length} steady requests read ${(100 * read / total).toFixed(1)}% of their prompt from the cache; ${applied.length} checkpoints`)
+  // The fixture's cache has no time to live and no minimum length, so this shows the marks keep each prefix byte-stable
+  // across requests (what a provider cache needs), not that a real provider would serve these reads.
+  assert.ok(read / total > 0.7, `prefix reads on steady requests: ${(read / total).toFixed(3)}`)
+  t.diagnostic(`${steady.length} steady requests reused ${(100 * read / total).toFixed(1)}% of their prompt as a stable prefix; ${applied.length} checkpoints`)
   // A checkpoint request replays the prefix it summarises: it reads from the cache too.
   const checkpoints = ordinary.filter(one => one.checkpoint)
   assert.ok(checkpoints.every(one => one.request.usage.cacheRead > 0), 'every checkpoint request read its prefix from the cache')
@@ -214,15 +263,15 @@ test('a restart during a compaction keeps the old conversation, and one after th
 })
 
 /** The host's controls over a stored conversation the test drives: what it asks for and when. */
-const controlsRig = async (replies: { status: string; reason?: string; text?: string }[]) => {
+const controlsRig = async (replies: { status: string; reason?: string; text?: string }[], extra: Record<string, unknown> = {}) => {
   const { LeadControls } = await import('../src/lead/controls.js')
   const { dispatch } = await import('../src/methods/index.js')
   const { journal } = await journalOver()
   const facts = { version: 1 as const, windowTokens: 200_000, usedTokens: 120_000, cacheHitRate: 0.9, compacting: false, checkpoints: [] }
   const sends: any[] = [], compactions: string[] = [], checks: (() => void)[] = []
   let due: 'soft' | 'hard' | null = null
-  const context = { compacting: false, facts: () => facts, due: () => due,
-    async request() { return { messages: [{ role: 'user' as const, content: [text('Stored words'), text(`${REFERENCE}message-1`)] }], epoch: 3, base: { turns: 1, blocks: 2 }, stable: { turns: 1, blocks: 2 } } },
+  const context = { compacting: false, epoch: 3, facts: () => facts, due: () => due,
+    async request() { return { messages: [{ role: 'user' as const, content: [text('Stored words'), text(`${REFERENCE}message-1`)] }], epoch: 3, persons: [], base: { turns: 1, blocks: 2 }, stable: { turns: 1, blocks: 2 } } },
     async compact(trigger: string, send: (input: lead.LeadMessagesRequest) => Promise<lead.LeadMessagesResult>) {
       compactions.push(trigger); due = null
       await send({ messages: [{ role: 'user', content: [text(INSTRUCTION)] }], maxTokens: lead.LEAD_CONTEXT.checkpointTokens, compaction: true, epoch: 3 })
@@ -231,7 +280,7 @@ const controlsRig = async (replies: { status: string; reason?: string; text?: st
   const service = { async status() { return { configured: true, protection: 'synthetic cipher' } }, async setKey() {}, async deleteKey() {}, async assertPublic() {},
     async send(value: any) { sends.push(value); return value.compaction ? { status: 'completed', text: 'checkpoint' } : replies.shift() ?? { status: 'completed', text: 'Ready' } } }
   const controls = new LeadControls({ journal, service: service as any, project: { id: 'demo', path: '/workspace/demo' }, model: 'fixture-model', now: () => 100, nextId: () => 'card',
-    push() {}, decidePerson: async () => {}, decideResult: async () => {}, context: context as any, scheduleContextCheck: run => { checks.push(run) } })
+    push() {}, decidePerson: async () => {}, decideResult: async () => {}, context: context as any, scheduleContextCheck: run => { checks.push(run) }, ...extra })
   const ctx = { leadContextRead: () => controls.readContext(), leadContextCompact: () => controls.compactContext() } as any
   return { journal, controls, sends, compactions, checks, setDue(value: typeof due) { due = value }, call: (method: string) => dispatch(ctx, method as never, {} as never) as Promise<any> }
 }
@@ -262,4 +311,127 @@ test('Summarise now compacts on request and both context methods answer with the
   const after = await s.call('lead/context/compact')
   assert.deepEqual(s.compactions, ['manual'])
   assert.equal(after.windowTokens, 200_000)
+})
+
+/** A store on its own, fed turns directly, with a checkpoint writer the test controls. */
+const bareStore = async (t: any, window: number) => {
+  const home = await directory(t)
+  const { journal, records } = await journalOver()
+  let id = 0
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000 + id, nextId: () => `cp-${++id}`, window })
+  const turn = (role: 'user' | 'assistant', words: string) => ({ role, content: [text(words)] })
+  const feed = async (pairs: number, size: number, from = 0) => {
+    for (let n = from; n < from + pairs; n++) {
+      await journal.appendMessage(`m-${n}`, `Message ${n}`, 'person')
+      await store.record({ epoch: store.epoch, base: store.turns.length, extend: [], usage: null,
+        turns: [{ role: 'user', content: [text(`Message ${n} ${'x'.repeat(size)}`), text(`${REFERENCE}m-${n}`)] }, turn('assistant', `Noted ${n}.`)] })
+    }
+  }
+  const written = (words: string) => async () => ({ status: 'completed' as const, text: ['## Decisions made and why', words, '## Work and where each piece stands', 'None.',
+    '## Waiting on the person', 'None.', '## Facts learned', 'None.', '## Open questions / next step', 'None.'].join('\n') })
+  return { journal, records, store, feed, written, turn }
+}
+
+test('a refused, cut short or unreachable checkpoint request ends the run uncounted, and the breaker counts only the model\'s failures', async t => {
+  const s = await bareStore(t, 20_000)
+  await s.feed(40, 1500)
+  for (const send of [async () => ({ status: 'refused' as const, reason: 'lead-context-blocked' }), async () => ({ status: 'cancelled' as const }), async () => { throw new Error('lead-ipc-closed') }]) {
+    assert.equal(await s.store.compact('manual', send as any), 'stopped')
+    assert.deepEqual([s.journal.state.context.failures, s.journal.state.context.pending, s.journal.state.context.epoch], [0, null, 0])
+  }
+  assert.deepEqual(s.records.flatMap(record => record.type === 'context-compaction-failed' ? [record.reason] : []), ['blocked', 'blocked', 'unreachable'])
+  // A checkpoint the model gets wrong still counts.
+  assert.equal(await s.store.compact('manual', async () => ({ status: 'completed', text: 'No headings.' })), 'applied')
+  assert.equal(s.records.filter(record => record.type === 'context-compaction-failed' && record.reason === 'section-missing').length, 3)
+})
+
+test('checkpoints are listed oldest first, and one that fails the reply screen keeps its place without its text', async t => {
+  const s = await bareStore(t, 20_000)
+  await s.store.connect({ screen: async words => { if (words.includes('sk-fixture')) throw new Error('lead-secret-refused') } })
+  await s.feed(40, 1500)
+  assert.equal(await s.store.compact('manual', s.written('Kept the token sk-fixture for later.')), 'applied')
+  await s.feed(40, 1500, 40)
+  assert.equal(await s.store.compact('manual', s.written('Chose the short fix.')), 'applied')
+  const { checkpoints } = s.store.facts()
+  assert.deepEqual(checkpoints.map(one => one.id), ['cp-1', 'cp-2'])
+  assert.equal(checkpoints[0]!.text, null, 'the screened text is never shown')
+  assert.match(checkpoints[1]!.text!, /Chose the short fix\./)
+  // The person's section is the desk's own, from the person's recorded words.
+  assert.match(checkpoints[1]!.text!, /^## What the person wants\n(?:- ".*" \[m-\d+\]\n)+/)
+})
+
+test('a reply whose step could not be stored still stores the person\'s words with it, and the next request does not send them as new', async t => {
+  const lead1 = await harness(t, { window: 200_000 })
+  await lead1.say('First message.')
+  const record = lead1.store.record.bind(lead1.store)
+  let failing = true
+  lead1.store.record = async input => { if (failing) { failing = false; throw new Error('lead-ipc-closed') } return record(input) }
+  assert.equal(await lead1.say('Second message.'), 'Noted.')
+  const next = await lead1.store.request()
+  assert.deepEqual(next.persons, [], 'nothing is sent again as new')
+  assert.equal((JSON.stringify(lead1.store.turns).match(/Second message\./g) ?? []).length, 1)
+  assert.ok(JSON.stringify(lead1.store.turns).includes('Noted.'))
+  assert.equal(lead.parseLeadContextTurns(lead1.store.turns).turns.length, lead1.store.turns.length, 'no two turns of one role in a row')
+})
+
+test('a stored conversation read back for a smaller frame keeps the checkpoint and the latest turns that fit', async t => {
+  const s = await bareStore(t, 20_000)
+  await s.feed(40, 1500)
+  await s.store.compact('manual', s.written('None.'))
+  await s.feed(30, 1500, 40)
+  const whole = await s.store.read(-1)
+  const fitted = await s.store.read(-1, 20_000)
+  assert.ok(whole && fitted && fitted.messages.length < whole.messages.length)
+  assert.ok(lead.leadContextBytes(fitted.messages) <= 20_000)
+  assert.ok(lead.leadCheckpointText(fitted.messages[0]) !== null, 'the checkpoint stays')
+  assert.deepEqual(fitted.messages.at(-1), whole.messages.at(-1), 'the latest turns stay')
+  assert.equal(await s.store.read(-1, 100), null, 'nothing that fits is not sent')
+})
+
+test('a conversation whose latest turn alone is past the hard line keeps the smallest tail once, then stops compacting and says so', async t => {
+  const s = await bareStore(t, 8_000)
+  await s.feed(6, 800)
+  // One person message larger than the line by itself.
+  await s.feed(1, 26_000, 6)
+  assert.equal(s.store.due(), 'hard')
+  assert.equal(await s.store.compact('hard', s.written('None.')), 'applied')
+  assert.equal(s.store.facts().full, true)
+  assert.equal(s.store.due(), null, 'no compaction again until it grows')
+  assert.ok(s.store.turns.length <= 3, 'the smallest tail was kept')
+  await s.feed(2, 4000, 7)
+  assert.equal(s.store.due(), 'hard', 'it grew by more than the hysteresis')
+})
+
+test('before a desk wake the host compacts past the hard line or after a too-long refusal, and never after Stop', async () => {
+  const s = await controlsRig([])
+  assert.equal(await s.controls.compactForWake('due'), false)
+  assert.deepEqual(s.compactions, [])
+  s.setDue('hard')
+  await s.controls.compactForWake('due')
+  await s.controls.compactForWake('overflow')
+  assert.deepEqual(s.compactions, ['hard', 'overflow'])
+  await s.journal.updateBudget({ version: 1, type: 'stop', now: 100, reason: 'cancelled' })
+  s.setDue('hard')
+  await s.controls.compactForWake('overflow')
+  for (const check of s.checks.splice(0)) check()
+  assert.deepEqual(s.compactions, ['hard', 'overflow'], 'a stopped Lead spends nothing on its context')
+})
+
+test('with a plan approved the host keeps the plan in the stored words and puts the work cards after it as desk context, in one turn', async () => {
+  const s = await controlsRig([], { readWorkContext: async () => 'Work cards: none open.' })
+  const digest = 'c'.repeat(64)
+  const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest, goal: 'Inspect demo', project: { id: 'demo', path: '/workspace/demo' }, policyRevision: 1,
+    steps: [{ id: 'step-sign-in-2', title: 'Inspect', flow: 'lead-reviewed-result', sourceRevision: 'source-1', variables: {}, attendance: 'attended', assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' }, ceiling: 'edit' }] }],
+    assertions: [{ id: 'diff', kind: 'diff', description: 'Reviewed' }], caps: { usdMicros: 500, rounds: 3 } })
+  await s.journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: digest, contract })
+  await s.journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: digest, choice: 'approve' }, 1000)
+  await s.controls.send({ idempotencyKey: 'send-plan', text: 'Carry on' })
+  await s.controls.idle()
+  const [ask] = s.sends.filter(one => !one.compaction)
+  assert.equal(ask.messages.length, 1, 'the stored words, the plan and the desk context are one user turn')
+  const blocks = ask.messages[0].content.map((block: any) => block.text as string)
+  assert.deepEqual(ask.kept, { turns: 1, blocks: blocks.length - 1 }, 'the plan is kept; only what follows it is stubbed')
+  assert.match(blocks.at(-2)!, /step-sign-in-2/)
+  assert.equal(blocks.at(-1), 'Work cards: none open.')
+  assert.deepEqual(ask.stable, { turns: 1, blocks: 2 })
 })

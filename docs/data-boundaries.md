@@ -179,12 +179,16 @@ a request.
 The host keeps the Lead's provider conversation in the Lead state folder:
 `context.jsonl` (the turns and tool results as sent, bounded at 2 MB, desk
 context of each moment replaced by a one-line stub and model reasoning never
-stored) and `context-checkpoints.json` (the latest eight summaries). When the
+stored) and `context-checkpoints.json` (the latest eight summaries, oldest
+first; a summary that fails the reply screen keeps its place without its text).
+The summary's section of the person's words is built on the desk from the
+person's recorded messages, never from what the model wrote. When the
 conversation fills, or the person chooses Summarise now, the host sends the same
 conversation to the same provider with one more instruction and stores the
 summary it writes; if that fails, the host builds one from the conversation
 itself without a request. Each request marks up to four places the provider may
-cache; the provider's cache read and write counts are kept in the wake ledger.
+cache; the provider's cache read and write counts are kept in the wake ledger,
+and the spend of a summary request is filed marked as compaction.
 `lead/context/read` gives the window and a paired phone (read tier) the
 context-use and cache facts and the kept summaries' text; it changes nothing.
 

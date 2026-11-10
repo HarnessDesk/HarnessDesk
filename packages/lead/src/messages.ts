@@ -161,7 +161,10 @@ const history = (value: unknown): MessagesTurn[] => {
  * a stored assistant turn whose tool uses are `open`. Throws on anything else. */
 export const parseLeadContextTurns = (value: unknown, open: readonly string[] = []): { readonly turns: MessagesTurn[]; readonly pending: string[] } => {
   json(value)
-  return fragment(value, open)
+  const parsed = fragment(value, open)
+  // Two person or desk turns in a row never reach a provider: the desk joins them into one before it sends or stores.
+  if (parsed.turns.some((turn, index) => index > 0 && turn.role === 'user' && parsed.turns[index - 1]!.role === 'user')) throw new Error('lead-context-turns')
+  return parsed
 }
 /** The provider's cache mark, the one field a request block may carry beyond its type's own. */
 const CACHE_MARK = Object.freeze({ type: 'ephemeral' as const })
@@ -374,7 +377,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       requestId = string(nextId(), 100)
       if (!/^[A-Za-z0-9._:/-]{1,100}$/.test(requestId) || requestId.includes(apiKey)) fail()
       if (signal.aborted) return { status: 'cancelled' }
-      await journal.updateBudget({ version: 1, type: 'reserve', now: now(), requestId, inputTokens, maxOutputTokens: maxTokens, ...price })
+      await journal.updateBudget({ version: 1, type: 'reserve', now: now(), requestId, inputTokens, maxOutputTokens: maxTokens, ...price, ...(input.compaction ? { purpose: 'compaction' as const } : {}) })
     } catch (error) { return { status: signal.aborted ? 'cancelled' : 'refused', reason: (error as { wireCode?: unknown })?.wireCode === 'lead-budget-admission' ? 'lead-messages-capacity' : 'lead-messages-admission' } }
     const accounting = (event: Omit<Extract<LeadBudgetEvent, { type: 'settle' }>, 'version' | 'now' | 'requestId'> | { type: 'uncertain' }) =>
       journal.updateBudget({ version: 1, now: now(), requestId, ...event })

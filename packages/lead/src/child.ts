@@ -16,6 +16,7 @@ import { parseLeadSeatChoices } from './instructions.js'
 import { createLeadTools, type LeadResolvedTool } from './tools.js'
 import type { LeadMessagesRequest, MessagesTransport } from './messages-types.js'
 import { parseLeadContextTurns } from './messages.js'
+import { leadEpochAddendum } from './context.js'
 import { LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
 
 const denied = () => new Error('lead-child-operation-failed')
@@ -173,7 +174,9 @@ export const runLeadChild = (options: ChildOptions = {}) => {
           resolveTool, freezePlan: async contract => await rpc('freezePlan', [contract]) as typeof contract,
           readEvidence: async runId => await rpc('readEvidence', [runId]) as LeadAcceptanceEvidence,
           // The host parses what it reads back; what it sends here is parsed again before a request carries it.
+          onEpoch: () => ({ standingAddendum: leadEpochAddendum(journal.state) }),
           context: { record: async record => { await rpc('recordContext', [record]) },
+            compact: async trigger => (await rpc('compactContext', [trigger])) === true,
             read: async epoch => {
               const value = await rpc('readContext', [epoch])
               if (value === null) return null
@@ -232,10 +235,10 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         if (!loop || (message.id as number) <= requestId) throw denied()
         requestId = message.id as number
         const input = ipcObject(message.input)
-        ipcObject(input, ['messages', 'maxTokens', ...(['system', 'proactive', 'conversation', 'wakeSource', 'stable', 'compaction', 'epoch', 'base'] as const).filter(key => Object.hasOwn(input, key))])
+        ipcObject(input, ['messages', 'maxTokens', ...(['system', 'proactive', 'conversation', 'wakeSource', 'stable', 'compaction', 'epoch', 'base', 'kept'] as const).filter(key => Object.hasOwn(input, key))])
         if (input.compaction !== undefined && input.compaction !== true) throw denied()
         if (input.epoch !== undefined && (typeof input.epoch !== 'number' || !Number.isSafeInteger(input.epoch) || input.epoch < 0)) throw denied()
-        for (const key of ['stable', 'base'] as const) if (input[key] !== undefined) {
+        for (const key of ['stable', 'base', 'kept'] as const) if (input[key] !== undefined) {
           const mark = ipcObject(input[key], ['turns', 'blocks'])
           if (![mark.turns, mark.blocks].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 1)) throw denied()
         }

@@ -1,9 +1,11 @@
 import { LeadAway } from '../components/LeadAway'
 import { LeadCheck } from '../components/LeadCheck'
 import { LeadWork } from '../components/LeadWork'
+import { LeadCheckpointNotice, LeadContextSection } from '../components/LeadCheckpoint'
 import { LeadStatusPanel, useLeadControls } from '../components/LeadControls'
 import { PhoneAsk, PhoneSettingsSection } from '../components/PhoneSettings'
 import { createLeadFixtureStore } from './frames-lead'
+import { leadContextFacts } from './lead-fixture'
 import { useMemo, useState } from 'react'
 import type { TriggerBudgetState } from '@harnessdesk/protocol'
 import { Menu, Section, Text } from '../design'
@@ -40,13 +42,17 @@ const LeadAndPhoneCoverage = () => {
     Object.assign(snapshot, { teams, boardEvidence: evidence })
     const phone = { enabled: true, deskName: 'Demo desk', deskId: 'demo', port: 3000, devices: [], pending: [{ id: 'demo-phone', name: 'Jane Doe’s phone', requestedAt: Date.now() }] }
     const request = fixture.transport.request.bind(fixture.transport)
-    fixture.transport.request = (async (method, params) => method === 'phone/state' ? phone : request(method, params)) as typeof fixture.transport.request
+    // The conversation's facts as Settings shows them once the latest messages alone fill the Lead's room.
+    fixture.transport.request = (async (method, params) => method === 'phone/state' ? phone : method === 'lead/context/read' ? { ...leadContextFacts, full: true }
+      : request(method, params)) as typeof fixture.transport.request
     fixture.phone.changed({ method: 'phone/changed', params: phone } as never)
     return fixture
   }, [])
   return <StoreProvider store={own}>
     <Section title="Lead status"><LeadStatusCoverage /><LeadAway active state={own.lead.state} label="Dex" />
-      <LeadCheck room="coverage-check" needed revision={1} label="Dex" onError={() => {}} /></Section>
+      <LeadCheck room="coverage-check" needed revision={1} label="Dex" onError={() => {}} />
+      <LeadCheckpointNotice checkpoint={{ id: leadContextFacts.checkpoints[0]!.id }} /></Section>
+    <LeadContextSection />
     <PhoneSettingsSection /><PhoneAsk />
   </StoreProvider>
 }

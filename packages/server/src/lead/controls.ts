@@ -6,7 +6,7 @@ import {
   parseLeadBudgetRaise, parseLeadSpendLimitSet, leadNoSpendLimit, type LeadBudgetRaise, type LeadSpendLimitSet, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadLimitedCaps, leadContinuation, leadHistory, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadLimitedCaps, leadContinuation, leadHistory, leadAppendUser, leadContextMarkOf, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -78,7 +78,7 @@ interface LeadControlsOptions {
   /** The open work cards, already bounded; they ride the end of each request and are never stored in the thread. */
   readonly readWorkContext?: () => Promise<string | null>
   /** The stored conversation. Absent, each request is rebuilt from the words the person can read, as before. */
-  readonly context?: Pick<LeadContextStore, 'request' | 'due' | 'compact' | 'facts' | 'compacting'>
+  readonly context?: Pick<LeadContextStore, 'request' | 'due' | 'compact' | 'facts' | 'compacting' | 'epoch'> & Partial<Pick<LeadContextStore, 'settle'>>
   /** Test seam for the idle check after a step was recorded. */
   readonly scheduleContextCheck?: (run: () => void) => void
 }
@@ -353,36 +353,39 @@ export class LeadControls {
       const waitReason = this.#requestWaitReason
       this.#requestWaitReason = null
       const { context } = this.options
+      let persons: readonly string[] = []
       const build = async () => {
         // With the context engine the request starts from the stored conversation, tool pairs and all; without it,
         // from the words the person can read. Either way no reasoning from an earlier request is carried.
         const stored = context ? await context.request() : null
-        const messages: MessagesTurn[] = stored ? [...stored.messages] : leadHistory(journal.state.messages)
+        persons = stored?.persons ?? []
+        let messages: MessagesTurn[] = stored ? [...stored.messages] : leadHistory(journal.state.messages)
+        // Once a plan is approved every request carries the contract, because the standing instructions say it
+        // arrives in a message. It is the host's own words, kept in the stored conversation as they are (`kept`), so
+        // a later wake still reads the plan's step ids.
+        const { contract, steps } = journal.state
+        if (contract) messages = leadAppendUser(messages, leadContinuation({ contract, steps, runs: leadPlanRuns(journal.state), mayProposeNewPlan: canReplaceLeadPlan(journal.state),
+          personActions: await this.options.readPersonActions?.() ?? [] }))
+        const kept = contract ? leadContextMarkOf(messages) : null
         // What follows is desk context of this moment: after the cache mark, and stubbed when the step is stored.
+        const desk: { type: 'text'; text: string }[] = []
         const recovery = leadRecoveryContext(waitReason)
-        if (recovery) messages.push({ role: 'user', content: [{ type: 'text', text: recovery }] })
+        if (recovery) desk.push({ type: 'text', text: recovery })
         // Chats the Lead already started or wrote to since its last reply are not in the words above, so a Lead resumed
         // after a silent or failed turn is told, or it reads the request as undone and repeats it.
         const done = journal.state.chatEffectsSinceReply
-        if (done.started || done.sent || done.stopped) messages.push({ role: 'user', content: [{ type: 'text', text: leadEffectsObservation(done) }] })
-        // Once a plan is approved every request ends with the contract, because the standing instructions say it
-        // arrives in a message. Before that, a request still ends in a user turn.
-        const { contract, steps } = journal.state
-        if (contract) messages.push({ role: 'user', content: leadContinuation({ contract, steps, runs: leadPlanRuns(journal.state), mayProposeNewPlan: canReplaceLeadPlan(journal.state),
-          personActions: await this.options.readPersonActions?.() ?? [] }) })
-        else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
-          { type: 'text', text: 'Continue the conversation from the person\'s latest message. Answer directly or use an ordinary chat for a task. Offer a reviewed plan only when the work needs that workflow; no plan has been approved.' },
-        ] })
+        if (done.started || done.sent || done.stopped) desk.push({ type: 'text', text: leadEffectsObservation(done) })
+        // Before a plan is approved a request still ends in a user turn.
+        if (!contract && messages.at(-1)?.role !== 'user' && !desk.length) desk.push({ type: 'text',
+          text: 'Continue the conversation from the person\'s latest message. Answer directly or use an ordinary chat for a task. Offer a reviewed plan only when the work needs that workflow; no plan has been approved.' })
         // The work ledger is desk context, read fresh for each request: it closes the request and is never kept in history.
         let work: string | null = null
         try { work = await this.options.readWorkContext?.() ?? null } catch { /* A request without the cards still answers. */ }
-        if (work) {
-          const last = messages.at(-1)
-          if (last?.role === 'user' && Array.isArray(last.content)) messages[messages.length - 1] = { ...last, content: [...last.content, { type: 'text', text: work }] } as MessagesTurn
-          else messages.push({ role: 'user', content: [{ type: 'text', text: work }] })
-        }
+        if (work) desk.push({ type: 'text', text: work })
+        // One user turn: the person's words, the plan and the desk's context of this moment are never two turns in a row.
+        messages = leadAppendUser(messages, desk)
         return { maxTokens: LEAD_OUTPUT_TOKENS, messages, conversation: this.#requestConversation,
-          ...(stored ? { epoch: stored.epoch, ...(stored.base ? { base: stored.base } : {}), ...(stored.stable ? { stable: stored.stable } : {}) } : {}),
+          ...(stored ? { epoch: stored.epoch, ...(stored.base ? { base: stored.base } : {}), ...(stored.stable ? { stable: stored.stable } : {}), ...(stored && kept ? { kept } : {}) } : {}),
           ...(proactive ? { proactive: true, wakeSource: journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const } : {}) }
       }
       // A compaction under way finishes first; past the hard line one runs now, whatever else is happening.
@@ -394,6 +397,8 @@ export class LeadControls {
         await this.#compactContext('overflow')
         result = await service.send(await build())
       }
+      // A reply whose step could not be stored still answered the person: store their words with it.
+      if (persons.length) try { await context?.settle?.(persons) } catch { /* The next request sends them again. */ }
       if (result.text) await service.assertPublic(result.text)
       if (result.ask) {
         parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text: result.text ?? '', ask: result.ask, ...(result.proactive ? { proactive: result.proactive } : {}) })
@@ -424,7 +429,7 @@ export class LeadControls {
   /** One compaction at a time, the person's request behind it; a failure leaves the conversation as it was. */
   #compactContext(trigger: 'soft' | 'hard' | 'manual' | 'overflow'): Promise<unknown> {
     const context = this.options.context
-    if (!context) return Promise.resolve()
+    if (!context || this.#stopped()) return Promise.resolve()
     const work = this.#contextWork.then(() => context.compact(trigger, input => this.options.service.send(input)))
     this.#contextWork = work.catch(() => {}).finally(() => this.#notify())
     void this.#notify()
@@ -439,11 +444,28 @@ export class LeadControls {
     this.#contextCheck = true
     const check = () => {
       this.#contextCheck = false
-      if (this.#closed || this.options.context?.due() == null) return
+      if (this.#closed || this.#stopped() || this.options.context?.due() == null) return
       if (this.#continuation || this.options.readRequestInFlight?.() || this.options.context.compacting) { this.contextChanged(); return }
       void this.#compactContext('soft')
     }
     ;(this.options.scheduleContextCheck ?? (run => { setTimeout(run, 1000).unref?.() }))(check)
+  }
+  /** Stopped, finished or out of budget: no compaction spends. */
+  #stopped(): boolean {
+    const state = this.options.journal.state
+    return ['accepted', 'declined', 'stopped'].includes(state.phase) || !!state.budget?.stop
+  }
+  /**
+   * Before a desk wake, from the child, outside its turn queue: compact past the hard line (`due`), or because the
+   * provider refused the wake as too long (`overflow`). True when the stored conversation moved to a new epoch.
+   */
+  async compactForWake(trigger: 'due' | 'overflow'): Promise<boolean> {
+    const context = this.options.context
+    if (!context || this.#closed || this.#stopped()) return false
+    const before = context.epoch
+    await this.#contextWork
+    if (trigger === 'overflow' || context.due() === 'hard') await this.#compactContext(trigger === 'overflow' ? 'overflow' : 'hard')
+    return context.epoch !== before
   }
   async readContext(): Promise<LeadContextFacts> {
     if (!this.options.context) throw leadRefusal('lead-unavailable')

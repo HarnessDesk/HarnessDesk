@@ -4104,7 +4104,8 @@ export class Host {
     this.#leadService = new LeadService({ ...serviceOptions,
       ...(leadContext ? {
         recordContext: async (record: LeadContextRecordInput) => { await leadContext.record(record); this.#leadControls?.contextChanged() },
-        readContext: (epoch: number) => leadContext.read(epoch),
+        readContext: (epoch: number, room: number) => leadContext.read(epoch, room),
+        compactContext: async (trigger: 'due' | 'overflow') => await this.#leadControls?.compactForWake(trigger) ?? false,
       } : {}),
       onManagementStopped: reason => {
         if (reason === 'lead-host-shutdown') void this.#leadChats?.close()
@@ -4252,6 +4253,12 @@ export class Host {
     this.onDispose(journal.onChange(() => { void this.#intake.followingChanged().catch(() => {}) }))
     // Recovery uses only journaled person authority and freshly verified worker/forge identity.
     void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
+    // The store opened before the ledger and the reply screen existed: checkpoints name the open work and are shown
+    // only once they pass the screen a reply does.
+    if (leadContext) void leadContext.connect({
+      ledgerIds: async () => (await work.board()).items.filter(card => card.group !== 'done').map(card => card.id),
+      screen: async text => { await this.#leadService!.assertPublic(text) },
+    }).catch(() => {})
     this.#leadControls = new LeadControls({ journal,
       readWorkContext: async () => leadWorkCards(await work.board(), Date.now()),
       approveRepeat: async (id, contract, reactivate) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now(), reactivate) },
