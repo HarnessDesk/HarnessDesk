@@ -1,4 +1,4 @@
-import { parseLeadApprovalAudit, parseLeadWorkerApprovalRule, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadApprovalAudit, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import {
   parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_LIMITS, LEAD_MANAGEMENT_REASONS, leadNoSpendLimit, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
@@ -99,6 +99,8 @@ export type LeadJournalEvent =
    * change does; without one it is recorded for the goals and plan approvals that follow. */
   | { readonly type: 'spend-limit'; readonly usdMicros: number | null; readonly now: number; readonly logicalGoalId?: string }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
+  /** The person's autonomy modes and the rule sections they edited, as the host saved them. The whole record, so replay needs no history. */
+  | { readonly type: 'autonomy'; readonly autonomy: LeadAutonomyRecord }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
   | { readonly type: 'card-decision'; readonly decision: LeadCardDecision; readonly expiresAt: number | null }
@@ -205,7 +207,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'worker-rule-dispatch-cancelled': ['id'], 'worker-rule-dispatch': ['id', 'diff'], 'worker-rule-obsolete': Object.hasOwn(source, 'rule') ? ['rule'] : [], 'worker-rule-saved': ['rule'], 'worker-rule-used': ['id', ...(Object.hasOwn(source, 'diff') ? ['diff'] : [])], 'worker-rule-revoked': ['id', ...(Object.hasOwn(source, 'auditFailed') ? ['auditFailed'] : [])], wake: ['wake'], 'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
     'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     'second-look-attempt': ['runId', 'stopKey', 'now'], 'second-look-restart': ['runId', 'stopKey', 'roundId', 'now'],
-    'person-caps': ['logicalGoalId', 'caps', 'now'], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: Object.hasOwn(source, 'from') ? ['from'] : [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
+    'person-caps': ['logicalGoalId', 'caps', 'now'], autonomy: ['autonomy'], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: Object.hasOwn(source, 'from') ? ['from'] : [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
     'context-compaction-started': ['id', 'at', 'trigger'], 'context-compaction-failed': ['id', 'reason'],
@@ -255,6 +257,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
       if (source.usdMicros !== null && (integer(source.usdMicros) > LEAD_LIMITS.maxUsdMicros)) throw new Error('lead-journal-number')
       event = { type, usdMicros: source.usdMicros as number | null, now: integer(source.now), ...(Object.hasOwn(source, 'logicalGoalId') ? { logicalGoalId: identifier(source.logicalGoalId) } : {}) }; break
     case 'budget': event = { type, event: parseLeadBudgetEvent(source.event) }; break
+    case 'autonomy': event = { type, autonomy: parseLeadAutonomyRecord(source.autonomy) }; break
     case 'policy': event = { type, policy: parseLeadPermissionPolicy(source.policy) }; break
     case 'card': event = { type, card: parseLeadCard(source.card) }; break
     case 'card-decision': event = { type, decision: parseLeadCardDecision(source.decision), expiresAt: nullable(source.expiresAt, integer) }; break
@@ -425,6 +428,14 @@ export class LeadJournal {
       if (this.#state.spendLimit !== null) return
       const budget = this.#state.budget
       await this.#append({ type: 'spend-limit', usdMicros, now: Math.max(now, budget?.now ?? 0), ...(applyToGoal && budget ? { logicalGoalId: budget.logicalGoalId } : {}) })
+    })
+  }
+  /** Host only; the child's journal port has no such operation. Saves the person's autonomy modes and edited rule sections. */
+  setAutonomy(autonomy: LeadAutonomyRecord): Promise<void> {
+    return this.#queue(async () => {
+      const parsed = parseLeadAutonomyRecord(autonomy)
+      if (JSON.stringify(this.#state.autonomy) === JSON.stringify(parsed)) return
+      await this.#append({ type: 'autonomy', autonomy: parsed })
     })
   }
   async #append(event: LeadJournalEvent, committed?: () => void): Promise<void> {

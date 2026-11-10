@@ -73,7 +73,8 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
             return await inProject(request.params.root) && request.params.retry === undefined && request.params.continues === undefined ? null : 'leadScope'
           case 'flow/start-goal':
             if (!await inProject(request.params.root) || request.params.continues != null || request.params.goal !== undefined) return 'leadScope'
-            return await authorizeStart?.(request.params) === true ? null : 'leadStartNotApproved'
+            if (await authorizeStart?.(request.params) === true) return null
+            return await options.admission?.capped(request.params) ? 'leadRunCap' : 'leadStartNotApproved'
           case 'flow/execution': case 'flow/execution/stop':
             return await runInScope(request.params.run) ? null : 'leadScope'
           case 'goal/read': case 'insight/goal': case 'finding/list':

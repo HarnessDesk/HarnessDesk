@@ -402,6 +402,11 @@ export interface PhoneWorkSnapshot {
    * while no Lead runs on the desk. Done and Drop go back through `lead/work/close`.
    */
   readonly work?: import('./lead-work.js').LeadWorkBoard
+  /**
+   * Off / Observe / Act per proactive kind, the words the person's rules add, and the goal's deadline. Left out while no
+   * Lead runs here. The phone changes a mode through `lead/autonomy/set`; the rules are read-only on a phone.
+   */
+  readonly autonomy?: import('./lead-autonomy.js').LeadAutonomyView
 }
 
 export interface PhoneWorkStep {

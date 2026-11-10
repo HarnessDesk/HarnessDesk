@@ -1,3 +1,4 @@
+import { LeadSlots } from '../src/lead/slots.js'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
@@ -240,6 +241,22 @@ test('Lead sends and starts use the verified envelope and record its exact key',
   r.authorize('lead/chat/start', { text: 'Fix the flaky test.' }); const { id } = await r.service.start({ text: 'Fix the flaky test.' })
   assert.equal((r.sentInput.at(-1)![0] as { text: string }).text, leadMessageEnvelope('Dex', 'Fix the flaky test.'))
   assert.equal(r.sentKeys.at(-1)!.id, id)
+})
+
+test('an automatic start the cap refuses creates nothing and is handed back as a reason; the person\'s own goes ahead', async t => {
+  const r = await rig(t)
+  let live = 3
+  ;(r.ports as any).slots = new LeadSlots({ automaticLive: () => live, mark: async () => {} })
+  const params = { text: 'Update the dependencies.' }
+  r.authorize('lead/chat/start', params)
+  const refused = await r.service.start({ ...params, cause: 'automatic' })
+  assert.equal(refused.id, ''); assert.match(refused.problem ?? '', /on its own/)
+  assert.equal(r.sentInput.length, 0, 'no worker was created or sent to')
+  r.authorize('lead/chat/start', params)
+  assert.ok((await r.service.start({ ...params, cause: 'person' })).id, 'the person starts at the cap')
+  live = 2
+  r.authorize('lead/chat/start', { text: 'Then lint.' })
+  assert.ok((await r.service.start({ text: 'Then lint.', cause: 'automatic' })).id, 'and automatic work goes ahead when a run ends')
 })
 
 test('a person-held chat refuses Lead send and stop before dispatch, and hand back restores send', async t => {

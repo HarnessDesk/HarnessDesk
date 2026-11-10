@@ -25,6 +25,8 @@ export interface LeadPresencePorts {
   readonly messages: () => readonly { readonly id: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk }[]
   /** Whether quiet hours hold work back right now. */
   readonly quiet: () => Promise<boolean>
+  /** Autonomy for the morning brief: `off` and `observed` both mean it is not made; the day is spent either way. */
+  readonly briefGate?: () => Promise<'act' | 'off' | 'observed'>
   readonly name: () => string
   /** The observer model's paragraph over the changed items, and what it cost. Absent or null: no paragraph. */
   readonly observe?: (input: { readonly items: readonly LeadDigestItem[]; readonly from: number; readonly to: number }) => Promise<{ readonly text: string; readonly usdMicros: number } | null>
@@ -395,6 +397,7 @@ export class LeadPresenceStore {
       const [hour, minute] = at.split(':').map(Number) as [number, number]
       if (this.#stored.briefDay === today || date.getHours() * 60 + date.getMinutes() < hour * 60 + minute) return null
       if (await this.ports.quiet()) return null
+      if ((await this.ports.briefGate?.() ?? 'act') !== 'act') { this.#stored.briefDay = today; return null }
       const previous = this.#stored.briefDigest, origin = this.#stored.origin ?? { at: now, spent: this.ports.spent() }
       const from = Math.min(previous?.to ?? Math.max(origin.at, now - LEAD_PRESENCE_LIMITS.recapMs), now)
       return { today, plan: await this.#plan('brief', from, { spent: previous ? this.#briefSpent() : origin.spent, revision: previous ? this.#briefRevision() : 0 }) }

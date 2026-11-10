@@ -1,4 +1,4 @@
-import { isBlocked, pacedOrder, paceRankOf, type UsageReport } from '@harnessdesk/protocol'
+import { bindingLane, isBlocked, pacedOrder, paceRankOf, remainingOf, type UsageReport } from '@harnessdesk/protocol'
 import { scrub } from '../phone-redact.js'
 
 export interface PacingRuntime {
@@ -60,9 +60,22 @@ export interface PacingSources {
   readonly now: () => number
 }
 
+/** How much of its window an account has left, 0 to 100: 0 when it is blocked, null when its reading says nothing. */
+export const headroomOf = (report: UsageReport | null): number | null => {
+  if (!report || report.error) return null
+  if (isBlocked(report)) return 0
+  const lane = bindingLane(report.lanes)
+  return lane ? remainingOf(lane) : null
+}
+
 /** The port `LeadChats` asks: the pool of the default runtime's agent, read from preferences, over what can start. */
-export const pacingPort = (sources: PacingSources): { readonly choose: () => Promise<{ readonly agent: string; readonly label: string } | null> } => ({
-  choose: async () => choosePacedAccount({
+export interface PacingPort {
+  readonly choose: () => Promise<{ readonly agent: string; readonly label: string } | null>
+  /** What is left of the window on the account a start without a named agent would land on; null when nobody can say. */
+  readonly headroom: () => Promise<number | null>
+}
+export const pacingPort = (sources: PacingSources): PacingPort => {
+  const input = () => ({
     startable: sources.startableAgents().flatMap(id => {
       const info = sources.infoOf(id); if (!info) return []
       return [{ id, agent: String(info.slot?.agent ?? id), name: info.presentation.name }]
@@ -71,5 +84,13 @@ export const pacingPort = (sources: PacingSources): { readonly choose: () => Pro
     pools: sources.preferences()['accountPools'],
     reportOf: sources.usage,
     now: sources.now(),
-  }),
-})
+  })
+  return {
+    choose: async () => choosePacedAccount(input()),
+    headroom: async () => {
+      const ask = input(), chosen = choosePacedAccount(ask)
+      const runtime = chosen?.agent ?? ask.defaultRuntime
+      return runtime ? headroomOf(sources.usage(runtime)) : null
+    },
+  }
+}

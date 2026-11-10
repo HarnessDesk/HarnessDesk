@@ -20,7 +20,7 @@ import { LeadAskOptions, LeadAvatar, LeadNameChoice, LeadPlanFlow, LeadTurn, Lea
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
 import { LEAD_SCENES, leadContextFacts, leadPresenceFixture, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
-import { LEAD_LIMITS, type HostMethodName, type LeadWorkBoard, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_AUTONOMY_DEFAULTS, LEAD_LIMITS, LEAD_RULE_DEFAULTS, LEAD_RULE_SECTIONS, LEAD_RULE_TITLES, type LeadAutonomyModes, type LeadRuleSectionView, type LeadRuleVersion, type HostMethodName, type LeadWorkBoard, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
 export const createLeadFixtureStore = (scene: LeadScene) => {
@@ -35,6 +35,22 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   let current = leadSceneProjection(scene), schedule = leadSchedule, memory = leadMemory
   let work: LeadWorkBoard = scene === 'work-ledger' ? leadWorkFixture : { version: 1, items: [], more: 0 }
   let presence = scene === 'presence' ? leadPresenceFixture() : { version: 1 as const, digest: null, asks: [], brief: { enabled: false, at: '07:30' } }
+  // Autonomy and rules, as the host answers them: modes, versioned sections, and a would-have row to show.
+  let modes: LeadAutonomyModes = scene === 'settings-autonomy' ? { ...LEAD_AUTONOMY_DEFAULTS, stuck: 'observe', mention: 'off' } : LEAD_AUTONOMY_DEFAULTS
+  const versions: Record<string, LeadRuleVersion[]> = scene === 'settings-autonomy'
+    ? { talk: [{ version: 1, text: 'Plain words. One question at a time.', at: Date.UTC(2026, 10, 2, 17, 0), how: 'edit', base: LEAD_RULE_DEFAULTS.talk }],
+        // Written against an older default, so the section shows what changed since: the real diff, Keep mine or Use new.
+        delegate: [{ version: 1, text: 'Prefer the reviewer on another agent.', at: Date.UTC(2026, 10, 3, 17, 0), how: 'edit',
+          base: { version: 0, text: `${LEAD_RULE_DEFAULTS.delegate.text.split('.')[0]}.\nOld line the shipped words no longer carry.` } }] } : {}
+  const kept = new Set<string>()
+  const observed = scene === 'settings-autonomy' ? [{ id: 'o1', at: Date.UTC(2026, 10, 9, 18, 30), kind: 'stuck' as const, note: 'Would have said a run had gone quiet.' }] : []
+  const sectionView = (id: typeof LEAD_RULE_SECTIONS[number]): LeadRuleSectionView => {
+    const history = versions[id] ?? [], latest = history.at(-1), custom = !!latest && latest.how !== 'reset'
+    return { id, title: LEAD_RULE_TITLES[id], text: custom ? latest!.text : LEAD_RULE_DEFAULTS[id].text, version: latest?.version ?? 0, custom, default: { ...LEAD_RULE_DEFAULTS[id] },
+      defaultUpdated: custom && latest!.base.text !== LEAD_RULE_DEFAULTS[id].text && !kept.has(id) ? { from: latest!.base.text, to: LEAD_RULE_DEFAULTS[id].text } : null, history: [...history].reverse() }
+  }
+  const rulesView = () => ({ version: 1 as const, sections: LEAD_RULE_SECTIONS.map(sectionView), prompt: LEAD_RULE_SECTIONS.flatMap(id => sectionView(id)).filter(one => one.custom).map(one => `${one.title}: ${one.text}`).join('\n') })
+  const autonomyView = () => ({ version: 1 as const, modes, observed, deadline: null, rules: LEAD_RULE_SECTIONS.map(id => { const one = sectionView(id); return { id, title: one.title, text: one.text, custom: one.custom } }) })
   const emit = (next: LeadWindowProjection) => { current = next; store.lead.changed({ method: 'lead/changed', params: current }) }
   store.transport.request = (async (method: HostMethodName, input: unknown) => {
     const params = input as Record<string, any>
@@ -85,6 +101,19 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/presence/dismiss') return presence = { ...presence, digest: presence.digest?.id === params.digest ? null : presence.digest }
     if (method === 'lead/brief/read') return presence.brief
     if (method === 'lead/brief/update') { presence = { ...presence, brief: { ...presence.brief, ...(params.enabled === undefined ? {} : { enabled: params.enabled }), ...(params.at === undefined ? {} : { at: params.at }) } }; return presence.brief }
+    if (method === 'lead/autonomy/read' || method === 'lead/deadline/set') return autonomyView()
+    if (method === 'lead/autonomy/set') { modes = { ...modes, [params.kind]: params.mode }; return autonomyView() }
+    if (method === 'lead/rules/read') return rulesView()
+    if (method === 'lead/rules/update') {
+      const list = versions[params.section] ??= []
+      if ((list.at(-1)?.version ?? 0) !== params.expectedVersion) throw { code: 'lead-rules-stale' }
+      const make = (how: LeadRuleVersion['how'], text: string): LeadRuleVersion => ({ version: (list.at(-1)?.version ?? 0) + 1, text, at: Date.now(), how, base: LEAD_RULE_DEFAULTS[params.section as 'talk'] })
+      if (params.action === 'edit') list.push(make('edit', params.text))
+      else if (params.action === 'keep') kept.add(params.section)
+      else if (params.action === 'reset') list.push(make('reset', LEAD_RULE_DEFAULTS[params.section as 'talk'].text))
+      else if (params.action === 'rollback') list.push({ ...make('rollback', list.find(one => one.version === params.to)!.text), from: params.to })
+      return rulesView()
+    }
     if (method === 'lead/work/list') return work
     if (method === 'lead/work/close') {
       // As on the desk: the person's close moves the item to Done, newest first, and is never undone.

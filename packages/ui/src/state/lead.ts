@@ -1,5 +1,5 @@
 import type {
-  LeadBriefSettings, LeadDeviceRef, LeadPresenceView, LeadChatControl, LeadWorkBoard, LeadWorkOutcome, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  LeadAutonomySet, LeadAutonomyView, LeadDeadlineSet, LeadRulesUpdate, LeadRulesView, LeadBriefSettings, LeadDeviceRef, LeadPresenceView, LeadChatControl, LeadWorkBoard, LeadWorkOutcome, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
@@ -164,6 +164,11 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     async dismissDigest(digest: string) { check(); const view = await transport.request('lead/presence/dismiss', { device: device(), digest }); applyAway(view); return view },
     async readBrief(): Promise<LeadBriefSettings> { check(); return transport.request('lead/brief/read', {}) },
     async updateBrief(update: { readonly enabled?: boolean; readonly at?: string }): Promise<LeadBriefSettings> { check(); return transport.request('lead/brief/update', update) },
+    async readAutonomy(): Promise<LeadAutonomyView> { check(); return transport.request('lead/autonomy/read', {}) },
+    async setAutonomy(set: LeadAutonomySet): Promise<LeadAutonomyView> { check(); return transport.request('lead/autonomy/set', set) },
+    async readRules(): Promise<LeadRulesView> { check(); return transport.request('lead/rules/read', {}) },
+    async updateRules(update: LeadRulesUpdate): Promise<LeadRulesView> { check(); return transport.request('lead/rules/update', update) },
+    async setDeadline(set: LeadDeadlineSet): Promise<LeadAutonomyView> { check(); return transport.request('lead/deadline/set', set) },
     async readWork() { check(); const board = await transport.request('lead/work/list', {}); applyWork(board); return board },
     /** The person's Done or Drop. It closes the record only; chats, Teams and pull requests are left as they are. */
     async closeWork(id: string, outcome: LeadWorkOutcome) { check(); const board = await transport.request('lead/work/close', { id, outcome }); applyWork(board); return board },

@@ -92,7 +92,7 @@ test('the window and the phone read one projection: four groups, Needs you first
 test('the open cards reach every model request, capped, and a reminder wakes the Lead as a scheduled turn', async t => {
   const r = await workRig(t)
   for (let n = 1; n <= 24; n++)
-    assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: `Investigate flaky sync test number ${n} and report what fails, with the failing seed and the exact command that reproduces it on a clean checkout` } })).outcome, 'succeeded')
+    assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: `Investigate flaky sync test number ${n} and report what fails, with the failing seed and the exact command that reproduces it on a clean checkout` , cause: 'person'} })).outcome, 'succeeded')
   const sent: { messages: readonly MessagesTurn[]; proactive: boolean }[] = []
   const controls = r.controls(async (messages, input) => {
     sent.push({ messages, proactive: input.proactive === true })
@@ -137,4 +137,47 @@ test('an ask gets its expiry clock when the journal appends it, with nobody look
     if (!stored.asks?.[id]) await new Promise(resolve => setTimeout(resolve, 20))
   }
   assert.ok(stored.asks?.[id]?.expiresAt, 'the clock was started by the append, not by a read')
+})
+
+// The person's room, through the real host: the cause travels with the start, and the host decides.
+test('host: automatic starts stop at the cap of three; the person starts at the cap under any goal, and an automatic one under the person\'s goal still waits', async t => {
+  const r = await workRig(t)
+  const start = (text: string, cause?: 'person' | 'automatic') => r.execute({ method: 'lead/chat/start', params: { text, ...(cause ? { cause } : {}) } })
+  for (const n of [1, 2, 3]) assert.equal((await start(`Automatic job number ${n} on ${'x'.repeat(n)}`, 'automatic')).outcome, 'succeeded')
+  const refused = await start('Automatic job number four', 'automatic')
+  assert.match((refused.value as { problem: string }).problem, /3 runs it started on its own/)
+  assert.equal(r.runtime.sessions.size, 3, 'the refused start created nothing')
+  // Under a goal that came from a schedule, the person\'s own "also do X" is still theirs.
+  await r.journal.setOrigin({ source: 'schedule', event: 'repeat', subject: 'weekly', url: null })
+  assert.equal((await start('Also, please look at the flaky login test', 'person')).outcome, 'succeeded')
+  assert.equal(r.runtime.sessions.size, 4)
+  // Under a goal the person began, a desk-change-driven start is automatic and waits at the cap.
+  assert.match(((await start('Follow up on the settled run in another chat', 'automatic')).value as { problem: string }).problem, /on its own/)
+})
+
+test('host: a goal whose deadline passed stops automatic chat work and answers the person', async t => {
+  const r = await workRig(t)
+  const { host } = r
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the date parser', cause: 'person' } })
+  const chat = (first.value as { id: string }).id
+  await host.leadAutonomy.setDeadline({ logicalGoalId: 'ordinary-delegation', deadlineAt: Date.now() + 1500 })
+  assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'A second job before the time is up', cause: 'automatic' } })).outcome, 'succeeded')
+  await new Promise(resolve => setTimeout(resolve, 1600))
+  const late = await r.execute({ method: 'lead/chat/start', params: { text: 'A third job after the time is up', cause: 'automatic' } })
+  assert.match((late.value as { problem: string }).problem, /time for this goal has run out/)
+  const sent = await r.execute({ method: 'lead/chat/send', params: { id: chat, text: 'Keep going on the parser', cause: 'automatic' } })
+  assert.equal(sent.outcome, 'failed', 'an automatic send for the goal stops too')
+  assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'The person asks for one more thing', cause: 'person' } })).outcome, 'succeeded')
+  assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: chat, text: 'The person says: continue', cause: 'person' } })).outcome, 'succeeded')
+  assert.match(host.leadAutonomy.deadlineNote() ?? '', /run out/, 'the next turn the person starts is told')
+})
+
+// Only a start positively named the person's is theirs: one that names no cause is automatic, and it takes a slot first.
+test('host: a start and a send that name no cause are automatic', async t => {
+  const r = await workRig(t)
+  assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'Automatic job, no cause named' } })).outcome, 'succeeded')
+  await r.host.leadAutonomy.setDeadline({ logicalGoalId: 'ordinary-delegation', deadlineAt: Date.now() + 1 })
+  await new Promise(resolve => setTimeout(resolve, 10))
+  const id = (await r.host.call('lead/chat/list', {})).items[0]!.id
+  assert.equal((await r.execute({ method: 'lead/chat/send', params: { id, text: 'Keep going' } })).outcome, 'failed', 'a send that names no cause stops at the deadline')
 })

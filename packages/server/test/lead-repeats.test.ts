@@ -323,3 +323,35 @@ test('a repeat keeps the figure it was approved with when the spending limit is 
     assert.equal(journal.state.budget!.caps.usdMicros, runs)
   }
 })
+
+// A pre-approved scheduled run is automatic work from its first request: it names its source, and it is not the person's.
+test('a pre-approved scheduled run asks the Lead as a scheduled wake, never as the person', async t => {
+  const journal = await memoryJournal(), requests: any[] = []
+  const controls = new LeadControls({ journal, project: approved.project, model: 'fixture', now: () => 100, nextId: () => 'id', push() {},
+    service: { async status() { return { configured: true, protection: 'encrypted' as const } }, async setKey() {}, async deleteKey() {}, async assertPublic() {},
+      async send(request: any) { requests.push(request); return { status: 'completed' as const, text: 'Done.' } } } as any,
+    async decidePerson() {}, async decideResult() {}, async validateRepeat() { return null }, async freezeRepeat(value) { return { ...value, digest: leadContractDigest(value) } } })
+  t.after(() => controls.close())
+  assert.equal((await controls.runScheduled(task, 100)).approved, true)
+  await controls.idle()
+  const first = requests.find(request => request.wakeSource !== undefined || request.proactive !== undefined) ?? requests[0]
+  assert.ok(first, 'the run asked the Lead')
+  assert.equal(first.wakeSource, 'schedule', 'a request that names no source would be read as the person')
+})
+
+test('a message the person sends asks the Lead as the person, and a scheduled message does not', async t => {
+  for (const [origin, expected] of [[undefined, 'person'], [{ source: 'schedule', id: 'repeat-1' }, 'schedule']] as const) {
+    const journal = await memoryJournal(), requests: any[] = []
+    const controls = new LeadControls({ journal, project: approved.project, model: 'fixture', now: () => 100, nextId: () => 'id', push() {},
+      service: { async status() { return { configured: true, protection: 'encrypted' as const } }, async setKey() {}, async deleteKey() {}, async assertPublic() {},
+        async send(request: any) { requests.push(request); return { status: 'completed' as const, text: 'Done.' } } } as any,
+      async decidePerson() {}, async decideResult() {} })
+    t.after(() => controls.close())
+    if (origin) await controls.runScheduled({ ...task, approved: undefined }, 100).catch(() => {})
+    else await controls.send({ idempotencyKey: 'k1', text: 'Please look at the build' } as any)
+    await controls.idle()
+    const seen = requests.map(request => request.wakeSource)
+    if (origin) assert.ok(!seen.includes('person'), 'a scheduled message is never the person')
+    else assert.deepEqual([...new Set(seen)], [expected])
+  }
+})

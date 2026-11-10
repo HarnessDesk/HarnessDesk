@@ -88,7 +88,7 @@ export const pathsIn = (markdown) =>
  *
  * Each entry is a promise that the path names something outside this tree —
  * not a way to make this check quiet about a path that broke. Seeded from the
- * sweep in #223 and re-measured: these seven are every path in the swept
+ * sweep in #223 and re-measured: these are every path in the swept
  * documents that resolves at none of the bases below.
  */
 export const ALLOWED = new Map([
@@ -96,6 +96,7 @@ export const ALLOWED = new Map([
   ['archify/assets/template.html', 'upstream Archify, quoted at a pinned commit — not vendored here'],
   ['docs/built.md', "a maintainer's working file under the gitignored internal/, as the sentence naming it says"],
   ['lead/work.json', "the Lead's work ledger in the desk's state folder, written at run time, not a file in this tree"],
+  ['lead/autonomy.json', "the Lead's autonomy settings and rule versions in the desk's state folder, written at run time, not a file in this tree"],
   ['lead/presence.json', "the Lead's presence record in the desk's state folder, written at run time, not a file in this tree"],
   ['packages/acp/acp/src/index.ts', "DeepSeek Harness's own tree, as the sentence naming it says"],
   ['rmcp-client/src/oauth/store_lock.rs', "DeepSeek Harness's own Rust source"],

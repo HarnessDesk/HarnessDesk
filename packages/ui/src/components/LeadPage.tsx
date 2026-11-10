@@ -79,6 +79,7 @@ const STOPPED: Record<LeadStopReason, string> = {
   'connection-lost': 'This goal was stopped when the connection to the workers was lost.',
   recovery: "This goal was stopped because its work couldn't be recovered.",
   error: 'This goal was stopped by an error.',
+  deadline: 'This goal was stopped at its deadline.',
 }
 const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs'}` : 'no runs yet'
 /** Elapsed time beside Stop: minutes under an hour, then hours and minutes. */
