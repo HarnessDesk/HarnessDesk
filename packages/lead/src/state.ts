@@ -7,8 +7,10 @@ import { reopenLeadBudgetRound, reduceLeadBudget, releaseLeadStart, applyLeadBud
 /** A finite migration warning, separate from the per-request audit store. */
 /** Compaction failures that end the run without counting toward the breaker. */
 export const LEAD_CONTEXT_UNCOUNTED: readonly string[] = Object.freeze(['interrupted', 'blocked', 'unreachable',
-  // Refusals about the desk's own key, configuration, request or spend, not the model's writing: the run ends uncounted.
-  'lead-messages-auth', 'lead-messages-request', 'lead-messages-config', 'lead-messages-admission', 'lead-messages-capacity', 'lead-messages-billing-unknown'])
+  // Refusals about the desk's own key, configuration or spend, not the model's writing: the run ends uncounted. A refused
+  // request is not here: ordinary requests may still pass while the checkpoint request never does, so it counts and
+  // the desk writes that checkpoint itself.
+  'lead-messages-auth', 'lead-messages-config', 'lead-messages-admission', 'lead-messages-capacity', 'lead-messages-billing-unknown'])
 export const removedWorkerApprovalNotice = (messages: readonly LeadMessage[], seq: number): readonly LeadMessage[] => messages.some(message => message.id === 'worker-rules-removed') ? messages : [...messages.slice(-255), { version: 1, id: 'worker-rules-removed', revision: seq, role: 'notice', text: 'Some saved approvals were removed because their targets no longer qualify. Review new requests on the desk.' }]
 
 export const LEAD_SEND_RECEIPTS = 4096

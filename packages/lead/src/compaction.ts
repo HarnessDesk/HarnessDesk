@@ -41,17 +41,65 @@ export const leadCheckpointInstruction = (facts: LeadCheckpointRequestFacts): st
   'Write "None." under a heading with nothing to say. Do not call tools, do not address the person, and stay under 1,500 words.',
 ].join('\n')
 
-/** A checkpoint's text split at its "## " headings: what comes before the first, then each heading with its body. */
-const sections = (text: string): { readonly lead: string; readonly parts: { readonly heading: string; readonly body: string }[] } => {
-  const lines = text.split('\n'), parts: { heading: string; body: string[] }[] = [], lead: string[] = []
-  for (const line of lines) {
-    const match = /^##\s+(.+?)\s*$/.exec(line)
-    if (match) parts.push({ heading: match[1]!.replace(/[*_`]/g, '').trim(), body: [] })
-    else (parts.at(-1)?.body ?? lead).push(line)
+/** A line as it reads, for telling what it is: compatibility forms folded and invisible format characters removed. */
+const plain = (line: string): string => line.normalize('NFKC').replace(/\p{Cf}/gu, '')
+/** A heading's title reduced to what it names: emphasis, numbering, a trailing parenthetical and punctuation, spacing
+ * and case all fall away, so "What the  person wants (continued):" names the same section as "What the person wants". */
+const titleKey = (title: string): string => {
+  let key = plain(title).replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim(), previous = ''
+  while (key !== previous) {
+    previous = key
+    key = key.replace(/\s*(?:\([^()]*\)|\[[^[\]]*\]|\{[^{}]*\})$/u, '').replace(/[\s\p{P}\p{S}]+$/u, '').replace(/^[\s\p{P}\p{S}\p{N}]+/u, '').trim()
   }
-  return { lead: lead.join('\n').trim(), parts: parts.map(part => ({ heading: part.heading, body: part.body.join('\n').trim() })) }
+  return key.toLowerCase()
 }
-const isPersonHeading = (heading: string) => heading.toLowerCase() === LEAD_CHECKPOINT_SECTIONS[0].toLowerCase()
+const PERSON_KEY = titleKey(LEAD_CHECKPOINT_SECTIONS[0])
+const MODEL_KEYS = new Map(MODEL_SECTIONS.map(section => [titleKey(section), section]))
+const QUOTED = /^(?:\s*>)*\s*/
+const ATX = /^((?:\s*>)*)\s*#{1,6}(?:\s+(.*?))?\s*$/u
+const UNDERLINE = /^(?:\s*>)*\s*(?:=+|-+)\s*$/
+/** A bracketed reference after a quotation mark: the shape of the desk's quote of a person message. */
+const QUOTE_MARKS = '"\'\u00ab\u00bb\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f\u2039\u203a\u300c\u300d\u300e\u300f'
+const QUOTE_LIKE = new RegExp(`[${QUOTE_MARKS}].*\\[[^[\\]\\n]{1,128}\\]`, 'u')
+/** A line of the model's that could read as the desk quoting the person loses that standing: its brackets become
+ * parentheses and it says whose it is. Its words stay. */
+const defang = (line: string): string => {
+  const flat = plain(line)
+  if (!QUOTE_LIKE.test(flat)) return line
+  let body = flat.replace(QUOTED, '').replace(/^(?:[-*+\u2022]|\d+[.)])\s*/u, '')
+  while (/\[[^[\]\n]*\]/.test(body)) body = body.replace(/\[([^[\]\n]*)\]/g, '($1)')
+  return `${QUOTED.exec(flat)![0]}- The Lead's note, not a desk quote: ${body}`
+}
+/**
+ * The model's checkpoint read structurally: only the five headings it was asked for open a section (spelt however it
+ * likes, kept under the desk's spelling); a heading that names the person's section is dropped with what follows it up
+ * to the next heading; every other heading, at any level, quoted or underlined, becomes a plain line; and no line keeps
+ * the shape of a desk quote. What comes before the first section is dropped.
+ */
+const modelSections = (text: string): { readonly section: string; readonly body: string }[] => {
+  const lines = text.split('\n'), parts: { section: string; body: string[] }[] = []
+  let skipping = false
+  const keep = (line: string) => { if (!skipping) parts.at(-1)?.body.push(defang(line)) }
+  for (let index = 0; index < lines.length; index++) {
+    const flat = plain(lines[index]!)
+    let heading: { readonly quote: string; readonly title: string } | null = null
+    const atx = ATX.exec(flat)
+    if (atx) heading = { quote: atx[1] ?? '', title: (atx[2] ?? '').replace(/\s+#+$/, '') }
+    else if (flat.trim() && !UNDERLINE.test(flat) && index + 1 < lines.length && UNDERLINE.test(plain(lines[index + 1]!))) {
+      const quote = QUOTED.exec(flat)![0]
+      heading = { quote: quote.includes('>') ? quote : '', title: flat.slice(quote.length) }
+      index++
+    }
+    if (!heading) { keep(lines[index]!); continue }
+    const key = titleKey(heading.title)
+    if (key === PERSON_KEY) { skipping = true; continue }
+    skipping = false
+    const section = heading.quote ? undefined : MODEL_KEYS.get(key)
+    if (section) parts.push({ section, body: [] })
+    else keep(`${heading.quote ? `${heading.quote.trim()} ` : ''}${heading.title.trim()}`)
+  }
+  return parts.map(part => ({ section: part.section, body: part.body.join('\n').trim() }))
+}
 
 /** Why the model's part of a checkpoint is refused, or null when it may stand: `text` is what the model wrote, and the
  * length and work ids are checked on the checkpoint as composed with the desk's section (`composed`). */
@@ -59,8 +107,8 @@ export const leadCheckpointRefusal = (text: string, facts: { readonly regionByte
   if (!text.trim()) return 'empty'
   const whole = facts.composed ?? text
   if (whole.length > LEAD_CONTEXT.checkpointChars) return 'too-long'
-  const headings = sections(text).parts.map(part => part.heading.toLowerCase())
-  if (MODEL_SECTIONS.some(section => !headings.includes(section.toLowerCase()))) return 'section-missing'
+  const headings = modelSections(text).map(part => part.section)
+  if (MODEL_SECTIONS.some(section => !headings.includes(section))) return 'section-missing'
   if (new TextEncoder().encode(whole).byteLength >= facts.regionBytes) return 'not-shorter'
   if (facts.requiredIds.some(id => !whole.includes(id))) return 'ledger-id-missing'
   return null
@@ -88,14 +136,11 @@ export const leadPersonSection = (words: readonly { readonly id: string; readonl
   return [quotes.length ? quotes.join('\n') : 'None in this part of the conversation.',
     ...(dropped.length ? [`Earlier person messages left out, by desk reference: ${dropped.join(', ')}.`] : [])].join('\n')
 }
-/** The checkpoint as kept: the desk's section of the person's words first, then the model's sections. Any section the
- * model titled as the person's is dropped, and so is anything it wrote before its first heading, which would otherwise
- * read as part of the person's section: the person's words come only from the desk. */
-export const leadCheckpointCompose = (personSection: string, modelText: string): string => {
-  const { parts } = sections(modelText)
-  return [PERSON_HEADING, personSection,
-    ...parts.filter(part => !isPersonHeading(part.heading)).flatMap(part => ['', `## ${part.heading}`, part.body || 'None.'])].join('\n')
-}
+/** The checkpoint as kept: the desk's section of the person's words first, then the model's five sections as
+ * `modelSections` reads them. Whatever the model titled as the person's, wrote before its first heading or shaped like
+ * a desk quote never stands as the person's words: those come only from the desk. */
+export const leadCheckpointCompose = (personSection: string, modelText: string): string =>
+  [PERSON_HEADING, personSection, ...modelSections(modelText).flatMap(part => ['', `## ${part.section}`, part.body || 'None.'])].join('\n')
 
 /** The checkpoint as the turn that opens the conversation after it. */
 export const leadCheckpointTurn = (id: string, text: string, fallback: boolean): MessagesTurn => {
@@ -140,8 +185,7 @@ const render = (turn: MessagesTurn): string => `${turn.role === 'user' ? 'Person
 export const leadFallbackCheckpoint = (facts: { readonly region: readonly MessagesTurn[]; readonly previous: string | null; readonly ledgerIds: readonly string[]; readonly person?: string }): string => {
   const region = facts.region.filter(turn => leadCheckpointText(turn) === null)
   const head = region.slice(0, 2).map(turn => clip(render(turn), 1500))
-  const others = facts.previous === null ? '' : sections(facts.previous).parts.filter(part => !isPersonHeading(part.heading))
-    .map(part => `### ${part.heading}\n${part.body}`).join('\n')
+  const others = facts.previous === null ? '' : modelSections(facts.previous).map(part => `${part.section}:\n${part.body}`).join('\n')
   const text = leadCheckpointCompose(facts.person ?? leadPersonSection(leadPersonWords(region)), [
     `## ${LEAD_CHECKPOINT_SECTIONS[1]}`, 'Not summarised. The opening of this part of the conversation, as it was:', ...head,
     '', `## ${LEAD_CHECKPOINT_SECTIONS[2]}`, facts.ledgerIds.length ? facts.ledgerIds.map(id => `- ${id}`).join('\n') : 'None recorded.',

@@ -394,6 +394,9 @@ export class LeadContextStore {
           return 'stopped'
         }
         if (text === null) await journal.contextCompactionFailed(id, reason.slice(0, 64))
+        // The provider refused the checkpoint request itself: the same request again fares no better, and stopping
+        // here would leave the conversation to grow until it is too long. The desk writes this one.
+        if (reason === 'lead-messages-request') break
       }
       const fallback = text === null
       text ??= leadFallbackCheckpoint({ region, previous, ledgerIds: requiredIds, person })

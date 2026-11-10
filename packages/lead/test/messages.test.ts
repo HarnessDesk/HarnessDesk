@@ -621,7 +621,13 @@ test('many parallel tools with near-full history reserve only their actual diagn
 test('a checkpoint request files its spend marked as compaction; an ordinary request carries no purpose', async () => {
   const s = await setup([message(), message([{ type: 'text', text: '## Decisions made and why\nNone.' }])])
   await s.client.request(input, new AbortController().signal)
+  const ordinary = s.journal.state.budget!.leadUsdMicros
+  assert.ok(ordinary > 0)
   await s.client.request({ ...input, compaction: true }, new AbortController().signal)
+  // The checkpoint request is the Lead's spend too: the same cost an ordinary request of the same counts has.
+  assert.ok(s.journal.state.budget!.leadUsdMicros > ordinary, 'the checkpoint request is counted in the Lead\'s spend')
+  const settles = s.records.flatMap(record => record.type === 'budget' && record.event.type === 'settle' ? [record.event as any] : [])
+  assert.equal(settles.length, 2)
   const reserves = s.records.flatMap(record => record.type === 'budget' && record.event.type === 'reserve' ? [record.event as any] : [])
   assert.equal(reserves.length, 2)
   assert.equal(reserves[0].purpose, undefined)
