@@ -4,6 +4,7 @@ import { CLIENT_ACTION_TIERS, CLIENT_METHODS, type ClientMethodName } from './cl
 import type { CeilingLevel } from './evidence.js'
 import type { FlowSeat } from './flow.js'
 import { flowSeatValidator } from './flow-seat.js'
+import { parseLeadDeviceRef } from './lead-presence.js'
 import { isBoolean, isObject, literalUnion, optional, optionalNullable, ValidationError, type Validator } from './validate.js'
 
 /** Versioned plain data only. Provider credentials and transport descriptors are private to the child bootstrap. */
@@ -216,6 +217,8 @@ export interface LeadAsk {
   readonly question: string
   readonly options: readonly LeadAskOption[]
   readonly recommended: string
+  /** Minutes the question stays answerable, from when the host first saw it. Left out: it does not expire. */
+  readonly expiresInMinutes?: number
 }
 /** One host-rendered unprompted finding. Actions navigate existing surfaces; they never grant authority. */
 export interface LeadProactive {
@@ -428,7 +431,7 @@ export const LEAD_CONTROL_REFUSALS = ['lead-runtime-unsupported', 'lead-unavaila
   'lead-approval-not-live', 'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
-  'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending'] as const
+  'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending', 'lead-ask-expired', 'lead-ask-answered'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
@@ -446,7 +449,14 @@ export interface LeadHandback {
   readonly runId: string; readonly teamId: string; readonly round: number; readonly at: number
   readonly stage: 'prepared' | 'running' | 'awaiting-ci' | 'completed' | 'failed' | 'abandoned' | 'withdrawn'; readonly publishedHead: string | null; readonly detail?: string
 }
-export interface LeadThreadSend { readonly idempotencyKey: string; readonly text: string }
+export interface LeadThreadSend {
+  readonly idempotencyKey: string
+  readonly text: string
+  /** Which device wrote it, so an answer to a question can name who answered. The phone link sets it itself. */
+  readonly device?: import('./lead-presence.js').LeadDeviceRef
+  /** The id of the message whose option this text answers, when it is a tapped option. */
+  readonly ask?: string
+}
 /** Stable first result, retained across retries and journal recovery. */
 export interface LeadSendReceipt { readonly messageId: string; readonly revision: LeadRevision }
 /** Public control vocabulary carries no secrets and grants no human decision authority. */
@@ -711,6 +721,8 @@ const proactiveLine: Validator<string> = (value, path = '') => {
   const line = boundedText(800, false, proseControls)(value, path)
   return /[\r\n]/.test(line) ? fail(path, 'expected one proactive line') : line
 }
+const askExpiry: Validator<number> = (value, path = '') =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 5 && value <= 7 * 24 * 60 ? value : fail(path, 'expected 5 to 10080 minutes')
 const askOptionId: Validator<string> = (value, path = '') =>
   typeof value === 'string' && /^[a-z0-9-]{1,32}$/.test(value) ? value : fail(path, 'expected a short option slug')
 const askOptions = list(object<LeadAskOption>({ id: askOptionId, label: (value, path = '') => {
@@ -718,7 +730,7 @@ const askOptions = list(object<LeadAskOption>({ id: askOptionId, label: (value, 
   return label !== label.trim() || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label) ? fail(path, 'expected one trimmed plain-text label') : label
 } }), 4, 2, option => option.id)
 export const parseLeadAsk: Validator<LeadAsk> = (value, path = '') => {
-  const ask = object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId })(value, path)
+  const ask = omitUnset(object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId, expiresInMinutes: optional(askExpiry) }), ['expiresInMinutes'])(value, path)
   if (new Set(ask.options.map(option => option.label.trim().replace(/\s+/gu, ' ').toLowerCase())).size !== ask.options.length) fail(path, 'duplicate option label')
   if (!ask.options.some(option => option.id === ask.recommended)) fail(path, 'recommendation must name an option')
   return ask
@@ -864,7 +876,7 @@ export const nextLeadRevision = (current: LeadRevision): LeadRevision => {
   return revision(parsed + 1)
 }
 
-export const parseLeadThreadSend: Validator<LeadThreadSend> = object({ idempotencyKey: id, text: prose })
+export const parseLeadThreadSend: Validator<LeadThreadSend> = omitUnset(object<LeadThreadSend>({ idempotencyKey: id, text: prose, device: optional(parseLeadDeviceRef), ask: optional(id) }), ['device', 'ask'])
 export const parseLeadResume: Validator<{ readonly expectedRevision: number }> = object({ expectedRevision: revision })
 export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
   follow: optional(parseLeadFollowPreferences), expectedRevision: revision, name: optional(literalUnion('dex', 'lex')), policy: optional(parseLeadPermissionPolicy), caps: optional(parseLeadCaps),

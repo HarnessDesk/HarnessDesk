@@ -1,11 +1,13 @@
 import { LeadAway } from '../components/LeadAway'
+import { LeadProactiveCard } from '../components/LeadCards'
 import { LeadCheck } from '../components/LeadCheck'
 import { LeadWork } from '../components/LeadWork'
 import { MentionDecisionRows, type MentionTriageState } from '../components/MentionDecisions'
 import { LeadStatusPanel, useLeadControls } from '../components/LeadControls'
 import { PhoneAsk, PhoneSettingsSection } from '../components/PhoneSettings'
 import { createLeadFixtureStore } from './frames-lead'
-import { useMemo, useState } from 'react'
+import { leadSceneProjection } from './lead-fixture'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import type { TriggerBudgetState } from '@harnessdesk/protocol'
 import { Menu, Section, Text } from '../design'
 import { SeatFace } from '../components/AgentCards'
@@ -34,8 +36,7 @@ const budget: TriggerBudgetState = {
 const LeadStatusCoverage = () => <Menu close={() => {}}><LeadStatusPanel close={() => {}} controls={useLeadControls()} /></Menu>
 const LeadAndPhoneCoverage = () => {
   const own = useMemo(() => {
-    const fixture = createLeadFixtureStore('running'), snapshot = fixture.getSnapshot()
-    localStorage.setItem('hd-lead-seen-v1', JSON.stringify({ at: Date.now() - 360_000, revision: 0, spent: 0 }))
+    const fixture = createLeadFixtureStore('presence'), snapshot = fixture.getSnapshot()
     const teams = new Map(snapshot.teams), evidence = new Map(snapshot.boardEvidence)
     teams.set('coverage-check', { intents: [{ id: 1, role: 'implement', state: 'done' }] } as never)
     evidence.set('coverage-check', { checks: ['verify'], cards: [{ card: 2, facts: [{ record: { fact: { kind: 'review', verdict: 'approve', at: 'a'.repeat(40) } } }] }] } as never)
@@ -44,10 +45,13 @@ const LeadAndPhoneCoverage = () => {
     const request = fixture.transport.request.bind(fixture.transport)
     fixture.transport.request = (async (method, params) => method === 'phone/state' ? phone : request(method, params)) as typeof fixture.transport.request
     fixture.phone.changed({ method: 'phone/changed', params: phone } as never)
+    fixture.lead.changed({ method: 'lead/changed', params: leadSceneProjection('presence') } as never)
     return fixture
   }, [])
+  const lead = useSyncExternalStore(own.lead.subscribe, () => own.lead.state)
   return <StoreProvider store={own}>
-    <Section title="Lead status"><LeadStatusCoverage /><LeadAway active state={own.lead.state} label="Dex" />
+    <Section title="Lead status"><LeadStatusCoverage /><LeadAway active state={lead} label="Dex" />
+      <LeadProactiveCard report={{ finding: 'The review is ready.', caveat: 'Checks still need you.', ask: 'Open changes', action: 'changes' }} />
       <LeadCheck room="coverage-check" needed revision={1} label="Dex" onError={() => {}} /></Section>
     <PhoneSettingsSection /><PhoneAsk />
   </StoreProvider>

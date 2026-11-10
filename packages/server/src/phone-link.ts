@@ -37,6 +37,10 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/settings/read': 'read',
     // Exact repeat/card JSON and method results: packages/phone-link/lead.md.
     'lead/schedule/read': 'read',
+    // What changed while this phone was away, and what became of each question; dismissing marks this phone's copy only.
+    'lead/presence/read': 'read',
+    'lead/presence/dismiss': 'read',
+    'lead/brief/read': 'read',
     // The work itself, read-only and redacted: projections written for the phone, never the desk's own records.
     'phone/sessions/list': 'read',
     'phone/teams/list': 'read',
@@ -71,7 +75,7 @@ export const PHONE_POLICY: PhonePolicy = {
     // Mention triage, read only: switching a trigger to act or evaluating a request again is the desk's.
     'phone/triage/list': 'read',
   },
-  topics: { lead: 'read', workspace: 'read' },
+  topics: { lead: 'read', workspace: 'read', notices: 'read', presence: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.
   defaultTiers: ['read', 'run', 'answer'],
 }
@@ -116,11 +120,20 @@ const WORKSPACE_EVENTS = new Set([
 ])
 const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed'])
 
+/** The methods whose receipts and marks name the device that made them. */
+const PHONE_DEVICE_METHODS = new Set(['lead/presence/read', 'lead/presence/dismiss', 'lead/thread/send'])
+const phoneDeviceRef = (device: Device) => ({
+  id: `phone:${device.id.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 48)}`,
+  label: device.name.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').trim().slice(0, 40) || 'Phone',
+})
+
 /** Starts the LAN listener against a running host and hands the window its controls. */
 export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' | 'attachPhoneLink'>, logger: Logger, options: PhoneLinkOptions): Promise<RunningPhoneLink> {
   const log = logger.child('phone-link')
   const call = async (method: string, params: unknown, device: Device): Promise<unknown> => {
     let parsed
+    // Who is asking is what the link proved, never what the phone's request says about itself.
+    if (PHONE_DEVICE_METHODS.has(method) && params && typeof params === 'object' && !Array.isArray(params)) params = { ...params, device: phoneDeviceRef(device) }
     try { parsed = parseClientMessage({ id: 0, method, params: params ?? {} }) } catch (error) {
       throw new PhoneCallError('badRequest', error instanceof Error ? error.message : String(error))
     }
@@ -145,6 +158,13 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     // A Lead change can move a Team row too (its step, `canWrap`, `relayed`, who started it) without any Team event,
     // so the workspace is rebuilt as well; the feed publishes only when the snapshot differs.
     if (notification.method === 'lead/changed') { service.publish('lead', notification.params); feed.poke() }
+    // The morning brief is one push, already capped for the phone; it carries words and a pointer, nothing else.
+    else if (notification.method === 'lead/presence/changed') {
+      const notice = notification.params.notice
+      // Presence moved (an ask was answered or expired, a brief arrived): a phone that is open re-reads it. No text rides along.
+      service.publish('presence', { v: 1 })
+      if (notice) service.publish('notices', { v: 1, id: notice.digest.slice(0, 64), ts: Math.floor(Date.now() / 1000), kind: 'message', title: notice.phone.title, body: notice.phone.body, deep: 'lead' })
+    }
     // Session pages extend beyond the metadata snapshot's bounded session portion. Every index change invalidates
     // them, even when that snapshot is byte-for-byte identical.
     else if (notification.method === 'session/indexChanged' || notification.method === 'lead/chats/controlChanged') feed.poke(true)

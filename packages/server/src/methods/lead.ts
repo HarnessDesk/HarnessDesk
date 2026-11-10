@@ -38,4 +38,9 @@ export const leadMethods = {
   'lead/work/read': (ctx, params) => ctx.leadWork.read(params),
   'lead/work/note': (ctx, params) => ctx.leadWork.note(params),
   'lead/work/close': (ctx, params) => ctx.leadWork.close(params),
+  // What changed while a device was away, and what became of each question: one answer for the window and every phone.
+  'lead/presence/read': (ctx, params) => ctx.leadPresence.read(params.device, params),
+  'lead/presence/dismiss': (ctx, params) => ctx.leadPresence.dismiss(params.device, params.digest),
+  'lead/brief/read': ctx => ctx.leadPresence.brief(),
+  'lead/brief/update': (ctx, params) => ctx.leadPresence.updateBrief(params),
 } satisfies MethodsUnder<'lead/'>

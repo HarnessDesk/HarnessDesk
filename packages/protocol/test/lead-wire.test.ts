@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { CLIENT_METHODS, LEAD_LIMITS, knownMethods, parseClientMessage } from '../src/index.js'
+import { CLIENT_METHODS, LEAD_LIMITS, knownMethods, parseClientMessage, parseLeadAsk, parseLeadThreadSend } from '../src/index.js'
 
 const names = ['lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/approval/revoke', 'lead/repeat/control', 'lead/budget/raise', 'lead/spendLimit/set', 'lead/wakes/read', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/schedule/read', 'lead/schedule/update']
 const chatNames = ['lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
 const workNames = ['lead/work/list', 'lead/work/read', 'lead/work/note', 'lead/work/close']
+const presenceNames = ['lead/presence/read', 'lead/presence/dismiss', 'lead/brief/read', 'lead/brief/update']
 
 test('the closed Lead window controls validate and none is on the client surface', () => {
-  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames].sort())
+  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames, ...presenceNames].sort())
   for (const name of names) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false)
   for (const name of ['lead/wakes/read', 'lead/thread/read', 'lead/settings/read']) assert.doesNotThrow(() => request(name, {}))
   assert.doesNotThrow(() => request('lead/thread/send', { idempotencyKey: 'send-1', text: 'Inspect the check' }))
@@ -138,4 +139,27 @@ test('the work ledger methods take bounded shapes: notes never carry a stage, an
     ['lead/chat/start', { text: 'Fix the docs', ledgerItem: 'anything' }],
   ]
   for (const [method, params] of bad) assert.throws(() => request(method, params), { name: 'ValidationError' }, `${method} ${JSON.stringify(params)}`)
+})
+
+test('presence requests name a device, a digest and a brief time, and nothing else', () => {
+  const device = { id: 'window:main', label: 'Desktop' }
+  assert.doesNotThrow(() => request('lead/presence/read', { device, active: true }))
+  assert.doesNotThrow(() => request('lead/presence/read', { device: { id: 'phone:abc-1', label: 'Jane’s iPhone' }, recap: true }))
+  assert.doesNotThrow(() => request('lead/presence/dismiss', { device, digest: 'away-1-2' }))
+  assert.doesNotThrow(() => request('lead/brief/read', {}))
+  assert.doesNotThrow(() => request('lead/brief/update', { enabled: true, at: '07:30' }))
+  for (const [method, params] of [
+    ['lead/presence/read', { active: true }], ['lead/presence/read', { device: { id: 'tablet:x', label: 'x' } }],
+    ['lead/presence/read', { device, extra: 1 }], ['lead/presence/dismiss', { device }], ['lead/brief/update', {}],
+    ['lead/brief/update', { at: '7:30' }], ['lead/brief/update', { at: '24:00' }], ['lead/brief/read', { x: 1 }],
+  ] as const) assert.throws(() => request(method, params))
+})
+
+test('an ask may carry an expiry in minutes, and a send may name its device', () => {
+  const ask = { question: 'Start it?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  assert.doesNotThrow(() => parseLeadAsk({ ...ask, expiresInMinutes: 30 }))
+  for (const bad of [0, 4, 10_081, 1.5, '30']) assert.throws(() => parseLeadAsk({ ...ask, expiresInMinutes: bad }))
+  assert.throws(() => parseLeadAsk({ ...ask, expiresAt: 5 }))
+  assert.deepEqual(parseLeadThreadSend({ idempotencyKey: 'k', text: 'Start it', device: { id: 'phone:p1', label: 'iPhone' } }).device, { id: 'phone:p1', label: 'iPhone' })
+  assert.equal(parseLeadThreadSend({ idempotencyKey: 'k', text: 'hi' }).device, undefined)
 })

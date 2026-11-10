@@ -172,7 +172,8 @@ observations stay in the desk's state folder, as does its work ledger,
 `lead/work.json`: work titles, project display names, chat, Team and pull
 request references, host-written stage facts and the Lead's own notes, at most
 256 items and closed items for 30 days. A ledger file that cannot be parsed is renamed beside it as `work.json.corrupt-<time>`, never sent anywhere. Up to 3 KB of the open items rides each
-Lead model request; a paired phone reads the same board, scrubbed. Stop ends the active request and
+Lead model request; a paired phone reads the same board, scrubbed.
+Presence is kept in `lead/presence.json` in the same folder: for each window or paired phone an opaque device id, its short label, when it last looked and which digest it dismissed; the clock and answer receipts (option label, device label, time) for asks that set one; the morning brief setting; and the day's observer spend. Nothing in it leaves the desk except the digest itself, which a paired phone reads and the optional summary call sends to the provider the Lead already uses: the digest's item titles, facts and counts (at most eight items), under the Lead's key, nothing else from the thread. The morning brief rides the phone link's `notices` topic as a title and body capped at 80 and 240 characters. Stop ends the active request and
 owned work without deleting files; disabling the startup opt-in leaves the
 journal on disk. The desktop probes its embedded runtime first, then its bundled or locally
 fetched Node. If no candidate passes, Lead reports unavailable before sending

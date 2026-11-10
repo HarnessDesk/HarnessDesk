@@ -170,6 +170,14 @@ it.each(['unexpected-code', '__proto__', 'constructor'])('unknown refusal %s is 
   await input(box.querySelector('textarea')!, 'Inspect'); await act(async () => button('Send').click())
   expect(box.querySelector('[role="alert"]')?.textContent).toBe('The Lead could not complete that action.')
 })
+it.each(['lead-ask-answered', 'lead-ask-expired'])('typed words refused by %s tell the person to say it another way; the text claims no device', async code => {
+  const { store, box } = await mount(); vi.spyOn(store.lead, 'send').mockRejectedValue({ code })
+  await input(box.querySelector('textarea')!, 'Start it'); await act(async () => button('Send').click())
+  const text = box.querySelector('[role="alert"]')?.textContent ?? ''
+  expect(text).toContain('If you meant something else, say it in other words.')
+  expect(text).not.toMatch(/another device/)
+  expect(text).toMatch(code === 'lead-ask-answered' ? /^This question was already answered\. Nothing was done\./ : /^This question expired\. Nothing was done\./)
+})
 it('unchanged settings groups cannot be saved', async () => {
   await mount(); await act(async () => button('Settings').click())
   expect(button('Save permissions').disabled).toBe(true); expect(button('Save allowances').disabled).toBe(true)
@@ -354,7 +362,7 @@ it('turns the spending limit Off through its own method, then saves rounds again
 it('uses unconstrained Lead settings groups and trailing Save rows', async () => {
   await mount(); await act(async () => button('Settings').click())
   const groups = [...document.querySelectorAll('[data-slot="rows"]')]
-  expect(groups).toHaveLength(4)
+  expect(groups).toHaveLength(5)
   for (const group of groups) {
     expect(group.parentElement?.getAttribute('data-slot')).toBe('section')
     expect(group.parentElement?.hasAttribute('data-sizing')).toBe(false)
@@ -795,7 +803,7 @@ it('renders the latest proactive ask as buttons, recommends the primary pick and
   let finish!: () => void
   const send = vi.spyOn(store.lead, 'send').mockImplementation(() => new Promise<Awaited<ReturnType<typeof store.lead.send>>>(resolve => { finish = () => resolve({ messageId: 'answer', revision: 2 }) }))
   await act(async () => button('Start it').click())
-  expect(send).toHaveBeenCalledWith('Start it', expect.any(String))
+  expect(send).toHaveBeenCalledWith('Start it', expect.any(String), 'ask')
   expect(button('Start it').disabled).toBe(true)
   expect(button('Not now').disabled).toBe(true)
   await act(async () => finish())
@@ -825,7 +833,7 @@ it('sends an option label with its internal spacing unchanged', async () => {
   const { store } = await mount({ ...base, thread: { ...base.thread, messages: [{ version: 1, id: 'ask-spaces', revision: 1, role: 'assistant', text: 'Choose.', ask: { ...askFixture, options: [{ id: 'start', label }, askFixture.options[1]!] } }] } })
   const send = vi.spyOn(store.lead, 'send').mockResolvedValue({ messageId: 'answer', revision: 2 })
   await act(async () => button(label).click())
-  expect(send).toHaveBeenCalledWith(label, expect.any(String))
+  expect(send).toHaveBeenCalledWith(label, expect.any(String), expect.any(String))
 })
 
 
