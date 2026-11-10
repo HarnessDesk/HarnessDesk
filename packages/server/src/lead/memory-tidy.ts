@@ -23,7 +23,7 @@ const isPlan = (value: unknown): value is LeadMemoryTidyPlan => {
 /**
  * One request to the smaller observer model over the Lead's own entries, never the person's: which say the same thing
  * (merge, into one sentence) and which a newer entry replaces (drop). Entry text goes in as quoted data, cleaned the way
- * the Lead reads it (`leadMemoryLine`: folded, NFKC, invisible characters out, `<` `>` escaped). A request is
+ * the Lead reads it (`leadMemoryLine`, which is the shared `leadCleanUntrusted` read as one line). A request is
  * made only when its most it could cost fits what today's cap has left; what it cost is returned either way.
  */
 export const createLeadMemoryTidier = (options: LeadMemoryTidierOptions): LeadMemoryTidier => async (entries, budgetUsdMicros) => {

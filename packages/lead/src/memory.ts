@@ -1,5 +1,5 @@
 import { LEAD_MEMORY_KINDS, LEAD_MEMORY_LIMITS, type LeadMemoryAuthor, type LeadMemoryKind } from '@harnessdesk/protocol'
-import { leadClip } from './context.js'
+import { leadCleanUntrusted } from './untrusted.js'
 
 /**
  * Core as the Lead reads it. The host owns the memory store and journals Core whenever it changes (`memory-core`);
@@ -22,21 +22,13 @@ export const initialLeadMemoryCore = (): LeadMemoryCore => ({ revision: 0, entri
 
 export const LEAD_MEMORY_OPEN = '<desk-memory'
 export const LEAD_MEMORY_CLOSE = '</desk-memory>'
-/** Format characters and the letters that render as nothing. */
-const INVISIBLE = /[\p{Cf}\u115f\u1160\u180e\u2800\u3164\uffa0]/gu
-const CONTROLS = /[\u0000-\u0008\u000e-\u001f\u007f-\u0084\u0086-\u009f]/g
 /**
- * Untrusted text as the model may read it, in a fixed order: every line terminator becomes a newline; compatibility
- * forms fold to their plain characters (NFKC), so a full-width or small-form bracket is a bracket; control, format
- * and blank characters are dropped; the structure is read (one line, runs of blanks as one space) and clipped to
- * `max`; and `<` and `>` become entities last, so nothing in it can open or close one of the desk's envelopes.
+ * Untrusted text as the model may read it: `leadCleanUntrusted`, the one cleaner every word nobody at the desk wrote
+ * passes (terminators folded, NFKC, control and invisible characters out, `<` and `>` escaped last, clipped to `max`),
+ * then read as one line with runs of blanks as one space, since a kept entry is one item of a list.
  */
-export const leadMemoryClean = (text: string, max: number = LEAD_MEMORY_LIMITS.textChars): string => {
-  const folded = text.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n').normalize('NFKC')
-  const visible = folded.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n').replace(CONTROLS, '').replace(INVISIBLE, '')
-  const line = leadClip(visible.split('\n').map(part => part.trim()).filter(Boolean).join(' ').replace(/[ \t]+/g, ' '), max)
-  return line.replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-}
+export const leadMemoryClean = (text: string, max: number = LEAD_MEMORY_LIMITS.textChars): string =>
+  leadCleanUntrusted(text, max).split('\n').map(part => part.trim()).filter(Boolean).join(' ').replace(/[ \t]+/g, ' ')
 /** One kept entry as the model reads it: `leadMemoryClean` at the entry's bound. */
 export const leadMemoryLine = (text: string): string => leadMemoryClean(text, LEAD_MEMORY_LIMITS.textChars)
 const KINDS: Readonly<Record<LeadMemoryKind, string>> = { preference: 'preference', fact: 'fact', lesson: 'lesson', rule: 'rule' }
