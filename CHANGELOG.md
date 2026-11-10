@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The Lead keeps a list of the work it started.** Each piece of work you ask for becomes one item across its chats, Teams and pull requests, grouped as Needs you, Working, In review and Done in the Lead's side panel and on your phone. A second start of the same work is refused and points at the open item. Close an item with Done or Drop; its chats and Teams are left as they are.
+
 - **Idle conversations read back whole.** A conversation an agent replays from its own store, such as an OpenCode one, keeps its replies, its thinking and the turn times the desk recorded, on the desktop and the phone. It no longer says recent activity is still being saved when nothing is.
 
 - **Manage conversations from your phone.** Rename, archive, unarchive and pin the desk's conversations; delete those whose agent moves them to the Trash. Pins follow you between the desk and phone.

@@ -549,3 +549,28 @@ The host requires a newer person answer before moving. After that choice, a
 move starts an ordinary chat on that agent with the brief, original first message and a
 host-built bounded progress digest. The old chat remains. Person-held chats
 are excluded; Stop during a reset wait cancels its retry.
+
+## The Lead's work list
+
+`workspace/read` (and every `workspace` topic push) carries an optional `work`, a `LeadWorkBoard`: the same board the desk's right rail draws, built by the host from one projection. Older desks omit it; a phone hides the list then.
+
+```json
+{"version":1,"more":0,"items":[
+  {"id":"work-4","title":"Rename the status column","project":"demo","stage":"needs-you","group":"needs-you","blocker":"An approval waits for you","links":{"chats":["fixture:chat-4"],"teams":[],"prs":[],"issues":[]},"createdAt":1767225600000,"updatedAt":1767229200000},
+  {"id":"work-2","title":"Fix the retry status list","project":"demo","stage":"in-review","group":"in-review","fact":"Pull request acme/widgets#42 is open","links":{"chats":[],"teams":[],"prs":["acme/widgets#42"],"issues":[]},"createdAt":1767222000000,"updatedAt":1767229000000}
+]}
+```
+
+Draw four groups in `LEAD_WORK_GROUPS` order, Needs you first: `needs-you`, `working`, `in-review`, `done`, labelled Needs you, Working, In review and Done. Items arrive already grouped and ordered; never re-derive a group from `stage`, prose or links. `blocker` is the host's reason an item waits and earns a visible line under Needs you; `fact`, `note` and `after` are optional detail. Titles, notes and facts pass the same scrub as every other phone string. `more` counts closed items left out of Done.
+
+The person's Done or Drop closes an item and nothing else; its chats, Teams and pull requests are left as they are:
+
+| Method | Required tier | Params | Result |
+| --- | --- | --- | --- |
+| `lead/work/close` | `run` | `id`, `outcome` (`done` or `dropped`) | `LeadWorkBoard` |
+
+```json
+{"method":"lead/work/close","params":{"id":"work-4","outcome":"dropped"}}
+```
+
+A close is never undone by later desk activity. An unknown id refuses with `notFound`. The phone has no way to note on an item or set its stage: notes are the Lead's, stages the host's.

@@ -24,6 +24,8 @@ import { LeadChatWatches } from './lead/chat-watches.js'
 import { leadChatCandidates, readLeadChatLimits } from './lead/chat-candidates.js'
 import type { RateLimits, WrapChoices } from '@harnessdesk/protocol'
 import { LeadChats, LeadChatBusyError } from './lead/chats.js'
+import { LeadWorkLedger, wakeForLeadWork } from './lead/work.js'
+import { teamLeadStage } from './work-stage.js'
 import { loadLeadProjectPolicy } from './lead/project-policy.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
 import { phoneLinkOff } from './phone-link.js'
@@ -167,7 +169,7 @@ import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { leadContractDigest, readLeadEvidence, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
 import type { LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
@@ -867,6 +869,7 @@ export class Host {
   #leadChatCancellation: ((id: string, count: number) => Promise<void>) | null = null
   #leadChatLimits = new Map<string, RateLimits>()
   #leadChats: LeadChats | null = null
+  #leadWork: LeadWorkLedger | null = null
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
   #leadRepeats: LeadRepeats | null = null
   #leadPlannerFiles: LeadPlanner | null = null
@@ -3837,6 +3840,50 @@ export class Host {
         throw error
       }
     }
+    // The work ledger: one record per piece of work, its stages read from the same desk state the phone shows.
+    const work = new LeadWorkLedger({ file: join(this.#state.directory, 'lead', 'work.json'), now: () => Date.now(),
+      project: () => folderName(project.path),
+      chat: id => this.#leadChats?.workState(id) ?? null,
+      teams: async () => new Map((await this.#goals.list()).map(view => {
+        const latest = this.#flows.executionSummaries({ team: view.goal.id, active: false })[0]
+        const { stage, reason } = view.stage === undefined ? teamLeadStage(view, latest ? { state: latest.state } : null) : { stage: view.stage, reason: view.stageReason ?? 'idle' }
+        return [view.goal.id as string, { stage, reason, done: view.goal.state === 'wrapped' }] as const
+      })),
+      pullRequests: () => {
+        const pr = journal.state.pr
+        return pr ? [{ ref: `${pr.repository}#${pr.number}`, state: pr.state, failing: pr.check?.state === 'failed' }] : []
+      },
+      replies: () => journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0),
+      publish: board => this.#push({ method: 'lead/work/changed', params: board }),
+    })
+    this.#leadWork = work
+    this.onDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
+    let workTimer: ReturnType<typeof setTimeout> | null = null
+    const pokeWork = () => {
+      if (workTimer || this.#disposed) return
+      workTimer = setTimeout(() => { workTimer = null; void work.refresh().catch(() => { this.#logger.warn('The Lead work ledger could not refresh') }) }, 250)
+      workTimer.unref?.()
+    }
+    this.onDispose(() => { if (workTimer) clearTimeout(workTimer) })
+    // An approved plan is work too: its Teams and pull request join one item, made once per goal.
+    let goalLinks = ''
+    const syncGoal = () => {
+      const state = journal.state, goal = state.budget?.logicalGoalId, contract = state.contract
+      const teams = contract ? leadPlanRuns(state).map(run => run.teamId).filter((team): team is string => typeof team === 'string') : []
+      if (!goal || !contract || !teams.length) return
+      const prs = state.pr ? [`${state.pr.repository}#${state.pr.number}`] : []
+      const signature = JSON.stringify([goal, teams, prs])
+      if (signature === goalLinks) return
+      goalLinks = signature
+      const kind = state.origin?.source === 'schedule' ? 'repeat' as const : state.origin ? 'trigger' as const : 'person' as const
+      void work.attach({ kind, ref: `goal:${goal}`, title: contract.goal }, { teams, prs }).then(pokeWork, () => { goalLinks = '' })
+    }
+    this.onDispose(journal.onChange(() => { syncGoal(); pokeWork() }))
+    const WORK_EVENTS = new Set(['session/started', 'session/status', 'session/closed', 'turn/started', 'turn/completed', 'approval/requested', 'approval/resolved'])
+    this.onDispose(this.addBroadcaster(notification => {
+      if (notification.method === 'goal/changed' || notification.method === 'session/indexChanged' || notification.method === 'session/removed' ||
+        (notification.method === 'event' && WORK_EVENTS.has(notification.params.event.type))) pokeWork()
+    }))
     this.#leadChatCancellation = async (id, count) => { await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${id}.`) }
     this.#leadChats = new LeadChats({ project, state: () => journal.state, now: options.recovery?.now ?? Date.now,
       managementAvailable: () => this.#leadService?.managementAvailable === true,
@@ -3913,7 +3960,8 @@ export class Host {
         },
       },
       watches: new LeadChatWatches(join(this.#state.directory, 'lead', 'chats.json')),
-      publish: params => this.#push({ method: 'lead/chat/changed', params }),
+      publish: params => { this.#push({ method: 'lead/chat/changed', params }); pokeWork() },
+      ledger: work,
     })
     void this.#leadChats.restore().catch(() => { this.#logger.warn('Lead incidents could not be restored') })
     this.onDispose(() => this.#leadChats?.close())
@@ -4184,6 +4232,7 @@ export class Host {
     // Recovery uses only journaled person authority and freshly verified worker/forge identity.
     void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
     this.#leadControls = new LeadControls({ journal,
+      readWorkContext: async () => leadWorkCards(await work.board(), Date.now()),
       approveRepeat: async (id, contract, reactivate) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now(), reactivate) },
       freezeRepeat: async contract => ({ ...contract, digest: leadContractDigest(contract) }),
       validateRepeat: async contract => {
@@ -4275,7 +4324,19 @@ export class Host {
       if (!settled.tasks.some(task => task.runs?.some(run => run.logicalGoalId === budget.logicalGoalId)) && lastSettled === signature) lastSettled = null
     }
     this.onDispose(journal.onChange(() => { void settleRepeat().catch(() => {}) }))
-    const timer = setInterval(() => { void settleRepeat().then(() => repeats.tick()).catch(() => { this.#logger.warn('A scheduled Lead task could not start') }) }, 60_000)
+    // A reminder the Lead set on a work item goes through the same minute timer and the same doors as a scheduled run:
+    // a closed thread opens through the automatic-goal path, an open conversation takes a schedule-sourced wake.
+    const remindWork = () => wakeForLeadWork(work, {
+      quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
+      canBegin: () => canBeginLeadGoal(journal.state),
+      offer: async (key, text, id) => (await automatic.offer({ key, text, origin: { source: 'schedule', event: 'work-reminder', subject: id, url: null } })).delivered,
+      remind: (key, text) => this.#leadControls!.remind(key, text),
+    })
+    const timer = setInterval(() => {
+      void settleRepeat().then(() => repeats.tick()).catch(() => { this.#logger.warn('A scheduled Lead task could not start') })
+        .then(() => remindWork()).catch(() => { this.#logger.warn('A Lead work reminder could not wake the Lead') })
+      pokeWork()
+    }, 60_000)
     timer.unref?.()
     this.onDispose(() => clearInterval(timer))
     return this.#leadService
@@ -5558,6 +5619,9 @@ export class Host {
       },
       leadChats: { list: params => this.leadChats.list(params), read: params => this.leadChats.read(params),
         start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
+      leadWork: { board: state => this.leadWork.board(state), read: params => this.leadWork.read(params),
+        note: async params => { const card = await this.leadWork.note(params); void this.leadWork.refresh(); return card },
+        close: params => this.leadWork.close(params) },
       // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
       leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary([...this.#runtimes.values()].flatMap(runtime => {
         const report = this.#usageService.cached(runtime.info.id)
@@ -10859,6 +10923,12 @@ export class Host {
     return this.#leadChats?.activities() ?? []
   }
 
+  /** The Lead's work ledger; refuses while no Lead runs here. */
+  get leadWork(): LeadWorkLedger {
+    if (!this.#leadWork || this.#disposed) throw leadRefusal('lead-unavailable')
+    return this.#leadWork
+  }
+
   get leadChats(): Pick<LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop' | 'idle'> {
     if (!this.#leadChats || this.#disposed) throw leadRefusal('lead-unavailable')
     return this.#leadChats
@@ -11005,6 +11075,7 @@ export class Host {
   #phoneWorkView(): PhoneWork {
     return this.#phoneWork ??= new PhoneWork({
       workspace: this.#phoneWorkspaceView(),
+      leadWork: async () => this.#leadWork && !this.#disposed ? await this.#leadWork.board() : null,
       wrapTeam: team => this.#wrapLeadTeam(team),
       cancelRecovery: async id => {
         const project = this.#leadChatProject

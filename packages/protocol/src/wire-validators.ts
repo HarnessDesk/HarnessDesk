@@ -42,6 +42,7 @@ import type { UserContent } from './items.js'
 import type { LibraryIntent, LibraryPlannedOp } from './library.js'
 import { runtimeId, type RuntimeId, type SessionId } from './ids.js'
 import type { ReviewRequest } from './runtime.js'
+import { parseLeadWorkClose, parseLeadWorkList, parseLeadWorkNote, parseLeadWorkRead } from './lead-work.js'
 
 /**
  * Validators for messages the host accepts from a renderer.
@@ -1061,7 +1062,11 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     })(value, path)
     if (ids.length < 1 || ids.length > 3 || new Set(ids).size !== ids.length) throw new ValidationError(path, 'expected 1 to 3 unique message ids')
     return ids
-  }), effectId: optional(phoneText(256)) }),
+  }), effectId: optional(phoneText(256)), ledgerItem: optional((value, path = '') => {
+    const id = phoneText(64)(value, path)
+    if (!/^work-[1-9][0-9]{0,8}$/.test(id)) throw new ValidationError(path, 'expected a work id such as work-3')
+    return id
+  }) }),
   'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384), retryAt: optional(literalUnion('reset')), effectId: optional(phoneText(256)) }),
   'lead/chats/resetControl': parseLeadEmpty,
   'lead/chats/control': parseLeadEmpty,
@@ -1713,6 +1718,10 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
   'app/state/set': shape({ patch: windowPreferences, noticeBase: optional(shape({ inbox: optional(arrayOf(isObject)), noticePolicy: optional(isObject) })) }),
   'app/browsers': isObject,
+  'lead/work/list': parseLeadWorkList,
+  'lead/work/read': parseLeadWorkRead,
+  'lead/work/note': parseLeadWorkNote,
+  'lead/work/close': parseLeadWorkClose,
 }
 
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]

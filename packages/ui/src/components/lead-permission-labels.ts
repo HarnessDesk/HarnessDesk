@@ -32,6 +32,9 @@ const LEAD_METHOD_LABELS: Readonly<Record<ClientMethodName, { readonly permissio
   'library/read': { permission: 'Browse the library' },
   'library/definition': { permission: 'Read a library item' },
   'library/usage': { permission: 'Count skill use', activity: 'Counting skill use' },
+  'lead/work/list': { permission: 'List tracked work', activity: 'Checking the work list' },
+  'lead/work/read': { permission: 'Read a work item', activity: 'Reading a work item' },
+  'lead/work/note': { permission: 'Note on a work item', activity: 'Noting progress' },
 }
 export const PERMISSION_LABELS = Object.fromEntries(Object.entries(LEAD_METHOD_LABELS)
   .map(([method, labels]) => [method, labels.permission])) as Record<ClientMethodName, string>

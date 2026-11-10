@@ -6,6 +6,7 @@ import { sanitizeText } from '../lib/sanitize'
 import { leadRefusalText } from './lead-refusals'
 import { leadDollars, leadSpendCap } from './LeadCards'
 import { PencilIcon } from './Icons'
+import { LeadWork } from './LeadWork'
 
 /** A Flow role is an id (`implement`); the rail says it in the plan card's word, capitalised for a row title. */
 const roleTitle = (role: string) => { const word = leadRoleWord(sanitizeText(role)); return word.charAt(0).toUpperCase() + word.slice(1) }
@@ -70,6 +71,7 @@ export const LeadDetails = () => {
     {!(contract && phase) && <ToolSection label="Goal">
       <ToolProse variant="note">{state.projectMissing ? 'Open a folder, then send a goal. Its plan, workers and spend show here.' : 'Send a goal. Its plan, workers and spend show here.'}</ToolProse>
     </ToolSection>}
+    <LeadWork />
     {contract && phase && <>
       <ToolSection label="Goal" fold><ToolProse>{sanitizeText(contract.goal)}</ToolProse></ToolSection>
       <ToolSection label="Plan" fold value={planWord(phase, state.progress)}>
