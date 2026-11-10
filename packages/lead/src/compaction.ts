@@ -69,12 +69,16 @@ const INVISIBLE = /[\p{Cf}ᅟᅠ᠎⠀ㅤﾠ]/gu
 /**
  * The one entry to reading a checkpoint's text, before anything else looks at it. Every line terminator a renderer or
  * a model reads as a break becomes one newline; other control characters (a tab aside) and every invisible character
- * are dropped; `<` and `>` become entities, so the text is never markup and never raw HTML; and each line loses its
- * trailing blanks. The heading and quote checks, the fallback after them and every reader see the same lines.
+ * are dropped; and each line loses its trailing blanks. The heading and quote checks, the fallback after them and
+ * every reader see the same lines. Markup is escaped only after the structure is read (`escape`), so a blockquote's
+ * `>` still marks a quoted heading or quote when they are checked.
  */
 const lines = (text: string): string[] => text.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n')
   .replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u0084\u0086-\u009f]/g, '').replace(INVISIBLE, '')
-  .replaceAll('<', '&lt;').replaceAll('>', '&gt;').split('\n').map(line => line.trimEnd())
+  .split('\n').map(line => line.trimEnd())
+/** The last step for a line of the model's: `<` and `>` become entities, so the text is never markup and never raw
+ * HTML, and can neither open nor close the desk's envelope. */
+const escape = (line: string): string => line.replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 /**
  * The model's checkpoint read structurally: only the five headings it was asked for open a section (spelt however it
  * likes, kept under the desk's spelling); a heading that names the person's section is dropped with what follows it up
@@ -84,7 +88,7 @@ const lines = (text: string): string[] => text.replace(/\r\n|[\r\v\f\u0085\u2028
 const modelSections = (text: string): { readonly section: string; readonly body: string }[] => {
   const all = lines(text), parts: { section: string; body: string[] }[] = []
   let skipping = false
-  const keep = (line: string) => { if (!skipping) parts.at(-1)?.body.push(defang(line)) }
+  const keep = (line: string) => { if (!skipping) parts.at(-1)?.body.push(escape(defang(line))) }
   for (let index = 0; index < all.length; index++) {
     const flat = plain(all[index]!)
     let heading: { readonly quote: string; readonly title: string } | null = null
@@ -142,7 +146,7 @@ export const leadPersonQuotes = (words: readonly { readonly id: string; readonly
   return { messages, leftOut: [...leftOut.filter(id => /^[A-Za-z0-9._:/-]{1,128}$/.test(id)), ...all.slice(0, cut).map(item => item.id)].slice(-LEAD_CHECKPOINT_PERSON.leftOut) }
 }
 /** One quote as the model reads it; the person's `<` and `>` become entities like everything else in the text. */
-const quoteLine = (message: { readonly id: string; readonly text: string }) => `- "${message.text.replaceAll('<', '&lt;').replaceAll('>', '&gt;')}" [${message.id}]`
+const quoteLine = (message: { readonly id: string; readonly text: string }) => `- "${escape(message.text)}" [${message.id}]`
 /** The person's section as the model reads it, from `leadPersonQuotes` (or from words, which it quotes first). */
 export const leadPersonSection = (person: LeadCheckpointPerson | readonly { readonly id: string; readonly text: string }[], leftOut: readonly string[] = []): string => {
   const quotes = Array.isArray(person) ? leadPersonQuotes(person, leftOut) : person as LeadCheckpointPerson
@@ -195,7 +199,19 @@ export const leadPersonWords = (turns: readonly MessagesTurn[]): { readonly id: 
   return words
 })
 
-const clip = (text: string, max: number) => text.length > max ? `${text.slice(0, max - 1)}…` : text
+/**
+ * The one clip for every bounded field the desk writes (a checkpoint, a person message, a turn, a tool result): at
+ * most `max` UTF-16 units, the mark included, and never half of a surrogate pair, so what it returns is always
+ * well formed and passes the wire's check.
+ */
+export const leadClip = (text: string, max: number, mark = '…'): string => {
+  if (text.length <= max) return text
+  let end = Math.max(0, max - mark.length)
+  const last = text.charCodeAt(end - 1)
+  if (last >= 0xd800 && last <= 0xdbff) end--
+  return `${text.slice(0, end)}${mark}`
+}
+const clip = leadClip
 const render = (turn: MessagesTurn): string => `${turn.role === 'user' ? 'Person or desk' : 'Lead'}: ${turn.content.map(block =>
   block.type === 'text' ? block.text : block.type === 'tool_use' ? `[called ${block.name}]` : block.type === 'tool_result' ? `[tool result: ${clip(block.content, 300)}]` : '').filter(Boolean).join(' ')}`
 

@@ -6,7 +6,7 @@ import {
   leadCheckpointCompose, leadFallbackCheckpoint, leadFitTurns, leadHistory, leadMergedTurns, leadNextSoftShare, leadPairedTurns, leadPersonSection, leadPersonQuotes, leadCheckpointModelPart,
   leadPruneContext, parseLeadContextTurns, LEAD_CONTEXT_UNCOUNTED,
   type LeadCompactionTrigger, type LeadContextMark, type LeadContextRecordInput, type LeadJournal, type LeadMessagesRequest,
-  type LeadMessagesResult, type MessagesText, type MessagesTurn,
+  type LeadMessagesResult, type MessagesText, type MessagesTurn, leadClip
 } from '@harnessdesk/lead'
 import { parseLeadContextFacts, type LeadCheckpointPerson, type LeadContextCheckpoint, type LeadContextFacts } from '@harnessdesk/protocol'
 import { readBoundedJson, writeAtomicJson } from './bounded-json.js'
@@ -18,6 +18,12 @@ import { readBoundedJson, writeAtomicJson } from './bounded-json.js'
  * never larger than `LEAD_CONTEXT.diskBytes`, and is replaced only through the journal (`context-compaction-*`), so a
  * crash at any point leaves either the old conversation or the new one, never a mix.
  */
+/** The summaries the facts can carry, each checked alone: one entry the wire would refuse (a stored file from an older
+ * desk, a field cut badly) drops itself, never the list, so reading the context and Summarise now keep working. */
+const readableCheckpoints = (list: readonly unknown[]): LeadContextCheckpoint[] => list.flatMap(one => {
+  try { return [...parseLeadContextFacts({ version: 1, windowTokens: 1, usedTokens: null, cacheHitRate: null, compacting: false, checkpoints: [one] }).checkpoints] }
+  catch { return [] }
+})
 const FILE = 'context.jsonl', NEXT = 'context.next.jsonl', CHECKPOINTS = 'context-checkpoints.json'
 const PERSON_REFERENCE = 'Desk reference for the preceding person message: '
 const KNOWN = 1024, CHECKPOINT_LIST = 8, READ_BYTES = 1_000_000
@@ -124,8 +130,7 @@ export class LeadContextStore {
     else await this.#seed(settled)
     const kept = await readBoundedJson(this.#path(CHECKPOINTS), 600_000) as { version?: unknown; checkpoints?: unknown } | undefined
     if (kept?.version === 1 && Array.isArray(kept.checkpoints)) {
-      try { this.#checkpoints = [...parseLeadContextFacts({ version: 1, windowTokens: 1, usedTokens: null, cacheHitRate: null, compacting: false, checkpoints: kept.checkpoints.slice(-CHECKPOINT_LIST) }).checkpoints] }
-      catch { this.#checkpoints = [] }
+      this.#checkpoints = readableCheckpoints(kept.checkpoints.slice(-CHECKPOINT_LIST))
     }
     // The desk stopped between started and applied: the old conversation stands, and the run is not a failure.
     const pending = journal.state.context.pending
@@ -414,7 +419,7 @@ export class LeadContextStore {
       this.#fullAt = afterShare >= LEAD_CONTEXT.hardShare ? afterShare : null
       // Shown only once it passes the same screen a reply does; the conversation keeps it either way. A view draws the
       // person's words from `person`, the data the desk built them from, and only the model's sections from the text.
-      let shown: string | null = text.slice(0, 32_768)
+      let shown: string | null = leadClip(text, 32_768, '')
       try { await this.#connections.screen?.(shown) } catch { shown = null }
       this.#checkpoints = [...this.#checkpoints, { id, at: now(), fallback, beforeTokens, afterTokens, text: shown === null ? null : leadCheckpointModelPart(shown),
         ...(shown === null ? {} : { person: quotes }) }].slice(-CHECKPOINT_LIST)
@@ -450,7 +455,7 @@ export class LeadContextStore {
     const wakes = this.options.journal.state.wakes.flatMap(wake => wake.tokens ? [wake.tokens] : [])
     const total = wakes.reduce((sum, tokens) => sum + tokens.input + tokens.cacheRead + tokens.cacheWrite, 0)
     return parseLeadContextFacts({ version: 1, windowTokens: this.window, usedTokens: this.#turns.length ? Math.min(100_000_000, Math.round(this.tokens())) : null,
-      cacheHitRate: total ? wakes.reduce((sum, tokens) => sum + tokens.cacheRead, 0) / total : null, compacting: this.#compacting, checkpoints: this.#checkpoints,
+      cacheHitRate: total ? wakes.reduce((sum, tokens) => sum + tokens.cacheRead, 0) / total : null, compacting: this.#compacting, checkpoints: readableCheckpoints(this.#checkpoints),
       ...(this.#fullAt !== null ? { full: true } : {}) })
   }
 }
