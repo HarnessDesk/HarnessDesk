@@ -44,6 +44,8 @@ import type { MentionThread } from './forge.js'
 const FILE = 'triggers-mentions.json'
 /** How many comment ids a thread remembers having taken, so a comment offered twice joins once. */
 const THREAD_SEEN = 200
+/** How long a thread the work ledger could not take waits before it is offered again. */
+const ATTACH_RETRY_MS = 60 * 60_000
 const EXCERPT = 280
 const REASON = 300
 /** At most this many assessments a day on one desk; past it, a request waits for the person. */
@@ -118,15 +120,20 @@ export interface MentionAssessInput {
 export type MentionAssessor = (input: MentionAssessInput, signal: AbortSignal) => Promise<MentionAssessment | null>
 
 /**
- * Where an accepted thread of work is attached to the desk's work ledger.
- * The ledger is another part of the desk; until it is wired here, this is a
- * no-op and the thread's own record is the only linkage.
+ * Where an accepted thread of work joins the Lead's work ledger: the thread it
+ * came from (repository, number and the comment that asked) and the work it
+ * opened. Work the Lead starts later for the same thread, after a person
+ * approves its plan, joins the same item, so the board shows them as one. The
+ * item is for reading: a stop on the thread never walks it, since every
+ * thread on the same issue shares it. With no Lead on the desk there is no
+ * ledger, and the thread's own record is the only linkage.
  */
 export interface WorkItemsPort {
-  attach(origin: { readonly kind: 'mention'; readonly trigger: string; readonly repository: string; readonly thread: TriggerWorkThread['origin'] }, links: TriggerWorkThread['links']): Promise<void>
+  /** The item the thread is on now; null when the desk keeps no work ledger. */
+  attach(origin: { readonly kind: 'mention'; readonly trigger: string; readonly repository: string; readonly thread: TriggerWorkThread['origin']; readonly comment: string | null }, links: TriggerWorkThread['links']): Promise<string | null>
 }
 
-export const NO_WORK_ITEMS: WorkItemsPort = { attach: async () => {} }
+export const NO_WORK_ITEMS: WorkItemsPort = { attach: async () => null }
 
 const opensWords = (definition: TriggerDefinition): string =>
   'flow' in definition.opens ? `the flow ${definition.opens.flow}` : 'agent' in definition.opens ? `the Agent ${definition.opens.agent}` : 'the Lead'
@@ -163,6 +170,10 @@ interface StoredThread extends TriggerWorkThread {
   readonly firings: readonly string[]
   /** Comment ids it already took or counted. */
   readonly seen: readonly string[]
+  /** The comment that asked for the work, by URL. */
+  readonly comment?: string
+  /** The Lead's work item it is on, once the desk keeps one. */
+  readonly workItem?: string
 }
 
 /** A decision as the desk keeps it: with the digest of the comment it decided, never shown. */
@@ -219,8 +230,12 @@ export interface MentionPort {
   readonly assess: MentionAssessor | null
   /** The handle a trigger without one answers to: the desk's Lead name. */
   leadName(): string
-  /** Stops the work running on these Goals through the host, with the reason; how many runs it stopped. */
-  stop(goals: readonly string[], why: string): Promise<number>
+  /**
+   * Stops a thread's work through the host, with the reason: the trigger's own runs on its Goals, and the Lead's goal
+   * when one of the thread's firings opened it, as the person's Stop stops it and recorded as a stop from `comment`.
+   * How many runs of each it stopped, and whether the Lead's plan was stopped.
+   */
+  stop(work: { readonly goals: readonly string[]; readonly firings: readonly string[]; readonly comment: string }, why: string): Promise<{ readonly own: number; readonly lead: number; readonly plan: boolean }>
   /** The pull requests the work on these Goals and firings opened, by number. */
   pullRequests(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]>
   readonly workItems: WorkItemsPort
@@ -252,6 +267,9 @@ export class MentionTriage {
   #problem: string | null = null
   /** Who-may-ask answers from the forge, by question, with when they were read. */
   readonly #accounts = new Map<string, { readonly answer: boolean; readonly at: number }>()
+  /** Threads the work ledger refused, by when to offer them again; and those already said, so each is said once. */
+  readonly #attachHeld = new Map<string, number>()
+  readonly #attachSaid = new Set<string>()
 
   constructor(port: MentionPort) {
     this.#port = port
@@ -388,17 +406,19 @@ export class MentionTriage {
         }
         if (addressed && asksToStop(fact.body ?? '', handle)) {
           const asked = `Asked by ${fact.login ?? 'someone allowed'} to stop the work on ${threadWords(linked.origin.kind, linked.origin.number)}.`
-          // Observing, nothing is stopped; acting, what was running is stopped through the host, and the thread says which.
-          const stopped = mode === 'act' ? await this.#port.stop(linked.links.goals, STOPPED) : 0
+          // Observing, nothing is stopped; acting, what was running is stopped through the host, and the thread says which:
+          // the trigger's own runs, and the Lead's goal when a firing of this thread opened it, with the runs it owned.
+          const counts = mode === 'act' ? await this.#port.stop({ goals: linked.links.goals, firings: linked.firings, comment: fact.url! }, STOPPED) : { own: 0, lead: 0, plan: false }
+          const parts = stoppedParts(counts)
           const verdict: Verdict = {
             decision: 'stop', by: 'rules',
             reason: mode !== 'act' ? asked
-              : stopped > 0 ? `${asked} ${stopped === 1 ? '1 run' : `${stopped} runs`} of its work ${stopped === 1 ? 'was' : 'were'} stopped, and the thread is closed.`
+              : parts.length > 0 ? `${asked} ${listWords(parts)} ${parts.length === 1 && counts.own + counts.lead <= 1 ? 'was' : 'were'} stopped, and the thread is closed.`
               : `${asked} nothing of its work was running, so nothing was stopped; the thread is closed.`,
             rules: [{ id: 'addressed', passed: true, detail: `Addresses @${handle}.` }, allowed, { id: 'stop-word', passed: true, detail: 'Asks the work on this thread to stop.' }],
           }
           await this.#thread(linked.id, (one) => mode === 'act'
-            ? { ...one, state: 'closed', closed: { reason: stopped > 0 ? 'stopped' : 'closed', at: this.#port.now() }, seen: remember(one.seen, id) }
+            ? { ...one, state: 'closed', closed: { reason: parts.length > 0 ? 'stopped' : 'closed', at: this.#port.now() }, seen: remember(one.seen, id) }
             : { ...one, seen: remember(one.seen, id) })
           await this.#record(arm, fact, verdict, mode, mode === 'act', mode === 'act' ? linked.id : null)
           return
@@ -418,6 +438,8 @@ export class MentionTriage {
             goals: answer.goal && !one.links.goals.includes(answer.goal) ? [...one.links.goals, answer.goal] : one.links.goals,
           },
         }))
+        const resumed = (await this.#read()).threads.find((one) => one.id === linked.id)
+        if (resumed) await this.#attach(resumed)
         this.#port.changed(arm.project)
         return
       }
@@ -518,6 +540,9 @@ export class MentionTriage {
             await this.#thread(thread.id, () => next)
             if (next.links !== thread.links) await this.#attach(next)
             this.#port.changed(thread.project)
+          } else if (thread.workItem === undefined) {
+            // Opened while the desk kept no work ledger, or one that could not take it: it joins one when it can.
+            await this.#attach(thread, true)
           }
         } catch (error) {
           this.#port.log('a mention thread could not be followed', { error: error instanceof Error ? error.message : String(error) })
@@ -649,7 +674,7 @@ export class MentionTriage {
       origin: { kind, number },
       links: { issues: kind === 'issue' ? [number] : [], pulls: kind === 'pull-request' ? [number] : [], goals: answer.goal ? [answer.goal] : [] },
       state: 'open', closed: null, resumes: 0, observations: 0, openedAt: this.#port.now(),
-      firings: [answer.firing], seen: [comment],
+      firings: [answer.firing], seen: [comment], ...(fact.url ? { comment: fact.url } : {}),
     }
     const ledger = await this.#read()
     await this.#write({ ...ledger, threads: [...ledger.threads.filter((one) => one.id !== thread.id), thread] })
@@ -657,10 +682,22 @@ export class MentionTriage {
     return thread.id
   }
 
-  async #attach(thread: StoredThread): Promise<void> {
+  /**
+   * Puts the thread on the work ledger. One the ledger refused is said once, and a sweep (`retry`) offers it again
+   * only after `ATTACH_RETRY_MS`, not on every pass; a change to the thread's links offers it at once.
+   */
+  async #attach(thread: StoredThread, retry = false): Promise<void> {
+    const held = this.#attachHeld.get(thread.id)
+    if (retry && held !== undefined && this.#port.now() < held) return
     try {
-      await this.#port.workItems.attach({ kind: 'mention', trigger: thread.trigger, repository: thread.repository, thread: thread.origin }, thread.links)
+      const item = await this.#port.workItems.attach({ kind: 'mention', trigger: thread.trigger, repository: thread.repository, thread: thread.origin, comment: thread.comment ?? null }, thread.links)
+      this.#attachHeld.delete(thread.id)
+      this.#attachSaid.delete(thread.id)
+      if (item !== null && item !== thread.workItem) await this.#thread(thread.id, (one) => ({ ...one, workItem: item }))
     } catch (error) {
+      this.#attachHeld.set(thread.id, this.#port.now() + ATTACH_RETRY_MS)
+      if (this.#attachSaid.has(thread.id)) return
+      this.#attachSaid.add(thread.id)
       this.#port.log('a mention thread could not be attached to the work ledger', { error: error instanceof Error ? error.message : String(error) })
     }
   }
@@ -673,12 +710,21 @@ export class MentionTriage {
 
 const remember = (seen: readonly string[], id: string): readonly string[] => [...seen, id].slice(-THREAD_SEEN)
 
+const runWords = (count: number): string => count === 1 ? '1 run' : `${count} runs`
+
+/** What a stop stopped, by whose it was: "1 run of its work", "2 runs the Lead started for it", "the Lead’s plan for it". */
+const stoppedParts = (counts: { readonly own: number; readonly lead: number; readonly plan: boolean }): readonly string[] => [
+  ...(counts.own > 0 ? [`${runWords(counts.own)} of its work`] : []),
+  ...(counts.lead > 0 ? [`${runWords(counts.lead)} the Lead started for it`] : []),
+  ...(counts.plan ? ['the Lead’s plan for it'] : []),
+]
+
 const publicDecision = (decision: StoredDecision): TriggerDecision => {
   const { commentDigest: _digest, ...rest } = decision
   return rest
 }
 
 const publicThread = (thread: StoredThread): TriggerWorkThread => {
-  const { firings: _firings, seen: _seen, ...rest } = thread
+  const { firings: _firings, seen: _seen, comment: _comment, workItem: _workItem, ...rest } = thread
   return rest
 }

@@ -200,8 +200,14 @@ the comment author's permission, all as the same signed-in person. Its
 decisions, the comment's first 280 characters as an excerpt (left blank when
 the comment looks like it holds a credential, on the desk and on the phone),
 a digest of the comment's text (so Re-evaluate can tell it was edited), its
-observe/act mode and its work threads are kept in `triggers-mentions.json` in
-the state folder, at most 500 decisions and 256 threads. Who may ask is read
+observe/act mode and its work threads (with the asking comment's URL and the
+Lead work item the thread is on) are kept in `triggers-mentions.json` in
+the state folder, at most 500 decisions and 256 threads. With the Lead on, an
+accepted thread is also an item in `lead/work.json`, linking that comment's
+URL, the issue or pull request reference and the thread's Teams; nothing
+about it leaves the machine beyond the Lead's work cards described above. A
+comment that stops the Lead's goal is recorded in the Lead's journal by its
+URL, on the stop it caused. Who may ask is read
 from the forge at most once in five minutes per account. While a work thread
 has no pull request, the issue it follows is read on each sweep to see
 whether it closed. With the Lead

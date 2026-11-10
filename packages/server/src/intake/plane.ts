@@ -154,6 +154,8 @@ export interface IntakeHostPort {
     leadName?(): string
     pullRequests?(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]>
     readonly workItems?: WorkItemsPort
+    /** Stops the Lead's goal when a firing of the thread opened it, as the person's Stop does; what it stopped. */
+    stopLead?(asked: { readonly firings: readonly string[]; readonly comment: string }): Promise<{ readonly plan: boolean; readonly runs: number }>
   }
 }
 
@@ -349,19 +351,22 @@ export class IntakePlane {
       forge: this.#forge,
       assess: port.mentions?.assess ?? null,
       leadName: () => port.mentions?.leadName?.() ?? 'dex',
-      stop: async (goals, why) => {
-        // The host's own stop: checks first, then every run still going, then any live turn on the Goal's Seats.
-        let stopped = 0
+      stop: async ({ goals, firings, comment }, why) => {
+        // The trigger's own runs, by the host's stop: checks first, then each intake run still going, then any live turn on
+        // the Goal's Seats. Never a run a person started on the Goal, and never another trigger's.
+        let own = 0
         for (const goal of goals) {
           port.flows.interruptChecks?.(goal)
           for (const run of port.flows.runs(goal).filter((one) => one.intake && (one.state === 'running' || one.state === 'stalled'))) {
             await port.flows.stopRun(run.id, why)
-            stopped += 1
+            own += 1
           }
           await port.interrupt(goal)
         }
+        // The Lead's goal, only when a firing of this thread opened it: stopped as the person's Stop stops it.
+        const lead = await port.mentions?.stopLead?.({ firings, comment }) ?? { plan: false, runs: 0 }
         this.#schedule()
-        return stopped
+        return { own, lead: lead.runs, plan: lead.plan }
       },
       pullRequests: (repository, goals, firings) => port.mentions?.pullRequests?.(repository, goals, firings) ?? Promise.resolve([]),
       workItems: port.mentions?.workItems ?? NO_WORK_ITEMS,
