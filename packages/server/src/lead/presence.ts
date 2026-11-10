@@ -285,6 +285,23 @@ export class LeadPresenceStore {
     }
     return undefined
   }
+  /**
+   * The Lead's newest question while the person has not answered it: not answered, not expired, and nothing the person
+   * said since is more than the request it asked about, said again. Work that question decides must not start yet; the
+   * person is pointed to it instead. Words that are not a repeat are the person moving on, and free the Lead to act.
+   */
+  unansweredAsk(): { readonly id: string; readonly question: string; readonly options: readonly string[] } | null {
+    const messages = this.ports.messages(), now = this.ports.now()
+    const at = messages.findLastIndex(message => message.role === 'assistant' && message.ask !== undefined)
+    if (at < 0) return null
+    const message = messages[at]!, record = this.#stored.asks[message.id]
+    if (record?.answer || record?.expiresAt !== undefined && record.expiresAt <= now) return null
+    const same = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase()
+    const asked = messages.slice(0, at).findLast(one => one.role === 'user')
+    const since = messages.slice(at + 1).filter(one => one.role === 'user')
+    if (since.some(one => !asked || same(one.text) !== same(asked.text))) return null
+    return { id: message.id, question: message.ask!.question, options: message.ask!.options.map(option => option.label) }
+  }
   /** Notes for the model about messages the person sent after a question ran out; each belongs to one message. */
   #notes: ExpiryNote[] = []
 

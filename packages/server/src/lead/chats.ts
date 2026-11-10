@@ -1,4 +1,4 @@
-import { leadStage, type LeadStage, type LeadStartCause } from '@harnessdesk/protocol'
+import { leadStage, quoteLeadWorkText, type LeadStage, type LeadStartCause } from '@harnessdesk/protocol'
 import type { DispatchAdmission } from '../dispatch-admission.js'
 import { LEAD_LIMITS, deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
 import { LeadChatHeldError, type LeadChatControlStore } from './chat-control.js'
@@ -55,6 +55,9 @@ export interface LeadChatsPorts {
    * the Lead makes on its own for that goal is refused then; the person's own are not.
    */
   readonly deadlinePassed?: () => Promise<boolean>
+  /** The Lead's question the person has not answered yet, if any (`LeadPresenceStore.unansweredAsk`). While it is open
+   * no chat starts: the Lead never picks an option for the person, and a repeat of the request points to the question. */
+  readonly unansweredAsk?: () => { readonly question: string; readonly options: readonly string[] } | null
   /**
    * Account pacing. Asked only for a start the Lead made without naming an agent, and answered only when the person
    * turned on "Prefer the account that resets soonest" for the agent the desk would start on. The agent is one the
@@ -456,6 +459,11 @@ export class LeadChats {
       const candidates = params.agent === undefined ? [] : await this.ports.recovery?.candidates(params.moveFrom) ?? []
       const matches = candidates.filter(one => one.key === params.agent || one.name === params.agent)
       if (params.agent !== undefined && matches.length !== 1) refuse('That agent is not in the available candidate list.')
+      const open = params.moveFrom === undefined ? this.ports.unansweredAsk?.() ?? null : null
+      if (open) {
+        this.ports.noteDispatchNotStarted(attemptId)
+        return { id: '', problem: `Your question ${quoteLeadWorkText(open.question, 200)} is still open and the person has not picked an option. Do not start the work it decides, and do not pick for them: point the person to the question and its options (${open.options.map(option => quoteLeadWorkText(option, 60)).join(', ')}).` }
+      }
       // The person's own start is never refused here. Anything else is automatic work: it stops when the goal's time has
       // run out, and it waits at the cap, for a reason the Lead is handed back as the tool result.
       if (cause === 'automatic') {
@@ -501,7 +509,8 @@ export class LeadChats {
       let createdId: string | undefined, moveClaimed = false, creationStarted = false, firstMessageStarted = false
       const scope = this.#liveScope(call, attemptId, () => createdId)
       try {
-        const begin = (chosen: string | undefined) => this.ports.work.startInProject({ text, ...(chosen ? { agent: chosen } : {}) }, this.ports.project.path, async id => {
+        // A chat the Lead starts never inherits a permission the person picked for their own chats (Bypass and the like).
+        const begin = (chosen: string | undefined) => this.ports.work.startInProject({ text, cautious: true, ...(chosen ? { agent: chosen } : {}) }, this.ports.project.path, async id => {
           createdId = id
           await admit(id)
           if (params.moveFrom) {

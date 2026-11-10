@@ -448,6 +448,20 @@ test('phone starts resolve model selectors before dependent recommendations', as
 })
 
 
+test('a chat the Lead starts never inherits a high-risk permission the person saved for their own chats', async () => {
+  const resolve = async (params: { values?: Record<string, unknown> }) => [
+    { id: 'mode', type: 'select' as const, category: 'mode' as const, label: 'Mode', currentValue: (params.values?.['mode'] ?? 'default') as string,
+      choices: [{ value: 'default', label: 'Default' }, { value: 'acceptEdits', label: 'Accept edits' }, { value: 'bypassPermissions', label: 'Bypass permissions', risk: 'high' as const }],
+      recommendedValue: 'acceptEdits' },
+  ]
+  const preferences = { draftValues: { [RT]: { mode: 'bypassPermissions' } } }
+  assert.deepEqual(await phoneSessionValues(RT, undefined, preferences, resolve), { mode: 'bypassPermissions' }, 'the person’s own start keeps their pick')
+  assert.deepEqual(await phoneSessionValues(RT, undefined, preferences, resolve, {}, true), { mode: 'acceptEdits' }, 'the Lead’s start takes the recommendation')
+  // A runtime that would start on the high-risk choice is held to the first safe one.
+  const risky = async (params: { values?: Record<string, unknown> }) => (await resolve(params)).map(option => ({ ...option, recommendedValue: 'bypassPermissions' }))
+  assert.deepEqual(await phoneSessionValues(RT, undefined, {}, risky, {}, true), { mode: 'default' })
+})
+
 test('a saved profile keeps its implicit model while its dependent choices are validated', async () => {
   const values = await phoneSessionValues(RT, undefined, { draftValues: { [RT]: { profile: 'two', effort: 'low' } } }, async params => {
     const profile = params.values?.['profile'] ?? ''

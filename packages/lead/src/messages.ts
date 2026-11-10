@@ -5,6 +5,7 @@ import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
 import type { LeadPermissionCall } from './permissions.js'
 import { LEAD_CONTEXT } from './context.js'
 import { LEAD_CHECKPOINT_OPEN } from './compaction.js'
+import { splitLeadOutput } from './envelope.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
   MessagesRedactedThinking, MessagesText, MessagesThinking, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
 
@@ -300,18 +301,26 @@ const usage = (value: unknown): MessagesUsage => {
  * envelope must then be valid. Whatever the text decodes to is returned as `decoded`
  * so the caller's credential scan sees escaped strings too. Proposals are data only;
  * their validators confer no authority to execute them. */
-const proposals = (text: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[]; proactive?: LeadProactive; ask?: LeadAsk; decoded: unknown } => {
+const proposals = (text: string, outer?: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[]; proactive?: LeadProactive; ask?: LeadAsk; decoded: unknown } => {
   let decoded: unknown = null
   try { decoded = JSON.parse(text) } catch { /* prose */ }
-  if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || (decoded as Record<string, unknown>).type !== 'lead-output')
-    return { text, plan: null, cards: [], decoded }
+  let prose = ''
+  if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || (decoded as Record<string, unknown>).type !== 'lead-output') {
+    // The envelope after the prose, or in a code fence, is still the envelope: protocol JSON is never the person's
+    // words. One that names itself but does not validate is left in the text; the host strips it and warns.
+    const split = splitLeadOutput(text)
+    if (!split?.envelope) return { text, plan: null, cards: [], decoded }
+    try { return { ...proposals(JSON.stringify(split.envelope), split.prose), decoded: { decoded, envelope: split.envelope } } } catch { return { text, plan: null, cards: [], decoded } }
+  }
+  if (outer !== undefined) prose = outer
   const candidate = decoded
   const source = object(candidate, ['version', 'type', 'text', 'ask', 'proactive', 'plan', 'cards'])
   if (source.version !== 1 || source.ask !== undefined && source.proactive !== undefined) return fail()
   if (source.cards !== undefined && (!Array.isArray(source.cards) || source.cards.length > LIMIT.blocks)) return fail()
   const cards = source.cards === undefined ? [] : (source.cards as unknown[]).map(value => parseLeadCard(value))
   if (new Set(cards.map(card => card.id)).size !== cards.length) fail()
-  return { text: source.text === undefined ? '' : string(source.text),
+  const own = source.text === undefined ? '' : string(source.text)
+  return { text: prose && own && !prose.includes(own) ? `${prose}\n\n${own}` : prose || own,
     plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards, ...(source.proactive === undefined ? {} : { proactive: parseLeadProactiveOutput(source.proactive) }), ...(source.ask === undefined ? {} : { ask: parseLeadAsk(source.ask) }), decoded }
 }
 /** Cancellation also wins when a broken injected operation ignores its signal. */

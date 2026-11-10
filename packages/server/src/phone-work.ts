@@ -49,7 +49,7 @@ export interface PhoneWorkPorts {
   readonly models: (runtime: RuntimeId) => Promise<readonly ModelInfo[]>
   /** A runtime's models only if the desk already holds them or the runtime is running; null rather than start it. */
   readonly knownModels: (runtime: RuntimeId) => Promise<readonly ModelInfo[] | null>
-  readonly newSessionValues: (runtime: RuntimeId, cwd?: string, choices?: PhoneStartChoices) => Promise<Readonly<Record<string, OptionValue>>>
+  readonly newSessionValues: (runtime: RuntimeId, cwd?: string, choices?: PhoneStartChoices, cautious?: boolean) => Promise<Readonly<Record<string, OptionValue>>>
   /** Host-only receipts: invoke after preflight, immediately before the actual
    * allocation, queue mutation, send or interrupt. Never take these from wire data. */
   readonly create: (params: HostParams<'session/create'>, effectStarted?: () => void) => Promise<HostResult<'session/create'>>
@@ -103,6 +103,9 @@ export async function phoneSessionValues(
   runtime: RuntimeId, cwd: string | undefined, preferences: Readonly<Record<string, unknown>>,
   resolve: (params: HostParams<'runtime/sessionDefaults'>) => Promise<readonly ConfigOption[]>,
   choices: PhoneStartChoices = {},
+  /** Work the Lead starts, not the person: a saved or recommended choice that widens what the agent may do the most
+   * (`risk: 'high'`, such as bypassing permissions) is never carried into it. The safest choice stands in. */
+  cautious = false,
 ): Promise<Readonly<Record<string, OptionValue>>> {
   const drafts = preferences['draftValues']
   const raw = drafts && typeof drafts === 'object' && !Array.isArray(drafts)
@@ -127,6 +130,11 @@ export async function phoneSessionValues(
     }
   }
   const base = await read({})
+  const highRisk = (options: readonly ConfigOption[], id: string, value: OptionValue) => {
+    const option = findOption(options, id)
+    return option?.type === 'select' && option.choices.some(choice => choice.value === value && choice.risk === 'high')
+  }
+  if (cautious) for (const [id, value] of Object.entries(saved)) if (highRisk(base, id, value)) delete saved[id]
   if (choices.model !== undefined) {
     for (const option of base) if (selector(option) || option.category === 'thought_level') delete saved[option.id]
     const model = base.find(option => option.category === 'model')
@@ -153,8 +161,22 @@ export async function phoneSessionValues(
   }
   const dependentSaved = Object.fromEntries(Object.entries(saved).filter(([id]) => !(id in savedSelectors)))
   validate(dependentSaved, declared)
-  const dependentRecommendations = (options: readonly ConfigOption[]) => Object.fromEntries(
-    Object.entries(recommendedOptionValues(options)).filter(([id]) => !options.some(option => option.id === id && selector(option))))
+  const dependentRecommendations = (options: readonly ConfigOption[]) => {
+    const recommended = Object.fromEntries(
+      Object.entries(recommendedOptionValues(options)).filter(([id]) => !options.some(option => option.id === id && selector(option))))
+    if (!cautious) return recommended
+    // A cautious start also holds every permission-like list to a choice that is not high risk, whatever the runtime
+    // would start on: the recommendation when it is safe, else the first choice that is.
+    for (const option of options) {
+      if (option.type !== 'select' || selector(option) || option.id in saved) continue
+      const value = recommended[option.id] ?? option.currentValue
+      if (!highRisk(options, option.id, value)) continue
+      const safe = option.choices.find(choice => choice.risk !== 'high' && !choice.disabled)
+      if (safe) recommended[option.id] = safe.value
+      else delete recommended[option.id]
+    }
+    return recommended
+  }
   // Recommendations dependent on a model/profile are read only after those
   // selectors resolve. An old model's effort must never ride a new model.
   let values = { ...selectors, ...dependentRecommendations(declared), ...dependentSaved }
@@ -345,7 +367,7 @@ export class PhoneWork {
   }
 
   /** Host-owned exact project root. `input` is a host-only envelope override, never phone params. Without `agent` it starts on the default runtime. */
-  async startInProject(params: { text: string; agent?: string } & PhoneStartChoices, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[], firstMessageStarted?: () => void): Promise<HostResult<'workspace/session/start'>> {
+  async startInProject(params: { text: string; agent?: string; cautious?: boolean } & PhoneStartChoices, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[], firstMessageStarted?: () => void): Promise<HostResult<'workspace/session/start'>> {
     const preferred = this.#ports.defaultRuntime()
     const runtime = params.agent === undefined ? preferred : this.#agents(preferred).find(one => String(one) === params.agent) ?? null
     if (runtime === null && params.agent !== undefined) return { id: '', problem: 'That agent is not available on this desk. Refresh and try again.' }
@@ -357,7 +379,7 @@ export class PhoneWork {
         if (choices.model !== undefined && !modelChoices(await this.#ports.models(runtime)).some(model => model.id === choices.model)) {
           return { id: '', problem: 'That model is not available on this desk. Refresh the model list and try again.' }
         }
-        values = await this.#ports.newSessionValues(runtime, cwd, choices)
+        values = await this.#ports.newSessionValues(runtime, cwd, choices, params.cautious === true)
       }
       catch (error) {
         if (choices.model !== undefined || choices.effort !== undefined) return { id: '', problem: scrub(error instanceof Error ? error.message : '', 200) || 'Those model choices are no longer available.' }

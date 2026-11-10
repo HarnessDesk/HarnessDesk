@@ -549,6 +549,33 @@ test('ordinary output returns a strict ask beside prose and rejects mixed or mal
   assert.equal((await s.client.request(input, new AbortController().signal)).status, 'invalid-response')
 })
 
+test('an ask written after prose or inside a code fence is read as the ask, never shown as JSON', async () => {
+  const ask = { question: '新会话要修哪一个 "build a game"？', options: [{ id: 'team', label: '修卡住的团队任务' }, { id: 'game', label: '修游戏的问题' }], recommended: 'game' }
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: '你想让新会话修哪一个？', ask })
+  const prose = '我先不开新的会话，因为不清楚要修的是哪一个。\n\n- 团队任务 {还在等}'
+  for (const reply of [`${prose}\n\n${envelope}`, `${prose}\n\n\`\`\`json\n${envelope}\n\`\`\``, `${prose}\n${envelope}\nThat is all.`]) {
+    const s = await setup([message([{ type: 'text', text: reply }])])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.equal(result.status, 'completed')
+    assert.deepEqual(result.ask, ask)
+    assert.doesNotMatch(result.text, /lead-output|```|"version"/)
+    assert.match(result.text, /^我先不开新的会话/)
+    assert.match(result.text, /你想让新会话修哪一个？/)
+  }
+})
+
+test('an embedded envelope that does not validate is left for the host to strip, and stripping keeps only the prose', async () => {
+  const broken = JSON.stringify({ version: 1, type: 'lead-output', text: 'Pick one.', ask: { question: 'Which?', options: [{ id: 'a', label: 'A' }], recommended: 'missing' } })
+  const s = await setup([message([{ type: 'text', text: `Here is what I found.\n\n${broken}` }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.ask, undefined)
+  assert.deepEqual(lead.stripLeadOutput(result.text), { text: 'Here is what I found.', dropped: true })
+  // A cut envelope that never closes is dropped from its opening on, fence and all.
+  assert.deepEqual(lead.stripLeadOutput('Words first.\n```json\n{"version":1,"type":"lead-output","text":"cut'), { text: 'Words first.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Plain words with {braces} only.'), { text: 'Plain words with {braces} only.', dropped: false })
+})
+
 test('fresh proactive output without options is refused', async () => {
   const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: { finding: 'Found.', caveat: 'No work yet.', ask: 'Start?' } }) }])])
   assert.equal((await s.client.request(input, new AbortController().signal)).status, 'invalid-response')

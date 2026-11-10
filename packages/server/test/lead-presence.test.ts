@@ -158,6 +158,29 @@ test('an expired ask can no longer be answered, and says so; an unexpired one be
   assert.ok(await r.store.beforeSend(desktop, 'Something else entirely'), 'free text is still a message, held with its note for the turn that answers it')
 })
 
+test('an unanswered ask holds work while the person only repeats the request; an answer or new words free it', async t => {
+  const r = await rig(t)
+  const asked = { id: 'message-1', role: 'user', text: '再帮我开一个修 build a game 的 chat' }
+  const question = { id: 'message-2', role: 'assistant', text: 'Which one?', ask: ask(30) }
+  assert.equal(r.store.unansweredAsk(), null, 'no question, nothing held')
+  r.setMessages([asked, question])
+  await r.store.observe()
+  assert.deepEqual(r.store.unansweredAsk(), { id: 'message-2', question: 'Start it?', options: ['Start it', 'Not now'] })
+  r.setMessages([asked, question, { id: 'message-3', role: 'user', text: '  再帮我开一个修 build a game 的 chat ' }])
+  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'the same request again is not an answer')
+  r.setMessages([asked, question, { id: 'message-3', role: 'user', text: 'Fix the game itself' }])
+  assert.equal(r.store.unansweredAsk(), null, 'new words move on')
+  r.setMessages([asked, question])
+  const answer = await r.store.beforeSend(desktop, 'Start it')
+  await answer!(true)
+  r.setMessages([asked, question, { id: 'message-3', role: 'user', text: 'Start it' }])
+  assert.equal(r.store.unansweredAsk(), null, 'an answered question holds nothing')
+  r.setMessages([{ id: 'message-5', role: 'assistant', text: 'Start it?', ask: ask(30) }])
+  await r.store.observe()
+  r.tick(31 * MIN)
+  assert.equal(r.store.unansweredAsk(), null, 'an expired question holds nothing')
+})
+
 test('an ask with no expiry stays open; the host, not the model, sets the clock', async t => {
   const r = await rig(t)
   r.setMessages([{ id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask() }])

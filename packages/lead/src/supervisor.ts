@@ -7,6 +7,7 @@ import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, 
 import { preferUnpackedPath, type DeskPointer } from '@harnessdesk/client/node'
 import { parseLeadRunIdentity, type LeadJournal, type LeadDispatchResult } from './journal.js'
 import { LeadBudgetAdmissionRefused } from './budget.js'
+import { stripLeadOutput } from './envelope.js'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadResolvedTool } from './tools.js'
 import type { LeadAcceptanceEvidence } from './acceptance.js'
@@ -167,6 +168,8 @@ export interface LeadSupervisorOptions {
   readonly committedBudgetEvent?: (event: LeadBudgetEvent) => void
   /** The host's last word on a model text before it is written down for the person: throw to refuse it. */
   readonly admitReply?: (text: string) => Promise<void>
+  /** A static code for something the host should log as a warning. Never content. */
+  readonly onWarning?: (code: string) => void
   readonly providerSend?: (requestId: string, body: string, signal: AbortSignal) => Promise<MessagesHttpResponse>
   /** Test seam for the host-owned, already-connected desk socket. */
   readonly connectDesk?: (descriptor: DeskPointer, signal: AbortSignal) => Promise<Socket | null>
@@ -455,7 +458,11 @@ export class LeadSupervisor {
         case 'recoverUnsettledRequests': await durable(journal.recoverUnsettledRequests()); break
         case 'appendReply': {
           const ask = args.length === 3 ? parseLeadAsk(args[2]) : undefined
-          const text = ask && args[0] === '' ? '' : ipcText(args[0])
+          const said = ask && args[0] === '' ? '' : ipcText(args[0])
+          // Protocol JSON the child could not read as its envelope is never shown: the words around it are. The warning
+          // names the code only, never the content.
+          const { text, dropped } = stripLeadOutput(said)
+          if (dropped) { try { this.options.onWarning?.('lead-reply-envelope-dropped') } catch { /* A log never owns a reply. */ } }
           const proactive = args.length === 2 || args.length === 3 && args[1] !== null ? parseLeadProactive(args[1]) : undefined
           // A goal that has ended takes no more words. A text the desk will not show, a secret or one the journal cannot
           // hold, is refused by name and does not break the child; the host scans whatever stays in the result again.

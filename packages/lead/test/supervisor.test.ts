@@ -897,6 +897,19 @@ test('the host writes a model reply the child asks for, as the assistant message
   } finally { await f.supervisor.stop() }
 })
 
+test('a reply still carrying protocol JSON is written as its prose, with a warning that names no content', async () => {
+  const warnings: string[] = [], asked: string[] = []
+  const raw = 'Which one?\n\n{"version":1,"type":"lead-output","text":"Pick","ask":{"question":"secret-ish words","options":[{"id":"a","label":"A"}],"recommended":"zz"}}'
+  const f = await replyRig([raw], { admitReply: async (text: string) => { asked.push(text) }, onWarning: (code: string) => { warnings.push(code) } })
+  try {
+    await f.supervisor.send(request)
+    assert.equal((await f.replied).ok, true)
+    assert.deepEqual(f.assistant(), ['Which one?'])
+    assert.deepEqual(asked, ['Which one?'])
+    assert.deepEqual(warnings, ['lead-reply-envelope-dropped'])
+  } finally { await f.supervisor.stop() }
+})
+
 test('a reply at the largest size a model text can have is written, and one more character is a broken child', async () => {
   const largest = 'a'.repeat(16_384)
   const fits = await replyRig([largest])

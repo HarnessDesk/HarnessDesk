@@ -179,7 +179,7 @@ import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRe
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
-import type { LeadRuntime } from '@harnessdesk/lead/supervisor'
+import { LeadSupervisor, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
@@ -4070,6 +4070,7 @@ export class Host {
     this.#leadPacing = pacing
     this.#leadChats = new LeadChats({ project, state: () => journal.state, slots: this.#leadSlots(journal), now: options.recovery?.now ?? Date.now, pacing,
       deadlinePassed: async () => { const goal = journal.state.budget?.logicalGoalId; return goal !== undefined && await this.#leadAutonomy?.deadlineElapsed(goal) === true },
+      unansweredAsk: () => this.#leadPresence?.unansweredAsk() ?? null,
       managementAvailable: () => this.#leadService?.managementAvailable === true,
       queuedSends: () => this.registry.all().some(record => record.queue.messages.some(message => {
         const admission = this.registry.queuedAdmission(record, message.id)
@@ -4285,6 +4286,11 @@ export class Host {
       },
       ...(this.options.leadRuntimes ? { runtimes: this.options.leadRuntimes } : {}),
       onRuntimeUnavailable: reason => this.#logger.warn('Lead runtime unavailable', { reason }),
+      // A reply that carried protocol output the Lead could not read is logged by its code alone, never its words.
+      createSupervisor: settings => {
+        const warned = { ...settings, onWarning: (code: string) => this.#logger.warn('Lead reply was not shown whole', { code }) }
+        return serviceOptions.createSupervisor ? serviceOptions.createSupervisor(warned) : new LeadSupervisor(warned)
+      },
       onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
       // A `Remember:` line in a reply is read as the same proposal memory_propose makes: scanned, then to the inbox.
       onRemember: lines => {
@@ -11520,9 +11526,9 @@ export class Host {
         if (!known) return null
         return this.#runtimeCache.get(String(runtime)).models ?? (known.health().state === 'ready' ? this.call('runtime/models', { runtime }) : null)
       },
-      newSessionValues: async (runtime, cwd, choices) => {
+      newSessionValues: async (runtime, cwd, choices, cautious) => {
         await this.#ensureStarted(this.#runtime({ runtime }))
-        return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params), choices)
+        return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params), choices, cautious)
       },
       create: (params, effectStarted) => createConversation(this.#context, params, effectStarted),
       send: async (params, admitCwd, effectStarted) => {

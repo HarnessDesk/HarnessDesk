@@ -73,6 +73,22 @@ const rig = async (t: TestContext, recovery = false) => {
     withdraw: () => { member = false }, onCwd: (callback: () => Promise<void>) => { cwdRead = callback } }
 }
 
+test('while the Lead’s question is unanswered no chat starts, and the Lead is told to point the person to it', async t => {
+  const r = await rig(t)
+  let open: { question: string; options: readonly string[] } | null = { question: 'Which one should the chat fix?', options: ['The Team', 'The game'] }
+  ;(r.ports as any).unansweredAsk = () => open
+  const params = { text: 'Fix the stalled Team\n\nRead its blocker first.' }
+  r.authorize('lead/chat/start', params)
+  const refused = await r.service.start(params)
+  assert.equal(refused.id, '')
+  assert.match(refused.problem!, /still open.*not picked.*point the person to the question/s)
+  assert.match(refused.problem!, /The Team.*The game/)
+  assert.equal(r.calls.filter(call => call.method === 'start').length, 0, 'nothing was created')
+  open = null
+  r.authorize('lead/chat/start', params)
+  assert.equal((await r.service.start(params)).id, 'fixture:created', 'once answered, the work starts')
+})
+
 test('Lead lists only canonical project ordinary sessions and reads no foreign, Team or removed session', async t => {
   const r = await rig(t)
   r.row('own'); r.row('foreign', r.foreign); r.row('nested', join(r.root, 'nested')); r.row('team'); r.index.upsert(r.row('team'), { teamId: 'team' })
@@ -430,6 +446,7 @@ test('start quotes only current person messages verbatim in conversation order, 
       ? '> Keep  spacing.\n> \n> And **Markdown**.\r\n> Last line.\n\n> Also preserve the API.' : '> Also preserve the API.')
     const start = r.calls.filter(call => call.method === 'start').at(-1)!
     assert.equal(start.params.text, expected)
+    assert.equal(start.params.cautious, true, 'a chat the Lead starts never takes the person’s high-risk permission picks')
     assert.equal(JSON.stringify(r.sentInput.at(-1)).includes('verbatim'), true)
   }
   for (const quote of [['assistant'], ['missing']]) {
