@@ -12,6 +12,7 @@ import { PHONE_POLICY, phoneLinkOff, startPhoneLink, type PhoneLinkControl } fro
 
 test('repeat history, repeat controls and direct limit raises require their own phone tiers', () => {
   assert.equal(PHONE_POLICY.methods['lead/schedule/read'], 'read')
+  assert.equal(PHONE_POLICY.methods['lead/context/read'], 'read')
   assert.equal(PHONE_POLICY.methods['lead/repeat/control'], 'run')
   assert.equal(PHONE_POLICY.methods['lead/budget/raise'], 'answer')
   assert.equal(PHONE_POLICY.methods['lead/thread/read'], 'read')

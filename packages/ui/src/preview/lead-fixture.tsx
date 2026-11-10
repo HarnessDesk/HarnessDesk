@@ -1,4 +1,4 @@
-import { leadStage, leadWorkGroup, type LeadPresenceView, NO_CAPABILITIES, type LeadWorkBoard, type LeadWorkCard, type LeadWorkStage, runtimeId, type LeadAcceptanceContract, type LeadStageFacts, type LeadCard, type LeadMemory, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
+import { leadStage, leadWorkGroup, type LeadPresenceView, NO_CAPABILITIES, type LeadWorkBoard, type LeadWorkCard, type LeadWorkStage, runtimeId, type LeadAcceptanceContract, type LeadStageFacts, type LeadCard, type LeadContextFacts, type LeadMemory, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
 
 /** Synthetic data only. No desktop, key store, transport connection or provider. */
 export const leadRuntime: RuntimeInfo = { id: runtimeId('fixture'), name: 'Fixture', capabilities: NO_CAPABILITIES, presentation: { name: 'Demo runtime' } }
@@ -45,7 +45,7 @@ export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', 
 export const leadMemory: LeadMemory = { version: 1, items: [
   { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
   { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
-export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence'] as const
+export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence', 'context-checkpoint'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -135,8 +135,21 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
     projection = { ...projection, requestInFlight: scene === 'working-desk',
       ...(scene === 'working-desk' ? { activity: { since: Date.now() - 6000, method: 'lead/desk/summary' } } : {}) }
   }
+  // The desk summarised the earlier conversation: its marker sits between the turns it replaced and the ones after.
+  if (scene === 'context-checkpoint') thread.messages = [
+    { version: 1, id: 'goal', revision: 1, role: 'user', text: 'Keep the docs short and check the sign-in page.' },
+    { version: 1, id: 'early-reply', revision: 2, role: 'assistant', text: 'The sign-in page passes its checks. The docs are already under a page each.' },
+    { version: 1, id: 'context-checkpoint', revision: 3, role: 'notice', text: 'Earlier conversation summarised.', checkpoint: { id: leadContextFacts.checkpoints[0]!.id } },
+    { version: 1, id: 'later', revision: 4, role: 'user', text: 'What did we decide about the docs?' },
+    { version: 1, id: 'later-reply', revision: 5, role: 'assistant', text: 'Keep each one under a page; you asked for that at the start.' }]
   return leadProjection({ ...projection, thread, stage: undefined, stageReason: undefined })
 }
+
+/** What `lead/context/read` answers in the frames: a conversation summarised once, mostly read from the cache. */
+export const leadContextFacts: LeadContextFacts = { version: 1, windowTokens: 200_000, usedTokens: 46_000, cacheHitRate: 0.91, compacting: false, checkpoints: [
+  { id: 'checkpoint-demo', at: 1_767_225_600_000, fallback: false, beforeTokens: 170_000, afterTokens: 30_000,
+    person: { messages: [{ id: 'goal', text: 'Keep the docs short' }], leftOut: [] },
+    text: '## Decisions made and why\nNone.\n\n## Work and where each piece stands\nThe sign-in page passes its checks.\n\n## Waiting on the person\nNone.\n\n## Facts learned\nEach doc is under a page.\n\n## Open questions / next step\nNone.' }] }
 
 export const leadWakeFixture = [
   { id: 'silent-1', at: Date.now() - 180_000, source: 'desk-change' as const, decision: 'silent' as const, modelTurn: false, usdMicros: null },

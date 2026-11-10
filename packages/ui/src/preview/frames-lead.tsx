@@ -19,7 +19,7 @@ import { LeadDetails } from '../components/LeadDetails'
 import { LeadAskOptions, LeadAvatar, LeadNameChoice, LeadPlanFlow, LeadTurn, LeadWorking, Text } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
-import { LEAD_SCENES, leadPresenceFixture, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
+import { LEAD_SCENES, leadContextFacts, leadPresenceFixture, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
 import { LEAD_LIMITS, type HostMethodName, type LeadWorkBoard, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
@@ -117,6 +117,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/schedule/read') return schedule
     if (method === 'lead/schedule/update') return schedule = params.schedule
     if (method === 'lead/memory/read') return memory
+    if (method === 'lead/context/read' || method === 'lead/context/compact') return leadContextFacts
     if (method === 'lead/memory/update') return memory = params.memory
     if (method === 'lead/thread/read' || method === 'lead/settings/read') {
       // A desk with no folder open: the host has no Lead journal yet and refuses both reads, as it does live.

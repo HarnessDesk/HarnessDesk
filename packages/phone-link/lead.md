@@ -15,6 +15,7 @@ counts cover the scanned sessions when partial.
 | Method | Required tier | Params | Result |
 | --- | --- | --- | --- |
 | `lead/schedule/read` | `read` | `{}` | `LeadSchedule` |
+| `lead/context/read` | `read` | `{}` | `LeadContextFacts` |
 | `lead/repeat/control` | `run` | `taskId`, `action` | updated `LeadSchedule` |
 | `lead/budget/raise` | `answer` | `logicalGoalId`, `caps`, `expectedRevision` | `LeadWindowProjection` |
 | `lead/spendLimit/set` | `answer` | `usdMicros`, `expectedRevision` | `LeadWindowProjection` |

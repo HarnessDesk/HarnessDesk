@@ -27,6 +27,20 @@ export interface LeadMessagesRequest {
    * Those proposals are validated and returned without offering or executing them. */
   readonly system?: string
   readonly maxTokens: number
+  /** Where the stored part of `messages` ends: block `blocks - 1` of turn `turns - 1`. The rolling cache mark goes
+   * there; every user text block after it (or after `kept`) is desk context of this moment, stubbed when stored. */
+  readonly stable?: { readonly turns: number; readonly blocks: number }
+  /** A checkpoint request: words only, no tool is dispatched, nothing is said to the person. */
+  readonly compaction?: true
+  /** The stored conversation's epoch `messages` came from. The child keeps its standing instructions for the epoch,
+   * and reads the stored conversation again when the desk has moved to another. Never sent to the provider. */
+  readonly epoch?: number
+  /** Where the part of `messages` the desk already stores ends; what follows is this step's to record. Absent, it is
+   * `stable`. Never sent to the provider. */
+  readonly base?: { readonly turns: number; readonly blocks: number }
+  /** Where the host's own turns that follow `stable` end (the approved plan): stored as they are. Every user text block
+   * after it is desk context of this moment. Absent, it is `stable`. Never sent to the provider. */
+  readonly kept?: { readonly turns: number; readonly blocks: number }
 }
 export interface MessagesUsage {
   readonly inputTokens: number

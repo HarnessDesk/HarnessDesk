@@ -188,6 +188,10 @@ export interface HostContext {
   leadScheduleUpdate(params: HostParams<'lead/schedule/update'>): Promise<HostResult<'lead/schedule/update'>>
   leadMemoryRead(): Promise<HostResult<'lead/memory/read'>>
   leadMemoryUpdate(params: HostParams<'lead/memory/update'>): Promise<HostResult<'lead/memory/update'>>
+  /** How full the Lead's conversation is, how much of it the provider read from its cache, and its checkpoints. */
+  leadContextRead(): Promise<HostResult<'lead/context/read'>>
+  /** The person's "Summarise now": one compaction, refused while the Lead is answering. */
+  leadContextCompact(): Promise<HostResult<'lead/context/compact'>>
   readonly leadStarts?: Pick<import('../lead/budgets.js').LeadBudgets, 'validateStart'>
   readonly flows: Flows
   /** Previews a flow, non-executing, and mints the one token `flow/start-goal` redeems. */

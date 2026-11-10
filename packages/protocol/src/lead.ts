@@ -134,7 +134,9 @@ export type LeadBudgetEvent = { readonly version: 1; readonly now: number } & (
   /** Reserve all potential input at the most expensive input/cache rate. */
   | { readonly type: 'reserve'; readonly requestId: string; readonly inputTokens: number; readonly maxOutputTokens: number;
       readonly inputUsdMicrosPerMillion: number; readonly outputUsdMicrosPerMillion: number;
-      readonly cacheReadUsdMicrosPerMillion: number; readonly cacheWriteUsdMicrosPerMillion: number }
+      readonly cacheReadUsdMicrosPerMillion: number; readonly cacheWriteUsdMicrosPerMillion: number
+      /** A request that writes a checkpoint of the conversation rather than answering it. */
+      readonly purpose?: 'compaction' }
   /** Actual inputTokens exclude the separately billed cache-read/write counts. */
   | { readonly type: 'settle'; readonly requestId: string; readonly inputTokens: number; readonly outputTokens: number;
       readonly cacheReadTokens?: number; readonly cacheWriteTokens?: number }
@@ -243,6 +245,8 @@ export interface LeadMessage {
   readonly role: 'user' | 'assistant' | 'system' | 'notice'
   /** Untrusted prose; rendering still requires the transcript sanitizer. */
   readonly text: string
+  /** Host notice only: the earlier conversation was summarised here. `lead/context/read` holds the summary by id. */
+  readonly checkpoint?: LeadCheckpointMarker
 }
 export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'following' | 'accepted' | 'declined' | 'stopped'
 export const LEAD_MANAGEMENT_REASONS = [
@@ -354,6 +358,8 @@ export interface LeadWakeRecord {
   readonly decision: 'silent' | 'spoke' | 'asked'
   readonly modelTurn: boolean
   readonly usdMicros: number | null
+  /** What the wake's model requests reported, summed. Absent for a wake without a model turn and on older records. */
+  readonly tokens?: LeadWakeTokens
 }
 export interface LeadWakeLog { readonly revision: number; readonly wakes: readonly LeadWakeRecord[] }
 /** A goal the Lead opens on its own at a set time. It only ever reaches a plan card: the person still approves. */
@@ -645,7 +651,7 @@ const budgetEvent = tag<LeadBudgetEvent>({
   },
   reserve: object<BudgetOf<'reserve'>>({ ...budgetBase, type: literalUnion('reserve'), requestId: id, inputTokens: tokenCount,
     maxOutputTokens: tokenCount, inputUsdMicrosPerMillion: micros, outputUsdMicrosPerMillion: micros,
-    cacheReadUsdMicrosPerMillion: micros, cacheWriteUsdMicrosPerMillion: micros }),
+    cacheReadUsdMicrosPerMillion: micros, cacheWriteUsdMicrosPerMillion: micros, purpose: optional(literalUnion('compaction')) }),
   settle: object<BudgetOf<'settle'>>({ ...budgetBase, type: literalUnion('settle'), requestId: id, inputTokens: tokenCount, outputTokens: tokenCount, cacheReadTokens: optional(tokenCount), cacheWriteTokens: optional(tokenCount) }),
   'write-off': object<BudgetOf<'write-off'>>({ ...budgetBase, type: literalUnion('write-off'), requestId: id }),
   uncertain: object<BudgetOf<'uncertain'>>({ ...budgetBase, type: literalUnion('uncertain'), requestId: id }),
@@ -760,12 +766,19 @@ export const parseLeadApprovalAudit: Validator<LeadApprovalAudit> = omitUnset(ob
   const target = text(240)(value, path)
   return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(target) ? fail(path ?? '', 'hidden audit target') : target
 }, diff: optional(boundedText(LEAD_APPROVAL_DETAIL_CHARS, true, proseControls)) }), ['diff'])
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content }), ['proactive', 'ask', 'approval', 'source'])
+const parseLeadCheckpointMarker: Validator<LeadCheckpointMarker> = (value, path = '') => {
+  const source = isObject(value, path)
+  if (Object.keys(source).some(key => key !== 'id' && key !== 'fallback')) return fail(path, 'unexpected checkpoint field')
+  if (source.fallback !== undefined && source.fallback !== true) return fail(path, 'expected true')
+  return { id: id(source.id, `${path}.id`), ...(source.fallback === true ? { fallback: true as const } : {}) }
+}
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
   if (message.source !== undefined && message.role !== 'user') fail(path, 'source requires a user message')
   if (message.ask && (message.role !== 'assistant' || message.proactive)) fail(path, 'ask requires an ordinary assistant message')
+  if (message.checkpoint && message.role !== 'notice') fail(path, 'a checkpoint marker is a host notice')
   return message
 }
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {
@@ -934,7 +947,9 @@ export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(ob
 
 export const parseLeadActionInput: Validator<LeadActionInput> = object({ id, contractDigest: digest, choice: literalUnion('yes-once', 'yes-goal', 'no', 'run') })
 
-export const parseLeadWakeRecord: Validator<LeadWakeRecord> = object({ id, at: integer(0, Number.MAX_SAFE_INTEGER), source: literalUnion('schedule', 'desk-change', 'person', 'trigger'), decision: literalUnion('silent', 'spoke', 'asked'), modelTurn: isBoolean, usdMicros: nullable(micros) })
+const wakeTokens = integer(0, 1_000_000_000)
+const parseLeadWakeTokens: Validator<LeadWakeTokens> = object({ input: wakeTokens, output: wakeTokens, cacheRead: wakeTokens, cacheWrite: wakeTokens })
+export const parseLeadWakeRecord: Validator<LeadWakeRecord> = omitUnset(object<LeadWakeRecord>({ id, at: integer(0, Number.MAX_SAFE_INTEGER), source: literalUnion('schedule', 'desk-change', 'person', 'trigger'), decision: literalUnion('silent', 'spoke', 'asked'), modelTurn: isBoolean, usdMicros: nullable(micros), tokens: optional(parseLeadWakeTokens) }), ['tokens'])
 export const parseLeadWakeLog: Validator<LeadWakeLog> = object({ revision: integer(), wakes: list(parseLeadWakeRecord, 128, 0, wake => wake.id) })
 
 export const parseLeadApprovalRevoke: Validator<{ readonly id: string; readonly contractDigest: string }> = object({ id, contractDigest: digest })
@@ -1016,3 +1031,65 @@ export interface LeadUsageSummary {
     readonly useFirst?: true
   }[]
 }
+
+/** Where the Lead's earlier conversation was summarised. The notice carries only the marker; the summary is read by id. */
+export interface LeadCheckpointMarker { readonly id: string; readonly fallback?: true }
+/** Tokens a provider reported, summed over one wake's requests. The cached share of the prompt is cacheRead over all three inputs. */
+export interface LeadWakeTokens { readonly input: number; readonly output: number; readonly cacheRead: number; readonly cacheWrite: number }
+/** A checkpoint's sections, in order. The desk writes the first from the person's own messages; the model writes the
+ * other five. A view draws the first from `LeadContextCheckpoint.person`, never from the text. */
+export const LEAD_CHECKPOINT_SECTIONS = Object.freeze([
+  'What the person wants',
+  'Decisions made and why',
+  'Work and where each piece stands',
+  'Waiting on the person',
+  'Facts learned',
+  'Open questions / next step',
+] as const)
+/** The person's own words a checkpoint kept, as the desk took them from its journal: quoted with their references,
+ * latest kept first when they do not all fit, and the references of those left out. */
+export interface LeadCheckpointPerson {
+  readonly messages: readonly { readonly id: string; readonly text: string }[]
+  readonly leftOut: readonly string[]
+}
+export const LEAD_CHECKPOINT_PERSON = Object.freeze({ messages: 200, messageChars: 600, leftOut: 200 })
+/** One summary of the earlier conversation. `text` is null once the desk no longer keeps it. Untrusted prose: sanitise to render. */
+export interface LeadContextCheckpoint {
+  readonly id: string; readonly at: number
+  /** The model's summary was refused or failed three times; this one was built from the conversation itself. */
+  readonly fallback: boolean
+  readonly beforeTokens: number; readonly afterTokens: number
+  /** The model's five sections, as plain text under their headings; never drawn as markup. A summary from before
+   * `person` existed also holds the person's section here. */
+  readonly text: string | null
+  /** The person's section as data: a view draws it from this, so no model text can stand in for it. Absent on a
+   * summary from before it existed, and once `text` is no longer kept. */
+  readonly person?: LeadCheckpointPerson
+}
+/** How full the Lead's conversation is and how much of it the provider served from its cache. Facts, never a control. */
+export interface LeadContextFacts {
+  readonly version: 1
+  /** The window the Lead's model is held to. */
+  readonly windowTokens: number
+  /** The prompt of the latest request, or null before the first. */
+  readonly usedTokens: number | null
+  /** Cache reads over prompt tokens across recent model wakes, 0 to 1; null before any wake reported tokens. */
+  readonly cacheHitRate: number | null
+  /** True while a summary is being written. */
+  readonly compacting: boolean
+  /** Oldest first, at most eight. */
+  readonly checkpoints: readonly LeadContextCheckpoint[]
+  /** The latest compaction could not bring the conversation under the hard line, even keeping the fewest recent
+   * turns: no compaction runs until it grows further. Absent otherwise. */
+  readonly full?: true
+}
+export const LEAD_CONTEXT_CHECKPOINT_CHARS = 32_768
+const parseLeadCheckpointPerson: Validator<LeadCheckpointPerson> = object({
+  messages: list(object({ id, text: boundedText(LEAD_CHECKPOINT_PERSON.messageChars, true, /[\u0000-\u001f\u007f-\u009f]/) }), LEAD_CHECKPOINT_PERSON.messages),
+  leftOut: list(id, LEAD_CHECKPOINT_PERSON.leftOut) })
+const parseLeadContextCheckpoint: Validator<LeadContextCheckpoint> = omitUnset(object({ id, at: integer(0, Number.MAX_SAFE_INTEGER), fallback: isBoolean,
+  beforeTokens: wakeTokens, afterTokens: wakeTokens, text: nullable(boundedText(LEAD_CONTEXT_CHECKPOINT_CHARS, true, proseControls)),
+  person: optional(parseLeadCheckpointPerson) }), ['person'])
+export const parseLeadContextFacts: Validator<LeadContextFacts> = omitUnset(object({ version, windowTokens: integer(1, 100_000_000), usedTokens: nullable(wakeTokens),
+  cacheHitRate: nullable((value, path = '') => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : fail(path, 'expected a ratio')),
+  compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id), full: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['full'])

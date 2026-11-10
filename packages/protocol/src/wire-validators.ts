@@ -1120,6 +1120,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'lead/schedule/update': parseLeadScheduleUpdate,
   'lead/memory/read': parseLeadEmpty,
   'lead/memory/update': parseLeadMemoryUpdate,
+  'lead/context/read': parseLeadEmpty,
+  'lead/context/compact': parseLeadEmpty,
   'provenance/commits': shape({ root: provenanceRoot, shas: provenanceShas }),
   'provenance/status': shape({ root: provenanceOptionalRoot }),
   'provenance/capture': shape({ root: provenanceRoot, enabled: isBoolean }),

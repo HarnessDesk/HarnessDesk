@@ -55,8 +55,8 @@ test('the model gets one standing text for the whole goal, the contract in a mes
   const bodies = rig.provider.requests.map(request => request.body)
   assert.ok(bodies.length >= 3, 'the plan, the request after approval and its tool turns')
   // A provider refuses a replayed reasoning block behind a system prompt that changed, so the bytes never change.
-  const system: string = bodies[0]!.system
-  assert.ok(bodies.every(body => body.system === system), 'one system text from the first request to the last')
+  const system: string = bodies[0]!.system[0].text
+  assert.ok(bodies.every(body => body.system[0].text === system), 'one system text from the first request to the last')
   assert.ok(system.includes(rig.project.path), 'it gives the project root')
   for (const seat of ['rig-writer', 'rig-reviewer']) assert.ok(system.includes(seat), `it gives the seat ${seat}`)
   assert.ok(system.includes('"type":"lead-output"'), 'it gives the plan format')

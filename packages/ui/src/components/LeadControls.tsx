@@ -5,14 +5,14 @@ import { leadPresence, leadReadingWords, leadWakeLine } from '../lib/lead-presen
 import { useStore } from '../state/context'
 import { leadDollars } from './LeadCards'
 import { leadRefusalText } from './lead-refusals'
-import { RetryIcon, SettingsIcon, StopIcon, SwapIcon } from './Icons'
+import { CompactIcon, RetryIcon, SettingsIcon, StopIcon, SwapIcon } from './Icons'
 import { useLeadName } from './use-lead-name'
 
 export const leadLabel = (name: LeadName | null) => name === 'lex' ? 'Lex' : name === 'dex' ? 'Dex' : 'Lead'
 /** A Lead journal starts as Dex. Before a folder is open there is no journal, so the name it will have is that one. */
 const LEAD_FIRST_NAME: LeadName = 'dex'
 
-/** The Lead's name, its presence and the person's four controls, shared by the sidebar, the bar and the popover. */
+/** The Lead's name, its presence and the person's controls, shared by the sidebar, the bar and the popover. */
 export const useLeadControls = () => {
   const store = useStore(), name = useLeadName()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
@@ -35,6 +35,9 @@ export const useLeadControls = () => {
       onSelect={() => { close(); setConfirmPause(true) }} />
     <MenuItem icon={<RetryIcon />} label={`Restart ${label}`} disabled={state.settings?.unavailable ? 'No runtime on this desk can run the Lead.' : state.wayOut !== 'resume' || state.waitReason === 'lead-chat-effect-uncertain' ? 'Nothing is waiting to continue.' : busy}
       onSelect={() => { close(); void run(() => store.lead.resume()) }} />
+    <MenuItem icon={<CompactIcon size={14} />} label="Summarise now" title="Replaces the earlier conversation with a summary, so the Lead has room again."
+      disabled={state.projectMissing ? 'Open a folder first.' : !ready || state.settings?.unavailable ? 'The Lead is not ready yet.' : state.requestInFlight ? 'Wait for the current request to finish.' : busy}
+      onSelect={() => { close(); void run(() => store.lead.compactContext()) }} />
     <MenuSeparator />
     <MenuItem icon={<SettingsIcon />} label="Lead settings" onSelect={() => { close(); openSettings() }} />
   </>
@@ -46,7 +49,7 @@ export const useLeadControls = () => {
   return { state, name, face, label, presence, items, dialog, error, openSettings }
 }
 
-/** The status popover: who, where they stand, what it cost, and the same four controls. The caller owns the controls so a confirm outlives the closed menu. */
+/** The status popover: who, where they stand, what it cost, and the same controls. The caller owns the controls so a confirm outlives the closed menu. */
 export const LeadStatusPanel = ({ close, controls }: { readonly close: () => void; readonly controls: ReturnType<typeof useLeadControls> }) => {
   const { state, face, label, presence, items, error } = controls
   const budget = state.thread?.budget, progress = state.progress

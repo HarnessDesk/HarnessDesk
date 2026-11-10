@@ -162,10 +162,11 @@ test('declining step 1 acceptance parks a model retry of step 2 as predecessor u
   await rig.host.call('lead/thread/send', { idempotencyKey: 'go-on', text: 'Carry on without step 2.' })
   await rig.waitFor(() => rig.provider.requests.length > before, 'the request that follows the person message')
   const last = rig.provider.requests[before]!.body.messages.at(-1)
-  const desk = last.content.map((block: any) => block.text).join('')
+  const lines = last.content.flatMap((block: any) => typeof block.text === 'string' ? block.text.split('\n') : [])
   assert.equal(last.role, 'user')
-  assert.ok(desk.split('\n').includes('Step states: first started, second pending.'), 'the desk says where each step stands')
-  assert.ok(desk.includes(`"digest":"${rig.journal.state.contract!.digest}"`), 'and carries the approved contract')
+  assert.ok(lines.includes('Step states: first started, second pending.'), 'the desk says where each step stands')
+  // The plan is carried once in the conversation, not necessarily in the last turn.
+  assert.equal(JSON.stringify(rig.provider.requests[before]!.body.messages).split(`\\"digest\\":\\"${rig.journal.state.contract!.digest}\\"`).length - 1, 1, 'and carries the approved contract, once')
   await rig.assertNoForbiddenEffects()
 })
 

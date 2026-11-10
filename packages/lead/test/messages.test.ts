@@ -313,7 +313,7 @@ test('tool results cannot execute hidden JSON serializers or disclose their retu
 })
 
 test('an unbilled client error zero-settles, names its cause and leaves the budget open', async () => {
-  for (const [status, reason] of [[401, 'lead-messages-auth'], [403, 'lead-messages-auth'], [400, 'lead-messages-request'], [413, 'lead-messages-request']] as const) {
+  for (const [status, reason] of [[401, 'lead-messages-auth'], [403, 'lead-messages-auth'], [400, 'lead-messages-request'], [413, 'lead-messages-request'], [408, 'lead-messages-transient'], [409, 'lead-messages-transient']] as const) {
     const s = await setup([{ status, processing: 'not-started', body: key }, message()])
     const result = await s.client.request(input, new AbortController().signal)
     assert.deepEqual(result, { status: 'failed', reason })
@@ -616,4 +616,21 @@ test('many parallel tools with near-full history reserve only their actual diagn
   assert.equal(result.toolResults.length, 40)
   assert.equal(result.toolResults.every((item: any) => item.is_error === false), true)
   assert.ok(bytes(result.messages) <= 1_048_576)
+})
+
+test('a checkpoint request files its spend marked as compaction; an ordinary request carries no purpose', async () => {
+  const s = await setup([message(), message([{ type: 'text', text: '## Decisions made and why\nNone.' }])])
+  await s.client.request(input, new AbortController().signal)
+  const ordinary = s.journal.state.budget!.leadUsdMicros
+  assert.ok(ordinary > 0)
+  await s.client.request({ ...input, compaction: true }, new AbortController().signal)
+  // The checkpoint request is the Lead's spend too: the same cost an ordinary request of the same counts has.
+  assert.ok(s.journal.state.budget!.leadUsdMicros > ordinary, 'the checkpoint request is counted in the Lead\'s spend')
+  const settles = s.records.flatMap(record => record.type === 'budget' && record.event.type === 'settle' ? [record.event as any] : [])
+  assert.equal(settles.length, 2)
+  const reserves = s.records.flatMap(record => record.type === 'budget' && record.event.type === 'reserve' ? [record.event as any] : [])
+  assert.equal(reserves.length, 2)
+  assert.equal(reserves[0].purpose, undefined)
+  assert.equal(reserves[1].purpose, 'compaction')
+  assert.equal(s.journal.state.budget!.reservedUsdMicros, 0, 'both settled')
 })

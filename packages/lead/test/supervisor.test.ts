@@ -842,7 +842,7 @@ test('the actual child names the host project root and seats to the model', asyn
   const f = await childRig({ seats: crew }, async (_requestId, sent) => { body = sent; return message() })
   try {
     assert.equal((await f.supervisor.send(request)).status, 'completed')
-    const system: string = JSON.parse(body).system
+    const system: string = JSON.parse(body).system[0].text
     assert.ok(system.split('\n').includes(`Project root: ${f.project.path} (project id ${f.project.id}).`))
     const offered = system.split('\n').find(line => line.startsWith('Seats a plan may name'))!
     for (const seat of [...crew.implement, ...crew.review]) assert.ok(offered.includes(JSON.stringify(seat)))

@@ -37,6 +37,8 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/settings/read': 'read',
     // Exact repeat/card JSON and method results: packages/phone-link/lead.md.
     'lead/schedule/read': 'read',
+    // How full the Lead's conversation is and the checkpoints that replaced its earlier part: facts, never a control.
+    'lead/context/read': 'read',
     // What changed while this phone was away, and what became of each question; dismissing marks this phone's copy only.
     'lead/presence/read': 'read',
     'lead/presence/dismiss': 'read',

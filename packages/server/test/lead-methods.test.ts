@@ -1037,7 +1037,8 @@ test('a message the person sends after approval is followed by the contract, so 
   const request: any = s.sends.at(-1)
   assert.equal(request.messages.at(-1).role, 'user')
   assert.deepEqual(approvedContractOf(request.messages.at(-1)), contract)
-  assert.equal(request.messages.at(-2).content[0].text, 'Also cover the empty case', 'the person\'s words stay in the history, in the order they were said')
+  assert.equal(request.messages.at(-1).content[0].text, 'Also cover the empty case', 'the person\'s words stay in the history, in the order they were said, in the same turn as the contract')
+  assert.ok(request.messages.every((turn: any, n: number) => n === 0 || turn.role !== request.messages[n - 1].role), 'never two turns of one role in a row')
   s.controls.close()
 })
 
@@ -1566,8 +1567,8 @@ for (const reason of ['lead-predecessor-unavailable', 'lead-predecessor-unverifi
     s.service.send = async (value: any) => {
       assert.equal(s.journal.state.phase, 'running')
       // The plan was approved, so the desk's message about it follows the person's words and the request still carries the contract.
-      assert.equal(value.messages.at(-2).content[0].text, 'Change the plan')
-      assert.match(turnText(value.messages.at(-1)), /^The person approved your plan\./)
+      assert.equal(value.messages.at(-1).content[0].text, 'Change the plan')
+      assert.ok(value.messages.at(-1).content.some((block: any) => /^The person approved your plan\./.test(block.text)), 'the contract follows in the same turn')
       return { status: 'completed', text: 'Plan change received' }
     }
     await s.call('lead/thread/send', { idempotencyKey: 'change-plan', text: 'Change the plan' }); await s.controls.idle()
