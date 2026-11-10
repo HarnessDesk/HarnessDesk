@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Review threads settle by outcome.** After a repair round, a thread the fix addressed is resolved without a reply, and a suggestion the agent declined gets one plain sentence, once, and stays open. A bot reviewer's threads on one pull request are settled in at most three repair rounds; a person's are not capped. Both show in the project's Git record.
+
 - **Idle conversations read back whole.** A conversation an agent replays from its own store, such as an OpenCode one, keeps its replies, its thinking and the turn times the desk recorded, on the desktop and the phone. It no longer says recent activity is still being saved when nothing is.
 
 - **Manage conversations from your phone.** Rename, archive, unarchive and pin the desk's conversations; delete those whose agent moves them to the Trash. Pins follow you between the desk and phone.

@@ -208,8 +208,8 @@ append-only entries: `id`, `prev`, operation, repository, optional branch/PR
 number/head/previous head/lease, requester, approval, optional redacted
 `steeredFrom`, timestamp and outcome/reason. Requesters are sessions, Lead
 goals, the person or `outside`. Operations are `push`, `pr.create`,
-`pr.update`, `pr.merge`, `pr.comment`, `pr.review`, `issue.comment` and
-`observed`. An intent is flushed before the effect; its outcome is appended
+`pr.update`, `pr.merge`, `pr.comment`, `pr.review`, `issue.comment`,
+`observed`, `pr.thread.resolve` and `pr.thread.answer`. An intent is flushed before the effect; its outcome is appended
 with the same id before returning. Writes are serialized per repository.
 Each physical line's `prev` hashes the preceding line, including its newline;
 rotated segments retain the chain and a separately flushed anchor remembers
@@ -224,6 +224,8 @@ an uncertain crash: they become interrupted failures because the host cannot
 prove that the forge did not already accept them. Lead adoption still needs
 a successful push for the exact repository, branch, SHA and requester through
 `hasSucceededPush`; an intent or a caller's incomplete journal is insufficient.
+
+**Review threads.** After a repair round a seat settles each review thread by its outcome, through `ctx.forge.settleThread`: a thread the fix addressed is resolved with GraphQL `resolveReviewThread` and nothing is posted; a suggestion the seat declined is answered with exactly one plain sentence (at most 280 characters, one line, no link, markup or mention) and left open for the reviewer. Before either write the gateway reads the pull request's threads itself, so the thread's membership in that pull request, its author and whether that author is a bot come from the forge, never from the plugin. The host prefixes the desk marker line to an answer, so intake and `deskPosted` know it as the desk's own. A thread is answered at most once, and one bot reviewer's threads on one pull request are settled in at most three distinct repair rounds, counted by the seat's round (or the turn, without one); a person reviewer is not capped. Both facts live in `review-threads.json` in host state, replaced atomically and noted before the write, and the note is taken back only when the write never reached `gh`. `ctx.forge.reviewThreads` is the matching read: one fixed GraphQL query with the repository and number passed as variables, returning each thread's id, path, line, author, bot flag, resolved and answered state and its first comment, bounded and marked as untrusted text ([why](decisions.md#review-threads-are-settled-by-outcome--2026-11-10)).
 
 **Attribution and observation.** `attribute(repository, branch, sha)` credits
 only a successful gateway push in intact history. A fetched head without

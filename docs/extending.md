@@ -73,7 +73,7 @@ never runs half-wired.
 | `ctx.browser` | A real browser in the DevTools protocol — see [browser control](browser-control.md) |
 | `ctx.editor` | The file the person is looking at — show it, mark it, edit it |
 | `ctx.team` | The shared board and messages between conversations |
-| `ctx.forge` | Signing and transcript publication (`forge.publish`); host-executed push, PR, review and comment writes (`forge.write`): “Push branches and open, update and merge pull requests through HarnessDesk, as you, recorded in the project's Git record.” |
+| `ctx.forge` | Signing and transcript publication (`forge.publish`); host-executed push, PR, review, comment and review-thread writes (`forge.write`): “Push branches and open, update and merge pull requests through HarnessDesk, as you, recorded in the project's Git record.” |
 | `ctx.ios` | The iOS Simulator, via `simctl` |
 | `ctx.android` | Android devices and emulators, via `adb` |
 | `ctx.workspace` | The root the call runs in, and its git branch when that is the open project |
@@ -758,9 +758,14 @@ await ctx.forge.pullRequest.update({ number, title, body }, scope)
 await ctx.forge.pullRequest.merge({ number, head: reviewedSha, method: 'squash' }, scope)
 await ctx.forge.review({ number, event: 'comment', body }, scope)
 await ctx.forge.comment({ subject: 'issue', number, body }, scope)
+const { threads } = await ctx.forge.reviewThreads({ number }, scope)
+await ctx.forge.settleThread({ number, thread, outcome: 'fixed' }, scope)
+await ctx.forge.settleThread({ number, thread, outcome: 'declined', answer }, scope)
 const entries = await ctx.forge.record({ branch, limit: 50 }, scope)
 const requester = await ctx.forge.attribute({ branch, sha }, scope)
 ```
+
+`settleThread` resolves a fixed thread without posting, and answers a declined one with exactly one plain sentence (`threadAnswerProblem` from the protocol package says why an answer would be refused). The host refuses a second answer to a thread and a fourth repair round on one bot reviewer's threads on one pull request; `reviewThreads` returns the threads with the first comment as untrusted text.
 
 The repository is the host's approved project pin, never an argument to these
 verbs. For an unpinned project, `git_push` proposes its origin and asks the
@@ -907,7 +912,7 @@ privileged path:
 
 | Plugin | Engine | What it adds |
 | --- | --- | --- |
-| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `git_push` and the PR/comment writes through the host's pinned gateway, signed for the conversation's seat and recorded in it; `pr_view`, `pr_checks` and `issue_view` read through `gh` |
+| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `git_push`, the PR/comment writes and `pr_thread_settle` through the host's pinned gateway, signed for the conversation's seat and recorded in it; `pr_view`, `pr_checks` and `issue_view` read through `gh`; `pr_threads` reads a PR's review threads through the host |
 | files | `ctx.fs` | read and list within the workspace (read-only &mdash; see [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)) |
 | search | `ctx.shell` | content and filename search, through ripgrep (`rg`) in the workspace |
 | task list | — | `todo_write` / `todo_read` for an agent whose runtime has no plan tool of its own; the sidebar's Tasks panel is the app's and is read from the conversation, not from here |

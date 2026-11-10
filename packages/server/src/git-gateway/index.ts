@@ -3,12 +3,14 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import type { ForgeAssociatedPullRequest, ReviewTargetBinding } from '@harnessdesk/protocol'
+import { BOT_REVIEWER_ROUNDS, DESK_POST_MARKER, isReviewThreadId, threadAnswerProblem, type ForgeAssociatedPullRequest, type ForgeReviewThread, type ForgeReviewThreads, type ReviewTargetBinding } from '@harnessdesk/protocol'
 import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 import { GitRecord, canonicalRepository, validateRepository, isGitRequester, type GitApproval, type GitRecordEntry, type GitRecordQuery, type GitRequester, type SucceededPushQuery } from './record.js'
 import { GitPins } from './pins.js'
+import { ReviewThreadLedger } from './threads.js'
+import { isDeskPost } from '../findings/publication.js'
 import { observedReviewTarget, reviewTargetDiagnostic } from '../review-target-diagnostic.js'
-export { GitRecord, GitPins }
+export { GitRecord, GitPins, ReviewThreadLedger }
 export type { GitRequester, GitApproval, GitRecordEntry, GitRecordQuery, SucceededPushQuery } from './record.js'
 
 const execute = promisify(execFile)
@@ -23,7 +25,31 @@ export interface GitPush extends GitTarget {
   readonly allowRewrite?: boolean
   readonly steeredFrom?: string
 }
-interface GitWrite { readonly beforeWrite?: () => Promise<void>; readonly beforeSpawn?: () => void; readonly reviewedTarget?: ReviewTargetBinding; readonly checkAuthority?: () => Promise<boolean>; readonly repository: string; readonly requester: GitRequester; readonly approval?: GitApproval; readonly steeredFrom?: string; readonly branch?: string; readonly number?: number; readonly sha?: string; readonly previousSha?: string | null; readonly lease?: string | null }
+interface GitWrite { readonly beforeWrite?: () => Promise<void>; readonly beforeSpawn?: () => void; readonly reviewedTarget?: ReviewTargetBinding; readonly checkAuthority?: () => Promise<boolean>; readonly repository: string; readonly requester: GitRequester; readonly approval?: GitApproval; readonly steeredFrom?: string; readonly branch?: string; readonly number?: number; readonly sha?: string; readonly previousSha?: string | null; readonly lease?: string | null; readonly thread?: string }
+/**
+ * The fixed GraphQL documents for review threads. Values travel only as
+ * variables (`-f`, `-F` for the validated number); nothing a seat or a
+ * reviewer wrote is ever spliced into the query text.
+ */
+const REVIEW_THREADS_QUERY = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number title url state reviewThreads(first:100){nodes{id isResolved path line comments(first:50){nodes{author{login __typename} body}}}}}}}'
+const RESOLVE_THREAD = 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}'
+const ANSWER_THREAD = 'mutation($thread:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$thread,body:$body}){comment{url}}}'
+/** How much of a thread's opening comment a seat is shown, in characters. */
+const THREAD_BODY_LIMIT = 1000
+export interface GitThreadSettle extends GitWrite {
+  readonly number: number
+  readonly thread: string
+  readonly outcome: 'fixed' | 'declined'
+  readonly answer?: string
+  /** The calling seat's repair round; null when the caller is the person, whom no round cap holds. */
+  readonly round: string | null
+}
+export interface GitThreadSettled {
+  readonly outcome: 'resolved' | 'already-resolved' | 'answered'
+  readonly url: string | null
+  readonly output: string
+  readonly pullRequest: Pick<ForgeReviewThreads, 'title' | 'url' | 'state'>
+}
 export interface GitGatewayOptions {
   readonly directory: string
   readonly recordOutside?: () => boolean
@@ -41,6 +67,7 @@ export class GitGateway {
   readonly #tails = new Map<string, Promise<unknown>>()
   readonly gitRecord: GitRecord
   readonly pins: GitPins
+  readonly threads: ReviewThreadLedger
   readonly #startup: Promise<void>
   readonly #recoveries = new Map<string, Promise<void>>()
   #initialization?: Promise<void>
@@ -56,6 +83,7 @@ export class GitGateway {
     if (process.versions.electron) this.#env.ELECTRON_RUN_AS_NODE = '1'
     this.gitRecord = new GitRecord(options.stateDirectory ?? options.directory)
     this.pins = new GitPins(options.stateDirectory ?? options.directory)
+    this.threads = new ReviewThreadLedger(options.stateDirectory ?? options.directory)
     this.#startup = this.#reconcile()
     void this.#startup.catch(() => {})
   }
@@ -89,6 +117,8 @@ export class GitGateway {
     if (op === 'pr.merge' && (!text(value.head) || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.head!) || !['squash', 'merge', 'rebase'].includes(value.method!))) invalid()
     if (op === 'pr.review' && (!['approve', 'request-changes', 'comment'].includes(value.event!) || value.body === undefined)) invalid()
     if ((op === 'pr.comment' || op === 'issue.comment') && (!['pullRequest', 'issue'].includes(value.subject!) || value.body === undefined)) invalid()
+    if ((op === 'pr.thread.resolve' || op === 'pr.thread.answer') && !isReviewThreadId(target.thread)) invalid()
+    if (op === 'pr.thread.answer' && threadAnswerProblem((target as { answer?: unknown }).answer) !== null) invalid()
   }
   async #validate(target: GitTarget): Promise<void> {
     if (typeof target.sha !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(target.sha) || target.previousSha !== null && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(target.previousSha))
@@ -112,13 +142,13 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
     await writeFile(join(this.options.directory, 'credential.cjs'), helper, { mode: 0o600 })
   }
   #entry(op: GitRecordEntry['op'], target: GitWrite): Omit<GitRecordEntry, 'prev' | 'outcome'> {
-    const { repository, branch, number, sha, previousSha, lease, requester, steeredFrom } = target
+    const { repository, branch, number, sha, previousSha, lease, requester, steeredFrom, thread } = target
     return { id: randomUUID(), op, repository: canonicalRepository(repository), branch: typeof branch === 'string' ? branch : undefined,
       number: Number.isSafeInteger(number) && number! >= 1 ? number : undefined, sha: typeof sha === 'string' ? sha : undefined,
       previousSha: typeof previousSha === 'string' || previousSha === null ? previousSha : undefined,
       lease: typeof lease === 'string' || lease === null ? lease : undefined, requester: isGitRequester(requester) ? requester : { kind: 'outside' },
       approval: target.approval && typeof target.approval === 'object' && ['person', 'standing', 'ceiling', 'steered'].includes(target.approval.by) ? target.approval : null,
-      steeredFrom: typeof steeredFrom === 'string' ? steeredFrom : undefined, at: Date.now() }
+      steeredFrom: typeof steeredFrom === 'string' ? steeredFrom : undefined, ...(isReviewThreadId(thread) ? { thread } : {}), at: Date.now() }
   }
 
   #failure(error: unknown, op?: GitRecordEntry['op']): { outcome: 'refused' | 'rejected' | 'failed'; reason: string } {
@@ -552,6 +582,105 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
   }
   review(target: GitWrite & { readonly number: number; readonly event: 'approve' | 'request-changes' | 'comment'; readonly body: string }): Promise<string> {
     return this.#forgeWrite('pr.review', target, ['pr', 'review', String(target.number), `--${target.event}`, '--body', target.body])
+  }
+  /** A pull request's review threads, as the pinned repository holds them, first 100. */
+  reviewThreads(repository: string, number: number): Promise<ForgeReviewThreads> {
+    return this.#queue(repository, () => this.#threads(repository, number))
+  }
+  async #threads(repository: string, number: number): Promise<ForgeReviewThreads> {
+    const pinned = canonicalRepository(repository), [owner, name] = pinned.split('/')
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error('git-gateway-target-invalid')
+    const value: unknown = JSON.parse(await this.#gh(pinned, ['api', 'graphql', '-f', `query=${REVIEW_THREADS_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${number}`]))
+    const pr = value && typeof value === 'object' && !('errors' in value && (value as { errors?: unknown }).errors)
+      ? (value as { data?: { repository?: { pullRequest?: Record<string, unknown> | null } } }).data?.repository?.pullRequest : undefined
+    if (!pr || pr.number !== number || typeof pr.url !== 'string' || pr.url.toLowerCase() !== `https://github.com/${pinned}/pull/${number}`) {
+      throw new Error(`The review threads of pull request #${number} could not be read from ${pinned}.`)
+    }
+    const answered = new Set(await this.threads.answered(pinned, number))
+    const text = (input: unknown): string | null => typeof input === 'string' ? input : null
+    const bounded = (input: unknown): string => {
+      const clean = (text(input) ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim()
+      return clean.length > THREAD_BODY_LIMIT ? `${clean.slice(0, THREAD_BODY_LIMIT)}…` : clean
+    }
+    const nodes = (pr.reviewThreads as { nodes?: unknown } | null | undefined)?.nodes
+    const threads: ForgeReviewThread[] = (Array.isArray(nodes) ? nodes : []).flatMap((node: Record<string, unknown> | null) => {
+      if (!node || typeof node !== 'object' || !isReviewThreadId(node.id)) return []
+      const list = (node.comments as { nodes?: unknown } | null | undefined)?.nodes
+      const comments = (Array.isArray(list) ? list : []) as ({ author?: { login?: unknown; __typename?: unknown } | null; body?: unknown } | null)[]
+      const first = comments[0], author = text(first?.author?.login)
+      return [{
+        id: node.id, path: text(node.path), line: Number.isSafeInteger(node.line) ? node.line as number : null, author,
+        bot: first?.author?.__typename === 'Bot' || (!!author && /\[bot\]$/i.test(author)),
+        resolved: node.isResolved === true,
+        answered: answered.has(node.id) || comments.slice(1).some(comment => typeof comment?.body === 'string' && isDeskPost(comment.body)),
+        body: bounded(first?.body),
+      }]
+    })
+    const state = pr.state === 'OPEN' ? 'open' : pr.state === 'CLOSED' ? 'closed' : pr.state === 'MERGED' ? 'merged' : null
+    return { repository: pinned, number, title: text(pr.title), url: pr.url, state, threads }
+  }
+  /**
+   * Settles one review thread by outcome, as the signed-in person: a fixed
+   * thread is resolved and nothing is posted; a declined one is answered
+   * with one marked sentence, once. A bot reviewer's threads on one pull
+   * request are settled in at most `BOT_REVIEWER_ROUNDS` distinct repair
+   * rounds. Every refusal and every write lands in the record.
+   */
+  settleReviewThread(target: GitThreadSettle): Promise<GitThreadSettled> {
+    return this.#queue(target.repository, async () => {
+      const op = target.outcome === 'fixed' ? 'pr.thread.resolve' : 'pr.thread.answer'
+      const entry = this.#entry(op, target)
+      const refused = async (reason: string): Promise<Error> => {
+        await this.gitRecord.append({ ...entry, at: Date.now(), outcome: 'refused', reason })
+        return new Error(reason)
+      }
+      try {
+        if (!['fixed', 'declined'].includes(target.outcome) || (target.outcome === 'fixed') !== (target.answer === undefined)) throw new Error('git-gateway-target-invalid')
+        if (target.round !== null && (typeof target.round !== 'string' || !target.round)) throw new Error('git-gateway-target-invalid')
+        await this.#validateWrite(target, op)
+      } catch (error) { await this.gitRecord.append({ ...entry, ...this.#failure(error) }); throw error }
+      let read: ForgeReviewThreads
+      try { read = await this.#threads(target.repository, target.number) }
+      catch (error) { await this.gitRecord.append({ ...entry, at: Date.now(), outcome: 'failed', reason: error instanceof Error ? error.message : String(error) }); throw error }
+      const pullRequest = { title: read.title, url: read.url, state: read.state }
+      const thread = read.threads.find(one => one.id === target.thread)
+      if (!thread) throw await refused(`${target.thread} is not a review thread on pull request #${target.number}; nothing was written.`)
+      if (target.outcome === 'fixed' && thread.resolved) {
+        return { outcome: 'already-resolved', url: null, pullRequest, output: `The review thread ${thread.id} on pull request #${target.number} is already resolved; nothing was written.` }
+      }
+      if (target.outcome === 'declined' && thread.answered) throw await refused('This review thread has already been answered once; nothing was posted.')
+      const reviewer = thread.bot && target.round !== null ? thread.author : null
+      if (reviewer) {
+        const rounds = await this.threads.rounds(target.repository, target.number, reviewer)
+        if (!rounds.includes(target.round!) && rounds.length >= BOT_REVIEWER_ROUNDS) {
+          throw await refused(`${reviewer}'s threads on pull request #${target.number} were already settled in ${BOT_REVIEWER_ROUNDS} repair rounds, so this one is left for the person; nothing was written.`)
+        }
+      }
+      const answer = target.answer?.trim()
+      let submitted = false
+      const undo = await this.threads.note({ repository: target.repository, number: target.number, reviewer, round: target.round, answered: answer === undefined ? null : thread.id })
+      try {
+        return await this.#effect(entry, async (): Promise<GitThreadSettled> => {
+          await target.beforeWrite?.()
+          const raw = await this.#gh(target.repository, answer === undefined
+            ? ['api', 'graphql', '-f', `query=${RESOLVE_THREAD}`, '-f', `thread=${thread.id}`]
+            : ['api', 'graphql', '-f', `query=${ANSWER_THREAD}`, '-f', `thread=${thread.id}`, '-f', `body=${DESK_POST_MARKER}\n${answer}`], () => { submitted = true })
+          const value = JSON.parse(raw) as { errors?: unknown; data?: { resolveReviewThread?: { thread?: { id?: unknown; isResolved?: unknown } }; addPullRequestReviewThreadReply?: { comment?: { url?: unknown } } } }
+          if (value?.errors) throw new Error('The forge refused the review thread change.')
+          if (answer === undefined) {
+            const resolved = value?.data?.resolveReviewThread?.thread
+            if (resolved?.id !== thread.id || resolved.isResolved !== true) throw new Error('The review thread was not confirmed resolved.')
+            return { outcome: 'resolved', url: null, pullRequest, output: `Resolved review thread ${thread.id} on pull request #${target.number}; nothing was posted.` }
+          }
+          const url = value?.data?.addPullRequestReviewThreadReply?.comment?.url
+          if (typeof url !== 'string' || !url.toLowerCase().startsWith(`${read.url.toLowerCase()}#`)) throw new Error('The answer was not confirmed posted on that pull request.')
+          return { outcome: 'answered', url, pullRequest, output: `Answered review thread ${thread.id} on pull request #${target.number}.\n${url}` }
+        })
+      } catch (error) {
+        if (!submitted) await undo().catch(() => {})
+        throw error
+      }
+    })
   }
   repository(repository: string): Promise<{ nameWithOwner: string; url: string; defaultBranchRef?: { name?: string } }> {
     return this.#queue(repository, async () => JSON.parse(await this.#gh(repository, ['repo', 'view', canonicalRepository(repository), '--json', 'nameWithOwner,url,defaultBranchRef'])))

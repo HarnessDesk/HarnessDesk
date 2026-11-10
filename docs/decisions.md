@@ -7,6 +7,21 @@ the rule is the last line of its section.
 
 ---
 
+## Review threads are settled by outcome — 2026-11-10
+
+After a repair round, a pull request is left full of open review threads: the ones the fix addressed and the ones the seat chose not to take. A reader cannot tell them apart without opening each, and a bot reviewer opens new ones on every push. The desk now settles each thread by what happened to it. A fixed thread is resolved and nothing is posted, because the commit is the answer and a "done" reply is noise in the reviewer's inbox. A declined thread gets exactly one plain sentence saying why and is left open, because the decision belongs to the reviewer, not to the seat that disagreed with them.
+
+The host, not the plugin, decides what a thread is. It reads the pull request's threads before every settle, so whether the thread belongs to that pull request, who wrote it and whether that author is a bot come from the forge. The answer is validated as one sentence of at most 280 characters on one line with no link, markup or mention, in the plugin, at the extension boundary and in the gateway, with the same function each time. The host adds the desk marker so the answer is known as the desk's own. A thread is answered once; a bot reviewer's threads on one pull request are settled in at most three distinct repair rounds, after which the rest is left to the person. A person reviewer is not capped, because a person who keeps asking is a conversation, not a loop. Both counts are host state written before the write, and kept when the write may have reached the forge: answering twice, or under-counting a round, is worse than one round too few.
+
+Rejected:
+
+- **Replying to every thread.** A reply on a fixed thread adds a notification and says nothing the commit does not, and an agent that always replies drifts into arguing with a bot.
+- **Resolving declined threads.** It hides a disagreement from the person who has to judge it; a declined thread stays open until a person closes it.
+- **A separate bot account.** It would be a second credential to store, scope and rotate, and it would cut the answer off from the person who is accountable for it. The answer goes out as the person, through the same pinned gateway and Git record as every other write, and the marker says the desk wrote it.
+- **Trusting the plugin's word on the reviewer.** A plugin claiming a thread's author is a person would lift the cap; the host reads it instead.
+
+**Rule:** fixed means resolve and stay silent; declined means one sentence, once, left open; a bot reviewer gets at most three repair rounds per pull request, counted by the host.
+
 ## Reading a conversation back is not activity — 2026-11-09
 
 Loading a stored ACP conversation replays it, and the replay is history being

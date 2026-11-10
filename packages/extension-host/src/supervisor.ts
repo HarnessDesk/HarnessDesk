@@ -24,7 +24,7 @@ import {
   setEditorEngine,
   setForgeEngine,
   validateForgeArgs,
-  type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeVerb,
+  type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeVerb, type ForgeThreadsQuery, type ForgeThreadSettle, FORGE_READS,
   setTeamEngine,
   type BrowserEngine,
   type BrowserSettings,
@@ -921,10 +921,10 @@ export class PluginHostProcess {
           return
         }
         const verb = request.method.slice(6) as ForgeVerb
-        if (['push', 'create', 'update', 'merge', 'review', 'comment', 'record', 'attribute', 'repository', 'associatedPullRequest'].includes(verb)) {
+        if (['push', 'create', 'update', 'merge', 'review', 'comment', 'record', 'attribute', 'repository', 'associatedPullRequest', 'reviewThreads', 'settleThread'].includes(verb)) {
           const plugin = this.#plugins.find(entry => String(entry.instanceId) === scope.plugin)
           const grant = plugin?.permissions.forge
-          if (!['record', 'attribute', 'repository', 'associatedPullRequest'].includes(verb) && !(typeof grant === 'object' && grant.write === true)) {
+          if (!FORGE_READS.includes(verb) && !(typeof grant === 'object' && grant.write === true)) {
             refuse('Permission denied: forge.write'); return
           }
           validateForgeArgs(verb, params['args'])
@@ -933,7 +933,7 @@ export class PluginHostProcess {
           if (leases?.size !== 1) { refuse('This forge call has no unambiguous live invocation.'); return }
           const lease = leases.values().next().value
           if (!lease) { refuse('This forge call has no live invocation.'); return }
-          if (!['record', 'attribute', 'repository', 'associatedPullRequest'].includes(verb) && lease.scope.actor === 'context') {
+          if (!FORGE_READS.includes(verb) && lease.scope.actor === 'context') {
             refuse('Context resolution cannot write to the forge.'); return
           }
           const trusted = { ...lease.scope, plugin: scope.plugin, signal: lease.controller.signal }
@@ -953,6 +953,8 @@ export class PluginHostProcess {
                 case 'comment': result = await plane.comment(args as ForgeComment, trusted); break
                 case 'record': result = await plane.record(args as ForgeRecordQuery, trusted); break
                 case 'attribute': result = await plane.attribute(args as ForgeAttribute, trusted); break
+                case 'reviewThreads': result = await plane.reviewThreads(args as ForgeThreadsQuery, trusted); break
+                case 'settleThread': result = await plane.settleThread(args as ForgeThreadSettle, trusted); break
               }
               reply({ response: request.request, result })
             })
