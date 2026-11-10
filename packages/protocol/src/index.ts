@@ -86,6 +86,7 @@ export * from './canonical-transcript.js'
 
 export * from './pending-transcript.js'
 
+export * from './forge-threads.js'
 export * from './pacing.js'
 export * from './lead-work.js'
 export * from './lead-presence.js'

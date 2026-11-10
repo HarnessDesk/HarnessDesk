@@ -393,7 +393,7 @@ test('a blind reviewer, or anything it delegated to, cannot post however high it
     plugin: {
       name: 'git', inject: ['tools'],
       apply(ctx: { tools: { register(spec: unknown): void } }) {
-        for (const name of ['pr_view', 'pr_review', 'pr_comment', 'issue_comment']) {
+        for (const name of ['pr_view', 'pr_threads', 'pr_review', 'pr_comment', 'issue_comment', 'pr_thread_settle']) {
           ctx.tools.register({
             name, description: name, inputSchema: { type: 'object', properties: {} },
             execute: () => { ran.push(name); return `${name} ran` },
@@ -403,7 +403,7 @@ test('a blind reviewer, or anything it delegated to, cannot post however high it
     } as never,
   })
   await settle()
-  assert.deepEqual(EMBARGOED_TOOLS['git'], ['pr_review', 'pr_comment', 'issue_comment'])
+  assert.deepEqual(EMBARGOED_TOOLS['git'], ['pr_review', 'pr_comment', 'issue_comment', 'pr_thread_settle'])
   const blind = new Set(['beta\u0000root'])
   const said: string[] = []
   const gate = new CeilingGate({
@@ -421,7 +421,7 @@ test('a blind reviewer, or anything it delegated to, cannot post however high it
     assert.ok(tool, name)
     return gated.invokeTool(tool.id, {}, { runtime: runtimeId('beta'), sessionId: sessionId(id) })
   }
-  for (const name of ['pr_review', 'pr_comment', 'issue_comment']) {
+  for (const name of ['pr_review', 'pr_comment', 'issue_comment', 'pr_thread_settle']) {
     for (const id of ['root', 'child']) {
       const refused = await call(name, id)
       assert.equal(refused.ok, false, `${name} from ${id}`)
@@ -430,8 +430,9 @@ test('a blind reviewer, or anything it delegated to, cannot post however high it
   }
   assert.deepEqual(ran, [], 'no posting tool ran')
   assert.equal((await call('pr_view', 'child')).ok, true, 'reading is never embargoed')
+  assert.equal((await call('pr_threads', 'child')).ok, true, 'reading review threads is never embargoed')
   blind.clear()
   assert.equal((await call('pr_review', 'child')).ok, true, 'once the round closed, the same call goes through')
-  assert.deepEqual(ran, ['pr_view', 'pr_review'])
+  assert.deepEqual(ran, ['pr_view', 'pr_threads', 'pr_review'])
   assert.ok(said.every((line) => /blind round/.test(line)))
 })

@@ -197,7 +197,7 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
     },
     review: args => hostWrite(['pr', 'review', String(args.number), `--${args.event}`, '--body', args.body]),
     comment: args => hostWrite([args.subject === 'issue' ? 'issue' : 'pr', 'comment', String(args.number), '--body', args.body]),
-    record: async () => [], attribute: async () => 'outside',
+    record: async () => [], attribute: async () => 'outside', reviewThreads: async () => { throw new Error('unused') }, settleThread: async () => { throw new Error('unused') },
 
     seat: async () => seat.current,
     identity: async () => ({ via: 'gh', login: 'octocat', available: true, reason: null }),
@@ -1584,7 +1584,7 @@ test('all direct desk publication paths honor embargo', async (t) => {
       pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
       review: async () => { throw new Error('No gateway in this fixture') },
       comment: async () => { throw new Error('No gateway in this fixture') },
-      record: async () => [], attribute: async () => 'outside' as const,
+      record: async () => [], attribute: async () => 'outside' as const, reviewThreads: async () => { throw new Error('unused') }, settleThread: async () => { throw new Error('unused') },
     seat: async () => SEAT, identity: async () => ({ via: 'gh', login: 'octocat', available: true, reason: null }), publish: async () => {},
     publicationAllowed: async () => { throw new Error('the host is gone') },
   })

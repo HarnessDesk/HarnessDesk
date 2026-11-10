@@ -19,7 +19,7 @@ const unavailableWrites = {
   pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
   review: async () => { throw new Error('No gateway in this fixture') },
   comment: async () => { throw new Error('No gateway in this fixture') },
-  record: async () => [], attribute: async () => 'outside' as const,
+  record: async () => [], attribute: async () => 'outside' as const, reviewThreads: async () => { throw new Error('unused') }, settleThread: async () => { throw new Error('unused') },
 }
 
 /**
