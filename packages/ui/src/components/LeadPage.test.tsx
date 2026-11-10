@@ -894,3 +894,13 @@ it('keeps a working turn after send, maps host activity, and replaces it with th
   await act(async () => release({ version: 1, kind: 'sent', revision: 2 } as never))
   await update({ requestInFlight: false })
 })
+it('draws the chats and Teams a reply names as links under it, and opens the one picked', async () => {
+  const base = leadProjection()
+  const reply = { version: 1 as const, id: 'named', revision: 2, role: 'assistant' as const, text: 'The checkout Team is on it.', refs: [{ kind: 'team' as const, id: 'room-preview', title: 'A name the model wrote' }, { kind: 'team' as const, id: 'room-gone' }] }
+  const { store, box } = await mount({ ...base, thread: { ...base.thread, messages: [goalMessage, reply] } })
+  const open = vi.spyOn(store, 'openTeamRoom').mockImplementation(() => {})
+  const links = [...box.querySelectorAll<HTMLButtonElement>('[data-slot="lead-refs"] button')]
+  expect(links.map(link => link.textContent)).toEqual(['Checkout rewrite'])
+  await act(async () => links[0]!.click())
+  expect(open).toHaveBeenCalledWith('room-preview')
+})

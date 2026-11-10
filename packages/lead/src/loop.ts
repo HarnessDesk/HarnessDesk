@@ -441,10 +441,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     } else if ((result.text || result.ask) && !terminal(journal.state.phase)) {
       const last = journal.state.messages.at(-1), words = (text: string) => text.replace(/\s+/g, ' ').trim()
       if (!(last?.role === 'assistant' && words(last.text) === words(result.text ?? '') && JSON.stringify(last.ask) === JSON.stringify(result.ask))) {
-        try { await journal.appendReply(result.text ?? '', undefined, result.ask) }
+        try { await journal.appendReply(result.text ?? '', undefined, result.ask, result.refs) }
         catch { await waitForUser('lead-request-failed'); return result }
       }
-      const { text: _kept, ask: _ask, ...delivered } = result
+      const { text: _kept, ask: _ask, refs: _refs, ...delivered } = result
       result = delivered
     }
     if (result.status === 'failed' && result.reason === 'lead-messages-too-long' && options.context) {

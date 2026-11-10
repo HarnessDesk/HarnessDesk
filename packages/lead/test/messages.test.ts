@@ -191,6 +191,18 @@ test('plan and card proposals validate as assistant output and never become tool
   assert.equal((await invalid.client.request(input, new AbortController().signal)).status, 'invalid-response')
 })
 
+test('the envelope\'s refs reach the result; a malformed or repeated ref is dropped, never the reply', async () => {
+  const refs = [{ kind: 'team', id: 'goal-7', title: 'Build a game' }, { kind: 'nope', id: 'x' }, { kind: 'team', id: 'goal-7' }, { kind: 'chat', id: 'chat-2' }]
+  const s = await setup([message([{ type: 'text', text: `The Team is running.\n\n${JSON.stringify({ version: 1, type: 'lead-output', refs })}` }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.equal(result.text, 'The Team is running.')
+  assert.deepEqual(result.refs, [{ kind: 'team', id: 'goal-7', title: 'Build a game' }, { kind: 'chat', id: 'chat-2' }])
+  const none = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: 'Nothing to open.', refs: 'goal-7' }) }])])
+  const plain = await none.client.request(input, new AbortController().signal)
+  assert.equal(plain.text, 'Nothing to open.')
+  assert.equal(plain.refs, undefined)
+})
+
 test('history, unknown request fields, secrets and oversized input are refused before sending', async () => {
   for (const request of [{ ...input, origin: 'https://example.com' }, { ...input, model: 'other-model' },
     { ...input, maxTokens: 0 }, { ...input, messages: [{ role: 'user', content: [{ type: 'text', text: key }] }] },

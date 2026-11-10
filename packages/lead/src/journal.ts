@@ -1,4 +1,4 @@
-import { parseLeadApprovalAudit, parseLeadAutonomyChange, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyChange, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadApprovalAudit, parseLeadAutonomyChange, parseLeadMessageRefs, type LeadMessageRef, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyChange, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import {
   parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_LIMITS, LEAD_MANAGEMENT_REASONS, leadNoSpendLimit, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
@@ -612,10 +612,11 @@ export class LeadJournal {
     }
     return true
   }) }
-  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk): Promise<void> { return this.#queue(() => {
+  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[]): Promise<void> { return this.#queue(() => {
     const revision = this.#state.seq + 1
     return this.#append({ type: 'message', idempotencyKey: null,
-      message: parseLeadMessage({ version: 1, id: `message-${revision}`, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}) }) })
+      message: parseLeadMessage({ version: 1, id: `message-${revision}`, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}),
+        ...(refs?.length ? { refs: parseLeadMessageRefs(refs) } : {}) }) })
   }) }
   #policyChange(state: LeadState, policy: LeadPermissionPolicy, id: string): LeadJournalEvent | null {
     if (!state.policy) throw new Error('lead-policy-unavailable')

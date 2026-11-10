@@ -1165,6 +1165,24 @@ test('the host admits and stores the child ordinary ask across appendReply IPC',
   } finally { await f.supervisor.stop() }
 })
 
+test('the work items a reply names cross appendReply IPC as refs, scanned like the words, with or without an ask', async () => {
+  const refs = [{ kind: 'team', id: 'goal-7', title: 'Build a game' }, { kind: 'session', id: 'codex:thread-1' }]
+  const admitted: string[] = []
+  const f = await replyRig(['The Team is running.', null, null, refs], { admitReply: async (text: string) => { admitted.push(text) } })
+  try {
+    await f.supervisor.send(request)
+    assert.equal((await f.replied).ok, true)
+    assert.deepEqual(f.journal.state.messages.at(-1)?.refs, refs)
+    assert.deepEqual(admitted, ['The Team is running.', JSON.stringify(refs)])
+  } finally { await f.supervisor.stop() }
+  // A ref beside a proactive report is not an ordinary reply's: the frame is refused.
+  const bad = await replyRig(['A finding.', { finding: 'x', caveat: 'y', ask: 'z' }, null, refs])
+  try {
+    await bad.supervisor.send(request).catch(() => {})
+    assert.deepEqual(bad.assistant(), [])
+  } finally { await bad.supervisor.stop().catch(() => {}) }
+})
+
 test('an ask-only appendReply frame keeps the child alive and retains the decision in history', async () => {
   const ask = { question: 'Choose a next step', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
   const admitted: string[] = []

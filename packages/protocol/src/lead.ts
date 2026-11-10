@@ -233,7 +233,19 @@ export interface LeadProactive {
   readonly action?: 'plan' | 'changes' | 'approvals'
 }
 export interface LeadApprovalAudit { readonly ruleId: string; readonly target: string; readonly diff?: string }
+/** What a reply's work item is: a Team (or its goal), a conversation (a session or a chat the Lead runs), or a work-ledger item. */
+export const LEAD_MESSAGE_REF_KINDS = ['team', 'goal', 'session', 'chat', 'work'] as const
+export type LeadMessageRefKind = typeof LEAD_MESSAGE_REF_KINDS[number]
+/**
+ * A work item a reply names, so the window and the phone can open it. Model output: a ref is a pointer, never a grant, and
+ * a surface opens only one it can resolve on the desk itself. A ref it cannot resolve is not drawn.
+ */
+export interface LeadMessageRef { readonly kind: LeadMessageRefKind; readonly id: string; readonly title?: string }
+/** At most this many refs on one reply. */
+export const LEAD_MESSAGE_REFS_MAX = 8
 export interface LeadMessage {
+  /** Work items the reply names, in the order it names them; assistant replies only. */
+  readonly refs?: readonly LeadMessageRef[]
   /** Host attribution: consent counts only the person's own messages. */
   readonly source?: 'person' | 'automatic' | 'schedule'
   /** Host acknowledgement, never supplied by the Lead model. */
@@ -776,13 +788,17 @@ const parseLeadCheckpointMarker: Validator<LeadCheckpointMarker> = (value, path 
   if (source.fallback !== undefined && source.fallback !== true) return fail(path, 'expected true')
   return { id: id(source.id, `${path}.id`), ...(source.fallback === true ? { fallback: true as const } : {}) }
 }
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint'])
+export const parseLeadMessageRef: Validator<LeadMessageRef> = omitUnset(object<LeadMessageRef>({ kind: literalUnion(...LEAD_MESSAGE_REF_KINDS), id: opaque, title: optional(text(120)) }), ['title'])
+/** The refs a reply carries, at most `LEAD_MESSAGE_REFS_MAX`, one per kind and id. */
+export const parseLeadMessageRefs: Validator<readonly LeadMessageRef[]> = list(parseLeadMessageRef, LEAD_MESSAGE_REFS_MAX, 1, ref => `${ref.kind}:${ref.id}`)
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
   if (message.source !== undefined && message.role !== 'user') fail(path, 'source requires a user message')
   if (message.ask && (message.role !== 'assistant' || message.proactive)) fail(path, 'ask requires an ordinary assistant message')
   if (message.checkpoint && message.role !== 'notice') fail(path, 'a checkpoint marker is a host notice')
+  if (message.refs && message.role !== 'assistant') fail(path, 'refs belong to a reply')
   return message
 }
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {
