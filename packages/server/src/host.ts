@@ -3876,6 +3876,8 @@ export class Host {
       push: notice => this.#push({ method: 'lead/presence/changed', params: { notice } }),
       changed: () => this.#push({ method: 'lead/presence/changed', params: {} }) })
     this.#leadPresence = presence
+    // An ask's clock starts when the journal appends it, not when somebody first looks at the thread.
+    this.onDispose(journal.onChange(() => { void presence.observe().catch(() => {}) }))
     this.onDispose(() => { if (this.#leadPresence === presence) this.#leadPresence = null })
     let workTimer: ReturnType<typeof setTimeout> | null = null
     const pokeWork = () => {
@@ -4251,7 +4253,12 @@ export class Host {
     // Recovery uses only journaled person authority and freshly verified worker/forge identity.
     void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
     this.#leadControls = new LeadControls({ journal,
-      readWorkContext: async () => leadWorkCards(await work.board(), Date.now()),
+      readWorkContext: async () => {
+        const note = presence.takeExpiryNote()
+        let cards: string | null = null
+        try { cards = leadWorkCards(await work.board(), Date.now()) } catch (error) { if (!note) throw error }
+        return [cards, note ? `<host-note>${note}</host-note>` : null].filter(Boolean).join('\n\n') || null
+      },
       approveRepeat: async (id, contract, reactivate) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now(), reactivate) },
       freezeRepeat: async contract => ({ ...contract, digest: leadContractDigest(contract) }),
       validateRepeat: async contract => {
@@ -5654,9 +5661,14 @@ export class Host {
       leadThreadSend: async (params) => {
         // A text that answers the question just asked is checked against its expiry first, and its receipt names this device.
         const answered = await this.leadPresence.beforeSend(params.device, params.text)
-        const receipt = await (await this.#leadWindow()).send(params)
-        if (answered) await answered().catch(() => {})
-        return receipt
+        try {
+          const receipt = await (await this.#leadWindow()).send(params)
+          if (answered) await answered(true).catch(() => {})
+          return receipt
+        } catch (error) {
+          if (answered) await answered(false).catch(() => {})
+          throw error
+        }
       },
       leadApprovalRevoke: async params => (await this.#leadWindow()).revokeApproval(params),
       leadActionPerform: async params => (await this.#leadWindow()).perform(params),

@@ -19,6 +19,7 @@ export const REFUSALS: Record<LeadControlRefusal, string> = {
   'lead-repeat-cleanup-pending': 'The previous run still needs to be settled. Wait, then try again.',
   'lead-repeat-quiet': 'Quiet hours are holding this run. Try again after they end.',
   'lead-ask-expired': 'This question expired. Nothing was done.',
+  'lead-ask-answered': 'This question was already answered on another device. Nothing more was sent.',
   'lead-project-missing': 'Open a folder first, then send your goal.',
 }
 

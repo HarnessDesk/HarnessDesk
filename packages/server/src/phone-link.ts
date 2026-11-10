@@ -73,7 +73,7 @@ export const PHONE_POLICY: PhonePolicy = {
     // The money limit alone, as narrow as a raise: `lead/settings/update`, which also writes policy and keys, stays off the phone.
     'lead/spendLimit/set': 'answer',
   },
-  topics: { lead: 'read', workspace: 'read', notices: 'read' },
+  topics: { lead: 'read', workspace: 'read', notices: 'read', presence: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.
   defaultTiers: ['read', 'run', 'answer'],
 }
@@ -159,6 +159,8 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     // The morning brief is one push, already capped for the phone; it carries words and a pointer, nothing else.
     else if (notification.method === 'lead/presence/changed') {
       const notice = notification.params.notice
+      // Presence moved (an ask was answered or expired, a brief arrived): a phone that is open re-reads it. No text rides along.
+      service.publish('presence', { v: 1 })
       if (notice) service.publish('notices', { v: 1, id: notice.digest.slice(0, 64), ts: Math.floor(Date.now() / 1000), kind: 'message', title: notice.phone.title, body: notice.phone.body, deep: 'lead' })
     }
     // Session pages extend beyond the metadata snapshot's bounded session portion. Every index change invalidates

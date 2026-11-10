@@ -31,6 +31,7 @@ const planClick = { version: 1 as const, cardId: 'plan', cardType: 'plan' as con
 /** The desk's Lead, over real controls and a fake model, reachable the way the host reaches it. */
 const desk = async () => {
   const performed: unknown[] = []
+  const presenceCalls: { method: string; device: unknown }[] = []
   let personActions: any[] = [{ kind: 'worker-approval', id: 'worker', runId: 'run', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'yes-goal', 'no'] }, { kind: 'check', id: 'check', runId: 'run', name: 'verify', command: 'node --test' }]
   const records: LeadJournalRecord[] = []
   const journal = await createLeadJournal({ async read() { return records }, async append(record: LeadJournalRecord) { records.push(record) } })
@@ -51,6 +52,8 @@ const desk = async () => {
   const ctx = {
     phone: { state: () => attached?.state() ?? phoneLinkOff, pairing: () => attached!.pairing(), allow: (...a: never[]) => (attached!.allow as any)(...a),
       deny: (id: string) => attached!.deny(id), revoke: (d: string) => attached!.revoke(d) },
+    leadPresence: { read: async (device: unknown) => { presenceCalls.push({ method: 'read', device }); return { version: 1, digest: null, asks: [], brief: { enabled: false, at: '07:30' } } },
+      dismiss: async (device: unknown) => { presenceCalls.push({ method: 'dismiss', device }); return { version: 1, digest: null, asks: [], brief: { enabled: false, at: '07:30' } } } },
     leadApprovalRevoke: (p: any) => controls.revokeApproval(p), leadActionPerform: (p: unknown) => (controls as any).perform(p), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p as never), leadCardDecide: (p: unknown) => controls.decide(p as never),
     leadSettingsRead: () => controls.readSettings(), leadSettingsUpdate: (p: unknown) => controls.updateSettings(p as never), leadSpendLimitSet: (p: unknown) => controls.setSpendLimit(p as never),
     leadStop: (p: unknown) => controls.stop(p as never), leadResume: (p: unknown) => controls.resume(p as never),
@@ -60,7 +63,7 @@ const desk = async () => {
     addBroadcaster: (f: (n: WireNotification) => void) => { broadcasters.add(f); return () => { broadcasters.delete(f) } },
     attachPhoneLink: (control: PhoneLinkControl) => { attached = control },
   }
-  return { host, journal, controls, ctx, performed }
+  return { host, journal, controls, ctx, performed, presenceCalls, broadcast: (n: WireNotification) => broadcasters.forEach(f => f(n)) }
 }
 
 const rig = async () => {
@@ -247,6 +250,34 @@ test('phone projects uncertain dispatches and keeps revoked history after Answer
     assert.deepEqual(revoked.result.revokedApprovals, [{ id: 'uncertain', target: 'get_team_status', count: 0 }])
     const again = await phone.request('lead/approval/revoke', { id: 'uncertain', contractDigest: contract.digest })
     assert.equal(again.error.code, 'lead-approval-not-live')
+    phone.close()
+  } finally { await s.done() }
+})
+
+test('a phone is named by its pairing: a device in the request body is ignored end to end', async () => {
+  const s = await rig()
+  try {
+    const phone = await s.pair()
+    const forged = { id: 'window:forged', label: 'Forged desktop' }
+    assert.equal((await phone.request('lead/presence/read', { device: forged, active: true })).ok, true)
+    assert.equal((await phone.request('lead/presence/dismiss', { device: forged, digest: 'away-1-2' })).ok, true)
+    assert.equal(s.presenceCalls.length, 2)
+    for (const call of s.presenceCalls) {
+      const device = call.device as { id: string; label: string }
+      assert.match(device.id, /^phone:/, call.method)
+      assert.equal(device.label, 'Jane’s phone')
+    }
+    phone.close()
+  } finally { await s.done() }
+})
+
+test('a presence change reaches an open phone on its own topic, with no text', async () => {
+  const s = await rig()
+  try {
+    const phone = await s.pair()
+    s.broadcast({ method: 'lead/presence/changed', params: {} } as never)
+    const event = await phone.next(m => m.t === 'evt' && m.topic === 'presence')
+    assert.deepEqual(event.data, { v: 1 })
     phone.close()
   } finally { await s.done() }
 })

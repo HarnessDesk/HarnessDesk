@@ -1,10 +1,10 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { createLeadFixtureStore } from '../preview/frames-lead'
 import { LeadPage } from './LeadPage'
-import { LeadRecap, leadDigestSections, leadDigestTitle } from './LeadAway'
+import { LeadRecap, leadAsksAt, useLeadAsks, leadDigestSections, leadDigestTitle } from './LeadAway'
 import { leadPresenceFixture } from '../preview/lead-fixture'
 import { DestinationPageScope } from '../panels/destination-page'
 
@@ -79,4 +79,43 @@ it('"What happened?" asks the host for a recap of the last day', async () => {
   clean.push(() => { act(() => root.unmount()); box.remove() })
   await act(async () => { [...box.querySelectorAll('button')].find(one => one.textContent === 'What happened?')!.click() })
   expect(calls.find(call => call.method === 'lead/presence/read').params.recap).toBe(true)
+})
+
+it('an open question reads expired the instant its time comes, without a refresh', () => {
+  const asks = [{ id: 'm1', status: 'open' as const, expiresAt: 1000 }, { id: 'm2', status: 'open' as const }, { id: 'm3', status: 'answered' as const, expiresAt: 500, answer: { option: 'Yes', by: 'Desktop', at: 400 } }]
+  expect(leadAsksAt(asks, 999).map(ask => ask.status)).toEqual(['open', 'open', 'answered'])
+  expect(leadAsksAt(asks, 1000).map(ask => ask.status)).toEqual(['expired', 'open', 'answered'])
+})
+
+it('a morning brief has one way to be dismissed, not two', async () => {
+  const store = createLeadFixtureStore('presence'), box = document.createElement('div'); document.body.append(box)
+  const request = store.transport.request.bind(store.transport)
+  store.transport.request = (async (method: string, params: unknown) => {
+    const result = await request(method as never, params as never) as any
+    return method === 'lead/presence/read' && result.digest ? { ...result, digest: { ...result.digest, kind: 'brief', id: 'brief-1' } } : result
+  }) as typeof store.transport.request
+  const root = createRoot(box)
+  await act(async () => root.render(<StoreProvider store={store}><DestinationPageScope owner="lead" active><LeadPage focus={null} /></DestinationPageScope></StoreProvider>))
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+  clean.push(() => { act(() => root.unmount()); box.remove() })
+  const card = box.querySelector('[data-slot="lead-away"]')!
+  expect(card.textContent).toContain('Morning brief')
+  expect(card.querySelectorAll('button[aria-label*="ismiss"]')).toHaveLength(1)
+  expect([...card.querySelectorAll('button')].some(button => button.textContent === 'Got it')).toBe(false)
+})
+
+it('the buttons of a question go the moment it expires, with no refresh', async () => {
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(1_000_000)
+    const asks = [{ id: 'm1', status: 'open' as const, expiresAt: 1_000_000 + 60_000 }]
+    const Probe = () => <p>{useLeadAsks(asks)[0]!.status}</p>
+    const box = document.createElement('div'); document.body.append(box)
+    const root = createRoot(box)
+    await act(async () => root.render(<Probe />))
+    expect(box.textContent).toBe('open')
+    await act(async () => { vi.advanceTimersByTime(60_100) })
+    expect(box.textContent).toBe('expired')
+    act(() => root.unmount()); box.remove()
+  } finally { vi.useRealTimers() }
 })

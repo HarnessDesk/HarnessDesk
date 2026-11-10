@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { LEAD_DIGEST_ITEM_LABELS, type LeadDigest } from '@harnessdesk/protocol'
+import { useEffect, useState } from 'react'
+import { LEAD_DIGEST_ITEM_LABELS, type LeadAskState, type LeadDigest } from '@harnessdesk/protocol'
 import { Banner, Button, ListRow, ListRows, SectionHead, Text, ToolSection } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { useStore } from '../state/context'
@@ -18,6 +18,26 @@ export const leadDigestTitle = (digest: LeadDigest): string =>
 /** The digest's items in the order the person acts on them: Needs you, then Stopped or stuck, then Done. */
 export const leadDigestSections = (digest: LeadDigest) =>
   (['waiting', 'stopped', 'done'] as const).map(kind => ({ kind, label: LEAD_DIGEST_ITEM_LABELS[kind], items: digest.items.filter(item => item.kind === kind) })).filter(section => section.items.length > 0)
+
+/**
+ * The asks as they stand this instant: an open question whose time has come reads expired at once, without waiting for
+ * the next refresh, so its buttons are gone the moment it runs out.
+ */
+export const leadAsksAt = (asks: readonly LeadAskState[], now: number): readonly LeadAskState[] =>
+  asks.map(ask => ask.status === 'open' && ask.expiresAt !== undefined && ask.expiresAt <= now ? { ...ask, status: 'expired' as const } : ask)
+
+export const useLeadAsks = (asks: readonly LeadAskState[]): readonly LeadAskState[] => {
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const current = Date.now()
+    const next = asks.flatMap(ask => ask.status === 'open' && ask.expiresAt !== undefined && ask.expiresAt > current ? [ask.expiresAt] : [])
+    if (!next.length) return
+    // setTimeout holds at most about 24 days; a later expiry is picked up by the refresh that comes first.
+    const timer = setTimeout(() => setTick(count => count + 1), Math.min(Math.min(...next) - current + 50, 2 ** 31 - 1))
+    return () => clearTimeout(timer)
+  }, [asks, tick])
+  return leadAsksAt(asks, Date.now())
+}
 
 /** The rail's way back to the digest: what changed in the last day, on demand and for this window only. */
 export const LeadRecap = () => {
@@ -55,6 +75,5 @@ export const LeadAway = ({ active, state }: { readonly active: boolean; readonly
         subtitle={item.fact ? sanitizeText(item.fact) : undefined} wrapSubtitle />)}</ListRows>
     </section>)}
     <Text role="muted" data-slot="lead-away-note">{digest.more > 0 ? `${digest.more} more not shown · ` : ''}{leadDollars(digest.spentUsdMicros)} spent{digest.kind === 'away' ? ' while away' : ''}</Text>
-    {digest.kind === 'brief' && <Button variant="ghost" onClick={dismiss}>Got it</Button>}
   </Banner></div>
 }

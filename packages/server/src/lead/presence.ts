@@ -2,6 +2,7 @@ import type { LeadState } from '@harnessdesk/lead'
 import { LEAD_PRESENCE_LIMITS, capLeadPushText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView,
   type LeadAsk, type LeadAskState, type LeadBriefSettings, type LeadBriefUpdate, type LeadDeviceRef, type LeadDigest, type LeadDigestItem,
   type LeadDigestKind, type LeadPresenceView, type LeadWorkBoard } from '@harnessdesk/protocol'
+import { rename } from 'node:fs/promises'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
 
 /** The most the observer model may cost in a day, in micro-dollars: one short paragraph is a fraction of a cent. */
@@ -45,6 +46,7 @@ interface Mark {
   /** The id of the brief this device dismissed. */
   briefDone?: string
 }
+interface Plan { baseline?: { from: number; spent: number; revision: number }; kind: LeadDigestKind; from: number; to: number; items: LeadDigestItem[]; more: number; spent: number }
 interface AskRecord { seenAt: number; expiresAt?: number; answer?: { option: string; by: string; at: number } }
 interface Stored {
   version: 1
@@ -58,6 +60,8 @@ interface Stored {
   briefSpent?: number
   briefRevision?: number
   observer: { day: string; usdMicros: number }
+  /** When this record began, with the spend then, so the first brief counts from a real starting point. */
+  origin?: { at: number; spent: number }
 }
 const fresh = (): Stored => ({ version: 1, devices: {}, asks: {}, brief: { enabled: false, at: '07:30' }, observer: { day: '', usdMicros: 0 } })
 const dayOf = (at: number) => { const date = new Date(at); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` }
@@ -79,6 +83,8 @@ export class LeadPresenceStore {
 
   async #load(): Promise<void> {
     const read = await readBoundedJsonResult(this.ports.file, MAX_BYTES)
+    this.#loaded = false; this.#unreadable = false
+    if (read.kind === 'unreadable') { await this.#setAside(); this.#loaded = true; return }
     if (read.kind === 'value') {
       try {
         const value = read.value as Stored
@@ -90,13 +96,21 @@ export class LeadPresenceStore {
         }
         this.#stored = { ...fresh(), ...value, devices, brief, asks: value.asks && typeof value.asks === 'object' ? value.asks : {},
           ...(value.briefDigest ? { briefDigest: parseLeadDigest(value.briefDigest) } : {}) }
-      } catch { this.#unreadable = true }
-    } else if (read.kind !== 'missing') this.#unreadable = true
+      } catch { await this.#setAside(); this.#stored = fresh() }
+    } else if (read.kind === 'io') return
     this.#loaded = true
+  }
+  /** A file whose content cannot be understood is moved beside itself and the record starts empty, as the work ledger does. */
+  async #setAside(): Promise<void> {
+    this.#stored = fresh()
+    try { await rename(this.ports.file, `${this.ports.file}.corrupt-${this.ports.now()}`) } catch { this.#unreadable = true }
   }
   #write<T>(work: () => Promise<T> | T): Promise<T> {
     const run = this.#tail.then(async () => {
+      // A read that failed just now (not a bad file) is tried again before anything is written over it.
+      if (!this.#loaded && !this.#unreadable) await this.#load().catch(() => {})
       if (!this.#loaded || this.#unreadable) throw unreadable()
+      if (!this.#stored.origin) this.#stored.origin = { at: this.ports.now(), spent: this.ports.spent() }
       const before = JSON.stringify(this.#stored)
       try {
         const out = await work()
@@ -141,7 +155,7 @@ export class LeadPresenceStore {
     const waiting: LeadDigestItem[] = [], stopped: LeadDigestItem[] = [], done: LeadDigestItem[] = []
     const seen = new Set<string>()
     for (const card of board?.items ?? []) {
-      const entry = (kind: LeadDigestItem['kind']): LeadDigestItem => ({ kind, id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars),
+      const entry = (kind: LeadDigestItem['kind']): LeadDigestItem => ({ kind, id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'Untitled work',
         ...(card.fact || card.blocker ? { fact: clip(card.fact ?? card.blocker ?? '', LEAD_PRESENCE_LIMITS.factChars) } : {}) })
       if (card.stage === 'done' && card.outcome !== 'dropped' && (card.closedAt ?? card.updatedAt) >= since) done.push(entry('done'))
       else if (card.stage === 'needs-you' && card.updatedAt >= since) { waiting.push(entry('waiting')); seen.add(card.id) }
@@ -149,29 +163,36 @@ export class LeadPresenceStore {
     }
     // Decisions that wait on the person but belong to no work item (a plan, a permission change).
     for (const card of this.ports.waiting()) if (card.position > revision && !seen.has(card.id))
-      waiting.push({ kind: 'waiting', id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) })
+      waiting.push({ kind: 'waiting', id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'A request waits for you' })
     const all = [...waiting, ...stopped, ...done]
     return { items: all.slice(0, LEAD_PRESENCE_LIMITS.items), more: Math.max(0, all.length - LEAD_PRESENCE_LIMITS.items) }
   }
 
-  async #digest(kind: LeadDigestKind, from: number, baseline: { spent: number; revision: number }): Promise<LeadDigest> {
-    const to = this.ports.now()
+  /** The part of a digest that needs only the ledger; the optional paragraph is added outside the queue. */
+  async #plan(kind: LeadDigestKind, from: number, baseline: { spent: number; revision: number }): Promise<Plan> {
+    const to = Math.max(this.ports.now(), from)
     const { items, more } = await this.#items(from, baseline.revision)
-    let spent = Math.max(0, this.ports.spent() - baseline.spent), summary: string | undefined, summaryUsdMicros: number | undefined
-    if (items.length + more >= LEAD_PRESENCE_LIMITS.summaryItems && this.ports.observe) {
-      const day = dayOf(to), used = this.#stored.observer.day === day ? this.#stored.observer.usdMicros : 0
-      if (used < LEAD_DIGEST_OBSERVER_DAILY_MICROS) {
-        const result = await this.ports.observe({ items, from, to }).catch(() => null)
-        if (result?.text.trim()) {
-          summary = clip(result.text, LEAD_PRESENCE_LIMITS.summaryChars)
-          summaryUsdMicros = Math.max(0, Math.round(result.usdMicros))
-          this.#stored.observer = { day, usdMicros: used + summaryUsdMicros }
-          spent += summaryUsdMicros
-        }
-      }
+    return { kind, from, to, items, more, spent: Math.max(0, this.ports.spent() - baseline.spent) }
+  }
+  /** One short paragraph from the smaller model, within the day's cap. Slow and paid, so it never runs inside the queue. */
+  async #paragraph(plan: Plan): Promise<{ text: string; usdMicros: number } | null> {
+    if (plan.items.length + plan.more < LEAD_PRESENCE_LIMITS.summaryItems || !this.ports.observe) return null
+    const day = dayOf(plan.to), used = this.#stored.observer.day === day ? this.#stored.observer.usdMicros : 0
+    if (used >= LEAD_DIGEST_OBSERVER_DAILY_MICROS) return null
+    const result = await this.ports.observe({ items: plan.items, from: plan.from, to: plan.to }).catch(() => null)
+    return result?.text.trim() ? result : null
+  }
+  #finish(plan: Plan, result: { text: string; usdMicros: number } | null): LeadDigest {
+    let spent = plan.spent, summary: string | undefined, summaryUsdMicros: number | undefined
+    if (result) {
+      const day = dayOf(plan.to), used = this.#stored.observer.day === day ? this.#stored.observer.usdMicros : 0
+      summary = clip(result.text, LEAD_PRESENCE_LIMITS.summaryChars)
+      summaryUsdMicros = Math.max(0, Math.round(result.usdMicros))
+      this.#stored.observer = { day, usdMicros: used + summaryUsdMicros }
+      spent += summaryUsdMicros
     }
-    return parseLeadDigest({ version: 1, id: `${kind}-${from}-${to}`, kind, from, to, items, more, spentUsdMicros: spent,
-      ...(summary ? { summary, summaryUsdMicros } : {}) })
+    return parseLeadDigest({ version: 1, id: `${plan.kind}-${plan.from}-${plan.to}`, kind: plan.kind, from: plan.from, to: plan.to, items: plan.items, more: plan.more,
+      spentUsdMicros: spent, ...(summary ? { summary, summaryUsdMicros } : {}) })
   }
   #view(mark: Mark | undefined): LeadPresenceView {
     const brief = this.#stored.briefDigest
@@ -182,28 +203,45 @@ export class LeadPresenceStore {
   /**
    * What this device should see. A device that looks (`active`) after at least thirty minutes away is handed a digest
    * of what changed, once; "What happened?" (`recap`) builds one on demand. Looking also moves the device's seen mark.
+   * A digest the person has not dismissed is rebuilt from where it began, so a second absence adds to it rather than
+   * being lost behind it.
    */
-  read(device: LeadDeviceRef, options: { readonly active?: boolean; readonly recap?: boolean } = {}): Promise<LeadPresenceView> {
-    return this.#write(async () => {
+  async read(device: LeadDeviceRef, options: { readonly active?: boolean; readonly recap?: boolean } = {}): Promise<LeadPresenceView> {
+    const step = await this.#write(async () => {
       this.#observeAsks()
       const now = this.ports.now(), revision = this.ports.revision(), spent = this.ports.spent()
       let mark = this.#stored.devices[device.id]
       if (!mark) {
         mark = this.#stored.devices[device.id] = { label: device.label, seenAt: now, revision, spent }
         this.#evict()
-        if (!options.recap) return this.#view(mark)
+        if (!options.recap) return { view: this.#view(mark) }
       }
       mark.label = device.label
+      let plan: Plan | undefined
       if (options.recap) {
-        const from = mark.last?.from ?? now - LEAD_PRESENCE_LIMITS.recapMs
-        mark.pending = await this.#digest('recap', from, { spent: mark.last?.spent ?? spent, revision: mark.last?.revision ?? 0 })
+        const from = Math.min(mark.last?.from ?? now - LEAD_PRESENCE_LIMITS.recapMs, now)
+        plan = await this.#plan('recap', from, { spent: mark.last?.spent ?? spent, revision: mark.last?.revision ?? 0 })
         mark.last = { from: now, spent, revision }
-      } else if (options.active && !mark.pending && now - mark.seenAt >= LEAD_PRESENCE_LIMITS.awayMs) {
-        const digest = await this.#digest('away', mark.seenAt, { spent: mark.spent, revision: mark.revision })
-        if (digest.items.length || digest.more || digest.spentUsdMicros > 0) { mark.pending = digest; mark.last = { from: mark.seenAt, spent: mark.spent, revision: mark.revision } }
+      } else if (options.active && now - mark.seenAt >= LEAD_PRESENCE_LIMITS.awayMs) {
+        const earlier = mark.pending?.kind === 'away' && mark.last ? mark.last : { from: mark.seenAt, spent: mark.spent, revision: mark.revision }
+        plan = await this.#plan('away', earlier.from, earlier)
+        plan.baseline = earlier
       }
       // The mark moves at most twice a minute: looking is frequent, and half a minute never changes a half-hour rule.
-      if (options.active && now - mark.seenAt >= 30_000) { mark.seenAt = now; mark.revision = revision; mark.spent = spent }
+      // A clock that went backwards moves it back too, rather than leaving it ahead of now for good.
+      if (options.active && (now < mark.seenAt || now - mark.seenAt >= 30_000)) { mark.seenAt = now; mark.revision = revision; mark.spent = spent }
+      return { view: this.#view(mark), plan }
+    })
+    if (!step.plan) return step.view
+    const plan = step.plan, result = await this.#paragraph(plan)
+    return this.#write(() => {
+      const mark = this.#stored.devices[device.id]
+      if (!mark) return step.view
+      const digest = this.#finish(plan, result)
+      if (plan.kind === 'recap' || digest.items.length || digest.more || digest.spentUsdMicros > 0) {
+        mark.pending = digest
+        if (plan.baseline) mark.last = plan.baseline
+      }
       return this.#view(mark)
     })
   }
@@ -218,30 +256,64 @@ export class LeadPresenceStore {
       const mark = this.#stored.devices[device.id]
       if (mark) {
         if (mark.pending?.id === digest) delete mark.pending
-        // The brief covers the same hours an away digest would, so dismissing it settles both.
-        if (this.#stored.briefDigest?.id === digest) { mark.briefDone = digest; delete mark.pending }
+        // Dismissing the brief hides the brief only: an away digest it was covering is still there.
+        if (this.#stored.briefDigest?.id === digest) mark.briefDone = digest
       }
       return this.#view(mark)
     })
   }
 
+  /** Every ask the host holds gets its clock the moment it is appended, not when someone first looks. */
+  observe(): Promise<void> { return this.#write(() => this.#observeAsks()) }
+
+  /** The newest question that nobody has answered and the person has not talked past, whatever the Lead said after it. */
+  #openAsk(): { id: string; ask: LeadAsk } | undefined {
+    const messages = this.ports.messages()
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const message = messages[index]!
+      if (message.role === 'user') return undefined
+      if (message.role === 'assistant' && message.ask) return { id: message.id, ask: message.ask }
+    }
+    return undefined
+  }
+  #expiryNote: string | undefined
+
+  /** A line for the model's next turn when the person's words arrive after a question went stale; read once. */
+  takeExpiryNote(): string | undefined { const note = this.#expiryNote; this.#expiryNote = undefined; return note }
+
   /**
-   * Called before the person's text is sent. A text that is the label of an option of the question just asked is an
-   * answer to it: an expired question refuses it, so a stale tap does nothing. Returns the record step to run once sent.
+   * Called before the person's text is sent. A text that is the label of an option of the newest open question is an
+   * answer to it: an expired question refuses it, so a stale tap does nothing, and the first answer wins, so a second
+   * device is refused. Other words after an expired question carry a note to the model that nothing was done.
+   * Returns a step to run once sent.
    */
-  async beforeSend(device: LeadDeviceRef | undefined, text: string): Promise<(() => Promise<void>) | null> {
-    const last = this.ports.messages().at(-1)
-    const ask = last?.role === 'assistant' ? last.ask : undefined
-    const option = ask?.options.find(candidate => candidate.label === text)
-    if (!last || !ask || !option) return null
-    await this.#write(() => this.#observeAsks())
-    const state = this.#askStates().find(entry => entry.id === last.id)
-    if (state?.status === 'expired') throw refused()
-    if (state?.status === 'answered') return null
-    return () => this.#write(() => {
-      const record = this.#stored.asks[last.id]
-      if (record && !record.answer) record.answer = { option: option.label, by: device?.label ?? 'Desktop', at: this.ports.now() }
-    }).then(() => this.ports.changed?.())
+  async beforeSend(device: LeadDeviceRef | undefined, text: string): Promise<((sent: boolean) => Promise<void>) | null> {
+    this.#expiryNote = undefined
+    const open = this.#openAsk()
+    if (!open) return null
+    const option = open.ask.options.find(candidate => candidate.label === text)
+    const by = device?.label ?? 'Desktop'
+    return this.#write(() => {
+      this.#observeAsks()
+      const record = this.#stored.asks[open.id], now = this.ports.now()
+      if (record?.answer) {
+        if (option) throw Object.assign(new Error(`Already answered on ${record.answer.by}`), { wireCode: 'lead-ask-answered' })
+        return null
+      }
+      const expired = record?.expiresAt !== undefined && record.expiresAt <= now
+      if (!option) {
+        if (expired) this.#expiryNote = `The question "${clip(open.ask.question, 120)}" expired at ${new Date(record!.expiresAt!).toISOString()}; nothing was done. Treat the person's words below as a new request, not as an answer to it.`
+        return null
+      }
+      if (expired) throw refused()
+      const claim = { option: option.label, by, at: now }
+      if (record) record.answer = claim
+      // A send that did not go through gives the answer back, so the question stays open for another try.
+      return async (sent: boolean) => {
+        if (!sent) await this.#write(() => { if (record && this.#stored.asks[open.id]?.answer?.at === claim.at && this.#stored.asks[open.id]?.answer?.by === by) delete this.#stored.asks[open.id]!.answer }).catch(() => {})
+        this.ports.changed?.()
+      }
+    })
   }
 
   brief(): Promise<LeadBriefSettings> { return this.#tail.then(() => this.#stored.brief) }
@@ -259,20 +331,27 @@ export class LeadPresenceStore {
    * On the host's minute timer. At the chosen time, once a day, unless quiet hours hold it (it then goes out when they
    * end, the same day). The brief is a digest every device shows at the top of the conversation, plus one push.
    */
-  tick(): Promise<boolean> {
-    return this.#write(async () => {
+  async tick(): Promise<boolean> {
+    const step = await this.#write(async () => {
       const { enabled, at } = this.#stored.brief, now = this.ports.now()
-      if (!enabled) return false
+      if (!enabled) return null
       const today = dayOf(now), date = new Date(now)
       const [hour, minute] = at.split(':').map(Number) as [number, number]
-      if (this.#stored.briefDay === today || date.getHours() * 60 + date.getMinutes() < hour * 60 + minute) return false
-      if (await this.ports.quiet()) return false
-      const from = this.#stored.briefDigest?.to ?? now - LEAD_PRESENCE_LIMITS.recapMs
-      const digest = await this.#digest('brief', from, { spent: this.#stored.briefDigest ? this.#briefSpent() : this.ports.spent(), revision: this.#stored.briefDigest ? this.#briefRevision() : this.ports.revision() })
+      if (this.#stored.briefDay === today || date.getHours() * 60 + date.getMinutes() < hour * 60 + minute) return null
+      if (await this.ports.quiet()) return null
+      const previous = this.#stored.briefDigest, origin = this.#stored.origin ?? { at: now, spent: this.ports.spent() }
+      const from = Math.min(previous?.to ?? Math.max(origin.at, now - LEAD_PRESENCE_LIMITS.recapMs), now)
+      return { today, plan: await this.#plan('brief', from, { spent: previous ? this.#briefSpent() : origin.spent, revision: previous ? this.#briefRevision() : 0 }) }
+    })
+    if (!step) return false
+    const result = await this.#paragraph(step.plan)
+    return this.#write(() => {
+      if (this.#stored.briefDay === step.today) return false
+      const digest = this.#finish(step.plan, result)
       this.#stored.briefDigest = digest
       this.#stored.briefSpent = this.ports.spent()
       this.#stored.briefRevision = this.ports.revision()
-      this.#stored.briefDay = today
+      this.#stored.briefDay = step.today
       const text = leadDigestPushText(digest, this.ports.name())
       this.ports.push?.({ digest: digest.id, phone: capLeadPushText('phone', text), window: capLeadPushText('window', text) })
       this.ports.changed?.()
@@ -290,7 +369,7 @@ export const leadWaitingDecisions = (state: LeadState): readonly { readonly id: 
       : card.type === 'permission-change' ? 'A permission change waits for you'
       : card.type === 'budget-change' ? 'A budget change waits for you'
       : card.type === 'branch-ownership' ? 'A branch waits for your choice'
-      : card.type === 'waiting' && card.kind === 'person' ? clip(card.summary, LEAD_PRESENCE_LIMITS.titleChars)
+      : card.type === 'waiting' && card.kind === 'person' ? clip(card.summary, LEAD_PRESENCE_LIMITS.titleChars) || 'A request waits for you'
       : card.type === 'result' && card.outcome === 'reviewed' ? 'A result is ready for your review' : null
     return title ? [{ id: card.id, title, position: state.cardPositions[card.id] ?? state.seq }] : []
   })

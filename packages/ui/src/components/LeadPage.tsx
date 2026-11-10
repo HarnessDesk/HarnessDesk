@@ -9,7 +9,7 @@ import { LeadNameIntro } from './LeadNameIntro'
 import { LeadWakeLedger } from './LeadWakeLedger'
 import { LeadOpening } from './LeadOpening'
 import { leadOpeningJobs } from '../lib/lead-opening'
-import { LeadAway } from './LeadAway'
+import { LeadAway, useLeadAsks } from './LeadAway'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { LeadHostNotice, LeadMessage } from './LeadMessage'
@@ -82,6 +82,7 @@ const STOPPED: Record<LeadStopReason, string> = {
 }
 const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs'}` : 'no runs yet'
 /** Elapsed time beside Stop: minutes under an hour, then hours and minutes. */
+const EMPTY_ASKS: readonly never[] = []
 export const leadElapsed = (ms: number) => { const minutes = Math.max(0, Math.floor(ms / 60000)); return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m` }
 
 export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
@@ -170,7 +171,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const sendDisabled = unavailable || requestPending || !!state.error || state.revision < 0
   const messages = state.thread?.messages ?? []
   const latestAsk = [...messages].reverse().find(message => message.role === 'assistant' && (message.ask || message.proactive?.options))
-  const asks = new Map((state.away?.asks ?? []).map(ask => [ask.id, ask] as const))
+  const asks = new Map(useLeadAsks(state.away?.asks ?? EMPTY_ASKS).map(ask => [ask.id, ask] as const))
   const answers = new Map(messages.flatMap((message, index) => {
     const answer = messages.slice(index + 1).find(next => next.role === 'user')
     return answer ? [[message.id, answer.text] as const] : []
