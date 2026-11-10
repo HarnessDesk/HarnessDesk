@@ -25,6 +25,9 @@ import { leadChatCandidates, readLeadChatLimits } from './lead/chat-candidates.j
 import type { RateLimits, WrapChoices } from '@harnessdesk/protocol'
 import { LeadChats, LeadChatBusyError } from './lead/chats.js'
 import { LeadWorkLedger, wakeForLeadWork } from './lead/work.js'
+import { LeadPresenceStore, leadWaitingDecisions } from './lead/presence.js'
+import { createLeadDigestObserver } from './lead/digest-observer.js'
+import { leadProviderTransport } from './lead/provider-transport.js'
 import { teamLeadStage } from './work-stage.js'
 import { loadLeadProjectPolicy } from './lead/project-policy.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
@@ -870,6 +873,7 @@ export class Host {
   #leadChatLimits = new Map<string, RateLimits>()
   #leadChats: LeadChats | null = null
   #leadWork: LeadWorkLedger | null = null
+  #leadPresence: LeadPresenceStore | null = null
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
   #leadRepeats: LeadRepeats | null = null
   #leadPlannerFiles: LeadPlanner | null = null
@@ -3860,6 +3864,19 @@ export class Host {
     })
     this.#leadWork = work
     this.onDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
+    // Presence: seen marks per device, the away digest, the morning brief and the state of each ask. Built from the
+    // ledger and the journal; only the optional paragraph reaches the smaller model, and its cost is counted.
+    const observe = createLeadDigestObserver({ prices: options.prices, transport: options.messagesTransport ?? leadProviderTransport,
+      resolveKey: async () => (await this.#credentials.leadStatus('anthropic')).configured ? await this.#credentials.resolveLead('anthropic') : null })
+    const presence = new LeadPresenceStore({ file: join(this.#state.directory, 'lead', 'presence.json'), now: () => Date.now(),
+      spent: () => { const budget = journal.state.budget; if (!budget) return 0; const spend = leadBudgetProjection(budget, Date.now()); return spend.leadUsdMicros + spend.workerUsdMicros },
+      board: () => work.board('all'), waiting: () => leadWaitingDecisions(journal.state), revision: () => journal.state.seq, messages: () => journal.state.messages,
+      quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()), name: () => leadDisplayName(journal.state.name),
+      observe: input => observe(input).catch(() => null),
+      push: notice => this.#push({ method: 'lead/presence/changed', params: { notice } }),
+      changed: () => this.#push({ method: 'lead/presence/changed', params: {} }) })
+    this.#leadPresence = presence
+    this.onDispose(() => { if (this.#leadPresence === presence) this.#leadPresence = null })
     let workTimer: ReturnType<typeof setTimeout> | null = null
     const pokeWork = () => {
       if (workTimer || this.#disposed) return
@@ -4337,6 +4354,7 @@ export class Host {
     const timer = setInterval(() => {
       void settleRepeat().then(() => repeats.tick()).catch(() => { this.#logger.warn('A scheduled Lead task could not start') })
         .then(() => remindWork()).catch(() => { this.#logger.warn('A Lead work reminder could not wake the Lead') })
+        .then(() => presence.tick()).catch(() => { this.#logger.warn('The Lead morning brief could not be made') })
       pokeWork()
     }, 60_000)
     timer.unref?.()
@@ -5621,6 +5639,8 @@ export class Host {
       },
       leadChats: { list: params => this.leadChats.list(params), read: params => this.leadChats.read(params),
         start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
+      leadPresence: { read: (device, options) => this.leadPresence.read(device, options), dismiss: (device, digest) => this.leadPresence.dismiss(device, digest),
+        brief: () => this.leadPresence.brief(), updateBrief: update => this.leadPresence.updateBrief(update) },
       leadWork: { board: state => this.leadWork.board(state), read: params => this.leadWork.read(params),
         note: async params => { const card = await this.leadWork.note(params); void this.leadWork.refresh(); return card },
         close: params => this.leadWork.close(params) },
@@ -5631,7 +5651,13 @@ export class Host {
       })),
       leadDeskSummary: params => this.#phoneWorkspaceView().deskSummary(params),
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
-      leadThreadSend: async (params) => (await this.#leadWindow()).send(params),
+      leadThreadSend: async (params) => {
+        // A text that answers the question just asked is checked against its expiry first, and its receipt names this device.
+        const answered = await this.leadPresence.beforeSend(params.device, params.text)
+        const receipt = await (await this.#leadWindow()).send(params)
+        if (answered) await answered().catch(() => {})
+        return receipt
+      },
       leadApprovalRevoke: async params => (await this.#leadWindow()).revokeApproval(params),
       leadActionPerform: async params => (await this.#leadWindow()).perform(params),
       leadCardDecide: async (params) => (await this.#leadWindow()).decide(params),
@@ -10929,6 +10955,12 @@ export class Host {
   get leadWork(): LeadWorkLedger {
     if (!this.#leadWork || this.#disposed) throw leadRefusal('lead-unavailable')
     return this.#leadWork
+  }
+
+  /** Presence for the window and the phones; refuses while no Lead runs here. */
+  get leadPresence(): LeadPresenceStore {
+    if (!this.#leadPresence || this.#disposed) throw leadRefusal('lead-unavailable')
+    return this.#leadPresence
   }
 
   get leadChats(): Pick<LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop' | 'idle'> {

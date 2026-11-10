@@ -142,7 +142,7 @@ it('does not read again after an accepted Send loses the capability', async () =
   const facade = createLeadState({ request }, () => available)
   await expect(facade.send('Inspect', 'send-1')).rejects.toMatchObject({ code: 'lead-unavailable' })
   expect(request).toHaveBeenCalledTimes(1)
-  expect(request).toHaveBeenCalledWith('lead/thread/send', { text: 'Inspect', idempotencyKey: 'send-1' })
+  expect(request).toHaveBeenCalledWith('lead/thread/send', { text: 'Inspect', idempotencyKey: 'send-1', device: expect.objectContaining({ id: expect.stringMatching(/^window:/), label: 'Desktop' }) })
 })
 
 it.each(['code', 'wireCode'])('retries a stale name-only update once using a fresh read (%s)', async field => {

@@ -1,5 +1,5 @@
 import type {
-  LeadChatControl, LeadWorkBoard, LeadWorkOutcome, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  LeadBriefSettings, LeadDeviceRef, LeadPresenceView, LeadChatControl, LeadWorkBoard, LeadWorkOutcome, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
@@ -12,6 +12,8 @@ export interface LeadState {
   readonly wakes?: readonly LeadWakeRecord[]
   /** The host's work board, the same projection the phone lists; null until it has been read. */
   readonly work?: LeadWorkBoard | null
+  /** What the host says changed while this window was away and what became of each ask; null until read. */
+  readonly away?: LeadPresenceView | null
   readonly savedApprovals?: readonly LeadSavedApproval[]
   readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions: readonly LeadAction[]
@@ -85,6 +87,22 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
   let controlRetry: ReturnType<typeof setTimeout> | undefined
   let controlRetryKind: 'transient' | 'escalated' | undefined
   const cancelControlRetry = () => { clearTimeout(controlRetry); controlRetry = undefined; controlRetryKind = undefined }
+  const applyAway = (view: LeadPresenceView) => {
+    if (!available()) return
+    state = { ...state, away: view }
+    for (const listener of listeners) listener()
+  }
+  // This window's name to the host, kept across restarts so its seen mark is its own. Storage can be unavailable.
+  const device = (): LeadDeviceRef => {
+    const key = 'hd-lead-device-v1'
+    let id = ''
+    try { id = localStorage.getItem(key) ?? '' } catch { /* A fresh id per launch is the fallback. */ }
+    if (!/^[A-Za-z0-9._-]{8,48}$/.test(id)) {
+      id = Array.from(crypto.getRandomValues(new Uint8Array(12)), byte => byte.toString(16).padStart(2, '0')).join('')
+      try { localStorage.setItem(key, id) } catch { /* See above. */ }
+    }
+    return { id: `window:${id}`, label: 'Desktop' }
+  }
   const applyChats = (list: LeadChatControlList) => {
     if (!available()) return
     ++controlVersion
@@ -127,6 +145,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       if (notification.method === 'lead/changed') apply(notification.params)
       else if (notification.method === 'lead/chats/controlChanged') applyChats(notification.params)
       else if (notification.method === 'lead/work/changed') applyWork(notification.params)
+      else if (notification.method === 'lead/presence/changed') void transport.request('lead/presence/read', { device: device() }).then(applyAway, () => {})
     },
     readChatControl,
     async resetChatControl() { check(); applyChats(await transport.request('lead/chats/resetControl', {})) },
@@ -140,13 +159,18 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       }
       return result
     },
+    /** Looking at the Lead marks this window as seen; after a long absence the host hands back one digest of what changed. */
+    async readAway(options: { readonly active?: boolean; readonly recap?: boolean } = {}) { check(); const view = await transport.request('lead/presence/read', { device: device(), ...options }); applyAway(view); return view },
+    async dismissDigest(digest: string) { check(); const view = await transport.request('lead/presence/dismiss', { device: device(), digest }); applyAway(view); return view },
+    async readBrief(): Promise<LeadBriefSettings> { check(); return transport.request('lead/brief/read', {}) },
+    async updateBrief(update: { readonly enabled?: boolean; readonly at?: string }): Promise<LeadBriefSettings> { check(); return transport.request('lead/brief/update', update) },
     async readWork() { check(); const board = await transport.request('lead/work/list', {}); applyWork(board); return board },
     /** The person's Done or Drop. It closes the record only; chats, Teams and pull requests are left as they are. */
     async closeWork(id: string, outcome: LeadWorkOutcome) { check(); const board = await transport.request('lead/work/close', { id, outcome }); applyWork(board); return board },
     async readThread() { check(); const before = state; const result = await transport.request('lead/thread/read', {}).catch(refusedRead); apply(result, before); return result.thread },
     async readSettings() { check(); const before = state; const result = await transport.request('lead/settings/read', {}).catch(refusedRead); apply(result, before); return result.settings },
     async send(text: string, idempotencyKey: string) {
-      check(); const receipt = await transport.request('lead/thread/send', { text, idempotencyKey })
+      check(); const receipt = await transport.request('lead/thread/send', { text, idempotencyKey, device: device() })
       check()
       const before = state, result = await transport.request('lead/thread/read', {}); apply(result, before); return receipt
     },

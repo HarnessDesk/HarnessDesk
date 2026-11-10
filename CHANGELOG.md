@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The Lead tells you what changed while you were away.** After half an hour away the Lead's conversation opens with one card of what finished, what waits for you and what stopped, the same on the desktop and the phone. Dismissing it on one device leaves it on the other. Settings › Lead › Morning brief sends the same card once a day at a time you choose (off until you turn it on, never during quiet hours), and What happened? in the side panel shows the last day on demand. A question the Lead asked with a time limit now shows Expired · nothing was done and can no longer be answered; an answered one shows who answered it, from which device and when.
+
 - **The Lead keeps a list of the work it started.** Each piece of work you ask for becomes one item across its chats, Teams and pull requests, grouped as Needs you, Working, In review and Done in the Lead's side panel and on your phone. A second start of the same work is refused and points at the open item. Close an item with Done or Drop; its chats and Teams are left as they are. Work the desk can no longer follow for a week moves to Done as stopped, so the list never fills with work nothing can finish.
 
 - **Idle conversations read back whole.** A conversation an agent replays from its own store, such as an OpenCode one, keeps its replies, its thinking and the turn times the desk recorded, on the desktop and the phone. It no longer says recent activity is still being saved when nothing is.

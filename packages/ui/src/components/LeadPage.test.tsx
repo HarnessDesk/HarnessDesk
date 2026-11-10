@@ -354,7 +354,7 @@ it('turns the spending limit Off through its own method, then saves rounds again
 it('uses unconstrained Lead settings groups and trailing Save rows', async () => {
   await mount(); await act(async () => button('Settings').click())
   const groups = [...document.querySelectorAll('[data-slot="rows"]')]
-  expect(groups).toHaveLength(4)
+  expect(groups).toHaveLength(5)
   for (const group of groups) {
     expect(group.parentElement?.getAttribute('data-slot')).toBe('section')
     expect(group.parentElement?.hasAttribute('data-sizing')).toBe(false)

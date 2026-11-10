@@ -2932,6 +2932,13 @@ export interface HostMethods {
   'lead/work/note': { params: import('./lead-work.js').LeadWorkNote; result: import('./lead-work.js').LeadWorkCard }
   /** The person's Done or Drop, from the window or the phone. */
   'lead/work/close': { params: import('./lead-work.js').LeadWorkClose; result: import('./lead-work.js').LeadWorkBoard }
+  /** What changed while this device was away, and what became of each question: the same answer on every surface. */
+  'lead/presence/read': { params: import('./lead-presence.js').LeadPresenceRead; result: import('./lead-presence.js').LeadPresenceView }
+  /** This device has read its digest. It marks only this device's own copy. */
+  'lead/presence/dismiss': { params: import('./lead-presence.js').LeadPresenceDismiss; result: import('./lead-presence.js').LeadPresenceView }
+  /** The morning brief setting: whether it runs and at what time. Quiet hours come from the Lead's schedule. */
+  'lead/brief/read': { params: Record<string, never>; result: import('./lead-presence.js').LeadBriefSettings }
+  'lead/brief/update': { params: import('./lead-presence.js').LeadBriefUpdate; result: import('./lead-presence.js').LeadBriefSettings }
 }
 
 /** One browser HarnessDesk found, and can start with remote debugging. */
@@ -3249,6 +3256,8 @@ export type WireNotification =
   | { readonly method: 'host/shutdown'; readonly params: { readonly reason: string } }
   /** The Lead's work board moved: a stage, a link, a note or a close. The whole board, which is small. */
   | { readonly method: 'lead/work/changed'; readonly params: import('./lead-work.js').LeadWorkBoard }
+  /** A digest was made for the devices (the morning brief), or an ask's state moved. Clients read `lead/presence/read` again. */
+  | { readonly method: 'lead/presence/changed'; readonly params: { readonly notice?: import('./lead-presence.js').LeadPushNotice } }
 
 export type ClientToHost = WireRequest
 export type HostToClient = WireResponse | WireNotification

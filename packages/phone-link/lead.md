@@ -574,3 +574,23 @@ The person's Done or Drop closes an item and nothing else; its chats, Teams and 
 ```
 
 A close is never undone by later desk activity. An unknown id refuses with `notFound`. The phone has no way to note on an item or set its stage: notes are the Lead's, stages the host's.
+
+## What changed while you were away
+
+The host builds one digest for a device that has been away, and keeps what each device has seen. Both calls are `read` tier. The phone never sends its own device name: the host takes it from the paired device, so `device` in the params is ignored for a phone and one phone cannot read or dismiss as another.
+
+| Method | Required tier | Params | Result |
+| --- | --- | --- | --- |
+| `lead/presence/read` | `read` | `active?` (the person is looking now; marks the device seen), `recap?` (the last 24 hours, whether or not the device was away) | `LeadPresenceView` |
+| `lead/presence/dismiss` | `read` | `digest` (the id on the card) | `LeadPresenceView` |
+| `lead/brief/read` | `read` | none | `LeadBriefSettings` |
+
+```json
+{"version":1,"digest":{"version":1,"id":"away-1767200000000-1767210800000","kind":"away","from":1767200000000,"to":1767210800000,"items":[{"kind":"waiting","id":"work-4","title":"Rename the status column","fact":"An approval waits for you"},{"kind":"done","id":"work-1","title":"Update the onboarding copy"}],"more":0,"spentUsdMicros":1200000},"asks":[{"id":"message-4","status":"answered","answer":{"option":"Start it","by":"iPhone","at":1767209000000}},{"id":"message-7","status":"expired","expiresAt":1767205000000}],"brief":{"enabled":false,"at":"07:30"}}
+```
+
+Draw the digest card at the top of the Lead thread when `digest` is not null: its items in the order Needs you, Stopped or stuck, Done, a `more` note when `more > 0`, the spend, and the optional `summary` above them. Dismissing sends `lead/presence/dismiss` with the card's `id`; the same digest stays on the desktop. `kind` is `away`, `recap` or `brief` (the title is While you were away, What happened or Morning brief).
+
+`asks` says what became of each question by the id of the message that carries it. `open` offers its options. `expired` offers none and reads "Expired · nothing was done"; answering it refuses with `lead-ask-expired`. `answered` is a receipt: the option, the device label and the time. The thread itself is not changed. Send `lead/thread/send` as before; the host records the receipt.
+
+The morning brief is a push on the `notices` topic: kind `message`, `deep` is `lead`, the title at most 80 and the body at most 240 characters. Opening it shows the brief digest through `lead/presence/read`. Turning the brief on and choosing its time is the desktop's (`lead/brief/update` is not offered to the phone); the phone reads `brief` to show whether it is on.
