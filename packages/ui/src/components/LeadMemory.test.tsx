@@ -4,7 +4,7 @@ import { afterEach, expect, it } from 'vitest'
 import type { LeadMemoryCandidate, LeadMessage } from '@harnessdesk/protocol'
 import { createLeadFixtureStore } from '../preview/frames-lead'
 import { StoreProvider } from '../state/context'
-import { LeadMemoryProposals, LeadMemorySection, leadCitedEntries, leadMemoryPlacement } from './LeadMemory'
+import { LeadMemoryProposals, LeadMemorySection, leadCitedEntries, leadMemoryForgetAllText, leadMemoryForgetText, leadMemoryPlacement } from './LeadMemory'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const clean: (() => void)[] = []
@@ -100,4 +100,16 @@ it('says so in a banner when the Lead is not reading the list shown', async () =
   const alert = box.querySelector('[role="alert"]')!
   expect(alert.textContent).toContain('Dex')
   expect(alert.textContent).toMatch(/not reading/i)
+})
+
+it('the Forget confirmations say exactly what goes and what stays, as the desk does it', async () => {
+  // Pinned against packages/server/test/lead-memory.test.ts ("Forget removes the note, every version of it ...") and
+  // docs/data-boundaries.md: change all three together.
+  expect(leadMemoryForgetText('Dex')).toBe('Removes the note, every saved version of it and any passage of the conversation that quotes it, so search cannot find them. ' +
+    "The conversation it came from stays, and so does the record in Dex's journal on this desk. This cannot be undone.")
+  expect(leadMemoryForgetAllText('Dex')).toBe('Removes every note, every proposal and every saved version, and empties the copy of the conversation Dex searches. ' +
+    "Dex's journal on this desk keeps its record. This cannot be undone.")
+  const { box } = await mount(() => <LeadMemorySection label="Dex" />)
+  await act(async () => button(box, 'Forget').click())
+  expect(document.querySelector('[role="alertdialog"], [role="dialog"]')!.textContent).toContain(leadMemoryForgetText('Dex'))
 })

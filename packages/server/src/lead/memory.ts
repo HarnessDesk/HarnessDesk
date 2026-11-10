@@ -297,13 +297,22 @@ export class LeadMemoryStore {
         }
         case 'forget': {
           const old = entry(change.id)
-          const texts = new Set([old.text, ...this.#state.versions.flatMap(version => version.changes.filter(one => one.id === old.id).flatMap(one => [one.before?.text, one.after?.text]))
+          // The note and every version of it, and the notes a tidy merged into it (and theirs), which no longer stand
+          // on their own: their wording is the note's too.
+          const gone = new Set([old.id]), live = new Set(entries.map(one => one.id))
+          for (const id of gone) {
+            for (const version of this.#state.versions) for (const one of version.changes) for (const side of [one.before, one.after]) {
+              if (side?.id !== id || side.source.kind !== 'consolidation') continue
+              for (const part of side.source.id.split(',')) if (part && !live.has(part)) gone.add(part)
+            }
+          }
+          const texts = new Set([old.text, ...this.#state.versions.flatMap(version => version.changes.filter(one => gone.has(one.id)).flatMap(one => [one.before?.text, one.after?.text]))
             .filter((text): text is string => typeof text === 'string')])
           await this.options.onForget?.([...texts])
           await this.#commit({ entries: entries.filter(one => one.id !== old.id) }, 'person')
           // Forgotten means gone: the text leaves every version too, and those versions can no longer be undone.
-          this.#state = { ...this.#state, versions: this.#state.versions.map(version => version.changes.some(one => one.id === old.id)
-            ? { ...version, changes: version.changes.filter(one => one.id !== old.id), erased: true as const } : version) }
+          this.#state = { ...this.#state, versions: this.#state.versions.map(version => version.changes.some(one => gone.has(one.id))
+            ? { ...version, changes: version.changes.filter(one => !gone.has(one.id)), erased: true as const } : version) }
           await this.#save()
           break
         }

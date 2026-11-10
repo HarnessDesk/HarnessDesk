@@ -69,6 +69,14 @@ const historyTitle = (item: LeadMemoryVersionSummary, label: string): string => 
 }
 const when = (at: number) => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
+/** What Forget does, said before it is done. Pinned by the desk's own test of Forget (packages/server/test/lead-memory.test.ts)
+ * and by docs/data-boundaries.md: a passage that says the note in other words is not found, and the Lead's journal (with its sealed segments)
+ * keeps its own record, so neither is promised. */
+export const leadMemoryForgetText = (label: string): string => 'Removes the note, every saved version of it and any passage of the conversation that quotes it, so search cannot find them. ' +
+  `The conversation it came from stays, and so does the record in ${label}'s journal on this desk. This cannot be undone.`
+export const leadMemoryForgetAllText = (label: string): string => `Removes every note, every proposal and every saved version, and empties the copy of the conversation ${label} searches. ` +
+  `${label}'s journal on this desk keeps its record. This cannot be undone.`
+
 /** One kept entry: its words, whose they are, and what can be done with it. */
 const EntryRow = ({ entry, label, cited, pending, change }: { readonly entry: LeadMemoryEntry; readonly label: string; readonly cited: boolean; readonly pending: boolean; readonly change: (change: LeadMemoryChange) => void }) => {
   const [editing, setEditing] = useState<string | null>(null), [forgetting, setForgetting] = useState(false)
@@ -88,7 +96,7 @@ const EntryRow = ({ entry, label, cited, pending, change }: { readonly entry: Le
     </InlineParts>} />
     {forgetting && <ConfirmDialog title="Forget this note?" confirmLabel="Forget" cancelLabel="Keep note" tone="destructive" busy={pending}
       onConfirm={() => { change({ action: 'forget', id: entry.id }); setForgetting(false) }} onCancel={() => setForgetting(false)}>
-      <Text role="prose">{`Removes it from memory, from every saved version and from the conversation ${label} searches. This cannot be undone.`}</Text>
+      <Text role="prose">{leadMemoryForgetText(label)}</Text>
     </ConfirmDialog>}
   </>
 }
@@ -147,7 +155,7 @@ export const LeadMemorySection = ({ label, cards }: { readonly label: string; re
     </>}
     {forgetAll && <ConfirmDialog title="Forget everything?" confirmLabel="Forget all" cancelLabel="Keep memory" tone="destructive" busy={pending}
       onConfirm={() => { change({ action: 'forget-all' }); setForgetAll(false) }} onCancel={() => setForgetAll(false)}>
-      <Text role="prose">{`Removes every note, every proposal and every saved version. ${label} starts its next conversation remembering nothing. This cannot be undone.`}</Text>
+      <Text role="prose">{leadMemoryForgetAllText(label)}</Text>
     </ConfirmDialog>}
   </Section>
 }
