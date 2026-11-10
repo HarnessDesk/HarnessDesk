@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { canonicalRepository } from './record.js'
 
@@ -11,11 +11,16 @@ interface ThreadState {
   readonly answered: Record<string, string[]>
   /**
    * Set when an earlier record could not be read and was moved aside: what
-   * it held is unknown, so agents settle nothing on a pull request until the
-   * person has settled one there (`cleared`).
+   * it held is unknown, so agents settle nothing on the pull requests it
+   * named (`pulls`; every pull request when it named none) until the person
+   * settles one there (`cleared`), removes the moved-aside file, or a day
+   * has passed.
    */
-  readonly unreadable?: { readonly at: number; readonly file: string; readonly cleared: string[] }
+  readonly unreadable?: { readonly at: number; readonly file: string; readonly cleared: string[]; readonly pulls?: string[] }
 }
+
+/** How long a set-aside record holds agents back at most. */
+export const UNREADABLE_HOLD_MS = 24 * 60 * 60_000
 
 const empty = (): ThreadState => ({ version: 1, rounds: {}, answered: {} })
 
@@ -25,9 +30,20 @@ const isLists = (input: unknown): input is Record<string, string[]> =>
 
 const isUnreadable = (input: unknown): input is ThreadState['unreadable'] => {
   if (input === undefined) return true
-  const value = input as { at?: unknown; file?: unknown; cleared?: unknown } | null
+  const value = input as { at?: unknown; file?: unknown; cleared?: unknown; pulls?: unknown } | null
   return !!value && typeof value === 'object' && Number.isSafeInteger(value.at) && typeof value.file === 'string'
+    && /^review-threads\.json\.corrupt-\d+$/.test(value.file)
     && Array.isArray(value.cleared) && value.cleared.every(item => typeof item === 'string')
+    && (value.pulls === undefined || (Array.isArray(value.pulls) && value.pulls.every(item => typeof item === 'string')))
+}
+
+/** The pull requests a broken record still names, by key, so a hold covers those and no others. */
+const namedPulls = (text: string): string[] => {
+  const pulls = new Set<string>()
+  for (const match of text.matchAll(/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#(\d{1,9})/g)) {
+    try { pulls.add(ReviewThreadLedger.pullRequestKey(match[1]!, Number(match[2]))) } catch { /* not a repository name */ }
+  }
+  return [...pulls]
 }
 
 /**
@@ -67,7 +83,7 @@ export class ReviewThreadLedger {
     }
     const at = Date.now(), file = `review-threads.json.corrupt-${at}`
     await rename(this.#path, join(this.stateDirectory, file))
-    const state: ThreadState = { ...empty(), unreadable: { at, file, cleared: [] } }
+    const state: ThreadState = { ...empty(), unreadable: { at, file, cleared: [], pulls: namedPulls(text) } }
     await this.#write(state)
     return state
   }
@@ -96,14 +112,19 @@ export class ReviewThreadLedger {
 
   /**
    * Why agents may settle nothing on this pull request right now, or null:
-   * an earlier record was unreadable and the person has not settled a
-   * thread here since.
+   * an earlier record that named it (or named nothing readable) was set
+   * aside, under a day ago, its file is still there, and the person has not
+   * settled a thread here since.
    */
-  held(repository: string, number: number): Promise<string | null> {
+  held(repository: string, number: number, now = Date.now()): Promise<string | null> {
     return this.#serial(async () => {
       const { unreadable } = await this.#read()
-      if (!unreadable || unreadable.cleared.includes(ReviewThreadLedger.pullRequestKey(repository, number))) return null
-      return `The review-thread record could not be read and was set aside as ${unreadable.file}, so its round counts and answers are unknown; settle a thread on pull request #${number} yourself first. Nothing was written.`
+      const key = ReviewThreadLedger.pullRequestKey(repository, number)
+      if (!unreadable || now - unreadable.at >= UNREADABLE_HOLD_MS || unreadable.cleared.includes(key)) return null
+      if (unreadable.pulls?.length && !unreadable.pulls.includes(key)) return null
+      try { await stat(join(this.stateDirectory, unreadable.file)) }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error }
+      return `The review-thread record could not be read and was set aside as ${unreadable.file} in the host state folder, so its round counts and answers for pull request #${number} are unknown. Settle a thread there yourself, or remove ${unreadable.file} once you have looked at it, and agents may settle again; the hold also ends a day after it began. Nothing was written.`
     })
   }
 

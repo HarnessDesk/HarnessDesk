@@ -357,3 +357,31 @@ test('an unreadable thread record is set aside, and agents settle nothing on a p
   assert.match((await f.invoke('pr_thread_settle', { number: 7, thread: 'PRRT_bad1', outcome: 'fixed' })).text, /set aside/)
 })
 
+
+test('a set-aside record holds only the pull requests it names', async t => {
+  const f = await fixture(t)
+  f.forge.threads = [thread('PRRT_scope1', bot)]
+  // The broken record still names pull request #9, not #7: #7 is not held.
+  writeFileSync(join(f.host, 'review-threads.json'), '{"version":1,"rounds":{"acme/widgets#9#review-bot":["round 1"]},"answered":')
+  const free = await f.invoke('pr_thread_settle', { number: 7, thread: 'PRRT_scope1', outcome: 'fixed' })
+  assert.ok(free.ok, free.text)
+  assert.equal(readdirSync(f.host).filter(name => name.startsWith('review-threads.json.corrupt-')).length, 1)
+})
+
+test('a hold ends when the person removes the set-aside file, or after a day', async t => {
+  const f = await fixture(t)
+  f.forge.threads = ['PRRT_end1', 'PRRT_end2', 'PRRT_end3'].map(id => thread(id, bot))
+  writeFileSync(join(f.host, 'review-threads.json'), '{ not json')
+  assert.match((await f.invoke('pr_thread_settle', { number: 7, thread: 'PRRT_end1', outcome: 'fixed' })).text, /set aside/)
+  const [aside] = readdirSync(f.host).filter(name => name.startsWith('review-threads.json.corrupt-'))
+  assert.ok(aside)
+  // The refusal tells the person both ways out.
+  assert.match((await f.invoke('pr_thread_settle', { number: 7, thread: 'PRRT_end1', outcome: 'fixed' })).text, /remove .*corrupt-/)
+  rmSync(join(f.host, aside))
+  assert.ok((await f.invoke('pr_thread_settle', { number: 7, thread: 'PRRT_end1', outcome: 'fixed' })).ok)
+  // A hold that began more than a day ago has ended, even with the file still there.
+  const old = Date.now() - 25 * 60 * 60_000, file = `review-threads.json.corrupt-${old}`
+  writeFileSync(join(f.host, file), '{ not json')
+  writeFileSync(join(f.host, 'review-threads.json'), JSON.stringify({ version: 1, rounds: {}, answered: {}, unreadable: { at: old, file, cleared: [], pulls: [] } }))
+  assert.ok((await f.invoke('pr_thread_settle', { number: 7, thread: 'PRRT_end2', outcome: 'fixed' })).ok)
+})
