@@ -4265,7 +4265,7 @@ export class Host {
     void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
     this.#leadControls = new LeadControls({ journal,
       readWorkContext: async turn => {
-        const note = presence.takeExpiryNote()
+        const note = presence.takeExpiryNote(turn.proactive)
         let cards: string | null = null
         try { cards = leadWorkCards(await work.board(), Date.now()) } catch (error) { if (!note || turn.proactive) throw error }
         return leadTurnContext(cards, note, turn.proactive)
@@ -5674,12 +5674,12 @@ export class Host {
         const answered = await this.leadPresence.beforeSend(params.device, params.text, params.ask)
         try {
           const receipt = await (await this.#leadWindow()).send(params)
-          if (answered) await answered(true).catch(() => {})
+          if (answered) await answered(true, receipt.messageId).catch(() => {})
           return receipt
         } catch (error) {
           if (answered) await answered(false).catch(() => {})
           throw error
-        } finally { this.leadPresence.endSend() }
+        }
       },
       leadApprovalRevoke: async params => (await this.#leadWindow()).revokeApproval(params),
       leadActionPerform: async params => (await this.#leadWindow()).perform(params),

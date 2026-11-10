@@ -74,6 +74,7 @@ const unreadable = () => Object.assign(new Error('The Lead presence file could n
  * One file, `<state>/lead/presence.json`. A digest is built here from the work ledger and the journal alone, so every
  * surface is handed the same one; only the optional paragraph comes from a model, and its cost is counted.
  */
+interface ExpiryNote { readonly text: string; readonly after: string | undefined; readonly note: string; messageId?: string }
 export class LeadPresenceStore {
   #tail: Promise<unknown> = Promise.resolve()
   #stored: Stored = fresh()
@@ -280,42 +281,81 @@ export class LeadPresenceStore {
     }
     return undefined
   }
-  #expiryNote: string | undefined
+  /** Notes for the model about messages the person sent after a question ran out; each belongs to one message. */
+  #notes: ExpiryNote[] = []
 
-  /** The send is over, however it went: a note meant for it must not wait for the next one. */
-  endSend(): void { this.#expiryNote = undefined }
+  #lastPersonMessage(): { id: string; text: string } | undefined {
+    const messages = this.ports.messages()
+    for (let index = messages.length - 1; index >= 0; index--) if (messages[index]!.role === 'user') return messages[index]!
+    return undefined
+  }
 
-  /** A line for the model's next turn when the person's words arrive after a question went stale; read once. */
-  takeExpiryNote(): string | undefined { const note = this.#expiryNote; this.#expiryNote = undefined; return note }
+  /** The newest question in the thread, answered, expired or talked past. */
+  #newestAsk(): { id: string; ask: LeadAsk } | undefined {
+    const messages = this.ports.messages()
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const message = messages[index]!
+      if (message.role === 'assistant' && message.ask) return { id: message.id, ask: message.ask }
+    }
+    return undefined
+  }
+
+  /**
+   * A line for the turn that answers the person's message, when it arrived after a question went stale; read once. The turn for
+   * a newer message supersedes an older note, and a scheduled or proactive turn never takes one.
+   */
+  takeExpiryNote(proactive = false): string | undefined {
+    if (proactive) return undefined
+    const latest = this.#lastPersonMessage()
+    if (!latest) { this.#notes = []; return undefined }
+    let found: string | undefined
+    this.#notes = this.#notes.filter(entry => {
+      const mine = entry.messageId ? entry.messageId === latest.id : latest.id !== entry.after && latest.text === entry.text
+      if (mine) { found ??= entry.note; return false }
+      // Only a message that has not reached the thread yet may still be waiting for its turn.
+      return !entry.messageId && latest.id === entry.after
+    })
+    return found
+  }
 
   /**
    * Called before the person's text is sent. A text that is the label of an option of the newest open question is an
    * answer to it: an expired question refuses it, so a stale tap does nothing, and the first answer wins, so a second
-   * device is refused. Other words after an expired question carry a note to the model that nothing was done.
-   * Returns a step to run once sent.
+   * device is refused. A tap names its question; one that names none the thread holds is refused. Other words after an
+   * expired question carry a note to the model that nothing was done. Returns a step to run once the send is over.
    */
-  async beforeSend(device: LeadDeviceRef | undefined, text: string, askId?: string): Promise<((sent: boolean) => Promise<void>) | null> {
-    this.#expiryNote = undefined
+  async beforeSend(device: LeadDeviceRef | undefined, text: string, askId?: string): Promise<((sent: boolean, messageId?: string) => Promise<void>) | null> {
     // A tap names the question it answers, so a later message in the thread cannot turn it into plain words.
     const open = askId ? this.#askById(askId) : this.#openAsk()
-    if (!open) return null
-    const option = open.ask.options.find(candidate => candidate.label === text)
+    if (askId && !open) throw refused()
+    // Words that are an option of a question nobody can answer any more are not sent as a new request either.
+    const stale = !open ? this.#newestAsk() : undefined
+    const target = open ?? stale
+    if (!target) return null
+    const option = target.ask.options.find(candidate => candidate.label === text)
+    if (stale && !option) return null
     const by = device?.label ?? 'Desktop'
     return this.#write(() => {
       this.#observeAsks()
-      const record = this.#stored.asks[open.id], now = this.ports.now()
+      const record = this.#stored.asks[target.id], now = this.ports.now()
       if (option && record?.answer) throw Object.assign(new Error(`Already answered on ${record.answer.by}`), { wireCode: 'lead-ask-answered' })
       const expired = !record?.answer && record?.expiresAt !== undefined && record.expiresAt <= now
+      if (stale) { if (expired) throw refused(); return null }
       if (!option) {
-        if (expired && !askId) this.#expiryNote = `The question ${quoteLeadWorkText(open.ask.question, 120)} expired at ${new Date(record!.expiresAt!).toISOString()}; nothing was done. The person's message above is a new request, not an answer to it.`
-        return null
+        if (!expired || askId) return null
+        const entry: ExpiryNote = { text, after: this.#lastPersonMessage()?.id, note: `The question ${quoteLeadWorkText(target.ask.question, 120)} expired at ${new Date(record!.expiresAt!).toISOString()}; nothing was done. The person's message above is a new request, not an answer to it.` }
+        this.#notes = [...this.#notes, entry].slice(-8)
+        return async (sent: boolean, messageId?: string) => {
+          if (!sent) this.#notes = this.#notes.filter(held => held !== entry)
+          else if (messageId) entry.messageId = messageId
+        }
       }
       if (expired) throw refused()
       const claim = { option: option.label, by, at: now }
       if (record) record.answer = claim
       // A send that did not go through gives the answer back, so the question stays open for another try.
       return async (sent: boolean) => {
-        if (!sent) await this.#write(() => { if (record && this.#stored.asks[open.id]?.answer?.at === claim.at && this.#stored.asks[open.id]?.answer?.by === by) delete this.#stored.asks[open.id]!.answer }).catch(() => {})
+        if (!sent) await this.#write(() => { if (record && this.#stored.asks[target.id]?.answer?.at === claim.at && this.#stored.asks[target.id]?.answer?.by === by) delete this.#stored.asks[target.id]!.answer }).catch(() => {})
         this.ports.changed?.()
       }
     })

@@ -32,6 +32,7 @@ const planClick = { version: 1 as const, cardId: 'plan', cardType: 'plan' as con
 const desk = async () => {
   const performed: unknown[] = []
   const presenceCalls: { method: string; device: unknown }[] = []
+  const sends: Record<string, unknown>[] = []
   let personActions: any[] = [{ kind: 'worker-approval', id: 'worker', runId: 'run', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'yes-goal', 'no'] }, { kind: 'check', id: 'check', runId: 'run', name: 'verify', command: 'node --test' }]
   const records: LeadJournalRecord[] = []
   const journal = await createLeadJournal({ async read() { return records }, async append(record: LeadJournalRecord) { records.push(record) } })
@@ -54,7 +55,7 @@ const desk = async () => {
       deny: (id: string) => attached!.deny(id), revoke: (d: string) => attached!.revoke(d) },
     leadPresence: { read: async (device: unknown) => { presenceCalls.push({ method: 'read', device }); return { version: 1, digest: null, asks: [], brief: { enabled: false, at: '07:30' } } },
       dismiss: async (device: unknown) => { presenceCalls.push({ method: 'dismiss', device }); return { version: 1, digest: null, asks: [], brief: { enabled: false, at: '07:30' } } } },
-    leadApprovalRevoke: (p: any) => controls.revokeApproval(p), leadActionPerform: (p: unknown) => (controls as any).perform(p), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p as never), leadCardDecide: (p: unknown) => controls.decide(p as never),
+    leadApprovalRevoke: (p: any) => controls.revokeApproval(p), leadActionPerform: (p: unknown) => (controls as any).perform(p), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => { sends.push(p as Record<string, unknown>); return controls.send(p as never) }, leadCardDecide: (p: unknown) => controls.decide(p as never),
     leadSettingsRead: () => controls.readSettings(), leadSettingsUpdate: (p: unknown) => controls.updateSettings(p as never), leadSpendLimitSet: (p: unknown) => controls.setSpendLimit(p as never),
     leadStop: (p: unknown) => controls.stop(p as never), leadResume: (p: unknown) => controls.resume(p as never),
   } as unknown as HostContext
@@ -63,7 +64,7 @@ const desk = async () => {
     addBroadcaster: (f: (n: WireNotification) => void) => { broadcasters.add(f); return () => { broadcasters.delete(f) } },
     attachPhoneLink: (control: PhoneLinkControl) => { attached = control },
   }
-  return { host, journal, controls, ctx, performed, presenceCalls, broadcast: (n: WireNotification) => broadcasters.forEach(f => f(n)) }
+  return { host, journal, controls, ctx, performed, presenceCalls, sends, broadcast: (n: WireNotification) => broadcasters.forEach(f => f(n)) }
 }
 
 const rig = async () => {
@@ -267,6 +268,22 @@ test('a phone is named by its pairing: a device in the request body is ignored e
       assert.match(device.id, /^phone:/, call.method)
       assert.equal(device.label, 'Jane’s phone')
     }
+    phone.close()
+  } finally { await s.done() }
+})
+
+test('a tap carries the ask it answers from the phone to the host, under the phone’s own name', async () => {
+  const s = await rig()
+  try {
+    const phone = await s.pair()
+    const forged = { id: 'window:forged', label: 'Forged desktop' }
+    const tapped = await phone.request('lead/thread/send', { idempotencyKey: 'tap-1', text: 'Start it', ask: 'message-3', device: forged })
+    assert.equal(tapped.ok, true, JSON.stringify(tapped))
+    assert.equal(s.sends.length, 1)
+    assert.equal(s.sends[0]!.ask, 'message-3', 'the host hears which question the tap answers')
+    assert.equal(s.sends[0]!.text, 'Start it')
+    assert.match((s.sends[0]!.device as { id: string }).id, /^phone:/)
+    assert.equal((await phone.request('lead/thread/send', { idempotencyKey: 'tap-2', text: 'Start it', ask: 7 })).ok, false, 'an ask that is not an id is refused')
     phone.close()
   } finally { await s.done() }
 })
