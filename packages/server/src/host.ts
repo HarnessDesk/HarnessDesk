@@ -32,6 +32,7 @@ import { phoneLinkOff } from './phone-link.js'
 import { PhoneWorkspace } from './phone-workspace.js'
 import { PhoneWork, phoneSessionValues } from './phone-work.js'
 import { folderName } from './phone-redact.js'
+import { pacingPort } from './lead/pacing.js'
 import { leadContainsSecret } from './lead/secrets.js'
 import { answerLeadPersonGate, answerLeadResult, validateLeadResult } from './lead/person-decision.js'
 import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
@@ -3888,6 +3889,16 @@ export class Host {
     }))
     this.#leadChatCancellation = async (id, count) => { await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${id}.`) }
     this.#leadChats = new LeadChats({ project, state: () => journal.state, now: options.recovery?.now ?? Date.now,
+      pacing: pacingPort({
+        startableAgents: () => this.#phoneWorkView().startableAgents().map(String),
+        infoOf: id => { const known = this.#runtimes.get(runtimeId(id)); return known ? this.#infoOf(known) : undefined },
+        defaultRuntime: () => {
+          const preferred = this.#state.state.preferences['activeRuntime']
+          return ((typeof preferred === 'string' ? this.#runtimes.get(runtimeId(preferred)) : undefined) ?? this.#runtimes.values().next().value)?.info.id ?? null
+        },
+        preferences: () => this.#state.state.preferences,
+        usage: id => this.#usageService.cached(runtimeId(id)),
+        now: Date.now }),
       managementAvailable: () => this.#leadService?.managementAvailable === true,
       queuedSends: () => this.registry.all().some(record => record.queue.messages.some(message => {
         const admission = this.registry.queuedAdmission(record, message.id)

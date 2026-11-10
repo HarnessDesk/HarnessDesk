@@ -1000,5 +1000,7 @@ export interface LeadUsageSummary {
     readonly stale: boolean
     readonly error: 'sign-in needed' | 'reading failed' | null
     readonly spend: { readonly currency: string; readonly today: number | null; readonly last30Days: number | null; readonly provenance: import('./usage.js').SpendProvenance } | null
+    /** Allowance that expires unspent: more than half is left and a window is about to refill. Absent otherwise. */
+    readonly useFirst?: true
   }[]
 }

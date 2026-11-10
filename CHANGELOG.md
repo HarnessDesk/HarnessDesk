@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Use the account that resets soonest.** An agent with several accounts can take them in the order their allowance refills, so what would expire unspent is spent first; the Lead starts its chats there too and says which account. An account with most of a window unused and that window about to refill says "Use it first", on the desktop and on the phone.
+
 - **The Lead keeps a list of the work it started.** Each piece of work you ask for becomes one item across its chats, Teams and pull requests, grouped as Needs you, Working, In review and Done in the Lead's side panel and on your phone. A second start of the same work is refused and points at the open item. Close an item with Done or Drop; its chats and Teams are left as they are. Work the desk can no longer follow for a week moves to Done as stopped, so the list never fills with work nothing can finish.
 
 - **Idle conversations read back whole.** A conversation an agent replays from its own store, such as an OpenCode one, keeps its replies, its thinking and the turn times the desk recorded, on the desktop and the phone. It no longer says recent activity is still being saved when nothing is.

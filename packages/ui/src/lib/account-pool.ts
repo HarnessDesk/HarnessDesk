@@ -1,4 +1,4 @@
-import type { RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
+import { pacedOrder, type RuntimeId, type RuntimeInfo, type UsageReport } from '@harnessdesk/protocol'
 
 import { isBlocked } from './usage'
 
@@ -19,6 +19,11 @@ import { isBlocked } from './usage'
  * - `ask`: say that it is out and offer the next account (the default, and
  *   what the desk did before there was an order).
  * - `stop`: say that it is out and offer nothing.
+ *
+ * `pace: 'soonest'` replaces the person's own order with the one the usage
+ * reports give: the account whose window refills soonest, and still has room,
+ * goes first, so allowance about to expire is spent before the one that keeps.
+ * The person's order stays stored and comes back when the setting is cleared.
  */
 export type WhenOut = 'next' | 'ask' | 'stop'
 
@@ -26,6 +31,7 @@ export interface AccountPool {
   /** Runtime ids, first used first. Siblings it does not name follow, in the catalogue's order. */
   readonly order?: readonly RuntimeId[]
   readonly whenOut?: WhenOut
+  readonly pace?: 'soonest'
 }
 
 /** Keyed by `agentKey`. */
@@ -47,11 +53,12 @@ export const readAccountPools = (raw: unknown): AccountPoolMap => {
   const pools: Record<string, AccountPool> = {}
   for (const [agent, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue
-    const { order, whenOut } = value as { order?: unknown; whenOut?: unknown }
+    const { order, whenOut, pace } = value as { order?: unknown; whenOut?: unknown; pace?: unknown }
     const ids = Array.isArray(order) ? order.filter((id): id is RuntimeId => typeof id === 'string') : []
     const rule = WHEN_OUT.find((entry) => entry === whenOut)
-    if (ids.length === 0 && !rule) continue
-    pools[agent] = { ...(ids.length > 0 ? { order: ids } : {}), ...(rule ? { whenOut: rule } : {}) }
+    const paced = pace === 'soonest'
+    if (ids.length === 0 && !rule && !paced) continue
+    pools[agent] = { ...(ids.length > 0 ? { order: ids } : {}), ...(rule ? { whenOut: rule } : {}), ...(paced ? { pace: 'soonest' as const } : {}) }
   }
   return pools
 }
@@ -64,14 +71,28 @@ export const readAccountPools = (raw: unknown): AccountPoolMap => {
 export const inPoolOrder = <T extends { readonly id: RuntimeId }>(
   siblings: readonly T[],
   pool: AccountPool | undefined,
+  pacing?: Pacing,
 ): T[] => {
   const order = pool?.order ?? []
   const rank = (entry: T): number => {
     const at = order.indexOf(entry.id)
     return at === -1 ? order.length + siblings.indexOf(entry) : at
   }
-  return [...siblings].sort((a, b) => rank(a) - rank(b))
+  const own = [...siblings].sort((a, b) => rank(a) - rank(b))
+  // Ties and unknowns inside the paced order keep the person's own.
+  return pool?.pace === 'soonest' && pacing
+    ? pacedOrder(own, (id) => pacing.reports.filter((report) => report.runtime === id), pacing.now)
+    : own
 }
+
+/** What the soonest-reset order reads: the usage reports the desk holds, and the clock. */
+export interface Pacing {
+  readonly reports: readonly UsageReport[]
+  readonly now: number
+}
+
+/** Whether the person's own order is in force, so its moves mean something. */
+export const isPaced = (pool: AccountPool | undefined): boolean => pool?.pace === 'soonest'
 
 /** The order with one account moved by `delta` places, clamped at the ends. */
 export const movedInPool = (ordered: readonly RuntimeId[], runtime: RuntimeId, delta: number): RuntimeId[] => {

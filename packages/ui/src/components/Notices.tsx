@@ -231,7 +231,7 @@ const useStanding = (): Standing | null => {
     // What the agent this conversation talks to is up against, and somewhere
     // else to take the work.
     const condition = conditionFor(runtime.id, snapshot.usage, nameFor, Date.now(), {
-      prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot)), pool).map((entry) => entry.id),
+      prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot)), pool, { reports: snapshot.usage, now: Date.now() }).map((entry) => entry.id),
       offer: whenOutOf(pool) !== 'stop',
       canTake: (id) => {
         const entry = snapshot.runtimes.find((one) => one.id === id)
