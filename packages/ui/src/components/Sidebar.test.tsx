@@ -385,7 +385,7 @@ describe('sidebar destinations', () => {
         { instanceId: 'one', identity: { id: 'one', name: 'One', source: { kind: 'builtin' } } },
         { instanceId: 'two', identity: { id: 'two', name: 'Two', source: { kind: 'builtin' } } },
       ],
-      usage: [{ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: 1, staleAfterMs: 1, error: null }],
+      usage: [{ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: 1, staleAfterMs: 1, error: null }],
     } as unknown as Partial<AppSnapshot>)
     const group = container.querySelector('[aria-label="Main sections"]')!
     const rows = [...group.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
@@ -406,16 +406,19 @@ describe('sidebar destinations', () => {
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Agents"]')?.dataset.active).toBeUndefined()
   })
 
-  it('shows a Dashboard badge only when an agent needs attention', () => {
+  it('shows a Dashboard badge only for an account the person has to act on', () => {
     mount()
     const dashboard = container.querySelector<HTMLButtonElement>('button[aria-label="Dashboard"]')!
     expect(dashboard.parentElement?.querySelector('[data-left-mark]')).toBeNull()
+    const report = (usedPercent: number, error: unknown = null) => ({ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: 1, staleAfterMs: 1, error })
+    const badge = () => container.querySelector<HTMLButtonElement>('button[aria-label="Dashboard"]')!.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim()
 
-    mount({
-      usage: [{ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: 1, staleAfterMs: 1, error: null }],
-    } as unknown as Partial<AppSnapshot>)
-    const needsAttention = container.querySelector<HTMLButtonElement>('button[aria-label="Dashboard"]')!
-    expect(needsAttention.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim()).toBe('1')
+    // Low, or a read that failed for a reason signing in would not fix, is a note on the Dashboard, not a need.
+    mount({ usage: [report(90), report(10, { message: 'The source did not answer.' })] } as unknown as Partial<AppSnapshot>)
+    expect(badge()).toBeUndefined()
+    // Out of allowance, or signed out, needs the person.
+    mount({ usage: [report(100), report(10, { message: 'Signed out.', needsSignIn: true }), report(90)] } as unknown as Partial<AppSnapshot>)
+    expect(badge()).toBe('2')
   })
 
   it('keeps everything-search and list-filter names distinct and calls the group Projects', () => {

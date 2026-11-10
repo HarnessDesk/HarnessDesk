@@ -604,6 +604,16 @@ export const balanceOf = (credits: UsageReport['credits']): Balance | null => {
 export const reportNeedsAttention = (report: UsageReport, now: number): boolean =>
   usageStandingOf(report, now).status !== 'ready'
 
+/**
+ * An account the person has to act on: out of allowance, overdrawn, or signed out. Low, short and an unread figure are
+ * notes the Dashboard shows; they move with every refresh and ask nothing of the person, so no badge counts them.
+ */
+export const reportNeedsYou = (report: UsageReport, now: number): boolean => {
+  if (report.error) return report.error.needsSignIn === true
+  const status = usageStandingOf(report, now).status
+  return status === 'out' || status === 'overdrawn'
+}
+
 /*
  * Where an account stands, in one word every surface shares — decided in
  * `@harnessdesk/protocol` (`usageStandingOf`), because the host sends the same

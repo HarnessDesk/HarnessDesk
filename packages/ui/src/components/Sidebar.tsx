@@ -53,7 +53,7 @@ import { ProfileFace } from './ProfileFace'
 import { HarnessDeskSignInPending, HarnessDeskSignOut, useHarnessDeskAccountAction } from './HarnessDeskAccount'
 import { Clipped, EmptyState } from '../design'
 import type { Section } from './Settings'
-import { describeReport, describeLane, formatAge, formatMoney, reportNeedsAttention, workingAccount } from '../lib/usage'
+import { describeReport, describeLane, formatAge, formatMoney, reportNeedsYou, workingAccount } from '../lib/usage'
 import { usageReadingTone } from '../lib/limits'
 import { usageAccount } from '../lib/usage-alerts'
 import styles from './Sidebar.module.css'
@@ -126,8 +126,8 @@ export const Sidebar = ({
   const [starting, setStarting] = useState<boolean>(false)
   const listRef = useRef<HTMLDivElement>(null)
   const now = Date.now()
-  // Only the ones a person would want to know about — the same rule as the Dashboard's own count.
-  const lowAgents = snapshot.usage.filter((report) => reportNeedsAttention(report, now)).length
+  // Only accounts the person has to act on; low and short are notes the Dashboard shows, not needs.
+  const lowAgents = snapshot.usage.filter((report) => reportNeedsYou(report, now)).length
 
   // Debounced so typing does not fire a search per keystroke against the runtime.
   useEffect(() => {
