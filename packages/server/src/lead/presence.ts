@@ -74,6 +74,8 @@ const unreadable = () => Object.assign(new Error('The Lead presence file could n
  * One file, `<state>/lead/presence.json`. A digest is built here from the work ledger and the journal alone, so every
  * surface is handed the same one; only the optional paragraph comes from a model, and its cost is counted.
  */
+/** How long after an answer or an expiry the same words, sent without the question's id, are still taken for a late tap. */
+export const LEAD_LATE_TAP_MS = 10 * 60_000
 interface ExpiryNote { readonly text: string; readonly after: string | undefined; readonly note: string; messageId?: string }
 export class LeadPresenceStore {
   #tail: Promise<unknown> = Promise.resolve()
@@ -338,10 +340,15 @@ export class LeadPresenceStore {
     return this.#write(() => {
       this.#observeAsks()
       const record = this.#stored.asks[target.id], now = this.ports.now()
-      if (option && record?.answer) throw Object.assign(new Error(`Already answered on ${record.answer.by}`), { wireCode: 'lead-ask-answered' })
       const expired = !record?.answer && record?.expiresAt !== undefined && record.expiresAt <= now
-      if (stale) { if (expired) throw refused(); return null }
-      if (!option) {
+      // Untagged words are held to a refusal only while they can still be a late tap: the question is the Lead's last word
+      // and its answer or expiry is recent. A tap that names its question is refused whenever it arrives.
+      const since = record?.answer?.at ?? (expired ? record!.expiresAt : undefined)
+      const lastAssistant = [...this.ports.messages()].reverse().find(message => message.role === 'assistant')
+      const fresh = askId !== undefined || (lastAssistant?.id === target.id && since !== undefined && now - since <= LEAD_LATE_TAP_MS)
+      if (option && record?.answer) { if (fresh) throw Object.assign(new Error(`Already answered on ${record.answer.by}`), { wireCode: 'lead-ask-answered' }); return null }
+      if (stale) { if (expired && option && fresh) throw refused(); return null }
+      if (!option || (expired && !fresh)) {
         if (!expired || askId) return null
         const entry: ExpiryNote = { text, after: this.#lastPersonMessage()?.id, note: `The question ${quoteLeadWorkText(target.ask.question, 120)} expired at ${new Date(record!.expiresAt!).toISOString()}; nothing was done. The person's message above is a new request, not an answer to it.` }
         this.#notes = [...this.#notes, entry].slice(-8)

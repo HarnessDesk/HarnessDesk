@@ -170,6 +170,14 @@ it.each(['unexpected-code', '__proto__', 'constructor'])('unknown refusal %s is 
   await input(box.querySelector('textarea')!, 'Inspect'); await act(async () => button('Send').click())
   expect(box.querySelector('[role="alert"]')?.textContent).toBe('The Lead could not complete that action.')
 })
+it.each(['lead-ask-answered', 'lead-ask-expired'])('typed words refused by %s tell the person to say it another way; the text claims no device', async code => {
+  const { store, box } = await mount(); vi.spyOn(store.lead, 'send').mockRejectedValue({ code })
+  await input(box.querySelector('textarea')!, 'Start it'); await act(async () => button('Send').click())
+  const text = box.querySelector('[role="alert"]')?.textContent ?? ''
+  expect(text).toContain('If you meant something else, say it in other words.')
+  expect(text).not.toMatch(/another device/)
+  expect(text).toMatch(code === 'lead-ask-answered' ? /^This question was already answered\. Nothing was done\./ : /^This question expired\. Nothing was done\./)
+})
 it('unchanged settings groups cannot be saved', async () => {
   await mount(); await act(async () => button('Settings').click())
   expect(button('Save permissions').disabled).toBe(true); expect(button('Save allowances').disabled).toBe(true)

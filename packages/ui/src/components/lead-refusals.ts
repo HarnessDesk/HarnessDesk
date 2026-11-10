@@ -19,12 +19,15 @@ export const REFUSALS: Record<LeadControlRefusal, string> = {
   'lead-repeat-cleanup-pending': 'The previous run still needs to be settled. Wait, then try again.',
   'lead-repeat-quiet': 'Quiet hours are holding this run. Try again after they end.',
   'lead-ask-expired': 'This question expired. Nothing was done.',
-  'lead-ask-answered': 'This question was already answered on another device. Nothing more was sent.',
+  'lead-ask-answered': 'This question was already answered. Nothing was done.',
   'lead-project-missing': 'Open a folder first, then send your goal.',
 }
 
-export const leadRefusalText = (error: unknown) => {
+/** Words the person typed that the host took for a late answer get one more line: how to say it differently. */
+const TYPED_AFTER_QUESTION = ' If you meant something else, say it in other words.'
+export const leadRefusalText = (error: unknown, typed = false) => {
   const value = error as { code?: string; wireCode?: string }
   const code = value?.wireCode ?? value?.code
-  return typeof code === 'string' && Object.hasOwn(REFUSALS, code) && typeof REFUSALS[code as LeadControlRefusal] === 'string' ? REFUSALS[code as LeadControlRefusal] : 'The Lead could not complete that action.'
+  const text = typeof code === 'string' && Object.hasOwn(REFUSALS, code) && typeof REFUSALS[code as LeadControlRefusal] === 'string' ? REFUSALS[code as LeadControlRefusal] : 'The Lead could not complete that action.'
+  return typed && (code === 'lead-ask-answered' || code === 'lead-ask-expired') ? text + TYPED_AFTER_QUESTION : text
 }

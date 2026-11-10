@@ -266,7 +266,9 @@ test('only the newest open ask counts: a later plain message does not revive a s
   thread({ id: 'message-4', role: 'assistant', text: 'Anything else?' })
   await r.store.read(desktop, { active: true })
   r.tick(31 * MIN)
-  await assert.rejects(r.store.beforeSend(phone, 'Start it'), code('lead-ask-expired'))
+  const late = await r.store.beforeSend(phone, 'Start it')
+  assert.ok(late, 'the Lead spoke after the question, so its label is words now, held with the note')
+  await late!(false)
   assert.equal(r.store.takeExpiryNote(), undefined)
   const settle = await r.store.beforeSend(phone, 'Yes, go ahead')
   assert.ok(settle, 'the words are held for the turn that answers them')
@@ -451,20 +453,42 @@ test('the expiry note belongs to one message: a failed send leaves none, a proac
   assert.equal(r.store.takeExpiryNote(), undefined, 'the older message’s note was superseded, not left for a later turn')
 })
 
-test('untagged words that are an option of the newest ask, after it was answered or ran out, are refused, not sent as a new request', async t => {
-  const r = await rig(t)
+test('untagged words that are an option of the newest ask are refused right after the answer, and are plain words once the Lead has spoken again or ten minutes passed', async t => {
   const asked = { id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask(30) }
-  r.setMessages([asked])
-  await r.store.read(desktop, { active: true })
-  const first = await r.store.beforeSend(desktop, 'Start it', 'message-3')
-  await first!(true)
-  r.setMessages([asked, { id: 'message-4', role: 'user', text: 'Start it' }, { id: 'message-5', role: 'assistant', text: 'Started.' }])
-  await assert.rejects(r.store.beforeSend(phone, 'Not now'), code('lead-ask-answered'), 'an old phone build that sends no ask id')
-  const later = await rig(t)
-  const other = { id: 'message-7', role: 'assistant', text: 'Rename it?', ask: ask(5) }
-  later.setMessages([other])
-  await later.store.read(desktop, { active: true })
-  later.setMessages([other, { id: 'message-8', role: 'user', text: 'Hmm' }, { id: 'message-9', role: 'assistant', text: 'OK.' }])
-  later.tick(10 * MIN)
-  await assert.rejects(later.store.beforeSend(phone, 'Start it'), code('lead-ask-expired'), 'an ask that ran out, with talk after it')
+  const answered = [asked, { id: 'message-4', role: 'user', text: 'Start it' }]
+  const answer = async (r: Awaited<ReturnType<typeof rig>>) => {
+    r.setMessages([asked])
+    await r.store.read(desktop, { active: true })
+    await (await r.store.beforeSend(desktop, 'Start it', 'message-3'))!(true)
+    r.setMessages(answered)
+  }
+  // Right after the answer, nothing said since: an old phone build that sends no ask id is refused.
+  const a = await rig(t)
+  await answer(a)
+  a.tick(2000)
+  await assert.rejects(a.store.beforeSend(phone, 'Not now'), code('lead-ask-answered'))
+  // The Lead spoke again: the same words are about something else.
+  a.setMessages([...answered, { id: 'message-5', role: 'assistant', text: 'Started.' }])
+  assert.equal(await a.store.beforeSend(phone, 'Not now'), null, 'a later assistant message ends the refusal')
+  // Ten minutes later, with nothing said in between.
+  const b = await rig(t)
+  await answer(b)
+  b.tick(9 * MIN)
+  await assert.rejects(b.store.beforeSend(phone, 'Not now'), code('lead-ask-answered'))
+  b.tick(2 * MIN)
+  assert.equal(await b.store.beforeSend(phone, 'Not now'), null, 'after the window the words go through')
+  // An ask that ran out: refused for ten minutes with nobody having talked past it, and plain words (with the note) after.
+  const c = await rig(t)
+  c.setMessages([asked])
+  await c.store.read(desktop, { active: true })
+  c.tick(31 * MIN)
+  await assert.rejects(c.store.beforeSend(phone, 'Start it'), code('lead-ask-expired'))
+  c.tick(15 * MIN)
+  const settle = await c.store.beforeSend(phone, 'Start it')
+  assert.ok(settle, 'a day later the same word is a new request, and the note says the question ran out')
+  c.setMessages([asked, { id: 'message-9', role: 'user', text: 'Start it' }])
+  await settle!(true, 'message-9')
+  assert.match(c.store.takeExpiryNote()!, /expired at/)
+  // A tap that names its ask is refused whenever it arrives.
+  await assert.rejects(c.store.beforeSend(phone, 'Start it', 'message-3'), code('lead-ask-expired'))
 })

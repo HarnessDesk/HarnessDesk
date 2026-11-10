@@ -105,7 +105,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     if (element) { element.focus({ preventScroll: true }); requestedDecisionFocus.current = null }
   }
   // A missing folder is the store's state and the greeting's step, never a warning banner as well.
-  const refusal = (error: unknown) => { if (!store.lead.state.projectMissing || leadRefusalText(error) !== REFUSALS['lead-project-missing']) setError(leadRefusalText(error)) }
+  const refusal = (error: unknown, typed = false) => { if (!store.lead.state.projectMissing || leadRefusalText(error) !== REFUSALS['lead-project-missing']) setError(leadRefusalText(error, typed)) }
   const { owner } = useDestinationPage(), controls = useLeadControls(), { name, face, label, presence } = controls
   const shellActions = useShell()
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
@@ -154,7 +154,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     if (unavailable || inFlight.current || state.requestInFlight || !text.trim()) return
     inFlight.current = true; sendBaseline.current = [...store.lead.state.thread?.messages ?? []].reverse().find(message => message.role === 'user')?.id ?? null; setSending(true); setError(null)
     try { await store.lead.send(text.trim(), crypto.randomUUID(), ask); setGoal(current => current === text ? '' : current) }
-    catch (error) { refusal(error) }
+    catch (error) { refusal(error, !ask) }
     finally { inFlight.current = false; setSending(false); input.current?.focus() }
   }
   const steer = async () => {
