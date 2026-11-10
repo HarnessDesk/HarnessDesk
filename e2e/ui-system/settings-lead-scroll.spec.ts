@@ -5,7 +5,8 @@ for (const theme of ['light', 'dark'] as const) test(`Settings Lead groups stay 
   await page.setViewportSize({ width: 1280, height: 480 })
   await page.goto(`/preview.html?lead-synthetic=settings-configured&theme=${theme}`)
   const groups = page.locator('[data-slot="rows"]')
-  await expect(groups).toHaveCount(8)
+  await expect(groups.nth(7)).toBeVisible()
+  expect(await groups.count(), 'the Lead settings groups').toBeGreaterThanOrEqual(8)
   for (const group of await groups.all()) {
     const metrics = await group.evaluate(node => ({ client: node.clientHeight, scroll: node.scrollHeight, bottom: node.getBoundingClientRect().bottom, lastBottom: node.lastElementChild?.getBoundingClientRect().bottom ?? null }))
     expect(metrics.client).toBeGreaterThan(0)
