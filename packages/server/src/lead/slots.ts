@@ -1,7 +1,7 @@
 import type { LeadState } from '@harnessdesk/lead'
 
-/** How many runs the Lead may have live at once, chats and Team runs together. */
-export const LEAD_RUN_SLOTS = 4
+/** How many runs the Lead may have live at once, chats and Team runs together: the same bound the chat record keeps (`LEAD_CHAT_LIMIT`). */
+export const LEAD_RUN_SLOTS = 64
 /** Slots only the person's own work can fill. */
 export const LEAD_RESERVED_SLOTS = 1
 

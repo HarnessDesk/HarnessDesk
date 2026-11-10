@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { LEAD_AUTONOMY_KINDS, LEAD_AUTONOMY_LABELS, type LeadAutonomyKind, type LeadAutonomyMode, type LeadAutonomyView } from '@harnessdesk/protocol'
-import { NativeSelect, Row, Rows, Section, Segmented, Text } from '../design'
+import { NativeSelect, Row, Rows, Section, Text } from '../design'
 import { useDestinationActive } from '../panels/destination-page'
 import { useStore } from '../state/context'
 import { leadRefusalText } from './lead-refusals'
@@ -39,7 +39,9 @@ export const LeadAutonomySection = () => {
   return <Section title="Autonomy">
     <Rows>
       {LEAD_AUTONOMY_KINDS.map(kind => <Row key={kind} title={LEAD_AUTONOMY_LABELS[kind].title} tooltip={LEAD_AUTONOMY_LABELS[kind].hint}
-        control={<Segmented label={LEAD_AUTONOMY_LABELS[kind].title} options={MODES.map(mode => ({ ...mode, disabled: pending === kind }))} value={view.modes[kind]} onChange={mode => void choose(kind, mode)} />} />)}
+        control={<NativeSelect aria-label={LEAD_AUTONOMY_LABELS[kind].title} value={view.modes[kind]} disabled={pending === kind} onChange={event => void choose(kind, event.target.value as LeadAutonomyMode)}>
+          {MODES.map(mode => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
+        </NativeSelect>} />)}
     </Rows>
     {open && <Rows>
       <Row title="Goal deadline" tooltip="At 80% of the time the Lead says so; at the deadline it starts no new round."

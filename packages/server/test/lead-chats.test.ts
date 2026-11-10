@@ -1,3 +1,4 @@
+import { LeadSlots } from '../src/lead/slots.js'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
@@ -240,6 +241,21 @@ test('Lead sends and starts use the verified envelope and record its exact key',
   r.authorize('lead/chat/start', { text: 'Fix the flaky test.' }); const { id } = await r.service.start({ text: 'Fix the flaky test.' })
   assert.equal((r.sentInput.at(-1)![0] as { text: string }).text, leadMessageEnvelope('Dex', 'Fix the flaky test.'))
   assert.equal(r.sentKeys.at(-1)!.id, id)
+})
+
+test('a start the reserved run refuses creates nothing, and goes ahead when a slot frees', async t => {
+  const r = await rig(t)
+  let live = 63
+  const slots = new LeadSlots({ state: () => ({ origin: { source: 'schedule', event: 'repeat', subject: 'weekly', url: null } }), live: () => live })
+  ;(r.ports as any).slots = slots
+  const params = { text: 'Update the dependencies.' }
+  r.authorize('lead/chat/start', params)
+  await assert.rejects(r.service.start(params), { wireCode: 'lead-slot-reserved' })
+  assert.equal(r.sentInput.length, 0, 'no worker was created or sent to')
+  live = 62
+  r.authorize('lead/chat/start', params)
+  assert.ok((await r.service.start(params)).id)
+  assert.equal(r.sentInput.length, 1)
 })
 
 test('a person-held chat refuses Lead send and stop before dispatch, and hand back restores send', async t => {

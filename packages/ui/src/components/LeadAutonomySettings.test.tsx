@@ -26,19 +26,18 @@ const mount = async (node: React.ReactNode, scene: Parameters<typeof createLeadF
 it('lists the five kinds with their mode, and says what Observe does once', async () => {
   const { box } = await mount(<LeadAutonomySection />)
   for (const title of ['Desk-change reports', 'Stuck nudges', 'Repeat runs', 'Mention triggers', 'Morning brief']) expect(box.textContent).toContain(title)
-  expect(box.querySelectorAll('[role="radiogroup"]').length).toBe(5)
+  expect(box.querySelectorAll('select').length).toBe(5)
   expect(box.textContent).toContain('Observe writes what the Lead would have done')
   expect(box.textContent).toContain('Would have said a run had gone quiet.')
 })
 
 it('choosing a mode is saved through the host and shown', async () => {
   const { box, calls } = await mount(<LeadAutonomySection />)
-  const group = box.querySelector<HTMLElement>('[role="radiogroup"][aria-label="Repeat runs"]')!
-  const off = [...group.querySelectorAll<HTMLElement>('[role="radio"]')].find(one => one.textContent === 'Off')!
-  await act(async () => { off.click() })
+  const select = box.querySelector<HTMLSelectElement>('select[aria-label="Repeat runs"]')!
+  await act(async () => { select.value = 'off'; select.dispatchEvent(new Event('change', { bubbles: true })) })
   await settle()
   expect(calls.filter(call => call.method === 'lead/autonomy/set').map(call => call.params)).toEqual([{ kind: 'repeat', mode: 'off' }])
-  expect(group.querySelector('[role="radio"][aria-checked="true"]')!.textContent).toBe('Off')
+  expect(select.value).toBe('off')
 })
 
 it('rules: three sections; an edit is saved against its version and appears in the history, and Reset returns the default', async () => {

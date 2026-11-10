@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { LEAD_RULE_LIMITS, type LeadRuleSectionView, type LeadRulesUpdate, type LeadRulesView } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, CodeText, Dialog, Row, Rows, Section, Text, Textarea } from '../design'
+import { Banner, Button, Chip, CodeText, Dialog, FormStack, Row, Rows, Section, Text, Textarea } from '../design'
 import { useDestinationActive } from '../panels/destination-page'
 import { useStore } from '../state/context'
 import { leadRefusalText } from './lead-refusals'
@@ -19,23 +19,23 @@ const RuleDialog = ({ section, prompt, save, close }: {
   return <Dialog title={section.title} size="lg" onClose={close}
     footer={<>
       <Button variant="default" disabled={busy || !text.trim() || text === section.text} onClick={() => void run({ section: section.id, action: 'edit', text, expectedVersion })}>Save</Button>
+      <Button variant="secondary" disabled={busy || !section.custom} onClick={() => void run({ section: section.id, action: 'reset', expectedVersion })}>Reset to default</Button>
       <Button variant="secondary" disabled={busy} onClick={close}>Close</Button>
-    </>}
-    footerAside={<Button variant="ghost" disabled={busy || !section.custom} onClick={() => void run({ section: section.id, action: 'reset', expectedVersion })}>Reset to default</Button>}>
-    <div className="flex flex-col gap-3">
+    </>}>
+    <FormStack>
       {section.defaultUpdated && <Banner tone="info" actions={<Button variant="secondary" disabled={busy} onClick={() => void run({ section: section.id, action: 'keep', expectedVersion })}>Keep mine</Button>}>
         <Text role="muted">Default updated. It now reads: {section.defaultUpdated.to}</Text>
       </Banner>}
       <Textarea aria-label={section.title} value={text} maxLength={LEAD_RULE_LIMITS.chars} rows={8} onChange={event => setText(event.target.value)} />
       <Text role="meta">Takes effect at the Lead's next epoch, never in the middle of a turn. It cannot widen what the Lead is allowed to do.</Text>
-      <div><Button variant="link" onClick={() => setFull(open => !open)}>{full ? 'Hide full prompt' : 'View full prompt'}</Button></div>
+      <Button variant="link" onClick={() => setFull(open => !open)}>{full ? 'Hide full prompt' : 'View full prompt'}</Button>
       {full && <CodeText as="pre">{prompt || 'Nothing edited. The Lead uses the shipped words.'}</CodeText>}
       {section.history.length > 0 && <Rows>
         {section.history.map(entry => <Row key={entry.version} title={`Version ${entry.version}`} desc={entry.how === 'rollback' && entry.from ? `Restored from version ${entry.from}` : HOW[entry.how]}
           control={<><Text role="meta">{when(entry.at)}</Text>{entry.version !== section.version && <Button variant="secondary" disabled={busy}
             onClick={() => void run({ section: section.id, action: 'rollback', to: entry.version, expectedVersion })}>Restore</Button>}</>} />)}
       </Rows>}
-    </div>
+    </FormStack>
   </Dialog>
 }
 
