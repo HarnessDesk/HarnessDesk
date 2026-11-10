@@ -204,7 +204,9 @@ Lead work item the thread is on) are kept in `triggers-mentions.json` in
 the state folder, at most 500 decisions and 256 threads. With the Lead on, an
 accepted thread is also an item in `lead/work.json`, linking that comment's
 URL, the issue or pull request reference and the thread's Teams; nothing
-about it leaves the machine beyond the Lead's work cards described above. Who may ask is read
+about it leaves the machine beyond the Lead's work cards described above. A
+comment that stops the Lead's goal is recorded in the Lead's journal by its
+URL, on the stop it caused. Who may ask is read
 from the forge at most once in five minutes per account. While a work thread
 has no pull request, the issue it follows is read on each sweep to see
 whether it closed. With the Lead

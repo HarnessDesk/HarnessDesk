@@ -567,6 +567,8 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     }
     return { get host() { return host }, logger, home, project, get journal() { return journal }, get service() { return service }, get childLive() { return supervisor?.live ?? false },
       provider, children, calls, windowNotifications, get latestEvidence() { return latestEvidence }, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
+      /** The journal's records as stored. */
+      records: () => storage!.read(),
       offline: options.offlineForge ? {
         read: readForge,
         async pushes() { return (await new GitRecord(join(home, 'offline-gateway')).list({ repository: 'acme/widgets', limit: 1000 })).filter(row => row.op === 'push' && row.outcome === 'ok') },

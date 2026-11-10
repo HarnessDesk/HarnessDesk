@@ -6,7 +6,7 @@ import type { RuntimeInfo, WireNotification } from '@harnessdesk/protocol'
 import { Host, StateStore } from '../../src/index.js'
 import type { QuestionTimers } from '../../src/host.js'
 import type { IntakeTimers } from '../../src/intake/plane.js'
-import type { MentionAssessor } from '../../src/intake/mentions.js'
+import type { MentionAssessor, WorkItemsPort } from '../../src/intake/mentions.js'
 import { makeRepo, type Repo } from './evidence-desk.js'
 import { FakeRuntime } from './fake-runtime.js'
 import { HoldFake } from './hold-runtime.js'
@@ -104,6 +104,8 @@ export const intakeDesk = async (options: {
   readonly mentions?: {
     readonly assess?: MentionAssessor | null
     readonly pullRequests?: (repository: string, goals: readonly string[], firings: readonly string[]) => Promise<readonly number[]>
+    /** Where an accepted thread joins the work ledger, scripted; the host's own ledger otherwise. */
+    readonly workItems?: WorkItemsPort
   }
 } = {}): Promise<IntakeDesk> => {
   const repo = options.repo ?? await makeRepo('hd-intake-host-')

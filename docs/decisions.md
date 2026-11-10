@@ -5586,14 +5586,24 @@ Joining the work ledger, 2026-11-10:
   it as its origin, so once the plan starts Teams it joins the same item by
   that shared link instead of opening a second one. The ledger is the one
   place that knows both halves, which is why the stop reads it.
-- **A stop reaches what the Lead started for the thread.** `@dex stop` stops
-  the trigger's own runs as before and, on every Team of the thread's work
-  item, every run still going, through the same host stop path. The decision
-  counts the two apart ("1 run the Lead started for it was stopped"), so a
-  Lead-target trigger, whose own Goals hold nothing, no longer says nothing
-  ran while the Lead's Teams were working. A plan not yet approved has no
-  run, so there is nothing for the stop to reach; Teams are matched by the
-  ledger's item, never guessed from a title.
+- **A stop reaches the Lead's goal the thread opened, and only that.**
+  `@dex stop` stops the trigger's own intake runs as before and, when the
+  Lead's goal in hand was opened by one of the thread's own firings, stops
+  that goal the way the person's Stop does: journaled as a stop from the
+  comment, then the runs the goal owns, then the Lead's model process, so
+  the plan is stopped and its next step never starts. A plan still waiting
+  for approval is stopped the same way. The decision says what it stopped
+  ("1 run the Lead started for it and the Lead's plan for it were
+  stopped"), so a Lead-target trigger no longer says nothing ran while the
+  Lead's Teams were working.
+- **Never by Team, never by shared link.** The first version walked the
+  work item's Teams and stopped every run on them. Every thread on the same
+  issue shares one item, so a comment on one trigger's thread could stop
+  another trigger's Goal, and a run a person started on a Lead Team was
+  stopped and counted as the Lead's. The work item stays for reading; the
+  stop matches the Lead's goal by its origin key (`trigger-<firing>`) and
+  reaches only the runs the goal's journal owns, the same set the person's
+  Stop reaches. A run a person started is never stopped from a comment.
 
 Rejected: a webhook (a public endpoint and a secret to hold, for a desk that
 already polls the forge); a separate bot identity (a second credential, and

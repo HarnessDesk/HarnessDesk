@@ -63,6 +63,13 @@ export const parseLeadPublicationOperation = (value: unknown): LeadPublicationOp
   return { id: identifier(source.id), decision: parseLeadCardDecision(source.decision), source: parseLeadPublicationSource(source.source), at: integer(source.at),
     ...effectBoundary(source), stage: choice(source.stage, ['push-prepared', 'push-started', 'superseded', 'pushed', 'create-prepared', 'completed', 'needs-you']) }
 }
+/** Where a stop came from when it was not the person's own Stop: a comment on the thread that opened the goal, by URL. */
+export interface LeadStopFrom { readonly kind: 'mention'; readonly comment: string }
+const parseLeadStopFrom = (value: unknown): LeadStopFrom => {
+  const source = object(value, ['kind', 'comment'])
+  if (typeof source.comment !== 'string' || source.comment.length > 512 || !/^https:\/\/[^\s]+$/.test(source.comment)) throw new Error('lead-journal-stop-from')
+  return { kind: choice(source.kind, ['mention']), comment: source.comment }
+}
 export type LeadJournalEvent =
   | { readonly type: 'worker-rule-obsolete'; readonly rule?: LeadWorkerApprovalRule }
   | { readonly type: 'worker-rule-saved'; readonly rule: LeadWorkerApprovalRule }
@@ -97,7 +104,8 @@ export type LeadJournalEvent =
   | { readonly type: 'card-decision'; readonly decision: LeadCardDecision; readonly expiresAt: number | null }
   | { readonly type: 'start-resolution'; readonly evidenceSeq: number; readonly id: string; readonly identity: LeadRunIdentity | null; readonly goalId: string | null }
   | { readonly type: 'stop-effects-done'; readonly stopSeq: number }
-  | { readonly type: 'stop' | 'recovery-block' | 'recovery-resolved' }
+  | { readonly type: 'stop'; readonly from?: LeadStopFrom }
+  | { readonly type: 'recovery-block' | 'recovery-resolved' }
   | { readonly type: 'recovery-report' | 'reconciliation-conflict'; readonly id: string }
   | { readonly type: 'team-approved'; readonly teamId: string; readonly contractDigest: string }
   | { readonly type: 'attempt'; readonly id: string; readonly correlationId: string; readonly method: string; readonly action: string | null;
@@ -188,7 +196,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'worker-rule-dispatch-cancelled': ['id'], 'worker-rule-dispatch': ['id', 'diff'], 'worker-rule-obsolete': Object.hasOwn(source, 'rule') ? ['rule'] : [], 'worker-rule-saved': ['rule'], 'worker-rule-used': ['id', ...(Object.hasOwn(source, 'diff') ? ['diff'] : [])], 'worker-rule-revoked': ['id', ...(Object.hasOwn(source, 'auditFailed') ? ['auditFailed'] : [])], wake: ['wake'], 'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
     'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     'second-look-attempt': ['runId', 'stopKey', 'now'], 'second-look-restart': ['runId', 'stopKey', 'roundId', 'now'],
-    'person-caps': ['logicalGoalId', 'caps', 'now'], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
+    'person-caps': ['logicalGoalId', 'caps', 'now'], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: Object.hasOwn(source, 'from') ? ['from'] : [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
   }
@@ -238,7 +246,8 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'policy': event = { type, policy: parseLeadPermissionPolicy(source.policy) }; break
     case 'card': event = { type, card: parseLeadCard(source.card) }; break
     case 'card-decision': event = { type, decision: parseLeadCardDecision(source.decision), expiresAt: nullable(source.expiresAt, integer) }; break
-    case 'stop': case 'recovery-block': case 'recovery-resolved': event = { type }; break
+    case 'stop': event = { type, ...(Object.hasOwn(source, 'from') ? { from: parseLeadStopFrom(source.from) } : {}) }; break
+    case 'recovery-block': case 'recovery-resolved': event = { type }; break
     case 'recovery-report': case 'reconciliation-conflict': event = { type, id: identifier(source.id) }; break
     case 'team-approved':
       if (typeof source.contractDigest !== 'string' || !/^[a-f0-9]{64}$/.test(source.contractDigest)) throw new Error('lead-journal-digest')
@@ -726,7 +735,8 @@ export class LeadJournal {
     })
   }
   beginGoal(id: string, now: number): Promise<void> { return this.#queue(() => this.#append({ type: 'new-goal', id, now })) }
-  stop(stopEffects?: () => Promise<void>): Promise<void> { return this.#budgetWrite(() => this.#append({ type: 'stop' }), stopEffects) }
+  /** `from` names a stop asked for elsewhere than the person's own Stop, so the journal says where it came from. */
+  stop(stopEffects?: () => Promise<void>, from?: LeadStopFrom): Promise<void> { return this.#budgetWrite(() => this.#append({ type: 'stop', ...(from ? { from: parseLeadStopFrom(from) } : {}) }), stopEffects) }
   /** The supervisor retries pending idempotent cancellation after a crash. */
   async runStopEffects(effects: () => Promise<void>): Promise<void> {
     const stopSeq = await this.#queue(async () => this.#state.stopEffectsPending)

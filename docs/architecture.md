@@ -523,11 +523,20 @@ sample.
   work ledger through `WorkItemsPort.attach`: one item whose origin is the
   comment that asked, linking the issue or pull request and the thread's
   Goals as Teams; a plan the Lead drafts for the same issue or pull request
-  joins that item by the shared link once it starts Teams. A stop in act mode
-  goes through the plane's stop port — checks, then running runs, then live
-  Seat turns — on the trigger's own Goals (its intake runs) and on every Team
-  of the thread's work item (every run), and the decision records how many of
-  each it stopped, or that none were running.
+  joins that item by the shared link once it starts Teams. The item is for
+  reading: every thread on the same issue shares it, so a stop never walks
+  it. A stop in act mode goes through the plane's stop port: on the trigger's
+  own Goals, checks, then running intake runs, then live Seat turns; and,
+  when the Lead's goal in hand was opened by one of the thread's firings (its
+  origin key is `trigger-<firing>`), `Host.stopLeadForThread`, which stops it
+  through `LeadControls.stopAsked` exactly as the person's Stop does — the
+  journal's `stop` record, with `from: { kind: 'mention', comment }`, then
+  the goal's owned runs (`stopOwned`), then the model process — so its plan
+  is stopped and no later step starts. A run a person started, on a Lead
+  Team or anywhere, is never reached. The decision records how many runs of
+  each it stopped and whether the Lead's plan was stopped, or that nothing
+  was running. A thread the work ledger refuses is logged once and offered
+  again by the sweep no sooner than an hour later.
   Observe mode writes nothing to the forge and raises no attention notice.
   The sweep links pull requests from the Git gateway's record and closes a
   thread when they merge or close, or, with none linked, when its issue
