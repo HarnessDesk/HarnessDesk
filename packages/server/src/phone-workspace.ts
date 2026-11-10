@@ -66,7 +66,8 @@ export interface PhoneWorkspacePorts {
   readonly sessions: {
     page(options: { archived: boolean; cursor?: string; pageSize: number }): { rows: { summary: SessionSummary; cost: number | null }[]; nextCursor: string | null }
     isOwn(runtime: RuntimeId, id: SessionId): boolean
-    counts(): { active: number; archived: number }
+    /** `byRuntime` lets a count leave out agents the desk cannot show, as the list does. */
+    counts(): { active: number; archived: number; byRuntime?: readonly { runtime: RuntimeId; active: number; archived: number }[] }
     touchedSince(since: number): number
     costliestSince(since: number, limit: number): { summary: SessionSummary; cost: number }[]
   }
@@ -164,7 +165,7 @@ export class PhoneWorkspace {
   }
 
   #counts(live: readonly PhoneLiveSession[]): PhoneSessionsList['counts'] {
-    const { active, archived } = this.#ports.sessions.counts()
+    const { active, archived } = this.#ownCounts()
     const running = live.filter(one => this.#sessionStage(one).stage === 'working').length
     const queued = live.filter(one => this.#sessionStage(one).stage === 'queued').length
     const needsYou = live.filter(one => isWaitingOnYou(this.#sessionStage(one).stage)).length
@@ -204,12 +205,21 @@ export class PhoneWorkspace {
   }
 
   /** Same 200-row pages and 2,000-session ceiling as filtered Sessions reads; also bound empty pages. */
+  /** The person's own conversations by one definition everywhere: those the list can show, so an agent the desk no
+   * longer knows is in no count, as it is in no list. */
+  #ownCounts(): { active: number; archived: number } {
+    const counts = this.#ports.sessions.counts()
+    if (!counts.byRuntime) return counts
+    const shown = counts.byRuntime.filter(one => this.#ports.seatName(one.runtime) !== null)
+    return { active: shown.reduce((sum, one) => sum + one.active, 0), archived: shown.reduce((sum, one) => sum + one.archived, 0) }
+  }
+
   #summarySessions(): { rows: SessionSummary[]; partial: boolean } {
     const rows: SessionSummary[] = []
     let cursor: string | undefined
     for (let pages = 0; pages < SCAN_LIMIT / 200; pages++) {
       const page = this.#ports.sessions.page({ archived: false, cursor, pageSize: 200 })
-      rows.push(...page.rows.slice(0, 200).map(entry => entry.summary))
+      rows.push(...page.rows.slice(0, 200).map(entry => entry.summary).filter(summary => this.#ports.seatName(summary.runtime) !== null))
       if (page.nextCursor === null) return { rows, partial: false }
       cursor = page.nextCursor
     }
@@ -244,7 +254,7 @@ export class PhoneWorkspace {
       for (const counts of [totals[kind], project[kind]]) counts[state]++
     }
     // The index already has an exact aggregate. Live membership is checked without walking old session rows.
-    const active = this.#ports.sessions.counts().active
+    const active = this.#ownCounts().active
     totals.chats.running = liveSessions.filter(one => this.#sessionStage(one).stage === 'working').length
     totals.chats.needsYou = liveSessions.filter(one => isWaitingOnYou(this.#sessionStage(one).stage)).length
     totals.chats.idle = Math.max(0, active - totals.chats.running - totals.chats.needsYou)

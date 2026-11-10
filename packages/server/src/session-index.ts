@@ -274,10 +274,17 @@ export class SessionIndex {
   }
 
   /** How many of the person's own conversations are open and how many archived; a Team's seats count in neither. */
-  phoneCounts(): { active: number; archived: number } {
-    const rows = this.#db.prepare(`SELECT archived, COUNT(*) AS n FROM sessions WHERE origin='desk' AND removed_at IS NULL AND team_id IS NULL
-      GROUP BY archived`).all() as unknown as { archived: number | null; n: number }[]
-    return { active: rows.find(row => row.archived === 0)?.n ?? 0, archived: rows.find(row => row.archived === 1)?.n ?? 0 }
+  phoneCounts(): { active: number; archived: number; byRuntime: readonly { runtime: RuntimeId; active: number; archived: number }[] } {
+    const rows = this.#db.prepare(`SELECT runtime, archived, COUNT(*) AS n FROM sessions WHERE origin='desk' AND removed_at IS NULL AND team_id IS NULL
+      GROUP BY runtime, archived`).all() as unknown as { runtime: string; archived: number | null; n: number }[]
+    const byRuntime = new Map<string, { runtime: RuntimeId; active: number; archived: number }>()
+    for (const row of rows) {
+      const one = byRuntime.get(row.runtime) ?? { runtime: row.runtime as RuntimeId, active: 0, archived: 0 }
+      if (row.archived === 0) one.active += row.n; else if (row.archived === 1) one.archived += row.n
+      byRuntime.set(row.runtime, one)
+    }
+    const all = [...byRuntime.values()]
+    return { active: all.reduce((sum, one) => sum + one.active, 0), archived: all.reduce((sum, one) => sum + one.archived, 0), byRuntime: all }
   }
 
   /** How many of the person's own open conversations were touched since a time. */

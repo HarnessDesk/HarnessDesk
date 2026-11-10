@@ -178,6 +178,21 @@ test('a Team’s seats, archived rows and unknown agents stay out of the open li
   } finally { await f.done() }
 })
 
+test('every count the desk gives (the phone\'s list, its counts and the Lead\'s summary) leaves out agents the desk cannot show', async () => {
+  const f = await populated()
+  try {
+    f.index.upsert(summary('stranger', { runtime: stranger, updatedAt: NOW }), { archived: false })
+    const list = f.workspace.sessionsList({ limit: 100 })
+    const counts = list.counts
+    assert.equal(counts.running + counts.needsYou + counts.done, list.rows.length, 'the counts add up to the rows the phone lists')
+    const desk = await f.workspace.deskSummary({})
+    const chats = desk.totals.chats.running + desk.totals.chats.needsYou + desk.totals.chats.idle
+    assert.equal(chats, list.rows.length, 'and the Lead counts the same conversations')
+    assert.equal(desk.sessionsScanned, list.rows.length)
+    assert.ok(!desk.recent.some(item => item.id.startsWith('unregistered-agent')))
+  } finally { await f.done() }
+})
+
 test('the list pages newest first, repeats nothing and ends', async () => {
   const f = await populated()
   try {
