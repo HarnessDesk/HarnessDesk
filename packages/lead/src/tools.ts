@@ -130,13 +130,17 @@ export const createLeadTools = (options: LeadToolsOptions) => {
     }
     return { ...scope, context: { ...scope.context, now: now() } }
   }
-  const dispatch = async (call: LeadPermissionCall, correlationId: string, signal?: AbortSignal): Promise<LeadDispatchResult> => {
+  const dispatch = async (call: LeadPermissionCall, correlationId: string, signal?: AbortSignal, cause: 'person' | 'automatic' = 'automatic'): Promise<LeadDispatchResult> => {
     if (signal?.aborted) fail()
     // A gap or changed preview may arrive during permission resolution/journal I/O.
     await resolve(call)
     if (signal?.aborted) fail()
     if (clientTierFor(call.method, call.params) === 'run' && !synchronized()) throw new LeadToolFencedError()
-    const params = ['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'].includes(call.method) ? { ...call.params, effectId: correlationId } : call.params
+    // What woke this turn travels with a start, so the host can keep the person's room: absent, a start is read as automatic.
+    const params = call.method === 'lead/chat/start' ? { ...call.params, effectId: correlationId, cause }
+      : call.method === 'flow/start-goal' ? { ...call.params, cause }
+      : call.method === 'lead/chat/send' ? { ...call.params, effectId: correlationId, cause }
+      : call.method === 'lead/chat/stop' ? { ...call.params, effectId: correlationId } : call.params
     const value = await desk.call(call.method, params as never)
     if (call.method !== 'flow/start-goal') return { value, identity: null }
     const run = value as { id: string; goal: string; rounds: readonly { n: number }[] }

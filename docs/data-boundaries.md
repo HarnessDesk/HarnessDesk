@@ -179,6 +179,8 @@ journal on disk. The desktop probes its embedded runtime first, then its bundled
 fetched Node. If no candidate passes, Lead reports unavailable before sending
 a request.
 
+Autonomy is kept in `lead/autonomy.json` in the same folder: the full version history of each of the three rule sections the person edited (their own words, up to 3000 characters a section and 20 versions), what the person has acknowledged of a changed default, the deadline of the goal in hand (the goal's id and two times), and the ids of the live runs the Lead started on its own, which the host counts against its cap. The modes, the sections in force and the deadline are also in the Lead's journal. Nothing in the file leaves the desk except through the Lead's own request: the sections in force are part of the standing instructions of a new conversation epoch, so the provider the Lead already uses receives them under its key, nothing else from the file. A paired phone reads the modes, the sections in force and the deadline, and can change a mode; it cannot edit the words.
+
 The host keeps the Lead's provider conversation in the Lead state folder:
 `context.jsonl` (the turns and tool results as sent, bounded at 2 MB, desk
 context of each moment replaced by a one-line stub and model reasoning never

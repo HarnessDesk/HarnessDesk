@@ -8,9 +8,10 @@ const request = (method: string, params: unknown) => parseClientMessage({ id: 1,
 
 const workNames = ['lead/work/list', 'lead/work/read', 'lead/work/note', 'lead/work/close']
 const presenceNames = ['lead/presence/read', 'lead/presence/dismiss', 'lead/brief/read', 'lead/brief/update']
+const autonomyNames = ['lead/autonomy/read', 'lead/autonomy/set', 'lead/rules/read', 'lead/rules/update', 'lead/deadline/set']
 
 test('the closed Lead window controls validate and none is on the client surface', () => {
-  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames, ...presenceNames, 'lead/memory/propose', 'lead/memory/search'].sort())
+  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames, ...presenceNames, ...autonomyNames, 'lead/memory/propose', 'lead/memory/search'].sort())
   for (const name of names) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false)
   // The Lead's own two memory methods are the only memory methods its client may call.
   for (const name of ['lead/memory/propose', 'lead/memory/search']) assert.equal(Object.hasOwn(CLIENT_METHODS, name), true)
@@ -196,4 +197,23 @@ test('an ask may carry an expiry in minutes, and a send may name its device', ()
   assert.throws(() => parseLeadAsk({ ...ask, expiresAt: 5 }))
   assert.deepEqual(parseLeadThreadSend({ idempotencyKey: 'k', text: 'Start it', device: { id: 'phone:p1', label: 'iPhone' } }).device, { id: 'phone:p1', label: 'iPhone' })
   assert.equal(parseLeadThreadSend({ idempotencyKey: 'k', text: 'hi' }).device, undefined)
+})
+
+test('autonomy and rules take closed shapes: a kind with a mode, a section with a version, a deadline in whole milliseconds, and nothing else', () => {
+  for (const name of autonomyNames) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false, name)
+  for (const name of ['lead/autonomy/read', 'lead/rules/read']) { assert.doesNotThrow(() => request(name, {})); assert.throws(() => request(name, { kind: 'brief' }), { name: 'ValidationError' }) }
+  for (const kind of ['desk-change', 'stuck', 'repeat', 'mention', 'brief']) for (const mode of ['off', 'observe', 'act'])
+    assert.doesNotThrow(() => request('lead/autonomy/set', { kind, mode }), `${kind} ${mode}`)
+  for (const params of [{ kind: 'merge', mode: 'act' }, { kind: 'brief', mode: 'always' }, { kind: 'brief' }, { mode: 'act' }, { kind: 'brief', mode: 'act', extra: 1 }])
+    assert.throws(() => request('lead/autonomy/set', params), { name: 'ValidationError' }, JSON.stringify(params))
+  assert.doesNotThrow(() => request('lead/rules/update', { section: 'talk', action: 'edit', text: 'Be brief.', expectedVersion: 0 }))
+  assert.doesNotThrow(() => request('lead/rules/update', { section: 'done', action: 'rollback', to: 1, expectedVersion: 2 }))
+  assert.doesNotThrow(() => request('lead/rules/update', { section: 'delegate', action: 'reset', expectedVersion: 1 }))
+  for (const params of [{ section: 'money', action: 'reset', expectedVersion: 0 }, { section: 'talk', action: 'edit', expectedVersion: 0 }, { section: 'talk', action: 'edit', text: 'x'.repeat(3001), expectedVersion: 0 },
+    { section: 'talk', action: 'rollback', expectedVersion: 1 }, { section: 'talk', action: 'reset' }, { section: 'talk', action: 'reset', expectedVersion: -1 }])
+    assert.throws(() => request('lead/rules/update', params), { name: 'ValidationError' }, JSON.stringify(params))
+  assert.doesNotThrow(() => request('lead/deadline/set', { logicalGoalId: 'goal-1', deadlineAt: 1_800_000_000_000 }))
+  assert.doesNotThrow(() => request('lead/deadline/set', { logicalGoalId: 'goal-1', deadlineAt: null }))
+  for (const params of [{ logicalGoalId: 'goal-1', deadlineAt: 1.5 }, { logicalGoalId: 'goal-1' }, { deadlineAt: 5 }, { logicalGoalId: 'goal-1', deadlineAt: -1 }])
+    assert.throws(() => request('lead/deadline/set', params), { name: 'ValidationError' }, JSON.stringify(params))
 })

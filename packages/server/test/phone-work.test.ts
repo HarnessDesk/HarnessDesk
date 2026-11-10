@@ -132,6 +132,13 @@ test('a change is high risk when it deletes, leaves the project, touches code th
   assert.equal(assessApproval({ id: approvalId('ap-4'), sessionId: SID, requestedAt: 1, type: 'userInput', tool: 'Ask', questions: [] }, CWD, ctx), null)
 })
 
+test('the snapshot carries the autonomy table for the phone, and leaves it out while no Lead runs', async () => {
+  const view = { version: 1 as const, modes: { 'desk-change': 'act', stuck: 'observe', repeat: 'off', mention: 'act', brief: 'act' } as const, observed: [], rules: [], deadline: null }
+  assert.deepEqual((await rig({ leadAutonomy: async () => view }).work.snapshot()).autonomy, view)
+  assert.equal(Object.hasOwn(await rig({ leadAutonomy: async () => null }).work.snapshot(), 'autonomy'), false)
+  assert.equal(Object.hasOwn(await rig().work.snapshot(), 'autonomy'), false)
+})
+
 test('the snapshot says what the desk honours, in micro-dollars, with usage left out until there is some', async () => {
   const empty = await rig().work.snapshot()
   assert.deepEqual(empty, {

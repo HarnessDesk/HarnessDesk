@@ -849,8 +849,8 @@ export interface HostMethods {
     result: { readonly items: readonly { readonly id: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly updatedAt: number }[]; readonly nextCursor: string | null }
   }
   'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
-  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly effectId?: string; readonly agent?: string; readonly moveFrom?: string; readonly ledgerItem?: string }; result: { readonly id: string; readonly problem?: string; readonly ledgerItem?: string; readonly account?: string } }
-  'lead/chat/send': { params: { readonly id: string; readonly text: string; readonly effectId?: string; readonly retryAt?: 'reset' }; result: { readonly queued?: boolean } }
+  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly effectId?: string; readonly cause?: 'person' | 'automatic'; readonly agent?: string; readonly moveFrom?: string; readonly ledgerItem?: string }; result: { readonly id: string; readonly problem?: string; readonly ledgerItem?: string; readonly account?: string } }
+  'lead/chat/send': { params: { readonly id: string; readonly text: string; readonly effectId?: string; readonly cause?: 'person' | 'automatic'; readonly retryAt?: 'reset' }; result: { readonly queued?: boolean } }
   /** Window only. Which Lead-touched chats the person holds, and the keys of what the Lead sent. */
   'lead/chats/resetControl': { params: Record<string, never>; result: LeadChatControlList }
   'lead/chats/control': { params: Record<string, never>; result: LeadChatControlList }
@@ -2953,6 +2953,14 @@ export interface HostMethods {
   /** The morning brief setting: whether it runs and at what time. Quiet hours come from the Lead's schedule. */
   'lead/brief/read': { params: Record<string, never>; result: import('./lead-presence.js').LeadBriefSettings }
   'lead/brief/update': { params: import('./lead-presence.js').LeadBriefUpdate; result: import('./lead-presence.js').LeadBriefSettings }
+  /** Off, Observe or Act for each thing the Lead does unasked; Observe only records. Read on the phone too. */
+  'lead/autonomy/read': { params: Record<string, never>; result: import('./lead-autonomy.js').LeadAutonomyView }
+  'lead/autonomy/set': { params: import('./lead-autonomy.js').LeadAutonomySet; result: import('./lead-autonomy.js').LeadAutonomyView }
+  /** The three sections the person writes, with versions; an edit reaches the model at its next epoch. */
+  'lead/rules/read': { params: Record<string, never>; result: import('./lead-autonomy.js').LeadRulesView }
+  'lead/rules/update': { params: import('./lead-autonomy.js').LeadRulesUpdate; result: import('./lead-autonomy.js').LeadRulesView }
+  /** A goal's deadline, or none: the Lead reports at 80% of the time and starts no new round at 100%. */
+  'lead/deadline/set': { params: import('./lead-autonomy.js').LeadDeadlineSet; result: import('./lead-autonomy.js').LeadAutonomyView }
   /** The Lead's memory: Core, Archive, the proposals waiting for the person and the versions Undo can restore. */
   'lead/memory/view': { params: Record<string, never>; result: import('./lead-memory.js').LeadMemoryView }
   /** The person's change, from Settings or a Keep chip. Every change is a version; Forget erases the text from them too. */

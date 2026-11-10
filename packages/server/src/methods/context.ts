@@ -168,6 +168,8 @@ export interface HostContext {
   readonly leadWork: Pick<import('../lead/work.js').LeadWorkLedger, 'board' | 'read' | 'note' | 'close'>
   /** Seen marks, the away digest, the morning brief and the state of each ask; refuses while no Lead runs here. */
   readonly leadPresence: Pick<import('../lead/presence.js').LeadPresenceStore, 'read' | 'dismiss' | 'brief' | 'updateBrief'>
+  /** Autonomy modes, the three rule sections with their versions, and goal deadlines; refuses while no Lead runs here. */
+  readonly leadAutonomy: Pick<import('../lead/autonomy.js').LeadAutonomyStore, 'view' | 'set' | 'rules' | 'updateRules' | 'setDeadline'>
   leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
   leadUsageSummary(): Promise<HostResult<'lead/usage/summary'>>
   leadDeskSummary(params: HostParams<'lead/desk/summary'>): Promise<HostResult<'lead/desk/summary'>>

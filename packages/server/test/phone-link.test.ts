@@ -19,6 +19,10 @@ test('repeat history, repeat controls and direct limit raises require their own 
   assert.equal(PHONE_POLICY.methods['lead/card/decide'], 'answer')
   assert.equal(PHONE_POLICY.methods['lead/settings/update'], undefined)
   assert.equal(PHONE_POLICY.methods['lead/spendLimit/set'], 'answer')
+  // The phone reads the autonomy table and flips a switch; it never edits the rules or a deadline.
+  assert.equal(PHONE_POLICY.methods['lead/autonomy/read'], 'read')
+  assert.equal(PHONE_POLICY.methods['lead/autonomy/set'], 'answer')
+  for (const method of ['lead/rules/read', 'lead/rules/update', 'lead/deadline/set']) assert.equal(PHONE_POLICY.methods[method], undefined, method)
 })
 
 const project = { id: 'demo', path: '/workspace/demo' }

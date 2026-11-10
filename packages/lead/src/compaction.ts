@@ -1,5 +1,6 @@
 import { LEAD_CHECKPOINT_PERSON, LEAD_CHECKPOINT_SECTIONS, type LeadCheckpointPerson } from '@harnessdesk/protocol'
 import type { MessagesTurn } from './messages-types.js'
+import { leadEscape as escape, leadUntrustedLines as lines } from './untrusted.js'
 import { LEAD_CONTEXT, leadClip, leadContextBoundary, leadContextBytes, leadPairedTurns } from './context.js'
 
 /**
@@ -64,21 +65,6 @@ const defang = (line: string): string => {
   const match = DESK_QUOTE.exec(plain(line))
   return match ? `${match[1]}- The Lead's note, not a desk quote: ${match[2]} (${match[3]})` : line
 }
-/** Characters a reader cannot see: every format character, and the letters that draw as a blank. */
-const INVISIBLE = /[\p{Cf}ᅟᅠ᠎⠀ㅤﾠ]/gu
-/**
- * The one entry to reading a checkpoint's text, before anything else looks at it. Every line terminator a renderer or
- * a model reads as a break becomes one newline; other control characters (a tab aside) and every invisible character
- * are dropped; and each line loses its trailing blanks. The heading and quote checks, the fallback after them and
- * every reader see the same lines. Markup is escaped only after the structure is read (`escape`), so a blockquote's
- * `>` still marks a quoted heading or quote when they are checked.
- */
-const lines = (text: string): string[] => text.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n')
-  .replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u0084\u0086-\u009f]/g, '').replace(INVISIBLE, '')
-  .split('\n').map(line => line.trimEnd())
-/** The last step for a line of the model's: `<` and `>` become entities, so the text is never markup and never raw
- * HTML, and can neither open nor close the desk's envelope. */
-const escape = (line: string): string => line.replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 /**
  * The model's checkpoint read structurally: only the five headings it was asked for open a section (spelt however it
  * likes, kept under the desk's spelling); a heading that names the person's section is dropped with what follows it up

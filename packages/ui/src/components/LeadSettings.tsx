@@ -12,6 +12,8 @@ import { LeadPlanSettingsSection } from './LeadPlanSettings'
 import { LeadContextSection } from './LeadCheckpoint'
 import { LeadBriefSettingsSection } from './LeadBriefSettings'
 import { LeadMemorySection } from './LeadMemory'
+import { LeadAutonomySection } from './LeadAutonomySettings'
+import { LeadRulesSection } from './LeadRulesSettings'
 
 const modes = { plan: 0, default: 1, manage: 2 }
 const effects = { deny: 0, ask: 1, allow: 2 }
@@ -137,6 +139,8 @@ export const LeadSettingsSection = ({ focus }: { readonly focus?: string | null 
     onOpen={focus => store.openDestination({ kind: 'lead', focus })} />
     <LeadTriggerSettings follow={state.settings.follow} root={state.thread?.project?.path ?? null} update={value => store.lead.updateSettings(value)} onError={error => setError(leadRefusalText(error))} />
     <LeadContextSection />
+    <LeadAutonomySection />
+    <LeadRulesSection />
     <LeadBriefSettingsSection label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} />
     <LeadPlanSettingsSection focus={focus} label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} />
     <LeadMemorySection label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} cards={state.thread?.cards} /></> : error ? <Banner role="alert" tone="warning">{error}</Banner> : null

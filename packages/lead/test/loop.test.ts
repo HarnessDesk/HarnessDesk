@@ -1765,7 +1765,7 @@ test('desk wakes journal silent gate checks without paying for another turn', as
   const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message()])
   const loop = exported('createLeadLoop')(s.options)
   try {
-    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request(input)
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request({ ...input, wakeSource: 'person' })
     for (let i = 0; i < 3; i++) {
       s.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'running', flow: 'lead-reviewed-result', round: 1, reason: null })
       await s.drain(); await s.tick(); await loop.idle()
