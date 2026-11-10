@@ -115,6 +115,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
     restoreResult: async (id, revision) => { await rpc('restoreResult', [id, revision]) },
     recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
     recordWake: async wake => { await rpc('recordWake', [wake]) },
+    memoryEpoch: async (goal, epoch, memory) => { await rpc('memoryEpoch', [goal, epoch, memory]) },
     appendReply: async (text, proactive, ask) => {
       const message = parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}), ...(ask ? { ask } : {}) })
       await rpc('appendReply', message.ask ? [message.text, null, message.ask] : message.proactive ? [message.text, message.proactive] : [message.text])
@@ -170,7 +171,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
           resolveTool, freezePlan: async contract => await rpc('freezePlan', [contract]) as typeof contract,
           readEvidence: async runId => await rpc('readEvidence', [runId]) as LeadAcceptanceEvidence,
           // The host parses what it reads back; what it sends here is parsed again before a request carries it.
-          onEpoch: () => ({ standingAddendum: leadEpochAddendum(journal.state) }),
+          onEpoch: at => ({ standingAddendum: leadEpochAddendum(at ? { ...journal.state, memory: at.memory } : journal.state) }),
           context: { record: async record => { await rpc('recordContext', [record]) },
             compact: async trigger => (await rpc('compactContext', [trigger])) === true,
             read: async epoch => {

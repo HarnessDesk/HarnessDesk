@@ -36,7 +36,9 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // Checkpoints before the context engine carry no epoch: the stored conversation starts at the first.
   const contextual = accepted && { ...accepted, context: Object.hasOwn(accepted, 'context') ? accepted.context : initialLeadContext() }
   // Checkpoints before the memory store carry no Core: the host journals it again when it opens.
-  const source = contextual && { ...contextual, memory: Object.hasOwn(contextual, 'memory') ? contextual.memory : initialLeadMemoryCore() }
+  const remembered = contextual && { ...contextual, memory: Object.hasOwn(contextual, 'memory') ? contextual.memory : initialLeadMemoryCore() }
+  // Checkpoints before epoch snapshots carry none: the next build records one.
+  const source = remembered && { ...remembered, memoryEpoch: Object.hasOwn(remembered, 'memoryEpoch') ? remembered.memoryEpoch : null }
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
   const context = source.context
   assert(context && typeof context === 'object' && Object.keys(context).sort().join() === 'epoch,failures,last,pending' &&
@@ -44,6 +46,10 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     (context.pending === null || typeof context.pending === 'object' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(context.pending.id) && ['soft', 'hard', 'manual', 'overflow'].includes(context.pending.trigger)) &&
     (context.last === null || typeof context.last === 'object' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(context.last.id)))
   parseLeadMemoryCore(source.memory)
+  const frozen = source.memoryEpoch
+  assert(frozen === null || typeof frozen === 'object' && Object.keys(frozen).sort().join() === 'epoch,goal,memory' && Number.isSafeInteger(frozen.epoch) && frozen.epoch >= 0 &&
+    typeof frozen.goal === 'string' && (frozen.goal === '' || /^[A-Za-z0-9._:/@-]{1,256}$/.test(frozen.goal)))
+  if (frozen) parseLeadMemoryCore(frozen.memory)
   assert(Number.isSafeInteger(source.decisionRevision) && source.decisionRevision >= 0 && source.decisionRevision <= source.seq)
   assert(Number.isSafeInteger(source.goalStartedSeq) && source.goalStartedSeq >= 0 && source.goalStartedSeq <= source.seq)
   const effects = source.chatEffectsSinceReply

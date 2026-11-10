@@ -100,6 +100,8 @@ export interface LeadMemoryView {
   /** "Keep the Lead's notes without asking": facts and lessons skip the inbox. Off by default. */
   readonly auto: boolean
   readonly lastTidyAt: number | null
+  /** Set while the journal refuses this Core: the Lead goes on reading the copy it last accepted, and the window says so. */
+  readonly fault?: 'journal'
 }
 
 /** What the person does: in Settings, or on a Keep chip under a reply (keep, edit, dismiss). */
@@ -192,7 +194,8 @@ const bounded = <T>(item: Validator<T>, max: number, label: string): Validator<T
   return out.length <= max ? out : fail(path, `expected at most ${max} ${label}`)
 }
 export const parseLeadMemoryView: Validator<LeadMemoryView> = (value, path = '') => {
-  const item = only(['version', 'revision', 'core', 'archive', 'inbox', 'history', 'coreBytes', 'auto', 'lastTidyAt'])(value, path)
+  const item = only(['version', 'revision', 'core', 'archive', 'inbox', 'history', 'coreBytes', 'auto', 'lastTidyAt', 'fault'])(value, path)
+  if (item.fault !== undefined && item.fault !== 'journal') fail(at(path, 'fault'), 'unknown memory fault')
   if (item.version !== 1) fail(at(path, 'version'), 'unsupported memory version')
   return { version: 1, revision: count(item.revision, at(path, 'revision')),
     core: bounded(parseLeadMemoryEntry, LEAD_MEMORY_LIMITS.entries, 'entries')(item.core, at(path, 'core')),
@@ -201,7 +204,7 @@ export const parseLeadMemoryView: Validator<LeadMemoryView> = (value, path = '')
     inbox: bounded(parseLeadMemoryCandidate, LEAD_MEMORY_LIMITS.entries, 'proposals')(item.inbox, at(path, 'inbox')),
     history: bounded(versionSummary, LEAD_MEMORY_LIMITS.versions, 'versions')(item.history, at(path, 'history')),
     coreBytes: count(item.coreBytes, at(path, 'coreBytes')), auto: isBoolean(item.auto, at(path, 'auto')),
-    lastTidyAt: item.lastTidyAt === null ? null : time(item.lastTidyAt, at(path, 'lastTidyAt')) }
+    lastTidyAt: item.lastTidyAt === null ? null : time(item.lastTidyAt, at(path, 'lastTidyAt')), ...(item.fault === 'journal' ? { fault: 'journal' as const } : {}) }
 }
 export const parseLeadMemoryChange: Validator<LeadMemoryChange> = (value, path = '') => {
   const item = isObject(value, path), action = isString(item.action, at(path, 'action'))

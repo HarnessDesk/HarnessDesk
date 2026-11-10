@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises
 import { join } from 'node:path'
 import { leadMemoryLine } from '@harnessdesk/lead'
 import { LEAD_MEMORY_LIMITS, type LeadMemoryHit, type LeadMessage } from '@harnessdesk/protocol'
-import { leadMemoryTokens } from './memory-scan.js'
+import { leadMemoryKey, leadMemoryNear, leadMemoryTokens } from './memory-scan.js'
 
 /**
  * Search for the Lead: a local BM25 ranking over Archive and the Lead's own past conversation with the person, the
@@ -56,12 +56,19 @@ export const leadMemoryRank = (docs: readonly LeadMemoryDoc[], query: string, li
 }
 
 const FILE = 'memory-conversation.jsonl'
-const KEEP = 4000, TEXT = 4000
+const KEEP = 4000, TEXT = 4000, FORGOTTEN = 8000
 interface CorpusLine { readonly id: string; readonly text: string; readonly at: number; readonly by: 'person' | 'assistant' }
-/** The Lead's conversation with the person, as search reads it: the person's messages and the Lead's replies. */
+/** The words of a passage as Forget compares them, spaced as one line. */
+const spaced = (text: string): string => ` ${leadMemoryKey(text)} `
+/**
+ * The Lead's conversation with the person, as search reads it: the person's messages and the Lead's replies. Forget
+ * takes passages out; the ids it took stay on a first line of their own, with no text, so a message the journal still
+ * holds is not copied back.
+ */
 export class LeadConversationCorpus {
   #lines: CorpusLine[] = []
   #known = new Set<string>()
+  #forgotten: string[] = []
   #tail: Promise<unknown> = Promise.resolve()
   private constructor(private readonly dir: string, private readonly now: () => number) {}
   static async open(dir: string, now: () => number = Date.now): Promise<LeadConversationCorpus> {
@@ -70,32 +77,59 @@ export class LeadConversationCorpus {
     for (const line of text.split('\n')) {
       if (!line) continue
       try {
-        const item = JSON.parse(line) as CorpusLine
-        if (typeof item.id === 'string' && typeof item.text === 'string' && Number.isSafeInteger(item.at) && (item.by === 'person' || item.by === 'assistant') && !corpus.#known.has(item.id)) {
+        const item = JSON.parse(line) as CorpusLine & { readonly forgotten?: unknown }
+        if (Array.isArray(item.forgotten)) {
+          const ids = item.forgotten.filter((id): id is string => typeof id === 'string')
+          corpus.#forgotten.push(...ids); ids.forEach(id => corpus.#known.add(id))
+        } else if (typeof item.id === 'string' && typeof item.text === 'string' && Number.isSafeInteger(item.at) && (item.by === 'person' || item.by === 'assistant') && !corpus.#known.has(item.id)) {
           corpus.#lines.push(item); corpus.#known.add(item.id)
         }
       } catch { /* A torn last line is skipped. */ }
     }
     corpus.#lines = corpus.#lines.slice(-KEEP)
+    corpus.#forgotten = corpus.#forgotten.slice(-FORGOTTEN)
     return corpus
   }
-  /** Adds the messages it has not seen. Called with the journal's thread at open and whenever it changes. */
-  add(messages: readonly LeadMessage[]): Promise<void> {
+  /** Adds the messages it has not seen, each at the time `timeOf` gives (when the desk first saw it), else now.
+   * Called with the journal's thread at open and whenever it changes. */
+  add(messages: readonly LeadMessage[], timeOf: (id: string) => number | undefined = () => undefined): Promise<void> {
     const fresh = messages.filter(message => (message.role === 'user' || message.role === 'assistant') && message.text.trim() && !this.#known.has(message.id))
     if (!fresh.length) return this.#tail as Promise<void>
-    const at = this.now(), lines = fresh.map((message): CorpusLine => ({ id: message.id, text: message.text.slice(0, TEXT), at, by: message.role === 'user' ? 'person' : 'assistant' }))
+    const now = this.now(), lines = fresh.map((message): CorpusLine => ({ id: message.id, text: message.text.slice(0, TEXT), at: timeOf(message.id) ?? now, by: message.role === 'user' ? 'person' : 'assistant' }))
     for (const line of lines) { this.#known.add(line.id); this.#lines.push(line) }
-    const next = this.#tail.then(async () => {
-      await mkdir(this.dir, { recursive: true, mode: 0o700 })
-      if (this.#lines.length > KEEP + 500) {
-        this.#lines = this.#lines.slice(-KEEP)
-        this.#known = new Set(this.#lines.map(line => line.id))
-        // Rewritten whole once it has grown well past what it keeps.
-        const temporary = join(this.dir, `${FILE}.next`)
-        await writeFile(temporary, this.#lines.map(line => JSON.stringify(line)).join('\n') + '\n', { mode: 0o600 })
-        await rename(temporary, join(this.dir, FILE))
-      } else await appendFile(join(this.dir, FILE), lines.map(line => JSON.stringify(line)).join('\n') + '\n', { mode: 0o600 })
+    if (this.#lines.length > KEEP + 500) return this.#rewrite()
+    return this.#write(() => appendFile(join(this.dir, FILE), lines.map(line => JSON.stringify(line)).join('\n') + '\n', { mode: 0o600 }))
+  }
+  /** Takes out every passage that says a forgotten entry: its words, however spaced, cased or styled, inside the
+   * passage, or a passage that says nearly the same. */
+  forget(texts: readonly string[]): Promise<void> {
+    const keys = texts.map(spaced).filter(key => key.trim())
+    const gone = this.#lines.filter(line => texts.some(text => leadMemoryNear(line.text, text)) || keys.some(key => spaced(line.text).includes(key)))
+    if (!gone.length) return this.#tail as Promise<void>
+    const ids = new Set(gone.map(line => line.id))
+    this.#lines = this.#lines.filter(line => !ids.has(line.id))
+    this.#forgotten = [...this.#forgotten, ...ids].slice(-FORGOTTEN)
+    return this.#rewrite()
+  }
+  /** Forget all: no passage is left, and what the journal still holds is not copied back. */
+  clear(): Promise<void> {
+    this.#forgotten = [...this.#forgotten, ...this.#lines.map(line => line.id)].slice(-FORGOTTEN)
+    this.#lines = []
+    return this.#rewrite()
+  }
+  /** Rewritten whole: after Forget, and once it has grown well past what it keeps. */
+  #rewrite(): Promise<void> {
+    this.#lines = this.#lines.slice(-KEEP)
+    this.#known = new Set([...this.#lines.map(line => line.id), ...this.#forgotten])
+    const body = [...this.#forgotten.length ? [JSON.stringify({ forgotten: this.#forgotten })] : [], ...this.#lines.map(line => JSON.stringify(line))]
+    return this.#write(async () => {
+      const temporary = join(this.dir, `${FILE}.next`)
+      await writeFile(temporary, body.length ? body.join('\n') + '\n' : '', { mode: 0o600 })
+      await rename(temporary, join(this.dir, FILE))
     })
+  }
+  #write(operation: () => Promise<void>): Promise<void> {
+    const next = this.#tail.then(async () => { await mkdir(this.dir, { recursive: true, mode: 0o700 }); await operation() })
     this.#tail = next.catch(() => {})
     return next
   }

@@ -60,11 +60,13 @@ export const leadMemoryCoreOf = (revision: number, entries: readonly LeadMemoryE
   ({ revision, entries: leadMemoryCoreOrder(entries).map(entry => ({ id: entry.id, text: entry.text, kind: entry.kind, by: entry.by })) })
 /**
  * Core held to its budget: while it reads larger than `coreBytes`, the Lead's least recently used entry moves to
- * Archive, and only when none of the Lead's is left, the person's newest. Nothing is deleted.
+ * Archive, and only when none of the Lead's is left, the person's newest. Nothing is deleted. Measured at the widest
+ * revision the desk can print, since the revision appears in Core twice and the journal's may run ahead of the store's.
  */
+const WIDEST_REVISION = Number.MAX_SAFE_INTEGER
 const fit = (entries: readonly LeadMemoryEntry[]): LeadMemoryEntry[] => {
   let out = [...entries]
-  while (leadMemoryBytes(leadMemoryCoreOf(0, out)) > LEAD_MEMORY_LIMITS.coreBytes) {
+  while (leadMemoryBytes(leadMemoryCoreOf(WIDEST_REVISION, out)) > LEAD_MEMORY_LIMITS.coreBytes) {
     const core = leadMemoryCoreOrder(out), victim = core.filter(entry => entry.by === 'lead').at(-1) ?? core.at(-1)
     if (!victim) break
     out = out.map(entry => entry.id === victim.id ? { ...entry, tier: 'archive' as const } : entry)
@@ -123,6 +125,9 @@ export interface LeadMemoryStoreOptions {
   readonly now?: () => number
   /** The person-edited lines kept before this store: migrated once, with nothing lost. */
   readonly legacy?: () => Promise<LeadMemory | null>
+  /** Forget reaches past the store: the texts of a forgotten entry, every version of it, or `'all'` for Forget all,
+   * so the conversation search reads loses them too. Runs before the store changes; a failure leaves the entry. */
+  readonly onForget?: (texts: readonly string[] | 'all') => Promise<void>
 }
 export class LeadMemoryStore {
   #state: StoreState = EMPTY
@@ -147,17 +152,23 @@ export class LeadMemoryStore {
     await this.#migrate()
   }
   /** Today's person-edited lines become the person's entries, in their order and numbering, Core first until it is
-   * full and Archive after; offered lines wait in the inbox. Nothing is scanned or dropped: they are the person's. */
+   * full and Archive after; nothing of them is dropped, since they are the person's. Lines the Lead offered pass the
+   * same scan as a proposal on their way to the inbox, and one it refuses is left out. */
   async #migrate(): Promise<void> {
     const legacy = await this.options.legacy?.().catch(() => null) ?? null, at = this.#now()
-    let next = 1
     const entries: LeadMemoryEntry[] = [], inbox: LeadMemoryCandidate[] = []
     for (const item of legacy?.items ?? []) {
-      const text = leadMemoryFold(item.text).slice(0, LEAD_MEMORY_LIMITS.textChars) || item.text
-      if (item.state === 'kept') entries.push({ id: `m${next++}`, text, kind: 'preference', by: 'person', tier: 'core', source: { kind: 'settings', id: 'migration' }, createdAt: item.at, usedAt: null, version: 1 })
-      else inbox.push({ id: `c${next++}`, text, kind: 'preference', source: { kind: 'message', id: item.id }, proposedAt: item.at, afterSeq: 0 })
+      if (item.state === 'kept') {
+        // Kept lines count on their own, m1, m2, ..., the way the instructions numbered them, so a plan's (m2) still
+        // names the same line; offered lines count apart, c1, c2, ...
+        const text = leadMemoryFold(item.text).slice(0, LEAD_MEMORY_LIMITS.textChars) || item.text
+        entries.push({ id: `m${entries.length + 1}`, text, kind: 'preference', by: 'person', tier: 'core', source: { kind: 'settings', id: 'migration' }, createdAt: item.at, usedAt: null, version: 1 })
+      } else {
+        const scan = leadMemoryScan(item.text)
+        if (scan.ok) inbox.push({ id: `c${inbox.length + 1}`, text: scan.text, kind: 'preference', source: { kind: 'message', id: item.id }, proposedAt: item.at, afterSeq: 0 })
+      }
     }
-    // Numbered in the order the instructions numbered them, so a plan's (m2) still names the same line.
+    const next = Math.max(entries.length, inbox.length) + 1
     const placed = fit(entries)
     const changes = diff([], placed)
     this.#state = { ...EMPTY, next, entries: placed, inbox, revision: changes.length || inbox.length ? 1 : 0,
@@ -286,6 +297,9 @@ export class LeadMemoryStore {
         }
         case 'forget': {
           const old = entry(change.id)
+          const texts = new Set([old.text, ...this.#state.versions.flatMap(version => version.changes.filter(one => one.id === old.id).flatMap(one => [one.before?.text, one.after?.text]))
+            .filter((text): text is string => typeof text === 'string')])
+          await this.options.onForget?.([...texts])
           await this.#commit({ entries: entries.filter(one => one.id !== old.id) }, 'person')
           // Forgotten means gone: the text leaves every version too, and those versions can no longer be undone.
           this.#state = { ...this.#state, versions: this.#state.versions.map(version => version.changes.some(one => one.id === old.id)
@@ -294,6 +308,7 @@ export class LeadMemoryStore {
           break
         }
         case 'forget-all':
+          await this.options.onForget?.('all')
           await this.#commit({ entries: [], inbox: [], declined: [] }, 'person')
           this.#state = { ...this.#state, versions: [] }
           await this.#save()

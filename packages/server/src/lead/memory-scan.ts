@@ -8,13 +8,26 @@ import { LEAD_MEMORY_LIMITS, type LeadMemoryRefusal } from '@harnessdesk/protoco
  */
 const INVISIBLE = /[\p{Cf}\u115f\u1160\u180e\u2800\u3164\uffa0]/gu
 const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g
-/** Every line terminator becomes one newline, then control and invisible characters go, and lines lose their edges. */
-export const leadMemoryCleanLines = (text: string): string[] => text.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n')
+const TERMINATORS = /\r\n|[\r\v\f\u0085\u2028\u2029]/g
+/** Every line terminator becomes one newline, compatibility forms fold to their plain letters, then control and
+ * invisible characters go, and lines lose their edges: the steps the Lead's own reading of an entry takes. */
+export const leadMemoryCleanLines = (text: string): string[] => text.replace(TERMINATORS, '\n').normalize('NFKC').replace(TERMINATORS, '\n')
   .replace(CONTROLS, '').replace(INVISIBLE, '').split('\n').map(line => line.trim())
 /** The entry as kept: one line, single-spaced. */
 export const leadMemoryFold = (text: string): string => leadMemoryCleanLines(text).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
 /** For matching only: compatibility forms folded and lower-cased, so full-width or styled letters read as plain ones. */
 const reading = (text: string): string => text.normalize('NFKC').toLowerCase()
+/** Lower-case Cyrillic and Greek letters drawn like Latin ones, by the Latin letter they pass for. */
+const LOOKALIKES: Readonly<Record<string, string>> = {
+  '\u0430': 'a', '\u0432': 'b', '\u0435': 'e', '\u0451': 'e', '\u0437': '3', '\u0456': 'i', '\u0457': 'i', '\u0458': 'j', '\u043a': 'k', '\u043c': 'm', '\u043d': 'h',
+  '\u043e': 'o', '\u0440': 'p', '\u0441': 'c', '\u0442': 't', '\u0443': 'y', '\u0445': 'x', '\u0455': 's', '\u0501': 'd', '\u051b': 'q', '\u051d': 'w', '\u04bb': 'h',
+  '\u0261': 'g', '\u03b1': 'a', '\u03b2': 'b', '\u03b5': 'e', '\u03b7': 'n', '\u03b9': 'i', '\u03ba': 'k', '\u03bd': 'v', '\u03bf': 'o', '\u03c1': 'p', '\u03c4': 't',
+  '\u03c5': 'u', '\u03c7': 'x', '\u03b3': 'y', '\u03c9': 'w', '\u03c3': 'o', '\u03c2': 'c', '\u03bc': 'u',
+}
+const LOOKALIKE = new RegExp(`[${Object.keys(LOOKALIKES).join('')}]`, 'g')
+/** The reading the instruction patterns match: lookalike letters from other scripts taken as the Latin ones they
+ * imitate, so a word spelled with a Cyrillic o still reads as the word. Never shown and never stored. */
+const skeleton = (text: string): string => reading(text).replace(LOOKALIKE, letter => LOOKALIKES[letter] ?? letter)
 
 const STOPWORDS = new Set(['a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'have', 'in', 'is', 'it', 'its', 'of', 'on', 'or',
   'that', 'the', 'this', 'to', 'was', 'were', 'will', 'with'])
@@ -68,15 +81,35 @@ const TOKEN_URL = /\bhttps?:\/\/[^\s/@:]+:[^\s/@]+@|[?&#](?:access_token|refresh
 /** A long run of mixed letters and digits with no word in it reads as a key. */
 const randomRun = (text: string): boolean => (text.match(/[A-Za-z0-9+/_=-]{32,}/g) ?? []).some(run =>
   /[a-z]/.test(run) && /[A-Z]/.test(run) && /\d/.test(run) && !/^[a-f0-9]+$/i.test(run))
+/** Keys by their fixed prefix, matched again with the spaces and line breaks between pieces taken out, so a key broken
+ * across lines still reads as one. A piece starts where a word starts, and the pieces after it hold no punctuation. */
+const SPLIT_SECRETS: readonly RegExp[] = [
+  /^sk-(?=[A-Za-z_-]*\d)[A-Za-z0-9_-]{20,}/, /^glpat-(?=[A-Za-z_-]*\d)[A-Za-z0-9_-]{20,}/, /^AIza[0-9A-Za-z_-]{30,}/, /^npm_[A-Za-z0-9]{30,}/,
+  /^xox[abposr]-(?=[A-Za-z-]*\d)[A-Za-z0-9-]{10,}/, /^gh[pousr]_[A-Za-z0-9]{20,}/, /^github_pat_[A-Za-z0-9_]{20,}/, /^AKIA[A-Z0-9]{12,}/,
+  /^-----BEGIN[A-Z]*PRIVATEKEY-----/,
+]
+const splitSecret = (text: string): boolean => {
+  const pieces = text.normalize('NFKC').split(/\s+/u).filter(Boolean)
+  return pieces.some((piece, at) => {
+    let joined = piece.replace(/^["'`(\[<]+/, '')
+    for (let next = at + 1; next < Math.min(pieces.length, at + 8) && /^[A-Za-z0-9_-]+[.,;:!?)"'`\]]*$/.test(pieces[next]!); next++) {
+      joined += pieces[next]
+      if (SPLIT_SECRETS.some(pattern => pattern.test(joined))) return true
+    }
+    return false
+  })
+}
 export const leadMemoryHasSecret = (text: string): boolean => {
   const folded = text.normalize('NFKC')
-  return leadDataContainsCredential(folded) || SECRETS.some(pattern => pattern.test(folded)) || TOKEN_URL.test(folded) || randomRun(folded)
+  return leadDataContainsCredential(folded) || SECRETS.some(pattern => pattern.test(folded)) || TOKEN_URL.test(folded) || randomRun(folded) || splitSecret(folded)
 }
 /** The same text with whatever reads as a credential replaced, for anything that has to show or record a refusal. */
 export const leadMemoryRedact = (text: string): string => {
   let out = text.normalize('NFKC')
   for (const pattern of [...SECRETS, TOKEN_URL]) out = out.replace(new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`), '[redacted]')
-  return out.replace(/[A-Za-z0-9+/_=-]{32,}/g, run => /[a-z]/.test(run) && /[A-Z]/.test(run) && /\d/.test(run) ? '[redacted]' : run)
+  out = out.replace(/[A-Za-z0-9+/_=-]{32,}/g, run => /[a-z]/.test(run) && /[A-Z]/.test(run) && /\d/.test(run) ? '[redacted]' : run)
+  // A key broken across lines leaves no single piece to cut out, so nothing of the text is shown.
+  return splitSecret(out) ? '[redacted]' : out
 }
 /** Output pasted in rather than a sentence: a fenced block, more than three lines, quoted lines, or a long quoted span. */
 const quotedOutput = (lines: readonly string[]): boolean => {
@@ -95,7 +128,7 @@ export const leadMemoryScan = (raw: string): LeadMemoryScan => {
   const lines = leadMemoryCleanLines(raw), text = leadMemoryFold(raw)
   if (!text) return { ok: false, reason: 'empty' }
   if (leadMemoryHasSecret(lines.join('\n'))) return { ok: false, reason: 'secret' }
-  const read = reading(lines.join('\n'))
+  const read = skeleton(lines.join('\n'))
   if (INSTRUCTIONS.some(pattern => pattern.test(read))) return { ok: false, reason: 'instruction' }
   if (quotedOutput(lines)) return { ok: false, reason: 'quoted-output' }
   if (text.length > LEAD_MEMORY_LIMITS.textChars) return { ok: false, reason: 'too-long' }

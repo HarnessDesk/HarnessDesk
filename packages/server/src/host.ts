@@ -1,7 +1,7 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
 import { isDeepStrictEqual } from 'node:util'
 import { firstAsk, leadMessageWords, isLeadMessageSource, leadDisplayName, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
-import { canonicalTranscriptBody, PendingTranscript } from '@harnessdesk/protocol'
+import { canonicalTranscriptBody, PendingTranscript, type LeadMemoryView } from '@harnessdesk/protocol'
 import { DescriptorCache, PendingSessionOverlay, recoveryDescriptor } from './recovery-descriptor.js'
 import { LeadChatControlStore, LeadChatHeldError } from './lead/chat-control.js'
 import { leadOwnedTeams } from './lead/owned-teams.js'
@@ -895,6 +895,8 @@ export class Host {
   #leadMemoryOpen: Promise<LeadMemoryStore> | null = null
   #leadMemoryReady: LeadMemoryStore | null = null
   #leadCorpusOpen: Promise<LeadConversationCorpus> | null = null
+  /** Set while the journal refuses the store's Core, so the memory view says the Lead is reading an older copy. */
+  #leadMemoryFault: 'journal' | null = null
   #leadContextStore: LeadContextStore | null = null
   /** Memory writes started outside a request (a reply's proposal, the conversation copy, Core to the journal, a
    * tidy): disposal waits for them, so nothing writes into a home after the host has let it go. */
@@ -4571,12 +4573,16 @@ export class Host {
    * carries today's kept and offered lines across from the planner's file, which is left where it is. */
   #leadMemory(): Promise<LeadMemoryStore> {
     if (this.options.leadEnabled !== true) return Promise.reject(leadRefusal('lead-unavailable'))
-    return this.#leadMemoryOpen ??= LeadMemoryStore.open({ dir: join(this.#state.directory, 'lead'), legacy: () => this.#leadPlanner().readMemory() }).then(store => {
+    return this.#leadMemoryOpen ??= LeadMemoryStore.open({ dir: join(this.#state.directory, 'lead'), legacy: () => this.#leadPlanner().readMemory(),
+      // Forgotten is forgotten in search too: the conversation the desk kept loses the passages that said it.
+      onForget: async texts => { const corpus = await this.#leadCorpus(); await (texts === 'all' ? corpus.clear() : corpus.forget(texts)) } }).then(store => {
       this.#leadMemoryReady = store
       this.onDispose(store.onChange(revision => this.#push({ method: 'lead/memory/changed', params: { revision } })))
       return store
     }, error => { this.#leadMemoryOpen = null; throw error })
   }
+
+  #leadMemoryShown(view: LeadMemoryView): LeadMemoryView { return this.#leadMemoryFault ? { ...view, fault: this.#leadMemoryFault } : view }
 
   #leadMemoryTrack(work: Promise<unknown>, failure: string): void {
     const tracked = work.catch(() => { if (!this.#disposed) this.#logger.warn(failure) }).finally(() => { this.#leadMemoryWork.delete(tracked) })
@@ -4595,17 +4601,39 @@ export class Host {
   #connectLeadMemory(journal: LeadJournal, options: { readonly prices: LeadServiceOptions['prices']; readonly messagesTransport?: LeadServiceOptions['messagesTransport'] }): void {
     let closed = false
     this.onDispose(async () => { closed = true; await Promise.all([...this.#leadMemoryWork]) })
+    const fault = (next: 'journal' | null, revision: number) => {
+      if (this.#leadMemoryFault === next) return
+      this.#leadMemoryFault = next
+      this.#push({ method: 'lead/memory/changed', params: { revision } })
+    }
     const publish = async (store: LeadMemoryStore) => {
       const current = journal.state.memory, core = store.core()
-      if (closed || JSON.stringify(current.entries) === JSON.stringify(core.entries)) return
-      await journal.memoryCore({ revision: Math.max(core.revision, current.revision + 1), entries: core.entries })
+      if (closed) return
+      if (JSON.stringify(current.entries) === JSON.stringify(core.entries)) return fault(null, store.revision)
+      try {
+        await journal.memoryCore({ revision: Math.max(core.revision, current.revision + 1), entries: core.entries })
+        fault(null, store.revision)
+      } catch (error) {
+        // Never quietly: the Lead goes on reading the copy the journal last accepted, and the window says so.
+        fault('journal', store.revision)
+        throw error
+      }
     }
     this.#leadMemoryTrack(this.#leadMemory().then(store => {
       if (closed) return
       this.onDispose(store.onChange(() => { if (!closed) this.#leadMemoryTrack(publish(store), 'Lead memory could not reach the journal') }))
       return publish(store)
     }), 'Lead memory could not be opened')
-    const copy = () => { if (!closed) this.#leadMemoryTrack(this.#leadCorpus().then(corpus => closed ? undefined : corpus.add(journal.state.messages)), 'The Lead conversation was not copied for search') }
+    // Messages carry no time of their own: each is dated when the desk first sees it, which is when it was sent for
+    // every message after this desk started.
+    const seen = new Map<string, number>()
+    const copy = () => {
+      if (closed) return
+      const messages = journal.state.messages, now = Date.now()
+      for (const message of messages) if (!seen.has(message.id)) seen.set(message.id, now)
+      if (seen.size > messages.length + 1000) { const live = new Set(messages.map(message => message.id)); for (const id of seen.keys()) if (!live.has(id)) seen.delete(id) }
+      this.#leadMemoryTrack(this.#leadCorpus().then(corpus => closed ? undefined : corpus.add(messages, id => seen.get(id))), 'The Lead conversation was not copied for search')
+    }
     copy()
     this.onDispose(journal.onChange(copy))
     const tidier = createLeadMemoryTidier({ prices: options.prices, transport: options.messagesTransport ?? leadProviderTransport,
@@ -5918,8 +5946,8 @@ export class Host {
       // The earlier read and update keep working, over the new store.
       leadMemoryRead: async () => (await this.#leadMemory()).legacy(),
       leadMemoryUpdate: async params => (await this.#leadMemory()).replaceLegacy(params.memory),
-      leadMemoryView: async () => (await this.#leadMemory()).view(),
-      leadMemoryChange: async params => (await this.#leadMemory()).change(params),
+      leadMemoryView: async () => this.#leadMemoryShown((await this.#leadMemory()).view()),
+      leadMemoryChange: async params => this.#leadMemoryShown(await (await this.#leadMemory()).change(params)),
       leadMemoryPropose: async params => (await this.#leadMemory()).propose(params, this.#leadJournal?.state.seq ?? 0),
       leadMemorySearch: async params => this.#leadMemorySearch(params.query, params.limit),
       leadContextRead: async () => (await this.#leadWindow()).readContext(),

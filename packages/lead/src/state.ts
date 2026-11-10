@@ -97,6 +97,9 @@ export interface LeadState {
   /** Core of the person's and the Lead's kept notes, as the host last journaled it. The standing instructions render
    * it at each new epoch, so a change reaches the model at the next goal or summary. Carried across goals. */
   readonly memory: LeadMemoryCore
+  /** The Core the current epoch's standing instructions were built with, and the goal and epoch it belongs to. A
+   * restart in that epoch builds them from this, not from a Core kept since. Carried across goals. */
+  readonly memoryEpoch: { readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore } | null
 }
 export interface LeadContextState {
   /** Bumped by every applied compaction or prune: the child reads the stored conversation again at a new epoch. */
@@ -109,7 +112,7 @@ export interface LeadContextState {
 export const initialLeadContext = (): LeadContextState => ({ epoch: 0, failures: 0, pending: null, last: null })
 export const LEAD_CHECKPOINT_NOTICE = 'Earlier conversation summarised'
 export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 }, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, spendLimit: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
-  cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [], acceptedTeams: [], context: initialLeadContext(), memory: initialLeadMemoryCore() })
+  cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [], acceptedTeams: [], context: initialLeadContext(), memory: initialLeadMemoryCore(), memoryEpoch: null })
 /** A figure the Lead drafted, before the person sees it: Off drafts at the portable ceiling (which still trips the
  * overflow stop) so the card never shows a cap the person turned off; a set limit caps it. Rounds are untouched. */
 export const leadDraftCaps = (limit: LeadState['spendLimit'], caps: LeadCaps): LeadCaps => limit === null ? caps
@@ -425,7 +428,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const acceptedTeams = state.phase === 'accepted' ? [...state.acceptedTeams, ...leadGoalTeams(state)] : state.acceptedTeams
       state = { ...initialLeadState(), acceptedTeams: acceptedTeams.filter((one, index) => acceptedTeams.findLastIndex(other => other.team === one.team) === index).slice(-LEAD_ACCEPTED_TEAMS),
         seq: event.seq, goalStartedSeq: event.seq, name: state.name, nameChosen: state.nameChosen, wakes: state.wakes, follow: state.follow, policy: state.policy, spendLimit: state.spendLimit, budget,
-        completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends, context: state.context, memory: state.memory,
+        completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends, context: state.context, memory: state.memory, memoryEpoch: state.memoryEpoch,
         decisionMessages }
       break
     }
@@ -454,6 +457,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, context: { ...state.context, epoch: state.context.epoch + 1, pending: null } }
       break
     case 'memory-core': ensure(event.memory.revision > state.memory.revision); state = { ...state, memory: event.memory }; break
+    case 'memory-epoch': state = { ...state, memoryEpoch: { goal: event.goal, epoch: event.epoch, memory: event.memory } }; break
     case 'wake': state = { ...state, wakes: [...state.wakes.filter(wake => wake.id !== event.wake.id), event.wake].sort((a, b) => a.at - b.at).slice(-128) }; break
     case 'settings-changed': state = { ...state, ...(event.name === undefined ? {} : { name: event.name, nameChosen: true }), ...(event.follow === undefined ? {} : { follow: event.follow }) }; break
     case 'publication': {
@@ -911,7 +915,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   // recovery reader and checkpoint uses this one fence. A marked new-writer
   // revoke keeps the wait after removing the intent; legacy renewal may lift it.
   if (event.type !== 'worker-rule-dispatch') state = fenceLeadWorkerDispatch(state)
-  return { ...state, decisionRevision: event.type === 'wake' || event.type === 'memory-core' || event.type.startsWith('context-') ? previous.decisionRevision : event.seq }
+  return { ...state, decisionRevision: event.type === 'wake' || event.type === 'memory-core' || event.type === 'memory-epoch' || event.type.startsWith('context-') ? previous.decisionRevision : event.seq }
 }
 /** Retire authority without discarding evidence, shared with checkpoint migration. */
 export const retireLeadWorkerApprovals = (state: LeadState): LeadState => ({ ...state,

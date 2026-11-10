@@ -22,19 +22,23 @@ export const initialLeadMemoryCore = (): LeadMemoryCore => ({ revision: 0, entri
 
 export const LEAD_MEMORY_OPEN = '<desk-memory'
 export const LEAD_MEMORY_CLOSE = '</desk-memory>'
-const INVISIBLE = /[\p{Cf}ᅟᅠ᠎⠀ㅤﾠ]/gu
+/** Format characters and the letters that render as nothing. */
+const INVISIBLE = /[\p{Cf}\u115f\u1160\u180e\u2800\u3164\uffa0]/gu
+const CONTROLS = /[\u0000-\u0008\u000e-\u001f\u007f-\u0084\u0086-\u009f]/g
 /**
- * One kept entry as the model reads it, in a fixed order: every line terminator becomes a newline; control and
- * invisible characters are dropped; the structure is read (an entry is one line, so lines fold into one and runs of
- * blanks into one space) and clipped; and `<` and `>` become entities last, so an entry can neither open nor close the
- * desk's envelope however it was spelled.
+ * Untrusted text as the model may read it, in a fixed order: every line terminator becomes a newline; compatibility
+ * forms fold to their plain characters (NFKC), so a full-width or small-form bracket is a bracket; control, format
+ * and blank characters are dropped; the structure is read (one line, runs of blanks as one space) and clipped to
+ * `max`; and `<` and `>` become entities last, so nothing in it can open or close one of the desk's envelopes.
  */
-export const leadMemoryLine = (text: string): string => {
-  const normalised = text.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n')
-  const visible = normalised.replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u0084\u0086-\u009f]/g, '').replace(INVISIBLE, '')
-  const line = leadClip(visible.split('\n').map(part => part.trim()).filter(Boolean).join(' ').replace(/[ \t]+/g, ' '), LEAD_MEMORY_LIMITS.textChars)
+export const leadMemoryClean = (text: string, max: number = LEAD_MEMORY_LIMITS.textChars): string => {
+  const folded = text.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n').normalize('NFKC')
+  const visible = folded.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n').replace(CONTROLS, '').replace(INVISIBLE, '')
+  const line = leadClip(visible.split('\n').map(part => part.trim()).filter(Boolean).join(' ').replace(/[ \t]+/g, ' '), max)
   return line.replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
+/** One kept entry as the model reads it: `leadMemoryClean` at the entry's bound. */
+export const leadMemoryLine = (text: string): string => leadMemoryClean(text, LEAD_MEMORY_LIMITS.textChars)
 const KINDS: Readonly<Record<LeadMemoryKind, string>> = { preference: 'preference', fact: 'fact', lesson: 'lesson', rule: 'rule' }
 /**
  * The frozen Core snapshot for the standing instructions, or null when nothing is kept. The envelope is the desk's:

@@ -26,12 +26,23 @@ export interface LeadClientAuthorityOptions {
 /** Writes that put words in front of a worker: a chat's prompt, or a Team's brief. */
 const WORKER_BOUND = new Set(['lead/chat/start', 'lead/chat/send', 'flow/start-goal'])
 /** Memory is the Lead's context alone. A worker-bound write that repeats the memory block, or a kept entry of 40
- * characters or more word for word, is refused before it reaches the worker. */
+ * characters or more word for word in any of its strings (however wrapped, spaced, cased or styled), is refused
+ * before it reaches the worker. A paraphrase is not caught; docs/decisions.md records that. */
 export const leadCarriesMemory = (params: unknown, lines: readonly string[]): boolean => {
-  const text = JSON.stringify(params ?? null).normalize('NFKC').toLowerCase()
-  if (text.includes(LEAD_MEMORY_OPEN.toLowerCase())) return true
-  return lines.some(line => line.length >= 40 && text.includes(JSON.stringify(line.normalize('NFKC').toLowerCase()).slice(1, -1)))
+  const strings: string[] = []
+  const collect = (value: unknown, depth: number): void => {
+    if (typeof value === 'string') strings.push(value)
+    else if (value && typeof value === 'object' && depth < 32) for (const item of Array.isArray(value) ? value : Object.values(value)) collect(item, depth + 1)
+  }
+  collect(params, 0)
+  const text = strings.map(leadMemoryMatchText).join(' \u0000 ')
+  if (text.includes(leadMemoryMatchText(LEAD_MEMORY_OPEN))) return true
+  return lines.some(line => line.length >= 40 && text.includes(leadMemoryMatchText(line).replace(/[\s.!?;:,\u3002]+$/u, '')))
 }
+/** Text as the worker guard compares it: compatibility forms folded, invisible characters out, lower-cased and every
+ * run of spaces and line breaks one space, so a kept line wrapped or restyled in a brief still reads as the line. */
+const leadMemoryMatchText = (text: string): string =>
+  text.normalize('NFKC').replace(/[\p{Cf}\u115f\u1160\u180e\u2800\u3164\uffa0]/gu, '').toLowerCase().replace(/\s+/gu, ' ').trim()
 
 export const createLeadClientAuthority = async (options: LeadClientAuthorityOptions): Promise<ClientConnectionPolicy> => {
   const project = await fs.realpath(options.project)

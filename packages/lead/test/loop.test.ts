@@ -849,7 +849,7 @@ test('a successful tool result beyond the continuation budget does not park the 
   s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(15_000) : call(method, params)
   const loop = exported('createLeadLoop')(s.options)
   // Room for the standing instructions and the tool list below the request bound, but not for the 15,000-byte result.
-  const result = await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(15_800) })) }] })
+  const result = await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(15_950) })) }] })
   assert.equal(result.status, 'completed')
   assert.match(result.toolResults[0].content, /^Tool failed:.*result.*conversation limit/)
   assert.equal([...s.journal.state.attempts.values()].find(attempt => attempt.method === 'library/usage')!.outcome, 'succeeded')
@@ -1077,7 +1077,7 @@ test('three oversized successful reads park without a fourth request', async () 
   const call = s.options.desk.call
   s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(15_000) : call(method, params)
   const loop = exported('createLeadLoop')(s.options)
-  await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(15_800) })) }] })
+  await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(15_950) })) }] })
   for (let i = 0; i < 4; i++) { await s.tick(); await loop.idle() }
   assert.equal(s.fake.requests.length, 3)
   assert.equal(loop.state.reason, 'lead-tools-refused')

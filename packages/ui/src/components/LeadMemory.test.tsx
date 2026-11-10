@@ -74,3 +74,30 @@ it('Keep, Undo and the switch go through the desk, and Forget all asks first', a
   await act(async () => button(dialog, 'Forget all').click()); await settle()
   expect(changes(calls).at(-1)).toEqual({ action: 'forget-all' })
 })
+
+it('Forget on one entry asks first, saying it cannot be undone, and sends nothing until confirmed', async () => {
+  const { box, calls } = await mount(() => <LeadMemorySection label="Dex" />)
+  await act(async () => button(box, 'Forget').click())
+  expect(changes(calls)).toEqual([])
+  const dialog = document.querySelector('[role="alertdialog"], [role="dialog"]')!
+  expect(dialog.textContent).toContain('cannot be undone')
+  await act(async () => button(dialog, 'Keep note').click()); await settle()
+  expect(changes(calls)).toEqual([])
+  await act(async () => button(box, 'Forget').click())
+  await act(async () => button(document.querySelector('[role="alertdialog"], [role="dialog"]')!, 'Forget').click()); await settle()
+  expect(changes(calls)).toEqual([{ action: 'forget', id: expect.stringMatching(/^m\d+$/) }])
+})
+
+it('says so in a banner when the Lead is not reading the list shown', async () => {
+  const { box } = await mount(store => {
+    const request = store.transport.request.bind(store.transport)
+    store.transport.request = (async (method: string, params: unknown) => {
+      const value = await request(method as never, params as never)
+      return method === 'lead/memory/view' ? { ...(value as object), fault: 'journal' } : value
+    }) as typeof store.transport.request
+    return <LeadMemorySection label="Dex" />
+  })
+  const alert = box.querySelector('[role="alert"]')!
+  expect(alert.textContent).toContain('Dex')
+  expect(alert.textContent).toMatch(/not reading/i)
+})

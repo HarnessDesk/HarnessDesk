@@ -71,21 +71,26 @@ const when = (at: number) => new Date(at).toLocaleString(undefined, { month: 'sh
 
 /** One kept entry: its words, whose they are, and what can be done with it. */
 const EntryRow = ({ entry, label, cited, pending, change }: { readonly entry: LeadMemoryEntry; readonly label: string; readonly cited: boolean; readonly pending: boolean; readonly change: (change: LeadMemoryChange) => void }) => {
-  const [editing, setEditing] = useState<string | null>(null)
+  const [editing, setEditing] = useState<string | null>(null), [forgetting, setForgetting] = useState(false)
   if (editing !== null) return <Row title={<Input aria-label="Remembered note" value={editing} maxLength={LEAD_MEMORY_LIMITS.textChars} autoFocus onChange={event => setEditing(event.target.value)} />}
     control={<InlineParts>
       <Button disabled={pending || !editing.trim()} onClick={() => { change({ action: 'edit', id: entry.id, text: editing.trim() }); setEditing(null) }}>Save</Button>
       <Button variant="quiet" onClick={() => setEditing(null)}>Cancel</Button>
     </InlineParts>} />
   const chip = cited ? <Chip tone="info">Used in this plan</Chip> : entry.by === 'lead' ? <Chip variant="quiet" tone="neutral">{`${label}'s note`}</Chip> : undefined
-  return <Row title={entry.text} titleChip={chip} tooltip={`${entry.id} · ${KIND[entry.kind]}`}
+  return <><Row title={entry.text} titleChip={chip} tooltip={`${entry.id} · ${KIND[entry.kind]}`}
     control={<InlineParts>
       <Button variant="quiet" disabled={pending} onClick={() => setEditing(entry.text)}>Edit</Button>
       {entry.tier === 'core'
         ? <Button variant="quiet" disabled={pending} title="Searched when needed instead of read every time" onClick={() => change({ action: 'move', id: entry.id, tier: 'archive' })}>Archive</Button>
         : <Button variant="quiet" disabled={pending} title="Read at the start of every conversation" onClick={() => change({ action: 'move', id: entry.id, tier: 'core' })}>Move to Core</Button>}
-      <Button variant="quiet" disabled={pending} title="Removed here and from every saved version" onClick={() => change({ action: 'forget', id: entry.id })}>Forget</Button>
+      <Button variant="quiet" disabled={pending} title="Removed here and from every saved version" onClick={() => setForgetting(true)}>Forget</Button>
     </InlineParts>} />
+    {forgetting && <ConfirmDialog title="Forget this note?" confirmLabel="Forget" cancelLabel="Keep note" tone="destructive" busy={pending}
+      onConfirm={() => { change({ action: 'forget', id: entry.id }); setForgetting(false) }} onCancel={() => setForgetting(false)}>
+      <Text role="prose">{`Removes it from memory, from every saved version and from the conversation ${label} searches. This cannot be undone.`}</Text>
+    </ConfirmDialog>}
+  </>
 }
 
 /** Settings › Lead › Memory: what the Lead reads every time, what it searches, what waits for you, and every change. */
@@ -113,6 +118,7 @@ export const LeadMemorySection = ({ label, cards }: { readonly label: string; re
       <Button size="sm" variant="outline" disabled={!view.core.length && !view.archive.length} onClick={exportView}>Export</Button>
       <Button size="sm" variant="outline" disabled={pending || !view.core.length && !view.archive.length && !view.inbox.length && !view.history.length} onClick={() => setForgetAll(true)}>Forget all</Button>
     </InlineParts>}>
+    {view.fault && <Banner role="alert" tone="danger">{`${label} is not reading this list. The desk could not hand over the latest change, so ${label} still reads the version before it.`}</Banner>}
     {error && <Banner role="alert" tone="warning">{error}</Banner>}
     <Text as="p" role="muted">{`${label} reads Core at the start of each conversation and searches Archive when it needs to. Your notes are never changed by ${label}.`}</Text>
     <Rows>

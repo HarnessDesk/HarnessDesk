@@ -605,7 +605,7 @@ The workspace snapshot carries `memory` (`PhoneLeadMemory`) when the desk has a 
 | Method | Required tier | Params | Result |
 | --- | --- | --- | --- |
 | `lead/memory/view` | `read` | `{}` | `LeadMemoryView` |
-| `lead/memory/change` | `answer` | a `LeadMemoryChange` (`keep`, `edit`, `dismiss`, `move`, `forget`, `forget-all`, `auto`, `undo`, `add`) | `LeadMemoryView` |
+| `lead/memory/change` | `answer` | a `LeadMemoryChange` with `action` `keep`, `dismiss` or `forget` | `LeadMemoryView` |
 
-`keep` with `text` keeps the person's edited wording, which then counts as the person's note. The phone never gets `lead/memory/propose` or `lead/memory/search`, which are the Lead's own.
+`keep` with `text` keeps the person's edited wording, which then counts as the person's note; limit that text to 400 UTF-16 code units, as the desk does. Every other action (`edit`, `move`, `forget-all`, `auto`, `undo`, `add`) is refused from a phone with `notOnPhoneSurface` and a sentence to show as it is. The phone never gets `lead/memory/propose` or `lead/memory/search`, which are the Lead's own.
 

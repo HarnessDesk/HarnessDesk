@@ -21,13 +21,13 @@ export type LeadChildConfig = Omit<LeadChildBootstrap, 'key' | 'descriptor'>
 /** This is a port, not another journal writer. Human decisions and recovery are
  * deliberately absent; all methods execute in the host's serialized journal. */
 export type LeadJournalPort = Pick<LeadJournal, 'state' | 'execute' | 'updateBudget' | 'setManagementPhase' |
-  'recordWake' | 'invalidateResults' | 'offerCard' | 'restoreResult' | 'recoverUnsettledRequests' | 'appendReply'>
+  'recordWake' | 'invalidateResults' | 'offerCard' | 'restoreResult' | 'recoverUnsettledRequests' | 'appendReply' | 'memoryEpoch'>
 export const LEAD_FRAME_BYTES = 1_048_576
 /** Prefixes the child's one probe line: what `node:net` said to a loopback connect under the Lead's own flags. */
 export const LEAD_PROBE_PREFIX = 'lead-probe '
 export const LEAD_RPC_OPERATIONS = ['recordWake', 'execute', 'updateBudget', 'setManagementPhase', 'invalidateResults', 'offerCard',
   'restoreResult', 'recoverUnsettledRequests', 'appendReply', 'resolveTool', 'freezePlan', 'readEvidence', 'provider-send',
-  'recordContext', 'readContext', 'compactContext'] as const
+  'recordContext', 'readContext', 'compactContext', 'memoryEpoch'] as const
 export type LeadRpcOperation = typeof LEAD_RPC_OPERATIONS[number]
 const fail = (): never => { throw new Error('lead-ipc-invalid') }
 export const ipcObject = (value: unknown, fields?: readonly string[]): Record<string, unknown> => {

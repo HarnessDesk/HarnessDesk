@@ -126,6 +126,9 @@ export type LeadJournalEvent =
   | { readonly type: 'context-pruned'; readonly id: string; readonly at: number; readonly beforeTokens: number; readonly afterTokens: number }
   /** The host's memory store changed Core: the Lead reads this at its next epoch. */
   | { readonly type: 'memory-core'; readonly memory: LeadMemoryCore }
+  /** The Core one epoch's standing instructions were built with, so a restart in that epoch builds them again byte
+   * for byte. `goal` is the logical goal id, empty between goals. */
+  | { readonly type: 'memory-epoch'; readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore }
 export type LeadCompactionTrigger = 'soft' | 'hard' | 'manual' | 'overflow'
 export type LeadJournalRecord = Base & LeadJournalEvent
 export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown, previous?: LeadState): LeadJournalRecord; checkpoint?(): LeadState | null; journalSecurity?(): LeadJournalSecurity }
@@ -139,6 +142,8 @@ const integer = (value: unknown, min = 0): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) throw new Error('lead-journal-number')
   return value
 }
+/** A logical goal id, or empty between goals. */
+const leadMemoryEpochGoal = (value: unknown): string => value === '' ? '' : identifier(value)
 const identifier = (value: unknown): string => {
   if (typeof value !== 'string' || !/^[A-Za-z0-9._:/@-]{1,256}$/.test(value)) throw new Error('lead-journal-id')
   return value
@@ -215,6 +220,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'context-compaction-applied': ['id', 'at', 'fromSeq', 'toSeq', 'beforeTokens', 'afterTokens', 'model', 'usdMicros', 'fallback'],
     'context-pruned': ['id', 'at', 'beforeTokens', 'afterTokens'],
     'memory-core': ['memory'],
+    'memory-epoch': ['goal', 'epoch', 'memory'],
   }
   const type = choice(source.type, Object.keys(keys))
   object(source, ['version', 'seq', 'type', ...keys[type]!])
@@ -305,6 +311,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     }
     case 'context-pruned': event = { type, id: identifier(source.id), at: integer(source.at), beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens) }; break
     case 'memory-core': event = { type, memory: parseLeadMemoryCore(source.memory) }; break
+    case 'memory-epoch': event = { type, goal: leadMemoryEpochGoal(source.goal), epoch: integer(source.epoch), memory: parseLeadMemoryCore(source.memory) }; break
     default: throw new Error('lead-journal-type')
   }
   const record = { version: 1 as const, seq, ...event }
@@ -502,6 +509,14 @@ export class LeadJournal {
     const parsed = parseLeadMemoryCore(memory)
     if (parsed.revision <= this.#state.memory.revision) return
     return this.#append({ type: 'memory-core', memory: parsed })
+  }) }
+  /** The Core an epoch's instructions were first built with. Written once per goal and epoch; a later call for the
+   * same pair is a no-op, so the first build is the one a restart repeats. */
+  memoryEpoch(goal: string, epoch: number, memory: LeadMemoryCore): Promise<void> { return this.#queue(async () => {
+    const at = { goal: leadMemoryEpochGoal(goal), epoch: integer(epoch), memory: parseLeadMemoryCore(memory) }
+    const held = this.#state.memoryEpoch
+    if (held && held.goal === at.goal && held.epoch === at.epoch) return
+    return this.#append({ type: 'memory-epoch', ...at })
   }) }
   settingsChanged(name?: LeadName, follow?: LeadFollowPreferences): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }), ...(follow === undefined ? {} : { follow }) })) }
   publication(operation: LeadPublicationOperation, pr: LeadPullRequest | null = null): Promise<void> { return this.#queue(() => this.#append({ type: 'publication', operation, pr })) }

@@ -62,3 +62,18 @@ test('a proposal round-trips through the inbox on the window and the phone, and 
   assert.deepEqual((await r.host.call('lead/memory/view', {})).core.map(entry => entry.by), ['lead'], 'the person removed their line; the Lead\'s kept note stays')
   await r.until(() => r.journal.state.memory.entries.length === 1, 'the change is journaled too')
 })
+
+test('a Core the journal refuses is shown as a fault on the memory view, never replaced by the older copy in silence', async t => {
+  const r = await memoryRig(t)
+  await r.host.call('lead/memory/change', { action: 'add', text: 'Prefer small pull requests.', kind: 'preference' })
+  await r.until(() => r.journal.state.memory.entries.length === 1, 'the first Core is journaled')
+  const journaled = r.journal.state.memory
+  r.journal.memoryCore = async () => { throw new Error('lead-memory-core-invalid') }
+  const changed: number[] = []
+  r.host.addBroadcaster(message => { if (message.method === 'lead/memory/changed') changed.push(message.params.revision) })
+  await r.host.call('lead/memory/change', { action: 'add', text: 'Run the linter before review.', kind: 'preference' })
+  await r.until(() => changed.length >= 2, 'the window is told again once the journal refused')
+  const view = await r.host.call('lead/memory/view', {})
+  assert.equal(view.fault, 'journal', 'the window can say the Lead is not reading this list')
+  assert.deepEqual(r.journal.state.memory, journaled, 'the Lead still holds the copy it had, and the view says so')
+})
