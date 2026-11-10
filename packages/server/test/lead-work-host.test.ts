@@ -160,9 +160,9 @@ test('host: a goal whose deadline passed stops automatic chat work and answers t
   const { host } = r
   const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the date parser', cause: 'person' } })
   const chat = (first.value as { id: string }).id
-  await host.leadAutonomy.setDeadline({ logicalGoalId: 'ordinary-delegation', deadlineAt: Date.now() + 40 })
+  await host.leadAutonomy.setDeadline({ logicalGoalId: 'ordinary-delegation', deadlineAt: Date.now() + 1500 })
   assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'A second job before the time is up', cause: 'automatic' } })).outcome, 'succeeded')
-  await new Promise(resolve => setTimeout(resolve, 60))
+  await new Promise(resolve => setTimeout(resolve, 1600))
   const late = await r.execute({ method: 'lead/chat/start', params: { text: 'A third job after the time is up', cause: 'automatic' } })
   assert.match((late.value as { problem: string }).problem, /time for this goal has run out/)
   const sent = await r.execute({ method: 'lead/chat/send', params: { id: chat, text: 'Keep going on the parser', cause: 'automatic' } })
