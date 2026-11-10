@@ -138,7 +138,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   const teamStages = new Map<string, LeadStage | undefined>()
   const observedChats = () => [...chatStates].map(([id, stage]) => ({ id, stage }))
   const gate = createLeadWakeGate(options.stuckMs)
-  let deskOwed: false | 'person' | 'automatic' = false, stepCause: 'person' | 'automatic' = 'person', deskReadAt = 0, latestDeskReadAt = 0, latestDeskReadSucceeded = false
+  let deskOwed: false | 'person' | 'automatic' = false, stepCause: 'person' | 'automatic' = 'automatic', deskReadAt = 0, latestDeskReadAt = 0, latestDeskReadSucceeded = false
   const owned = () => ({ runs: journal.state.runs.map(run => run.runId), teams: journal.state.teams })
   const tools = createLeadTools({ journal, desk, project, now: () => clock.now(), nextId, synchronized: () => synchronized && !closed,
     resolveTool: options.resolveTool })
@@ -517,7 +517,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   }
   const step = async (input: LeadMessagesRequest, signal?: AbortSignal, pendingWake?: LeadWakeRecord): Promise<LeadMessagesResult | null> => {
     const before = journal.state
-    const wake: LeadWakeRecord = pendingWake ?? { id: nextId(), at: clock.now(), source: input.wakeSource ?? 'person', decision: 'silent', modelTurn: false, usdMicros: null }
+    const wake: LeadWakeRecord = pendingWake ?? { id: nextId(), at: clock.now(), source: input.wakeSource ?? 'trigger', decision: 'silent', modelTurn: false, usdMicros: null }
     let result: LeadMessagesResult | null = null
     stepUsage = undefined
     stepCause = wake.source === 'person' ? 'person' : 'automatic'
@@ -551,7 +551,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         const fromStore = owed || changed
         const activity = dirty, continueTools = continuationPending
         dirty = false; continuationPending = false
-        let pendingWake: LeadWakeRecord = { id: nextId(), at: clock.now(), source: continueTools ? requestTemplate?.wakeSource ?? 'person' : 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null }
+        let pendingWake: LeadWakeRecord = { id: nextId(), at: clock.now(), source: continueTools ? requestTemplate?.wakeSource ?? 'trigger' : 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null }
         let stepped = false
         try {
           if (journal.state.phase === 'following') return

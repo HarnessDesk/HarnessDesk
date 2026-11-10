@@ -604,3 +604,20 @@ test('a queued renewal rejected by the outer host admission settles before its t
     assert.match(notice.params.event.message, /queued message was not sent/i)
   } finally { releaseRead.resolve(); await r.idle() }
 })
+
+// A retry the host sends on its own is automatic work: after the goal's time has run out it goes nowhere.
+test('a stuck-chat retry the host schedules is refused once the goal\'s deadline has passed', async t => {
+  const r = await rig(t)
+  const created = await r.start()
+  const reset = r.now() + 200
+  await r.host.leadAutonomy.setDeadline({ logicalGoalId: 'recovery-fixture', deadlineAt: Date.now() + 400 })
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id,
+    limits: { reached: 'Weekly', windows: [{ label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: reset }] } })
+  r.fail(created.id, 'rateLimit')
+  await after(r, async () => (await r.stored().catch(() => null))?.records[0]?.state === 'waiting-reset' ? true : null, 'persisted reset wait')
+  await new Promise(resolve => setTimeout(resolve, 500)) // the autonomy store keeps real time; the retry clock is the rig's
+  await r.advance(500)
+  await r.idle()
+  assert.equal(r.prompts.length, 1, 'no continue goes out after the time has run out')
+  assert.equal(await r.host.leadAutonomy.deadlineElapsed('recovery-fixture'), true)
+})

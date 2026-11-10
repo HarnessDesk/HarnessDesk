@@ -68,7 +68,7 @@ export interface LeadAdmissionOptions {
   readonly readIntents: (goal: string) => readonly Pick<Intent, 'id' | 'state' | 'outcome'>[]
   readonly nextId: () => string
   /** The reserved run: automatic work does not take the last slot. */
-  readonly slots?: { admit(cause: LeadStartCause): Promise<{ readonly ok: boolean }>; mark(id: string, cause: LeadStartCause): Promise<void> }
+  readonly slots?: { admit(cause: LeadStartCause): Promise<{ readonly ok: boolean }>; hold(cause: LeadStartCause): { release(): void } | null; mark(id: string, cause: LeadStartCause): Promise<void> }
 }
 /** Installed by the trusted host on the private connection. Admission annotates
  * the held token, so even redemption through another door retains its guard. */
@@ -114,9 +114,15 @@ export class LeadAdmission {
       startId: attempt.correlationId, ...(base ? { base } : {}) }
     if (budgets.prepared(binding.startId) || journal.state.steps.find(item => item.id === step.id)?.attemptId !== attempt.id ||
       journal.state.attempts.get(attempt.id)?.phase !== 'started' || !previews.bindLead(params, binding)) return false
-    budgets.prepare(binding.startId, journal, step.id, params, project)
-    // An automatic start keeps counting against the cap until its run ends.
-    try { await this.options.slots?.mark(binding.startId, params.cause ?? 'automatic') } catch { /* The run still starts; the cap counts what it could record. */ }
+    // The slot is taken with no await between the count and the claim, and held until the start is prepared and
+    // remembered, so two starts at the same moment cannot both pass the cap.
+    const hold = this.options.slots ? this.options.slots.hold(params.cause ?? 'automatic') : { release: () => {} }
+    if (hold === null) return false
+    try {
+      budgets.prepare(binding.startId, journal, step.id, params, project)
+      // An automatic start keeps counting against the cap until its run ends.
+      try { await this.options.slots?.mark(binding.startId, params.cause ?? 'automatic') } catch { /* The run still starts; the cap counts what it could record. */ }
+    } finally { hold.release() }
     return true
   }
   /** Whether a start was refused because automatic work is at its cap, for the reason the Lead is told. */

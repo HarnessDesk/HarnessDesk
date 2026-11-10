@@ -221,3 +221,39 @@ test('the person is told once when the time runs out, and the next turn they sta
   assert.match(r.reports[1]!, /has passed/)
   assert.match(r.store.deadlineNote() ?? '', /run out/)
 })
+
+// A start that names no cause is automatic: only a start positively named the person's is theirs.
+test('the person\'s room: a start that names no cause is automatic, and an unreported account does not open the cap', async () => {
+  let automatic = 3
+  const slots = new LeadSlots({ automaticLive: () => automatic, mark: async () => {}, headroom: async () => null, limit: 3, reserve: 10 })
+  assert.equal((await slots.admit()).ok, false, 'no cause, at the cap: refused')
+  assert.equal(slots.hold(), null)
+  assert.equal((await slots.admit('person')).ok, true)
+  automatic = 1
+  const verdict = await slots.admit()
+  assert.deepEqual(verdict, { ok: true, note: 'no usage report' }, 'no report lets the start through and says why; only the headroom check fails open')
+  const known = new LeadSlots({ automaticLive: () => 0, mark: async () => {}, headroom: async () => 60, limit: 3 })
+  assert.deepEqual(await known.admit('automatic'), { ok: true })
+})
+
+test('the person\'s room: until what the count is made of has been read, automatic starts wait and the person\'s do not', async () => {
+  let ready = false
+  const slots = new LeadSlots({ automaticLive: () => 0, mark: async () => {}, ready: () => ready, limit: 3 })
+  const loading = await slots.admit('automatic')
+  assert.equal(loading.ok, false); assert.match((loading as { reason: string }).reason, /still reading/)
+  assert.equal(slots.hold('automatic'), null, 'nothing is reserved against a count that says 0 only because it has not been read')
+  assert.equal((await slots.admit('person')).ok, true)
+  ready = true
+  assert.equal((await slots.admit('automatic')).ok, true)
+})
+
+test('the person\'s room: two starts at the same moment cannot both take the last slot, and a released slot is free again', async () => {
+  const slots = new LeadSlots({ automaticLive: () => 2, mark: async () => {}, limit: 3 })
+  const [one, two] = await Promise.all([slots.admit('automatic'), slots.admit('automatic')])
+  assert.equal(one.ok && two.ok, true, 'both look fine before either has made a run')
+  const first = slots.hold('automatic'), second = slots.hold('automatic')
+  assert.ok(first, 'the first takes the last slot'); assert.equal(second, null, 'the second finds it gone')
+  assert.ok(slots.hold('person'), 'the person is never counted')
+  first!.release()
+  assert.ok(slots.hold('automatic'), 'a slot given back is free')
+})

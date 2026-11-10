@@ -49,7 +49,7 @@ export interface LeadChatsPorts {
   }
   readonly publish?: (event: LeadChatActivity) => void
   /** The reserved run: a start the Lead makes for automatic work is refused while only the person's slot is left. */
-  readonly slots?: { admit(cause: LeadStartCause): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>; mark(id: string, cause: LeadStartCause): Promise<void> }
+  readonly slots?: { admit(cause: LeadStartCause): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>; hold(cause: LeadStartCause): { release(): void } | null; mark(id: string, cause: LeadStartCause): Promise<void>; readonly reasons: { readonly cap: string } }
   /**
    * The goal's time: true once the open goal's deadline has passed (read after the file has loaded). A start or a send
    * the Lead makes on its own for that goal is refused then; the person's own are not.
@@ -450,7 +450,7 @@ export class LeadChats {
     return text
   }
   start(input: HostParams<'lead/chat/start'>): Promise<HostResult<'lead/chat/start'>> {
-    const { effectId, cause = 'person', ...params } = input
+    const { effectId, cause = 'automatic', ...params } = input
     const call = { method: 'lead/chat/start', params } as const
     return this.#mutate(call, effectId, async (admit, effectStarted, attemptId) => {
       const candidates = params.agent === undefined ? [] : await this.ports.recovery?.candidates(params.moveFrom) ?? []
@@ -480,8 +480,14 @@ export class LeadChats {
         // #create runs under this one claim.
         const paced = params.agent === undefined && !params.moveFrom ? await this.ports.pacing?.choose().catch(() => null) ?? null : null
         const agent = matches[0]?.agent ?? matches[0]?.key ?? paced?.agent
-        const result = await this.#create(params, call, text, agent, paced, admit, effectStarted, attemptId)
-        if (result.id && !result.problem) await this.ports.slots?.mark(result.id, cause).catch(() => {})
+        // The slot is taken at once before the chat is made, so two starts at the same moment cannot both pass the cap.
+        const hold = this.ports.slots ? this.ports.slots.hold(cause) : { release: () => {} }
+        if (hold === null) { this.ports.noteDispatchNotStarted(attemptId); return { id: '', problem: this.ports.slots!.reasons.cap } }
+        let result: Awaited<ReturnType<LeadChats['start']>>
+        try {
+          result = await this.#create(params, call, text, agent, paced, admit, effectStarted, attemptId)
+          if (result.id && !result.problem) await this.ports.slots?.mark(result.id, cause).catch(() => {})
+        } finally { hold.release() }
         if (claim && result.id) return { ...result, ledgerItem: await this.ports.ledger!.started(claim, result.id) }
         return result
       } finally { if (claim) this.ports.ledger!.release(claim) }
@@ -544,7 +550,7 @@ export class LeadChats {
       failed: recovering ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false })
   }
   send(input: HostParams<'lead/chat/send'>, currentRetry?: () => boolean, retryStarted?: () => void, retryBusy?: () => void): Promise<HostResult<'lead/chat/send'>> {
-    const { effectId, cause = 'person', ...params } = input
+    const { effectId, cause = 'automatic', ...params } = input
     const call = { method: 'lead/chat/send', params } as const
     const envelope = this.#envelope(params.text)
     return this.#mutate(call, effectId, async (admit, effectStarted, attemptId) => {

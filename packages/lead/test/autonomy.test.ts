@@ -190,7 +190,7 @@ test('once the goal deadline has passed nothing unasked wakes the model, not eve
 })
 
 // P2: a wake a turn owed (a tool told to wait for the desk) is checked when it would run, unless the person's own turn owes it.
-for (const [who, wakeSource, woken] of [['an automatic turn', 'trigger', false], ['the person\'s own turn', undefined, true]] as const) {
+for (const [who, wakeSource, woken] of [['an automatic turn', 'trigger', false], ['the person\'s own turn', 'person', true], ['a request that names no source', undefined, false]] as const) {
   test(`a wake owed by ${who} is ${woken ? 'kept' : 'checked again at retry time and kept quiet when desk-change is off'}`, async () => {
     const retry = message([tool('premature', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })
     const s = await fixture([message(), message(), retry, message(), message(), message()])
@@ -218,7 +218,7 @@ for (const [who, wakeSource, woken] of [['an automatic turn', 'trigger', false],
 }
 
 // P1-1: a start carries what woke the turn that made it.
-for (const [who, wakeSource, cause] of [['the person\'s own turn', undefined, 'person'], ['a scheduled wake', 'schedule', 'automatic'], ['a mention trigger', 'trigger', 'automatic']] as const) {
+for (const [who, wakeSource, cause] of [['the person\'s own turn', 'person', 'person'], ['a request that names no source', undefined, 'automatic'], ['a scheduled run with no proactive flag', 'schedule', 'automatic'], ['a scheduled wake', 'schedule', 'automatic'], ['a mention trigger', 'trigger', 'automatic']] as const) {
   test(`a start made in ${who} is sent to the host as ${cause}`, async () => {
     const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message(), message()])
     const seen: any[] = []

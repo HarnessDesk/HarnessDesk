@@ -100,6 +100,8 @@ export class LeadBudgets implements FlowLeadGuard {
     return leadBudgetProjection({ ...budget, rounds: budget.rounds.filter(round => round.startId !== startId || round.executionId !== null) }, this.port.now())
   }
   prepared(startId: string): boolean { return this.#pending.has(startId) }
+  /** Starts that are prepared but have not become a run yet. */
+  preparedStartIds(): readonly string[] { return [...this.#pending.keys()] }
   prepare(startId: string, journal: LeadJournal, stepId: string, params: unknown, project: LeadProject): void {
     if (this.#journals.get(journal.state.budget!.logicalGoalId) !== journal || this.#pending.has(startId)) throw new Error('lead-budget-owner')
     this.#pending.set(startId, { journal, stepId, params: structuredClone(params), project: structuredClone(project) })

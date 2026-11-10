@@ -92,7 +92,7 @@ test('the window and the phone read one projection: four groups, Needs you first
 test('the open cards reach every model request, capped, and a reminder wakes the Lead as a scheduled turn', async t => {
   const r = await workRig(t)
   for (let n = 1; n <= 24; n++)
-    assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: `Investigate flaky sync test number ${n} and report what fails, with the failing seed and the exact command that reproduces it on a clean checkout` } })).outcome, 'succeeded')
+    assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: `Investigate flaky sync test number ${n} and report what fails, with the failing seed and the exact command that reproduces it on a clean checkout` , cause: 'person'} })).outcome, 'succeeded')
   const sent: { messages: readonly MessagesTurn[]; proactive: boolean }[] = []
   const controls = r.controls(async (messages, input) => {
     sent.push({ messages, proactive: input.proactive === true })
@@ -170,4 +170,14 @@ test('host: a goal whose deadline passed stops automatic chat work and answers t
   assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'The person asks for one more thing', cause: 'person' } })).outcome, 'succeeded')
   assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: chat, text: 'The person says: continue', cause: 'person' } })).outcome, 'succeeded')
   assert.match(host.leadAutonomy.deadlineNote() ?? '', /run out/, 'the next turn the person starts is told')
+})
+
+// Only a start positively named the person's is theirs: one that names no cause is automatic, and it takes a slot first.
+test('host: a start and a send that name no cause are automatic', async t => {
+  const r = await workRig(t)
+  assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'Automatic job, no cause named' } })).outcome, 'succeeded')
+  await r.host.leadAutonomy.setDeadline({ logicalGoalId: 'ordinary-delegation', deadlineAt: Date.now() + 1 })
+  await new Promise(resolve => setTimeout(resolve, 10))
+  const id = (await r.host.call('lead/chat/list', {})).items[0]!.id
+  assert.equal((await r.execute({ method: 'lead/chat/send', params: { id, text: 'Keep going' } })).outcome, 'failed', 'a send that names no cause stops at the deadline')
 })

@@ -133,8 +133,8 @@ export class LeadAutonomyStore {
 
   /** After a start: the journal says what the file says. A crash between the two writes leaves the file ahead, never behind. */
   async attach(): Promise<void> {
-    await this.#ready()
-    await this.ports.journal.setAutonomy(this.#record(this.#modes()))
+    // Read the modes inside the queue: a switch made while this waits would otherwise be written back over by what it saw first.
+    await this.#write(() => this.ports.journal.setAutonomy(this.#record(this.#modes())))
   }
 
   /** The mode in force for a kind of unasked work. */
@@ -257,6 +257,8 @@ export class LeadAutonomyStore {
   }
   /** Runs the Lead started on its own, remembered so the cap on them holds across a restart. */
   async automaticIds(): Promise<ReadonlySet<string>> { await this.#ready().catch(() => {}); return new Set(this.#stored.automatic ?? []) }
+  /** Whether the file has been read (or found unreadable and set aside), so what it remembers can be counted. */
+  get loaded(): boolean { return this.#loaded || this.#unreadable }
   automaticIdsNow(): ReadonlySet<string> { return new Set(this.#stored.automatic ?? []) }
   async markAutomatic(id: string): Promise<void> {
     if (this.#stored.automatic?.includes(id)) return

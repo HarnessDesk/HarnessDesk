@@ -95,6 +95,8 @@ export class LeadControls {
   #continueAgain = false
   #requestInFlight = false
   #automaticRequest = false
+  /** Set only by a path the person took (their own message, their plan approval, their resume); read once by the next request. */
+  #personRequest = false
   #requestWaitReason: string | null = null
   #requestConversation = true
   #closed = false
@@ -310,9 +312,9 @@ export class LeadControls {
     }, !!origin)
   }) }
   async #commitRequest<T>(commit: (committed: () => void) => Promise<T>, proactive = false,
-    waitReason = this.options.journal.state.managementReason, conversation = true): Promise<T> {
+    waitReason = this.options.journal.state.managementReason, conversation = true, person = !proactive): Promise<T> {
     let committed = false
-    try { return await commit(() => { committed = true; this.#requestInFlight = true; this.#automaticRequest = proactive; this.#requestWaitReason = waitReason; this.#requestConversation = conversation }) }
+    try { return await commit(() => { committed = true; this.#requestInFlight = true; this.#automaticRequest = proactive; if (person) this.#personRequest = true; this.#requestWaitReason = waitReason; this.#requestConversation = conversation }) }
     finally { if (committed) this.#detachContinue() }
   }
   #detachContinue(forcePublication = false): void {
@@ -342,7 +344,7 @@ export class LeadControls {
   }
   async #continue(): Promise<void> {
     const { journal, service } = this.options
-    const proactive = this.#automaticRequest; this.#automaticRequest = false
+    const proactive = this.#automaticRequest, person = this.#personRequest; this.#automaticRequest = false; this.#personRequest = false
     if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) || journal.state.budget?.stop || journal.state.managementReason === 'lead-worker-audit-failed') {
       this.#requestInFlight = false
       await journal.settingsChanged()
@@ -393,7 +395,9 @@ export class LeadControls {
         messages = leadAppendUser(messages, desk)
         return { maxTokens: LEAD_OUTPUT_TOKENS, messages, conversation: this.#requestConversation,
           ...(stored ? { epoch: stored.epoch, ...(stored.base ? { base: stored.base } : {}), ...(stored.stable ? { stable: stored.stable } : {}), ...(kept ? { kept } : {}) } : {}),
-          ...(proactive ? { proactive: true, wakeSource: journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const } : {}) }
+          ...(proactive ? { proactive: true } : {}),
+          // Only the person's own path is the person's; every other request (a scheduled run, a trigger's) names its source, and one that names none is automatic.
+          wakeSource: person ? 'person' as const : journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const }
       }
       // A compaction under way finishes first; past the hard line one runs now, whatever else is happening.
       await this.#contextWork
@@ -637,7 +641,7 @@ export class LeadControls {
     const recheck = await this.options.validateRepeat(original)
     if (recheck) { await journal.appendReply(`This run needs your approval: ${recheck}`); return { logicalGoalId, approved: false, reason: recheck } }
     await this.#commitRequest(committed => journal.decideCard({ version: 1, cardId: card.id, cardType: 'plan', expectedRevision: card.revision,
-      contractDigest: card.contractDigest, choice: 'approve' }, this.options.now() + LEAD_PLAN_CONSENT_MS, this.options.stopEffects, undefined, committed), false, null, false)
+      contractDigest: card.contractDigest, choice: 'approve' }, this.options.now() + LEAD_PLAN_CONSENT_MS, this.options.stopEffects, undefined, committed), false, null, false, false)
     return { logicalGoalId, approved: true }
   }) }
   updateSettings(value: LeadSettingsUpdate): Promise<LeadWindowProjection | LeadNameReceipt> { return this.#queue(async () => {
