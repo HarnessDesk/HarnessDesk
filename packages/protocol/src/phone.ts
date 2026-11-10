@@ -311,6 +311,8 @@ export interface PhoneWorkAllowance {
   readonly stale?: boolean
   /** The source's own error, scrubbed, when the last reading failed; the figures are then the last good ones. */
   readonly problem?: string
+  /** Allowance that expires unspent: more than half is left and the window is about to refill. Computed by the desk (`useFirstNote`). */
+  readonly useFirst?: true
   readonly models: readonly string[]
   /** Never an account: the phone shows none, so the desk sends none. */
   readonly running: readonly string[]

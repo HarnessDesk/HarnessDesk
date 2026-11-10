@@ -9220,7 +9220,7 @@ export class AppStore {
   setAccountPool(agent: RuntimeId, patch: AccountPool): void {
     const merged: AccountPool = { ...this.#snapshot.accountPools[agent], ...patch }
     const accountPools = { ...this.#snapshot.accountPools }
-    if ((merged.order?.length ?? 0) === 0 && merged.whenOut === undefined) delete accountPools[agent]
+    if ((merged.order?.length ?? 0) === 0 && merged.whenOut === undefined && merged.pace === undefined) delete accountPools[agent]
     else accountPools[agent] = merged
     this.#patch({ accountPools })
     void this.#writePreference({ accountPools }, 'The account order')
@@ -9248,12 +9248,13 @@ export class AppStore {
     const agent = agentKeyOf(active, runtimes)
     const pool = this.#snapshot.accountPools[agent]
     if (whenOutOf(pool) !== 'next') return
-    const siblings = inPoolOrder(runtimes.filter((entry) => agentKeyOf(entry.id, runtimes) === agent), pool)
+    const siblings = inPoolOrder(runtimes.filter((entry) => agentKeyOf(entry.id, runtimes) === agent), pool, { reports, now: Date.now() })
     const usable = (runtime: RuntimeId): boolean => {
       const entry = siblings.find((sibling) => sibling.id === runtime)
       return entry !== undefined && !runtimeOut(runtime, reports) && canTakeTurn(entry, this.#snapshot)
     }
-    const next = nextInPool(siblings, active, usable)
+    // The soonest-reset order is a ranking, not a queue to walk: take its best usable account.
+    const next = pool?.pace === 'soonest' ? siblings.find((sibling) => sibling.id !== active && usable(sibling.id)) ?? null : nextInPool(siblings, active, usable)
     if (!next) return
     const name = (runtime: RuntimeId): string => {
       const agentName = runtimes.find((entry) => entry.id === runtime)?.presentation.name ?? String(runtime)

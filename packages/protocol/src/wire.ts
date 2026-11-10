@@ -849,7 +849,7 @@ export interface HostMethods {
     result: { readonly items: readonly { readonly id: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly updatedAt: number }[]; readonly nextCursor: string | null }
   }
   'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
-  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly effectId?: string; readonly agent?: string; readonly moveFrom?: string; readonly ledgerItem?: string }; result: { readonly id: string; readonly problem?: string; readonly ledgerItem?: string } }
+  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly effectId?: string; readonly agent?: string; readonly moveFrom?: string; readonly ledgerItem?: string }; result: { readonly id: string; readonly problem?: string; readonly ledgerItem?: string; readonly account?: string } }
   'lead/chat/send': { params: { readonly id: string; readonly text: string; readonly effectId?: string; readonly retryAt?: 'reset' }; result: { readonly queued?: boolean } }
   /** Window only. Which Lead-touched chats the person holds, and the keys of what the Lead sent. */
   'lead/chats/resetControl': { params: Record<string, never>; result: LeadChatControlList }
