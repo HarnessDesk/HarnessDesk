@@ -678,7 +678,7 @@ export class LeadControls {
           throw leadRefusal('lead-secret-in-thread')
         await service.setKey(provider, key)
       }
-      await journal.settingsChanged()
+      await journal.settingsChanged(undefined, undefined, 'credential')
     } else {
       try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
       if (input.policy && input.caps) await journal.changePolicyAndBudgetCaps(input.policy, input.caps, input.expectedRevision,

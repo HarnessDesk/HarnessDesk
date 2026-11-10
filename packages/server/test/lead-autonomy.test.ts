@@ -15,7 +15,7 @@ import { LeadSlots } from '../src/lead/slots.js'
 const memoryJournal = async () => {
   const records: any[] = [], journal = await createLeadJournal({ async read() { return records }, async append(record) { records.push(record) } })
   await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
-  return journal
+  return Object.assign(journal, { records })
 }
 const rig = async (t: { after(fn: () => unknown): void }, over: { defaults?: typeof LEAD_RULE_DEFAULTS; goal?: boolean } = {}) => {
   const home = await mkdtemp(join(tmpdir(), 'lead-autonomy-'))
@@ -39,6 +39,29 @@ test('every kind starts on Act; a mode is a host setting the journal replays', a
   assert.equal(r.store.mode('brief'), 'observe')
   assert.equal(r.store.mode('repeat'), 'act')
   assert.equal(await r.store.gate('brief'), 'observed')
+})
+
+test('every change to autonomy is kept with who and what, newest first; the journal names the kind or section, never the words', async t => {
+  const r = await rig(t)
+  await r.store.set({ kind: 'brief', mode: 'observe' })
+  await r.store.set({ kind: 'brief', mode: 'observe' })
+  r.tick(1000)
+  await r.store.updateRules({ section: 'talk', action: 'edit', text: 'Be brief, Jane Doe likes it short.', expectedVersion: 0 })
+  r.tick(1000)
+  const view = await r.store.view()
+  assert.deepEqual(view.changes, [
+    { at: 1_001_000, by: 'person', what: 'rules', section: 'talk', version: 1, how: 'edit' },
+    { at: 1_000_000, by: 'person', what: 'mode', kind: 'brief', from: 'act', to: 'observe' },
+  ], 'a mode set to what it already was is not a change')
+  const talk = view.rules.find(one => one.id === 'talk')!
+  assert.equal(talk.version, 1)
+  assert.equal(talk.changedAt, 1_001_000)
+  assert.equal(view.rules.find(one => one.id === 'done')!.version, 0)
+  const changes = r.journal.records.filter(one => one.type === 'autonomy' && one.change).map(one => one.change)
+  assert.deepEqual(changes, [view.changes![1], view.changes![0]])
+  assert.ok(!JSON.stringify(changes).includes('Jane Doe'), 'the change names the section, never its words')
+  // The history survives a reopen of the file.
+  assert.deepEqual((await r.make().view()).changes, view.changes)
 })
 
 test('Off records nothing; Observe records the would-have row once per attempt and never acts', async t => {

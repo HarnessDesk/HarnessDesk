@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { rename } from 'node:fs/promises'
 import type { LeadState } from '@harnessdesk/lead'
 import { leadAutonomyMode, leadRulesAddendum } from '@harnessdesk/lead'
-import { LEAD_AUTONOMY_DEFAULTS, LEAD_AUTONOMY_KINDS, LEAD_RULE_DEFAULTS, LEAD_RULE_LIMITS, LEAD_RULE_SECTIONS, LEAD_RULE_TITLES, parseLeadAutonomySet, parseLeadDeadlineSet,
-  parseLeadRulesUpdate, type LeadAutonomyKind, type LeadAutonomyMode, type LeadAutonomyModes, type LeadAutonomyRecord, type LeadAutonomySet, type LeadAutonomyView,
+import { LEAD_AUTONOMY_CHANGES_KEPT, LEAD_AUTONOMY_DEFAULTS, LEAD_AUTONOMY_KINDS, LEAD_RULE_DEFAULTS, LEAD_RULE_LIMITS, LEAD_RULE_SECTIONS, LEAD_RULE_TITLES, parseLeadAutonomySet, parseLeadDeadlineSet,
+  parseLeadAutonomyChange, parseLeadRulesUpdate, type LeadAutonomyChange, type LeadAutonomyKind, type LeadAutonomyMode, type LeadAutonomyModes, type LeadAutonomyRecord, type LeadAutonomySet, type LeadAutonomyView,
   type LeadDeadline, type LeadDeadlineSet, type LeadRuleSectionId, type LeadRuleSectionView, type LeadRulesUpdate, type LeadRulesView, type LeadRuleVersion,
   type LeadWakeRecord } from '@harnessdesk/protocol'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
@@ -28,7 +28,7 @@ export interface LeadAutonomyPorts {
   /** The Lead's journal: its state is where the modes live, and `setAutonomy` is the only way they change. */
   readonly journal: {
     readonly state: LeadState
-    setAutonomy(autonomy: LeadAutonomyRecord): Promise<void>
+    setAutonomy(autonomy: LeadAutonomyRecord, change?: LeadAutonomyChange): Promise<void>
     recordWake(wake: LeadWakeRecord): Promise<void>
   }
   /** The goal in hand, for a deadline: null when none is open. */
@@ -47,6 +47,8 @@ interface Stored {
   deadline?: LeadDeadline & { passed?: boolean }
   /** Runs the Lead started on its own, kept until they end so the cap on them survives a restart. */
   automatic?: string[]
+  /** Who changed what, oldest first, the newest `LEAD_AUTONOMY_CHANGES_KEPT`. */
+  changes?: LeadAutonomyChange[]
 }
 const MAX_AUTOMATIC_IDS = 256
 const fresh = (): Stored => ({ version: 1, sections: {} })
@@ -92,6 +94,7 @@ export class LeadAutonomyStore {
       out.sections[id] = { versions: file.versions, ...(Number.isSafeInteger(file.acked) ? { acked: file.acked } : {}) }
     }
     if (source.deadline) out.deadline = source.deadline
+    if (Array.isArray(source.changes)) out.changes = source.changes.flatMap(one => { try { return [parseLeadAutonomyChange(one)] } catch { return [] } }).slice(-LEAD_AUTONOMY_CHANGES_KEPT)
     if (Array.isArray(source.automatic)) out.automatic = source.automatic.filter((id): id is string => typeof id === 'string' && id.length <= 300).slice(-MAX_AUTOMATIC_IDS)
     return out
   }
@@ -130,6 +133,11 @@ export class LeadAutonomyStore {
     return { modes, rules, ...(deadline ? { deadline: { logicalGoalId: deadline.logicalGoalId, deadlineAt: deadline.deadlineAt } } : {}) }
   }
   #modes(): LeadAutonomyModes { return this.ports.journal.state.autonomy?.modes ?? LEAD_AUTONOMY_DEFAULTS }
+  /** Keeps a change in the file, and returns it for the journal record that goes with it. */
+  #change(change: LeadAutonomyChange): LeadAutonomyChange {
+    this.#stored.changes = [...(this.#stored.changes ?? []), change].slice(-LEAD_AUTONOMY_CHANGES_KEPT)
+    return change
+  }
 
   /** After a start: the journal says what the file says. A crash between the two writes leaves the file ahead, never behind. */
   async attach(): Promise<void> {
@@ -160,14 +168,19 @@ export class LeadAutonomyStore {
     const observed = state.wakes.flatMap(wake => wake.observed ? [{ id: wake.id, at: wake.at, kind: wake.observed, note: LEAD_OBSERVED_NOTES[wake.observed] }] : []).sort((a, b) => b.at - a.at).slice(0, 32)
     const stored = this.#stored.deadline, deadline = stored && state.budget?.logicalGoalId === stored.logicalGoalId ? { logicalGoalId: stored.logicalGoalId, startedAt: stored.startedAt, deadlineAt: stored.deadlineAt, reported: stored.reported } : null
     return { version: 1, modes: this.#modes(), observed, deadline,
-      rules: LEAD_RULE_SECTIONS.map(id => { const custom = this.#custom(id); return { id, title: LEAD_RULE_TITLES[id], text: custom?.text ?? this.#defaults[id].text, custom: !!custom } }) }
+      rules: LEAD_RULE_SECTIONS.map(id => {
+        const custom = this.#custom(id), latest = this.#latest(id)
+        return { id, title: LEAD_RULE_TITLES[id], text: custom?.text ?? this.#defaults[id].text, custom: !!custom, version: latest?.version ?? 0, ...(latest ? { changedAt: latest.at } : {}) }
+      }),
+      changes: [...(this.#stored.changes ?? [])].reverse().slice(0, 32) }
   }
   async set(params: LeadAutonomySet): Promise<LeadAutonomyView> {
     const { kind, mode } = parseLeadAutonomySet(params)
     await this.#write(async () => {
       const current = this.#modes()
       if (current[kind] === mode) return
-      await this.ports.journal.setAutonomy(this.#record({ ...current, [kind]: mode }))
+      const change = this.#change({ at: this.ports.now(), by: 'person', what: 'mode', kind, from: current[kind], to: mode })
+      await this.ports.journal.setAutonomy(this.#record({ ...current, [kind]: mode }), change)
     })
     this.ports.changed?.()
     return this.view()
@@ -213,7 +226,8 @@ export class LeadAutonomyStore {
       }
       const versions = [...file.versions, entry].slice(-LEAD_RULE_LIMITS.versions)
       this.#stored.sections[id] = { versions, ...(file.acked === undefined ? {} : { acked: file.acked }) }
-      await this.ports.journal.setAutonomy(this.#record(this.#modes()))
+      const change = this.#change({ at: entry.at, by: 'person', what: 'rules', section: id, version: entry.version, how: entry.how })
+      await this.ports.journal.setAutonomy(this.#record(this.#modes()), change)
     })
     this.ports.changed?.()
     return this.rules()
@@ -231,7 +245,8 @@ export class LeadAutonomyStore {
         if (deadlineAt <= now) throw refused('lead-deadline-past', 'A deadline has to be in the future.')
         this.#stored.deadline = { logicalGoalId, startedAt: now, deadlineAt, reported: false }
       }
-      await this.ports.journal.setAutonomy(this.#record(this.#modes()))
+      const change = this.#change({ at: this.ports.now(), by: 'person', what: 'deadline', deadlineAt })
+      await this.ports.journal.setAutonomy(this.#record(this.#modes()), change)
     })
     this.ports.changed?.()
     return this.view()

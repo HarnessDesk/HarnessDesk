@@ -96,3 +96,22 @@ it('rules: a default updated after the edit shows the real difference, and Keep 
   expect(calls.filter(call => call.method === 'lead/rules/update').map(call => call.params.action)).toEqual(['reset'])
   expect(document.body.querySelector('[aria-label="What changed in the default"]')).toBeNull()
 })
+
+it('lists the changes the person made, newest first, with who made them and when; a new choice joins the top', async () => {
+  const { box } = await mount(<LeadAutonomySection />)
+  const changes = () => [...box.querySelectorAll('[aria-label="Autonomy changes"] [data-slot="row-title"]')].map(one => one.textContent)
+  expect(changes()).toEqual(['Stuck nudges: Act → Observe', 'How to talk to me: version 1 saved'])
+  expect(box.textContent).toContain('Only you change these; the Lead cannot.')
+  const select = box.querySelector<HTMLSelectElement>('select[aria-label="Repeat runs"]')!
+  await act(async () => { select.value = 'off'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  await settle()
+  expect(changes()[0]).toBe('Repeat runs: Act → Off')
+})
+
+it('rules: each edited section shows its version and when it changed, on its own row', async () => {
+  const { box } = await mount(<LeadRulesSection />)
+  const row = [...box.querySelectorAll<HTMLElement>('[data-slot="row-title"]')].find(one => one.textContent?.startsWith('How to talk to me'))!.closest<HTMLElement>('[data-slot="row"]') ?? box
+  expect(row.textContent).toMatch(/Version 1 · Nov 2/)
+  const untouched = [...box.querySelectorAll<HTMLElement>('[data-slot="row-title"]')].find(one => one.textContent?.startsWith('What counts as done'))!.closest<HTMLElement>('[data-slot="row"]') ?? box
+  expect(untouched.textContent).not.toContain('Version')
+})

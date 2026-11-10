@@ -2140,3 +2140,16 @@ test("consent counts only the person's own messages: a source is required at app
   }
   assert.deepEqual((await open(storage)).state.messages.map((message: any) => message.source), ['person', 'automatic', 'schedule'])
 })
+
+test('settings-changed names what changed, and an older record without it still reads', async () => {
+  const records: any[] = []
+  const journal = await lead.createLeadJournal({ async read() { return records }, async append(record: unknown) { records.push(record) } })
+  await journal.settingsChanged()
+  await journal.settingsChanged('lex')
+  await journal.settingsChanged(undefined, { checks: true, reviews: false })
+  await journal.settingsChanged(undefined, undefined, 'credential')
+  assert.deepEqual(records.filter(one => one.type === 'settings-changed').map(one => one.what), ['activity', 'name', 'follow', 'credential'])
+  for (const record of records) assert.deepEqual(lead.parseLeadJournalRecord(record), record)
+  assert.doesNotThrow(() => lead.parseLeadJournalRecord({ version: 1, seq: 9, type: 'settings-changed' }))
+  assert.throws(() => lead.parseLeadJournalRecord({ version: 1, seq: 9, type: 'settings-changed', what: 'the words' }))
+})

@@ -58,7 +58,8 @@ export const LeadRulesSection = () => {
     <Rows>
       {view.sections.map(one => <Row key={one.id} title={one.title}
         titleChip={one.defaultUpdated ? <Chip tone="warning">Default updated</Chip> : one.custom ? <Chip tone="neutral">Edited</Chip> : undefined}
-        control={<Button variant="secondary" onClick={() => setOpen(one.id)}>Edit</Button>} />)}
+        control={<>{one.history[0] && <Text role="meta">{`Version ${one.version} · ${when(one.history[0].at)}`}</Text>}
+          <Button variant="secondary" onClick={() => setOpen(one.id)}>Edit</Button></>} />)}
     </Rows>
     {error && <Text role="muted">{error}</Text>}
     {section && <RuleDialog section={section} prompt={view.prompt} save={save} close={() => setOpen(null)} />}

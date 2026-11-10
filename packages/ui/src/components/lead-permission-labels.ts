@@ -9,6 +9,7 @@ const LEAD_METHOD_LABELS: Readonly<Record<ClientMethodName, { readonly permissio
   'lead/chat/start': { permission: 'Start a project chat', activity: 'Starting a chat' },
   'lead/chat/send': { permission: 'Message a project chat', activity: 'Messaging a chat' },
   'lead/chat/stop': { permission: 'Stop a project chat', activity: 'Stopping a chat' },
+  'lead/context/use': { permission: 'Read its own context use', activity: 'Checking its context' },
   'client/hello': { permission: 'Connect to the desk' },
   'client/subscribe': { permission: 'Watch desk activity' },
   'session/loadout': { permission: 'Read conversation context' },
