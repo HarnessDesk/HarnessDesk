@@ -4,7 +4,7 @@ import {
   LEAD_CONTEXT, leadCheckpointInstruction, leadCheckpointMessages, leadCheckpointRefusal, leadCheckpointText, leadCheckpointTurn,
   leadContextBoundary, leadContextBytes, leadContextMarkOf, leadContextPressure, leadContextSplit, leadContextWindow, leadEstimatedTokens,
   leadCheckpointCompose, leadFallbackCheckpoint, leadFitTurns, leadHistory, leadMergedTurns, leadNextSoftShare, leadPairedTurns, leadPersonSection,
-  leadPruneContext, parseLeadContextTurns,
+  leadPruneContext, parseLeadContextTurns, LEAD_CONTEXT_UNCOUNTED,
   type LeadCompactionTrigger, type LeadContextMark, type LeadContextRecordInput, type LeadJournal, type LeadMessagesRequest,
   type LeadMessagesResult, type MessagesText, type MessagesTurn,
 } from '@harnessdesk/lead'
@@ -164,12 +164,10 @@ export class LeadContextStore {
     return { type: 'record', base: integer(value.base, 0), extend: textBlocks(value.extend), turns: parseLeadContextTurns(value.turns ?? []).turns,
       measured: measured ? { tokens: integer(measured.tokens, 0), bytes: integer(measured.bytes, 0) } : null }
   }
-  /** A record lands after the turns it was built on; when the desk stored something meanwhile, after that too. */
+  /** A record lands after the stored turns: the turns it was built on and, when the desk stored something meanwhile,
+   * that too. Its blocks for the last stored turn join that turn when it is a person or desk turn (never two turns of
+   * one role in a row), and make a turn of their own after the Lead's; its base never moves it. */
   #applied(turns: readonly MessagesTurn[], record: Pick<RecordLine, 'base' | 'extend' | 'turns'>): MessagesTurn[] {
-    const last = turns.at(-1)
-    // Never two turns of one role in a row: what a step adds after a desk turn joins it.
-    if (record.base === turns.length && last?.role === 'user' && record.extend.length)
-      return [...leadMergedTurns([...turns.slice(0, -1), { role: 'user', content: [...last.content, ...record.extend] }, ...record.turns])]
     return [...leadMergedTurns([...turns, ...(record.extend.length ? [{ role: 'user' as const, content: [...record.extend] }] : []), ...record.turns])]
   }
   #adopt(header: Header, turns: readonly MessagesTurn[], measured: RecordLine['measured']): void {
@@ -219,6 +217,19 @@ export class LeadContextStore {
     return kept
   }
 
+  /**
+   * The person's section of a checkpoint over `region`: every person message the conversation took in up to the end of
+   * the region (those earlier checkpoints already covered, then the region's own), quoted from the journal, which is the
+   * only record of what the person said. Never read back from an earlier checkpoint's text, which the model wrote around.
+   * A message the journal no longer holds is named by its reference.
+   */
+  #personSection(region: readonly MessagesTurn[], tail: readonly MessagesTurn[]): string {
+    const later = new Set(personIds(tail)), ids = [...new Set([...this.#known, ...personIds(region)])].filter(id => !later.has(id))
+    const recorded = new Map(this.options.journal.state.messages.flatMap(message => message.role === 'user' ? [[message.id, message.text] as const] : []))
+    const covered = new Set(ids)
+    const words = this.options.journal.state.messages.flatMap(message => message.role === 'user' && covered.has(message.id) ? [{ id: message.id, text: message.text }] : [])
+    return leadPersonSection(words, ids.filter(id => !recorded.has(id)))
+  }
   /** Person messages the stored conversation does not hold yet, oldest first, as the words a request carries. */
   #unstored(): MessagesTurn[] {
     const known = new Set([...this.#known, ...personIds(this.#turns)])
@@ -259,7 +270,8 @@ export class LeadContextStore {
     })
   }
   /** One step's turns, from the child. Recorded against whatever epoch is current: a step cut across a compaction
-   * still happened after the turns the checkpoint kept. */
+   * still happened after the turns the checkpoint kept, so a record from an earlier epoch goes after them, its base
+   * (a count in a conversation that no longer exists) never read. */
   record(input: LeadContextRecordInput): Promise<void> {
     return this.#serial(async () => {
       // The provider's count for the step's last request, against the bytes of the messages that request carried:
@@ -267,7 +279,8 @@ export class LeadContextStore {
       const tokens = input.usage ? input.usage.input + input.usage.cacheRead + input.usage.cacheWrite : null
       const bytes = input.usage?.bytes ?? leadContextBytes(this.#turns)
       if (tokens !== null) this.#overhead = Math.max(0, tokens - leadEstimatedTokens(bytes))
-      await this.#append({ base: input.base, extend: input.extend, turns: input.turns, measured: tokens === null ? null : { tokens, bytes } })
+      const base = input.epoch === this.#epoch ? input.base : this.#turns.length
+      await this.#append({ base, extend: input.extend, turns: input.turns, measured: tokens === null ? null : { tokens, bytes } })
     })
   }
   async #append(record: Omit<RecordLine, 'type'>): Promise<void> {
@@ -351,7 +364,7 @@ export class LeadContextStore {
       try { requiredIds = await this.#connections.ledgerIds?.() ?? [] } catch { /* A checkpoint without the ledger's ids still stands. */ }
       const regionBytes = leadContextBytes(region)
       // The person's words come from the desk, never from the model: only a message the desk recorded as theirs.
-      const person = leadPersonSection(region, previous)
+      const person = this.#personSection(region, this.#turns.slice(from))
       const attempts = journal.state.context.failures >= LEAD_CONTEXT.breaker ? 1 : LEAD_CONTEXT.attempts
       let text: string | null = null, usdMicros = 0
       for (let attempt = 0; attempt < attempts && text === null; attempt++) {
@@ -370,6 +383,11 @@ export class LeadContextStore {
           const composed = written ? leadCheckpointCompose(person, written) : null
           reason = written === null ? (/^[a-z-]{1,64}$/.test(result.reason ?? '') ? result.reason! : result.status) : leadCheckpointRefusal(written, { regionBytes, requiredIds, ...(composed ? { composed } : {}) }) ?? ''
           if (composed !== null && !reason) text = composed
+          // The provider refused the desk's own key, configuration or request: no attempt of the model's will do better.
+          if (written === null && LEAD_CONTEXT_UNCOUNTED.includes(reason)) {
+            await journal.contextCompactionFailed(id, reason)
+            return 'stopped'
+          }
         } catch {
           // The host could not reach the Lead (or the reply did not pass the screen): not the model's failure either.
           await journal.contextCompactionFailed(id, 'unreachable')
@@ -378,7 +396,7 @@ export class LeadContextStore {
         if (text === null) await journal.contextCompactionFailed(id, reason.slice(0, 64))
       }
       const fallback = text === null
-      text ??= leadFallbackCheckpoint({ region, previous, ledgerIds: requiredIds })
+      text ??= leadFallbackCheckpoint({ region, previous, ledgerIds: requiredIds, person })
       const checkpoint = leadCheckpointTurn(id, text, fallback)
       const tailOf = (current: readonly MessagesTurn[]) => smallest ? leadPruneContext(current.slice(from), 0) : current.slice(from)
       const after = [checkpoint, ...tailOf(this.#turns)]

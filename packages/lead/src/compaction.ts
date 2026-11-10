@@ -67,23 +67,16 @@ export const leadCheckpointRefusal = (text: string, facts: { readonly regionByte
 }
 
 /**
- * The person's own words in a region, with their desk references, as the checkpoint's first section. Only a message
- * the desk recorded as the person's counts: a quote in a tool result, a worker's output or the model's own words never
- * does. The previous checkpoint's section (also the desk's) is carried over, latest kept first when they do not all fit,
- * and the references of every message left out are listed.
+ * The checkpoint's first section: the person's own words, quoted with their desk references, latest kept first when
+ * they do not all fit, and the references of every message left out listed. The desk builds it from the person
+ * messages it recorded (its journal), never from an earlier checkpoint's text and never from anything the model wrote:
+ * a quote in a tool result, a worker's output or a checkpoint can say anything. `leftOut` names messages the journal no
+ * longer holds.
  */
-export const leadPersonSection = (region: readonly MessagesTurn[], previous: string | null): string => {
-  const earlier = previous === null ? null : sections(previous).parts.find(part => isPersonHeading(part.heading))?.body ?? null
-  const carried: { id: string; line: string }[] = [], leftOut: string[] = []
-  for (const line of (earlier ?? '').split('\n')) {
-    const quote = /^- ".*" \[([A-Za-z0-9._:/-]{1,128})\]$/.exec(line)
-    if (quote) carried.push({ id: quote[1]!, line })
-    const dropped = /^Earlier person messages left out, by desk reference: (.+)\.$/.exec(line)
-    if (dropped) leftOut.push(...dropped[1]!.split(', ').filter(id => /^[A-Za-z0-9._:/-]{1,128}$/.test(id)))
-  }
-  const fresh = leadPersonWords(region.filter(turn => leadCheckpointText(turn) === null))
+export const leadPersonSection = (words: readonly { readonly id: string; readonly text: string }[], leftOut: readonly string[] = []): string => {
+  const all = words.filter(word => /^[A-Za-z0-9._:/-]{1,128}$/.test(word.id))
     .map(word => ({ id: word.id, line: `- "${clip(word.text.replace(/\s+/g, ' ').trim(), 600)}" [${word.id}]` }))
-  const all = [...carried, ...fresh], quotes: string[] = []
+  const quotes: string[] = []
   let budget = 6000, cut = all.length
   for (let index = all.length - 1; index >= 0; index--) {
     if (all[index]!.line.length > budget) break
@@ -91,15 +84,16 @@ export const leadPersonSection = (region: readonly MessagesTurn[], previous: str
     quotes.unshift(all[index]!.line)
     cut = index
   }
-  const dropped = [...leftOut, ...all.slice(0, cut).map(item => item.id)].slice(-200)
+  const dropped = [...leftOut.filter(id => /^[A-Za-z0-9._:/-]{1,128}$/.test(id)), ...all.slice(0, cut).map(item => item.id)].slice(-200)
   return [quotes.length ? quotes.join('\n') : 'None in this part of the conversation.',
     ...(dropped.length ? [`Earlier person messages left out, by desk reference: ${dropped.join(', ')}.`] : [])].join('\n')
 }
 /** The checkpoint as kept: the desk's section of the person's words first, then the model's sections. Any section the
- * model titled as the person's is dropped, so the person's words come only from the desk. */
+ * model titled as the person's is dropped, and so is anything it wrote before its first heading, which would otherwise
+ * read as part of the person's section: the person's words come only from the desk. */
 export const leadCheckpointCompose = (personSection: string, modelText: string): string => {
-  const { lead, parts } = sections(modelText)
-  return [PERSON_HEADING, personSection, ...(lead ? ['', lead] : []),
+  const { parts } = sections(modelText)
+  return [PERSON_HEADING, personSection,
     ...parts.filter(part => !isPersonHeading(part.heading)).flatMap(part => ['', `## ${part.heading}`, part.body || 'None.'])].join('\n')
 }
 
@@ -140,15 +134,15 @@ const render = (turn: MessagesTurn): string => `${turn.role === 'user' ? 'Person
 
 /**
  * The checkpoint the desk writes when the model could not: the person's own words (the same section every checkpoint
- * has), the opening two turns of the region as they were, the earlier checkpoint and the work ids. Deterministic: the
+ * has, as the desk built it; from the region's own when none is given), the opening two turns of the region as they were, the earlier checkpoint and the work ids. Deterministic: the
  * same region gives the same text.
  */
-export const leadFallbackCheckpoint = (facts: { readonly region: readonly MessagesTurn[]; readonly previous: string | null; readonly ledgerIds: readonly string[] }): string => {
+export const leadFallbackCheckpoint = (facts: { readonly region: readonly MessagesTurn[]; readonly previous: string | null; readonly ledgerIds: readonly string[]; readonly person?: string }): string => {
   const region = facts.region.filter(turn => leadCheckpointText(turn) === null)
   const head = region.slice(0, 2).map(turn => clip(render(turn), 1500))
   const others = facts.previous === null ? '' : sections(facts.previous).parts.filter(part => !isPersonHeading(part.heading))
     .map(part => `### ${part.heading}\n${part.body}`).join('\n')
-  const text = leadCheckpointCompose(leadPersonSection(facts.region, facts.previous), [
+  const text = leadCheckpointCompose(facts.person ?? leadPersonSection(leadPersonWords(region)), [
     `## ${LEAD_CHECKPOINT_SECTIONS[1]}`, 'Not summarised. The opening of this part of the conversation, as it was:', ...head,
     '', `## ${LEAD_CHECKPOINT_SECTIONS[2]}`, facts.ledgerIds.length ? facts.ledgerIds.map(id => `- ${id}`).join('\n') : 'None recorded.',
     '', `## ${LEAD_CHECKPOINT_SECTIONS[3]}`, 'Not summarised; read the latest messages.',

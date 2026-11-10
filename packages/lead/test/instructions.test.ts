@@ -65,10 +65,10 @@ test('the desk message says the person approved the plan, and how a step is star
 
 test('the desk message names the state of every step, so a step that has started is not started again', () => {
   const contract = contractOf()
-  const text = textOf(leadContinuation({ contract, steps: [{ id: 'first', state: 'started' }, { id: 'second', state: 'pending' }] }))
-  assert.ok(text.split('\n').includes('Step states: first started, second pending.'))
+  const lines = (blocks: readonly { readonly text: string }[]) => blocks.flatMap(block => block.text.split('\n'))
+  assert.ok(lines(leadContinuation({ contract, steps: [{ id: 'first', state: 'started' }, { id: 'second', state: 'pending' }] })).includes('Step states: first started, second pending.'))
   // A step the journal has no record of yet is still waiting to be started.
-  assert.ok(textOf(leadContinuation({ contract, steps: [] })).split('\n').includes('Step states: first pending, second pending.'))
+  assert.ok(lines(leadContinuation({ contract, steps: [] })).includes('Step states: first pending, second pending.'))
 })
 
 test('a contract longer than one block is split into well-formed blocks that carry all of it', () => {
@@ -132,4 +132,19 @@ test('reports verify from evidence and learn at most one sourced lesson from fai
   assert.match(text, /name its source in brackets/)
   assert.match(text, /Never learn a lesson from an errored check/)
   assert.match(text, /how to verify line drawn from the passed assertions and their recorded evidence/)
+})
+
+test('the approved plan is the same text whatever the moment, and where it stands is said apart from it', async () => {
+  const { leadApprovedPlan, leadPlanMoment } = await import('../src/index.js')
+  const contract = contractOf()
+  const plan = textOf(leadApprovedPlan(contract))
+  assert.equal(textOf(leadApprovedPlan(contractOf())), plan, 'the same contract gives the same blocks')
+  assert.ok(plan.includes(JSON.stringify(contract)))
+  for (const moment of ['Step states:', 'Open worker approvals:', 'Runs owned by these steps', 'permits you to propose a new plan now'])
+    assert.ok(!plan.includes(moment), `${moment} is of the moment, not the plan`)
+  const now = textOf(leadPlanMoment({ contract, steps: [{ id: 'first', state: 'started' }], runs: [{ runId: 'run-1', correlationId: 'c-1', teamId: 'team-1' }], mayProposeNewPlan: true }))
+  assert.match(now, /^Step states: first started, second pending\./)
+  assert.match(now, /"runId":"run-1"/)
+  assert.match(now, /propose a new plan now/)
+  assert.equal(textOf(leadContinuation({ contract, steps: [] })), plan + textOf(leadPlanMoment({ contract, steps: [] })))
 })

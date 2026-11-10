@@ -100,22 +100,30 @@ export interface LeadContinuationFacts {
   readonly mayProposeNewPlan?: boolean
   readonly runs?: readonly { readonly runId: string; readonly correlationId: string; readonly teamId: string }[]
 }
-/** What the desk says when the model is asked to go on from a plan the person approved: the contract itself, where
- * each step stands, and how a step is started. It is a message of its own that goes last in the conversation, never
- * a change to the standing instructions, because a provider refuses to replay a reasoning block behind a system
- * prompt that has changed since the block was written. A contract too large to carry is refused, never cut short. */
-export const leadContinuation = (facts: LeadContinuationFacts): readonly MessagesText[] => {
-  const { contract } = facts
-  const states = contract.steps.map(step => `${step.id} ${facts.steps.find(one => one.id === step.id)?.state ?? 'pending'}`).join(', ')
-  const text = [
+/** Text cut into blocks of at most `BLOCK_CHARS`, never between the two halves of a character. */
+const textBlocks = (text: string): MessagesText[] => {
+  const blocks: MessagesText[] = []
+  for (let at = 0; at < text.length;) {
+    let end = Math.min(text.length, at + BLOCK_CHARS)
+    // A character outside the Basic Multilingual Plane takes two UTF-16 units, and a block may not end between them.
+    if (end < text.length && text.charCodeAt(end - 1) >= 0xd800 && text.charCodeAt(end - 1) <= 0xdbff) end--
+    blocks.push({ type: 'text', text: text.slice(at, end) })
+    at = end
+  }
+  return blocks
+}
+/**
+ * The plan the person approved, as the desk carries it to the model: the contract itself and how a step is started.
+ * The same contract always gives the same blocks, so the conversation carries it once and a request can tell whether
+ * it is there. It is the host's own words, kept verbatim in the stored conversation; what changes from one request to
+ * the next is in `leadPlanMoment`. A contract too large to carry is refused, never cut short.
+ */
+export const leadApprovedPlan = (contract: LeadAcceptanceContract): readonly MessagesText[] => {
+  const blocks = textBlocks([
     'The person approved your plan. Continue from the approved contract and fresh desk observations.',
     'Answer the latest person message normally. A question, clarification or ordinary task does not replace this reviewed plan or authorize new reviewed steps. Keep unrelated conversation separate from its execution.',
     `Approved contract: ${JSON.stringify(contract)}`,
-    `Step states: ${states}.`,
-    ...(facts.contract.steps.some(step => step.sourceRevision === 'recipe-1') ? [`For steps recorded under recipe-1, use this frozen Flow source unchanged:\n${leadReviewedResultSourceFor('recipe-1')}`] : []),
-    leadObservation(facts.personActions ?? []),
-    ...(facts.runs ? [`Runs owned by these steps (including settled runs): ${JSON.stringify(facts.runs)}.`] : []),
-    ...(facts.mayProposeNewPlan ? ['The desk has confirmed that every started step has settled and no result is awaiting your decision. The new person message permits you to propose a new plan now.'] : []),
+    ...(contract.steps.some(step => step.sourceRevision === 'recipe-1') ? [`For steps recorded under recipe-1, use this frozen Flow source unchanged:\n${leadReviewedResultSourceFor('recipe-1')}`] : []),
     'If every approved step has started and fresh desk observations confirm its run has settled with no result possible, respond to a new person message with a new plan for approval. Use new step ids, a higher contract revision and the same project. Do not ask the person to approve a plan you have not proposed. The earlier approval covers only its own steps; start nothing new until the new plan is approved.',
     'The desk keeps no separate goal record for this contract, so do not look for one. ' +
       "To start a step, call flow_preview with root (the project root), source (the frozen Flow for that step, unchanged), seats (each of the step's assignments as its role mapped to a list holding its seat), " +
@@ -126,15 +134,27 @@ export const leadContinuation = (facts: LeadContinuationFacts): readonly Message
     "A worker's own run of a check never counts: a required check counts only when the person runs it on the Team. " +
       'When a review is in and a required check has no result, ask the person to run that check on its card, by its name. ' +
       'The desk offers the result for their decision only after that, so until then never say the step waits only for their decision.',
-  ].join('\n')
-  const blocks: MessagesText[] = []
-  for (let at = 0; at < text.length;) {
-    let end = Math.min(text.length, at + BLOCK_CHARS)
-    // A character outside the Basic Multilingual Plane takes two UTF-16 units, and a block may not end between them.
-    if (end < text.length && text.charCodeAt(end - 1) >= 0xd800 && text.charCodeAt(end - 1) <= 0xdbff) end--
-    blocks.push({ type: 'text', text: text.slice(at, end) })
-    at = end
-  }
+  ].join('\n'))
+  // One block is left for the moment's facts that go with it.
+  if (blocks.length > BLOCKS_PER_MESSAGE - 1) throw new Error('lead-continuation-too-large')
+  return blocks
+}
+/** Where the approved plan stands at this moment: each step's state, the runs it owns and the waits on the person.
+ * Desk context: it goes after the plan and is stubbed when the step is stored, so stale states never pile up. */
+export const leadPlanMoment = (facts: LeadContinuationFacts): readonly MessagesText[] => {
+  const states = facts.contract.steps.map(step => `${step.id} ${facts.steps.find(one => one.id === step.id)?.state ?? 'pending'}`).join(', ')
+  return textBlocks([
+    `Step states: ${states}.`,
+    leadObservation(facts.personActions ?? []),
+    ...(facts.runs ? [`Runs owned by these steps (including settled runs): ${JSON.stringify(facts.runs)}.`] : []),
+    ...(facts.mayProposeNewPlan ? ['The desk has confirmed that every started step has settled and no result is awaiting your decision. The new person message permits you to propose a new plan now.'] : []),
+  ].join('\n'))
+}
+/** What the desk says when the model is asked to go on from a plan the person approved: the plan, then where it stands.
+ * It is a message of its own that goes last in the conversation, never a change to the standing instructions, because
+ * a provider refuses to replay a reasoning block behind a system prompt that has changed since the block was written. */
+export const leadContinuation = (facts: LeadContinuationFacts): readonly MessagesText[] => {
+  const blocks = [...leadApprovedPlan(facts.contract), ...leadPlanMoment(facts)]
   if (blocks.length > BLOCKS_PER_MESSAGE) throw new Error('lead-continuation-too-large')
   return blocks
 }

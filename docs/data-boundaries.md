@@ -182,7 +182,10 @@ context of each moment replaced by a one-line stub and model reasoning never
 stored) and `context-checkpoints.json` (the latest eight summaries, oldest
 first; a summary that fails the reply screen keeps its place without its text).
 The summary's section of the person's words is built on the desk from the
-person's recorded messages, never from what the model wrote. When the
+person's messages in the Lead's journal, never from what the model wrote or
+from an earlier summary's text; the model's own text before its first section
+is dropped. The approved plan is stored once, as the host sent it, and sent
+again after a summary replaced the part that held it. When the
 conversation fills, or the person chooses Summarise now, the host sends the same
 conversation to the same provider with one more instruction and stores the
 summary it writes; if that fails, the host builds one from the conversation

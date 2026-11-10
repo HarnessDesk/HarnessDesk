@@ -28,13 +28,13 @@ export type { LeadTools, LeadToolsOptions, LeadResolvedTool } from './tools.js'
 export { evaluateLeadAcceptance, leadPublicationEvidenceRevision, leadResultSummary, leadVerifyLine, LEAD_HEDGE_PHRASES, LEAD_REPAIR_INSTRUCTIONS, leadAssertionsToRerun, leadRepairInput, leadRepairDetail, leadAcceptanceObservation } from './acceptance.js'
 export type { LeadAcceptanceEvidence, LeadAcceptanceResult } from './acceptance.js'
 export { LEAD_REVIEWED_RESULT, leadReviewedResultSource, leadReviewedResultSourceFor } from './recipes/reviewed-result.js'
-export { leadInstructions, leadContinuation, leadObservation, parseLeadSeatChoices, LEAD_SEATS_PER_ROLE } from './instructions.js'
+export { leadInstructions, leadContinuation, leadApprovedPlan, leadPlanMoment, leadObservation, parseLeadSeatChoices, LEAD_SEATS_PER_ROLE } from './instructions.js'
 export type { LeadSeatChoices, LeadInstructionFacts, LeadContinuationFacts } from './instructions.js'
 
 export { leadDataContainsCredential } from './journal-security.js'
 export { leadWorkCards } from './work.js'
 export { LEAD_CONTEXT, LEAD_CONTEXT_WINDOWS, LEAD_DESK_STUB_PREFIX, leadContextWindow, leadContextBytes, leadEstimatedTokens, leadContextPressure, leadNextSoftShare,
-  leadDeskStub, leadContextMarkOf, leadStubVolatile, leadContextRecord, leadWithoutReasoning, leadPruneContext, leadContextBoundary, leadContextSplit, leadCloseOpenLoop, leadPairedTurns, leadMergedTurns, leadAppendUser, LEAD_EPOCH_ADDENDA, leadEpochAddendum } from './context.js'
+  leadDeskStub, leadContextMarkOf, leadStubVolatile, leadContextRecord, leadWithoutReasoning, leadPruneContext, leadContextBoundary, leadContextSplit, leadCloseOpenLoop, leadPairedTurns, leadMergedTurns, leadAppendUser, leadWithPlan, LEAD_EPOCH_ADDENDA, leadEpochAddendum } from './context.js'
 export type { LeadContextMark, LeadContextRecord, LeadContextPressureInput } from './context.js'
 export { LEAD_CHECKPOINT_SECTIONS, LEAD_CHECKPOINT_OPEN, leadCheckpointInstruction, leadCheckpointRefusal, leadCheckpointTurn, leadCheckpointText, leadPersonWords,
   leadFallbackCheckpoint, leadCheckpointMessages, leadRegionBytes, leadPersonSection, leadCheckpointCompose, leadFitTurns } from './compaction.js'

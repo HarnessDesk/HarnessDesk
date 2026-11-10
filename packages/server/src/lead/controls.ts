@@ -6,7 +6,7 @@ import {
   parseLeadBudgetRaise, parseLeadSpendLimitSet, leadNoSpendLimit, type LeadBudgetRaise, type LeadSpendLimitSet, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadLimitedCaps, leadContinuation, leadHistory, leadAppendUser, leadContextMarkOf, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadLimitedCaps, leadApprovedPlan, leadPlanMoment, leadWithPlan, leadHistory, leadAppendUser, type LeadContextMark, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -362,13 +362,20 @@ export class LeadControls {
         let messages: MessagesTurn[] = stored ? [...stored.messages] : leadHistory(journal.state.messages)
         // Once a plan is approved every request carries the contract, because the standing instructions say it
         // arrives in a message. It is the host's own words, kept in the stored conversation as they are (`kept`), so
-        // a later wake still reads the plan's step ids.
+        // a later wake still reads the plan's step ids. With the context engine it is stored once: a conversation that
+        // already carries it gets no second copy, and one a checkpoint took it from gets it again. Without it, the
+        // words the person can read never hold it, so it goes on every request.
         const { contract, steps } = journal.state
-        if (contract) messages = leadAppendUser(messages, leadContinuation({ contract, steps, runs: leadPlanRuns(journal.state), mayProposeNewPlan: canReplaceLeadPlan(journal.state),
-          personActions: await this.options.readPersonActions?.() ?? [] }))
-        const kept = contract ? leadContextMarkOf(messages) : null
+        let kept: LeadContextMark | null = null
         // What follows is desk context of this moment: after the cache mark, and stubbed when the step is stored.
         const desk: { type: 'text'; text: string }[] = []
+        if (contract) {
+          const planned = leadWithPlan(messages, leadApprovedPlan(contract))
+          messages = planned.messages; kept = stored ? planned.kept ?? null : null
+          // Where the plan stands now (step states, its runs, the open waits) is of this moment, never kept verbatim.
+          desk.push(...leadPlanMoment({ contract, steps, runs: leadPlanRuns(journal.state), mayProposeNewPlan: canReplaceLeadPlan(journal.state),
+            personActions: await this.options.readPersonActions?.() ?? [] }))
+        }
         const recovery = leadRecoveryContext(waitReason)
         if (recovery) desk.push({ type: 'text', text: recovery })
         // Chats the Lead already started or wrote to since its last reply are not in the words above, so a Lead resumed
@@ -385,7 +392,7 @@ export class LeadControls {
         // One user turn: the person's words, the plan and the desk's context of this moment are never two turns in a row.
         messages = leadAppendUser(messages, desk)
         return { maxTokens: LEAD_OUTPUT_TOKENS, messages, conversation: this.#requestConversation,
-          ...(stored ? { epoch: stored.epoch, ...(stored.base ? { base: stored.base } : {}), ...(stored.stable ? { stable: stored.stable } : {}), ...(stored && kept ? { kept } : {}) } : {}),
+          ...(stored ? { epoch: stored.epoch, ...(stored.base ? { base: stored.base } : {}), ...(stored.stable ? { stable: stored.stable } : {}), ...(kept ? { kept } : {}) } : {}),
           ...(proactive ? { proactive: true, wakeSource: journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const } : {}) }
       }
       // A compaction under way finishes first; past the hard line one runs now, whatever else is happening.

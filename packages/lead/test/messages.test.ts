@@ -617,3 +617,14 @@ test('many parallel tools with near-full history reserve only their actual diagn
   assert.equal(result.toolResults.every((item: any) => item.is_error === false), true)
   assert.ok(bytes(result.messages) <= 1_048_576)
 })
+
+test('a checkpoint request files its spend marked as compaction; an ordinary request carries no purpose', async () => {
+  const s = await setup([message(), message([{ type: 'text', text: '## Decisions made and why\nNone.' }])])
+  await s.client.request(input, new AbortController().signal)
+  await s.client.request({ ...input, compaction: true }, new AbortController().signal)
+  const reserves = s.records.flatMap(record => record.type === 'budget' && record.event.type === 'reserve' ? [record.event as any] : [])
+  assert.equal(reserves.length, 2)
+  assert.equal(reserves[0].purpose, undefined)
+  assert.equal(reserves[1].purpose, 'compaction')
+  assert.equal(s.journal.state.budget!.reservedUsdMicros, 0, 'both settled')
+})

@@ -6,7 +6,9 @@ import { reopenLeadBudgetRound, reduceLeadBudget, releaseLeadStart, applyLeadBud
 
 /** A finite migration warning, separate from the per-request audit store. */
 /** Compaction failures that end the run without counting toward the breaker. */
-export const LEAD_CONTEXT_UNCOUNTED: readonly string[] = Object.freeze(['interrupted', 'blocked', 'unreachable'])
+export const LEAD_CONTEXT_UNCOUNTED: readonly string[] = Object.freeze(['interrupted', 'blocked', 'unreachable',
+  // Refusals about the desk's own key, configuration, request or spend, not the model's writing: the run ends uncounted.
+  'lead-messages-auth', 'lead-messages-request', 'lead-messages-config', 'lead-messages-admission', 'lead-messages-capacity', 'lead-messages-billing-unknown'])
 export const removedWorkerApprovalNotice = (messages: readonly LeadMessage[], seq: number): readonly LeadMessage[] => messages.some(message => message.id === 'worker-rules-removed') ? messages : [...messages.slice(-255), { version: 1, id: 'worker-rules-removed', revision: seq, role: 'notice', text: 'Some saved approvals were removed because their targets no longer qualify. Review new requests on the desk.' }]
 
 export const LEAD_SEND_RECEIPTS = 4096
@@ -424,8 +426,9 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'context-compaction-started': state = { ...state, context: { ...state.context, pending: { id: event.id, at: event.at, trigger: event.trigger } } }; break
     case 'context-compaction-failed':
       ensure(state.context.pending?.id === event.id)
-      // A run the desk stopped (interrupted), the budget or a stop refused (blocked), or the host could not be reached
-      // (unreachable) ends without counting: only a checkpoint the model could not write counts toward the breaker.
+      // A run the desk stopped (interrupted), the budget or a stop refused (blocked), the host could not be reached
+      // (unreachable), or the provider refused the desk's own key or request, ends without counting: only a checkpoint
+      // the model could not write counts toward the breaker.
       state = { ...state, context: LEAD_CONTEXT_UNCOUNTED.includes(event.reason) ? { ...state.context, pending: null } : { ...state.context, failures: state.context.failures + 1 } }
       break
     case 'context-compaction-applied': {

@@ -3,11 +3,11 @@ import { isWaitingOnYou, type LeadStage } from '@harnessdesk/protocol'
 import type { LeadJournalPort } from './child-ipc.js'
 import { leadProactiveReport, type LeadWakeRecord, clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
-import { isLeadQuiet, leadInstructions, leadObservation, type LeadSeatChoices } from './instructions.js'
+import { isLeadQuiet, leadApprovedPlan, leadInstructions, leadObservation, type LeadSeatChoices } from './instructions.js'
 import { classifyLeadRuns, createLeadWakeGate, leadChatFingerprint, type LeadRunReading, type LeadWakeCounts } from './wake.js'
 import { createLeadMessages } from './messages.js'
 import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesTurn, MessagesUsage } from './messages-types.js'
-import { LEAD_CONTEXT, leadAppendUser, leadCloseOpenLoop, leadContextBytes, leadContextMarkOf, leadContextRecord, leadPruneContext, leadStubVolatile, type LeadContextRecord } from './context.js'
+import { LEAD_CONTEXT, leadAppendUser, leadWithPlan, leadCloseOpenLoop, leadContextBytes, leadContextMarkOf, leadContextRecord, leadPruneContext, leadStubVolatile, type LeadContextRecord } from './context.js'
 import { leadWorkCards } from './work.js'
 import { parseLeadWorkBoard } from '@harnessdesk/protocol'
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
@@ -598,8 +598,12 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           for (const [id, state] of chatChanges) if (changedChats.get(id) === state) changedChats.delete(id)
           const { compaction: _compaction, ...template } = requestTemplate
           const { base: _base, kept: _kept, stable: _stable, ...rest } = template, mark = leadContextMarkOf(history)
-          const observed = activity ? withObservation(history, observation) : history
-          await step({ ...rest, proactive, wakeSource: pendingWake.source, epoch, ...(mark ? { stable: mark, base: mark } : {}),
+          // A checkpoint may have taken the region that held the approved plan, and no person message has brought it
+          // back: the wake carries it again, kept verbatim after the mark. A conversation that holds it gets no copy.
+          let planned: ReturnType<typeof leadWithPlan> = { messages: [...history] }
+          try { if (journal.state.contract) planned = leadWithPlan(history, leadApprovedPlan(journal.state.contract)) } catch { /* Too large to carry: the host refused it too. */ }
+          const observed = activity ? withObservation(planned.messages, observation) : planned.messages
+          await step({ ...rest, proactive, wakeSource: pendingWake.source, epoch, ...(mark ? { stable: mark, base: mark } : {}), ...(planned.kept ? { kept: planned.kept } : {}),
             messages: work ? leadAppendUser(observed, [{ type: 'text', text: work }]) : observed }, undefined, pendingWake)
           // Refused as too long: owed once more, after the desk compacts.
           if (wakeOverflow && !closed) { dirty ||= activity; deskOwed ||= activity; continuationPending ||= continueTools; batchAgain = true }

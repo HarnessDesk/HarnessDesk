@@ -129,6 +129,21 @@ export const leadAppendUser = (turns: readonly MessagesTurn[], blocks: readonly 
 }
 
 /**
+ * The conversation with the approved plan in it, and where the host's own words end (`kept`). A conversation that
+ * already carries these exact blocks, in a row, is returned as it is with no `kept`: the plan is stored once, not with
+ * every message. One that does not (the plan was just approved, or a checkpoint took the region that held it) gets the
+ * plan appended, so a desk wake with no person message after a compaction still reads its step ids, seats and vars.
+ */
+export const leadWithPlan = (turns: readonly MessagesTurn[], plan: readonly MessagesText[]): { readonly messages: MessagesTurn[]; readonly kept?: LeadContextMark } => {
+  if (!plan.length || leadCarriesPlan(turns, plan)) return { messages: [...turns] }
+  const messages = leadAppendUser(turns, plan)
+  const kept = leadContextMarkOf(messages)
+  return { messages, ...(kept ? { kept } : {}) }
+}
+const leadCarriesPlan = (turns: readonly MessagesTurn[], plan: readonly MessagesText[]): boolean => turns.some(turn => turn.role === 'user' &&
+  turn.content.some((_, at) => plan.every((block, offset) => { const held = turn.content[at + offset]; return held?.type === 'text' && held.text === block.text })))
+
+/**
  * What later areas add to the standing instructions at each new epoch, in order: each entry reads the Lead's state
  * and returns a line, or null. Append-only; an entry that throws is skipped. Joined by `leadEpochAddendum`, which the
  * child passes to the loop as its `onEpoch` hook.
