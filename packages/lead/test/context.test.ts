@@ -284,6 +284,10 @@ test('a desk wake after a compaction reads the stored conversation again and sen
   const checkpoint = lead.leadCheckpointTurn('c1', '## What the person wants\nNone.', false)
   let fresh: { epoch: number; messages: lead.MessagesTurn[] } | null = null
   const context = contextPort(() => fresh)
+  // The desk's own work ledger, read for the wake without a journaled step.
+  const deskCall = s.options.desk.call, board = { version: 1, more: 0, items: [{ id: 'work-7', title: 'Fix the sign-in redirect', project: 'demo', stage: 'working',
+    group: 'working', links: { chats: [], teams: [], prs: [], issues: [] }, createdAt: 50, updatedAt: 90 }] }
+  s.options.desk.call = async (method: string, params: unknown) => method === 'lead/work/list' ? board : deskCall(method, params)
   const loop = lead.createLeadLoop({ ...s.options, context: context.port })
   try {
     await s.approve()
@@ -303,6 +307,10 @@ test('a desk wake after a compaction reads the stored conversation again and sen
     assert.equal(body.messages[0].content[0].text, checkpoint.content[0]!.type === 'text' ? checkpoint.content[0]!.text : '')
     assert.ok(marksOf(body).includes('1:0'), 'the stable mark is the last stored block')
     assert.equal(context.records.at(-1).epoch, 4, 'what the wake adds is recorded against the epoch it read')
+    const cards = body.messages.at(-1).content.find((block: any) => block.text?.startsWith('<work-ledger>'))?.text as string
+    assert.match(cards, /- work-7 \[working\] "Fix the sign-in redirect"/, 'the wake carries the open work cards')
+    assert.ok(![...s.journal.state.attempts.values()].some((attempt: any) => JSON.stringify(attempt).includes('lead/work/list')), 'reading them is not a step the Lead took')
+    assert.ok(!JSON.stringify(context.records.at(-1)).includes('work-7'), 'and they are desk context: never stored')
   } finally { await loop.close() }
 })
 

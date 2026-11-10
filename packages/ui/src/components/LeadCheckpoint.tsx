@@ -18,7 +18,7 @@ export const LeadCheckpointNotice = ({ checkpoint }: { readonly checkpoint: NonN
   const [read, setRead] = useState<Read | null>(null)
   const view = () => {
     setRead({ state: 'reading' })
-    void store.lead.readContext().then(facts => {
+    void store.lead.readContext().then(parseLeadContextFacts).then(facts => {
       const found = facts.checkpoints.find(one => one.id === checkpoint.id)
       setRead(found?.text ? { state: 'shown', checkpoint: found } : { state: 'gone' })
     }, error => setRead({ state: 'refused', error: leadRefusalText(error) }))
@@ -54,7 +54,7 @@ export const LeadContextSection = () => {
   const store = useStore(), active = useDestinationActive()
   const [facts, setFacts] = useState<LeadContextFacts | null>(null), [error, setError] = useState<string | null>(null), [pending, setPending] = useState(false)
   // Facts only: a desk that cannot answer, or answers something else, leaves the section out rather than a warning.
-  useEffect(() => { if (active) void store.lead.readContext().then(value => setFacts(parseLeadContextFacts(value)), () => setFacts(null)) }, [active, store])
+  useEffect(() => { if (active) void store.lead.readContext().then(parseLeadContextFacts).then(setFacts, () => setFacts(null)) }, [active, store])
   const compact = async () => {
     setPending(true); setError(null)
     try { setFacts(parseLeadContextFacts(await store.lead.compactContext())) } catch (failure) { setError(leadRefusalText(failure)) } finally { setPending(false) }

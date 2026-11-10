@@ -153,6 +153,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         throw error
       }
     } })
+  // A desk wake waiting on its compaction before it takes the queue.
+  let preparing: Promise<unknown> = Promise.resolve()
   const queue = <T>(operation: () => Promise<T>): Promise<T> => {
     const next = tail.then(operation)
     tail = next.catch(() => {})
@@ -540,9 +542,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       // Past the hard line, or after the provider refused the last wake as too long, the desk compacts first. It runs
       // outside the queue: its checkpoint request comes back through `compact`, which takes the queue itself.
       const owed = wakeOverflow
-      const compacted = options.context?.compact && history && requestTemplate
-        ? options.context.compact(owed ? 'overflow' : 'due').catch(() => false) : Promise.resolve(false)
-      void compacted.then(changed => queue(async () => {
+      const run = (changed: boolean) => queue(async () => {
         if (closed) return
         // A wake refused as too long reads the stored conversation again whatever it was doing: a tool loop cut there
         // goes on from the stored copy, its open calls closed as text.
@@ -582,8 +582,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           let work: string | null = null
           if (activity) {
             try {
-              const listed = await tools.execute({ method: 'lead/work/list', params: {} })
-              if (listed.outcome === 'succeeded') work = leadWorkCards(parseLeadWorkBoard(listed.value), clock.now())
+              // A read of the desk's own ledger, as the host reads it for its requests: not a step the Lead took.
+              work = leadWorkCards(parseLeadWorkBoard(await desk.call('lead/work/list' as never, {} as never)), clock.now())
             } catch { /* A wake without the cards still reads the desk. */ }
           }
           const readings = classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs)
@@ -612,7 +612,12 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
             reportActivity()
           }
         }
-      })).catch(async () => { await waitForUser('lead-activity-failed') }).catch(() => {})
+      })
+      // Without a compaction to wait for, the batch is queued at once, so `idle()` sees it.
+      const queued = options.context?.compact && history && requestTemplate
+        ? options.context.compact(owed ? 'overflow' : 'due').catch(() => false).then(run) : run(false)
+      preparing = queued.catch(() => {})
+      void queued.catch(async () => { await waitForUser('lead-activity-failed') }).catch(() => {})
     })
     reportActivity()
   }
@@ -748,7 +753,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     /** Host evidence notifications share the bounded desk-event batch. */
     refreshSoon: () => { if (!closed && started) { refreshPending = true; schedule(false) } },
     refresh: () => queue(async () => { await start(); await refresh() }),
-    idle: async () => { await tail },
+    idle: async () => { await preparing; await tail },
     async close() {
       closed = true; synchronized = false; generation++; active?.abort(); cancelBatch?.(); cancelBatch = null; reportActivity()
       await iterator?.return?.()
