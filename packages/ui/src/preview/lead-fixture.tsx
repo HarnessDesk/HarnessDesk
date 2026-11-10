@@ -143,7 +143,8 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
 /** What `lead/context/read` answers in the frames: a conversation summarised once, mostly read from the cache. */
 export const leadContextFacts: LeadContextFacts = { version: 1, windowTokens: 200_000, usedTokens: 46_000, cacheHitRate: 0.91, compacting: false, checkpoints: [
   { id: 'checkpoint-demo', at: 1_767_225_600_000, fallback: false, beforeTokens: 170_000, afterTokens: 30_000,
-    text: '## What the person wants\n"Keep the docs short" [goal]\n\n## Decisions made and why\nNone.\n\n## Work and where each piece stands\nThe sign-in page passes its checks.\n\n## Waiting on the person\nNone.\n\n## Facts learned\nEach doc is under a page.\n\n## Open questions / next step\nNone.' }] }
+    person: { messages: [{ id: 'goal', text: 'Keep the docs short' }], leftOut: [] },
+    text: '## Decisions made and why\nNone.\n\n## Work and where each piece stands\nThe sign-in page passes its checks.\n\n## Waiting on the person\nNone.\n\n## Facts learned\nEach doc is under a page.\n\n## Open questions / next step\nNone.' }] }
 
 export const leadWakeFixture = [
   { id: 'silent-1', at: Date.now() - 180_000, source: 'desk-change' as const, decision: 'silent' as const, modelTurn: false, usdMicros: null },

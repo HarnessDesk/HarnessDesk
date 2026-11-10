@@ -1024,13 +1024,35 @@ export interface LeadUsageSummary {
 export interface LeadCheckpointMarker { readonly id: string; readonly fallback?: true }
 /** Tokens a provider reported, summed over one wake's requests. The cached share of the prompt is cacheRead over all three inputs. */
 export interface LeadWakeTokens { readonly input: number; readonly output: number; readonly cacheRead: number; readonly cacheWrite: number }
+/** A checkpoint's sections, in order. The desk writes the first from the person's own messages; the model writes the
+ * other five. A view draws the first from `LeadContextCheckpoint.person`, never from the text. */
+export const LEAD_CHECKPOINT_SECTIONS = Object.freeze([
+  'What the person wants',
+  'Decisions made and why',
+  'Work and where each piece stands',
+  'Waiting on the person',
+  'Facts learned',
+  'Open questions / next step',
+] as const)
+/** The person's own words a checkpoint kept, as the desk took them from its journal: quoted with their references,
+ * latest kept first when they do not all fit, and the references of those left out. */
+export interface LeadCheckpointPerson {
+  readonly messages: readonly { readonly id: string; readonly text: string }[]
+  readonly leftOut: readonly string[]
+}
+export const LEAD_CHECKPOINT_PERSON = Object.freeze({ messages: 200, messageChars: 600, leftOut: 200 })
 /** One summary of the earlier conversation. `text` is null once the desk no longer keeps it. Untrusted prose: sanitise to render. */
 export interface LeadContextCheckpoint {
   readonly id: string; readonly at: number
   /** The model's summary was refused or failed three times; this one was built from the conversation itself. */
   readonly fallback: boolean
   readonly beforeTokens: number; readonly afterTokens: number
+  /** The model's five sections, as plain text under their headings; never drawn as markup. A summary from before
+   * `person` existed also holds the person's section here. */
   readonly text: string | null
+  /** The person's section as data: a view draws it from this, so no model text can stand in for it. Absent on a
+   * summary from before it existed, and once `text` is no longer kept. */
+  readonly person?: LeadCheckpointPerson
 }
 /** How full the Lead's conversation is and how much of it the provider served from its cache. Facts, never a control. */
 export interface LeadContextFacts {
@@ -1050,8 +1072,12 @@ export interface LeadContextFacts {
   readonly full?: true
 }
 export const LEAD_CONTEXT_CHECKPOINT_CHARS = 32_768
-const parseLeadContextCheckpoint: Validator<LeadContextCheckpoint> = object({ id, at: integer(0, Number.MAX_SAFE_INTEGER), fallback: isBoolean,
-  beforeTokens: wakeTokens, afterTokens: wakeTokens, text: nullable(boundedText(LEAD_CONTEXT_CHECKPOINT_CHARS, true, proseControls)) })
+const parseLeadCheckpointPerson: Validator<LeadCheckpointPerson> = object({
+  messages: list(object({ id, text: boundedText(LEAD_CHECKPOINT_PERSON.messageChars, true, /[\u0000-\u001f\u007f-\u009f]/) }), LEAD_CHECKPOINT_PERSON.messages),
+  leftOut: list(id, LEAD_CHECKPOINT_PERSON.leftOut) })
+const parseLeadContextCheckpoint: Validator<LeadContextCheckpoint> = omitUnset(object({ id, at: integer(0, Number.MAX_SAFE_INTEGER), fallback: isBoolean,
+  beforeTokens: wakeTokens, afterTokens: wakeTokens, text: nullable(boundedText(LEAD_CONTEXT_CHECKPOINT_CHARS, true, proseControls)),
+  person: optional(parseLeadCheckpointPerson) }), ['person'])
 export const parseLeadContextFacts: Validator<LeadContextFacts> = omitUnset(object({ version, windowTokens: integer(1, 100_000_000), usedTokens: nullable(wakeTokens),
   cacheHitRate: nullable((value, path = '') => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : fail(path, 'expected a ratio')),
   compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id), full: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['full'])

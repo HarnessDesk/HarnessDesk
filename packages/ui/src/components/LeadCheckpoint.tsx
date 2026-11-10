@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
-import { parseLeadContextFacts, type LeadContextCheckpoint, type LeadContextFacts, type LeadMessage } from '@harnessdesk/protocol'
-import { Banner, Button, Dialog, Marker, MarkerContent, Row, Rows, Section, Text } from '../design'
+import { LEAD_CHECKPOINT_SECTIONS, parseLeadContextFacts, type LeadCheckpointPerson, type LeadContextCheckpoint, type LeadContextFacts, type LeadMessage } from '@harnessdesk/protocol'
+import { Banner, Button, Chip, Dialog, Marker, MarkerContent, Row, Rows, Section, Text } from '../design'
 import { useDestinationActive } from '../panels/destination-page'
 import { sanitizeText } from '../lib/sanitize'
 import { useStore } from '../state/context'
-import { Markdown } from './Markdown'
 import { leadRefusalText } from './lead-refusals'
 
 type Read = { readonly state: 'reading' } | { readonly state: 'shown'; readonly checkpoint: LeadContextCheckpoint } | { readonly state: 'gone' } | { readonly state: 'refused'; readonly error: string }
@@ -33,12 +32,40 @@ export const LeadCheckpointNotice = ({ checkpoint }: { readonly checkpoint: NonN
       description={fallback ? 'Put together by the desk from the conversation itself. Your later messages win.' : 'The Lead\'s summary of the conversation before this point. Your later messages win.'}
       footer={<Button onClick={() => setRead(null)}>Close</Button>}>
       {read.state === 'reading' && <Text as="p" role="muted">Reading…</Text>}
-      {read.state === 'shown' && <Markdown text={sanitizeText(read.checkpoint.text ?? '')} />}
+      {read.state === 'shown' && <CheckpointBody checkpoint={read.checkpoint} />}
       {read.state === 'gone' && <Text as="p" role="muted">This summary is no longer kept. The desk keeps the latest eight.</Text>}
       {read.state === 'refused' && <Text as="p" role="prose" tone="warning">{read.error}</Text>}
     </Dialog>}
   </>
 }
+
+const MODEL_SECTIONS: ReadonlySet<string> = new Set(LEAD_CHECKPOINT_SECTIONS.slice(1))
+/** The model's text split at the desk's own section headings; anything else is a line of text. */
+const modelParts = (text: string) => text.split('\n').reduce<{ title: string | null; lines: string[] }[]>((parts, line) => {
+  const title = /^## (.+)$/.exec(line)?.[1]
+  if (title && MODEL_SECTIONS.has(title)) parts.push({ title, lines: [] })
+  else (parts.at(-1) ?? (parts.push({ title: null, lines: [] }), parts[0]!)).lines.push(line)
+  return parts
+}, [])
+/** The model's words as plain text, a line a paragraph: never markup, so nothing it wrote can draw a heading, a list
+ * or a quote of the person. The desk sends `<` and `>` as entities; they read as themselves here. */
+const PlainLines = ({ lines }: { readonly lines: readonly string[] }) => <>
+  {lines.filter(line => line.trim()).map((line, index) => <Text key={index} as="p" role="prose">{sanitizeText(line).replaceAll('&lt;', '<').replaceAll('&gt;', '>')}</Text>)}
+</>
+/** The person's own words, drawn from the data the desk took from its journal, never from the summary's text. */
+const PersonWords = ({ person }: { readonly person: LeadCheckpointPerson }) => <Section title={LEAD_CHECKPOINT_SECTIONS[0]} data-checkpoint-person="">
+  {person.messages.length
+    ? <Rows>{person.messages.map(message => <Row key={message.id} title={sanitizeText(message.text)} control={<Chip tone="neutral">{message.id}</Chip>} />)}</Rows>
+    : <Text as="p" role="muted">None in this part of the conversation.</Text>}
+  {person.leftOut.length > 0 && <Text as="p" role="muted">{`Earlier messages left out: ${person.leftOut.join(', ')}`}</Text>}
+</Section>
+/** A summary as the desk keeps it: the person's words from data, then the model's sections as plain text. */
+const CheckpointBody = ({ checkpoint }: { readonly checkpoint: LeadContextCheckpoint }) => <>
+  {checkpoint.person && <PersonWords person={checkpoint.person} />}
+  {modelParts(checkpoint.text ?? '').map((part, index) => part.title
+    ? <Section key={index} title={part.title} data-checkpoint-model=""><PlainLines lines={part.lines} /></Section>
+    : <PlainLines key={index} lines={part.lines} />)}
+</>
 
 const thousands = (tokens: number) => tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens)
 const percent = (share: number) => `${Math.round(share * 100)}%`

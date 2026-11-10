@@ -3,12 +3,12 @@ import { join } from 'node:path'
 import {
   LEAD_CONTEXT, leadCheckpointInstruction, leadCheckpointMessages, leadCheckpointRefusal, leadCheckpointText, leadCheckpointTurn,
   leadContextBoundary, leadContextBytes, leadContextMarkOf, leadContextPressure, leadContextSplit, leadContextWindow, leadEstimatedTokens,
-  leadCheckpointCompose, leadFallbackCheckpoint, leadFitTurns, leadHistory, leadMergedTurns, leadNextSoftShare, leadPairedTurns, leadPersonSection,
+  leadCheckpointCompose, leadFallbackCheckpoint, leadFitTurns, leadHistory, leadMergedTurns, leadNextSoftShare, leadPairedTurns, leadPersonSection, leadPersonQuotes, leadCheckpointModelPart,
   leadPruneContext, parseLeadContextTurns, LEAD_CONTEXT_UNCOUNTED,
   type LeadCompactionTrigger, type LeadContextMark, type LeadContextRecordInput, type LeadJournal, type LeadMessagesRequest,
   type LeadMessagesResult, type MessagesText, type MessagesTurn,
 } from '@harnessdesk/lead'
-import { parseLeadContextFacts, type LeadContextCheckpoint, type LeadContextFacts } from '@harnessdesk/protocol'
+import { parseLeadContextFacts, type LeadCheckpointPerson, type LeadContextCheckpoint, type LeadContextFacts } from '@harnessdesk/protocol'
 import { readBoundedJson, writeAtomicJson } from './bounded-json.js'
 
 /**
@@ -223,12 +223,12 @@ export class LeadContextStore {
    * only record of what the person said. Never read back from an earlier checkpoint's text, which the model wrote around.
    * A message the journal no longer holds is named by its reference.
    */
-  #personSection(region: readonly MessagesTurn[], tail: readonly MessagesTurn[]): string {
+  #personSection(region: readonly MessagesTurn[], tail: readonly MessagesTurn[]): LeadCheckpointPerson {
     const later = new Set(personIds(tail)), ids = [...new Set([...this.#known, ...personIds(region)])].filter(id => !later.has(id))
     const recorded = new Map(this.options.journal.state.messages.flatMap(message => message.role === 'user' ? [[message.id, message.text] as const] : []))
     const covered = new Set(ids)
     const words = this.options.journal.state.messages.flatMap(message => message.role === 'user' && covered.has(message.id) ? [{ id: message.id, text: message.text }] : [])
-    return leadPersonSection(words, ids.filter(id => !recorded.has(id)))
+    return leadPersonQuotes(words, ids.filter(id => !recorded.has(id)))
   }
   /** Person messages the stored conversation does not hold yet, oldest first, as the words a request carries. */
   #unstored(): MessagesTurn[] {
@@ -364,7 +364,7 @@ export class LeadContextStore {
       try { requiredIds = await this.#connections.ledgerIds?.() ?? [] } catch { /* A checkpoint without the ledger's ids still stands. */ }
       const regionBytes = leadContextBytes(region)
       // The person's words come from the desk, never from the model: only a message the desk recorded as theirs.
-      const person = this.#personSection(region, this.#turns.slice(from))
+      const quotes = this.#personSection(region, this.#turns.slice(from)), person = leadPersonSection(quotes)
       const attempts = journal.state.context.failures >= LEAD_CONTEXT.breaker ? 1 : LEAD_CONTEXT.attempts
       let text: string | null = null, usdMicros = 0, turnedAway = 0
       for (let attempt = 0; attempt < attempts && text === null; attempt++) {
@@ -412,10 +412,12 @@ export class LeadContextStore {
         model: this.options.model, usdMicros, fallback }), afterShare)
       // Still past the hard line with the smallest tail: stop compacting until it grows by the hysteresis, and say so.
       this.#fullAt = afterShare >= LEAD_CONTEXT.hardShare ? afterShare : null
-      // Shown only once it passes the same screen a reply does; the conversation keeps it either way.
+      // Shown only once it passes the same screen a reply does; the conversation keeps it either way. A view draws the
+      // person's words from `person`, the data the desk built them from, and only the model's sections from the text.
       let shown: string | null = text.slice(0, 32_768)
       try { await this.#connections.screen?.(shown) } catch { shown = null }
-      this.#checkpoints = [...this.#checkpoints, { id, at: now(), fallback, beforeTokens, afterTokens, text: shown }].slice(-CHECKPOINT_LIST)
+      this.#checkpoints = [...this.#checkpoints, { id, at: now(), fallback, beforeTokens, afterTokens, text: shown === null ? null : leadCheckpointModelPart(shown),
+        ...(shown === null ? {} : { person: quotes }) }].slice(-CHECKPOINT_LIST)
       await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, checkpoints: this.#checkpoints }, async () => {}).catch(() => {})
       return 'applied'
     } catch (error) {

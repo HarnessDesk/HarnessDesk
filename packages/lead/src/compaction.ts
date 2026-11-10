@@ -1,3 +1,4 @@
+import { LEAD_CHECKPOINT_PERSON, LEAD_CHECKPOINT_SECTIONS, type LeadCheckpointPerson } from '@harnessdesk/protocol'
 import type { MessagesTurn } from './messages-types.js'
 import { LEAD_CONTEXT, leadContextBoundary, leadContextBytes, leadPairedTurns } from './context.js'
 
@@ -7,14 +8,7 @@ import { LEAD_CONTEXT, leadContextBoundary, leadContextBytes, leadPairedTurns } 
  * so the provider reads that prefix from its cache. The desk checks what comes back and, when the model cannot write
  * one, builds the checkpoint itself from the conversation.
  */
-export const LEAD_CHECKPOINT_SECTIONS = Object.freeze([
-  'What the person wants',
-  'Decisions made and why',
-  'Work and where each piece stands',
-  'Waiting on the person',
-  'Facts learned',
-  'Open questions / next step',
-] as const)
+export { LEAD_CHECKPOINT_SECTIONS }
 
 export const LEAD_CHECKPOINT_OPEN = '<checkpoint id="'
 const PERSON_REFERENCE = 'Desk reference for the preceding person message: '
@@ -70,10 +64,17 @@ const defang = (line: string): string => {
   const match = DESK_QUOTE.exec(plain(line))
   return match ? `${match[1]}- The Lead's note, not a desk quote: ${match[2]} (${match[3]})` : line
 }
-/** Every line terminator a renderer or a model reads as a break becomes one newline, and other control characters
- * (a tab aside) are dropped, before anything is read: the heading and quote checks, and the fallback after them, see
- * the very lines a reader does. */
-const lines = (text: string): string[] => text.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n').replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u0084\u0086-\u009f]/g, '').split('\n')
+/** Characters a reader cannot see: every format character, and the letters that draw as a blank. */
+const INVISIBLE = /[\p{Cf}ᅟᅠ᠎⠀ㅤﾠ]/gu
+/**
+ * The one entry to reading a checkpoint's text, before anything else looks at it. Every line terminator a renderer or
+ * a model reads as a break becomes one newline; other control characters (a tab aside) and every invisible character
+ * are dropped; `<` and `>` become entities, so the text is never markup and never raw HTML; and each line loses its
+ * trailing blanks. The heading and quote checks, the fallback after them and every reader see the same lines.
+ */
+const lines = (text: string): string[] => text.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n')
+  .replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u0084\u0086-\u009f]/g, '').replace(INVISIBLE, '')
+  .replaceAll('<', '&lt;').replaceAll('>', '&gt;').split('\n').map(line => line.trimEnd())
 /**
  * The model's checkpoint read structurally: only the five headings it was asked for open a section (spelt however it
  * likes, kept under the desk's spelling); a heading that names the person's section is dropped with what follows it up
@@ -94,7 +95,8 @@ const modelSections = (text: string): { readonly section: string; readonly body:
       heading = { quote: quote.includes('>') ? quote : '', title: flat.slice(quote.length) }
       index++
     }
-    if (!heading) { keep(all[index]!); continue }
+    // A rule alone says nothing in a checkpoint, and beside a line it would read as that line's heading.
+    if (!heading) { if (!UNDERLINE.test(flat)) keep(all[index]!); continue }
     const key = titleKey(heading.title)
     if (key === PERSON_KEY) { skipping = true; continue }
     skipping = false
@@ -119,32 +121,48 @@ export const leadCheckpointRefusal = (text: string, facts: { readonly regionByte
 }
 
 /**
- * The checkpoint's first section: the person's own words, quoted with their desk references, latest kept first when
- * they do not all fit, and the references of every message left out listed. The desk builds it from the person
- * messages it recorded (its journal), never from an earlier checkpoint's text and never from anything the model wrote:
- * a quote in a tool result, a worker's output or a checkpoint can say anything. `leftOut` names messages the journal no
- * longer holds.
+ * The checkpoint's first section, as data: the person's own words with their desk references, latest kept first when
+ * they do not all fit, and the references of every message left out. The desk builds it from the person messages it
+ * recorded (its journal), never from an earlier checkpoint's text and never from anything the model wrote: a quote in
+ * a tool result, a worker's output or a checkpoint can say anything. `leftOut` names messages the journal no longer
+ * holds. A view draws the section from this, never from the checkpoint's text.
  */
-export const leadPersonSection = (words: readonly { readonly id: string; readonly text: string }[], leftOut: readonly string[] = []): string => {
+export const leadPersonQuotes = (words: readonly { readonly id: string; readonly text: string }[], leftOut: readonly string[] = []): LeadCheckpointPerson => {
   const all = words.filter(word => /^[A-Za-z0-9._:/-]{1,128}$/.test(word.id))
-    .map(word => ({ id: word.id, line: `- "${clip(word.text.replace(/\s+/g, ' ').trim(), 600)}" [${word.id}]` }))
-  const quotes: string[] = []
+    .map(word => ({ id: word.id, text: clip(word.text.replace(/\s+/g, ' ').trim(), LEAD_CHECKPOINT_PERSON.messageChars) }))
+  const messages: { id: string; text: string }[] = []
   let budget = 6000, cut = all.length
-  for (let index = all.length - 1; index >= 0; index--) {
-    if (all[index]!.line.length > budget) break
-    budget -= all[index]!.line.length
-    quotes.unshift(all[index]!.line)
+  for (let index = all.length - 1; index >= 0 && messages.length < LEAD_CHECKPOINT_PERSON.messages; index--) {
+    const size = quoteLine(all[index]!).length
+    if (size > budget) break
+    budget -= size
+    messages.unshift(all[index]!)
     cut = index
   }
-  const dropped = [...leftOut.filter(id => /^[A-Za-z0-9._:/-]{1,128}$/.test(id)), ...all.slice(0, cut).map(item => item.id)].slice(-200)
-  return [quotes.length ? quotes.join('\n') : 'None in this part of the conversation.',
-    ...(dropped.length ? [`Earlier person messages left out, by desk reference: ${dropped.join(', ')}.`] : [])].join('\n')
+  return { messages, leftOut: [...leftOut.filter(id => /^[A-Za-z0-9._:/-]{1,128}$/.test(id)), ...all.slice(0, cut).map(item => item.id)].slice(-LEAD_CHECKPOINT_PERSON.leftOut) }
 }
+/** One quote as the model reads it; the person's `<` and `>` become entities like everything else in the text. */
+const quoteLine = (message: { readonly id: string; readonly text: string }) => `- "${message.text.replaceAll('<', '&lt;').replaceAll('>', '&gt;')}" [${message.id}]`
+/** The person's section as the model reads it, from `leadPersonQuotes` (or from words, which it quotes first). */
+export const leadPersonSection = (person: LeadCheckpointPerson | readonly { readonly id: string; readonly text: string }[], leftOut: readonly string[] = []): string => {
+  const quotes = Array.isArray(person) ? leadPersonQuotes(person, leftOut) : person as LeadCheckpointPerson
+  return [quotes.messages.length ? quotes.messages.map(quoteLine).join('\n') : 'None in this part of the conversation.',
+    ...(quotes.leftOut.length ? [`Earlier person messages left out, by desk reference: ${quotes.leftOut.join(', ')}.`] : [])].join('\n')
+}
+const PERSON_OPEN = '<desk-person-messages>', PERSON_CLOSE = '</desk-person-messages>'
 /** The checkpoint as kept: the desk's section of the person's words first, then the model's five sections as
  * `modelSections` reads them. Whatever the model titled as the person's, wrote before its first heading or shaped like
  * a desk quote never stands as the person's words: those come only from the desk. */
 export const leadCheckpointCompose = (personSection: string, modelText: string): string =>
-  [PERSON_HEADING, personSection, ...modelSections(modelText).flatMap(part => ['', `## ${part.section}`, part.body || 'None.'])].join('\n')
+  [PERSON_HEADING, PERSON_OPEN, ...lines(personSection), PERSON_CLOSE,
+    ...modelSections(modelText).flatMap(part => ['', `## ${part.section}`, part.body || 'None.'])].join('\n')
+/** The model's five sections of a composed checkpoint, without the desk's person section: what a view draws as plain
+ * text below the person's words, which it draws from data. Model text cannot hold the envelope's closing tag, since
+ * its `<` is an entity. */
+export const leadCheckpointModelPart = (composed: string): string => {
+  const end = composed.indexOf(PERSON_CLOSE)
+  return end < 0 ? composed : composed.slice(end + PERSON_CLOSE.length).trim()
+}
 
 /** The checkpoint as the turn that opens the conversation after it. */
 export const leadCheckpointTurn = (id: string, text: string, fallback: boolean): MessagesTurn => {
@@ -194,7 +212,7 @@ export const leadFallbackCheckpoint = (facts: { readonly region: readonly Messag
     `## ${LEAD_CHECKPOINT_SECTIONS[1]}`, 'Not summarised. The opening of this part of the conversation, as it was:', ...head,
     '', `## ${LEAD_CHECKPOINT_SECTIONS[2]}`, facts.ledgerIds.length ? facts.ledgerIds.map(id => `- ${id}`).join('\n') : 'None recorded.',
     '', `## ${LEAD_CHECKPOINT_SECTIONS[3]}`, 'Not summarised; read the latest messages.',
-    '', `## ${LEAD_CHECKPOINT_SECTIONS[4]}`, others ? `From the earlier checkpoint:\n${clip(others, 6000).split('\n').map(line => `> ${line}`).join('\n')}` : 'None.',
+    '', `## ${LEAD_CHECKPOINT_SECTIONS[4]}`, others ? `From the earlier checkpoint:\n${clip(others, 6000)}` : 'None.',
     '', `## ${LEAD_CHECKPOINT_SECTIONS[5]}`, 'None.',
   ].join('\n'))
   return clip(text, LEAD_CONTEXT.checkpointChars)

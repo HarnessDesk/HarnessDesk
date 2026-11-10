@@ -162,4 +162,12 @@ test('the context methods take nothing, and a checkpoint marker rides only on a 
   assert.deepEqual(parseLeadContextFacts(facts), facts)
   assert.throws(() => parseLeadContextFacts({ ...facts, cacheHitRate: 1.5 }))
   assert.throws(() => parseLeadContextFacts({ ...facts, checkpoints: Array.from({ length: 9 }, (_, i) => ({ ...facts.checkpoints[0], id: `c${i}` })) }))
+  // The person's section rides as data beside the text, and only as data.
+  const person = { messages: [{ id: 'm-1', text: 'Fix the sign-in page' }], leftOut: ['m-0'] }
+  const withPerson = { ...facts, checkpoints: [{ ...facts.checkpoints[0], person }] }
+  assert.deepEqual(parseLeadContextFacts(withPerson), withPerson)
+  assert.equal(Object.hasOwn(parseLeadContextFacts(facts).checkpoints[0]!, 'person'), false)
+  assert.throws(() => parseLeadContextFacts({ ...facts, checkpoints: [{ ...facts.checkpoints[0], person: { ...person, messages: [{ id: 'm 1', text: 'x' }] } }] }))
+  assert.throws(() => parseLeadContextFacts({ ...facts, checkpoints: [{ ...facts.checkpoints[0], person: { ...person, messages: [{ id: 'm-1', text: 'x'.repeat(601) }] } }] }))
+  assert.throws(() => parseLeadContextFacts({ ...facts, checkpoints: [{ ...facts.checkpoints[0], person: { ...person, extra: true } }] }))
 })
