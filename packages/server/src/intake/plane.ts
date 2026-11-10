@@ -9,7 +9,7 @@ import {
   type FlowExecution, type FlowOrigin, type ForgeReference, type FlowPreview, type GoalOrigin, type SeatRecord, type TriggerArmPreview,
   type TriggerAttention, type TriggerFact, type TriggerFiring, type TriggerGoalStatus, type TriggerHistoryPage,
   type TriggerDefinition, type TriggerPreferences, type TriggerProjectView, type TriggerSource, type TriggerSourceStatus, type TriggerView,
-  type WireNotification,
+  type WireNotification, type PhoneTriageRow, type TriggerDecision, type TriggerDecisionsPage, type TriggerMode,
 } from '@harnessdesk/protocol'
 
 import type { CredentialCipher } from '../credentials.js'
@@ -18,7 +18,7 @@ import type { GhApiRunner } from '../findings/forge.js'
 import { Serial } from '../goals/assignments.js'
 import { atomicJson } from '../goals/store.js'
 import type { UsageSample } from '../ledger/insight.js'
-import { Admission, AGAIN_MISSING, SKIP_CHANGED, type AdmissionOptions, type GoalLifecycle, type OfferAnswer } from './admission.js'
+import { Admission, AGAIN_MISSING, PAUSED, SKIP_CHANGED, type AdmissionOptions, type GoalLifecycle, type OfferAnswer } from './admission.js'
 import { IntakeEffects, type IntakeObservationPort, type TriggerExecutionPort, type TriggerGoalPort } from './apply.js'
 import { AttentionOutbox, type AttentionInput } from './attention.js'
 import { BudgetWatch, TriggerBudgets, utcDay, type BudgetVerdict } from './budget.js'
@@ -26,6 +26,7 @@ import { consentMatches, TriggerClosures, TriggerConsent, type ArmBinding, type 
 import { usdMicros } from './definition.js'
 import { ForgeSource } from './forge.js'
 import { goalWaits, type HostWaits } from './waits.js'
+import { MentionTriage, NO_WORK_ITEMS, type MentionAssessor, type WorkItemsPort } from './mentions.js'
 import { IntakeMonitor, intakeSources, SourceCursors } from './poll.js'
 import { readTriggerSource, type TriggerSourceFile } from './source.js'
 import { IntakeStore, type IntakeFiring, type IntakeOperation } from './store.js'
@@ -72,6 +73,8 @@ const postId = (url: string): { repository: string; id: string } | null => {
   return review ? { repository: review[1]!, id: `review:${review[2]}` } : null
 }
 const METER_MS = 30_000
+/** How often open mention threads are followed to their pull requests' end. */
+const MENTION_SWEEP_MS = 5 * 60_000
 const SKIP_WINDOW_MS = 5 * 60_000
 const SUBJECT = /^[1-9][0-9]{0,15}$/
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
@@ -140,6 +143,18 @@ export interface IntakeHostPort {
   readonly gh?: GhApiRunner
   /** Timers the plane's watchers use; unref'd real ones when absent. */
   readonly timers?: IntakeTimers
+  /**
+   * What mention triggers reach beyond intake: the observer model (none when
+   * absent, so every request that passes the rules waits for the person), the
+   * Lead's name a trigger without a handle answers to, the pull requests a
+   * Goal's work opened, the work ledger, and how a thread's work is stopped.
+   */
+  readonly mentions?: {
+    readonly assess?: MentionAssessor | null
+    leadName?(): string
+    pullRequests?(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]>
+    readonly workItems?: WorkItemsPort
+  }
 }
 
 interface Preferences {
@@ -182,6 +197,9 @@ export class IntakePlane {
   readonly #watch: BudgetWatch
   readonly #attention: AttentionOutbox
   readonly #closures: TriggerClosures
+  readonly #mentions: MentionTriage
+  readonly #mentionsAbort = new AbortController()
+  #mentionSwept: number | null = null
   readonly #prefsSerial = new Serial()
   #prefs: Preferences = DEFAULT_PREFERENCES
   /** Why intake is off on this desk, or null. */
@@ -241,7 +259,10 @@ export class IntakePlane {
       deliver: (watch, batch) => this.#following?.deliver(watch, batch) ?? Promise.resolve(),
       sources: intakeSources(this.#forge),
       cursors: new SourceCursors(port.home),
-      offer: async (arm, fact, batch) => { await this.#offer(arm, fact, batch) },
+      offer: async (arm, fact, batch) => {
+        if (arm.definition.on.kind === 'mention') await this.#judge(arm, fact, batch)
+        else await this.#offer(arm, fact, batch)
+      },
       wall: () => port.now(),
       monotonic: () => port.monotonic(),
       timers: this.#timers,
@@ -322,6 +343,38 @@ export class IntakePlane {
     }), {
       onStep: () => this.#schedule(),
       onFault: (fault) => { void this.#track(this.#faulted(fault)).catch(() => {}) },
+    })
+    this.#mentions = new MentionTriage({
+      home: port.home,
+      forge: this.#forge,
+      assess: port.mentions?.assess ?? null,
+      leadName: () => port.mentions?.leadName?.() ?? 'dex',
+      stop: async (goals, why) => {
+        // The host's own stop: checks first, then every run still going, then any live turn on the Goal's Seats.
+        let stopped = 0
+        for (const goal of goals) {
+          port.flows.interruptChecks?.(goal)
+          for (const run of port.flows.runs(goal).filter((one) => one.intake && (one.state === 'running' || one.state === 'stalled'))) {
+            await port.flows.stopRun(run.id, why)
+            stopped += 1
+          }
+          await port.interrupt(goal)
+        }
+        this.#schedule()
+        return stopped
+      },
+      pullRequests: (repository, goals, firings) => port.mentions?.pullRequests?.(repository, goals, firings) ?? Promise.resolve([]),
+      workItems: port.mentions?.workItems ?? NO_WORK_ITEMS,
+      ask: (arm, decision) => this.#attention.notice(`triage:${arm.project}:${arm.id}`, {
+        key: `triage:${decision.id}`, goal: null, trigger: arm.id, kind: 'triage',
+        waitingOn: { kind: 'person', label: 'You' },
+        sentence: `Trigger ${arm.id} has a request on ${decision.thread.kind === 'pull-request' ? 'pull request' : 'issue'} #${decision.thread.number} that waits for you: ${decision.reason}`,
+        action: 'open-trigger',
+      }, SKIP_WINDOW_MS),
+      changed: (project) => this.#changed(project),
+      signal: this.#mentionsAbort.signal,
+      now: () => port.now(),
+      log: (message, details) => port.log(message, details),
     })
     this.#attention = new AttentionOutbox(port.home, {
       announce: (attention) => port.push({ method: 'trigger/attention', params: { attention } }),
@@ -436,6 +489,7 @@ export class IntakePlane {
       this.#meterTimer = null
     }
     await this.#monitor.close()
+    this.#mentionsAbort.abort()
     await Promise.allSettled([...this.#work])
     await this.#metering?.catch(() => {})
     await this.#reconciling?.catch(() => {})
@@ -483,6 +537,18 @@ export class IntakePlane {
     }
     this.#schedule()
     return answer
+  }
+
+  /**
+   * A comment offered to a mention arm: triaged, joined to its thread, or
+   * nothing for this trigger. What it admits goes through the trigger's own
+   * admission, exactly as any other firing.
+   */
+  async #judge(arm: ArmedTrigger, fact: TriggerFact, batch?: object): Promise<void> {
+    if (this.#closed) throw new Error('The desk is closing.')
+    if (this.#prefs.paused) throw new Error(PAUSED)
+    if (fact.desk !== true && await this.#postedHere(fact)) fact = { ...fact, desk: true }
+    await this.#mentions.judge(arm, fact, (one, admitted) => this.#offer(one, admitted, batch))
   }
 
   /**
@@ -742,6 +808,8 @@ export class IntakePlane {
   async arm(root: string, id: string, token: string): Promise<TriggerView> {
     this.#refuseWhenOff()
     const armed = await this.#consent.arm(root, id, token)
+    // A new arm observes: acting is a person's choice for the declaration they just read, never carried over.
+    await this.#mentions.reset(await this.#project(root), id)
     await this.#monitor.refresh()
     await this.#syncTimers()
     const project = await this.#project(root)
@@ -756,6 +824,7 @@ export class IntakePlane {
   async disarm(root: string, id: string): Promise<TriggerView> {
     if (this.#closed) throw coded('The desk is closing, so triggers are not changed now.', 'HD_TRIGGER_REFUSED')
     const off = await this.#consent.disarm(root, id)
+    await this.#mentions.reset(await this.#project(root), id)
     await this.#monitor.refresh()
     await this.#syncTimers()
     const project = await this.#project(root)
@@ -973,6 +1042,42 @@ export class IntakePlane {
     return this.preferences()
   }
 
+  // ------------------------------------------------------------- mentions
+
+  async #mentionArm(root: string, id: string): Promise<{ readonly project: string; readonly arm: ArmedTrigger | null }> {
+    const project = await this.#project(root)
+    const arm = (await this.#consent.armed()).find((one) => one.project === project && one.id === id) ?? null
+    return { project, arm }
+  }
+
+  /** A mention trigger's decisions, newest first, its mode on this machine, and its threads of work. */
+  async decisions(root: string, id: string): Promise<TriggerDecisionsPage> {
+    const { project, arm } = await this.#mentionArm(root, id)
+    return this.#mentions.page(project, id, arm?.definition.on.kind === 'mention' ? arm : null)
+  }
+
+  /** Switches an armed mention trigger between observing and acting, on this machine, for this arm only. */
+  async setMode(root: string, id: string, mode: TriggerMode): Promise<TriggerDecisionsPage> {
+    this.#refuseWhenOff()
+    const { project, arm } = await this.#mentionArm(root, id)
+    if (!arm || arm.definition.on.kind !== 'mention') throw coded('Only an armed mention trigger has a mode on this machine.', 'HD_TRIGGER_REFUSED')
+    await this.#mentions.setMode(arm, mode)
+    return this.#mentions.page(project, id, arm)
+  }
+
+  /** Judges one recorded decision again on the comment as the forge holds it now. */
+  async reevaluate(root: string, id: string, decision: string): Promise<TriggerDecision> {
+    this.#refuseWhenOff()
+    const { arm } = await this.#mentionArm(root, id)
+    if (!arm || arm.definition.on.kind !== 'mention') throw coded('Arm this mention trigger to evaluate its requests again.', 'HD_TRIGGER_REFUSED')
+    return this.#mentions.reevaluate(arm, decision, (one, fact) => this.#offer(one, fact))
+  }
+
+  /** Every mention decision on this desk, newest first, for the phone: read only. */
+  triage(limit: number): Promise<readonly PhoneTriageRow[]> {
+    return this.#mentions.phone(limit)
+  }
+
   // ---------------------------------------------------------------- Goals
 
   /** A trigger Goal's origin, budget and named waits; null for every other Goal. */
@@ -988,10 +1093,12 @@ export class IntakePlane {
     const firing = snapshot.firings[origin.event]
     const source: TriggerSource = firing?.source ?? 'schedule'
     const subject = firing?.subject && SUBJECT.test(firing.subject) ? firing.subject : null
-    const label = source === 'pull-request' && subject ? `from PR #${subject}` : source === 'issue' && subject ? `from issue #${subject}` : 'from a schedule'
+    // A mention's work is labelled by the thread it started on.
+    const kind = source === 'mention' ? this.#mentions.originOf(goal)?.kind ?? 'issue' : source
+    const label = kind === 'pull-request' && subject ? `from PR #${subject}` : kind === 'issue' && subject ? `from issue #${subject}` : 'from a schedule'
     const repository = firing?.repository && REPO.test(firing.repository) ? firing.repository : null
-    const url = repository && subject && source !== 'schedule'
-      ? `https://github.com/${repository}/${source === 'pull-request' ? 'pull' : 'issues'}/${subject}`
+    const url = repository && subject && kind !== 'schedule'
+      ? `https://github.com/${repository}/${kind === 'pull-request' ? 'pull' : 'issues'}/${subject}`
       : null
     return {
       goal, trigger: origin.trigger, source, label, url,
@@ -1102,6 +1209,15 @@ export class IntakePlane {
     await this.#watch.tick()
     await this.#retryHeld()
     await this.reconcile()
+    await this.#sweepMentions()
+  }
+
+  /** Open mention threads followed to their pull requests' end, at most once in five minutes. */
+  async #sweepMentions(): Promise<void> {
+    const now = this.#port.monotonic()
+    if (this.#mentionSwept !== null && now - this.#mentionSwept < MENTION_SWEEP_MS) return
+    this.#mentionSwept = now
+    await this.#mentions.sweep()
   }
 
   // ------------------------------------------------------------ attention
@@ -1245,4 +1361,4 @@ export class IntakePlane {
 }
 
 const sourceWords = (source: TriggerSource): string =>
-  source === 'pull-request' ? 'pull request' : source === 'issue' ? 'issue event' : 'scheduled run'
+  source === 'pull-request' ? 'pull request' : source === 'issue' ? 'issue event' : source === 'mention' ? 'mention' : 'scheduled run'

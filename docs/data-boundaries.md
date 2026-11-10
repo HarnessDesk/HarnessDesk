@@ -92,6 +92,8 @@ lease on the destination branch.
 
 When a detached conversation omits the PR number in view, checks, review or comment, the host reads that conversation's intact successful creation records locally and asks the pinned GitHub repository for each recorded PR's number, state and head branch. The outbound request names the repository and PR number and uses the host's existing forge login; the local journal and conversation identity are not sent. Follow-on plugin view and checks reads explicitly name the pinned repository on github.com through the existing shell grant; the review-link API read also names github.com as its hostname. This is on demand, with no background polling. Only a unique open matching creation is selected; the capability returns minimal selection metadata, and the existing tool reads and write checks still apply.
 
+Settling review threads adds three GraphQL requests to the pinned GitHub repository, all on the host's existing forge login and all on demand. Before a settle, and when a plugin lists them, the host reads the pull request's review threads: one fixed query naming the repository and PR number as variables, returning the signed-in login, up to 100 threads with their id, path, line, resolved state, and each comment's author login, author type and body, and whether more threads or comments exist. A fixed thread is resolved with `resolveReviewThread`, which sends only the thread id. A declined thread is answered with `addPullRequestReviewThreadReply`, which sends the thread id and the one-sentence answer with the desk's marker line before it. Review text read back stays in memory for the call; only the first comment, bounded, goes to the plugin. `review-threads.json` in the host state folder keeps, per repository and PR, the repair rounds in which each bot reviewer's threads were settled and the ids of threads the desk answered. It holds no review text and stays until removed with the host state. A copy that cannot be read is renamed `review-threads.json.corrupt-<time>` beside it and kept for the person to inspect or remove.
+
 ### Optional local phone access
 
 `HARNESSDESK_PHONE_LINK=1` enables a LAN WebSocket listener. Settings › Phone
@@ -210,6 +212,28 @@ locally in this machine's own trigger consent, cursors and admission journal
 free text from a PR or an issue treated as anything but information. Pausing
 or disarming stops the polling immediately; deleting the state folder deletes
 the consent and everything it recorded, the same as any other local file.
+
+A mention trigger also reads the repository's issue comments, the issue or
+pull request a comment is on, the account behind a named person or bot, and
+the comment author's permission, all as the same signed-in person. Its
+decisions, the comment's first 280 characters as an excerpt (left blank when
+the comment looks like it holds a credential, on the desk and on the phone),
+a digest of the comment's text (so Re-evaluate can tell it was edited), its
+observe/act mode and its work threads are kept in `triggers-mentions.json` in
+the state folder, at most 500 decisions and 256 threads. Who may ask is read
+from the forge at most once in five minutes per account. While a work thread
+has no pull request, the issue it follows is read on each sweep to see
+whether it closed. With the Lead
+enabled and a key configured, each comment that passes the trigger's rules is
+sent once, as data, to the Lead's provider for a one-sentence assessment: the
+trigger id, its handle and what it opens, the repository, the thread's kind,
+number and title, and the comment's author and text. A comment that looks
+like it contains a credential is never sent, and at most 200 are sent a day.
+Each such request is held against the Lead's spend limit before it is sent:
+a reserve, then a settle at the usage the provider reports (or the whole hold
+when that cannot be known), are written to the Lead's journal like the Lead's
+own requests. With no Lead goal open, or the limit reached, nothing is sent.
+The paired phone reads the decisions list (`phone/triage/list`) read-only.
 
 **Retention:** yours. Deleting the folder, or disarming the trigger, stops it.
 

@@ -168,7 +168,7 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { leadContractDigest, readLeadEvidence, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
+import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
@@ -269,6 +269,9 @@ import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
+import { observerAssessor, type AssessCharge } from './intake/assess.js'
+import type { MentionAssessor } from './intake/mentions.js'
+import { leadProviderTransport } from './lead/provider-transport.js'
 import { NO_WAITS, actorWords, type HostWaits } from './intake/waits.js'
 import type { UsageSample } from './ledger/insight.js'
 import { InsightContexts } from './insight/context.js'
@@ -650,6 +653,11 @@ export interface HostOptions {
     readonly monotonic?: () => number
     readonly timers?: IntakeTimers
     readonly usage?: (project: string, from: number, to: number) => Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
+    /** Mention triggers' observer model, and the pull requests a Goal's work opened, scripted. */
+    readonly mentions?: {
+      readonly assess?: MentionAssessor | null
+      readonly pullRequests?: (repository: string, goals: readonly string[], firings: readonly string[]) => Promise<readonly number[]>
+    }
   }
 }
 
@@ -1387,7 +1395,7 @@ export class Host {
           return cwd && root ? { cwd, root } : null
         },
         admitWrite: async (verb, scope, args) => {
-          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '', associatedPullRequest: '' }
+          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '', associatedPullRequest: '', reviewThreads: '', settleThread: 'pr_thread_settle' }
           const result = await this.#ceilingGate.admit({ tool: verb === 'comment' && (args as { subject?: string })?.subject === 'issue' ? 'issue_comment' : names[verb], needs: verb === 'merge' ? 'merge' : 'publish',
             scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!), ...(scope.turnId ? { turnId: scope.turnId as TurnId } : {}) }, publishes: true })
           if (!result.admitted) throw new Error(result.refusal)
@@ -2542,8 +2550,68 @@ export class Host {
       monotonic: options.intake?.monotonic ?? (() => performance.now()),
       ...(options.intake?.gh ? { gh: options.intake.gh } : {}),
       ...(options.intake?.timers ? { timers: options.intake.timers } : {}),
+      mentions: {
+        // The Lead's observer model, with the Lead's own key: none while the Lead is off or has no key, so a request waits for the person.
+        assess: options.intake?.mentions?.assess !== undefined ? options.intake.mentions.assess : observerAssessor({
+          transport: this.options.leadMessagesTransport ?? leadProviderTransport,
+          key: async () => this.options.leadEnabled && (await this.#credentials.leadStatus('anthropic')).configured ? this.#credentials.resolveLead('anthropic') : null,
+          model: LEAD_MESSAGES_DEFAULTS.observerModel,
+          account: { reserve: (requestId, inputTokens, maxOutputTokens) => this.#holdLeadSpend(requestId, inputTokens, maxOutputTokens) },
+        }),
+        leadName: () => this.#leadJournal?.state.name ?? 'dex',
+        pullRequests: options.intake?.mentions?.pullRequests ?? ((repository, goals, firings) => this.#mentionPullRequests(repository, goals, firings)),
+      },
     })
     this.#context = this.#buildContext()
+  }
+
+  /**
+   * Holds one observer request against the Lead's spend limit, as a journaled
+   * reserve on the Lead's own budget ledger, priced at the Lead's model — at
+   * least what the smaller observer model costs, so the hold is an upper
+   * bound. No ledger (no Lead goal open), or a limit that refuses it, is null:
+   * nothing is sent, and the request waits for the person.
+   */
+  async #holdLeadSpend(requestId: string, inputTokens: number, maxOutputTokens: number): Promise<AssessCharge | null> {
+    const journal = this.#leadJournal
+    const price = LEAD_PRICES[LEAD_MESSAGES_DEFAULTS.model]
+    if (!journal?.state.budget || !price) return null
+    const now = (): number => Math.max(Date.now(), journal.state.budget?.now ?? 0)
+    try {
+      await journal.updateBudget({ version: 1, type: 'reserve', now: now(), requestId, inputTokens, maxOutputTokens, ...price })
+    } catch {
+      return null
+    }
+    return {
+      settle: async (usage) => { await journal.updateBudget({ version: 1, type: 'settle', now: now(), requestId, ...usage }) },
+      unknown: async () => {
+        await journal.updateBudget({ version: 1, type: 'uncertain', now: now(), requestId })
+        // Counted whole at once: an open uncertain hold would stop the Lead's own spending.
+        await journal.updateBudget({ version: 1, type: 'write-off', now: now(), requestId })
+      },
+    }
+  }
+
+  /**
+   * The pull requests a mention's work opened: those the git record says a
+   * Seat on one of its Goals created, and the Lead's own when a firing of it
+   * started the Lead's goal. Read only; a record that cannot be read is none.
+   */
+  async #mentionPullRequests(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]> {
+    const found = new Set<number>()
+    const boards = new Set(goals)
+    const sessions = new Set(this.#evidence.seats.all().filter((seat) => seat.board !== null && boards.has(seat.board))
+      .map((seat) => `${seat.session.runtime}/${seat.session.sessionId}`))
+    if (sessions.size > 0) {
+      const rows = await this.#gitGateway.record({ repository, limit: 500 }).catch(() => [])
+      for (const row of rows) {
+        if (row.op === 'pr.create' && row.outcome === 'ok' && row.number !== undefined && row.requester.kind === 'session' && sessions.has(row.requester.id)) found.add(row.number)
+      }
+    }
+    const lead = this.#leadJournal?.state
+    if (lead?.pr && lead.originKey && firings.some((firing) => lead.originKey === `trigger-${firing}`) &&
+      lead.pr.repository.toLowerCase() === repository.toLowerCase()) found.add(lead.pr.number)
+    return [...found]
   }
 
   /**
@@ -4161,7 +4229,10 @@ export class Host {
         },
       })
     const follow = new LeadPrFollow({ journal, gateway: this.#gitGateway, now: () => Date.now(), validate: validateResult, answer: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract), ...publication })
-    const repairResult = async (op: import('@harnessdesk/protocol').LeadHandback) => {
+    // A result card carries the budget, so it waits until every reserved Lead request has settled. A repair push carries
+    // only the reviewed source, which the Lead's own request in flight does not change: refusing it there, between
+    // pushOwned's two validations, parked the push as needs-you and the repair waited on a person for nothing.
+    const repairResult = async (op: import('@harnessdesk/protocol').LeadHandback, use: 'card' | 'push' = 'card') => {
       if (this.#disposed) return null
       await this.#leadBudgets.meter(journal)
       const state = journal.state, contract = state.contract, run = this.#flows.leadRuns().find(run => run.id === op.runId)
@@ -4170,7 +4241,7 @@ export class Host {
         last.state !== 'running' || !last.cards.length || !last.cards.every(id => this.#team.stateFor(op.teamId).intents.some(card => card.id === id && card.state === 'open'))) return null
       const evidence = await decisionEvidence(op.runId), budget = leadBudgetProjection(journal.state.budget!, Date.now())
       const result = evaluateLeadAcceptance(contract, evidence, { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
-      if (result.status !== 'reviewed' || !leadHandbackTerminal(op) && evidence.revision === op.head || budget.spend !== 'known' || budget.reservedUsdMicros) return null
+      if (result.status !== 'reviewed' || !leadHandbackTerminal(op) && evidence.revision === op.head || budget.spend !== 'known' || use === 'card' && budget.reservedUsdMicros) return null
       const old = journal.state.cards.find(card => card.id === `result-${contract.revision}`)
       const card = { version: 1 as const, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1, type: 'result' as const,
         contractDigest: contract.digest, outcome: 'reviewed' as const, summary: leadResultSummary('CI passed. Fresh checks and independent review are ready for your decision.', result.assertions), assertions: result.assertions, budget }
@@ -4198,9 +4269,9 @@ export class Host {
       },
       release: op => this.#flows.releaseLeadRepair(op),
       ciPassed: (op, head) => this.#evidence.observeLeadCi(project.path, op.teamId, `lead-ci-${head}`, head),
-      reviewed: async op => (await repairResult(op))?.source ?? null,
+      reviewed: async op => (await repairResult(op, 'push'))?.source ?? null,
       push: (source, op) => follow.pushOwned(source, async () => {
-        const fresh = await repairResult(op)
+        const fresh = await repairResult(op, 'push')
         if (!fresh || fresh.source.head !== source.head || journal.state.pr?.branchOwner === 'person') throw new Error('lead-repair-review-changed')
       }),
     })

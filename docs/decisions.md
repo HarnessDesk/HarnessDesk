@@ -7,6 +7,21 @@ the rule is the last line of its section.
 
 ---
 
+## Review threads are settled by outcome — 2026-11-10
+
+After a repair round, a pull request is left full of open review threads: the ones the fix addressed and the ones the seat chose not to take. A reader cannot tell them apart without opening each, and a bot reviewer opens new ones on every push. The desk now settles each thread by what happened to it. A fixed thread is resolved and nothing is posted, because the commit is the answer and a "done" reply is noise in the reviewer's inbox. A declined thread gets exactly one plain sentence saying why and is left open, because the decision belongs to the reviewer, not to the seat that disagreed with them.
+
+The host, not the plugin, decides what a thread is. It reads the pull request's threads before every settle, so whether the thread belongs to that pull request, who wrote it and whether that author is a bot come from the forge. The answer is validated as one sentence of at most 280 characters on one line with no link, markup, `@`, or reference to another issue or pull request, in the plugin, at the extension boundary and in the gateway, with the same function each time. The host adds the desk marker so the answer is known as the desk's own. A thread is answered once; a bot reviewer's threads on one pull request are settled in at most three distinct repair rounds, after which the rest is left to the person. A person reviewer is not capped, because a person who keeps asking is a conversation, not a loop. Both counts are host state written before the write, and kept when the write may have reached the forge: answering twice, or under-counting a round, is worse than one round too few.
+
+Rejected:
+
+- **Replying to every thread.** A reply on a fixed thread adds a notification and says nothing the commit does not, and an agent that always replies drifts into arguing with a bot.
+- **Resolving declined threads.** It hides a disagreement from the person who has to judge it; a declined thread stays open until a person closes it.
+- **A separate bot account.** It would be a second credential to store, scope and rotate, and it would cut the answer off from the person who is accountable for it. The answer goes out as the person, through the same pinned gateway and Git record as every other write, and the marker says the desk wrote it.
+- **Trusting the plugin's word on the reviewer.** A plugin claiming a thread's author is a person would lift the cap; the host reads it instead.
+
+**Rule:** fixed means resolve and stay silent; declined means one sentence, once, left open; a bot reviewer gets at most three repair rounds per pull request, counted by the host.
+
 ## Reading a conversation back is not activity — 2026-11-09
 
 Loading a stored ACP conversation replays it, and the replay is history being
@@ -5507,6 +5522,67 @@ Editor mode. Opening explicitly reads then resumes the other conversation for
 live updates; the operation may reopen a runtime or restore a worktree. Closing
 its reader does not close a shared Host handle. This deliberately avoids a
 second composer, persisted layout or general-purpose conversation dock.
+
+## A mention is triaged by rules, then by a model that only chooses — 2026-11-10
+
+Asking the Lead from an issue or pull request comment is the most direct way
+to hand it work, and also the easiest way for a stranger to try to. A mention
+trigger therefore never admits on the comment alone. Deterministic rules run
+first, in a fixed order, and the first one that fails decides: the comment
+must address the handle, its author must be on the trigger's list (compared
+by the forge's account id, never a login), the thread must be in the
+project, carry one of the trigger's labels if it names any, and still be
+open, and a comment that asks the handle to stop is a stop. Only then does
+one small observer-model request judge whether it is a request for work, and
+that answer can only pick accept, ignore, stop or ask with one sentence.
+What accepting opens, the budget and the Flow are the trigger's own and are
+never read from the comment or the answer, so text in a comment that tries
+to instruct the model changes at most the verdict, never what is admitted.
+The assessment uses the Lead's key and transport only when the Lead is
+enabled, sends no comment that looks like it carries a credential, and stops
+at 200 a day; without an answer the decision is `ask` and waits for the
+person, who can Re-evaluate it.
+
+A new mention trigger observes first: it records "would have accepted" and
+acts on nothing until this machine switches it to act, and every arm starts
+it observing again, because a changed file is a new consent. Accepted work
+is one thread. A later comment from someone allowed on the issue or any
+linked pull request joins the same Goal without a second triage; a comment
+from anyone else is counted as an observation and never acted on. The thread
+closes when its linked pull requests merge or close.
+
+Review round, same day:
+
+- **Only a comment that addresses the handle resumes work.** Discussion
+  between people on a followed thread is counted, not acted on; the desk's
+  own posts never resume it, whether told apart by marker or by the
+  desk-posts record. A review on a linked pull request does not resume it
+  yet: the mention source reads comments only.
+- **A stop says what it stopped.** `@dex stop` stops running intake runs and
+  live Seat turns on the thread's Goals through the host's stop path and
+  records how many runs stopped; when nothing was running it says so, and the
+  thread closes as closed, not stopped. It reaches the trigger's own runs and
+  Seats; work the Lead starts after a person approves its plan is the Lead's
+  to stop.
+- **Observing is silent.** An observing trigger raises no attention notice,
+  even for an `ask`; the person reads it on the trigger's page.
+- **Re-evaluate judges the comment that was decided.** The decision keeps a
+  digest of the comment's text; Re-evaluate refuses a comment edited since,
+  because the request a person would approve is no longer the one recorded.
+- **The observer's spend is the Lead's.** It is reserved before the request
+  and settled after it on the Lead's budget ledger, at the Lead model's price
+  (an upper bound for the smaller observer model); an unknown outcome counts
+  the whole hold at once rather than leaving the Lead's spending blocked. No
+  ledger, or a refused hold, sends nothing.
+- **An issue-only thread ends with its issue.** With no pull request linked,
+  the sweep closes the thread once the issue closes.
+
+Rejected: a webhook (a public endpoint and a secret to hold, for a desk that
+already polls the forge); a separate bot identity (a second credential, and
+the desk's marker line already tells its own posts apart); triaging every
+comment (cost and noise, and a stranger's comment would reach the model);
+and letting the assessment choose the Flow or the role (that would hand
+control of what runs to whoever writes the comment).
 
 ## Account pacing is an order and a note, not a scheduler
 

@@ -2,6 +2,7 @@ import { LeadAway } from '../components/LeadAway'
 import { LeadCheck } from '../components/LeadCheck'
 import { LeadWork } from '../components/LeadWork'
 import { LeadCheckpointNotice, LeadContextSection } from '../components/LeadCheckpoint'
+import { MentionDecisionRows, type MentionTriageState } from '../components/MentionDecisions'
 import { LeadStatusPanel, useLeadControls } from '../components/LeadControls'
 import { PhoneAsk, PhoneSettingsSection } from '../components/PhoneSettings'
 import { createLeadFixtureStore } from './frames-lead'
@@ -20,6 +21,7 @@ import { PaneProvider, StoreProvider } from '../state/context'
 import { Dial, Frame } from './main'
 import { PREVIEW_AGENTS, PREVIEW_SESSION_KEY } from './harness'
 import { overviewInput } from './team-overview-fixture'
+import { triggerDecisionsPage } from './intake-fixture'
 
 const comparison = overviewInput('comparison')
 const recordedCards = runTimeline({ execution: comparison.run!.execution, cards: comparison.cards }).rows
@@ -63,6 +65,15 @@ const LeadWorkCoverage = () => {
   return <StoreProvider store={own}><Section title="Lead work"><LeadWork /></Section></StoreProvider>
 }
 
+/** A mention trigger's history as an expanded row shows it: the work thread and each decision with Re-evaluate. */
+const MentionTriageCoverage = () => {
+  const triage = useMemo<MentionTriageState>(() => ({
+    page: triggerDecisionsPage(), problem: null, busy: false,
+    reload: () => {}, setMode: async () => {}, reevaluate: async () => {},
+  }), [])
+  return <Section title="Mention triage" level="heading"><MentionDecisionRows triage={triage} /></Section>
+}
+
 /** State-specific exports stay inspectable even when the unified Work view uses compact rows. */
 export const RetainedComponentsCoverage = () => {
   const [shown, setShown] = useState('off')
@@ -95,6 +106,7 @@ export const RetainedComponentsCoverage = () => {
       <Section title="Run budget" level="heading"><BudgetFooter state={budget} now={now} /></Section>
       <LeadAndPhoneCoverage />
       <LeadWorkCoverage />
+      <MentionTriageCoverage />
       </>}
     </div>
   </Frame>

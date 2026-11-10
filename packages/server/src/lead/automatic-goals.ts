@@ -20,7 +20,7 @@ export class LeadAutomaticGoals {
     quiet(): Promise<boolean>
   }) {}
   offerTrigger(input: { readonly key: string; readonly project: string; readonly sentence: string;
-    readonly fact: Pick<TriggerFact, 'source' | 'event' | 'subject' | 'url' | 'title' | 'body' | 'action'> }): Promise<AutomaticGoalDelivery> {
+    readonly fact: Pick<TriggerFact, 'source' | 'event' | 'subject' | 'url' | 'title' | 'body' | 'action' | 'thread'> }): Promise<AutomaticGoalDelivery> {
     const { fact } = input
     const repository = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/(?:pull|issues)\//.exec(fact.url ?? '')?.[1]
     const compose = (omit: 'none' | 'body' | 'context') => `Draft a plan for this event.\nEvent: ${fact.action}\n${fact.url ?? ''}\n` +
@@ -29,7 +29,7 @@ export class LeadAutomaticGoals {
       `Title: ${JSON.stringify(omit === 'context' ? '[title omitted: lead-secret-refused]' : contextText(fact.title, 400))}\n` +
       `Body: ${JSON.stringify(omit === 'none' ? contextText(fact.body, 1700) : '[body omitted: lead-secret-refused]')}\nEND UNTRUSTED EVENT CONTEXT`
     return this.offer({ key: input.key, project: input.project, text: compose('none'), fallbackTexts: [compose('body'), compose('context')],
-      origin: { source: fact.source, event: fact.action, subject: repository ? `${repository}#${fact.subject}` : fact.subject, url: fact.url } })
+      origin: { source: fact.source === 'mention' ? fact.thread === 'pull-request' ? 'pull-request' : 'issue' : fact.source, event: fact.action, subject: repository ? `${repository}#${fact.subject}` : fact.subject, url: fact.url } })
   }
   offer(input: { readonly fallbackTexts?: readonly string[]; readonly key: string; readonly text: string; readonly origin: LeadOrigin; readonly project?: string }): Promise<AutomaticGoalDelivery> {
     const task = this.#tail.then(async (): Promise<AutomaticGoalDelivery> => {

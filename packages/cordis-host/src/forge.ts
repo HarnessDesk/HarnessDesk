@@ -1,6 +1,6 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 
-import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult, ForgeVerb, ForgeReference, ScopeQuery } from '@harnessdesk/protocol'
+import { isReviewThreadId, threadAnswerProblem, type ForgeAssociatedPullRequest, type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeRequester, type ForgeGitEntry, type ForgeWriteResult, type ForgeVerb, type ForgeReference, type ScopeQuery, type ForgeThreadsQuery, type ForgeReviewThreads, type ForgeThreadSettle, type ForgeThreadSettled } from '@harnessdesk/protocol'
 
 import { currentBrowserIdentity } from './browser-scopes.js'
 import { invocationScope } from './forge-invocation.js'
@@ -52,7 +52,10 @@ export interface ForgeScope {
   readonly plugin?: string
 }
 
-export type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult, ForgeVerb } from '@harnessdesk/protocol'
+export type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult, ForgeVerb, ForgeThreadsQuery, ForgeReviewThreads, ForgeThreadSettle, ForgeThreadSettled } from '@harnessdesk/protocol'
+
+/** The verbs that only read; every other verb is a forge write. */
+export const FORGE_READS: readonly ForgeVerb[] = ['record', 'attribute', 'repository', 'associatedPullRequest', 'reviewThreads']
 
 /** Shared by the in-process service and the untrusted child IPC boundary. */
 export function validateForgeArgs(verb: ForgeVerb, input: unknown): void {
@@ -66,9 +69,10 @@ export function validateForgeArgs(verb: ForgeVerb, input: unknown): void {
     x.split('/').every(part => !part.startsWith('.') && !part.endsWith('.lock'))
   const allowed: Record<ForgeVerb, string[]> = { push: ['branch', 'sha', 'expect'], create: ['head', 'base', 'title', 'body', 'draft'],
     update: ['number', 'title', 'body', 'base'], merge: ['number', 'head', 'method', 'body'], review: ['number', 'event', 'body'],
-    comment: ['subject', 'number', 'body'], record: ['branch', 'number', 'limit'], attribute: ['branch', 'sha'], repository: [], associatedPullRequest: [] }
+    comment: ['subject', 'number', 'body'], record: ['branch', 'number', 'limit'], attribute: ['branch', 'sha'], repository: [], associatedPullRequest: [],
+    reviewThreads: ['number'], settleThread: ['number', 'thread', 'outcome', 'answer'] }
   if (Object.keys(v).some(key => !allowed[verb].includes(key))) return fail()
-  if (['update', 'merge', 'review', 'comment'].includes(verb) && (!Number.isSafeInteger(v.number) || Number(v.number) < 1)) return fail()
+  if (['update', 'merge', 'review', 'comment', 'reviewThreads', 'settleThread'].includes(verb) && (!Number.isSafeInteger(v.number) || Number(v.number) < 1)) return fail()
   if (v.number !== undefined && (!Number.isSafeInteger(v.number) || Number(v.number) < 1)) return fail()
   for (const key of ['title', 'body']) if (v[key] !== undefined && !text(v[key])) return fail()
   if (v.title !== undefined && !(v.title as string).trim()) return fail()
@@ -83,6 +87,7 @@ export function validateForgeArgs(verb: ForgeVerb, input: unknown): void {
   if (verb === 'merge' && (!sha(v.head) || (typeof v.method !== 'string' || !['squash', 'merge', 'rebase'].includes(v.method)))) return fail()
   if (verb === 'review' && ((typeof v.event !== 'string' || !['approve', 'request-changes', 'comment'].includes(v.event)) || !text(v.body))) return fail()
   if (verb === 'comment' && ((typeof v.subject !== 'string' || !['pullRequest', 'issue'].includes(v.subject)) || !text(v.body))) return fail()
+  if (verb === 'settleThread' && (!isReviewThreadId(v.thread) || (v.outcome === 'fixed' ? v.answer !== undefined : v.outcome !== 'declined' || threadAnswerProblem(v.answer) !== null))) return fail()
   if (v.limit !== undefined && (!Number.isSafeInteger(v.limit) || Number(v.limit) < 1 || Number(v.limit) > 1000)) return fail()
 }
 
@@ -99,6 +104,10 @@ export interface ForgeEngine {
   comment(args: ForgeComment, scope: ForgeScope): Promise<ForgeWriteResult>
   record(args: ForgeRecordQuery, scope: ForgeScope): Promise<readonly ForgeGitEntry[]>
   attribute(args: ForgeAttribute, scope: ForgeScope): Promise<ForgeRequester | 'outside'>
+  /** A pull request's review threads, read by the host from the pinned repository. */
+  reviewThreads(args: ForgeThreadsQuery, scope: ForgeScope): Promise<ForgeReviewThreads>
+  /** Settles one review thread by outcome: resolve a fixed one silently, answer a declined one once. */
+  settleThread(args: ForgeThreadSettle, scope: ForgeScope): Promise<ForgeThreadSettled>
   /** The seat of the calling conversation, or null when the scope names none the host holds. */
   seat(scope: ForgeScope): Promise<ForgeSeat | null>
   /**
@@ -159,11 +168,10 @@ export class ForgeService extends Service {
   }
 
   private callScope(verb: ForgeVerb, args: unknown, scope?: ScopeQuery): ForgeScope {
-    const reads: readonly ForgeVerb[] = ['record', 'attribute', 'repository', 'associatedPullRequest']
-    const plugin = this.gate(!reads.includes(verb))
+    const plugin = this.gate(!FORGE_READS.includes(verb))
     const trusted = asForgeScope(scope, plugin)
     validateForgeArgs(verb, args)
-    if (!reads.includes(verb) && trusted.actor === 'context') throw new Error('Context resolution cannot write to the forge.')
+    if (!FORGE_READS.includes(verb) && trusted.actor === 'context') throw new Error('Context resolution cannot write to the forge.')
     return trusted
   }
   async repository(scope?: ScopeQuery): Promise<string | null> {
@@ -208,6 +216,15 @@ export class ForgeService extends Service {
   async attribute(args: ForgeAttribute, scope?: ScopeQuery): Promise<ForgeRequester | 'outside'> {
     args = structuredClone(args)
     return engine().attribute(args, this.callScope('attribute', args, scope))
+  }
+
+  async reviewThreads(args: ForgeThreadsQuery, scope?: ScopeQuery): Promise<ForgeReviewThreads> {
+    args = structuredClone(args)
+    return engine().reviewThreads(args, this.callScope('reviewThreads', args, scope))
+  }
+  async settleThread(args: ForgeThreadSettle, scope?: ScopeQuery): Promise<ForgeThreadSettled> {
+    args = structuredClone(args)
+    return engine().settleThread(args, this.callScope('settleThread', args, scope))
   }
 
   async seat(scope?: ScopeQuery): Promise<ForgeSeat | null> {

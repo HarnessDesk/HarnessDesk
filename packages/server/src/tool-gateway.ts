@@ -8,6 +8,7 @@ import {
   type CapabilityContribution,
   type CapabilityRegistry,
   type ToolResult,
+  type TurnId,
 } from '@harnessdesk/protocol'
 
 /**
@@ -75,6 +76,12 @@ export interface BridgeCaller {
   readonly sessionId: string
   /** Read from the host's session record at invocation, never from bridge arguments. */
   readonly workspaceRoot?: string | undefined
+  /**
+   * The turn the conversation has running when the call arrives, read from
+   * the host's session record; absent when none is. What a per-turn limit,
+   * such as a bot reviewer's repair rounds, counts by.
+   */
+  readonly turnId?: string | undefined
 }
 
 /** Invoke one bridge call as the conversation whose opening minted its token. */
@@ -103,6 +110,7 @@ export const invokeForBridge = async (
     scope ? {
       runtime: runtimeId(scope.runtime), sessionId: sessionId(scope.sessionId),
       ...(scope.workspaceRoot !== undefined ? { workspaceRoot: scope.workspaceRoot } : {}),
+      ...(scope.turnId !== undefined ? { turnId: scope.turnId as TurnId } : {}),
     } : {},
   )
 }

@@ -25,7 +25,9 @@ export type GitApproval = { readonly by: 'person' | 'standing' | 'ceiling' | 'st
 export interface GitRecordEntry {
   readonly id: string
   readonly prev: string | null
-  readonly op: 'push' | 'pr.create' | 'pr.update' | 'pr.merge' | 'pr.comment' | 'pr.review' | 'issue.comment' | 'observed'
+  readonly op: 'push' | 'pr.create' | 'pr.update' | 'pr.merge' | 'pr.comment' | 'pr.review' | 'issue.comment' | 'observed' | 'pr.thread.resolve' | 'pr.thread.answer'
+  /** The review thread a `pr.thread.*` row settled. */
+  readonly thread?: string
   readonly repository: string
   readonly branch?: string
   readonly number?: number
@@ -111,7 +113,7 @@ export class GitRecord {
         try {
           const parsed = JSON.parse(exact.toString('utf8')) as GitRecordEntry
           if (lf >= 0 && parsed && parsed.repository === repository && typeof parsed.id === 'string' && parsed.requester &&
-            ['push', 'pr.create', 'pr.update', 'pr.merge', 'pr.comment', 'pr.review', 'issue.comment', 'observed'].includes(parsed.op) &&
+            ['push', 'pr.create', 'pr.update', 'pr.merge', 'pr.comment', 'pr.review', 'issue.comment', 'observed', 'pr.thread.resolve', 'pr.thread.answer'].includes(parsed.op) &&
             ['intent', 'unknown', 'observed-merged', 'ok', 'refused', 'failed', 'rejected'].includes(parsed.outcome) &&
             (!['unknown', 'observed-merged'].includes(parsed.outcome) || parsed.op === 'pr.merge') &&
             (isGitRequester(parsed.requester) || parsed.requester.kind === 'outside' && (parsed.op === 'observed' || parsed.outcome === 'refused' || parsed.reason === 'own-git-allowed' && parsed.approval?.by === 'person'))) row = parsed

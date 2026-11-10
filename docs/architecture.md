@@ -208,8 +208,8 @@ append-only entries: `id`, `prev`, operation, repository, optional branch/PR
 number/head/previous head/lease, requester, approval, optional redacted
 `steeredFrom`, timestamp and outcome/reason. Requesters are sessions, Lead
 goals, the person or `outside`. Operations are `push`, `pr.create`,
-`pr.update`, `pr.merge`, `pr.comment`, `pr.review`, `issue.comment` and
-`observed`. An intent is flushed before the effect; its outcome is appended
+`pr.update`, `pr.merge`, `pr.comment`, `pr.review`, `issue.comment`,
+`observed`, `pr.thread.resolve` and `pr.thread.answer`. An intent is flushed before the effect; its outcome is appended
 with the same id before returning. Writes are serialized per repository.
 Each physical line's `prev` hashes the preceding line, including its newline;
 rotated segments retain the chain and a separately flushed anchor remembers
@@ -224,6 +224,8 @@ an uncertain crash: they become interrupted failures because the host cannot
 prove that the forge did not already accept them. Lead adoption still needs
 a successful push for the exact repository, branch, SHA and requester through
 `hasSucceededPush`; an intent or a caller's incomplete journal is insufficient.
+
+**Review threads.** After a repair round a seat settles each review thread by its outcome, through `ctx.forge.settleThread`: a thread the fix addressed is resolved with GraphQL `resolveReviewThread` and nothing is posted; a suggestion the seat declined is answered with exactly one plain sentence (at most 280 characters, one line, with no link, markup, `@`, or reference to another issue or pull request) and left open for the reviewer. Before either write the gateway reads the pull request's threads itself, so the thread's membership in that pull request, its author and whether that author is a bot come from the forge, never from the plugin. The host prefixes the desk marker line to an answer, so intake and `deskPosted` know it as the desk's own. A thread is answered at most once, and one bot reviewer's threads on one pull request are settled in at most three distinct repair rounds; a person reviewer is not capped, and an author the forge no longer names is counted as a bot. Inside a Team the round is the seat's review round. Outside one it is the turn the host has running for that conversation, which the tool bridge passes with every call, so one turn settling many threads is one round; a call with no turn the host can name settles no bot thread and leaves it to the person. A reply counts as the desk's answer only when it carries the desk marker and was written by the account the desk is signed in as. Both facts live in `review-threads.json` in host state, replaced atomically and noted before the write; the note is taken back when the write never reached `gh` or the forge refused it outright. A record that cannot be read, or is not the expected shape, is moved aside as `review-threads.json.corrupt-<time>` and never read as empty: agents then settle nothing on the pull requests it still names (on any, when it names none) until the person settles a thread there or removes the moved-aside file, and for a day at most. `ctx.forge.reviewThreads` is the matching read: one fixed GraphQL query with the repository and number passed as variables, returning each thread's id, path, line, author, bot flag, resolved and answered state and its first comment, bounded; the pull request title, each path and each comment reach the agent inside a block marked untrusted, the title and path on one line, and a read with more than one page says the list is cut off ([why](decisions.md#review-threads-are-settled-by-outcome--2026-11-10)).
 
 **Attribution and observation.** `attribute(repository, branch, sha)` credits
 only a successful gateway push in intact history. A fetched head without
@@ -507,7 +509,26 @@ sample.
   trigger's run (`FlowIntake.heldFor`) rather than stopping it, and a firing
   whose effects keep failing holds only its own project. Machine consent and
   its signing key are excluded from backup; the declaration itself is an
-  ordinary project file.
+  ordinary project file. A mention trigger (`on: mention`, `packages/server/src/intake/mentions.ts`)
+  is polled from the repository's issue comments like any other source, but
+  its facts go to `MentionTriage` rather than straight to admission: ordered
+  rules (addressed, allowed, project, label, handled, stop word) and then one
+  observer-model assessment (`packages/server/src/intake/assess.ts`, through the Lead's provider
+  transport) decide accept, ignore, stop or ask. Decisions, this machine's
+  observe/act mode and the work threads live in `triggers-mentions.json`; an
+  accept in act mode admits through the same `Admission.offer`, and a later
+  comment on a linked thread that addresses the handle offers the thread's
+  origin so it joins the same Goal (the desk's own posts, by marker or by the
+  desk-posts record, never do). A stop in act mode goes through the plane's
+  stop port — checks, then running intake runs, then live Seat turns — and
+  the decision records how many runs it stopped, or that none were running.
+  Observe mode writes nothing to the forge and raises no attention notice.
+  The sweep links pull requests from the Git gateway's record and closes a
+  thread when they merge or close, or, with none linked, when its issue
+  closes. Each assessment is reserved and settled on the Lead's budget
+  ledger through the host (`#holdLeadSpend`), so it is journaled and counted
+  against the Lead's spend limit. `WorkItemsPort.attach` is the one call
+  the work ledger plugs into.
 - **Authoring and the front door** (`packages/server/src/authoring/`) — the
   one owner of an Agent's file, a flow and a project's triggers, read exactly
   and written only through a preview a person saw: `authoring/read`,
