@@ -1,5 +1,6 @@
 import { LeadAway } from '../components/LeadAway'
 import { LeadCheck } from '../components/LeadCheck'
+import { LeadWork } from '../components/LeadWork'
 import { LeadStatusPanel, useLeadControls } from '../components/LeadControls'
 import { PhoneAsk, PhoneSettingsSection } from '../components/PhoneSettings'
 import { createLeadFixtureStore } from './frames-lead'
@@ -50,6 +51,12 @@ const LeadAndPhoneCoverage = () => {
   </StoreProvider>
 }
 
+/** The Lead's work list over the work-ledger fixture: one item in each stage's group, as the host would hand it over. */
+const LeadWorkCoverage = () => {
+  const own = useMemo(() => createLeadFixtureStore('work-ledger'), [])
+  return <StoreProvider store={own}><Section title="Lead work"><LeadWork /></Section></StoreProvider>
+}
+
 /** State-specific exports stay inspectable even when the unified Work view uses compact rows. */
 export const RetainedComponentsCoverage = () => {
   const [shown, setShown] = useState('off')
@@ -81,6 +88,7 @@ export const RetainedComponentsCoverage = () => {
       </Section>
       <Section title="Run budget" level="heading"><BudgetFooter state={budget} now={now} /></Section>
       <LeadAndPhoneCoverage />
+      <LeadWorkCoverage />
       </>}
     </div>
   </Frame>

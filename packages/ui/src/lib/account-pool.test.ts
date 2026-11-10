@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
-import { canTakeTurn, inPoolOrder, movedInPool, nextInPool, readAccountPools, runtimeOut, whenOutOf } from './account-pool'
+import { canTakeTurn, firstInPool, inPoolOrder, isPaced, movedInPool, nextInPool, readAccountPools, runtimeOut, whenOutOf } from './account-pool'
 
 const id = (value: string): RuntimeId => value as RuntimeId
 const info = (value: string): RuntimeInfo => ({ id: id(value) }) as unknown as RuntimeInfo
@@ -66,5 +66,44 @@ describe('canTakeTurn', () => {
     expect(canTakeTurn(entry({}), view(0))).toBe(false)
     expect(canTakeTurn(entry({}), view(1, 'starting'))).toBe(false)
     expect(canTakeTurn(entry({ capabilities: { account: false } } as never), view(0, 'unavailable'))).toBe(false)
+  })
+})
+
+describe('the soonest-reset order', () => {
+  const NOW = Date.UTC(2026, 10, 9, 12, 0, 0)
+  const HOUR = 3_600_000
+  const report = (runtime: string, usedPercent: number, resetsIn: number): UsageReport =>
+    ({
+      runtime: id(runtime), account: null, lanes: [{ id: 'session', label: '5 hour', usedPercent, windowMinutes: 300, resetsAt: NOW + resetsIn }],
+      reached: null, error: null, fetchedAt: NOW - 60_000, staleAfterMs: 900_000,
+    }) as unknown as UsageReport
+  const siblings = [info('codex'), info('codex-2'), info('codex-3')]
+  const pace = { pace: 'soonest' as const }
+
+  it('is read back, and only that one word', () => {
+    expect(readAccountPools({ codex: { pace: 'soonest' }, claude: { pace: 'later' } })).toEqual({ codex: { pace: 'soonest' } })
+    expect(isPaced({ pace: 'soonest' })).toBe(true)
+    expect(isPaced({ order: [id('a')] })).toBe(false)
+  })
+
+  it('puts the account that refills soonest first, whatever the person order says', () => {
+    const reports = [report('codex', 20, 4 * HOUR), report('codex-2', 40, 1 * HOUR), report('codex-3', 10, 2 * HOUR)]
+    expect(inPoolOrder(siblings, { ...pace, order: [id('codex'), id('codex-2'), id('codex-3')] }, { reports, now: NOW }).map((entry) => entry.id))
+      .toEqual(['codex-2', 'codex-3', 'codex'])
+  })
+
+  it('leaves the person order alone when pacing is off, or when nothing is known to read', () => {
+    const reports = [report('codex', 20, 4 * HOUR), report('codex-2', 40, HOUR)]
+    expect(inPoolOrder(siblings, { order: [id('codex')] }, { reports, now: NOW }).map((entry) => entry.id)).toEqual(['codex', 'codex-2', 'codex-3'])
+    expect(inPoolOrder(siblings, pace).map((entry) => entry.id)).toEqual(['codex', 'codex-2', 'codex-3'])
+    expect(inPoolOrder(siblings, pace, { reports: [], now: NOW }).map((entry) => entry.id)).toEqual(['codex', 'codex-2', 'codex-3'])
+  })
+
+  it('picks the soonest-resetting account with room for new sessions, and skips one that is out', () => {
+    const reports = [report('codex', 20, 4 * HOUR), report('codex-2', 100, HOUR), report('codex-3', 30, 2 * HOUR)]
+    const ordered = inPoolOrder(siblings, pace, { reports, now: NOW })
+    const view = { usage: reports, healthByRuntime: {}, accountsByRuntime: {} }
+    const open = (entry: RuntimeInfo) => ({ ...entry, capabilities: { account: false } }) as unknown as RuntimeInfo
+    expect(firstInPool(ordered.map(open), view, id('codex'))).toBe('codex-3')
   })
 })
