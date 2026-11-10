@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A pull request repair no longer stops to ask you for nothing.** When the Lead was in the middle of a reply just as its reviewed repair was being pushed, the push stopped and waited for you to resume it. It now goes ahead.
+
 - **Use the account that resets soonest.** An agent with several accounts can take them in the order their allowance refills, so what would expire unspent is spent first; the Lead starts its chats there too and says which account. An account with most of a window unused and that window about to refill says "Use it first", on the desktop and on the phone.
 
 - **The Lead keeps a list of the work it started.** Each piece of work you ask for becomes one item across its chats, Teams and pull requests, grouped as Needs you, Working, In review and Done in the Lead's side panel and on your phone. A second start of the same work is refused and points at the open item. Close an item with Done or Drop; its chats and Teams are left as they are. Work the desk can no longer follow for a week moves to Done as stopped, so the list never fills with work nothing can finish.
