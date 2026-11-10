@@ -11,6 +11,7 @@ import { LeadRepeats } from './lead/repeats.js'
 import { HarnessDeskAccount } from './harnessdesk-account.js'
 import { gitSteerContext } from './git-gateway/steer-context.js'
 import { leadContextUse, redactGitCommand } from '@harnessdesk/protocol'
+import { leadInbox } from './lead/inbox.js'
 import { GitSteering, type SteerScope } from './git-gateway/steering.js'
 import { parseGitCommand } from '@harnessdesk/protocol'
 import { LeadAutomaticGoals } from './lead/automatic-goals.js'
@@ -5949,6 +5950,12 @@ export class Host {
       })),
       leadDeskSummary: params => this.#phoneWorkspaceView().deskSummary(params),
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
+      // One inbox for the bell and the phone: the Lead's window, the desk's needs-you work, and the kept notices.
+      leadInbox: async () => leadInbox({
+        window: await this.#leadWindow().then(window => window.readThread()).catch(() => null),
+        desk: await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
+        kept: this.#state.state.preferences['inbox'], now: Date.now(),
+      }),
       leadThreadSend: async (params) => {
         // A text that answers the question just asked is checked against its expiry first, and its receipt names this device.
         const answered = await this.leadPresence.beforeSend(params.device, params.text, params.ask)

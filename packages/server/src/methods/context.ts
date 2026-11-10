@@ -201,6 +201,8 @@ export interface HostContext {
   leadContextRead(): Promise<HostResult<'lead/context/read'>>
   /** The same, as one figure with no summary text: what the Lead reads about itself and a phone shows. */
   leadContextUse(): Promise<HostResult<'lead/context/use'>>
+  /** The person's inbox, built from the Lead's window, the desk's needs-you work and the kept notices. */
+  leadInbox(): Promise<HostResult<'lead/inbox/read'>>
   /** The person's "Summarise now": one compaction, refused while the Lead is answering. */
   leadContextCompact(): Promise<HostResult<'lead/context/compact'>>
   readonly leadStarts?: Pick<import('../lead/budgets.js').LeadBudgets, 'validateStart'>

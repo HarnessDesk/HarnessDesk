@@ -41,6 +41,8 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/context/read': 'read',
     // The same as one figure (percent, tokens, last summary time), the one the Lead itself reads.
     'lead/context/use': 'read',
+    // The inbox the desktop's bell lists: what waits on the person and the kept notices.
+    'lead/inbox/read': 'read',
     // What changed while this phone was away, and what became of each question; dismissing marks this phone's copy only.
     'lead/presence/read': 'read',
     'lead/presence/dismiss': 'read',

@@ -374,6 +374,19 @@ export type InboxMessage = NoticeMessage & {
 }
 
 /**
+ * Something waiting on the person, listed above the kept messages: the Lead, its question, or a chat or Team the
+ * desk says needs them. It is the desk's (`lead/inbox/read`), so the phone lists the same rows; it is never read or
+ * cleared here, only opened, and it leaves when the desk stops listing it.
+ */
+export interface InboxWaiting {
+  readonly id: string
+  readonly title: string
+  /** Where it is: a project's name. */
+  readonly place?: string
+  readonly onOpen?: () => void
+}
+
+/**
  * The inbox: messages kept until they are cleared, newest first, under
  * day headings. A compact title row expands into details and actions,
  * marking unread content read. Repeated information updates its count and
@@ -498,18 +511,20 @@ export const InboxPanel = ({
   side = 'right',
   size = 'icon-sm',
   ...list
-}: Parameters<typeof InboxList>[0] & { side?: 'top' | 'right' | 'bottom' | 'left'; size?: 'icon-sm' | 'icon-xs' }) => {
-  const unread = list.messages.filter((message) => !message.read).length
+}: Parameters<typeof InboxList>[0] & { side?: 'top' | 'right' | 'bottom' | 'left'; size?: 'icon-sm' | 'icon-xs'; waiting?: readonly InboxWaiting[] }) => {
+  const unread = list.messages.filter((message) => !message.read).length, needs = list.waiting?.length ?? 0
+  const said = [needs ? `${needs} need${needs === 1 ? 's' : ''} you` : '', unread ? `${unread} unread` : ''].filter(Boolean).join(', ')
+  const name = said ? `Inbox, ${said}` : 'Inbox'
   return (
     <Popover
-      title={unread > 0 ? `Inbox, ${unread} unread` : 'Inbox'}
+      title={name}
       side={side}
       sideAlign="end"
       triggerVariant={{ variant: 'ghost', size }}
       label={
-        <span className={styles.bell} data-slot="inbox-button" data-size={size} {...(unread > 0 ? { 'data-unread': '' } : {})}>
-          <span className="sr-only">{unread > 0 ? `Inbox, ${unread} unread` : 'Inbox'}</span><BellIcon size={14} />
-          {unread > 0 ? <span className={styles.bellCount} data-slot="inbox-dot" aria-hidden /> : null}
+        <span className={styles.bell} data-slot="inbox-button" data-size={size} {...(unread + needs > 0 ? { 'data-unread': '' } : {})}>
+          <span className="sr-only">{name}</span><BellIcon size={14} />
+          {unread + needs > 0 ? <span className={styles.bellCount} data-slot="inbox-dot" aria-hidden /> : null}
         </span>
       }
       panelWidth="wide" icons="none">

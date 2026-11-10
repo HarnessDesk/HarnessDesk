@@ -5703,3 +5703,11 @@ The Lead named work in its replies ("the keyboard work is in review") and the pe
 - **A ref is a pointer, never a name to trust.** The model writes it, so a window draws a ref only when the desk itself has what it names: a Team or goal it holds, a chat on a runtime it runs that it or the Lead's own chats know, or an item on the work board. Anything else is dropped rather than drawn as a link that goes nowhere. The label is the desk's own name for the target; the model's title, read as plain text, is used only when the desk has none.
 - **A work ref opens what the work is in.** The item's latest chat, else its Team, else its pull request, in the order the Work rail's own menu offers them.
 - **Refs ride with the reply, not beside it.** They cross the child's `appendReply` with the text and the ask, are parsed by the same strict validator the window uses, and never come with proactive output. Rejected: finding ids in the prose (a reply that quotes an id would turn quoted text into a link) and a separate notification (a reply and its links would arrive apart).
+
+## The inbox is one read, and its count is the desk's — 2026-11-10
+
+The desktop's bell listed the notices it kept in preferences, and the phone built its Inbox from the Lead's window and the workspace stages. A sitting saw the desk say "1 needs you" and the phone say "0 need you" about the same work. `lead/inbox/read` is now the one inbox: the Lead when its stage waits on the person (its open question when it asked one), the desk summary's needs-you chats and Teams, then the kept notices, with one `needsYou` count.
+
+- **The host counts, the surfaces draw.** The count includes the work past the desk summary's cap (`needsYouMore`), so a surface never recounts the list. Rejected: each surface counting the same rows (that is how the two drifted).
+- **Needs-you is read from stages the host already sets.** The Lead's window `stage` and the desk summary's needs-you work, never re-derived from cards or prose; a stopped or failed state reaches the inbox only through the stage the host gives it.
+- **A notice is kept to read, not counted.** It never adds to `needsYou`, and a notice about work already listed is not listed twice.

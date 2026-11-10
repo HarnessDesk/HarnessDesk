@@ -135,6 +135,7 @@ export {
   showProgress,
   showToast,
   type InboxMessage,
+  type InboxWaiting,
   type NoticeAct,
   type NoticeMessage,
   type NoticeSurface,

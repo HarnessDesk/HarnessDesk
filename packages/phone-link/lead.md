@@ -16,6 +16,7 @@ counts cover the scanned sessions when partial.
 | --- | --- | --- | --- |
 | `lead/schedule/read` | `read` | `{}` | `LeadSchedule` |
 | `lead/context/read` | `read` | `{}` | `LeadContextFacts` |
+| `lead/inbox/read` | `read` | `{}` | `LeadInbox`: `{version: 1, needsYou, items}`, the person's inbox (see below) |
 | `lead/context/use` | `read` | `{}` | `LeadContextUse`: `{version: 1, windowTokens, usedTokens, percent, lastSummaryAt, compacting, full?}`, the figure the Lead reads about itself |
 | `lead/repeat/control` | `run` | `taskId`, `action` | updated `LeadSchedule` |
 | `lead/budget/raise` | `answer` | `logicalGoalId`, `caps`, `expectedRevision` | `LeadWindowProjection` |
@@ -41,6 +42,31 @@ Phones must count and sort work by `stage`, using the three person stages
 before working, queued and idle items; they must not re-derive attention from
 cards, state or prose. Older desks omit these fields, so phones fall back to
 `phase` (`needsYou` means waiting). Existing `phase` and `line` are unchanged.
+
+## The inbox
+
+`lead/inbox/read` (read tier, `{}`) is the inbox the desktop's bell lists, and
+the phone's Inbox tab lists the same one. It answers `LeadInbox`:
+
+```json
+{"version": 1, "needsYou": 2, "items": [
+  {"id": "lead", "kind": "lead", "title": "Dex is waiting for you", "detail": "needs-answer", "at": 1789000000000, "needsYou": true},
+  {"id": "team:goal-1", "kind": "team", "title": "build a game", "project": "Widgets", "at": 1789000000000, "needsYou": true, "target": "goal-1"},
+  {"id": "notice:usage-1", "kind": "notice", "title": "Usage is high", "detail": "…", "at": 1788990000000, "needsYou": false, "read": false}
+]}
+```
+
+- `kind` is `lead` (the Lead waits on the person; `detail` is its
+  `stageReason` slug), `ask` (its open question; `target` is the message id),
+  `chat` (`target` is `runtime:session`), `team` (`target` is the Team's goal
+  id) or `notice` (a notice the desk kept; never counted).
+- Items that need the person come first, newest first, then kept notices,
+  newest first; at most 40 of each (`LEAD_INBOX_LIMIT`).
+- `needsYou` is the one count both surfaces show. It includes items past the
+  desk summary's cap, so it can be larger than the number of listed
+  `needsYou: true` items. Do not count the list again.
+- Titles are untrusted text the desk has scrubbed; draw them as plain text.
+- Read it when the Inbox opens and when a `presence` or `notices` push arrives.
 
 ## Read schedule and run history
 

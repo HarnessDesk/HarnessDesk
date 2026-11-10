@@ -56,6 +56,7 @@ import type { Section } from './Settings'
 import { describeReport, describeLane, formatAge, formatMoney, reportNeedsYou, workingAccount } from '../lib/usage'
 import { usageReadingTone } from '../lib/limits'
 import { usageAccount } from '../lib/usage-alerts'
+import { useInboxWaiting } from './use-inbox-waiting'
 import styles from './Sidebar.module.css'
 
 /**
@@ -110,7 +111,7 @@ export const Sidebar = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const inbox = useInboxMessages()
+  const inbox = useInboxMessages(), waiting = useInboxWaiting()
   const destination = snapshot.workbench.navigation.current
   const explorerSession = effectiveWindowMode(snapshot.windowMode, snapshot.workbench) === 'editor' && destination.kind === 'work' && destination.view.kind === 'conversation' ? destination.view.session : null
   const explorerShown = explorerSession !== null && !settings
@@ -211,7 +212,7 @@ export const Sidebar = ({
     body={<>{sessionsBody}{explorerShown && <Explorer session={explorerSession} />}<LeftColumnBody hidden={!settings}>
       {settings && <SettingsNavigation section={settings.section} onSection={settings.onSection} onBack={settings.onBack} />}
     </LeftColumnBody></>}
-    footer={<><Slot name="sidebar.panel" />{!settings && <SidebarNotices />}<SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox}
+    footer={<><Slot name="sidebar.panel" />{!settings && <SidebarNotices />}<SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox} waiting={waiting}
       onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
       onClear={() => store.clearInbox()} />}
       onOpenSettings={onOpenSettings}

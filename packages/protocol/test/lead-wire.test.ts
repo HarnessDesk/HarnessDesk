@@ -11,13 +11,16 @@ const presenceNames = ['lead/presence/read', 'lead/presence/dismiss', 'lead/brie
 const autonomyNames = ['lead/autonomy/read', 'lead/autonomy/set', 'lead/rules/read', 'lead/rules/update', 'lead/deadline/set']
 
 test('the closed Lead window controls validate and none is on the client surface', () => {
-  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames, ...presenceNames, ...autonomyNames, 'lead/memory/propose', 'lead/memory/search', 'lead/context/use'].sort())
+  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames, ...presenceNames, ...autonomyNames, 'lead/memory/propose', 'lead/memory/search', 'lead/context/use', 'lead/inbox/read'].sort())
   for (const name of names) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false)
   // The Lead's own two memory methods are the only memory methods its client may call.
   for (const name of ['lead/memory/propose', 'lead/memory/search']) assert.equal(Object.hasOwn(CLIENT_METHODS, name), true)
   // The Lead reads its own context use; it never summarises or reads the summaries' words through its client.
   assert.equal(CLIENT_METHODS['lead/context/use' as keyof typeof CLIENT_METHODS], 'read')
   assert.equal(Object.hasOwn(CLIENT_METHODS, 'lead/context/read'), false)
+  // The person's inbox is the window's and the phone's read; the Lead never reads it through its client.
+  assert.equal(Object.hasOwn(CLIENT_METHODS, 'lead/inbox/read'), false)
+  assert.doesNotThrow(() => request('lead/inbox/read', {}))
   for (const name of ['lead/wakes/read', 'lead/thread/read', 'lead/settings/read']) assert.doesNotThrow(() => request(name, {}))
   assert.doesNotThrow(() => request('lead/thread/send', { idempotencyKey: 'send-1', text: 'Inspect the check' }))
   assert.doesNotThrow(() => request('lead/resume', { expectedRevision: 0 }))

@@ -2,10 +2,10 @@ import { Fragment, useRef, useState } from 'react'
 import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator } from './Menu'
 import { Chip, CodeText } from './Settings'
 import { MiddleTruncate } from '../ui/key-value'
-import type { InboxList } from './Notices'
+import type { InboxList, InboxWaiting } from './Notices'
 
-export const InboxMenu = ({ messages, onOpen, onMarkAllRead, onClear, now = Date.now(), close }:
-  Parameters<typeof InboxList>[0] & { close: () => void }) => {
+export const InboxMenu = ({ messages, waiting = [], onOpen, onMarkAllRead, onClear, now = Date.now(), close }:
+  Parameters<typeof InboxList>[0] & { waiting?: readonly InboxWaiting[]; close: () => void }) => {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const unread = messages.filter(message => !message.read).length
   const marked = useRef(new Set<string>())
@@ -21,7 +21,12 @@ export const InboxMenu = ({ messages, onOpen, onMarkAllRead, onClear, now = Date
   }
   return <Menu close={close}>
     <MenuLabel>Inbox{unread ? ` · ${unread} new` : ''}</MenuLabel>
-    {messages.length === 0 && <MenuNote>Nothing kept yet. Messages an Agent sends you wait here.</MenuNote>}
+    {waiting.length > 0 && <>
+      <MenuLabel>{`Needs you · ${waiting.length}`}</MenuLabel>
+      {waiting.map(item => <MenuItem key={item.id} label={item.title} value={item.place} onSelect={() => item.onOpen?.()} />)}
+      {messages.length > 0 && <MenuSeparator />}
+    </>}
+    {messages.length === 0 && waiting.length === 0 && <MenuNote>Nothing kept yet. Messages an Agent sends you wait here.</MenuNote>}
     {groups.map(group => <Fragment key={group.name}>
       <MenuLabel>{group.name}</MenuLabel>
       {group.items.map(message => <Fragment key={message.id}>

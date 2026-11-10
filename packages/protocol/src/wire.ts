@@ -2949,6 +2949,8 @@ export interface HostMethods {
   /** The person's Done or Drop, from the window or the phone. */
   'lead/work/close': { params: import('./lead-work.js').LeadWorkClose; result: import('./lead-work.js').LeadWorkBoard }
   /** What changed while this device was away, and what became of each question: the same answer on every surface. */
+  /** What waits on the person and the notices kept for them: the one inbox the desktop's bell and the phone list. */
+  'lead/inbox/read': { params: Record<string, never>; result: import('./lead-inbox.js').LeadInbox }
   'lead/presence/read': { params: import('./lead-presence.js').LeadPresenceRead; result: import('./lead-presence.js').LeadPresenceView }
   /** This device has read its digest. It marks only this device's own copy. */
   'lead/presence/dismiss': { params: import('./lead-presence.js').LeadPresenceDismiss; result: import('./lead-presence.js').LeadPresenceView }

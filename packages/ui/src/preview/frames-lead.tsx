@@ -105,6 +105,10 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
     if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }
     if (method === 'lead/presence/read') return presence
+    // The desk's one inbox: in the app shell, a Team that waits on the person, listed under the bell as the phone lists it.
+    if (method === 'lead/inbox/read') return scene === 'app-shell'
+      ? { version: 1, needsYou: 1, items: [{ id: 'team:demo-team', kind: 'team', title: 'Rename the status column', project: 'demo', at: Date.UTC(2026, 10, 10, 9), needsYou: true, target: 'demo-team' }] }
+      : { version: 1, needsYou: 0, items: [] }
     if (method === 'lead/presence/dismiss') return presence = { ...presence, digest: presence.digest?.id === params.digest ? null : presence.digest }
     if (method === 'lead/brief/read') return presence.brief
     if (method === 'lead/brief/update') { presence = { ...presence, brief: { ...presence.brief, ...(params.enabled === undefined ? {} : { enabled: params.enabled }), ...(params.at === undefined ? {} : { at: params.at }) } }; return presence.brief }
