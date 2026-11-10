@@ -47,6 +47,12 @@ export interface LeadChatsPorts {
     readonly schedule?: (run: () => void, delay: number) => () => void
   }
   readonly publish?: (event: LeadChatActivity) => void
+  /**
+   * Account pacing. Asked only for a start the Lead made without naming an agent, and answered only when the person
+   * turned on "Prefer the account that resets soonest" for the agent the desk would start on. The agent is one the
+   * desk can start on now; the label is the presentation name the Lead may say, never an address.
+   */
+  readonly pacing?: { readonly choose: () => Promise<{ readonly agent: string; readonly label: string } | null> }
 }
 const refuse = (message: string): never => { throw new Error(message) }
 const MUTATIONS = new Set(['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'])
@@ -432,7 +438,8 @@ export class LeadChats {
       const candidates = params.agent === undefined ? [] : await this.ports.recovery?.candidates(params.moveFrom) ?? []
       const matches = candidates.filter(one => one.key === params.agent || one.name === params.agent)
       if (params.agent !== undefined && matches.length !== 1) refuse('That agent is not in the available candidate list.')
-      const agent = matches[0]?.agent ?? matches[0]?.key
+      const paced = params.agent === undefined && !params.moveFrom ? await this.ports.pacing?.choose().catch(() => null) ?? null : null
+      const agent = matches[0]?.agent ?? matches[0]?.key ?? paced?.agent
       const text = params.moveFrom ? await this.#moveText(params) : this.#startText(params)
       if (typeof text !== 'string') {
         this.ports.noteDispatchNotStarted(attemptId)
@@ -451,7 +458,7 @@ export class LeadChats {
             if (!this.incidents?.hasPersonAnswer(params.moveFrom)) refuse('Wait for the person’s answer before moving this chat.')
             if (this.incidents?.get(params.moveFrom)?.state !== (moveClaimed ? 'moved' : 'asked')) refuse('That incident was already moved or stopped.')
           }
-          if (!id && agent && !(await this.ports.recovery!.candidates(params.moveFrom)).some(one => (one.agent ?? one.key) === agent)) refuse('That agent is no longer available.')
+          if (!id && agent && params.agent !== undefined && !(await this.ports.recovery!.candidates(params.moveFrom)).some(one => (one.agent ?? one.key) === agent)) refuse('That agent is no longer available.')
           if (params.moveFrom && !moveClaimed) { await this.incidents!.claimMove(params.moveFrom); moveClaimed = true }
           // Recorded before the first message leaves, so the transcript can vouch for it on first render.
           if (id) { await this.#watch(id); await this.#record(id, envelope); await admit(id); await this.#notHeld(id) }
@@ -468,7 +475,7 @@ export class LeadChats {
             try { await this.incidents!.moved(params.moveFrom, result.id) } catch { /* The durable move claim still prevents another creation. */ }
           }
         } else if (params.moveFrom && moveClaimed && !createdId) await this.incidents!.releaseMove(params.moveFrom)
-        return result
+        return paced && result.id && !result.problem ? { ...result, account: paced.label } : result
       } catch (error) {
         if (params.moveFrom && moveClaimed && !createdId && !creationStarted) await this.incidents!.releaseMove(params.moveFrom)
         throw error

@@ -869,3 +869,34 @@ test('a withdrawn terminal observation cannot stop a replacement project inciden
     assert.equal(r.scheduled.size, 1)
   } finally { release(); await changing }
 })
+
+test('a start with no agent goes to the account pacing chose, and the result names it', async t => {
+  const r = await rig(t)
+  ;(r.ports as any).pacing = { choose: async () => ({ agent: 'fixture-2', label: 'Agent · account 2' }) }
+  const params = { text: 'Add the helper' }
+  r.authorize('lead/chat/start', params)
+  const result = await r.service.start(params)
+  assert.equal(result.id, 'fixture:created')
+  assert.equal((result as any).account, 'Agent · account 2')
+  assert.equal(r.calls.find(call => call.method === 'start')!.params.agent, 'fixture-2')
+})
+
+test('a start that names its agent, a move, or a desk that does not pace keeps the desk choice and names no account', async t => {
+  const r = await rig(t)
+  let asked = 0
+  ;(r.ports as any).pacing = { choose: async () => { asked++; return null } }
+  const params = { text: 'Add the helper' }
+  r.authorize('lead/chat/start', params)
+  const result = await r.service.start(params)
+  assert.equal((result as any).account, undefined)
+  assert.equal(r.calls.find(call => call.method === 'start')!.params.agent, undefined)
+  assert.equal(asked, 1)
+})
+
+test('pacing that fails does not stop the chat from starting on the desk default', async t => {
+  const r = await rig(t)
+  ;(r.ports as any).pacing = { choose: async () => { throw new Error('read failed') } }
+  const params = { text: 'Add the helper' }
+  r.authorize('lead/chat/start', params)
+  assert.equal((await r.service.start(params)).id, 'fixture:created')
+})

@@ -51,9 +51,10 @@ import { splitHealth, type Unavailable } from '../lib/health'
 import { shortPath } from '../lib/paths'
 import { withCount } from '../lib/with-count'
 import { Prose } from './Prose'
+import { useFirstNote } from '@harnessdesk/protocol'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
-import { firstInPool, inPoolOrder, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, whenOutOf, type WhenOut } from '../lib/account-pool'
+import { firstInPool, inPoolOrder, isPaced, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, whenOutOf, type WhenOut } from '../lib/account-pool'
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { copyReason, describeCopy, describeFallback, installSummary, standingChip, pinHolds } from '../lib/installs'
 import { useSnapshot, useStore } from '../state/context'
@@ -484,7 +485,7 @@ const AgentRow = ({
   const snapshot = useSnapshot()
   const status = snapshot.accountsByRuntime[info.id]
   const build = describeVersion(info)?.replace(`${info.presentation.name} `, '') ?? null
-  const ordered = inPoolOrder(siblings, snapshot.accountPools[agentKey(info)])
+  const ordered = inPoolOrder(siblings, snapshot.accountPools[agentKey(info)], { reports: snapshot.usage, now: Date.now() })
   const accounts = ordered.flatMap((entry) =>
     (snapshot.accountsByRuntime[entry.id]?.accounts ?? []).map((account) => ({ entry, account })),
   )
@@ -633,7 +634,7 @@ const AgentAccounts = ({
   const agent = agentKey(info)
   const pool = snapshot.accountPools[agent]
   // In the order new sessions use them, so the list is the queue.
-  const queue = inPoolOrder(siblings, pool)
+  const queue = inPoolOrder(siblings, pool, { reports: snapshot.usage, now: Date.now() })
   const order = queue.map((entry) => entry.id)
   // One flat list of rows across the agent's runtimes, each row remembering
   // which runtime it belongs to — that is what a sign-out or a removal needs.
@@ -653,6 +654,9 @@ const AgentAccounts = ({
   // second runtime to run on. Two identities one runtime reports (an agent
   // identity and its key) are one place in the queue, not two.
   const ordered = listed.length > 1
+  // With the soonest-reset order on, the usage reports set the order, so a
+  // move by hand would change nothing and is not offered.
+  const paced = isPaced(pool)
   const movesFor = (runtime: RuntimeId) => {
     const at = listedOrder.indexOf(runtime)
     const move = (delta: number) => () => store.setAccountPool(agent, {
@@ -794,14 +798,15 @@ const AgentAccounts = ({
               />
             )
           }
-          const { key, blocked, left } = accountStanding(entry, account, snapshot)
+          const { key, blocked, left, report } = accountStanding(entry, account, snapshot)
+          const useFirst = report ? useFirstNote(report, Date.now()) : null
           const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
           const identity = shownIdentity(account, snapshot)
           return (
             <RowButton
               key={key}
               onClick={() => onOpenAccount(entry.id, key)}
-              {...(ordered ? {
+              {...(ordered && !paced ? {
                 action: (
                   <SettingsRowMenu
                     name={name}
@@ -826,6 +831,13 @@ const AgentAccounts = ({
               control={
                 <>
                   {blocked && <Chip state="limit" />}
+                  {/* Allowance that expires unspent: more than half is left and
+                      the window is about to refill. The reset is the title. */}
+                  {useFirst && (
+                    <Chip tone="neutral" size="sm" title={`${Math.round(useFirst.remainingPercent)}% left, resets ${formatReset(useFirst.resetsAt)}`}>
+                      Use it first
+                    </Chip>
+                  )}
                   {account.planType && (
                     <Chip tint={tintOf(key, snapshot.accountPrefs)}>
                       {account.planType}
@@ -971,6 +983,19 @@ const AgentAccounts = ({
           conversation's thread lives in the account it started on. */}
       {ordered && (
         <Rows>
+          <Row
+            title="Order"
+            control={
+              <NativeSelect
+                aria-label="Order"
+                value={paced ? 'soonest' : 'mine'}
+                onChange={(event) => store.setAccountPool(agent, { pace: event.target.value === 'soonest' ? 'soonest' : undefined })}
+              >
+                <option value="mine">My order</option>
+                <option value="soonest">Prefer the account that resets soonest</option>
+              </NativeSelect>
+            }
+          />
           <Row
             title="When an account runs out"
             desc="New sessions follow the order above. A conversation already running stays on its account."
@@ -2070,7 +2095,7 @@ const AgentDetail = ({
           control={snapshot.runtimes.some((entry) => entry.id === snapshot.activeRuntime && agentKey(entry) === agentKey(info))
             ? <Chip state={defaultChipState(info, snapshot)} label="Default" />
             : <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(firstInPool(
-                inPoolOrder(snapshot.runtimes.filter((entry) => agentKey(entry) === agentKey(info)), snapshot.accountPools[agentKey(info)]),
+                inPoolOrder(snapshot.runtimes.filter((entry) => agentKey(entry) === agentKey(info)), snapshot.accountPools[agentKey(info)], { reports: snapshot.usage, now: Date.now() }),
                 snapshot,
                 info.id,
               ))}>Use for new sessions</Button>}

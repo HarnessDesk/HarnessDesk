@@ -5507,3 +5507,12 @@ Editor mode. Opening explicitly reads then resumes the other conversation for
 live updates; the operation may reopen a runtime or restore a worktree. Closing
 its reader does not close a shared Host handle. This deliberately avoids a
 second composer, persisted layout or general-purpose conversation dock.
+
+## Account pacing is an order and a note, not a scheduler
+
+Accounts of one agent used to take turns only in the person's own order. Allowance that expires unspent is lost, so *Prefer the account that resets soonest* (`pace: 'soonest'` in the agent's account pool) uses the accounts with room in the order their deciding windows refill, and an account with more than half of a window unused and that window about to refill says **Use it first**. The ranking lives in `@harnessdesk/protocol` (`pacing.ts`) so the desk's order, the Lead's start and the phone's note read one rule from the usage reports the host already keeps; there is no new request to any vendor.
+
+- **An account with room but no clear reading ranks behind one with a known reset.** A stale or failed reading proves nothing about room, so it is tried after the clear ones, in the person's own order. An account that is out is last however soon it resets, and one nearly spent (under 10% left) is tried after one with more.
+- **Close means a quarter of the window.** Half left with a week still to go is not about to expire; with a quarter of the window left it is. A window with no stated length counts a day. Model-scoped windows, placeholders, unlimited ones and stale or failed readings never raise the note.
+- **The Lead does not choose.** The person turning the soonest-reset order on for an agent is the account choice. A Lead chat start that names no agent asks the host (`LeadChats` `pacing` port); the host answers only when that setting is on for the agent the desk would start on and the agent has more than one account, and then starts the chat there and returns the account's `usage_summary` label in the result, which the Lead says in its reply. A Lead can still never pick an account itself, and a move after a stuck chat still names its agent as before.
+- **Rejected:** moving a running conversation to the better account (its thread lives in the first account's history); a scheduler that spreads turns over time (the person's own order and the notice already cover running out); computing the note on the phone (two clocks and two rules would disagree).

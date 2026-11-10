@@ -1,0 +1,95 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import { pacedOrder, useFirstNote, type UsageLane, type UsageReport } from '../src/index.js'
+
+const NOW = Date.UTC(2026, 10, 9, 12, 0, 0)
+const H = 3_600_000
+
+const lane = (patch: Partial<UsageLane> & { usedPercent: number; resetsAt: number | null }): UsageLane =>
+  ({ id: 'session', label: '5 hour', windowMinutes: 300, ...patch })
+
+const report = (runtime: string, lanes: UsageLane[], patch: Partial<UsageReport> = {}): UsageReport => ({
+  runtime: runtime as UsageReport['runtime'], account: null, plan: null, lanes, credits: null, spend: null, reached: null,
+  source: { kind: 'api', label: 'from its API' }, fetchedAt: NOW - 60_000, staleAfterMs: 15 * 60_000, error: null, ...patch,
+})
+
+const order = (reports: UsageReport[], ids: string[]) =>
+  pacedOrder(ids.map(id => ({ id })), id => reports.filter(one => one.runtime === id), NOW).map(one => one.id)
+
+test('the account that resets soonest, with room, goes first', () => {
+  const reports = [
+    report('a', [lane({ usedPercent: 20, resetsAt: NOW + 4 * H })]),
+    report('b', [lane({ usedPercent: 60, resetsAt: NOW + 1 * H })]),
+    report('c', [lane({ usedPercent: 10, resetsAt: NOW + 2 * H })]),
+  ]
+  assert.deepEqual(order(reports, ['a', 'b', 'c']), ['b', 'c', 'a'])
+})
+
+test('an account that is out goes last however soon it resets', () => {
+  const reports = [
+    report('a', [lane({ usedPercent: 100, resetsAt: NOW + 10 * 60_000 })]),
+    report('b', [lane({ usedPercent: 30, resetsAt: NOW + 5 * H })]),
+  ]
+  assert.deepEqual(order(reports, ['a', 'b']), ['b', 'a'])
+})
+
+test('an almost spent account is tried after one with room', () => {
+  const reports = [
+    report('a', [lane({ usedPercent: 95, resetsAt: NOW + 10 * 60_000 })]),
+    report('b', [lane({ usedPercent: 30, resetsAt: NOW + 5 * H })]),
+  ]
+  assert.deepEqual(order(reports, ['a', 'b']), ['b', 'a'])
+})
+
+test('an unread, stale or failed account keeps the person order behind the ones that are known', () => {
+  const reports = [
+    report('a', [lane({ usedPercent: 10, resetsAt: NOW + H })], { fetchedAt: NOW - 3 * H }),
+    report('c', [lane({ usedPercent: 40, resetsAt: NOW + 9 * H })]),
+    report('d', [], { error: { message: 'x' } as UsageReport['error'] }),
+  ]
+  assert.deepEqual(order(reports, ['a', 'b', 'c', 'd']), ['c', 'a', 'b', 'd'])
+})
+
+test('equal resets keep the person order', () => {
+  const reports = [
+    report('a', [lane({ usedPercent: 20, resetsAt: NOW + H })]),
+    report('b', [lane({ usedPercent: 50, resetsAt: NOW + H })]),
+  ]
+  assert.deepEqual(order(reports, ['b', 'a']), ['b', 'a'])
+})
+
+test('a reset already in the past is not a soonest reset', () => {
+  const reports = [
+    report('a', [lane({ usedPercent: 20, resetsAt: NOW - H })]),
+    report('b', [lane({ usedPercent: 20, resetsAt: NOW + 8 * H })]),
+  ]
+  assert.deepEqual(order(reports, ['a', 'b']), ['b', 'a'])
+})
+
+test('use it first: more than half left and the reset is close', () => {
+  const note = useFirstNote(report('a', [lane({ usedPercent: 30, resetsAt: NOW + H })]), NOW)
+  assert.deepEqual(note, { laneId: 'session', remainingPercent: 70, resetsAt: NOW + H })
+})
+
+test('use it first stays quiet when half or less is left, the reset is far, or it is the wrong kind of window', () => {
+  const quiet = (r: UsageReport) => assert.equal(useFirstNote(r, NOW), null)
+  quiet(report('a', [lane({ usedPercent: 50, resetsAt: NOW + H })]))
+  quiet(report('a', [lane({ usedPercent: 30, resetsAt: NOW + 3 * H })]))
+  quiet(report('a', [lane({ usedPercent: 30, resetsAt: null })]))
+  quiet(report('a', [lane({ usedPercent: 30, resetsAt: NOW - H })]))
+  quiet(report('a', [lane({ usedPercent: 30, resetsAt: NOW + H, scope: 'Opus' })]))
+  quiet(report('a', [lane({ usedPercent: 30, resetsAt: NOW + H, placeholder: true })]))
+  quiet(report('a', [lane({ usedPercent: 30, resetsAt: NOW + H })], { fetchedAt: NOW - 3 * H }))
+  quiet(report('a', [lane({ usedPercent: 30, resetsAt: NOW + H })], { error: { message: 'x' } as UsageReport['error'] }))
+  quiet(report('a', [lane({ usedPercent: 30, resetsAt: NOW + H }), lane({ id: 'weekly', usedPercent: 100, resetsAt: NOW + 50 * H, windowMinutes: 10080 })]))
+})
+
+test('a weekly window is close inside a quarter of its length, and a window of unstated length inside a day', () => {
+  const week = (resetsAt: number) => report('a', [lane({ id: 'weekly', usedPercent: 20, resetsAt, windowMinutes: 10080 })])
+  assert.equal(useFirstNote(week(NOW + 40 * H), NOW)?.laneId, 'weekly')
+  assert.equal(useFirstNote(week(NOW + 43 * H), NOW), null)
+  const open = (resetsAt: number) => report('a', [lane({ id: 'allowance', usedPercent: 20, resetsAt, windowMinutes: null })])
+  assert.ok(useFirstNote(open(NOW + 23 * H), NOW))
+  assert.equal(useFirstNote(open(NOW + 25 * H), NOW), null)
+})

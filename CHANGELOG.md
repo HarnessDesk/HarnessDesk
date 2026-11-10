@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Use the account that resets soonest.** An agent with several accounts can take them in the order their allowance refills, so what would expire unspent is spent first; the Lead starts its chats there too and says which account. An account with most of a window unused and that window about to refill says "Use it first", on the desktop and on the phone.
+
 - **Idle conversations read back whole.** A conversation an agent replays from its own store, such as an OpenCode one, keeps its replies, its thinking and the turn times the desk recorded, on the desktop and the phone. It no longer says recent activity is still being saved when nothing is.
 
 - **Manage conversations from your phone.** Rename, archive, unarchive and pin the desk's conversations; delete those whose agent moves them to the Trash. Pins follow you between the desk and phone.

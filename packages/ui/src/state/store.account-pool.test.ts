@@ -10,12 +10,12 @@ import { AppStore } from './store'
  * once — and only to an account that could take a turn.
  */
 
-const report = (usedPercent: number, runtime: string): UsageReport =>
+const report = (usedPercent: number, runtime: string, resetsIn = 86_400_000): UsageReport =>
   ({
     runtime: runtimeId(runtime),
     account: null,
     plan: null,
-    lanes: [{ id: 'weekly', label: 'Weekly', usedPercent, windowMinutes: 10_080, resetsAt: Date.now() + 86_400_000 }],
+    lanes: [{ id: 'weekly', label: 'Weekly', usedPercent, windowMinutes: 10_080, resetsAt: Date.now() + resetsIn }],
     credits: null,
     spend: null,
     reached: usedPercent >= 100 ? 'weekly' : null,
@@ -62,6 +62,20 @@ describe('the account pool', () => {
     push({ method: 'usage/updated', params: { report: report(100, 'codex') } })
     await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-2'))
     expect(store.getSnapshot().inbox.map((notice) => notice.title)).toContain('work reached its limit. New sessions use personal.')
+  })
+
+  it('moves to the account that resets soonest when the pool prefers it', async () => {
+    push({
+      method: 'runtime/added',
+      params: { info: { id: runtimeId('codex-3'), name: 'Agent', slot: { agent: runtimeId('codex') }, presentation: { name: 'Agent' }, capabilities: {} } },
+    } as unknown as WireNotification)
+    await store.loadAccounts()
+    preferences = { activeRuntime: 'codex', accountPools: { codex: { whenOut: 'next', pace: 'soonest', order: ['codex', 'codex-2', 'codex-3'] } } }
+    await store.loadPreferences()
+    push({ method: 'usage/updated', params: { report: report(30, 'codex-2', 3 * 3_600_000) } })
+    push({ method: 'usage/updated', params: { report: report(40, 'codex-3', 3_600_000) } })
+    push({ method: 'usage/updated', params: { report: report(100, 'codex') } })
+    await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-3'))
   })
 
   it('stays put when the rule is to ask', async () => {

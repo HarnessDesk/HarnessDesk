@@ -1597,6 +1597,35 @@ it('an agent with two accounts keeps them in an order, with a rule for running o
   expect(setAccountPool).toHaveBeenLastCalledWith('alpha', { whenOut: 'next' })
 })
 
+it('prefers the account that resets soonest, hides the hand moves, and says which to use first', async () => {
+  const setAccountPool = vi.fn()
+  const now = Date.now()
+  const lane = (usedPercent: number, resetsIn: number) => ({ id: 'session', label: '5h', usedPercent, windowMinutes: 300, resetsAt: now + resetsIn })
+  const fresh = { fetchedAt: now, staleAfterMs: 900_000, error: null }
+  await mountList({
+    accountPools: { alpha: { pace: 'soonest' } },
+    usage: [
+      { runtime: 'alpha', account: 'ada@example.com', plan: 'Pro', lanes: [lane(30, 4 * 3_600_000)], reached: null, ...fresh },
+      { runtime: 'alpha#2', account: 'grace@example.com', plan: 'Team', lanes: [lane(20, 3_600_000)], reached: null, ...fresh },
+    ] as never,
+    store: { setAccountPool },
+  })
+  await act(async () => line('Alpha').click())
+  const titles = [...container.querySelectorAll('[data-kind="record"] [data-slot="row-title"]')].map((node) => node.textContent ?? '')
+  expect(titles.slice(0, 2).map((title) => title.replace('Default', ''))).toEqual(['grace', 'ada'])
+  expect(container.querySelector('[aria-label="grace actions"]')).toBeNull()
+  // Only the account that refills in an hour with 80% unused is flagged: ada's reset is four hours off.
+  expect([...container.querySelectorAll('*')].filter((node) => node.children.length === 0 && node.textContent === 'Use it first')).toHaveLength(1)
+
+  const order = container.querySelector<HTMLSelectElement>('select[aria-label="Order"]')!
+  expect(order.value).toBe('soonest')
+  await act(async () => {
+    order.value = 'mine'
+    order.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(setAccountPool).toHaveBeenLastCalledWith('alpha', { pace: undefined })
+})
+
 it('an agent with one account has no order and no rule to set', async () => {
   await mountList()
   await act(async () => line('Beta').click())

@@ -847,3 +847,21 @@ test('phone session lists carry host pins and archive state', async () => {
     assert.deepEqual(f.workspace.workSessions({ archived: true }).items.map(row => [row.pinned, row.archived]), [[true, true]])
   } finally { await f.done() }
 })
+
+test('the phone and the Lead both learn which allowance is about to expire unspent, and only then', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    const lane = (usedPercent: number, resetsIn: number) => ({ id: 'session', label: '5-hour', usedPercent, windowMinutes: 300, resetsAt: NOW + resetsIn })
+    f.reports = [
+      report('john@example.com', { lanes: [lane(30, HOUR)] }),
+      report('kim@example.com', { lanes: [lane(30, 3 * HOUR)] }),
+      report('lee@example.com', { lanes: [lane(60, HOUR)] }),
+      report('max@example.com', { lanes: [lane(30, HOUR)], fetchedAt: NOW - 10 * HOUR }),
+    ]
+    const rows = (await f.workspace.workUsage())!.runtimes
+    assert.deepEqual(rows.map(row => row.useFirst), [true, undefined, undefined, undefined])
+    const summary = await f.workspace.usageSummary(f.reports)
+    assert.deepEqual(summary.accounts.map(one => one.useFirst), [true, undefined, undefined, undefined])
+  } finally { await f.done() }
+})
