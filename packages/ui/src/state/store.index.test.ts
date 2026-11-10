@@ -541,7 +541,10 @@ it('writes session pins to the host and receives phone pins through index change
   store.toggleSessionPinned(String(sessionKey(runtime, 'one')))
   expect(request).toHaveBeenCalledWith('session/pin', { runtime, sessionId: 'one', pinned: true })
   handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [row('one', { pinned: true })], removed: [], pinnedSessions: ['agent:one'] } } as WireNotification)
-  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual(['agent:one'])
+  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual([String(sessionKey(runtime, 'one'))])
+  request.mockClear()
+  store.toggleSessionPinned(String(sessionKey(runtime, 'one')))
+  expect(request).toHaveBeenCalledWith('session/pin', { runtime, sessionId: 'one', pinned: false })
   request.mockClear()
   store.setListPrefs({ sort: 'name' })
   const write = request.mock.calls.find(([method]: readonly unknown[]) => method === 'app/state/set')
@@ -565,7 +568,16 @@ it('keeps newer phone pins when the initial pin read arrives late', async () => 
   handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [], pinnedSessions: ['agent:two'] } } as WireNotification)
   pins.resolve(['agent:one'])
   await loading
-  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual(['agent:two'])
+  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual([String(sessionKey(runtime, 'two'))])
+})
+
+it('reads the host pin list in the window session key form, splitting at the first colon', async () => {
+  request.mockImplementation((async (method: HostMethodName) => method === 'app/state/get' ? {} : method === 'session/pins' ? ['agent:two', 'agent:one:part'] : null) as never)
+  await store.loadPreferences()
+  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual([String(sessionKey(runtime, 'two')), String(sessionKey(runtime, 'one:part'))])
+  request.mockClear()
+  store.toggleSessionPinned(String(sessionKey(runtime, 'one:part')))
+  expect(request).toHaveBeenCalledWith('session/pin', { runtime, sessionId: 'one:part', pinned: false })
 })
 
 it('keeps the list preference reference on unchanged pin notifications', () => {
