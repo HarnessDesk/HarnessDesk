@@ -350,11 +350,18 @@ export class IntakePlane {
       assess: port.mentions?.assess ?? null,
       leadName: () => port.mentions?.leadName?.() ?? 'dex',
       stop: async (goals, why) => {
+        // The host's own stop: checks first, then every run still going, then any live turn on the Goal's Seats.
+        let stopped = 0
         for (const goal of goals) {
           port.flows.interruptChecks?.(goal)
-          for (const run of port.flows.runs(goal).filter((one) => one.intake && one.state !== 'stopped')) await port.flows.stopRun(run.id, why)
+          for (const run of port.flows.runs(goal).filter((one) => one.intake && (one.state === 'running' || one.state === 'stalled'))) {
+            await port.flows.stopRun(run.id, why)
+            stopped += 1
+          }
+          await port.interrupt(goal)
         }
         this.#schedule()
+        return stopped
       },
       pullRequests: (repository, goals, firings) => port.mentions?.pullRequests?.(repository, goals, firings) ?? Promise.resolve([]),
       workItems: port.mentions?.workItems ?? NO_WORK_ITEMS,

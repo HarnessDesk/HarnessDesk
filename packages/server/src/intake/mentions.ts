@@ -53,6 +53,9 @@ export const ASSESS_UNAVAILABLE = 'The assessment could not be made, so this wai
 export const ASSESS_SECRET = 'This comment looks like it holds a credential, so it was not sent for assessment; it waits for you.'
 export const ASSESS_CAPPED = `More than ${ASSESSMENTS_PER_DAY} requests were assessed today, so this one waits for you.`
 const STOPPED = 'Stopped from the forge: someone allowed asked the work on this thread to stop.'
+/** How long who-may-ask answers from the forge are reused: a burst of comments reads each account once. */
+export const ACCOUNT_TTL_MS = 5 * 60_000
+export const EDITED = 'This comment was edited after it was first read, so it is not evaluated again: the request a person would approve is not the one recorded.'
 
 // ----------------------------------------------------------------- reading
 
@@ -142,12 +145,16 @@ const allowedWords = (definition: TriggerDefinition): string => listWords([
 
 const commentId = (url: string): string => /#issuecomment-([1-9][0-9]{0,18})$/.exec(url)?.[1] ?? ''
 
+/** The excerpt kept and shown: blank when the comment holds a credential, so it is never stored or sent to the phone. */
 const excerptOf = (body: string): string => {
+  if (leadContainsSecret(body)) return ''
   const flat = body.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
   return flat.length > EXCERPT ? `${flat.slice(0, EXCERPT - 1)}…` : flat
 }
 
 const digest = (parts: readonly string[]): string => createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 20)
+/** What the comment said when it was decided, by digest: Re-evaluate refuses one edited since. */
+const bodyDigest = (body: string): string => createHash('sha256').update(body).digest('hex')
 
 // ------------------------------------------------------------------ ledger
 
@@ -158,9 +165,14 @@ interface StoredThread extends TriggerWorkThread {
   readonly seen: readonly string[]
 }
 
+/** A decision as the desk keeps it: with the digest of the comment it decided, never shown. */
+interface StoredDecision extends TriggerDecision {
+  readonly commentDigest?: string
+}
+
 interface LedgerFile {
   readonly version: 1
-  readonly decisions: readonly TriggerDecision[]
+  readonly decisions: readonly StoredDecision[]
   readonly threads: readonly StoredThread[]
   readonly modes: Readonly<Record<string, { readonly mode: TriggerMode; readonly armedAt: number }>>
   readonly assessed: { readonly day: string; readonly count: number }
@@ -173,7 +185,7 @@ const isMap = (value: unknown): value is Record<string, unknown> => typeof value
 /** The file as the host wrote it, or null: what is not exactly that is never trusted, and never overwritten. */
 const ledgerOf = (value: unknown): LedgerFile | null => {
   if (!isMap(value) || value['version'] !== 1 || !Array.isArray(value['decisions']) || !Array.isArray(value['threads']) || !isMap(value['modes']) || !isMap(value['assessed'])) return null
-  const decisions = value['decisions'].filter((one): one is TriggerDecision =>
+  const decisions = value['decisions'].filter((one): one is StoredDecision =>
     isMap(one) && typeof one['id'] === 'string' && typeof one['trigger'] === 'string' && typeof one['project'] === 'string' && TRIAGES.has(String(one['decision'])) &&
     isMap(one['comment']) && isMap(one['thread']) && Array.isArray(one['rules']))
   const threads = value['threads'].filter((one): one is StoredThread =>
@@ -207,8 +219,8 @@ export interface MentionPort {
   readonly assess: MentionAssessor | null
   /** The handle a trigger without one answers to: the desk's Lead name. */
   leadName(): string
-  /** Stops the work on these Goals, with the reason. */
-  stop(goals: readonly string[], why: string): Promise<void>
+  /** Stops the work running on these Goals through the host, with the reason; how many runs it stopped. */
+  stop(goals: readonly string[], why: string): Promise<number>
   /** The pull requests the work on these Goals and firings opened, by number. */
   pullRequests(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]>
   readonly workItems: WorkItemsPort
@@ -238,6 +250,8 @@ export class MentionTriage {
   readonly #serial = new Serial()
   #ledger: LedgerFile | null = null
   #problem: string | null = null
+  /** Who-may-ask answers from the forge, by question, with when they were read. */
+  readonly #accounts = new Map<string, { readonly answer: boolean; readonly at: number }>()
 
   constructor(port: MentionPort) {
     this.#port = port
@@ -253,7 +267,10 @@ export class MentionTriage {
     try {
       text = await readFile(this.#file, 'utf8')
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return (this.#ledger = EMPTY)
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.#problem = null
+        return (this.#ledger = EMPTY)
+      }
       throw error
     }
     let parsed: unknown = null
@@ -265,6 +282,7 @@ export class MentionTriage {
       this.#problem = 'The mention decisions on this desk could not be read, so mentions wait until a person looks at it.'
       throw new Error(this.#problem)
     }
+    this.#problem = null
     return (this.#ledger = ledger)
   }
 
@@ -319,7 +337,7 @@ export class MentionTriage {
     const ledger = await this.#read()
     return {
       mode: arm ? this.#modeOf(ledger, arm) : 'observe',
-      decisions: ledger.decisions.filter((one) => one.project === project && one.trigger === trigger).reverse(),
+      decisions: ledger.decisions.filter((one) => one.project === project && one.trigger === trigger).reverse().map(publicDecision),
       threads: ledger.threads.filter((one) => one.project === project && one.trigger === trigger).reverse().map(publicThread),
     }
   }
@@ -329,7 +347,7 @@ export class MentionTriage {
     const ledger = await this.#read()
     return [...ledger.decisions].sort((a, b) => b.decidedAt - a.decidedAt).slice(0, limit).map((one) => ({
       id: one.id, trigger: one.trigger, project: basename(one.project), repository: one.repository, thread: one.thread,
-      author: one.comment.author, excerpt: one.comment.excerpt, decision: one.decision, reason: one.reason, by: one.by,
+      author: one.comment.author, excerpt: leadContainsSecret(one.comment.excerpt) ? '' : one.comment.excerpt, decision: one.decision, reason: one.reason, by: one.by,
       mode: one.mode, acted: one.acted, decidedAt: one.decidedAt, url: one.comment.url,
     }))
   }
@@ -369,15 +387,25 @@ export class MentionTriage {
           return
         }
         if (addressed && asksToStop(fact.body ?? '', handle)) {
+          const asked = `Asked by ${fact.login ?? 'someone allowed'} to stop the work on ${threadWords(linked.origin.kind, linked.origin.number)}.`
+          // Observing, nothing is stopped; acting, what was running is stopped through the host, and the thread says which.
+          const stopped = mode === 'act' ? await this.#port.stop(linked.links.goals, STOPPED) : 0
           const verdict: Verdict = {
-            decision: 'stop', by: 'rules', reason: `Asked by ${fact.login ?? 'someone allowed'} to stop the work on ${threadWords(linked.origin.kind, linked.origin.number)}.`,
+            decision: 'stop', by: 'rules',
+            reason: mode !== 'act' ? asked
+              : stopped > 0 ? `${asked} ${stopped === 1 ? '1 run' : `${stopped} runs`} of its work ${stopped === 1 ? 'was' : 'were'} stopped, and the thread is closed.`
+              : `${asked} nothing of its work was running, so nothing was stopped; the thread is closed.`,
             rules: [{ id: 'addressed', passed: true, detail: `Addresses @${handle}.` }, allowed, { id: 'stop-word', passed: true, detail: 'Asks the work on this thread to stop.' }],
           }
-          if (mode === 'act') await this.#port.stop(linked.links.goals, STOPPED)
           await this.#thread(linked.id, (one) => mode === 'act'
-            ? { ...one, state: 'closed', closed: { reason: 'stopped', at: this.#port.now() }, seen: remember(one.seen, id) }
+            ? { ...one, state: 'closed', closed: { reason: stopped > 0 ? 'stopped' : 'closed', at: this.#port.now() }, seen: remember(one.seen, id) }
             : { ...one, seen: remember(one.seen, id) })
           await this.#record(arm, fact, verdict, mode, mode === 'act', mode === 'act' ? linked.id : null)
+          return
+        }
+        // Discussion on the thread asks the desk for nothing: only a comment that addresses the handle resumes the work.
+        if (!addressed) {
+          await this.#thread(linked.id, (one) => ({ ...one, observations: one.observations + 1, seen: remember(one.seen, id) }))
           return
         }
         if (mode !== 'act') return
@@ -410,7 +438,8 @@ export class MentionTriage {
         }
       }
       const decision = await this.#record(arm, fact, { ...verdict, reason }, mode, acted, work)
-      if (decision.decision === 'ask') await this.#port.ask(arm, decision)
+      // Observing raises nothing: the person reads what it would have done on the trigger's page.
+      if (decision.decision === 'ask' && mode === 'act') await this.#port.ask(arm, decision)
     })
   }
 
@@ -425,6 +454,7 @@ export class MentionTriage {
       const before = (await this.#read()).decisions.find((one) => one.id === decisionId && one.project === arm.project && one.trigger === arm.id)
       if (!before) throw Object.assign(new Error('There is no such decision on this trigger.'), { code: 'HD_TRIGGER_REFUSED' })
       const fact = { ...await this.#port.forge.comment(arm.project, before.repository, Number(before.comment.id), this.#port.signal), project: arm.project }
+      if (before.commentDigest !== undefined && bodyDigest(fact.body ?? '') !== before.commentDigest) throw Object.assign(new Error(EDITED), { code: 'HD_TRIGGER_REFUSED' })
       const handle = this.#handle(arm.definition)
       const verdict: Verdict = addressesHandle(fact.body ?? '', handle)
         ? await this.#gate(arm, fact, handle)
@@ -442,16 +472,16 @@ export class MentionTriage {
           work = await this.#open(arm, fact, answer, before.comment.id)
         }
       }
-      const after: TriggerDecision = {
-        ...before, decision: verdict.decision, reason, by: verdict.by, rules: verdict.rules, mode, acted, work,
+      const after: StoredDecision = {
+        ...before, commentDigest: bodyDigest(fact.body ?? ''), decision: verdict.decision, reason, by: verdict.by, rules: verdict.rules, mode, acted, work,
         comment: { ...before.comment, excerpt: excerptOf(fact.body ?? '') },
         decidedAt: this.#port.now(), evaluations: before.evaluations + 1,
       }
       const now = await this.#read()
       await this.#write({ ...now, decisions: now.decisions.map((one) => one.id === after.id ? after : one) })
       this.#port.changed(arm.project)
-      if (after.decision === 'ask') await this.#port.ask(arm, after)
-      return after
+      if (after.decision === 'ask' && mode === 'act') await this.#port.ask(arm, after)
+      return publicDecision(after)
     })
   }
 
@@ -479,6 +509,10 @@ export class MentionTriage {
             if (states.every((state) => state !== 'open')) {
               next = { ...next, state: 'closed', closed: { reason: states.includes('merged') ? 'merged' : 'closed', at: this.#port.now() } }
             }
+          } else if (thread.links.issues.length > 0) {
+            // No pull request yet: the thread ends when every issue it follows is closed.
+            const issues = await Promise.all(thread.links.issues.map((one) => this.#port.forge.thread(thread.project, thread.repository, one, this.#port.signal)))
+            if (issues.every((issue) => issue.state === 'closed')) next = { ...next, state: 'closed', closed: { reason: 'closed', at: this.#port.now() } }
           }
           if (next !== thread) {
             await this.#thread(thread.id, () => next)
@@ -508,18 +542,31 @@ export class MentionTriage {
     if (!login) return fail('Its author')
     const signal = this.#port.signal
     if (fact.bot === true) {
-      if ((definition.bots ?? []).includes(login) && await this.#port.forge.isAccount(arm.project, login, true, fact.author, signal)) {
+      if ((definition.bots ?? []).includes(login) && await this.#cached(['account', arm.project, login, 'bot', fact.author], () => this.#port.forge.isAccount(arm.project, login, true, fact.author!, signal))) {
         return { id: 'allowed', passed: true, detail: `The bot ${login}, named on this trigger.` }
       }
       return fail(`The bot ${login}`)
     }
-    if ((definition.people ?? []).includes(login) && await this.#port.forge.isAccount(arm.project, login, false, fact.author, signal)) {
+    if ((definition.people ?? []).includes(login) && await this.#cached(['account', arm.project, login, 'person', fact.author], () => this.#port.forge.isAccount(arm.project, login, false, fact.author!, signal))) {
       return { id: 'allowed', passed: true, detail: `${login}, named on this trigger.` }
     }
-    if (definition.from === 'collaborators' && fact.repository && await this.#port.forge.writes(arm.project, fact.repository, login, fact.author, signal)) {
+    const repository = fact.repository
+    if (definition.from === 'collaborators' && repository && await this.#cached(['writes', arm.project, repository, login, fact.author], () => this.#port.forge.writes(arm.project, repository, login, fact.author!, signal))) {
       return { id: 'allowed', passed: true, detail: `${login} can write to the repository.` }
     }
     return fail(login)
+  }
+
+  /** A who-may-ask answer read within the last few minutes, or read now; a read that fails is never kept. */
+  async #cached(question: readonly string[], read: () => Promise<boolean>): Promise<boolean> {
+    const key = JSON.stringify(question)
+    const now = this.#port.now()
+    const kept = this.#accounts.get(key)
+    if (kept && now - kept.at >= 0 && now - kept.at < ACCOUNT_TTL_MS) return kept.answer
+    const answer = await read()
+    if (this.#accounts.size >= 512) this.#accounts.clear()
+    this.#accounts.set(key, { answer, at: now })
+    return answer
   }
 
   /** The rules in order, stopping at the first that fails; then, when every rule passed, one assessment. */
@@ -579,7 +626,8 @@ export class MentionTriage {
 
   async #record(arm: ArmedTrigger, fact: TriggerFact, verdict: Verdict, mode: TriggerMode, acted: boolean, work: string | null): Promise<TriggerDecision> {
     const id = commentId(fact.url ?? '')
-    const decision: TriggerDecision = {
+    const decision: StoredDecision = {
+      commentDigest: bodyDigest(fact.body ?? ''),
       id: `d-${digest([arm.project, arm.id, id])}`, trigger: arm.id, project: arm.project, repository: fact.repository ?? '',
       thread: { kind: fact.thread ?? 'issue', number: Number(fact.subject) },
       comment: { id, url: fact.url ?? '', at: fact.at, author: fact.login ?? null, excerpt: excerptOf(fact.body ?? '') },
@@ -589,7 +637,7 @@ export class MentionTriage {
     const ledger = await this.#read()
     await this.#write({ ...ledger, decisions: [...ledger.decisions.filter((one) => one.id !== decision.id), decision] })
     this.#port.changed(arm.project)
-    return decision
+    return publicDecision(decision)
   }
 
   /** A new thread of work for an accepted request that was admitted; its id. */
@@ -624,6 +672,11 @@ export class MentionTriage {
 }
 
 const remember = (seen: readonly string[], id: string): readonly string[] => [...seen, id].slice(-THREAD_SEEN)
+
+const publicDecision = (decision: StoredDecision): TriggerDecision => {
+  const { commentDigest: _digest, ...rest } = decision
+  return rest
+}
 
 const publicThread = (thread: StoredThread): TriggerWorkThread => {
   const { firings: _firings, seen: _seen, ...rest } = thread

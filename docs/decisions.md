@@ -5536,6 +5536,32 @@ linked pull request joins the same Goal without a second triage; a comment
 from anyone else is counted as an observation and never acted on. The thread
 closes when its linked pull requests merge or close.
 
+Review round, same day:
+
+- **Only a comment that addresses the handle resumes work.** Discussion
+  between people on a followed thread is counted, not acted on; the desk's
+  own posts never resume it, whether told apart by marker or by the
+  desk-posts record. A review on a linked pull request does not resume it
+  yet: the mention source reads comments only.
+- **A stop says what it stopped.** `@dex stop` stops running intake runs and
+  live Seat turns on the thread's Goals through the host's stop path and
+  records how many runs stopped; when nothing was running it says so, and the
+  thread closes as closed, not stopped. It reaches the trigger's own runs and
+  Seats; work the Lead starts after a person approves its plan is the Lead's
+  to stop.
+- **Observing is silent.** An observing trigger raises no attention notice,
+  even for an `ask`; the person reads it on the trigger's page.
+- **Re-evaluate judges the comment that was decided.** The decision keeps a
+  digest of the comment's text; Re-evaluate refuses a comment edited since,
+  because the request a person would approve is no longer the one recorded.
+- **The observer's spend is the Lead's.** It is reserved before the request
+  and settled after it on the Lead's budget ledger, at the Lead model's price
+  (an upper bound for the smaller observer model); an unknown outcome counts
+  the whole hold at once rather than leaving the Lead's spending blocked. No
+  ledger, or a refused hold, sends nothing.
+- **An issue-only thread ends with its issue.** With no pull request linked,
+  the sweep closes the thread once the issue closes.
+
 Rejected: a webhook (a public endpoint and a secret to hold, for a desk that
 already polls the forge); a separate bot identity (a second credential, and
 the desk's marker line already tells its own posts apart); triaging every

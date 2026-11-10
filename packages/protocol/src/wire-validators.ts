@@ -800,7 +800,7 @@ const flowPolicyValidator: Validator<FlowPolicy> = goalShape({
  * field, `again` reads only phase-8's fixed title) are `parseTriggers`'s,
  * re-checked by `writeTriggers`'s own round-trip on the host.
  */
-const triggerSourceValidator: Validator<TriggerSource> = literalUnion('pull-request', 'issue', 'schedule')
+const triggerSourceValidator: Validator<TriggerSource> = literalUnion('pull-request', 'issue', 'schedule', 'mention')
 const triggerFieldValidator: Validator<TriggerField> = literalUnion('pr', 'head', 'event', 'issue', 'slot', 'thread')
 const triggerFieldListValidator = flowWordList(5, triggerFieldValidator) as unknown as Validator<TriggerField[]>
 const triggerSlug: Validator<string> = (value, path = '') => {

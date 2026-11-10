@@ -119,3 +119,10 @@ test('mention triage controls take a trigger, a decision id and a mode, and noth
   assert.throws(() => request('phone/triage/list', { limit: 0 }), ValidationError)
   assert.doesNotThrow(() => request('phone/triage/list', {}))
 })
+
+test('a trigger draft may be a mention, as the create dialog offers it', () => {
+  for (const on of ['pull-request', 'issue', 'schedule', 'mention']) {
+    assert.doesNotThrow(() => request('authoring/triggers/draft', { id: 'ask-dex', on, opens: { lead: true } }), on)
+  }
+  assert.throws(() => request('authoring/triggers/draft', { id: 'ask-dex', on: 'comment', opens: { lead: true } }), ValidationError)
+})

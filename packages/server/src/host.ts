@@ -167,7 +167,7 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { leadContractDigest, readLeadEvidence, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
+import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
@@ -268,7 +268,7 @@ import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
-import { observerAssessor } from './intake/assess.js'
+import { observerAssessor, type AssessCharge } from './intake/assess.js'
 import type { MentionAssessor } from './intake/mentions.js'
 import { leadProviderTransport } from './lead/provider-transport.js'
 import { NO_WAITS, actorWords, type HostWaits } from './intake/waits.js'
@@ -2555,12 +2555,40 @@ export class Host {
           transport: this.options.leadMessagesTransport ?? leadProviderTransport,
           key: async () => this.options.leadEnabled && (await this.#credentials.leadStatus('anthropic')).configured ? this.#credentials.resolveLead('anthropic') : null,
           model: LEAD_MESSAGES_DEFAULTS.observerModel,
+          account: { reserve: (requestId, inputTokens, maxOutputTokens) => this.#holdLeadSpend(requestId, inputTokens, maxOutputTokens) },
         }),
         leadName: () => this.#leadJournal?.state.name ?? 'dex',
         pullRequests: options.intake?.mentions?.pullRequests ?? ((repository, goals, firings) => this.#mentionPullRequests(repository, goals, firings)),
       },
     })
     this.#context = this.#buildContext()
+  }
+
+  /**
+   * Holds one observer request against the Lead's spend limit, as a journaled
+   * reserve on the Lead's own budget ledger, priced at the Lead's model — at
+   * least what the smaller observer model costs, so the hold is an upper
+   * bound. No ledger (no Lead goal open), or a limit that refuses it, is null:
+   * nothing is sent, and the request waits for the person.
+   */
+  async #holdLeadSpend(requestId: string, inputTokens: number, maxOutputTokens: number): Promise<AssessCharge | null> {
+    const journal = this.#leadJournal
+    const price = LEAD_PRICES[LEAD_MESSAGES_DEFAULTS.model]
+    if (!journal?.state.budget || !price) return null
+    const now = (): number => Math.max(Date.now(), journal.state.budget?.now ?? 0)
+    try {
+      await journal.updateBudget({ version: 1, type: 'reserve', now: now(), requestId, inputTokens, maxOutputTokens, ...price })
+    } catch {
+      return null
+    }
+    return {
+      settle: async (usage) => { await journal.updateBudget({ version: 1, type: 'settle', now: now(), requestId, ...usage }) },
+      unknown: async () => {
+        await journal.updateBudget({ version: 1, type: 'uncertain', now: now(), requestId })
+        // Counted whole at once: an open uncertain hold would stop the Lead's own spending.
+        await journal.updateBudget({ version: 1, type: 'write-off', now: now(), requestId })
+      },
+    }
   }
 
   /**

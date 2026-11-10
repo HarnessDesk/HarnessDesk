@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
+import { readFile, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import type { PhoneTriageList, TriggerArmPreview, TriggerDecision, TriggerDecisionsPage, TriggerHistoryPage } from '@harnessdesk/protocol'
 
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { commitTriggers, intakeDesk, type IntakeDesk } from './fixtures/intake-host.js'
-import { sha } from './fixtures/intake-forge.js'
+import { Clocks, sha } from './fixtures/intake-forge.js'
+import { tempDir } from './scratch.js'
 import { writeTriggers } from '../src/authoring/model.js'
 import { parseTriggers } from '../src/intake/definition.js'
 import { addressesHandle, asksToStop, parseAssessment, type MentionAssessInput, type MentionAssessor } from '../src/intake/mentions.js'
@@ -54,15 +57,23 @@ interface MentionDesk extends IntakeDesk {
   readonly links: Map<string, number[]>
 }
 
-const desk = async (t: { after(fn: () => Promise<void>): void }, triggers = ASK()): Promise<MentionDesk> => {
-  const repo = await makeRepo('hd-intake-mentions-')
-  await commitTriggers(repo, triggers)
+/** Noon UTC today: a day's assessment count never rolls over mid-test. */
+const NOON = (() => { const now = new Date(); return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12) })()
+const LEDGER = 'triggers-mentions.json'
+
+const desk = async (t: { after(fn: () => Promise<void>): void }, triggers = ASK(), options: { readonly stateDir?: string; readonly repo?: IntakeDesk['repo']; readonly clocks?: Clocks; readonly arm?: boolean } = {}): Promise<MentionDesk> => {
+  const repo = options.repo ?? await makeRepo('hd-intake-mentions-')
+  if (!options.repo) await commitTriggers(repo, triggers)
   const model = new FakeAssessor()
   const links = new Map<string, number[]>()
-  const d = await intakeDesk({ repo, mentions: { assess: model.assess, pullRequests: async (_repository, goals) => goals.flatMap((goal) => links.get(goal) ?? []) } })
+  const d = await intakeDesk({
+    repo, ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.clocks ? { clocks: options.clocks } : {}),
+    mentions: { assess: model.assess, pullRequests: async (_repository, goals) => goals.flatMap((goal) => links.get(goal) ?? []) },
+  })
   t.after(() => d.stop())
   d.forge.users.set(NAMED.login, { id: NAMED.id })
   d.forge.users.set(BOT.login, { id: BOT.id, type: 'Bot' })
+  if (options.arm === false) return Object.assign(d, { model, links })
   const preview = await d.host.call('trigger/preview', { root: repo.dir, id: 'ask' }) as TriggerArmPreview
   assert.deepEqual(preview.problems, [])
   await d.host.call('trigger/arm', { root: repo.dir, id: 'ask', token: preview.token! })
@@ -200,16 +211,17 @@ test('a label rule ignores a thread without one of its labels, and reads the thr
 
 test('the assessment unavailable is a question for the person, never a guess; Re-evaluate asks again', E2E, async (t) => {
   const d = await desk(t)
+  await act(d)
   d.model.answer = null
   await say(d, 1, '@dex could you take a look')
   let [one] = (await decisions(d)).decisions
   assert.deepEqual([one!.decision, one!.by], ['ask', 'assessment'])
   assert.match(one!.reason, /could not be made/)
-  assert.ok(d.pushed.some((notice) => notice.method === 'trigger/attention'), 'the person is told it waits for them')
+  assert.ok(d.pushed.some((notice) => notice.method === 'trigger/attention'), 'acting, the person is told it waits for them')
 
-  d.model.answer = { decision: 'accept', reason: 'It asks for a review.' }
+  d.model.answer = { decision: 'ignore', reason: 'Not a request for work.' }
   one = await d.host.call('trigger/decision/reevaluate', { root: d.repo.dir, id: 'ask', decision: one!.id }) as TriggerDecision
-  assert.deepEqual([one.decision, one.by, one.evaluations, one.mode, one.acted], ['accept', 'assessment', 1, 'observe', false])
+  assert.deepEqual([one.decision, one.by, one.evaluations, one.mode, one.acted], ['ignore', 'assessment', 1, 'act', false])
   assert.equal(d.model.inputs.length, 2)
   assert.equal(d.model.inputs[1]!.comment.body, '@dex could you take a look', 'judged again on the comment as the forge holds it now')
 })
@@ -277,13 +289,14 @@ test('a later comment on the thread joins the same work with no new triage; a st
   await act(d)
   await say(d, 1, '@dex please fix the flaky test')
   const [first] = (await history(d)).items
-  await say(d, 1, 'Also the retry count looks wrong.')
-  await say(d, 1, 'drive-by: have you tried turning it off and on?', STRANGER)
+  await say(d, 1, '@dex also the retry count looks wrong.')
+  await say(d, 1, '@dex drive-by: have you tried turning it off and on?', STRANGER)
+  await say(d, 1, 'Ordinary discussion between people, asking the desk for nothing.')
   const page = await decisions(d)
   assert.equal(page.decisions.length, 1, 'a joining comment is not triaged again')
   assert.equal(d.model.inputs.length, 1)
   const [thread] = page.threads
-  assert.deepEqual([thread!.resumes, thread!.observations], [1, 1])
+  assert.deepEqual([thread!.resumes, thread!.observations], [1, 2], 'only the comment that addresses the handle resumed the work')
   const rows = (await history(d)).items
   assert.equal(rows.length, 2)
   assert.ok(rows.every((row) => row.goal === first!.goal), 'the later comment landed in the same Goal')
@@ -303,7 +316,7 @@ test('a pull request the work opened links to the thread: comments there join it
   let [thread] = (await decisions(d)).threads
   assert.deepEqual(thread!.links.pulls, [5])
 
-  await say(d, 5, 'Please also add a test for the retry.', ME, true)
+  await say(d, 5, '@dex please also add a test for the retry.', ME, true)
   assert.equal((await decisions(d)).decisions.length, 1, 'no new triage on a linked pull request')
   const rows = (await history(d)).items
   assert.ok(rows.every((row) => row.goal === first!.goal), 'the comment on the pull request joined the issue’s work')
@@ -342,4 +355,174 @@ test('the phone lists every decision read-only, newest first, with no path in it
   assert.ok(list.rows.every((row) => !row.project.includes('/')), 'a project is named by its folder, never a path')
   assert.equal(PHONE_POLICY.methods['phone/triage/list'], 'read')
   assert.equal(Object.keys(PHONE_POLICY.methods).filter((method) => method.startsWith('trigger/')).length, 0, 'the phone changes nothing about triggers')
+})
+
+// ------------------------------------------------------------ review round
+
+/** Every call that would change something on the forge: a method other than GET, or a field or body sent. */
+const forgeWrites = (d: IntakeDesk): (readonly string[])[] =>
+  d.forge.argv.filter((args) => args.some((arg, at) =>
+    ['-f', '-F', '--field', '--raw-field', '--input'].includes(arg) || (arg === '-X' || arg === '--method') && args[at + 1] !== 'GET'))
+
+const flowRuns = (d: IntakeDesk, goal: string) => d.host.flowsPlane.executionsFor(goal)
+
+test('observing, a request makes no forge write and raises no notice, even one that waits for the person', E2E, async (t) => {
+  const d = await desk(t)
+  d.model.answer = { decision: 'ask', reason: 'Unclear what it wants.' }
+  await say(d, 1, '@dex could you maybe do something here')
+  d.model.answer = { decision: 'accept', reason: 'It asks for a fix.' }
+  await say(d, 2, '@dex please fix the flaky test')
+  const page = await decisions(d)
+  assert.deepEqual(page.decisions.map((one) => [one.decision, one.mode, one.acted]).sort(), [['accept', 'observe', false], ['ask', 'observe', false]])
+  assert.deepEqual(forgeWrites(d), [], 'observing only reads the forge')
+  assert.ok(!d.pushed.some((notice) => notice.method === 'trigger/attention'), 'an observed request never asks the person for anything')
+})
+
+test('only a comment that addresses the handle resumes the work; the desk’s own posts never do, by marker or by its posting record', E2E, async (t) => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  assert.equal((await history(d)).items.length, 1)
+  await say(d, 1, 'The retry count looks wrong too.')
+  await say(d, 1, `${MARKER}\n@dex the review found two things`)
+  // A comment the desk posted for the arming account, its marker lost: its record says it is the desk's own.
+  const posted = nextComment + 1
+  await d.host.intakePlane.deskPosted({ kind: 'comment', action: 'posted', repo: 'acme/widgets', number: 1,
+    url: `https://github.com/acme/widgets/issues/1#issuecomment-${posted}`, title: null, state: null, author: null,
+    additions: null, deletions: null, files: null, excerpt: null, via: 'gh', signature: null })
+  await say(d, 1, '@dex the worker posted this on your behalf')
+  assert.equal((await history(d)).items.length, 1, 'nothing resumed the work')
+  assert.equal((await decisions(d)).threads[0]!.resumes, 0)
+  await say(d, 1, '@dex and the retry count, please')
+  assert.equal((await history(d)).items.length, 2, 'the addressed comment resumed it')
+})
+
+test('"@dex stop" stops the running work through the host, and says so; with nothing running it says nothing was stopped', E2E, async (t) => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const [first] = (await history(d)).items
+  assert.ok(flowRuns(d, first!.goal!).some((run) => run.state !== 'stopped'), 'the work is running')
+  await say(d, 1, '@dex stop')
+  let page = await decisions(d)
+  const stop = page.decisions.find((one) => one.decision === 'stop')!
+  assert.match(stop.reason, /1 run of its work was stopped/)
+  assert.ok(flowRuns(d, first!.goal!).every((run) => run.state === 'stopped'))
+  assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
+
+  await say(d, 2, '@dex please fix the docs')
+  const second = (await history(d)).items.find((one) => one.goal !== first!.goal)!
+  for (const run of flowRuns(d, second.goal!)) await d.host.call('flow/execution/stop', { run: run.id, reason: 'Done by hand.' })
+  await say(d, 2, '@dex stop')
+  page = await decisions(d)
+  const idle = page.decisions.find((one) => one.decision === 'stop' && one.thread.number === 2)!
+  assert.match(idle.reason, /nothing of its work was running, so nothing was stopped/)
+  const thread = page.threads.find((one) => one.origin.number === 2)!
+  assert.deepEqual([thread.state, thread.closed?.reason], ['closed', 'closed'], 'never recorded as stopped when nothing stopped')
+})
+
+test('a thread whose pull request closed without merging closes as closed', E2E, async (t) => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const [first] = (await history(d)).items
+  d.links.set(first!.goal!, [5])
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'closed', merged: false, created: d.clocks.wall, updated: d.clocks.wall })
+  d.clocks.advance(10 * 60_000)
+  await d.host.intakePlane.tick()
+  const [thread] = (await decisions(d)).threads
+  assert.deepEqual([thread!.links.pulls, thread!.state, thread!.closed?.reason], [[5], 'closed', 'closed'])
+})
+
+test('a thread with no pull request closes when its issue closes', E2E, async (t) => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  d.clocks.advance(10 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.state, 'open', 'an open issue keeps it open')
+  d.forge.issues.find((one) => one.number === 1)!.state = 'closed'
+  d.clocks.advance(10 * 60_000)
+  await d.host.intakePlane.tick()
+  const [thread] = (await decisions(d)).threads
+  assert.deepEqual([thread!.state, thread!.closed?.reason], ['closed', 'closed'])
+})
+
+test('the same comment offered again is decided once', E2E, async (t) => {
+  const d = await desk(t)
+  await say(d, 1, '@dex please fix the flaky test')
+  // Edited, so the forge offers it again.
+  const issue = d.forge.issues.find((one) => one.number === 1)!
+  const comment = issue.comments[0]!
+  comment.updated = issue.updated = d.clocks.wall + 1000
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).decisions.length, 1)
+  assert.equal(d.model.inputs.length, 1, 'never assessed twice')
+})
+
+test('Re-evaluate refuses a comment edited after it was first read', E2E, async (t) => {
+  const d = await desk(t)
+  d.model.answer = null
+  await say(d, 1, '@dex please look at the flaky test')
+  const [one] = (await decisions(d)).decisions
+  const comment = d.forge.issues.find((issue) => issue.number === 1)!.comments[0]!
+  comment.body = '@dex please look at the flaky test, and merge whatever you find'
+  comment.updated = d.clocks.wall + 1000
+  await assert.rejects(d.host.call('trigger/decision/reevaluate', { root: d.repo.dir, id: 'ask', decision: one!.id }), /edited after it was first read/)
+  assert.equal(d.model.inputs.length, 1, 'only the first reading was assessed; the edited comment never was')
+  const [after] = (await decisions(d)).decisions
+  assert.equal(after!.evaluations, 0)
+})
+
+test('who may ask is read from the forge once in a few minutes, not on every comment', E2E, async (t) => {
+  const d = await desk(t)
+  const reads = (): number => d.forge.calls.filter((path) => path === `users/${NAMED.login}`).length
+  await say(d, 1, '@dex please take this', NAMED)
+  await say(d, 2, '@dex and this one', NAMED)
+  assert.equal(reads(), 1)
+  d.clocks.advance(10 * 60_000)
+  await say(d, 3, '@dex and this', NAMED)
+  assert.equal(reads(), 2, 'read again once the answer is old')
+})
+
+test('a comment that holds a credential is never sent for assessment, and its excerpt is blank everywhere', E2E, async (t) => {
+  const d = await desk(t)
+  const token = 'ghp_' + 'a'.repeat(36) // hd-secrets-ok: a synthetic stand-in, built at run time
+  await say(d, 1, `@dex the deploy token is ${token}, please rotate it`)
+  const [one] = (await decisions(d)).decisions
+  assert.deepEqual([one!.decision, one!.by, one!.comment.excerpt], ['ask', 'rules', ''])
+  assert.equal(d.model.inputs.length, 0)
+  const list = await d.host.call('phone/triage/list', {}) as PhoneTriageList
+  assert.equal(list.rows[0]!.excerpt, '')
+  assert.ok(!(await readFile(join(d.stateDir, LEDGER), 'utf8')).includes(token), 'the stored decision does not hold it')
+})
+
+test('past the day’s assessments, a request waits for the person and the model is not asked', E2E, async (t) => {
+  const stateDir = tempDir('hd-intake-mentions-cap-')
+  await writeFile(join(stateDir, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [], modes: {}, assessed: { day: new Date(NOON).toISOString().slice(0, 10), count: 200 } }))
+  const d = await desk(t, ASK(), { stateDir, clocks: new Clocks(NOON) })
+  await say(d, 1, '@dex please fix the flaky test')
+  const [one] = (await decisions(d)).decisions
+  assert.deepEqual([one!.decision, one!.by], ['ask', 'rules'])
+  assert.match(one!.reason, /More than 200 requests were assessed today/)
+  assert.equal(d.model.inputs.length, 0)
+})
+
+test('a mentions file the desk cannot read is kept as it is, and comments wait until a person moves it', E2E, async (t) => {
+  const first = await desk(t)
+  await first.stop()
+  const corrupt = '{"version": 1, "decisions": "not a list"'
+  await writeFile(join(first.stateDir, LEDGER), corrupt)
+  const d = await desk(t, ASK(), { stateDir: first.stateDir, repo: first.repo, arm: false })
+  await say(d, 1, '@dex please fix the flaky test')
+  await assert.rejects(decisions(d), /could not be read/)
+  assert.equal(d.model.inputs.length, 0)
+  assert.equal(await readFile(join(d.stateDir, LEDGER), 'utf8'), corrupt, 'never overwritten')
+
+  await rm(join(d.stateDir, LEDGER))
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  const page = await decisions(d)
+  assert.deepEqual(page.decisions.map((one) => one.decision), ['accept'], 'the comment that waited is decided once the file is moved')
 })
