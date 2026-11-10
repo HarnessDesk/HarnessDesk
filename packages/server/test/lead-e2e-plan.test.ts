@@ -3,7 +3,7 @@ import test from 'node:test'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { leadBudgetProjection } from '@harnessdesk/lead'
+import { canBeginLeadGoal, leadBudgetProjection } from '@harnessdesk/lead'
 import { LeadPlanner } from '../src/lead/planner.js'
 import { LeadRepeats } from '../src/lead/repeats.js'
 import { createLeadRig } from './fixtures/lead-rig.js'
@@ -126,7 +126,12 @@ test('one repeat approval runs twice and skips a slot while its first result wai
   assert.equal(rig.journal.state.budget!.logicalGoalId, firstGoal)
   await assert.rejects(rig.host.call('lead/repeat/control', { taskId: task.id, action: 'run-now' }))
   await rig.decide(rig.pending('result')!, 'accept')
-  await rig.waitFor(() => !rig.service.requestInFlight && !rig.journal.state.budget!.requests.length, 'first repeat finishes')
+  // Run now begins a goal only when the journal can (`canBeginLeadGoal`), and that also waits for the child's
+  // own desk reads: accepting wakes the child, whose journaled reads are attempts with no model request or
+  // reservation. Waiting on the request alone let Run now land mid-read and be refused lead-request-in-flight.
+  // Settle first, so the Flow's own events after the acceptance have reached the child before the wait reads it.
+  await rig.settle()
+  await rig.waitFor(() => !rig.service.requestInFlight && canBeginLeadGoal(rig.journal.state), 'first repeat finishes')
   await rig.host.call('lead/repeat/control', { taskId: task.id, action: 'run-now' })
   await rig.waitFor(() => !!rig.pending('result'), 'second repeat reviewed result without another plan approval')
   assert.notEqual(rig.journal.state.budget!.logicalGoalId, firstGoal)
