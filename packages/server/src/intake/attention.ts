@@ -60,7 +60,7 @@ interface Stored extends TriggerAttention {
 const isMap = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-const KINDS = new Set(['message', 'approval', 'question', 'person-step', 'member', 'budget', 'source', 'publication', 'skipped'])
+const KINDS = new Set(['message', 'approval', 'question', 'person-step', 'member', 'budget', 'source', 'publication', 'skipped', 'triage'])
 const WAITING = new Set(['person', 'member', 'service'])
 const ACTIONS = new Set(['open-goal', 'open-trigger', 'open-permissions', 'open-usage'])
 const NOTIFIED = new Set(['pending', 'delivered', 'unavailable'])

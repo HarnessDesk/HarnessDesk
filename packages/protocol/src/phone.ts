@@ -484,3 +484,34 @@ export interface PhoneWorkThread {
   readonly status: 'done' | 'running' | 'asksYou'
   readonly turns: readonly PhoneWorkTurn[]
 }
+
+/**
+ * One triage decision as the phone lists it, read-only: which mention trigger
+ * on which project judged a comment on which thread, what it decided and why,
+ * and whether it acted. `excerpt` is the comment's own bounded prose, shown as
+ * untrusted text; every other field is a validated scalar or a host-made sentence.
+ */
+export interface PhoneTriageRow {
+  readonly id: string
+  readonly trigger: string
+  /** The project folder's name, never a path. */
+  readonly project: string
+  readonly repository: string
+  readonly thread: { readonly kind: 'issue' | 'pull-request'; readonly number: number }
+  readonly author: string | null
+  readonly excerpt: string
+  readonly decision: 'accept' | 'ignore' | 'stop' | 'ask'
+  readonly reason: string
+  readonly by: 'rules' | 'assessment' | 'person'
+  /** `observe`: an accept here is "would have accepted", and nothing was opened. */
+  readonly mode: 'observe' | 'act'
+  readonly acted: boolean
+  readonly decidedAt: number
+  /** The comment on the forge. */
+  readonly url: string
+}
+
+export interface PhoneTriageList {
+  /** Newest first, across every project on this desk, at most `limit` (default 50, at most 100). */
+  readonly rows: readonly PhoneTriageRow[]
+}

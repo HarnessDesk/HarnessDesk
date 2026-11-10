@@ -5523,6 +5523,67 @@ live updates; the operation may reopen a runtime or restore a worktree. Closing
 its reader does not close a shared Host handle. This deliberately avoids a
 second composer, persisted layout or general-purpose conversation dock.
 
+## A mention is triaged by rules, then by a model that only chooses — 2026-11-10
+
+Asking the Lead from an issue or pull request comment is the most direct way
+to hand it work, and also the easiest way for a stranger to try to. A mention
+trigger therefore never admits on the comment alone. Deterministic rules run
+first, in a fixed order, and the first one that fails decides: the comment
+must address the handle, its author must be on the trigger's list (compared
+by the forge's account id, never a login), the thread must be in the
+project, carry one of the trigger's labels if it names any, and still be
+open, and a comment that asks the handle to stop is a stop. Only then does
+one small observer-model request judge whether it is a request for work, and
+that answer can only pick accept, ignore, stop or ask with one sentence.
+What accepting opens, the budget and the Flow are the trigger's own and are
+never read from the comment or the answer, so text in a comment that tries
+to instruct the model changes at most the verdict, never what is admitted.
+The assessment uses the Lead's key and transport only when the Lead is
+enabled, sends no comment that looks like it carries a credential, and stops
+at 200 a day; without an answer the decision is `ask` and waits for the
+person, who can Re-evaluate it.
+
+A new mention trigger observes first: it records "would have accepted" and
+acts on nothing until this machine switches it to act, and every arm starts
+it observing again, because a changed file is a new consent. Accepted work
+is one thread. A later comment from someone allowed on the issue or any
+linked pull request joins the same Goal without a second triage; a comment
+from anyone else is counted as an observation and never acted on. The thread
+closes when its linked pull requests merge or close.
+
+Review round, same day:
+
+- **Only a comment that addresses the handle resumes work.** Discussion
+  between people on a followed thread is counted, not acted on; the desk's
+  own posts never resume it, whether told apart by marker or by the
+  desk-posts record. A review on a linked pull request does not resume it
+  yet: the mention source reads comments only.
+- **A stop says what it stopped.** `@dex stop` stops running intake runs and
+  live Seat turns on the thread's Goals through the host's stop path and
+  records how many runs stopped; when nothing was running it says so, and the
+  thread closes as closed, not stopped. It reaches the trigger's own runs and
+  Seats; work the Lead starts after a person approves its plan is the Lead's
+  to stop.
+- **Observing is silent.** An observing trigger raises no attention notice,
+  even for an `ask`; the person reads it on the trigger's page.
+- **Re-evaluate judges the comment that was decided.** The decision keeps a
+  digest of the comment's text; Re-evaluate refuses a comment edited since,
+  because the request a person would approve is no longer the one recorded.
+- **The observer's spend is the Lead's.** It is reserved before the request
+  and settled after it on the Lead's budget ledger, at the Lead model's price
+  (an upper bound for the smaller observer model); an unknown outcome counts
+  the whole hold at once rather than leaving the Lead's spending blocked. No
+  ledger, or a refused hold, sends nothing.
+- **An issue-only thread ends with its issue.** With no pull request linked,
+  the sweep closes the thread once the issue closes.
+
+Rejected: a webhook (a public endpoint and a secret to hold, for a desk that
+already polls the forge); a separate bot identity (a second credential, and
+the desk's marker line already tells its own posts apart); triaging every
+comment (cost and noise, and a stranger's comment would reach the model);
+and letting the assessment choose the Flow or the role (that would hand
+control of what runs to whoever writes the comment).
+
 ## Account pacing is an order and a note, not a scheduler
 
 Accounts of one agent used to take turns only in the person's own order. Allowance that expires unspent is lost, so *Prefer the account that resets soonest* (`pace: 'soonest'` in the agent's account pool) uses the accounts with room in the order their deciding windows refill, and an account with more than half of a window unused and that window about to refill says **Use it first**. The ranking lives in `@harnessdesk/protocol` (`pacing.ts`) so the desk's order, the Lead's start and the phone's note read one rule from the usage reports the host already keeps; there is no new request to any vendor.

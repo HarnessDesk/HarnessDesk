@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { open, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { TRIGGER_COMMENT_FROM, TRIGGER_EVENTS, TRIGGER_SOURCES, type TriggerDefinition, type TriggerFact, type TriggerSource, type TriggerStopReason } from '@harnessdesk/protocol'
+import { TRIGGER_COMMENT_FROM, TRIGGER_EVENTS, TRIGGER_NAMED_LIMIT, TRIGGER_SOURCES, type TriggerDefinition, type TriggerFact, type TriggerSource, type TriggerStopReason } from '@harnessdesk/protocol'
 
 import { syncDirectory } from '../goals/store.js'
 import type { ArmBinding } from './consent.js'
-import { AGAIN_TITLE, labelName, TRIGGER_SLUG } from './definition.js'
+import { AGAIN_TITLE, FORGE_LOGIN, labelName, TRIGGER_SLUG } from './definition.js'
 import type { SessionMeter } from './spend.js'
 
 /**
@@ -172,7 +172,7 @@ const filled = (value: unknown, limit = 4096): value is string => text(value, li
 const time = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0
 const slug = (value: unknown): value is string => typeof value === 'string' && TRIGGER_SLUG.test(value)
 const fieldsOf = (value: unknown): boolean =>
-  Array.isArray(value) && value.length >= 1 && value.length <= 5 && value.every((one) => ['pr', 'head', 'event', 'issue', 'slot'].includes(one as string))
+  Array.isArray(value) && value.length >= 1 && value.length <= 5 && value.every((one) => ['pr', 'head', 'event', 'issue', 'slot', 'thread'].includes(one as string))
 
 /** A stored definition, held to the parser's own shape: recovered text acquires no authority the parser would refuse. */
 export const definitionOf = (value: unknown): TriggerDefinition | null => {
@@ -197,6 +197,12 @@ export const definitionOf = (value: unknown): TriggerDefinition | null => {
   const label = value['label']
   if (label !== undefined && !(Array.isArray(label) && label.length >= 1 && label.length <= 5 && label.every((one) => labelName(one) === one))) return null
   if (value['from'] !== undefined && !TRIGGER_COMMENT_FROM.includes(value['from'] as never)) return null
+  if (value['handle'] !== undefined && !(typeof value['handle'] === 'string' && FORGE_LOGIN.test(value['handle']))) return null
+  for (const key of ['people', 'bots']) {
+    const list = value[key]
+    if (list !== undefined && !(Array.isArray(list) && list.length >= 1 && list.length <= TRIGGER_NAMED_LIMIT && list.every((one) => typeof one === 'string' && FORGE_LOGIN.test(one)))) return null
+  }
+  if ((value['handle'] !== undefined || value['people'] !== undefined || value['bots'] !== undefined) && on['kind'] !== 'mention') return null
   return value as unknown as TriggerDefinition
 }
 
@@ -213,6 +219,10 @@ export const factOf = (value: unknown): TriggerFact | null => {
   if (!(value['author'] === undefined || value['author'] === null || HEX.test(String(value['author'])))) return null
   if (!(value['authorWrites'] === undefined || value['authorWrites'] === null || typeof value['authorWrites'] === 'boolean')) return null
   if (!(value['desk'] === undefined || typeof value['desk'] === 'boolean')) return null
+  if (!(value['thread'] === undefined || value['thread'] === 'issue' || value['thread'] === 'pull-request')) return null
+  if (!(value['login'] === undefined || value['login'] === null || (typeof value['login'] === 'string' && FORGE_LOGIN.test(value['login'])))) return null
+  if (!(value['bot'] === undefined || typeof value['bot'] === 'boolean')) return null
+  if (value['source'] === 'mention' && (value['action'] !== 'commented' || value['thread'] === undefined)) return null
   if (value['check'] !== undefined) {
     const check = value['check']
     if (!isMap(check) || check['head'] !== value['head'] || !SHA.test(String(check['head'])) ||

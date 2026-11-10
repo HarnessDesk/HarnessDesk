@@ -44,7 +44,9 @@ export interface FakeIssue {
   /** `label` is the name a labelled event carries, as the forge nests it; any value, so a malformed one can be staged. */
   events: { id: number; event: string; created: number; label?: unknown }[]
   /** `user` is who the forge says wrote it: the signed-in account when absent, nobody readable when null. */
-  comments: { id: number; body: string; created: number; updated: number; user?: { id: number; login: string } | null }[]
+  comments: { id: number; body: string; created: number; updated: number; user?: { id: number; login: string; type?: 'User' | 'Bot' } | null }[]
+  /** The labels the issue carries now, by name. */
+  labels?: string[]
 }
 
 export type Failure = { exitCode: number; stderr: string } | 'timeout' | 'overflow' | 'malformed'
@@ -102,6 +104,12 @@ export class FakeForge {
     if (path === 'user' && !this.user) return { stdout: '', stderr: 'gh: HTTP 401: Bad credentials', exitCode: 1, timedOut: false, overflow: false }
     const permission = /^repos\/[^/]+\/[^/]+\/collaborators\/([^/]+)\/permission$/.exec(path)
     if (permission && !this.permissions.has(permission[1]!)) return { stdout: '', stderr: 'gh: Not Found (HTTP 404)', exitCode: 1, timedOut: false, overflow: false }
+    const user = /^users\/([^/?]+)$/.exec(path)
+    if (user) {
+      const known = this.users.get(decodeURIComponent(user[1]!))
+      if (!known) return { stdout: '', stderr: 'gh: Not Found (HTTP 404)', exitCode: 1, timedOut: false, overflow: false }
+      return { stdout: JSON.stringify({ id: known.id, login: decodeURIComponent(user[1]!), type: known.type ?? 'User' }), stderr: '', exitCode: 0, timedOut: false, overflow: false }
+    }
     return { stdout: JSON.stringify(this.#answer(path)), stderr: '', exitCode: 0, timedOut: false, overflow: false }
   }
 
@@ -109,6 +117,17 @@ export class FakeForge {
   user: { id: number; login: string } | null = { id: 7, login: 'jane-doe' }
   /** What `repos/{repo}/collaborators/{login}/permission` answers, by login; a login not here answers 404. */
   permissions = new Map<string, { id: number; permission: string }>()
+  /** What `users/{login}` answers, by login; a login not here answers 404. */
+  users = new Map<string, { id: number; type?: 'User' | 'Bot' }>()
+
+  /** One comment as the forge's comment endpoints answer it, on an issue or a pull request's conversation. */
+  commentJson(issue: FakeIssue, one: FakeIssue['comments'][number]): Record<string, unknown> {
+    return {
+      id: one.id, body: one.body, created_at: iso(one.created), updated_at: iso(one.updated),
+      ...(one.user === null ? {} : { user: one.user ?? { ...this.user, type: 'User' } }),
+      html_url: `https://github.com/${this.repo}/${issue.pullRequest ? 'pull' : 'issues'}/${issue.number}#issuecomment-${one.id}`,
+    }
+  }
 
   #answer(path: string): unknown {
     if (path === 'user') {
@@ -139,6 +158,32 @@ export class FakeForge {
       const one = this.pulls.find((row) => row.head === parts[4])
       if (parts[5] === 'check-runs') return { total_count: one?.checks?.length ?? 0, check_runs: slice(one?.checks ?? []) }
       if (parts[5] === 'status') return { sha: parts[4], total_count: one?.statuses?.length ?? 0, statuses: slice(one?.statuses ?? []) }
+    }
+    if (parts[3] === 'issues' && parts[4] === 'comments' && parts.length === 5) {
+      // The repository-wide list: every issue's and pull request conversation's comments, by update, from `since`.
+      const since = Date.parse(url.searchParams.get('since') ?? iso(0))
+      const rows = this.issues.flatMap((issue) => issue.comments.map((one) => ({ issue, one })))
+        .filter(({ one }) => one.updated >= since)
+        .sort((a, b) => (url.searchParams.get('direction') === 'desc' ? b.one.updated - a.one.updated : a.one.updated - b.one.updated) || a.one.id - b.one.id)
+      return slice(rows).map(({ issue, one }) => this.commentJson(issue, one))
+    }
+    if (parts[3] === 'issues' && parts[4] === 'comments' && parts.length === 6) {
+      for (const issue of this.issues) {
+        const one = issue.comments.find((row) => row.id === Number(parts[5]))
+        if (one) return this.commentJson(issue, one)
+      }
+      throw new Error(`missing comment ${path}`)
+    }
+    if (parts[3] === 'issues' && parts.length === 5) {
+      const one = this.issues.find((row) => row.number === Number(parts[4]))
+      if (!one) throw new Error(`missing issue ${path}`)
+      return {
+        number: one.number, title: one.title ?? `Issue ${one.number}`, body: one.body ?? null, state: one.state,
+        labels: (one.labels ?? []).map((name) => ({ name })),
+        created_at: iso(one.created), updated_at: iso(one.updated),
+        html_url: `https://github.com/${this.repo}/${one.pullRequest ? 'pull' : 'issues'}/${one.number}`,
+        ...(one.pullRequest ? { pull_request: { url: 'x' } } : {}),
+      }
     }
     if (parts[3] === 'issues' && parts.length === 4) {
       const rows = [...this.issues].sort((a, b) => b.updated - a.updated)

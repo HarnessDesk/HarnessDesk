@@ -6,6 +6,10 @@ import type { TriggerHistoryPage, TriggerProjectView } from '@harnessdesk/protoc
 
 import {
   issueDefinition,
+  mentionDefinition,
+  triggerDecision,
+  triggerDecisionsPage,
+  triggerWorkThread,
   prDefinition,
   scheduleDefinition,
   triggerFiring,
@@ -338,4 +342,69 @@ it('keeps a pending or failed history read in the compact list', async () => {
   await act(async () => reject(new Error('Try reading again.')))
   expect(historyRow()?.getAttribute('data-hd-table')).toBe('compact')
   expect(historyRow()?.textContent).toContain('Try reading again.')
+})
+
+const mentionView = (armed = true) => triggerProjectView({ triggers: [triggerView({ id: 'ask-dex', definition: mentionDefinition(), armed, state: armed ? 'armed' : 'off' })] })
+
+it('an armed mention trigger says it is observing and offers Switch to act, which acts from then on', async () => {
+  const setTriggerMode = vi.fn(async () => triggerDecisionsPage({ mode: 'act' }))
+  const store = mount({ projectTriggers: vi.fn(async () => mentionView()), triggerDecisions: vi.fn(async () => triggerDecisionsPage()), setTriggerMode })
+  await settle()
+  expect(container.textContent).toContain('When a comment asks the Lead, open fix-issue')
+  expect(container.textContent).toContain('Observing')
+  act(() => button('Switch to act').click())
+  await settle()
+  expect(setTriggerMode).toHaveBeenCalledWith(ROOT, 'ask-dex', 'act')
+  expect(container.textContent).not.toContain('Observing')
+  expect(container.textContent).not.toContain('Switch to act')
+  expect(button('Observe only')).toBeTruthy()
+  expect(store.triggerDecisions).toHaveBeenCalledWith(ROOT, 'ask-dex')
+})
+
+it('a mention trigger’s history lists each decision with its reason, and Re-evaluate judges it again', async () => {
+  const pages = [
+    triggerDecisionsPage({ threads: [triggerWorkThread()] }),
+    triggerDecisionsPage({ threads: [triggerWorkThread()], decisions: [triggerDecision({ decision: 'accept', evaluations: 1 })] }),
+  ]
+  const triggerDecisions = vi.fn(async () => pages.shift() ?? triggerDecisionsPage())
+  const reevaluateTriggerDecision = vi.fn(async () => triggerDecision({ evaluations: 1 }))
+  mount({ projectTriggers: vi.fn(async () => mentionView()), triggerDecisions, reevaluateTriggerDecision })
+  await settle()
+  act(() => button('History').click())
+  await settle()
+  const text = container.textContent ?? ''
+  expect(text).toContain('Would accept')
+  expect(text).toContain('Ignored')
+  expect(text).toContain('someone-else is not on this trigger’s list: the arming account and jane-doe.')
+  expect(text).toContain('Waits for you')
+  expect(text).toContain('Work on Issue #42')
+  expect(text).toContain('1 pull request · resumed 1 time')
+  const reevaluate = [...container.querySelectorAll('button')].filter((one) => one.textContent?.trim() === 'Re-evaluate')
+  expect(reevaluate).toHaveLength(3)
+  act(() => reevaluate[1]!.click())
+  await settle()
+  expect(reevaluateTriggerDecision).toHaveBeenCalledWith(ROOT, 'ask-dex', 'd-11111111111111111111')
+  expect(triggerDecisions).toHaveBeenCalledTimes(2)
+})
+
+it('a comment’s excerpt is shown as plain text, never as markup', async () => {
+  const excerpt = '@dex <img src=x onerror="alert(1)"> <a href="https://example.com">here</a>'
+  mount({
+    projectTriggers: vi.fn(async () => mentionView()),
+    triggerDecisions: vi.fn(async () => triggerDecisionsPage({ decisions: [triggerDecision({ comment: { ...triggerDecision().comment, excerpt } })] })),
+  })
+  await settle()
+  act(() => button('History').click())
+  await settle()
+  expect(container.querySelector('img')).toBeNull()
+  expect(container.querySelector('a[href="https://example.com"]')).toBeNull()
+  expect(container.textContent).toContain('<img src=x onerror="alert(1)">')
+})
+
+it('a mention trigger this machine has not armed reads no decisions', async () => {
+  const triggerDecisions = vi.fn(async () => triggerDecisionsPage())
+  mount({ projectTriggers: vi.fn(async () => mentionView(false)), triggerDecisions })
+  await settle()
+  expect(triggerDecisions).not.toHaveBeenCalled()
+  expect(container.textContent).not.toContain('Observing')
 })

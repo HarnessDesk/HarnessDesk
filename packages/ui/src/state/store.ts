@@ -98,7 +98,10 @@ import {
   type TeamPeerInfo,
   type TeamState,
   type TriggerArmPreview,
+  type TriggerDecision,
+  type TriggerDecisionsPage,
   type TriggerGoalStatus,
+  type TriggerMode,
   type TriggerHistoryPage,
   type TriggerPreferences,
   type TriggerProjectView,
@@ -554,6 +557,21 @@ export class AppStore {
 
   triggerGoal(goal: string): Promise<TriggerGoalStatus | null> {
     return this.transport.request('trigger/goal', { goal: goal as GoalId })
+  }
+
+  /** A mention trigger's triage decisions on this machine, its mode, and the work threads it opened. */
+  triggerDecisions(root: string, id: string): Promise<TriggerDecisionsPage> {
+    return this.transport.request('trigger/decisions', { root, id })
+  }
+
+  /** Judge one decision's comment again, as it reads now; an accept in act mode opens work at most once. */
+  reevaluateTriggerDecision(root: string, id: string, decision: string): Promise<TriggerDecision> {
+    return this.transport.request('trigger/decision/reevaluate', { root, id, decision })
+  }
+
+  /** Switch a mention trigger between recording what it would do and acting on it. */
+  setTriggerMode(root: string, id: string, mode: TriggerMode): Promise<TriggerDecisionsPage> {
+    return this.transport.request('trigger/mode', { root, id, mode })
   }
 
   /** How long an agent's question waits when nobody is here, before its run stops for you. */

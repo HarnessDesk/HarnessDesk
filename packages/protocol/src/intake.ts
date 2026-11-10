@@ -13,22 +13,22 @@ import type { FlowPreview } from './flow-policy.js'
  * in it can name a command, an environment, a ceiling or a template that
  * outside text could fill.
  *
- * The vocabulary is closed on purpose. Three sources, a finite field list per
+ * The vocabulary is closed on purpose. Four sources, a finite field list per
  * source, and one bounded budget; a new source or field is a protocol change,
  * never something a declaration reaches on its own.
  */
 
-export type TriggerSource = 'pull-request' | 'issue' | 'schedule'
+export type TriggerSource = 'pull-request' | 'issue' | 'schedule' | 'mention'
 
 /** Every source, in the order the desk lists them. */
-export const TRIGGER_SOURCES: readonly TriggerSource[] = ['pull-request', 'issue', 'schedule']
+export const TRIGGER_SOURCES: readonly TriggerSource[] = ['pull-request', 'issue', 'schedule', 'mention']
 
 /**
  * The facts a firing's Goal grouping and dedupe keys may name. Each is a
  * host-validated scalar the source assigns: `event` is a stable fact
  * identity the desk derives, never a delivery time or a body field.
  */
-export type TriggerField = 'pr' | 'head' | 'event' | 'issue' | 'slot'
+export type TriggerField = 'pr' | 'head' | 'event' | 'issue' | 'slot' | 'thread'
 
 export type PullRequestEvent = 'opened' | 'pushed' | 'checks-failed' | 'review-commented'
 export type IssueEvent = 'labelled' | 'closed' | 'commented'
@@ -64,12 +64,14 @@ export type TriggerOn =
   | { readonly kind: 'pull-request'; readonly events: readonly PullRequestEvent[] }
   | { readonly kind: 'issue'; readonly events: readonly IssueEvent[] }
   | { readonly kind: 'schedule'; readonly events: readonly ['tick']; readonly everyMinutes: number }
+  | { readonly kind: 'mention'; readonly events: readonly ['commented'] }
 
 /** The complete vocabulary; new events do not silently broaden an existing declaration. */
 export const TRIGGER_EVENTS = {
   'pull-request': ['opened', 'pushed', 'checks-failed', 'review-commented'],
   issue: ['labelled', 'closed', 'commented'],
   schedule: ['tick'],
+  mention: ['commented'],
 } as const
 
 /** Per source: its default events, the fields it may name, and what an omitted key defaults to. */
@@ -77,10 +79,12 @@ export const TRIGGER_DEFAULTS: {
   readonly 'pull-request': { readonly events: readonly PullRequestEvent[]; readonly fields: readonly TriggerField[]; readonly goal: readonly TriggerField[]; readonly dedupe: readonly TriggerField[] }
   readonly issue: { readonly events: readonly IssueEvent[]; readonly fields: readonly TriggerField[]; readonly goal: readonly TriggerField[]; readonly dedupe: readonly TriggerField[] }
   readonly schedule: { readonly events: readonly ['tick']; readonly fields: readonly TriggerField[]; readonly goal: readonly TriggerField[]; readonly dedupe: readonly TriggerField[] }
+  readonly mention: { readonly events: readonly ['commented']; readonly fields: readonly TriggerField[]; readonly goal: readonly TriggerField[]; readonly dedupe: readonly TriggerField[] }
 } = {
   'pull-request': { events: ['opened', 'pushed'], fields: ['pr', 'head', 'event'], goal: ['pr'], dedupe: ['pr', 'head', 'event'] },
   issue: { events: ['labelled', 'closed', 'commented'], fields: ['issue', 'event'], goal: ['issue'], dedupe: ['issue', 'event'] },
   schedule: { events: ['tick'], fields: ['slot'], goal: ['slot'], dedupe: ['slot'] },
+  mention: { events: ['commented'], fields: ['thread', 'event'], goal: ['thread'], dedupe: ['thread', 'event'] },
 }
 
 /**
@@ -116,10 +120,23 @@ export interface TriggerDefinition {
   readonly label?: readonly string[]
   /**
    * Whose comments fire it: present exactly when the trigger reads
-   * `commented` issue events, `me` unless the file says otherwise.
+   * `commented` issue events or mentions, `me` unless the file says
+   * otherwise. A mention trigger never takes `anyone`.
    */
   readonly from?: TriggerCommentFrom
+  /**
+   * A mention trigger's handle: the name a comment addresses as `@handle`.
+   * Absent means the desk's Lead name, read when a comment is judged.
+   */
+  readonly handle?: string
+  /** A mention trigger's named people: forge logins also allowed to ask, besides `from`. At most ten. */
+  readonly people?: readonly string[]
+  /** A mention trigger's named bots: bot logins (without `[bot]`) also allowed to ask. At most ten. */
+  readonly bots?: readonly string[]
 }
+
+/** At most this many named people, and as many named bots, on one mention trigger. */
+export const TRIGGER_NAMED_LIMIT = 10
 
 /** At most this many labels on one trigger, each at most this many characters: the forge's own name limit. */
 export const TRIGGER_LABEL_LIMIT = 5
@@ -198,7 +215,7 @@ export interface TriggerPreferences {
 export const TRIGGER_DAILY_USD_MAX = 10_000
 
 export type TriggerAttentionKind =
-  | 'message' | 'approval' | 'question' | 'person-step' | 'member' | 'budget' | 'source' | 'publication' | 'skipped'
+  | 'message' | 'approval' | 'question' | 'person-step' | 'member' | 'budget' | 'source' | 'publication' | 'skipped' | 'triage'
 
 /**
  * One named wait on unattended work: who it waits on, in a sentence, and
@@ -356,6 +373,12 @@ export interface TriggerFact {
   readonly desk?: boolean
   readonly check?: TriggerCheck
   readonly review?: TriggerReview
+  /** A mention fact: whether the comment is on an issue or a pull request's conversation. */
+  readonly thread?: 'issue' | 'pull-request'
+  /** A mention fact: the author's forge login as the forge spelled it, validated; what a named list is matched on with the id. */
+  readonly login?: string | null
+  /** A mention fact: the forge says the author is a bot account. */
+  readonly bot?: boolean
 }
 
 /** How one watched source stands, in sentences a surface can show. */
@@ -419,3 +442,87 @@ export interface TriggerBudgetState {
   readonly idleRounds: number
   readonly stop: { readonly reason: TriggerStopReason; readonly detail: string; readonly at: number } | null
 }
+
+// ------------------------------------------------------------------ triage
+
+/**
+ * What triage decided about a comment that addresses a mention trigger:
+ * `accept` opens work, `ignore` leaves it, `stop` asks the work on that
+ * thread to stop, and `ask` puts it to the person because the rules could not
+ * settle it and the assessment was unsure or could not be made.
+ */
+export type TriggerTriage = 'accept' | 'ignore' | 'stop' | 'ask'
+
+/** Whether a mention trigger acts on what it accepts (`act`) or only records it (`observe`, the default). */
+export type TriggerMode = 'observe' | 'act'
+
+/** One deterministic rule a decision checked, in the order it was checked. */
+export interface TriggerRuleCheck {
+  /** `addressed`, `allowed`, `project`, `label`, `handled`, `stop-word`. */
+  readonly id: string
+  readonly passed: boolean
+  /** A host-made sentence when it did not pass (or names what matched), never comment text. */
+  readonly detail: string | null
+}
+
+/**
+ * One triage decision, as history keeps it. Everything is a validated scalar
+ * or host-made sentence except `excerpt`, which is the comment's own bounded
+ * prose: information, never authority, rendered as untrusted text.
+ */
+export interface TriggerDecision {
+  readonly id: string
+  readonly trigger: string
+  readonly project: string
+  readonly repository: string
+  readonly thread: { readonly kind: 'issue' | 'pull-request'; readonly number: number }
+  readonly comment: { readonly id: string; readonly url: string; readonly at: number; readonly author: string | null; readonly excerpt: string }
+  readonly decision: TriggerTriage
+  /** One sentence: the rule that failed, the assessment's reason, or why it waits for the person. */
+  readonly reason: string
+  /** Who settled it: a deterministic rule, the observer model's assessment, or the person. */
+  readonly by: 'rules' | 'assessment' | 'person'
+  readonly rules: readonly TriggerRuleCheck[]
+  /** The trigger's mode when it was decided: an `observe` accept is "would have accepted" and acted on nothing. */
+  readonly mode: TriggerMode
+  /** Whether work was opened, resumed or stopped because of it. */
+  readonly acted: boolean
+  /** The work thread it opened or joined, or null. */
+  readonly work: string | null
+  readonly decidedAt: number
+  /** How many times a person asked for it to be evaluated again. */
+  readonly evaluations: number
+}
+
+/**
+ * One thread of work a mention opened: the issue or pull request it started
+ * on, and every Goal and pull request linked to it since. A later comment on
+ * any linked thread from someone allowed joins this work without a new
+ * triage; it closes when every linked pull request merged or closed.
+ */
+export interface TriggerWorkThread {
+  readonly id: string
+  readonly trigger: string
+  readonly project: string
+  readonly repository: string
+  readonly origin: { readonly kind: 'issue' | 'pull-request'; readonly number: number }
+  readonly links: { readonly issues: readonly number[]; readonly pulls: readonly number[]; readonly goals: readonly string[] }
+  readonly state: 'open' | 'closed'
+  readonly closed: { readonly reason: 'merged' | 'closed' | 'stopped'; readonly at: number } | null
+  /** Later comments from someone allowed that joined it. */
+  readonly resumes: number
+  /** Comments on its threads from anyone else: read, never acted on. */
+  readonly observations: number
+  readonly openedAt: number
+}
+
+/** A mention trigger's decisions, newest first, its mode on this machine, and its work threads. */
+export interface TriggerDecisionsPage {
+  readonly mode: TriggerMode
+  readonly decisions: readonly TriggerDecision[]
+  readonly threads: readonly TriggerWorkThread[]
+}
+
+/** At most this many decisions, and this many work threads, are kept per machine; the oldest go first. */
+export const TRIGGER_DECISIONS_KEPT = 500
+export const TRIGGER_THREADS_KEPT = 256

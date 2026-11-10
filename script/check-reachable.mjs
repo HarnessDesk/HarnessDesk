@@ -92,6 +92,8 @@ const UNREACHED = {
     'likewise — the native phone wraps a Team whose Lead result the person accepted; the window wraps through goal/preview and goal/wrap',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
+  'phone/triage/list':
+    'likewise — the native phone lists mention triage decisions read only; the window reads them per trigger through trigger/decisions',
 }
 
 /**

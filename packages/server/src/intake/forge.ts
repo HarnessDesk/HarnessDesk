@@ -457,12 +457,14 @@ export class ForgeSource {
    * or nothing for issues, and the instant it was taken. Nothing is offered.
    * More than ten pages of open pull requests refuses the arm with a reason.
    */
-  async inventory(project: string, source: 'pull-request' | 'issue', repository: string, signal: AbortSignal): Promise<SourceCursor> {
+  async inventory(project: string, source: 'pull-request' | 'issue' | 'mention', repository: string, signal: AbortSignal): Promise<SourceCursor> {
     if (!validRepo(repository)) throw unreadable()
     const now = this.#now()
     const deadline = Date.now() + this.#timeoutMs
     const subjects: Record<string, { head: string | null; event: string }> = {}
-    if (source === 'issue') {
+    if (source === 'mention') {
+      await this.#page(project, `repos/${repository}/issues/comments?sort=updated&direction=desc&per_page=${PER_PAGE}&page=1`, deadline, signal)
+    } else if (source === 'issue') {
       await this.#page(project, `repos/${repository}/issues?state=all&sort=updated&direction=desc&per_page=${PER_PAGE}&page=1`, deadline, signal)
     } else {
       for (let page = 1; ; page += 1) {
@@ -483,8 +485,8 @@ export class ForgeSource {
   /** Proves a watched source still reads, for a second arm on it: one page, nothing kept. */
   async probe(project: string, cursor: SourceCursor, signal: AbortSignal): Promise<void> {
     const repository = this.#repo(cursor)
-    const list = cursor.source === 'issue' ? 'issues?state=all' : 'pulls?state=open'
-    await this.#page(project, `repos/${repository}/${list}&sort=updated&direction=desc&per_page=${PER_PAGE}&page=1`, Date.now() + this.#timeoutMs, signal)
+    const list = cursor.source === 'mention' ? 'issues/comments?sort=updated' : cursor.source === 'issue' ? 'issues?state=all' : 'pulls?state=open'
+    await this.#page(project, `repos/${repository}/${list}${cursor.source === 'mention' ? '' : '&sort=updated'}&direction=desc&per_page=${PER_PAGE}&page=1`, Date.now() + this.#timeoutMs, signal)
   }
 
   /**
@@ -496,7 +498,86 @@ export class ForgeSource {
   async poll(project: string, cursor: SourceCursor, signal: AbortSignal, options: { readonly permissions?: boolean; readonly watches?: readonly PullWatch[] } = {}): Promise<PollBatch> {
     if (cursor.source === 'pull-request') return this.#pulls(project, cursor, signal, options.watches ?? [])
     if (cursor.source === 'issue') return this.#issues(project, cursor, signal, options.permissions === true)
+    if (cursor.source === 'mention') return this.#mentions(project, cursor, signal)
     throw unreadable()
+  }
+
+  /**
+   * Whether an account can write to a repository, for a mention's gate: the
+   * same bounded read as a comment trigger's, its answer's account compared
+   * with the author's by digest. A read that fails throws, so the comment is
+   * kept and judged again later.
+   */
+  async writes(project: string, repository: string, login: string, author: string, signal: AbortSignal): Promise<boolean> {
+    if (!validRepo(repository) || !LOGIN.test(login)) return false
+    let answer: unknown
+    try {
+      answer = await this.#get(project, `repos/${repository}/collaborators/${login}/permission`, Date.now() + this.#timeoutMs, signal)
+    } catch (error) {
+      if (!signal.aborted && error instanceof ForgeReadError && error.notFound) return false
+      throw error
+    }
+    if (!isMap(answer) || !isMap(answer['user']) || !Number.isSafeInteger(answer['user']['id']) || typeof answer['permission'] !== 'string') return false
+    if (accountDigest(answer['user']['id'] as number) !== author) return false
+    return WRITES.has(answer['permission']) || (typeof answer['role_name'] === 'string' && WRITES.has(answer['role_name']))
+  }
+
+  /**
+   * One issue or pull request as a mention's gate reads it: whether it is a
+   * pull request, its state, its labels as validated names and its title as
+   * clipped prose. Nothing else of the answer survives.
+   */
+  async thread(project: string, repository: string, number: number, signal: AbortSignal): Promise<MentionThread> {
+    if (!validRepo(repository) || !Number.isSafeInteger(number) || number < 1) throw unreadable()
+    const raw = await this.#get(project, `repos/${repository}/issues/${number}`, Date.now() + this.#timeoutMs, signal)
+    if (!isMap(raw) || raw['number'] !== number || (raw['state'] !== 'open' && raw['state'] !== 'closed')) throw unreadable()
+    const title = raw['title']
+    if (typeof title !== 'string' || Buffer.byteLength(title, 'utf8') > TITLE_LIMIT) throw unreadable()
+    const labels = Array.isArray(raw['labels'])
+      ? raw['labels'].slice(0, 100).flatMap((one) => {
+        const name = labelName(isMap(one) ? one['name'] : one)
+        return name === null ? [] : [name]
+      })
+      : []
+    return { number, pull: 'pull_request' in raw, state: raw['state'], labels, title: title.replace(/[\u0000-\u001f\u007f]/g, ' ') }
+  }
+
+  /**
+   * Whether a login a trigger names is the account that wrote a comment: the
+   * forge's account for that login, read by name, compared by stable id —
+   * and, for a bot, the forge's own word that it is one. False when the forge
+   * has no such account; any other failure throws, so the comment is judged
+   * again later.
+   */
+  async isAccount(project: string, login: string, bot: boolean, author: string, signal: AbortSignal): Promise<boolean> {
+    const name = bot ? `${login}[bot]` : login
+    if (!LOGIN.test(name)) return false
+    let answer: unknown
+    try {
+      answer = await this.#get(project, `users/${encodeURIComponent(name)}`, Date.now() + this.#timeoutMs, signal)
+    } catch (error) {
+      if (!signal.aborted && error instanceof ForgeReadError && error.notFound) return false
+      throw error
+    }
+    if (!isMap(answer) || !Number.isSafeInteger(answer['id']) || (answer['id'] as number) < 1) throw unreadable()
+    if (bot && answer['type'] !== 'Bot') return false
+    return accountDigest(answer['id'] as number) === author
+  }
+
+  /** One comment as the forge holds it now, read again by id: what Re-evaluate judges. */
+  async comment(project: string, repository: string, id: number, signal: AbortSignal): Promise<TriggerFact> {
+    if (!validRepo(repository) || !Number.isSafeInteger(id) || id < 1) throw unreadable()
+    const raw = await this.#get(project, `repos/${repository}/issues/comments/${id}`, Date.now() + this.#timeoutMs, signal)
+    if (!isMap(raw) || raw['id'] !== id) throw unreadable()
+    return mentionFact(project, repository, raw, id, time(raw['created_at']))
+  }
+
+  /** A pull request's lifecycle, for a thread of work that follows it: open, merged or closed. */
+  async pullState(project: string, repository: string, number: number, signal: AbortSignal): Promise<'open' | 'merged' | 'closed'> {
+    if (!validRepo(repository) || !Number.isSafeInteger(number) || number < 1) throw unreadable()
+    const row = this.#pull(await this.#get(project, `repos/${repository}/pulls/${number}`, Date.now() + this.#timeoutMs, signal))
+    if (row.number !== number) throw unreadable()
+    return row.state === 'open' ? 'open' : row.merged ? 'merged' : 'closed'
   }
 
   /**
@@ -955,7 +1036,85 @@ export class ForgeSource {
     }
     return this.#bounded(cursor, facts, { ...cursor, observedThrough: through, continuation: null, subjects: prune(subjects) }, [])
   }
+
+  /**
+   * Every new comment on the repository's issues and pull request
+   * conversations, oldest first, from one bounded repository-wide list: each
+   * an untrusted fact with its author by stable id, its login as validated,
+   * whether the forge says it is a bot, and whether the desk posted it. A
+   * comment is new once: its id above the highest one read. Whether it
+   * addresses anyone is the gate's question, never this reader's.
+   */
+  async #mentions(project: string, cursor: SourceCursor, signal: AbortSignal): Promise<PollBatch> {
+    const repository = this.#repo(cursor)
+    const deadline = Date.now() + this.#timeoutMs
+    const mark = Number(cursor.subjects[MENTION_MARK]?.event ?? '0')
+    const seen = Number.isSafeInteger(mark) && mark >= 0 ? mark : 0
+    const since = new Date(Math.max(cursor.baseline, cursor.observedThrough - OVERLAP_MS)).toISOString()
+    const burst = 'More comments changed than one read can cover.'
+    const facts: TriggerFact[] = []
+    let through = cursor.observedThrough
+    let highest = seen
+    let complete = false
+    try {
+      for (let page = 1; page <= this.#maxPages && !complete; page += 1) {
+        const answer = await this.#page(project, `repos/${repository}/issues/comments?sort=updated&direction=asc&since=${since}&per_page=${PER_PAGE}&page=${page}`, deadline, signal)
+        for (const raw of answer) {
+          if (!isMap(raw)) throw unreadable()
+          const id = positive(raw['id'])
+          const created = time(raw['created_at'])
+          through = Math.max(through, time(raw['updated_at']))
+          highest = Math.max(highest, id)
+          // Edited, or from before this source began watching: read once already, or never this source's.
+          if (id <= seen || created <= cursor.baseline) continue
+          facts.push(mentionFact(project, repository, raw, id, created))
+        }
+        if (answer.length < PER_PAGE) complete = true
+      }
+    } catch (error) {
+      if (error instanceof ForgeReadError && error.budget && !signal.aborted) return this.#gap(cursor, burst)
+      throw error
+    }
+    if (!complete) return this.#gap(cursor, burst)
+    return this.#bounded(cursor, facts, {
+      ...cursor, observedThrough: through, continuation: null, subjects: { [MENTION_MARK]: { head: null, event: String(highest) } },
+    }, [])
+  }
 }
+
+/** One comment, as a mention fact: untrusted prose, its author by stable id and validated login, and where it was made. */
+const mentionFact = (project: string, repository: string, raw: Record<string, unknown>, id: number, created: number): TriggerFact => {
+  const where = typeof raw['html_url'] === 'string'
+    ? new RegExp(`^https://github\\.com/${repository.replace(/[.]/g, '\\.')}/(issues|pull)/([1-9][0-9]{0,15})#issuecomment-${id}$`).exec(raw['html_url'])
+    : null
+  if (!where) throw unreadable()
+  const number = Number(where[2])
+  const thread = where[1] === 'pull' ? 'pull-request' as const : 'issue' as const
+  const user = isMap(raw['user']) ? raw['user'] : null
+  const authorId = user && Number.isSafeInteger(user['id']) && (user['id'] as number) >= 1 ? user['id'] as number : null
+  const rawLogin = user && typeof user['login'] === 'string' && LOGIN.test(user['login']) ? user['login'] : null
+  const bot = user?.['type'] === 'Bot' || (rawLogin?.endsWith('[bot]') ?? false)
+  return {
+    source: 'mention', project, repository, subject: String(number), event: eventKey([repository, number, 'mention', id]), action: 'commented',
+    at: created, head: null, fork: false, title: '', body: prose(raw['body']),
+    url: confined(raw['html_url'], `/${repository}/${where[1]}/${number}`, `#issuecomment-${id}`), trigger: null,
+    author: authorId === null ? null : accountDigest(authorId),
+    authorWrites: null, desk: typeof raw['body'] === 'string' && isDeskPost(raw['body']),
+    thread, login: rawLogin === null ? null : rawLogin.replace(/\[bot\]$/, '').toLowerCase(), bot,
+  }
+}
+
+/** One issue or pull request as a mention's gate reads it. */
+export interface MentionThread {
+  readonly number: number
+  readonly pull: boolean
+  readonly state: 'open' | 'closed'
+  readonly labels: readonly string[]
+  readonly title: string
+}
+
+/** The cursor entry a mention source keeps its highest comment id under. */
+const MENTION_MARK = '_comments'
 
 /** An issue's watermarks, as its cursor entry keeps them; null when the issue has not been read. */
 const marksOf = (event: string | undefined): { readonly e: number; readonly c: number; readonly u: number } | null => {

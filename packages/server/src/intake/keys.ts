@@ -47,6 +47,7 @@ const fieldValue = (field: TriggerField, fact: TriggerFact): string | number => 
     case 'pr':
     case 'issue':
     case 'slot':
+    case 'thread':
       return Number(fact.subject)
     case 'head':
       return fact.head ?? ''

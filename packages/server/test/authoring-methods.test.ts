@@ -251,6 +251,12 @@ test('rendering a shape or a trigger writes nothing and never claims a bad value
   assert.deepEqual(draft.goal, ['slot'])
   assert.equal(draft.concurrency, 1)
   await assert.rejects(plane.triggerDraft({ id: 'Not A Slug', on: 'schedule', opens: { flow: 'sweep' } }))
+  // A mention draft, through the same wire parser the create dialog's request crosses, starts from the parser's own defaults too.
+  const mentionFrame = parseClientMessage({ id: 1, method: 'authoring/triggers/draft', params: { id: 'ask-dex', on: 'mention', opens: { lead: true } } }) as unknown as { params: { id: string; on: 'mention'; opens: { lead: true } } }
+  const mention = await plane.triggerDraft(mentionFrame.params)
+  assert.equal(mention.on.kind, 'mention')
+  assert.deepEqual(mention.goal, ['thread'])
+  assert.deepEqual((await plane.renderTriggers([mention])).issues, [])
 
   const rendered2 = await plane.renderTriggers([draft])
   assert.deepEqual(rendered2.issues, [])
