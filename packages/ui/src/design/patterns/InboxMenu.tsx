@@ -51,6 +51,7 @@ export const InboxMenu = ({ messages, waiting = [], onOpen, onMarkAllRead, onCle
     {(onMarkAllRead && unread > 0 || onClear && messages.length > 0) && <MenuSeparator />}
     {onMarkAllRead && unread > 0 && <MenuItem label="Mark all read" keepOpen onSelect={onMarkAllRead} />}
     {onClear && messages.length > 0 && <MenuItem label="Clear the inbox" onSelect={onClear} />}
-    <MenuSeparator /><div data-menu-footer="">Kept until you clear them.</div>
+    {/* The footer speaks of kept messages; under the needs-you rows alone it would describe nothing listed. */}
+    {(messages.length > 0 || waiting.length === 0) && <><MenuSeparator /><div data-menu-footer="">Kept until you clear them.</div></>}
   </Menu>
 }

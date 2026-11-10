@@ -154,6 +154,12 @@ it('lists what the desk says needs the person above the kept messages, counts it
   expect(opened).toHaveBeenCalledTimes(1)
 })
 
+it('says kept messages stay until cleared only when there are kept messages or nothing at all', async () => {
+  await act(async () => root.render(<InboxPanel messages={[]} waiting={[{ id: 'lead', title: 'Dex is waiting for you' }]} />))
+  await act(async () => { host.querySelector<HTMLButtonElement>('button')!.click() })
+  expect(document.querySelector('[data-popup-kind="wide-menu"] [data-menu-footer]')).toBeNull()
+})
+
 it('lets the header use the rail target while the default Inbox keeps its target', async () => {
   await act(() => root.render(<InboxPanel messages={[]} size="icon-xs" side="bottom" />))
   expect(host.querySelector('button')?.className).toContain('size-(--hd-icon-target)')
