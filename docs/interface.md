@@ -1423,7 +1423,14 @@ the next account**, **Ask me** (the default: the usage notice offers the next
 one) or **Stop** (it offers nothing). Use the next account moves new sessions to
 the next account in that order with room, once, and says so in a notice that
 can be muted as *Account switches*. A conversation already open stays on its
-account, because its thread lives in that account's history.
+account, because its thread lives in that account's history. **Order** chooses
+**My order** or **Prefer the account that resets soonest**: with the second, the
+accounts with room are used in the order their windows refill, the one that
+refills first leading, and the Move up and Move down menus are not offered
+because the usage readings set the order (your own order is kept for when it is
+turned off). An account with more than half of a window unused and that window
+about to refill, close meaning inside a quarter of the window's length, carries
+a **Use it first** chip whose hover gives the figure and the reset.
 
 It has a page per runtime (health, update, the runtime's own options) or per account;
 an agent's page leads with who it signs in as — its accounts, then the defaults
