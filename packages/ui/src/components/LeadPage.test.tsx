@@ -227,6 +227,17 @@ it('pins new entries unless the person scrolled up', async () => {
   await update({ thread: { ...store.lead.state.thread!, messages: [...store.lead.state.thread!.messages, { version: 1, id: 'message-2', revision: 2, role: 'assistant', text: 'Next' }] } })
   expect(thread.scrollTop).toBe(20)
 })
+it('follows the person\'s own message to the bottom even after they scrolled up', async () => {
+  const { box, update, store } = await mount(); const thread = box.querySelector<HTMLElement>('[aria-label="Dex thread"]')!
+  Object.defineProperties(thread, { clientHeight: { value: 100, configurable: true }, scrollHeight: { value: 500, configurable: true } })
+  await update({ thread: { ...store.lead.state.thread!, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'assistant', text: 'First' }] } })
+  thread.scrollTop = 20; thread.dispatchEvent(new Event('scroll', { bubbles: true }))
+  vi.spyOn(store.lead, 'send').mockResolvedValue(undefined as never)
+  await input(box.querySelector('textarea')!, 'What was the first task?'); await act(async () => button('Send').click())
+  expect(thread.scrollTop).toBe(500)
+  await update({ thread: { ...store.lead.state.thread!, messages: [...store.lead.state.thread!.messages, { version: 1, id: 'message-2', revision: 2, role: 'user', text: 'What was the first task?' }] } })
+  expect(thread.scrollTop).toBe(500)
+})
 it('retries expiry reads with bounded backoff until the host reflects expiry', async () => {
   vi.useFakeTimers()
   try {
@@ -629,6 +640,13 @@ it.each([
   const { box } = await mount({ ...base, thread: { ...base.thread!, state: 'waiting-for-user', cards: [] }, wayOut: 'resume', waitReason })
   expect(box.textContent).toContain(text)
   expect(box.querySelector('[data-lead-decision]')).toBeNull()
+})
+
+it('names the Lead by its own name in a wait, the way the phone does', async () => {
+  const base = leadProjection()
+  const { box } = await mount({ ...base, thread: { ...base.thread!, state: 'waiting-for-user', cards: [] }, wayOut: 'resume', waitReason: 'lead-host-shutdown' })
+  expect(box.textContent).toContain('The desk stopped while Dex was working.')
+  expect(box.textContent).not.toContain('the Lead was working')
 })
 
 it('uses one hand-back limit sentence in the thread and dock', async () => {

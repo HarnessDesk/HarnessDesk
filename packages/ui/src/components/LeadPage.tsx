@@ -33,10 +33,10 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-predecessor-unavailable': "The previous step's result wasn't accepted, so the next step can't start. Message {label} to change the plan, or stop this goal.",
   'lead-predecessor-unverifiable': "HarnessDesk can't confirm what the previous step produced, so the next step won't start. Message {label} to change the plan, or stop this goal.",
   'lead-renewal-blocked': 'The plan could not be renewed because the pending request limit was reached.',
-  'lead-disabled': 'The Lead was disabled.',
+  'lead-disabled': '{label} was disabled.',
   'lead-key-changed': 'The provider key changed. Continue with the current key.',
-  'lead-host-shutdown': 'The desk stopped while the Lead was working.',
-  'lead-ownership-withdrawn': 'The Lead no longer owns its previous run.',
+  'lead-host-shutdown': 'The desk stopped while {label} was working.',
+  'lead-ownership-withdrawn': '{label} no longer owns its previous run.',
   'lead-pr-branch-rewritten': 'The branch was rewritten outside this goal. Reclaim the branch to resume automatic repairs.',
   'lead-pr-head-changed': 'The pull request head changed outside this goal. Inspect the pull request before continuing.',
   'lead-handback-limit': LEAD_HANDBACK_LIMIT,
@@ -53,21 +53,21 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-plan-refused': 'The proposed plan could not be offered. Send a message to change it or use an ordinary chat.',
   'lead-plan-unseatable': "An agent in the reviewed plan can't work within its required permissions. Choose another agent on the desk, or ask for an ordinary chat for this task.",
   'lead-plan-not-independent': "The reviewed plan needs a reviewer from a different provider. Add one on the desk, or ask for an ordinary chat for this task.",
-  'lead-activity-failed': 'The Lead could not read the latest run activity.',
-  'lead-subscription-failed': 'The Lead lost its run activity updates.',
+  'lead-activity-failed': '{label} could not read the latest run activity.',
+  'lead-subscription-failed': '{label} lost its run activity updates.',
   'lead-chat-effect-uncertain': 'The chat operation may have started. Inspect that chat on the desk, then start a new request when ready.',
   'lead-tools-refused': 'The requested desk operation was refused.',
   'lead-card-too-large': 'The request is too large to display safely.',
   'lead-worker-audit-failed': 'A worker approval may have run. Inspect its changes and revoke the uncertain saved rule before resuming. Restart first if saving failed.',
-  'lead-budget-unknown': "HarnessDesk can't confirm what the workers have spent, so the Lead won't make another request. Sending a message tries again.",
+  'lead-budget-unknown': "HarnessDesk can't confirm what the workers have spent, so {label} won't make another request. Sending a message tries again.",
   'lead-run-not-started': 'The plan is approved, but no work has started. Sending a message also continues.',
   'lead-request-failed': 'The request was interrupted. Sending a message also continues.',
   'lead-request-uncertain': 'The request was interrupted. Sending a message also continues.',
   'lead-send-deadline': 'The request timed out. Sending a message also continues.',
-  'lead-child-exited': 'The Lead stopped unexpectedly. Sending a message also continues.',
-  'lead-request-rate-limited': 'The provider asked the Lead to wait.',
+  'lead-child-exited': '{label} stopped unexpectedly. Sending a message also continues.',
+  'lead-request-rate-limited': 'The provider asked {label} to wait.',
   'lead-request-max-tokens': 'The request reached its response limit.',
-  'lead-request-refused': 'The Lead could not send its request, so nothing was spent. Sending a message tries again.',
+  'lead-request-refused': '{label} could not send its request, so nothing was spent. Sending a message tries again.',
   'lead-request-invalid-response': 'The provider returned an unreadable response.',
   'lead-request-cancelled': 'The request was cancelled.',
 }
@@ -113,7 +113,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
   const terminalWait = state.waitReason === 'lead-predecessor-unavailable' || state.waitReason === 'lead-predecessor-unverifiable'
   const auditWait = state.waitReason === 'lead-worker-audit-failed' && !state.savedApprovals?.some(rule => rule.uncertain)
-    ? 'A worker approval may have run. Resume after reviewing the changes. Restart first if saving failed.' : WAITS[state.waitReason!]
+    ? 'A worker approval may have run. Resume after reviewing the changes. Restart first if saving failed.' : state.waitReason ? WAITS[state.waitReason].replaceAll('{label}', label) : undefined
   const setupWait = leadWaitNeedsChange(state.waitReason) || state.waitReason === 'lead-worker-audit-failed' && state.wayOut !== 'resume'
   const canStop = !!state.thread && !['stopped', 'accepted', 'declined'].includes(state.thread.state) &&
     (!!state.thread.contract || !!state.thread.pr || state.requestInFlight || terminalWait)
@@ -157,6 +157,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const send = async (text = goal, ask?: string) => {
     if (unavailable || inFlight.current || state.requestInFlight || !text.trim()) return
     inFlight.current = true; sendBaseline.current = [...store.lead.state.thread?.messages ?? []].reverse().find(message => message.role === 'user')?.id ?? null; setSending(true); setError(null)
+    // The person's own message is followed to the bottom, like a session thread, wherever they had scrolled.
+    pinned.current = true
+    if (thread.current) thread.current.scrollTop = thread.current.scrollHeight
     try { await store.lead.send(text.trim(), crypto.randomUUID(), ask); setGoal(current => current === text ? '' : current) }
     catch (error) { refusal(error, !ask) }
     finally { inFlight.current = false; setSending(false); input.current?.focus() }
@@ -295,11 +298,11 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           <LeadAway active={active} state={state} label={label} />
           {goalActive && <LeadSlot slot="lead-run-strip"><Banner mark={<LeadAvatar name={name} size="turn" />} actions={stopAction}>{phase === 'following' ? `Following #${pr?.number ?? ''}` : repairActive ? `Repairing ${handback.kind === 'checks' ? 'checks' : 'review comments'} · round ${handback.round}` : phase === 'running' ? `${label} is running 1 goal` : phase === 'awaiting-plan' ? 'A plan is waiting for you' : phase === 'waiting-for-user' ? `${label} is waiting for you` : `${label} is planning`}{state.progress?.since !== undefined ? ` · ${leadElapsed(now - state.progress.since)}` : ''}{phase === 'running' && leadWakeLine(state.presence) ? <Text as="span" role="muted">{` · ${leadWakeLine(state.presence)}`}</Text> : null}</Banner></LeadSlot>}
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
-          {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replace('{label}', label)}</Banner>}
-          {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
+          {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replaceAll('{label}', label)}</Banner>}
+          {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason].replaceAll('{label}', label)}</Banner>}
           {setupWait && (state.wayOut !== 'decide-plan' || state.waitReason === 'lead-chat-effect-uncertain') && <Banner actions={state.waitReason === 'lead-chat-effect-uncertain' ? <Button disabled={stopping || decisionPending !== null} aria-busy={stopping} onClick={() => void stop()}>Start new request</Button> : undefined}>{auditWait}</Banner>}
           {!unavailable && !setupWait && state.wayOut === 'resume' && state.waitReason !== 'lead-predecessor-unavailable' && state.waitReason !== 'lead-predecessor-unverifiable' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
-            {state.waitReason ? auditWait ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
+            {state.waitReason ? auditWait ?? `${label} is waiting for you to continue.` : `${label} is waiting for you to continue.`}
           </Banner>}
           {state.wayOut === 'decide-plan' && (renewal
             ? <Banner>{`The earlier approval expired at ${formatLeadConsentTime(state.planConsentExpiresAt!)}.`}</Banner>
