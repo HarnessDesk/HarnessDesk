@@ -28,6 +28,10 @@ export interface PhoneLiveSession {
   readonly running: boolean
   /** An approval or a question is waiting on the person. */
   readonly waiting: boolean
+  /** The latest turn was interrupted: stopped, not finished. */
+  readonly stopped?: boolean
+  /** When the conversation last changed; a stopped one counts against "finished" only when it changed in the window. */
+  readonly updatedAt?: number
   readonly cost: number | null
   /** Live opening, while the runtime's preview has not reached the index yet. */
   readonly preview?: string | null
@@ -156,7 +160,7 @@ export class PhoneWorkspace {
   }
 
   #sessionStage(one: PhoneLiveSession | undefined, archived = false) {
-    return leadStage({ kind: 'session', archived, waiting: one?.waiting ?? false, failed: one?.failed ?? false, queuePaused: one?.queuePaused ?? false, running: one?.running ?? false, queued: one?.queued ?? false })
+    return leadStage({ kind: 'session', archived, waiting: one?.waiting ?? false, failed: one?.failed ?? false, queuePaused: one?.queuePaused ?? false, running: one?.running ?? false, queued: one?.queued ?? false, stopped: one?.stopped ?? false })
   }
 
   #counts(live: readonly PhoneLiveSession[]): PhoneSessionsList['counts'] {
@@ -410,7 +414,8 @@ export class PhoneWorkspace {
   /** Conversations touched since a time that are no longer working or waiting, and Teams wrapped since then. */
   #finishedSince(since: number, live: readonly PhoneLiveSession[], teams: readonly PhoneTeamInput[]): number {
     const touched = this.#ports.sessions.touchedSince(since)
-    const busy = live.filter(one => one.running || one.waiting).length
+    // A stopped conversation finished nothing, so it is not counted as finished either.
+    const busy = live.filter(one => one.running || one.waiting || one.stopped === true && (one.updatedAt ?? 0) >= since).length
     const wrapped = teams.filter(({ view }) => view.goal.state === 'wrapped' && view.goal.updatedAt >= since).length
     return Math.max(0, touched - busy) + wrapped
   }
@@ -431,7 +436,7 @@ export class PhoneWorkspace {
       stage, stageReason, id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
       canDelete: row.canDelete, pinned: row.pinned, archived: row.archived === true,
       phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
-      line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : 'Done',
+      line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : stageReason === 'stopped' ? 'Stopped' : 'Done',
       agent: { name: row.seat }, ...(lead ? { by: lead } : {}),
       updatedAt: row.lastActivityAt, ...(row.startedAt === undefined ? {} : { startedAt: row.startedAt }),
       ...(row.cost === null ? {} : { cost: micros(row.cost) }),

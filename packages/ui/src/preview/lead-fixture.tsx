@@ -177,12 +177,13 @@ const workCard = (n: number, title: string, stage: LeadWorkStage, extra: Partial
   id: `work-${n}`, title, project: 'demo', stage, group: leadWorkGroup(stage),
   links: { chats: [`fixture:chat-${n}`], teams: [], prs: [], issues: [] }, createdAt: Date.now() - n * 3_600_000, updatedAt: Date.now() - n * 60_000, ...extra,
 })
-/** One item in each of the four groups the window and the phone draw, Needs you first. */
+/** One item in each of the four groups the window and the phone draw, Needs you first, and one the person stopped. */
 export const leadWorkFixture: LeadWorkBoard = { version: 1, more: 0, items: [
   workCard(4, 'Rename the status column', 'needs-you', { blocker: 'An approval waits for you' }),
-  workCard(3, 'Make the empty state keyboard accessible', 'working', { links: { chats: [], teams: ['demo-team'], prs: [], issues: [] }, fact: 'A Team is working' }),
+  workCard(3, 'Make the empty state keyboard accessible', 'working', { links: { chats: ['fixture:chat-3'], teams: ['demo-team'], prs: [], issues: [] }, fact: 'A chat is working' }),
   workCard(5, 'Ship the changelog after the rename', 'blocked', { after: 'work-4', note: 'Waits for the column rename' }),
   workCard(2, 'Fix the retry status list', 'in-review', { links: { chats: ['fixture:chat-2'], teams: [], prs: ['acme/widgets#42'], issues: [] }, fact: 'Pull request acme/widgets#42 is open' }),
+  workCard(6, 'Draft the release notes', 'stopped', { fact: 'A chat was stopped' }),
   workCard(1, 'Update the onboarding copy', 'done', { closedAt: Date.now() - 600_000, outcome: 'done' }),
 ] }
 

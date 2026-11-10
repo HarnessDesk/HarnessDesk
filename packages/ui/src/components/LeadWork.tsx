@@ -1,11 +1,11 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { LEAD_WORK_GROUPS, LEAD_WORK_GROUP_LABELS, runtimeId, sessionId, type LeadWorkBoard, type LeadWorkCard, type LeadWorkGroup, type LeadWorkOutcome } from '@harnessdesk/protocol'
+import { LEAD_WORK_GROUPS, LEAD_WORK_GROUP_LABELS, runtimeId, sessionId, sessionKey, type LeadWorkBoard, type LeadWorkCard, type LeadWorkGroup, type LeadWorkOutcome } from '@harnessdesk/protocol'
 import { Chip, ListRow, ListRows, Menu, MenuItem, MenuNote, MenuSeparator, Popover, SectionHead, Text, ToolSection } from '../design'
 import { useStore } from '../state/context'
 import { openExternal } from '../lib/desktop'
 import { sanitizeText } from '../lib/sanitize'
 import { leadRefusalText } from './lead-refusals'
-import { CheckIcon, CommentIcon, CrossIcon, MoreIcon, PullRequestIcon, TeamIcon } from './Icons'
+import { CheckIcon, CommentIcon, CrossIcon, MoreIcon, PullRequestIcon, StopIcon, TeamIcon } from './Icons'
 
 /** The board in its four groups, Needs you first; the phone draws the same groups from the same board. */
 export const leadWorkGroups = (board: LeadWorkBoard): readonly { readonly group: LeadWorkGroup; readonly label: string; readonly items: readonly LeadWorkCard[] }[] =>
@@ -15,14 +15,17 @@ export const leadWorkGroups = (board: LeadWorkBoard): readonly { readonly group:
 const PULL_REQUEST = /^([\w.-]+\/[\w.-]+)#(\d+)$/
 const chatKey = (id: string) => { const at = id.indexOf(':'); return at > 0 ? { runtime: runtimeId(id.slice(0, at)), session: sessionId(id.slice(at + 1)) } : null }
 
-/** One item's doors: its latest chat, Team and pull request, then the person's Done or Drop. */
+/** One item's doors: its latest chat, Team and pull request, Stop while its chat works, then the person's Done or Drop. */
 const WorkActions = ({ card, onClose }: { readonly card: LeadWorkCard; readonly onClose: (outcome: LeadWorkOutcome) => void }) => {
   const store = useStore()
   const chat = card.links.chats.at(-1), team = card.links.teams.at(-1), pr = card.links.prs.at(-1)?.match(PULL_REQUEST)
   const open = card.closedAt === undefined
+  // The same stop the chat's own composer sends; the host then records the chat as stopped, not finished.
+  const running = open && card.stage === 'working' && chat ? chatKey(chat) : null
   if (!chat && !team && !pr && !open) return null
   return <Popover label={<MoreIcon size={16} />} aria-label={`Actions for ${sanitizeText(card.title)}`} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} icons="all">
     {close => <Menu close={close}>
+      {running && <MenuItem icon={<StopIcon size={16} />} label="Stop" title="Stop the chat's current turn" onSelect={() => { void store.interrupt(sessionKey(running.runtime, running.session)) }} />}
       {chat && chatKey(chat) && <MenuItem icon={<CommentIcon size={16} />} label="Open chat" onSelect={() => { const key = chatKey(chat)!; void store.openSession(key.session, { runtime: key.runtime }) }} />}
       {team && <MenuItem icon={<TeamIcon size={16} />} label="Open Team" onSelect={() => store.openTeamRoom(team)} />}
       {pr && <MenuItem icon={<PullRequestIcon size={16} />} label="Open pull request" title={`${pr[1]}#${pr[2]}`} onSelect={() => openExternal(`https://github.com/${pr[1]}/pull/${pr[2]}`)} />}
@@ -57,7 +60,8 @@ export const LeadWork = () => {
         title={<span title={card.fact ? sanitizeText(card.fact) : undefined}>{sanitizeText(card.title)}</span>} wrapTitle
         // A reason someone waits is a fact that varies, so it earns the line; everything else stays on hover.
         subtitle={group === 'needs-you' && card.blocker ? sanitizeText(card.blocker) : undefined} wrapSubtitle
-        trail={<>{card.outcome === 'dropped' && <Chip tone="neutral">Dropped</Chip>}<WorkActions card={card} onClose={outcome => { void close(card, outcome) }} /></>} />)}</ListRows>
+        // A chat the person stopped is not finished: its state is a word on the label's line, not a second line.
+        trail={<>{card.outcome === 'dropped' ? <Chip tone="neutral">Dropped</Chip> : card.stage === 'stopped' && <Chip tone="neutral">Stopped</Chip>}<WorkActions card={card} onClose={outcome => { void close(card, outcome) }} /></>} />)}</ListRows>
     </section>)}
     {board.more > 0 && <Text role="muted">{board.more} older closed {board.more === 1 ? 'item' : 'items'} not shown</Text>}
     {error && <Text role="muted">{error}</Text>}

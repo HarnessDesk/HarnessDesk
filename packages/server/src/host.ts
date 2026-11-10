@@ -4088,7 +4088,7 @@ export class Host {
       cwd: async (runtime, id) => this.registry.get(runtime, id)?.session.cwd ?? this.#sessionIndex.get(runtime, id)?.cwd ?? null,
       live: (runtime, id) => {
         const held = this.registry.get(runtime, id)
-        return { approvalWaiting: (held?.approvals.size ?? 0) > 0, failed: held?.session.status.type === 'error', queuePaused: held?.queue.status === 'paused' && held.queue.messages.length > 0, queued: (held?.queue.messages.length ?? 0) > 0, running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0 }
+        return { approvalWaiting: (held?.approvals.size ?? 0) > 0, failed: held?.session.status.type === 'error', queuePaused: held?.queue.status === 'paused' && held.queue.messages.length > 0, queued: (held?.queue.messages.length ?? 0) > 0, running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0, stopped: held?.session.turns.at(-1)?.status === 'interrupted' }
       },
       work: this.#phoneWorkView(),
       control: {
@@ -11193,6 +11193,7 @@ export class Host {
         if (!this.#sessionIndex.isOwn(record.runtime, id)) return []
         const cost = record.session.usage?.cost
         return [{ runtime: record.runtime, id, failed: record.session.status.type === 'error', queuePaused: record.queue.status === 'paused' && record.queue.messages.length > 0, queued: record.queue.messages.length > 0, running: record.running.size > 0, waiting: record.approvals.size > 0,
+          stopped: record.session.turns.at(-1)?.status === 'interrupted', updatedAt: record.session.updatedAt,
           cost: cost && cost.currency === 'USD' ? cost.amount : null,
           preview: record.session.preview || firstAsk(record.session) }]
       }),

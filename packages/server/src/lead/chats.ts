@@ -32,7 +32,7 @@ export interface LeadChatsPorts {
   readonly index: Pick<SessionIndex, 'list' | 'get' | 'isOwn'>
   /** Actual live/transcript cwd, without restoring archived or removed sessions. */
   readonly cwd: (runtime: RuntimeId, id: SessionId) => Promise<string | null>
-  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly waiting: boolean; readonly approvalWaiting?: boolean; readonly queued?: boolean; readonly failed?: boolean; readonly queuePaused?: boolean }
+  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly waiting: boolean; readonly approvalWaiting?: boolean; readonly queued?: boolean; readonly failed?: boolean; readonly queuePaused?: boolean; readonly stopped?: boolean }
   /** Only the host holds this receipt; it is never exposed to the child. */
   readonly noteDispatchNotStarted: (id: string) => void
   readonly work: Pick<PhoneWork, 'threadRead' | 'startInProject' | 'sessionSend' | 'stop'>
@@ -166,7 +166,7 @@ export class LeadChats {
   }
   #stageOf(id: string, recovering = true): LeadStage {
     const at = id.indexOf(':'), live = this.ports.live(runtimeId(id.slice(0, at)), sessionId(id.slice(at + 1)))
-    return leadStage({ kind: 'session', archived: false, waiting: live.approvalWaiting ?? live.waiting, running: recovering && this.incidents?.waiting(id) || live.running, failed: recovering && this.incidents?.waiting(id) ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false }).stage
+    return leadStage({ kind: 'session', archived: false, waiting: live.approvalWaiting ?? live.waiting, running: recovering && this.incidents?.waiting(id) || live.running, failed: recovering && this.incidents?.waiting(id) ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false, stopped: live.stopped ?? false }).stage
   }
   async #watch(id: string): Promise<void> {
     await this.ports.watches?.watch(this.ports.project.path, id)
@@ -556,7 +556,7 @@ export class LeadChats {
     if (this.incidents?.get(id)?.state === 'asked') return { stage: 'you-blocked', reason: 'failed' }
     const live = this.ports.live(runtime, session), recovering = this.incidents?.waiting(id) ?? false
     return leadStage({ kind: 'session', archived: summary.archived === true, waiting: live.approvalWaiting ?? live.waiting, running: recovering || live.running,
-      failed: recovering ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false })
+      failed: recovering ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false, stopped: live.stopped ?? false })
   }
   send(input: HostParams<'lead/chat/send'>, currentRetry?: () => boolean, retryStarted?: () => void, retryBusy?: () => void): Promise<HostResult<'lead/chat/send'>> {
     const { effectId, cause = 'automatic', ...params } = input

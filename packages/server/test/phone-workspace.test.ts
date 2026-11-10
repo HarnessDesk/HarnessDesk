@@ -536,6 +536,23 @@ test('queued, failed and paused live sessions keep legacy words while stage name
   } finally { await f.done() }
 })
 
+test('a session the person stopped says Stopped with its own stage reason, and is not counted done today', async () => {
+  const f = await fixture()
+  try {
+    f.index.upsert(summary('stopped', { updatedAt: NOW - HOUR }))
+    f.index.upsert(summary('finished', { updatedAt: NOW - HOUR }))
+    f.live = [{ runtime: agent, id: sessionId('stopped'), running: false, waiting: false, cost: null, stopped: true, updatedAt: NOW - HOUR }]
+    const items = Object.fromEntries(f.workspace.workSessions({}).items.map(item => [item.id.split(':')[1], item]))
+    assert.equal(items.stopped!.stage, 'idle')
+    assert.equal(items.stopped!.stageReason, 'stopped')
+    assert.equal(items.stopped!.line, 'Stopped')
+    assert.equal(items.finished!.stageReason, 'idle')
+    assert.equal(items.finished!.line, 'Done')
+    const board = await f.workspace.dashboardRead({ range: '7d' })
+    assert.equal(board.counts.doneToday, 1, 'only the finished one is done today')
+  } finally { await f.done() }
+})
+
 test('ready Teams, stopped Teams and failed sessions now count as needing you', async () => {
   const f = await fixture()
   try {

@@ -17,7 +17,9 @@ export type LeadStageFacts =
       readonly resultReady: boolean; readonly workerApproval: boolean; readonly checkToRun: boolean
       readonly waitReason: typeof LEAD_MANAGEMENT_REASONS[number] | null
       readonly requestInFlight: boolean; readonly chatEffectQueued: boolean }
-  | { readonly kind: 'session'; readonly archived: boolean; readonly waiting: boolean; readonly failed: boolean; readonly queuePaused: boolean; readonly running: boolean; readonly queued: boolean }
+  | { readonly kind: 'session'; readonly archived: boolean; readonly waiting: boolean; readonly failed: boolean; readonly queuePaused: boolean; readonly running: boolean; readonly queued: boolean
+      /** The latest turn was interrupted: the person (or a desk stop) stopped it, so nothing finished. */
+      readonly stopped?: boolean }
   | { readonly kind: 'team'; readonly status: PhoneTeamStatus; readonly prepared: boolean }
 
 /** Deliberately explicit: a new management reason must make a classification choice. */
@@ -55,6 +57,7 @@ export const LEAD_STAGE_TABLE: readonly Row[] = [
   { kind: 'session', when: f => f.kind === 'session' && f.queuePaused, stage: 'you-blocked', reason: 'queue-paused' },
   { kind: 'session', when: f => f.kind === 'session' && f.running, stage: 'working', reason: 'running' },
   { kind: 'session', when: f => f.kind === 'session' && f.queued, stage: 'queued', reason: 'send-queued' },
+  { kind: 'session', when: f => f.kind === 'session' && f.stopped === true, stage: 'idle', reason: 'stopped' },
   { kind: 'session', when: () => true, stage: 'idle', reason: 'idle' },
   { kind: 'team', when: f => f.kind === 'team' && f.status === 'needs-you', stage: 'you-answer', reason: 'needs-you' },
   { kind: 'team', when: f => f.kind === 'team' && f.status === 'ready', stage: 'you-review', reason: 'result-ready' },
