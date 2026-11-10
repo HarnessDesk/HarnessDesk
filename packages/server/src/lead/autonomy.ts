@@ -44,8 +44,11 @@ interface SectionFile { versions: LeadRuleVersion[]; acked?: number }
 interface Stored {
   version: 1
   sections: Partial<Record<LeadRuleSectionId, SectionFile>>
-  deadline?: LeadDeadline
+  deadline?: LeadDeadline & { passed?: boolean }
+  /** Runs the Lead started on its own, kept until they end so the cap on them survives a restart. */
+  automatic?: string[]
 }
+const MAX_AUTOMATIC_IDS = 256
 const fresh = (): Stored => ({ version: 1, sections: {} })
 const refused = (code: string, message = code) => Object.assign(new Error(message), { wireCode: code })
 const unreadable = () => Object.assign(new Error('The Lead autonomy file could not be read just now, so nothing was written. Try again in a moment.'), { wireCode: 'unavailable' })
@@ -89,6 +92,7 @@ export class LeadAutonomyStore {
       out.sections[id] = { versions: file.versions, ...(Number.isSafeInteger(file.acked) ? { acked: file.acked } : {}) }
     }
     if (source.deadline) out.deadline = source.deadline
+    if (Array.isArray(source.automatic)) out.automatic = source.automatic.filter((id): id is string => typeof id === 'string' && id.length <= 300).slice(-MAX_AUTOMATIC_IDS)
     return out
   }
   async #setAside(): Promise<void> {
@@ -121,7 +125,9 @@ export class LeadAutonomyStore {
   #record(modes: LeadAutonomyModes): LeadAutonomyRecord {
     const rules: Partial<Record<LeadRuleSectionId, { version: number; text: string }>> = {}
     for (const id of LEAD_RULE_SECTIONS) { const one = this.#custom(id); if (one) rules[id] = { version: one.version, text: one.text } }
-    return { modes, rules }
+    // The child reads the deadline from the journal, so its own loop stops waking itself for the goal once it passes.
+    const deadline = this.#stored.deadline
+    return { modes, rules, ...(deadline ? { deadline: { logicalGoalId: deadline.logicalGoalId, deadlineAt: deadline.deadlineAt } } : {}) }
   }
   #modes(): LeadAutonomyModes { return this.ports.journal.state.autonomy?.modes ?? LEAD_AUTONOMY_DEFAULTS }
 
@@ -152,7 +158,7 @@ export class LeadAutonomyStore {
     await this.#ready()
     const state = this.ports.journal.state
     const observed = state.wakes.flatMap(wake => wake.observed ? [{ id: wake.id, at: wake.at, kind: wake.observed, note: LEAD_OBSERVED_NOTES[wake.observed] }] : []).sort((a, b) => b.at - a.at).slice(0, 32)
-    const deadline = this.#stored.deadline && state.budget?.logicalGoalId === this.#stored.deadline.logicalGoalId ? this.#stored.deadline : null
+    const stored = this.#stored.deadline, deadline = stored && state.budget?.logicalGoalId === stored.logicalGoalId ? { logicalGoalId: stored.logicalGoalId, startedAt: stored.startedAt, deadlineAt: stored.deadlineAt, reported: stored.reported } : null
     return { version: 1, modes: this.#modes(), observed, deadline,
       rules: LEAD_RULE_SECTIONS.map(id => { const custom = this.#custom(id); return { id, title: LEAD_RULE_TITLES[id], text: custom?.text ?? this.#defaults[id].text, custom: !!custom } }) }
   }
@@ -219,32 +225,60 @@ export class LeadAutonomyStore {
     await this.#write(async () => {
       const goal = this.ports.goal?.()
       if (!goal || goal.id !== logicalGoalId || !goal.open) throw refused('lead-deadline-goal', 'There is no open goal with that id.')
-      if (deadlineAt === null) { delete this.#stored.deadline; return }
-      const now = this.ports.now()
-      if (deadlineAt <= now) throw refused('lead-deadline-past', 'A deadline has to be in the future.')
-      this.#stored.deadline = { logicalGoalId, startedAt: now, deadlineAt, reported: false }
+      if (deadlineAt === null) delete this.#stored.deadline
+      else {
+        const now = this.ports.now()
+        if (deadlineAt <= now) throw refused('lead-deadline-past', 'A deadline has to be in the future.')
+        this.#stored.deadline = { logicalGoalId, startedAt: now, deadlineAt, reported: false }
+      }
+      await this.ports.journal.setAutonomy(this.#record(this.#modes()))
     })
     this.ports.changed?.()
     return this.view()
   }
-  /** Whether the goal's time is up: no new round or step starts for it. Read at every admission, so it needs no timer. */
+  /** Whether the goal's time is up, as far as the file loaded so far says. Prefer `deadlineElapsed`, which waits for the file. */
   deadlinePassed(logicalGoalId: string): boolean {
     const deadline = this.#stored.deadline
     return !!deadline && deadline.logicalGoalId === logicalGoalId && this.ports.now() >= deadline.deadlineAt
   }
-  /** Called on a timer and whenever the goal changes: says once, at 80% of the time, how much is left. */
+  /**
+   * Whether the goal's time is up, read only once the file has loaded: after a restart a deadline that has not been read
+   * yet is not a deadline that does not exist. A file that cannot be read has no deadline to honour.
+   */
+  async deadlineElapsed(logicalGoalId: string): Promise<boolean> {
+    try { await this.#ready() } catch { return false }
+    return this.deadlinePassed(logicalGoalId)
+  }
+  /** What the person's next message should be told when the open goal's time ran out; nothing otherwise. */
+  deadlineNote(): string | undefined {
+    const goal = this.ports.goal?.(), deadline = this.#stored.deadline
+    if (!goal?.open || !deadline || deadline.logicalGoalId !== goal.id || this.ports.now() < deadline.deadlineAt) return undefined
+    return 'The time the person set for this goal has run out. No new round, run or unasked report starts for it. Say so plainly in your answer, and ask whether they want to extend it.'
+  }
+  /** Runs the Lead started on its own, remembered so the cap on them holds across a restart. */
+  async automaticIds(): Promise<ReadonlySet<string>> { await this.#ready().catch(() => {}); return new Set(this.#stored.automatic ?? []) }
+  automaticIdsNow(): ReadonlySet<string> { return new Set(this.#stored.automatic ?? []) }
+  async markAutomatic(id: string): Promise<void> {
+    if (this.#stored.automatic?.includes(id)) return
+    await this.#write(() => { this.#stored.automatic = [...(this.#stored.automatic ?? []), id].slice(-MAX_AUTOMATIC_IDS) })
+  }
+  /** Called on a timer and whenever the goal changes: says once at 80% of the time how much is left, and once when it has run out. */
   async checkDeadline(): Promise<void> {
     await this.#ready()
     const deadline = this.#stored.deadline, goal = this.ports.goal?.()
     if (!deadline) return
-    if (!goal || !goal.open || goal.id !== deadline.logicalGoalId) { await this.#write(() => { delete this.#stored.deadline }); return }
-    const now = this.ports.now()
-    if (deadline.reported || now < deadline.startedAt + (deadline.deadlineAt - deadline.startedAt) * LEAD_DEADLINE_REPORT_SHARE) return
+    if (!goal || !goal.open || goal.id !== deadline.logicalGoalId) {
+      await this.#write(async () => { delete this.#stored.deadline; await this.ports.journal.setAutonomy(this.#record(this.#modes())) })
+      return
+    }
+    const now = this.ports.now(), over = now >= deadline.deadlineAt
+    if (now < deadline.startedAt + (deadline.deadlineAt - deadline.startedAt) * LEAD_DEADLINE_REPORT_SHARE) return
+    if (deadline.reported && (!over || deadline.passed)) return
     const minutes = Math.max(0, Math.ceil((deadline.deadlineAt - now) / 60_000))
     await this.#write(async () => {
-      await this.ports.report?.(now >= deadline.deadlineAt ? 'The deadline for this goal has passed. No new round will start.'
+      await this.ports.report?.(over ? 'The deadline for this goal has passed. No new round or run will start for it, and I will not wake myself for it; your messages are still answered.'
         : `Most of the time for this goal is used: about ${minutes} minute${minutes === 1 ? '' : 's'} left. No new round starts once it runs out.`)
-      this.#stored.deadline = { ...deadline, reported: true }
+      this.#stored.deadline = { ...deadline, reported: true, ...(over ? { passed: true } : {}) }
     })
     this.ports.changed?.()
   }

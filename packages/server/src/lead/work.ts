@@ -39,6 +39,8 @@ export interface LeadWorkWake {
   readonly offer: (key: string, text: string, id: string) => Promise<boolean>
   /** A schedule-sourced turn in the open conversation. True once the Lead has it. */
   readonly remind: (key: string, text: string) => Promise<boolean>
+  /** The person's Off / Observe for repeated work: a reminder due while it is not Act is taken as seen and wakes nothing. */
+  readonly gate?: () => Promise<'act' | 'off' | 'observed'>
 }
 
 /**
@@ -51,6 +53,7 @@ export const wakeForLeadWork = async (ledger: Pick<LeadWorkLedger, 'dueReminders
   let woke = 0
   for (const due of await ledger.dueReminders()) {
     if (await wake.quiet()) return woke
+    if ((await wake.gate?.() ?? 'act') !== 'act') { await ledger.reminded(due.id, due.remindAt); continue }
     const key = `work-reminder-${due.id}-${due.remindAt}`
     const delivered = wake.canBegin() ? await wake.offer(key, due.text, due.id) : await wake.remind(key, due.text)
     if (!delivered) continue

@@ -4,6 +4,7 @@ import { Banner, Button, Chip, CodeText, Dialog, FormStack, Row, Rows, Section, 
 import { useDestinationActive } from '../panels/destination-page'
 import { useStore } from '../state/context'
 import { leadRefusalText } from './lead-refusals'
+import { leadRuleDiff } from './lead-rules-diff'
 
 const when = (at: number) => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 const HOW = { edit: 'Edited', reset: 'Reset to default', rollback: 'Restored' } as const
@@ -23,8 +24,11 @@ const RuleDialog = ({ section, prompt, save, close }: {
       <Button variant="secondary" disabled={busy} onClick={close}>Close</Button>
     </>}>
     <FormStack>
-      {section.defaultUpdated && <Banner tone="info" actions={<Button variant="secondary" disabled={busy} onClick={() => void run({ section: section.id, action: 'keep', expectedVersion })}>Keep mine</Button>}>
-        <Text role="muted">Default updated. It now reads: {section.defaultUpdated.to}</Text>
+      {section.defaultUpdated && <Banner tone="info" actions={<>
+        <Button variant="secondary" disabled={busy} onClick={() => void run({ section: section.id, action: 'keep', expectedVersion })}>Keep mine</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => void run({ section: section.id, action: 'reset', expectedVersion })}>Use new</Button></>}>
+        <Text role="muted">Default updated. What changed since you wrote yours:</Text>
+        <CodeText as="pre" aria-label="What changed in the default">{leadRuleDiff(section.defaultUpdated.from, section.defaultUpdated.to)}</CodeText>
       </Banner>}
       <Textarea aria-label={section.title} value={text} maxLength={LEAD_RULE_LIMITS.chars} rows={8} onChange={event => setText(event.target.value)} />
       <Text role="meta">Takes effect at the Lead's next epoch, never in the middle of a turn. It cannot widen what the Lead is allowed to do.</Text>

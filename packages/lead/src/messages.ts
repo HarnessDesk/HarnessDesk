@@ -21,6 +21,8 @@ const TOOL_ERROR = Object.freeze({
   uncertain: 'Tool failed: completion could not be confirmed; inspect before retrying.',
   changed: 'Tool failed: desk activity changed; read fresh state.',
   scope: 'Tool failed: the selected project access check failed.',
+  deadline: 'Tool refused: the time the person set for this goal has run out, so no new work starts for it. Tell the person, and ask whether to extend it.',
+  cap: 'Tool refused: runs started without the person asking are limited, or the account is near its limit, so the person\'s next follow-up keeps its room. Wait for a run to finish, then try again.',
   failed: 'Tool failed: the desk request could not complete.',
   overflow: 'Tool failed: its result exceeded the conversation limit.',
 })
@@ -502,6 +504,10 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
               ? TOOL_ERROR.changed
               : dispatchError instanceof WireCallError && dispatchError.code === 'leadScope'
                 ? TOOL_ERROR.scope
+              : dispatchError instanceof WireCallError && dispatchError.code === 'leadDeadline'
+                ? TOOL_ERROR.deadline
+              : dispatchError instanceof WireCallError && dispatchError.code === 'leadRunCap'
+                ? TOOL_ERROR.cap
                 : TOOL_ERROR.failed
           if (executed.outcome !== 'succeeded') {
             const result = { ...results[position]!, content: errorText }

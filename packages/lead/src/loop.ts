@@ -138,7 +138,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   const teamStages = new Map<string, LeadStage | undefined>()
   const observedChats = () => [...chatStates].map(([id, stage]) => ({ id, stage }))
   const gate = createLeadWakeGate(options.stuckMs)
-  let deskOwed = false, deskReadAt = 0, latestDeskReadAt = 0, latestDeskReadSucceeded = false
+  let deskOwed: false | 'person' | 'automatic' = false, stepCause: 'person' | 'automatic' = 'person', deskReadAt = 0, latestDeskReadAt = 0, latestDeskReadSucceeded = false
   const owned = () => ({ runs: journal.state.runs.map(run => run.runId), teams: journal.state.teams })
   const tools = createLeadTools({ journal, desk, project, now: () => clock.now(), nextId, synchronized: () => synchronized && !closed,
     resolveTool: options.resolveTool })
@@ -146,7 +146,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     resolveTool: tools.resolveTool, dispatch: async (call, correlationId, signal) => {
       const reading = clientTierFor(call.method, call.params) === 'read'
       try {
-        const result = await tools.dispatch(call, correlationId, signal)
+        const result = await tools.dispatch(call, correlationId, signal, stepCause)
         if (reading) { latestDeskReadAt = clock.now(); latestDeskReadSucceeded = true }
         return result
       } catch (error) {
@@ -494,7 +494,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     if (result.reason === 'lead-predecessor-unavailable' || result.reason === 'lead-predecessor-unverifiable') { await waitForUser(result.reason); return result }
     const waitForDesk = !!result.deskActivityTools?.length
     // A tool told to wait for desk activity is owed the next change, whatever the gate makes of it.
-    deskOwed = waitForDesk
+    deskOwed = waitForDesk ? stepCause : false
     const countedTools = result.toolResults?.filter(tool => !result.deskActivityTools?.includes(tool.tool_use_id)) ?? []
     if (countedTools.length) {
       const permanentRefusal = countedTools.some(tool => tool.is_error && !result.transientTools?.includes(tool.tool_use_id))
@@ -520,6 +520,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     const wake: LeadWakeRecord = pendingWake ?? { id: nextId(), at: clock.now(), source: input.wakeSource ?? 'person', decision: 'silent', modelTurn: false, usdMicros: null }
     let result: LeadMessagesResult | null = null
     stepUsage = undefined
+    stepCause = wake.source === 'person' ? 'person' : 'automatic'
     try { if (blocked()) return null; result = await performStep(input, signal, !!pendingWake); return result }
     finally {
       const state = journal.state, said = state.messages.filter(message => message.role === 'assistant' && message.revision > before.seq)
@@ -571,8 +572,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           if (look && !look.wake && !continueTools && !deskOwed && !chatChanges.length) return
           // The person's Off and Observe for unasked reports: the host looked, nothing woke the model. Observe says what it
           // would have done in the wake ledger; the change is taken as seen, so it is said once and not at every check.
-          if (!continueTools && !deskOwed && (look?.wake || chatChanges.length)) {
-            const gated = leadWakeAutonomy(journal.state, look?.why ?? null)
+          // A wake the person's own request owes (a tool waiting on the desk) is theirs; every other one is checked now, at
+          // the moment it would run, not at the moment it was owed.
+          if (!continueTools && deskOwed !== 'person' && (look?.wake || chatChanges.length || deskOwed)) {
+            const gated = leadWakeAutonomy(journal.state, look?.why ?? null, { ownRuns: look?.ownChanged === true, now: clock.now() })
             if (!gated.allow) {
               if (look) gate.shown(look.fingerprint)
               for (const [id, state] of chatChanges) if (changedChats.get(id) === state) changedChats.delete(id)
@@ -619,7 +622,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           await step({ ...rest, proactive, wakeSource: pendingWake.source, epoch, ...(mark ? { stable: mark, base: mark } : {}), ...(planned.kept ? { kept: planned.kept } : {}),
             messages: work ? leadAppendUser(observed, [{ type: 'text', text: work }]) : observed }, undefined, pendingWake)
           // Refused as too long: owed once more, after the desk compacts.
-          if (wakeOverflow && !closed) { dirty ||= activity; deskOwed ||= activity; continuationPending ||= continueTools; batchAgain = true }
+          if (wakeOverflow && !closed) { dirty ||= activity; deskOwed ||= activity ? stepCause : false; continuationPending ||= continueTools; batchAgain = true }
           report()
         } finally {
           try { if (!stepped) await journal.recordWake(pendingWake) }

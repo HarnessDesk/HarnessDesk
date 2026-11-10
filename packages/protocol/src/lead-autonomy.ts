@@ -51,7 +51,16 @@ export interface LeadRuleActive { readonly version: number; readonly text: strin
 export interface LeadAutonomyRecord {
   readonly modes: LeadAutonomyModes
   readonly rules: Readonly<Partial<Record<LeadRuleSectionId, LeadRuleActive>>>
+  /** The open goal's deadline, so the Lead's own loop stops waking itself for that goal once it passes. Absent: none. */
+  readonly deadline?: { readonly logicalGoalId: string; readonly deadlineAt: number }
 }
+/** What caused a run to start: the person's own turn (or a tool continuation of it), or any other wake. */
+export const LEAD_START_CAUSES = ['person', 'automatic'] as const
+export type LeadStartCause = typeof LEAD_START_CAUSES[number]
+/** At most this many runs (chats and Team runs) the Lead started on its own may be live at once. The person's are never counted. */
+export const LEAD_AUTOMATIC_RUNS = 3
+/** An automatic start is refused when the account it would run on has less than this share of its window left. */
+export const LEAD_HEADROOM_RESERVE_PERCENT = 10
 export const initialLeadAutonomy = (): LeadAutonomyRecord => ({ modes: LEAD_AUTONOMY_DEFAULTS, rules: {} })
 
 /** One stored version of a section. `base` is the shipped default it was written against. */
@@ -135,11 +144,16 @@ const active: Validator<LeadRuleActive> = (value, path = '') => {
   return { version: integer(1)(source.version, at(path, 'version')), text: ruleText(source.text, at(path, 'text')) }
 }
 export const parseLeadAutonomyRecord: Validator<LeadAutonomyRecord> = (value, path = '') => {
-  const source = only(['modes', 'rules'])(value, path)
+  const source = only(['modes', 'rules', 'deadline'])(value, path)
   const rules = only(LEAD_RULE_SECTIONS)(source.rules, at(path, 'rules'))
   const out: Partial<Record<LeadRuleSectionId, LeadRuleActive>> = {}
   for (const key of LEAD_RULE_SECTIONS) if (rules[key] !== undefined) out[key] = active(rules[key], at(at(path, 'rules'), key))
-  return { modes: parseLeadAutonomyModes(source.modes, at(path, 'modes')), rules: out }
+  let deadline: LeadAutonomyRecord['deadline']
+  if (source.deadline !== undefined) {
+    const d = only(['logicalGoalId', 'deadlineAt'])(source.deadline, at(path, 'deadline'))
+    deadline = { logicalGoalId: goalId(d.logicalGoalId, at(path, 'deadline.logicalGoalId')), deadlineAt: integer(1)(d.deadlineAt, at(path, 'deadline.deadlineAt')) }
+  }
+  return { modes: parseLeadAutonomyModes(source.modes, at(path, 'modes')), rules: out, ...(deadline ? { deadline } : {}) }
 }
 export const parseLeadAutonomySet: Validator<LeadAutonomySet> = (value, path = '') => {
   const source = only(['kind', 'mode'])(value, path)

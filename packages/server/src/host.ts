@@ -887,6 +887,7 @@ export class Host {
   #leadChats: LeadChats | null = null
   #leadWork: LeadWorkLedger | null = null
   #leadPresence: LeadPresenceStore | null = null
+  #leadPacing: ReturnType<typeof pacingPort> | null = null
   #leadAutonomy: LeadAutonomyStore | null = null
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
   #leadRepeats: LeadRepeats | null = null
@@ -1020,7 +1021,7 @@ export class Host {
   /** Host enforcement outlives the child; a missing journal refuses recovered dispatch. */
   readonly #leadBudgets = new LeadBudgets({
     now: () => Date.now(),
-    deadlinePassed: id => this.#leadAutonomy?.deadlinePassed(id) ?? false,
+    deadlinePassed: async id => await this.#leadAutonomy?.deadlineElapsed(id) ?? false,
     usage: (project, from, to, sessions) => this.#usageOf(project, from, to, sessions),
     seats: () => this.#evidence.seats.all(),
     delegation: seat => this.#delegationUncertainRuntimes.has(seat.session.runtime) ? 'unknown' : 'none',
@@ -4041,8 +4042,7 @@ export class Host {
         (notification.method === 'event' && WORK_EVENTS.has(notification.params.event.type))) pokeWork()
     }))
     this.#leadChatCancellation = async (id, count) => { await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${id}.`) }
-    this.#leadChats = new LeadChats({ project, state: () => journal.state, slots: this.#leadSlots(journal), now: options.recovery?.now ?? Date.now,
-      pacing: pacingPort({
+    const pacing = pacingPort({
         startableAgents: () => this.#phoneWorkView().startableAgents().map(String),
         infoOf: id => { const known = this.#runtimes.get(runtimeId(id)); return known ? this.#infoOf(known) : undefined },
         defaultRuntime: () => {
@@ -4051,7 +4051,10 @@ export class Host {
         },
         preferences: () => this.#state.state.preferences,
         usage: id => this.#usageService.cached(runtimeId(id)),
-        now: Date.now }),
+        now: Date.now })
+    this.#leadPacing = pacing
+    this.#leadChats = new LeadChats({ project, state: () => journal.state, slots: this.#leadSlots(journal), now: options.recovery?.now ?? Date.now, pacing,
+      deadlinePassed: async () => { const goal = journal.state.budget?.logicalGoalId; return goal !== undefined && await this.#leadAutonomy?.deadlineElapsed(goal) === true },
       managementAvailable: () => this.#leadService?.managementAvailable === true,
       queuedSends: () => this.registry.all().some(record => record.queue.messages.some(message => {
         const admission = this.registry.queuedAdmission(record, message.id)
@@ -4414,7 +4417,9 @@ export class Host {
     }).catch(() => {})
     this.#leadControls = new LeadControls({ journal,
       readWorkContext: async turn => {
-        const note = presence.takeExpiryNote(turn.proactive)
+        const expiry = presence.takeExpiryNote(turn.proactive)
+        // The person's own message under a goal whose time ran out is answered, and told so.
+        const note = [expiry, turn.proactive ? undefined : this.#leadAutonomy?.deadlineNote()].filter(Boolean).join(' ') || undefined
         let cards: string | null = null
         try { cards = leadWorkCards(await work.board(), Date.now()) } catch (error) { if (!note || turn.proactive) throw error }
         return leadTurnContext(cards, note, turn.proactive)
@@ -4519,6 +4524,7 @@ export class Host {
       canBegin: () => canBeginLeadGoal(journal.state),
       offer: async (key, text, id) => (await automatic.offer({ key, text, origin: { source: 'schedule', event: 'work-reminder', subject: id, url: null } })).delivered,
       remind: (key, text) => this.#leadControls!.remind(key, text),
+      gate: () => autonomy.gate('repeat'),
     })
     const timer = setInterval(() => {
       void settleRepeat().then(() => repeats.tick()).catch(() => { this.#logger.warn('A scheduled Lead task could not start') })
@@ -11137,10 +11143,20 @@ export class Host {
   }
 
   /** Presence for the window and the phones; refuses while no Lead runs here. */
-  /** The reserved run: live Lead chats plus running Lead Team runs, against the slots automatic work may fill. */
-  #leadSlots(journal: LeadJournal): LeadSlots {
-    return new LeadSlots({ state: () => journal.state, live: () => (this.#leadChats?.liveHeld() ?? 0) +
-      this.#leadBudgets.port.runs().filter(run => run.lead !== undefined && run.state === 'running').length })
+  /**
+   * The person's room: starts the Lead made on its own are counted (chats and Team runs that are still working) and
+   * capped, and refused on an account near its window's end. The person's own starts are never counted or refused.
+   */
+  #leadSlots(_journal: LeadJournal): LeadSlots {
+    return new LeadSlots({
+      automaticLive: () => {
+        const ids = this.#leadAutonomy?.automaticIdsNow() ?? new Set<string>()
+        return (this.#leadChats?.liveHeld(id => ids.has(id)) ?? 0) +
+          this.#leadBudgets.port.runs().filter(run => run.lead !== undefined && run.state === 'running' && ids.has(run.lead.startId)).length
+      },
+      mark: async id => { await this.#leadAutonomy?.markAutomatic(id) },
+      headroom: async () => await this.#leadPacing?.headroom() ?? null,
+    })
   }
 
   get leadAutonomy(): LeadAutonomyStore {

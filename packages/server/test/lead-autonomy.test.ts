@@ -156,17 +156,34 @@ test('rules: after an upgrade the section says what changed, and Keep mine clear
   assert.equal(section.text, 'Mine.')
 })
 
-test('the reserved run: automatic work never takes the last slot, the person still can', () => {
-  let live = 2, origin: unknown = { source: 'schedule', event: 'repeat', subject: 'x', url: null }
-  const slots = new LeadSlots({ state: () => ({ origin: origin as any }), live: () => live, slots: 4, reserved: 1 })
-  assert.equal(slots.admit().ok, true)
-  live = 3
-  assert.equal(slots.admit().ok, false, 'automatic work stops one short of the cap')
-  assert.throws(() => slots.assert(), { wireCode: 'lead-slot-reserved' })
-  origin = null
-  assert.equal(slots.admit().ok, true, 'the person takes the reserved slot')
-  live = 4
-  assert.equal(slots.admit().ok, false, 'a full desk waits for everyone')
+test('the person\'s room: automatic starts stop at the cap and on a nearly spent account; the person\'s never do', async () => {
+  let automatic = 2, headroom: number | null = 80
+  const marked: string[] = []
+  const slots = new LeadSlots({ automaticLive: () => automatic, mark: async id => { marked.push(id) }, headroom: async () => headroom, limit: 3, reserve: 10 })
+  assert.equal((await slots.admit('automatic')).ok, true)
+  automatic = 3
+  const full = await slots.admit('automatic')
+  assert.equal(full.ok, false); assert.match((full as { reason: string }).reason, /3 runs it started on its own/)
+  await assert.rejects(slots.assert('automatic'), { wireCode: 'lead-slot-reserved' })
+  assert.equal((await slots.admit('person')).ok, true, 'the person starts at the cap')
+  automatic = 0; headroom = 4
+  assert.equal((await slots.admit('automatic')).ok, false, 'an account near the end of its window keeps its last room for the person')
+  assert.equal((await slots.admit('person')).ok, true)
+  headroom = null
+  assert.equal((await slots.admit('automatic')).ok, true, 'unknown headroom is not a refusal')
+  await slots.mark('chat-1', 'automatic'); await slots.mark('chat-2', 'person')
+  assert.deepEqual(marked, ['chat-1'], 'only automatic runs are remembered')
+})
+
+test('headroom reads the binding window; a blocked account has none and an unreadable one says nothing', async () => {
+  const { headroomOf } = await import('../src/lead/pacing.js')
+  const report = (usedPercent: number | null, extra: object = {}) => ({ runtime: 'r', account: null, plan: null, lanes: usedPercent === null ? [] : [{ id: 'w', label: 'Weekly', usedPercent, resetsAt: null, windowMinutes: 10080 }],
+    credits: null, spend: null, reached: null, source: 'api', fetchedAt: 0, staleAfterMs: 1, error: null, ...extra }) as any
+  assert.equal(headroomOf(report(35)), 65)
+  assert.equal(headroomOf(report(100)), 0)
+  assert.equal(headroomOf(report(null)), null)
+  assert.equal(headroomOf(null), null)
+  assert.equal(headroomOf(report(35, { error: { kind: 'failed', message: 'x' } })), null)
 })
 
 test('a deadline reports once at 80% of the time and stops new rounds at 100%', async t => {
@@ -182,4 +199,25 @@ test('a deadline reports once at 80% of the time and stops new rounds at 100%', 
   assert.equal(r.store.deadlinePassed('goal-1'), true)
   assert.equal(r.store.deadlinePassed('goal-2'), false, 'only its own goal')
   await assert.rejects(r.store.setDeadline({ logicalGoalId: 'goal-1', deadlineAt: 5 }), { wireCode: 'lead-deadline-past' })
+})
+
+test('a deadline is read only once the file has loaded, and the goal\'s loop learns of it through the journal', async t => {
+  const r = await rig(t)
+  await r.store.setDeadline({ logicalGoalId: 'goal-1', deadlineAt: r.now() + 1_000 })
+  assert.deepEqual(r.journal.state.autonomy?.deadline, { logicalGoalId: 'goal-1', deadlineAt: r.now() + 1_000 }, 'the child reads it from the journal')
+  r.tick(2_000)
+  const again = r.make()
+  assert.equal(again.deadlinePassed('goal-1'), false, 'before the file loads there is nothing to read')
+  assert.equal(await again.deadlineElapsed('goal-1'), true, 'afterwards the same deadline has passed')
+})
+
+test('the person is told once when the time runs out, and the next turn they start carries the same fact', async t => {
+  const r = await rig(t)
+  await r.store.setDeadline({ logicalGoalId: 'goal-1', deadlineAt: r.now() + 100_000 })
+  assert.equal(r.store.deadlineNote(), undefined)
+  r.tick(85_000); await r.store.checkDeadline()
+  r.tick(20_000); await r.store.checkDeadline(); await r.store.checkDeadline()
+  assert.equal(r.reports.length, 2, 'once at 80%, once when it runs out')
+  assert.match(r.reports[1]!, /has passed/)
+  assert.match(r.store.deadlineNote() ?? '', /run out/)
 })

@@ -82,3 +82,17 @@ it('a goal in hand can be given a deadline, and None clears it', async () => {
   expect(call.params.logicalGoalId).toBeTruthy()
   expect(call.params.deadlineAt).toBeGreaterThan(Date.now())
 })
+
+it('rules: a default updated after the edit shows the real difference, and Keep mine or Use new settles it', async () => {
+  const { box, calls } = await mount(<LeadRulesSection />)
+  expect(box.textContent).toContain('Default updated')
+  const edit = [...box.querySelectorAll<HTMLElement>('button')].filter(one => one.textContent === 'Edit')[1]!
+  await act(async () => { edit.click() })
+  const diff = document.body.querySelector('[aria-label="What changed in the default"]')!
+  expect(diff.textContent).toContain('- Old line the shipped words no longer carry.')
+  expect(diff.textContent).toMatch(/\+ /)
+  const use = [...document.body.querySelectorAll<HTMLElement>('button')].find(one => one.textContent === 'Use new')!
+  await act(async () => { use.click() }); await settle()
+  expect(calls.filter(call => call.method === 'lead/rules/update').map(call => call.params.action)).toEqual(['reset'])
+  expect(document.body.querySelector('[aria-label="What changed in the default"]')).toBeNull()
+})

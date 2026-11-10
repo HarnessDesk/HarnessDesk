@@ -1,4 +1,4 @@
-import { leadStage, type LeadStage } from '@harnessdesk/protocol'
+import { leadStage, type LeadStage, type LeadStartCause } from '@harnessdesk/protocol'
 import type { DispatchAdmission } from '../dispatch-admission.js'
 import { LEAD_LIMITS, deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
 import { LeadChatHeldError, type LeadChatControlStore } from './chat-control.js'
@@ -49,7 +49,12 @@ export interface LeadChatsPorts {
   }
   readonly publish?: (event: LeadChatActivity) => void
   /** The reserved run: a start the Lead makes for automatic work is refused while only the person's slot is left. */
-  readonly slots?: { assert(): void }
+  readonly slots?: { admit(cause: LeadStartCause): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>; mark(id: string, cause: LeadStartCause): Promise<void> }
+  /**
+   * The goal's time: true once the open goal's deadline has passed (read after the file has loaded). A start or a send
+   * the Lead makes on its own for that goal is refused then; the person's own are not.
+   */
+  readonly deadlinePassed?: () => Promise<boolean>
   /**
    * Account pacing. Asked only for a start the Lead made without naming an agent, and answered only when the person
    * turned on "Prefer the account that resets soonest" for the agent the desk would start on. The agent is one the
@@ -98,9 +103,9 @@ export class LeadChats {
   }
   restore(): Promise<void> { return this.#ready }
   /** Chats the Lead holds that are working right now. */
-  liveHeld(): number {
+  liveHeld(include: (id: string) => boolean = () => true): number {
     const chats = this.ports.control?.current?.(this.ports.project.path).chats ?? []
-    return chats.filter(chat => { if (chat.holder !== 'lead') return false
+    return chats.filter(chat => { if (chat.holder !== 'lead' || !include(chat.id)) return false
       const at = chat.id.indexOf(':'); return at > 0 && this.ports.live(runtimeId(chat.id.slice(0, at)), sessionId(chat.id.slice(at + 1))).running }).length
   }
   async idle(retries = true): Promise<void> {
@@ -445,12 +450,19 @@ export class LeadChats {
     return text
   }
   start(input: HostParams<'lead/chat/start'>): Promise<HostResult<'lead/chat/start'>> {
-    const { effectId, ...params } = input
+    const { effectId, cause = 'person', ...params } = input
     const call = { method: 'lead/chat/start', params } as const
     return this.#mutate(call, effectId, async (admit, effectStarted, attemptId) => {
       const candidates = params.agent === undefined ? [] : await this.ports.recovery?.candidates(params.moveFrom) ?? []
       const matches = candidates.filter(one => one.key === params.agent || one.name === params.agent)
       if (params.agent !== undefined && matches.length !== 1) refuse('That agent is not in the available candidate list.')
+      // The person's own start is never refused here. Anything else is automatic work: it stops when the goal's time has
+      // run out, and it waits at the cap, for a reason the Lead is handed back as the tool result.
+      if (cause === 'automatic') {
+        const refusal = await this.ports.deadlinePassed?.() ? 'The time for this goal has run out, so no new work starts for it. Tell the person, and ask whether to extend it.'
+          : await this.ports.slots?.admit('automatic').then(verdict => verdict.ok ? null : verdict.reason)
+        if (refusal) { this.ports.noteDispatchNotStarted(attemptId); return { id: '', problem: refusal } }
+      }
       const text = params.moveFrom ? await this.#moveText(params) : this.#startText(params)
       if (typeof text !== 'string') {
         this.ports.noteDispatchNotStarted(attemptId)
@@ -469,6 +481,7 @@ export class LeadChats {
         const paced = params.agent === undefined && !params.moveFrom ? await this.ports.pacing?.choose().catch(() => null) ?? null : null
         const agent = matches[0]?.agent ?? matches[0]?.key ?? paced?.agent
         const result = await this.#create(params, call, text, agent, paced, admit, effectStarted, attemptId)
+        if (result.id && !result.problem) await this.ports.slots?.mark(result.id, cause).catch(() => {})
         if (claim && result.id) return { ...result, ledgerItem: await this.ports.ledger!.started(claim, result.id) }
         return result
       } finally { if (claim) this.ports.ledger!.release(claim) }
@@ -478,7 +491,6 @@ export class LeadChats {
     text: string, agent: string | undefined, paced: { readonly agent: string; readonly label: string } | null, admit: (id?: string) => Promise<void>, effectStarted: () => void, attemptId: string): Promise<HostResult<'lead/chat/start'>> {
     {
       const envelope = this.#envelope(text)
-      this.ports.slots?.assert()
       await this.ports.control?.assertCanStart?.(this.ports.project.path)
       let createdId: string | undefined, moveClaimed = false, creationStarted = false, firstMessageStarted = false
       const scope = this.#liveScope(call, attemptId, () => createdId)
@@ -532,10 +544,15 @@ export class LeadChats {
       failed: recovering ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false })
   }
   send(input: HostParams<'lead/chat/send'>, currentRetry?: () => boolean, retryStarted?: () => void, retryBusy?: () => void): Promise<HostResult<'lead/chat/send'>> {
-    const { effectId, ...params } = input
+    const { effectId, cause = 'person', ...params } = input
     const call = { method: 'lead/chat/send', params } as const
     const envelope = this.#envelope(params.text)
     return this.#mutate(call, effectId, async (admit, effectStarted, attemptId) => {
+      // Work the Lead sends on its own stops with the goal's time; a message the person caused is always delivered.
+      if (cause === 'automatic' && await this.ports.deadlinePassed?.()) {
+        this.ports.noteDispatchNotStarted(attemptId)
+        throw Object.assign(new Error('The time for this goal has run out.'), { wireCode: 'leadDeadline' })
+      }
       if (params.retryAt === 'reset') {
         await admit(); await this.#notHeld(params.id)
         if (!this.incidents) refuse('Chat recovery is unavailable.')

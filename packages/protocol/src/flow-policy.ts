@@ -505,6 +505,8 @@ export interface FlowStartRequest extends FlowRunOptions {
   readonly continues?: string | null
   /** The empty Goal a front-door start reuses, at the revision its preview saw; it must match the preview's own. */
   readonly goal?: { readonly id: string; readonly revision: number }
+  /** The Lead's own door only: what caused this start, so automatic work keeps the person's room. */
+  readonly cause?: 'person' | 'automatic'
 }
 
 /** Bounded, host-derived context a check command reads from `HARNESSDESK_FLOW_CONTEXT`. */

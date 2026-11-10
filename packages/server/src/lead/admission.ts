@@ -1,5 +1,5 @@
 import { leadReviewedResultSource, leadReviewedResultSourceFor, type LeadJournal, type LeadState } from '@harnessdesk/lead'
-import type { HostParams, LeadProject, Intent } from '@harnessdesk/protocol'
+import type { HostParams, LeadProject, LeadStartCause, Intent } from '@harnessdesk/protocol'
 import type { FlowPreviews } from '../flow-preview.js'
 import type { FlowLeadBinding, StoredFlowExecution } from '../flow-execution.js'
 import type { LeadBudgets } from './budgets.js'
@@ -68,7 +68,7 @@ export interface LeadAdmissionOptions {
   readonly readIntents: (goal: string) => readonly Pick<Intent, 'id' | 'state' | 'outcome'>[]
   readonly nextId: () => string
   /** The reserved run: automatic work does not take the last slot. */
-  readonly slots?: { admit(): { readonly ok: boolean } }
+  readonly slots?: { admit(cause: LeadStartCause): Promise<{ readonly ok: boolean }>; mark(id: string, cause: LeadStartCause): Promise<void> }
 }
 /** Installed by the trusted host on the private connection. Admission annotates
  * the held token, so even redemption through another door retains its guard. */
@@ -101,8 +101,8 @@ export class LeadAdmission {
       !((assignment.role === 'implement' && assignment.agent === 'implementer' && assignment.ceiling === 'edit') ||
         (assignment.role === 'review' && assignment.agent === 'code-reviewer' && assignment.ceiling === 'read')))) return false
     // The goal's time is up: no new step starts, as with a spent allowance.
-    if (budgets.port.deadlinePassed?.(budget.logicalGoalId)) return false
-    if (this.options.slots && !this.options.slots.admit().ok) return false
+    if (await budgets.port.deadlinePassed?.(budget.logicalGoalId)) return false
+    if (this.options.slots && !(await this.options.slots.admit(params.cause ?? 'automatic')).ok) return false
     const projection = budgets.startBudget(journal, attempt.correlationId)
     if (projection.stop || projection.spend !== 'known' || projection.reservedUsdMicros > 0) return false
     // Array order is execution order. Only the host's frozen review seating can
@@ -115,6 +115,11 @@ export class LeadAdmission {
     if (budgets.prepared(binding.startId) || journal.state.steps.find(item => item.id === step.id)?.attemptId !== attempt.id ||
       journal.state.attempts.get(attempt.id)?.phase !== 'started' || !previews.bindLead(params, binding)) return false
     budgets.prepare(binding.startId, journal, step.id, params, project)
+    // An automatic start keeps counting against the cap until its run ends.
+    try { await this.options.slots?.mark(binding.startId, params.cause ?? 'automatic') } catch { /* The run still starts; the cap counts what it could record. */ }
     return true
   }
+  /** Whether a start was refused because automatic work is at its cap, for the reason the Lead is told. */
+  readonly capped = async (params: HostParams<'flow/start-goal'>): Promise<boolean> =>
+    this.options.slots !== undefined && !(await this.options.slots.admit(params.cause ?? 'automatic')).ok
 }

@@ -38,11 +38,16 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   // Autonomy and rules, as the host answers them: modes, versioned sections, and a would-have row to show.
   let modes: LeadAutonomyModes = scene === 'settings-autonomy' ? { ...LEAD_AUTONOMY_DEFAULTS, stuck: 'observe', mention: 'off' } : LEAD_AUTONOMY_DEFAULTS
   const versions: Record<string, LeadRuleVersion[]> = scene === 'settings-autonomy'
-    ? { talk: [{ version: 1, text: 'Plain words. One question at a time.', at: Date.UTC(2026, 10, 2, 17, 0), how: 'edit', base: LEAD_RULE_DEFAULTS.talk }] } : {}
+    ? { talk: [{ version: 1, text: 'Plain words. One question at a time.', at: Date.UTC(2026, 10, 2, 17, 0), how: 'edit', base: LEAD_RULE_DEFAULTS.talk }],
+        // Written against an older default, so the section shows what changed since: the real diff, Keep mine or Use new.
+        delegate: [{ version: 1, text: 'Prefer the reviewer on another agent.', at: Date.UTC(2026, 10, 3, 17, 0), how: 'edit',
+          base: { version: 0, text: `${LEAD_RULE_DEFAULTS.delegate.text.split('.')[0]}.\nOld line the shipped words no longer carry.` } }] } : {}
+  const kept = new Set<string>()
   const observed = scene === 'settings-autonomy' ? [{ id: 'o1', at: Date.UTC(2026, 10, 9, 18, 30), kind: 'stuck' as const, note: 'Would have said a run had gone quiet.' }] : []
   const sectionView = (id: typeof LEAD_RULE_SECTIONS[number]): LeadRuleSectionView => {
     const history = versions[id] ?? [], latest = history.at(-1), custom = !!latest && latest.how !== 'reset'
-    return { id, title: LEAD_RULE_TITLES[id], text: custom ? latest!.text : LEAD_RULE_DEFAULTS[id].text, version: latest?.version ?? 0, custom, default: { ...LEAD_RULE_DEFAULTS[id] }, defaultUpdated: null, history: [...history].reverse() }
+    return { id, title: LEAD_RULE_TITLES[id], text: custom ? latest!.text : LEAD_RULE_DEFAULTS[id].text, version: latest?.version ?? 0, custom, default: { ...LEAD_RULE_DEFAULTS[id] },
+      defaultUpdated: custom && latest!.base.text !== LEAD_RULE_DEFAULTS[id].text && !kept.has(id) ? { from: latest!.base.text, to: LEAD_RULE_DEFAULTS[id].text } : null, history: [...history].reverse() }
   }
   const rulesView = () => ({ version: 1 as const, sections: LEAD_RULE_SECTIONS.map(sectionView), prompt: LEAD_RULE_SECTIONS.flatMap(id => sectionView(id)).filter(one => one.custom).map(one => `${one.title}: ${one.text}`).join('\n') })
   const autonomyView = () => ({ version: 1 as const, modes, observed, deadline: null, rules: LEAD_RULE_SECTIONS.map(id => { const one = sectionView(id); return { id, title: one.title, text: one.text, custom: one.custom } }) })
@@ -104,6 +109,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       if ((list.at(-1)?.version ?? 0) !== params.expectedVersion) throw { code: 'lead-rules-stale' }
       const make = (how: LeadRuleVersion['how'], text: string): LeadRuleVersion => ({ version: (list.at(-1)?.version ?? 0) + 1, text, at: Date.now(), how, base: LEAD_RULE_DEFAULTS[params.section as 'talk'] })
       if (params.action === 'edit') list.push(make('edit', params.text))
+      else if (params.action === 'keep') kept.add(params.section)
       else if (params.action === 'reset') list.push(make('reset', LEAD_RULE_DEFAULTS[params.section as 'talk'].text))
       else if (params.action === 'rollback') list.push({ ...make('rollback', list.find(one => one.version === params.to)!.text), from: params.to })
       return rulesView()
