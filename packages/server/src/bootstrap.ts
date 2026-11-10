@@ -128,6 +128,10 @@ export const writeToolLauncher = (directory: string, execPath: string, entry: st
 export const bridgeCallerFor = (host: Pick<Host, 'registry'>, runtime: string, id: string): BridgeCaller => ({
   runtime, sessionId: id,
   get workspaceRoot() { return host.registry.get(runtimeId(runtime), sessionId(id))?.shellCheckout?.cwd },
+  get turnId() {
+    const running = host.registry.get(runtimeId(runtime), sessionId(id))?.running
+    return running ? [...running].at(-1) : undefined
+  },
 })
 
 export interface ToolServerOptions {

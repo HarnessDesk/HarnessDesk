@@ -1394,7 +1394,7 @@ export class Host {
           return cwd && root ? { cwd, root } : null
         },
         admitWrite: async (verb, scope, args) => {
-          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '', associatedPullRequest: '' }
+          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '', associatedPullRequest: '', reviewThreads: '', settleThread: 'pr_thread_settle' }
           const result = await this.#ceilingGate.admit({ tool: verb === 'comment' && (args as { subject?: string })?.subject === 'issue' ? 'issue_comment' : names[verb], needs: verb === 'merge' ? 'merge' : 'publish',
             scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!), ...(scope.turnId ? { turnId: scope.turnId as TurnId } : {}) }, publishes: true })
           if (!result.admitted) throw new Error(result.refusal)
@@ -4220,7 +4220,10 @@ export class Host {
         },
       })
     const follow = new LeadPrFollow({ journal, gateway: this.#gitGateway, now: () => Date.now(), validate: validateResult, answer: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract), ...publication })
-    const repairResult = async (op: import('@harnessdesk/protocol').LeadHandback) => {
+    // A result card carries the budget, so it waits until every reserved Lead request has settled. A repair push carries
+    // only the reviewed source, which the Lead's own request in flight does not change: refusing it there, between
+    // pushOwned's two validations, parked the push as needs-you and the repair waited on a person for nothing.
+    const repairResult = async (op: import('@harnessdesk/protocol').LeadHandback, use: 'card' | 'push' = 'card') => {
       if (this.#disposed) return null
       await this.#leadBudgets.meter(journal)
       const state = journal.state, contract = state.contract, run = this.#flows.leadRuns().find(run => run.id === op.runId)
@@ -4229,7 +4232,7 @@ export class Host {
         last.state !== 'running' || !last.cards.length || !last.cards.every(id => this.#team.stateFor(op.teamId).intents.some(card => card.id === id && card.state === 'open'))) return null
       const evidence = await decisionEvidence(op.runId), budget = leadBudgetProjection(journal.state.budget!, Date.now())
       const result = evaluateLeadAcceptance(contract, evidence, { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
-      if (result.status !== 'reviewed' || !leadHandbackTerminal(op) && evidence.revision === op.head || budget.spend !== 'known' || budget.reservedUsdMicros) return null
+      if (result.status !== 'reviewed' || !leadHandbackTerminal(op) && evidence.revision === op.head || budget.spend !== 'known' || use === 'card' && budget.reservedUsdMicros) return null
       const old = journal.state.cards.find(card => card.id === `result-${contract.revision}`)
       const card = { version: 1 as const, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1, type: 'result' as const,
         contractDigest: contract.digest, outcome: 'reviewed' as const, summary: leadResultSummary('CI passed. Fresh checks and independent review are ready for your decision.', result.assertions), assertions: result.assertions, budget }
@@ -4257,9 +4260,9 @@ export class Host {
       },
       release: op => this.#flows.releaseLeadRepair(op),
       ciPassed: (op, head) => this.#evidence.observeLeadCi(project.path, op.teamId, `lead-ci-${head}`, head),
-      reviewed: async op => (await repairResult(op))?.source ?? null,
+      reviewed: async op => (await repairResult(op, 'push'))?.source ?? null,
       push: (source, op) => follow.pushOwned(source, async () => {
-        const fresh = await repairResult(op)
+        const fresh = await repairResult(op, 'push')
         if (!fresh || fresh.source.head !== source.head || journal.state.pr?.branchOwner === 'person') throw new Error('lead-repair-review-changed')
       }),
     })

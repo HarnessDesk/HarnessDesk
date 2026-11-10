@@ -45,6 +45,7 @@ const inputs = {
   create: { head: 'feature/widgets', title: 'Widgets', body: 'Body' }, update: { number: 1, body: 'Body' },
   merge: { number: 1, head: 'a'.repeat(40), method: 'squash' }, review: { number: 1, event: 'approve', body: '' },
   comment: { subject: 'pullRequest', number: 1, body: 'Body' }, repository: {}, record: {}, attribute: { branch: 'feature/widgets', sha: 'a'.repeat(40) },
+  reviewThreads: { number: 1 }, settleThread: { number: 1, thread: 'PRRT_fixture1', outcome: 'declined', answer: 'This stays as it is on purpose.' },
 }
 
 test('forge writes cross the child only with a write grant, valid shapes, and a host-owned live scope', async t => {
@@ -70,6 +71,8 @@ test('forge writes cross the child only with a write grant, valid shapes, and a 
       },
       push: answer, pullRequest: { create: answer, update: answer, merge: answer }, review: answer, comment: answer,
       record: async (_args, scope) => { assert.ok(scope.signal && !scope.signal.aborted); heard.push(scope); return [] }, attribute: async () => 'outside',
+      reviewThreads: async (_args, scope) => { assert.ok(scope.signal && !scope.signal.aborted); heard.push(scope); return { repository: 'acme/widgets', number: 1, title: null, url: 'https://github.com/acme/widgets/pull/1', state: 'open', threads: [] } },
+      settleThread: async (args, scope) => ({ ...await answer(args, scope), outcome: 'answered', url: null, pullRequest: { title: null, url: 'https://github.com/acme/widgets/pull/1', state: 'open' } }),
     }
     const host = new SupervisedExtensionHost(new ExtensionKernel(), { invokeTimeoutMs: 3000, env: { HARNESSDESK_PLUGINS: store }, forgeEngine: engine })
     try {
@@ -78,7 +81,7 @@ test('forge writes cross the child only with a write grant, valid shapes, and a 
       const scope = { runtime: 'fixture', sessionId: 's1' } as never
       for (const [verb, input] of Object.entries(inputs)) {
         const result = await host.invokeTool(tool.id, { verb, input }, scope)
-        const needsWrite = !['repository', 'record', 'attribute', 'associatedPullRequest'].includes(verb)
+        const needsWrite = !['repository', 'record', 'attribute', 'associatedPullRequest', 'reviewThreads'].includes(verb)
         if (forge === true && needsWrite) { assert.equal(result.ok, false); assert.match(JSON.stringify(result), /forge.write/) }
         else assert.equal(result.ok, true, JSON.stringify(result))
         if (needsWrite) {
@@ -152,6 +155,11 @@ test('forge writes cross the child only with a write grant, valid shapes, and a 
       const invalid = await host.invokeTool(tool.id, { verb: 'push', input: { ...inputs.push, sha: 'bad' }, raw: true }, scope)
       assert.match(JSON.stringify(invalid), forge === true ? /forge.write/ : /Invalid forge push/)
       assert.equal(heard.length, before)
+      for (const input of [{ ...inputs.settleThread, answer: 'One sentence. And another.' }, { ...inputs.settleThread, outcome: 'fixed' }, { ...inputs.settleThread, thread: 'x y' }]) {
+        const refused = await host.invokeTool(tool.id, { verb: 'settleThread', input, raw: true }, scope)
+        assert.match(JSON.stringify(refused), forge === true ? /forge.write/ : /Invalid forge settleThread/)
+      }
+      assert.equal(heard.length, before)
       const context = await host.resolveContext(scope)
       assert.equal(context.length, 1)
       assert.ok(heard.every(one => one.runtime === 'fixture' && one.sessionId === 's1' && one.plugin === 'writer#installed'), JSON.stringify(heard.map(({ signal: _s, ...rest }) => rest)))
@@ -183,7 +191,7 @@ test('a host-held forge approval keeps a child invocation alive beyond its injec
     repository: async () => 'acme/widgets', seat: async () => null, identity: async () => ({ via: 'gh', login: null, available: true, reason: null }),
     publish: async () => {}, publicationAllowed: async () => ({ ok: true }),
     push: answer, pullRequest: { create: answer, update: answer, merge: answer }, review: answer, comment: answer,
-    record: async () => [], attribute: async () => 'outside',
+    record: async () => [], attribute: async () => 'outside', reviewThreads: async () => { throw new Error('unused') }, settleThread: async () => { throw new Error('unused') },
   }
   const host = new SupervisedExtensionHost(new ExtensionKernel(), { invokeTimeoutMs, env: { HARNESSDESK_PLUGINS: store }, forgeEngine: engine })
   t.after(async () => { await host.dispose(); await rm(root, { recursive: true, force: true }) })
@@ -230,7 +238,7 @@ test('an ungranted child cannot invoke the association capability over raw IPC',
     review: async () => { throw new Error('unused') },
     comment: async () => { throw new Error('unused') },
     record: async () => [],
-    attribute: async () => 'outside',
+    attribute: async () => 'outside', reviewThreads: async () => { throw new Error('unused') }, settleThread: async () => { throw new Error('unused') },
   }
   const host = new SupervisedExtensionHost(new ExtensionKernel(), {
     invokeTimeoutMs: 3000,
