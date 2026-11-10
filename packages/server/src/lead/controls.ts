@@ -10,6 +10,7 @@ import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatc
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
+import { leadMemoryScan, leadRememberRequest } from './memory-scan.js'
 import type { LeadContextStore } from './context-store.js'
 import type { LeadContextFacts } from '@harnessdesk/protocol'
 
@@ -265,6 +266,13 @@ export class LeadControls {
   send(value: LeadThreadSend, automaticOrigin?: LeadOrigin, automaticProject?: string) { return this.#queue(async () => {
     const input = parseLeadThreadSend(value), { journal, service } = this.options
     if (leadContainsSecret(input)) throw leadRefusal('lead-secret-refused')
+    // A request to keep words aimed at an agent is refused here, before the model reads it: memory is read on every
+    // later turn, so the scan every proposal passes runs on the person's request too (docs/decisions.md).
+    const kept = automaticOrigin ? null : leadRememberRequest(input.text)
+    if (kept !== null) {
+      const scan = leadMemoryScan(kept)
+      if (!scan.ok && scan.reason === 'instruction') throw leadRefusal('lead-memory-instruction-refused')
+    }
     const previous = journal.state.sends.find(send => send.key === input.idempotencyKey)
     if (previous) return { messageId: previous.messageId, revision: previous.revision }
     const origin = automaticOrigin ? parseLeadOrigin(automaticOrigin) : null

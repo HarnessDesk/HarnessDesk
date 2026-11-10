@@ -134,3 +134,21 @@ export const leadMemoryScan = (raw: string): LeadMemoryScan => {
   if (text.length > LEAD_MEMORY_LIMITS.textChars) return { ok: false, reason: 'too-long' }
   return { ok: true, text }
 }
+
+const REMEMBER: readonly RegExp[] = [
+  /^(?:请|請|帮我|幫我)?(?:记住|記住|记下|記下|记一下|記一下)(?:这条|這條|这个|這個|这句|這句|一下|下来|下來)?[\s:,、]*([\s\S]+)$/u,
+  /^(?:これを)?(?:覚えて(?:おいて|ください)?|メモして)[\s:,、]*([\s\S]+)$/u,
+  /^(?:please\s+)?(?:remember|memori[sz]e|keep in mind|note down|make a note(?: of)?)\b(?:\s+(?:this|that))?\s*[:,\-–—]?\s*([\s\S]+)$/iu,
+]
+/**
+ * The words a person's message asks the Lead to keep, when it opens by asking that ("记住这条：…", "Remember: …");
+ * null for any other message. Only the opening is read: a message that mentions remembering somewhere is just a message.
+ */
+export const leadRememberRequest = (text: string): string | null => {
+  const opening = text.normalize('NFKC').trim()
+  for (const pattern of REMEMBER) {
+    const words = pattern.exec(opening)?.[1]?.trim()
+    if (words) return words
+  }
+  return null
+}

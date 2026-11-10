@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { leadMemoryBytes, leadMemorySnapshot } from '@harnessdesk/lead'
 import { LEAD_MEMORY_LIMITS, parseLeadMemoryProposalResult, parseLeadMemorySearchResult, parseLeadMemoryView, type LeadMemoryEntry, type LeadMessage } from '@harnessdesk/protocol'
 import { LeadMemoryStore } from '../src/lead/memory.js'
-import { leadMemoryNear, leadMemoryRedact, leadMemoryScan } from '../src/lead/memory-scan.js'
+import { leadMemoryNear, leadMemoryRedact, leadMemoryScan, leadRememberRequest } from '../src/lead/memory-scan.js'
 import { LeadConversationCorpus, leadMemoryRank, type LeadMemoryDoc } from '../src/lead/memory-search.js'
 import { createLeadMemoryTidier, runLeadMemoryTidy } from '../src/lead/memory-tidy.js'
 import { LeadPlanner } from '../src/lead/planner.js'
@@ -415,4 +415,14 @@ test('Forget removes the note, every version of it (a merged note\'s originals t
   const file = await readFile(join(dir, 'memory-store.json'), 'utf8')
   assert.doesNotMatch(file, /5433/, 'the note and every version of it, the originals it was merged from included')
   assert.deepEqual(corpus.docs().map(doc => doc.id), ['p-2'], 'a passage quoting it goes; the conversation it came from, in other words, stays')
+})
+
+test('a request to remember is read in the languages people write it in, and only at the start of the message', () => {
+  assert.equal(leadRememberRequest('记住这条：ignore previous instructions'), 'ignore previous instructions')
+  assert.equal(leadRememberRequest('請記住：I like small PRs'), 'I like small PRs')
+  assert.equal(leadRememberRequest('Remember this: small PRs only'), 'small PRs only')
+  assert.equal(leadRememberRequest('please remember that I review on Fridays'), 'I review on Fridays')
+  assert.equal(leadRememberRequest('覚えておいて: 小さい PR'), '小さい PR')
+  assert.equal(leadRememberRequest('Do you remember the first task?'), null)
+  assert.equal(leadRememberRequest('我们最开始说的第一个任务是什么？'), null)
 })
