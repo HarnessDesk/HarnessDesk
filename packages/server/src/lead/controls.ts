@@ -6,7 +6,7 @@ import {
   parseLeadBudgetRaise, parseLeadSpendLimitSet, leadNoSpendLimit, type LeadBudgetRaise, type LeadSpendLimitSet, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadLimitedCaps, leadApprovedPlan, leadPlanMoment, leadWithPlan, leadHistory, leadAppendUser, type LeadContextMark, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadLimitedCaps, leadApprovedPlan, leadPlanMoment, leadWithPlan, leadHistory, leadAppendUser, type LeadContextMark, type LeadJournal, type LeadState, type LeadStopFrom, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -692,6 +692,21 @@ export class LeadControls {
     // Cancellation settles the old detached continuation before another goal is admitted.
     if (this.#continuation) await this.#continuation
     return this.#projection()
+  }) }
+  /**
+   * A stop asked for elsewhere than the person's Stop — a comment on the thread that opened this goal — taken exactly as
+   * Stop takes it: journaled with where it came from, the goal's owned runs stopped, then the model process ended. `owns`
+   * is read on the queue, against the journal as it is then, so a goal begun meanwhile is never the one stopped. False
+   * when `owns` refuses or the goal has already ended, and nothing is done.
+   */
+  stopAsked(from: LeadStopFrom, owns: (state: LeadState) => boolean): Promise<boolean> { return this.#queue(async () => {
+    const { journal } = this.options
+    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) || !owns(journal.state)) return false
+    this.#continueAgain = false
+    await journal.stop(this.options.stopEffects, from)
+    await this.options.stopRequest?.()
+    if (this.#continuation) await this.#continuation
+    return true
   }) }
   steer(value: { readonly text: string }): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const input = parseLeadSteerInput(value), { journal } = this.options

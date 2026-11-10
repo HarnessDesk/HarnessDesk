@@ -272,7 +272,7 @@ import { SessionIndexRepos } from './session-index-repos.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
 import { observerAssessor, type AssessCharge } from './intake/assess.js'
-import type { MentionAssessor } from './intake/mentions.js'
+import type { MentionAssessor, WorkItemsPort } from './intake/mentions.js'
 import { leadProviderTransport } from './lead/provider-transport.js'
 import { NO_WAITS, actorWords, type HostWaits } from './intake/waits.js'
 import type { UsageSample } from './ledger/insight.js'
@@ -659,6 +659,8 @@ export interface HostOptions {
     readonly mentions?: {
       readonly assess?: MentionAssessor | null
       readonly pullRequests?: (repository: string, goals: readonly string[], firings: readonly string[]) => Promise<readonly number[]>
+      /** Where an accepted thread joins the work ledger, scripted; the Lead's own work ledger otherwise. */
+      readonly workItems?: WorkItemsPort
     }
   }
 }
@@ -2563,6 +2565,20 @@ export class Host {
         }),
         leadName: () => this.#leadJournal?.state.name ?? 'dex',
         pullRequests: options.intake?.mentions?.pullRequests ?? ((repository, goals, firings) => this.#mentionPullRequests(repository, goals, firings)),
+        // An accepted thread is one item on the Lead's work ledger: the thread it came from and the work it opened. A plan
+        // the Lead runs for the same thread joins that item by the thread's link, so the board shows them as one.
+        workItems: options.intake?.mentions?.workItems ?? {
+          attach: async (origin, links) => {
+            const work = this.#leadWork
+            if (!work || this.#disposed) return null
+            const at = (number: number) => `${origin.repository}#${number}`
+            return await work.attach({ kind: 'mention', ref: origin.comment ?? at(origin.thread.number),
+              title: `${origin.thread.kind === 'pull-request' ? 'Pull request' : 'Issue'} ${at(origin.thread.number)}` },
+            { issues: links.issues.map(at), prs: links.pulls.map(at), teams: [...links.goals] })
+          },
+        },
+        // A stop on the thread reaches the Lead's goal by the firing that opened it, never by a shared link.
+        stopLead: (asked) => this.stopLeadForThread(asked),
       },
     })
     this.#context = this.#buildContext()
@@ -2615,6 +2631,37 @@ export class Host {
     if (lead?.pr && lead.originKey && firings.some((firing) => lead.originKey === `trigger-${firing}`) &&
       lead.pr.repository.toLowerCase() === repository.toLowerCase()) found.add(lead.pr.number)
     return [...found]
+  }
+
+  /**
+   * A comment asked the Lead to stop the work on a thread. When the Lead's
+   * goal in hand is the one a firing of that thread opened, it is stopped the
+   * way the person's Stop stops it — journaled, as a stop from that comment,
+   * then the goal's own runs, then the model process — so its plan is ended
+   * and no later step of it starts. Only the runs the goal owns are reached:
+   * never a run a person started, and never another goal's. Says whether the
+   * goal was stopped, and how many of its runs were still going.
+   */
+  async stopLeadForThread(asked: { readonly firings: readonly string[]; readonly comment: string }): Promise<{ readonly plan: boolean; readonly runs: number }> {
+    const controls = this.#leadControls
+    if (!controls || this.#disposed) return { plan: false, runs: 0 }
+    let runs = 0
+    let claimed = false
+    try {
+      const plan = await controls.stopAsked({ kind: 'mention', comment: asked.comment }, (state) => {
+        if (!state.originKey || !asked.firings.some((firing) => state.originKey === `trigger-${firing}`)) return false
+        const going = new Set(this.#flows.leadRuns().filter((run) => run.state === 'running' || run.state === 'stalled').map((run) => run.id))
+        runs = state.runs.filter((run) => going.has(run.runId)).length
+        claimed = true
+        return true
+      })
+      return { plan, runs: plan ? runs : 0 }
+    } catch {
+      // The stop is journaled before its effects run, and the Lead retries those it could not finish; say what holds.
+      this.#logger.warn('A stop asked from a comment did not finish in the Lead')
+      const plan = claimed && this.#leadJournal?.state.phase === 'stopped'
+      return { plan, runs: plan ? runs : 0 }
+    }
   }
 
   /**
@@ -3964,11 +4011,16 @@ export class Host {
       const teams = contract ? leadPlanRuns(state).map(run => run.teamId).filter((team): team is string => typeof team === 'string') : []
       if (!goal || !contract || !teams.length) return
       const prs = state.pr ? [`${state.pr.repository}#${state.pr.number}`] : []
-      const signature = JSON.stringify([goal, teams, prs])
+      // A plan drafted for an issue or pull request names it, so it joins the item that thread is already on (a mention's).
+      const thread = state.origin && (state.origin.source === 'issue' || state.origin.source === 'pull-request') && /^[^\s/#]+\/[^\s/#]+#[1-9][0-9]*$/.test(state.origin.subject)
+        ? state.origin : null
+      const issues = thread?.source === 'issue' ? [thread.subject] : []
+      if (thread?.source === 'pull-request' && !prs.includes(thread.subject)) prs.push(thread.subject)
+      const signature = JSON.stringify([goal, teams, prs, issues])
       if (signature === goalLinks) return
       goalLinks = signature
       const kind = state.origin?.source === 'schedule' ? 'repeat' as const : state.origin ? 'trigger' as const : 'person' as const
-      void work.attach({ kind, ref: `goal:${goal}`, title: contract.goal }, { teams, prs }).then(pokeWork, () => { goalLinks = '' })
+      void work.attach({ kind, ref: `goal:${goal}`, title: contract.goal }, { teams, prs, issues }).then(pokeWork, () => { goalLinks = '' })
     }
     this.onDispose(journal.onChange(() => { syncGoal(); pokeWork() }))
     const WORK_EVENTS = new Set(['session/started', 'session/status', 'session/closed', 'turn/started', 'turn/completed', 'approval/requested', 'approval/resolved'])
