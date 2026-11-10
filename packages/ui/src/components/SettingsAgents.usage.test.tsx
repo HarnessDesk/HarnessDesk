@@ -17,6 +17,8 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { accountKey } from '../lib/accounts'
 import { formatReset } from '../lib/limits'
+import { standingSentence } from '../lib/usage'
+import { usageStandingOf } from '@harnessdesk/protocol'
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
@@ -209,5 +211,20 @@ describe('an account row in Settings', () => {
       select!.dispatchEvent(new Event('change', { bubbles: true }))
     })
     expect(store.setAccountPrefs).toHaveBeenCalledWith(accountKey(CLAUDE, status.accounts[0]!), { pinLaneId: 'weekly' })
+  })
+})
+
+describe('the agent page in Settings › Runtimes', () => {
+  it('shows each account with the Dashboard card: its figure and the same pacing sentence', async () => {
+    const resetsAt = Date.now() + 2 * 3_600_000
+    const pacing = report('olivia@acme.dev', [lane({ id: 'session', label: 'Session', usedPercent: 40, windowMinutes: 300, resetsAt })])
+    await mount([pacing, reallySpent])
+    const usage = container.querySelector('[aria-label="Usage by account"]')
+    expect(usage).not.toBeNull()
+    const said = standingSentence(usageStandingOf(pacing, Date.now()), Date.now())
+    expect(said).not.toBeNull()
+    expect(usage!.textContent).toContain(said!)
+    expect(usage!.textContent).toContain('60%')
+    expect(usage!.textContent).toContain('work@acme.dev')
   })
 })

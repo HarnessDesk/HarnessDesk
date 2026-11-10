@@ -1247,7 +1247,8 @@ it('accounts, gateways and unanswered slots share one unwrapped face slot', asyn
   await mountList({ runtimes: [...ROSTER.runtimes, gateway], accountsByRuntime: accounts })
   const alpha = [...container.querySelectorAll<HTMLElement>('[data-slot="agent-row"]')].find(row => row.querySelector('[data-slot="row-title"]')?.textContent?.startsWith('Alpha'))!
   await act(async () => alpha.click())
-  const records = [...container.querySelectorAll('[data-kind="record"]')]
+  // The account rows; the Dashboard's cards under Usage are a section of their own.
+  const records = [...container.querySelectorAll('[data-kind="record"]')].filter(row => !row.closest('[aria-label="Usage by account"]'))
   expect(records).toHaveLength(3)
   for (const row of records) {
     expect(row.querySelectorAll('[data-slot="row-face"]')).toHaveLength(1)
@@ -1665,7 +1666,8 @@ it('a runtime page reads in the order it is used: accounts first, the build afte
   const heads = [...container.querySelectorAll('[data-slot="section-name"]')].map((node) => node.textContent ?? '')
   const at = (name: string) => heads.findIndex((head) => head.startsWith(name))
   // New sessions draws nothing for an agent with no defaults to offer, as here.
-  expect(heads).toEqual(['Accounts', 'Update', 'Process resources'])
+  // Usage sits with the accounts it is about: the Dashboard's own cards, pacing and all.
+  expect(heads).toEqual(['Accounts', 'Usage', 'Update', 'Process resources'])
   expect(at('Accounts')).toBe(0)
 })
 
