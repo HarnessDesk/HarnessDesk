@@ -2559,6 +2559,22 @@ export class Host {
         }),
         leadName: () => this.#leadJournal?.state.name ?? 'dex',
         pullRequests: options.intake?.mentions?.pullRequests ?? ((repository, goals, firings) => this.#mentionPullRequests(repository, goals, firings)),
+        // An accepted thread is one item on the Lead's work ledger: the thread it came from and the work it opened. A plan
+        // the Lead runs for the same thread joins that item by the thread's link, so a stop on the thread reaches it.
+        workItems: {
+          attach: async (origin, links) => {
+            const work = this.#leadWork
+            if (!work || this.#disposed) return null
+            const at = (number: number) => `${origin.repository}#${number}`
+            return await work.attach({ kind: 'mention', ref: origin.comment ?? at(origin.thread.number),
+              title: `${origin.thread.kind === 'pull-request' ? 'Pull request' : 'Issue'} ${at(origin.thread.number)}` },
+            { issues: links.issues.map(at), prs: links.pulls.map(at), teams: [...links.goals] })
+          },
+          teams: async (item) => {
+            const work = this.#leadWork
+            return work && !this.#disposed ? (await work.read({ id: item })).links.teams : []
+          },
+        },
       },
     })
     this.#context = this.#buildContext()
@@ -3943,11 +3959,16 @@ export class Host {
       const teams = contract ? leadPlanRuns(state).map(run => run.teamId).filter((team): team is string => typeof team === 'string') : []
       if (!goal || !contract || !teams.length) return
       const prs = state.pr ? [`${state.pr.repository}#${state.pr.number}`] : []
-      const signature = JSON.stringify([goal, teams, prs])
+      // A plan drafted for an issue or pull request names it, so it joins the item that thread is already on (a mention's).
+      const thread = state.origin && (state.origin.source === 'issue' || state.origin.source === 'pull-request') && /^[^\s/#]+\/[^\s/#]+#[1-9][0-9]*$/.test(state.origin.subject)
+        ? state.origin : null
+      const issues = thread?.source === 'issue' ? [thread.subject] : []
+      if (thread?.source === 'pull-request' && !prs.includes(thread.subject)) prs.push(thread.subject)
+      const signature = JSON.stringify([goal, teams, prs, issues])
       if (signature === goalLinks) return
       goalLinks = signature
       const kind = state.origin?.source === 'schedule' ? 'repeat' as const : state.origin ? 'trigger' as const : 'person' as const
-      void work.attach({ kind, ref: `goal:${goal}`, title: contract.goal }, { teams, prs }).then(pokeWork, () => { goalLinks = '' })
+      void work.attach({ kind, ref: `goal:${goal}`, title: contract.goal }, { teams, prs, issues }).then(pokeWork, () => { goalLinks = '' })
     }
     this.onDispose(journal.onChange(() => { syncGoal(); pokeWork() }))
     const WORK_EVENTS = new Set(['session/started', 'session/status', 'session/closed', 'turn/started', 'turn/completed', 'approval/requested', 'approval/resolved'])

@@ -98,6 +98,8 @@ export const intakeDesk = async (options: {
   /** The timers an unattended Seat's question wait runs on, so a test ends the wait when it says. */
   readonly seatReadDeadlineMs?: number
   readonly questionTimers?: QuestionTimers
+  /** Whether the desk has the Lead turned on, as a person enables it; off by default. */
+  readonly lead?: boolean
   /** Mention triggers' observer model and the pull requests a Goal's work opened: scripted, never a model or a forge write. */
   readonly mentions?: {
     readonly assess?: MentionAssessor | null
@@ -117,6 +119,7 @@ export const intakeDesk = async (options: {
     builtinAgents: tempDir('hd-intake-host-builtins-'),
     builtinFlows: tempDir('hd-intake-host-flows-'),
     catalogRefreshMs: 0,
+    ...(options.lead ? { leadEnabled: true } : {}),
     ...(options.seatReadDeadlineMs !== undefined ? { seatReadDeadlineMs: options.seatReadDeadlineMs } : {}),
     intake: {
       gh: forge.runner,

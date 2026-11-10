@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
 
+import { createLeadJournal, type LeadJournal } from '@harnessdesk/lead'
 import type { PhoneTriageList, TriggerArmPreview, TriggerDecision, TriggerDecisionsPage, TriggerHistoryPage } from '@harnessdesk/protocol'
 
 import { makeRepo } from './fixtures/evidence-desk.js'
-import { commitTriggers, intakeDesk, type IntakeDesk } from './fixtures/intake-host.js'
+import { commitTriggers, intakeDesk, REVIEW_FLOW, until, type IntakeDesk } from './fixtures/intake-host.js'
 import { Clocks, sha } from './fixtures/intake-forge.js'
 import { tempDir } from './scratch.js'
 import { writeTriggers } from '../src/authoring/model.js'
@@ -61,13 +62,13 @@ interface MentionDesk extends IntakeDesk {
 const NOON = (() => { const now = new Date(); return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12) })()
 const LEDGER = 'triggers-mentions.json'
 
-const desk = async (t: { after(fn: () => Promise<void>): void }, triggers = ASK(), options: { readonly stateDir?: string; readonly repo?: IntakeDesk['repo']; readonly clocks?: Clocks; readonly arm?: boolean } = {}): Promise<MentionDesk> => {
+const desk = async (t: { after(fn: () => Promise<void>): void }, triggers = ASK(), options: { readonly stateDir?: string; readonly repo?: IntakeDesk['repo']; readonly clocks?: Clocks; readonly arm?: boolean; readonly lead?: boolean } = {}): Promise<MentionDesk> => {
   const repo = options.repo ?? await makeRepo('hd-intake-mentions-')
   if (!options.repo) await commitTriggers(repo, triggers)
   const model = new FakeAssessor()
   const links = new Map<string, number[]>()
   const d = await intakeDesk({
-    repo, ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.clocks ? { clocks: options.clocks } : {}),
+    repo, ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.clocks ? { clocks: options.clocks } : {}), ...(options.lead ? { lead: true } : {}),
     mentions: { assess: model.assess, pullRequests: async (_repository, goals) => goals.flatMap((goal) => links.get(goal) ?? []) },
   })
   t.after(() => d.stop())
@@ -525,4 +526,96 @@ test('a mentions file the desk cannot read is kept as it is, and comments wait u
   await d.host.intakePlane.tick()
   const page = await decisions(d)
   assert.deepEqual(page.decisions.map((one) => one.decision), ['accept'], 'the comment that waited is decided once the file is moved')
+})
+
+// ------------------------------------------------------------ one thread of work
+
+/** The Lead on this desk, journaled in memory: its work ledger is the host's own. No child, model or vendor traffic. */
+const leadOn = async (t: TestContext, d: IntakeDesk): Promise<LeadJournal> => {
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', logicalGoalId: 'lead-goal-1', now: Date.now(), caps: { usdMicros: 100000, rounds: 3 }, freshnessMs: 60000 })
+  const project = { id: 'project-demo', path: d.repo.dir }
+  const context = () => ({ desk: journal.state.policy!, projectPolicy: null, project, approved: null, budget: null, now: Date.now(), policyInterpretation: 'idle' as const })
+  const service = d.host.createLeadService({ journal, project, prices: {},
+    resolveTool: async () => ({ project, runId: null, start: null, stepId: null, context: context() }),
+    freezePlan: async (proposal) => proposal, readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }),
+  })
+  await service.setEnabled(true)
+  t.after(() => service.setEnabled(false).catch(() => {}))
+  return journal
+}
+
+/**
+ * A person approved the Lead's plan for this thread, and the Lead started a Team for it: the journal records the
+ * approved contract, its started step and the Team's run, with the thread as the Lead's origin. The Team's run is a
+ * real Flow run on the desk, still going.
+ */
+const leadStartsTeam = async (t: TestContext, d: IntakeDesk, journal: LeadJournal, thread: number): Promise<string> => {
+  const preview = await d.host.call('flow/preview', { root: d.repo.dir, source: REVIEW_FLOW })
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  const run = await d.host.call('flow/start-goal', { root: d.repo.dir, source: REVIEW_FLOW, sentence: 'Fix the flaky test', token: preview.token! })
+  const real = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(journal), 'state')!.get!.bind(journal)
+  t.mock.getter(journal, 'state', () => ({
+    ...real(),
+    contract: { ...(real().contract ?? {}), goal: 'Fix the flaky test' },
+    steps: [{ id: 'fix', state: 'started', attemptId: 'start-1', contractDigest: 'a'.repeat(64) }],
+    runs: [{ runId: run.id, teamId: run.goal, correlationId: 'start-1' }],
+  }))
+  await journal.setOrigin({ source: 'issue', event: 'commented', subject: `acme/widgets#${thread}`, url: `https://github.com/acme/widgets/issues/${thread}` }, `trigger-mention-${thread}`)
+  return run.goal
+}
+
+const workBoard = async (d: IntakeDesk) => await until(async () => {
+  const board = await d.host.call('lead/work/list', {})
+  return board.items.length > 0 ? board : null
+}, 'a work item')
+
+test('an accepted mention is one work item: the thread it came from, and the work it opened', E2E, async (t) => {
+  const d = await desk(t, ASK(), { lead: true })
+  await leadOn(t, d)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const [first] = (await history(d)).items
+  const board = await workBoard(d)
+  assert.equal(board.items.length, 1)
+  const [item] = board.items
+  const detail = await d.host.call('lead/work/read', { id: item!.id })
+  assert.equal(detail.origin.kind, 'mention')
+  assert.match(detail.origin.ref ?? '', /^https:\/\/github\.com\/acme\/widgets\/issues\/1#issuecomment-\d+$/, 'the comment it came from')
+  assert.deepEqual(detail.links.issues, ['acme/widgets#1'])
+  assert.deepEqual(detail.links.teams, [first!.goal!], 'and the work it opened')
+
+  // A later comment that resumes it stays on the same item.
+  await say(d, 1, '@dex the docs too, please')
+  const after = await d.host.call('lead/work/list', {})
+  assert.deepEqual(after.items.map((one) => one.id), [item!.id])
+})
+
+test('"@dex stop" stops the work the Lead started for the thread after its plan was approved, and says so', E2E, async (t) => {
+  const d = await desk(t, `- id: ask
+  on: mention
+  opens: { lead: true }
+`, { lead: true })
+  const journal = await leadOn(t, d)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const [thread] = (await decisions(d)).threads
+  assert.equal(thread!.state, 'open', 'the request opened a thread of work')
+  await workBoard(d)
+
+  const team = await leadStartsTeam(t, d, journal, 1)
+  await until(async () => {
+    const board = await d.host.call('lead/work/list', {})
+    return board.items.length === 1 && board.items[0]!.links.teams.includes(team) ? true : null
+  }, 'the Lead’s Team on the thread’s work item')
+  assert.ok(flowRuns(d, team).some((one) => one.state !== 'stopped'), 'the Lead’s Team is running')
+
+  await say(d, 1, '@dex stop')
+  const page = await decisions(d)
+  const stop = page.decisions.find((one) => one.decision === 'stop')!
+  assert.match(stop.reason, /1 run the Lead started for it was stopped/)
+  assert.ok(flowRuns(d, team).every((one) => one.state === 'stopped'), 'the run is stopped through the host')
+  assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
 })

@@ -349,19 +349,25 @@ export class IntakePlane {
       forge: this.#forge,
       assess: port.mentions?.assess ?? null,
       leadName: () => port.mentions?.leadName?.() ?? 'dex',
-      stop: async (goals, why) => {
+      stop: async ({ goals, teams }, why) => {
         // The host's own stop: checks first, then every run still going, then any live turn on the Goal's Seats.
-        let stopped = 0
-        for (const goal of goals) {
+        // On the trigger's own Goals that is its intake runs; on a Team the Lead started for the thread, every run.
+        const stopOn = async (goal: string, all: boolean): Promise<number> => {
+          let stopped = 0
           port.flows.interruptChecks?.(goal)
-          for (const run of port.flows.runs(goal).filter((one) => one.intake && (one.state === 'running' || one.state === 'stalled'))) {
+          for (const run of port.flows.runs(goal).filter((one) => (all || one.intake) && (one.state === 'running' || one.state === 'stalled'))) {
             await port.flows.stopRun(run.id, why)
             stopped += 1
           }
           await port.interrupt(goal)
+          return stopped
         }
+        let own = 0
+        let lead = 0
+        for (const goal of goals) own += await stopOn(goal, false)
+        for (const team of teams.filter((one) => !goals.includes(one))) lead += await stopOn(team, true)
         this.#schedule()
-        return stopped
+        return { own, lead }
       },
       pullRequests: (repository, goals, firings) => port.mentions?.pullRequests?.(repository, goals, firings) ?? Promise.resolve([]),
       workItems: port.mentions?.workItems ?? NO_WORK_ITEMS,

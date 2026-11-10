@@ -5563,7 +5563,7 @@ Review round, same day:
   records how many runs stopped; when nothing was running it says so, and the
   thread closes as closed, not stopped. It reaches the trigger's own runs and
   Seats; work the Lead starts after a person approves its plan is the Lead's
-  to stop.
+  to stop. (Superseded below, by joining the work ledger.)
 - **Observing is silent.** An observing trigger raises no attention notice,
   even for an `ask`; the person reads it on the trigger's page.
 - **Re-evaluate judges the comment that was decided.** The decision keeps a
@@ -5576,6 +5576,24 @@ Review round, same day:
   ledger, or a refused hold, sends nothing.
 - **An issue-only thread ends with its issue.** With no pull request linked,
   the sweep closes the thread once the issue closes.
+
+Joining the work ledger, 2026-11-10:
+
+- **A thread of work is one item on the Lead's work ledger.** An accepted
+  mention attaches its thread when it opens or resumes: the asking comment
+  is the item's origin, and the issue or pull request and the thread's Goals
+  are its links. A plan the Lead drafts for that issue or pull request names
+  it as its origin, so once the plan starts Teams it joins the same item by
+  that shared link instead of opening a second one. The ledger is the one
+  place that knows both halves, which is why the stop reads it.
+- **A stop reaches what the Lead started for the thread.** `@dex stop` stops
+  the trigger's own runs as before and, on every Team of the thread's work
+  item, every run still going, through the same host stop path. The decision
+  counts the two apart ("1 run the Lead started for it was stopped"), so a
+  Lead-target trigger, whose own Goals hold nothing, no longer says nothing
+  ran while the Lead's Teams were working. A plan not yet approved has no
+  run, so there is nothing for the stop to reach; Teams are matched by the
+  ledger's item, never guessed from a title.
 
 Rejected: a webhook (a public endpoint and a secret to hold, for a desk that
 already polls the forge); a separate bot identity (a second credential, and
