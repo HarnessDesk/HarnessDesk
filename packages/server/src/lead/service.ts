@@ -65,6 +65,8 @@ export interface LeadServiceOptions {
   readonly recordContext?: LeadSupervisorOptions['recordContext']
   readonly readContext?: LeadSupervisorOptions['readContext']
   readonly compactContext?: LeadSupervisorOptions['compactContext']
+  /** Where the child failed and its code, for the host log; never content. */
+  readonly onFailure?: LeadSupervisorOptions['onFailure']
 }
 /** The host owns this lifecycle and its only journal writer. This service never
  * stores a plaintext key: resolution is transient and host-only.
@@ -108,6 +110,9 @@ export class LeadService {
   #endLive: (() => void) | null = null
   #policy: LeadPermissionPolicy | null = null
   #exiting: Promise<void> | null = null
+  /** The last failure that stopped the child, and the exit it led to, until a request completes. */
+  #stoppedBy: { readonly stage: string; readonly code: string } | null = null
+  #lastExit: string | null = null
   constructor(private readonly options: LeadServiceOptions) {
     this.#supervisor = (options.createSupervisor ?? (settings => new LeadSupervisor(settings)))({
       ...(options.runtimes === undefined ? {} : { runtimes: options.runtimes }),
@@ -285,6 +290,11 @@ export class LeadService {
       ...(options.compactContext ? { compactContext: async trigger => { this.#assertOpen(); return options.compactContext!(trigger) } } : {}),
       onStarted: () => { this.#endLive = options.childStarted() },
       onExit: reason => this.#exited(reason),
+      onFailure: failure => {
+        // A failure the child caught and carried on from is only logged; one that stopped the child also keys its exit.
+        if (!failure.stage.startsWith('child ')) this.#stoppedBy = failure
+        try { options.onFailure?.(failure) } catch { /* A log never owns the lifecycle. */ }
+      },
     })
   }
   #queue<T>(task: () => Promise<T>): Promise<T> {
@@ -333,7 +343,7 @@ export class LeadService {
     // have rejected. Recovery never races a live dispatch from that child.
     const task = (async () => {
       try {
-        try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-send-deadline'].includes(reason) ? reason : 'lead-child-exited') }
+        try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-send-deadline'].includes(reason) ? reason : this.#unexpectedExit(reason)) }
         finally { await this.options.stopOwned(reason) }
         this.#endLive?.(); this.#endLive = null
         await this.#recoverRequests()
@@ -344,6 +354,18 @@ export class LeadService {
     this.#exiting = task
     void task.finally(() => { if (this.#exiting === task) this.#exiting = null }).catch(() => {})
     return task
+  }
+  /**
+   * An exit nobody asked for. The same exit after the same failure, with no request completed between, is
+   * `lead-child-exited-again`: Resume would only start a child that stops at the same step, so the person is told the
+   * desk log names it instead of being offered Resume once more (#2085).
+   */
+  #unexpectedExit(reason: string): 'lead-child-exited' | 'lead-child-exited-again' {
+    const failure = this.#stoppedBy; this.#stoppedBy = null
+    const key = [reason, failure?.stage ?? '', failure?.code ?? ''].join('\u0000')
+    const again = this.#lastExit === key
+    this.#lastExit = key
+    return again ? 'lead-child-exited-again' : 'lead-child-exited'
   }
   async #halt(reason: string, finishExitedRecovery = false): Promise<void> {
     this.options.onManagementStopped?.(reason)
@@ -431,7 +453,10 @@ export class LeadService {
     })
     this.#assertOpen()
     if (generation !== this.#generation) throw new Error('lead-lifecycle-changed')
-    return this.#supervisor.send(input)
+    const result = await this.#supervisor.send(input)
+    // A request that completed starts the count of repeated exits over.
+    if (result.status === 'completed') this.#lastExit = null
+    return result
   }
   #changeKey(provider: 'anthropic', write: () => Promise<unknown>, deleting = false): Promise<void> {
     if (provider !== 'anthropic') return Promise.reject(new Error('lead-provider-unsupported'))

@@ -70,6 +70,8 @@ interface LeadControlsOptions {
   readonly stopEffects?: () => Promise<void>
   /** Child execution may continue across multiple service.send results. */
   readonly readRequestInFlight?: () => boolean
+  /** A request or compaction that failed and was turned into a wait: `stage` and the caught failure, for the host log. */
+  readonly onFailure?: (stage: 'request' | 'compaction', failure: unknown) => void
   readonly readActiveTool?: () => string | null
   readonly readChatEffectQueued?: () => boolean
   /** The Lead's latest checks between turns; shown only while a goal runs. */
@@ -439,10 +441,13 @@ export class LeadControls {
       }
       else await journal.settingsChanged()
       this.contextChanged()
-    } catch {
+    } catch (failure) {
+      try { this.options.onFailure?.('request', failure) } catch { /* A log never owns the request. */ }
       this.#requestInFlight = this.#continueAgain
       const revision = journal.state.seq
-      if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase)) await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+      // A child that already stopped the same way twice keeps that wait: it names why, and Resume would not help.
+      if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase) && journal.state.managementReason !== 'lead-child-exited-again')
+        await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
       if (journal.state.seq === revision) await journal.settingsChanged()
     }
   }
@@ -453,7 +458,7 @@ export class LeadControls {
     const work = this.#contextWork.then(() => context.compact(trigger, input => this.options.service.send(input)))
     this.#contextWork = work.catch(() => {}).finally(() => this.#notify())
     void this.#notify()
-    return work.catch(() => {})
+    return work.catch(failure => { try { this.options.onFailure?.('compaction', failure) } catch { /* A log never owns a compaction. */ } })
   }
   /**
    * A step was stored: past the soft line, compact once the Lead is idle (no request of the host's and none of the

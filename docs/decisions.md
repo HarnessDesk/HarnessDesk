@@ -7,6 +7,20 @@ the rule is the last line of its section.
 
 ---
 
+## The Lead's child and its host check one argument table, and a stop says where it happened — 2026-11-10
+
+The Lead's child asks the host to write to the journal over a framed pipe, one named operation at a time. Two places checked how many arguments each operation may carry: the frame decoder, with a cap of two for most operations, and the host's dispatch, with an exact count. When the child began journaling the memory Core each conversation epoch reads (three arguments), only the dispatch was taught the new count. The decoder refused the frame, the host stopped the child as a broken protocol, and because the record is written on the first request of every new epoch, every request after a summary failed before it was reserved. Each Resume started a child that stopped at the same place, and nothing anywhere said why.
+
+Now one table in `child-ipc.ts` gives each operation its fewest and most arguments, and both checks read it; a test calls every operation at its full count and one more. Every failure that stops the child is reported once to the host log by stage (`frame rpc memoryEpoch`, `rpc appendReply`, `stdin`) and code, and the failures the child catches and carries on from (a reply it could not store, a lost subscription) reach the same log over a `failure` frame. A code is a wire code, a `lead-…` message, a system code or a class name; never a free-form message, which can carry a path, a key or the person's words. When the child stops the same way after the same failure with no request completed between, the wait becomes `lead-child-exited-again`: a setup wait with no Resume, which says the desk log names the step. A request that completes starts the count over, as with `lead-request-unsent-again`.
+
+Rejected:
+
+- **Reaching the dispatch without a frame check.** The frame check is what stops a child from reaching an operation it was never given; it stays, and reads the same table.
+- **Stopping Resume after N tries.** A count says nothing about why. The same stage and code twice is the repeat a person can do nothing about by resuming.
+- **Putting the stage in the person's notice.** The wait is a closed set of reasons a surface translates; the stage is a developer's name and goes to the log, as the `-again` refusals already do.
+
+**Rule:** an operation's argument count is declared once, in `LEAD_RPC_ARGS`; a failure that stops the child or is caught by it is logged by stage and code, and a repeat of the same stop says so instead of offering Resume.
+
 ## The Lead withholds a credential-shaped piece instead of refusing the whole request — 2026-11-10
 
 Before a Lead request leaves the machine the host checks the whole body for anything shaped like a password, key or token, and refuses it if one is there. The conversation that body carries is stored, so a refused piece was in every request after it: one config line a worker printed, read back by the Lead, stopped the Lead for good. The child now runs the same check block by block before it builds the body, and puts a one-line notice in place of each piece the host would refuse: a text keeps its place, a tool result keeps its correlation, a tool call keeps its id and loses its arguments. Reasoning is signed and cannot be edited, so a reasoning block that screens is dropped from an earlier assistant turn, which the provider does not need again, and kept in the latest one, whose tool loop needs it. The body the host checks is then the one the child counted and reserved, built once. What cannot be withheld piece by piece — the instructions, memory and rules every request starts with — is not sent at all, and reserves nothing. The child tells the host what it withheld as counts (turn, block kind, how many) with the first send of a request, and the host log gets one warning per such request, with the request id and sizes and never the content.

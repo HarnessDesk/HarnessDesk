@@ -17,7 +17,7 @@ import { createLeadTools, type LeadResolvedTool } from './tools.js'
 import type { LeadMessagesRequest, MessagesTransport } from './messages-types.js'
 import { parseLeadContextTurns } from './messages.js'
 import { leadEpochAddendum } from './context.js'
-import { LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
+import { LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, leadFailureCode, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
 
 const denied = () => new Error('lead-child-operation-failed')
 /** The socket the host connected, asked for once over the IPC channel and received as a handle; the channel
@@ -160,6 +160,8 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         loop = createLeadLoop({ journal, desk, project, ...(config.seats ? { seats: config.seats } : {}),
           onActivity: busy => { if (!closed) send({ type: 'activity', busy }) },
           onPresence: ({ wakes, readings }) => { if (!closed) send({ type: 'presence', presence: { ...wakes, readings } }) },
+          // A failure the loop caught and carried on from reaches the host log by its stage and code, never its words.
+          onFailure: (stage, failure) => { if (!closed) { try { send({ type: 'failure', stage, code: leadFailureCode(failure) }) } catch { /* A log never owns the turn. */ } } },
           clock: { now: Date.now, schedule: callback => { const timer = setTimeout(callback, 50); return () => clearTimeout(timer) } },
           nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', request.withheld?.length ? [request.requestId, request.body, request.withheld] : [request.requestId, request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header
             countInput: async body => new TextEncoder().encode(body).length + 1024,

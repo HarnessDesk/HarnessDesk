@@ -681,6 +681,82 @@ for (const [name, args] of [
 })
 
 
+// #2085: after a soft summary the next request opens a new epoch, and the child journals the memory Core that epoch's
+// instructions read (`memoryEpoch`, three arguments) before it reserves. The frame check allowed two, so the host
+// stopped the child as a protocol break: no reserve, `lead-request-failed`, then `lead-child-exited`, on every Resume.
+test('the first request after a summary reaches the provider: the child journals its epoch memory without being stopped', async () => {
+  const { runLeadChild } = await import('../src/' + 'child.js')
+  const { fixture: managementFixture, project } = await import('./fixtures/loop.js')
+  const { message } = await import('./fixtures/fake-messages.js')
+  const management = await managementFixture()
+  const records: any[] = []
+  const journal = await createLeadJournal({ read: async () => [], append: async record => { records.push(record) } })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'lead-goal',
+    caps: { usdMicros: 100_000, rounds: 10 }, freshnessMs: 60_000 })
+  // The journal shape the desk showed: a kept memory, a normal exchange, a soft summary applied, then a person message.
+  await journal.memoryCore({ revision: 5, entries: [{ id: 'm1', text: 'Reply in short sentences.', kind: 'preference', by: 'person' }] })
+  await journal.appendMessage('person-1', 'Check the build.', 'person')
+  await journal.appendReply('The build is green.')
+  await journal.contextCompactionStarted('context-1', Date.now(), 'soft')
+  await journal.contextCompactionApplied({ id: 'context-1', at: Date.now(), fromSeq: 6, toSeq: 1325, beforeTokens: 60_876, afterTokens: 55_468,
+    model: 'fixture-model', usdMicros: 0, fallback: false })
+  await journal.appendMessage('person-2', 'Only note desk changes from now on.', 'person')
+  assert.equal(journal.state.context.epoch, 1)
+  const child: any = new EventEmitter()
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.pid = 4242
+  const runtime = runLeadChild({ input: child.stdin, output: child.stdout, connectDesk: async () => ({ ...management.options.desk,
+    close: () => { void management.options.desk.events()[Symbol.asyncIterator]().return() } }), onExit: () => child.emit('exit', 0, null) })
+  child.kill = () => { void runtime.close().then(() => child.emit('exit', 0, null)); return true }
+  let calls = 0
+  const exits: string[] = [], failures: unknown[] = []
+  const f = await fixture({ journal, spawn: () => child, bootstrap: async () => ({ key: secret, descriptor, project,
+    model: 'fixture-model', prices: management.options.messages.prices }), resolveTool: management.options.resolveTool,
+    onExit: (reason: string) => { exits.push(reason) }, onFailure: (failure: unknown) => { failures.push(failure) },
+    providerSend: async () => { calls++; return message([{ type: 'text', text: 'Noted.' }]) } })
+  try {
+    const result = await f.supervisor.send({ ...request, epoch: 1 })
+    assert.equal(result.status, 'completed')
+    assert.equal(calls, 1, 'the request reached the provider')
+    assert.ok(records.some(record => record.type === 'budget' && record.event.type === 'reserve'), 'the request was reserved')
+    assert.deepEqual(journal.state.memoryEpoch, { goal: 'lead-goal', epoch: 1, memory: journal.state.memory })
+    assert.equal(f.supervisor.live, true); assert.deepEqual(exits, []); assert.deepEqual(failures, [])
+    assert.equal(journal.state.managementReason, null)
+  } finally { await f.supervisor.stop(); await runtime.close() }
+})
+
+test('every operation the child may call passes the frame check at its full arity, and one argument more does not', async () => {
+  const ipc: any = await import('../src/child-ipc.js'), { LEAD_RPC_ARGS, LEAD_RPC_OPERATIONS, parseLeadIpc } = ipc
+  assert.deepEqual(Object.keys(LEAD_RPC_ARGS).sort(), [...LEAD_RPC_OPERATIONS].sort())
+  for (const operation of LEAD_RPC_OPERATIONS as string[]) {
+    const [, most] = LEAD_RPC_ARGS[operation] as [number, number]
+    assert.doesNotThrow(() => parseLeadIpc({ version: 1, type: 'rpc', id: 1, operation, args: Array(most).fill(null) }), operation)
+    assert.throws(() => parseLeadIpc({ version: 1, type: 'rpc', id: 1, operation, args: Array(most + 1).fill(null) }), /lead-ipc-invalid/, operation)
+  }
+})
+
+test('a child stopped for a broken frame, and a failure it caught, both reach the host by stage and code alone', async () => {
+  const failures: any[] = []
+  const child = fake((value, child) => {
+    if (value.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+    else if (value.type === 'request') {
+      child.stdout.write(frame({ version: 1, type: 'failure', stage: 'appendReply', code: 'lead-journal-busy' }))
+      child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'recordWake', args: [{ text: 'Keep this private.' }, 2] }))
+    }
+  })
+  const f = await fixture({ spawn: () => child, onFailure: (failure: unknown) => { failures.push(failure) } })
+  await assert.rejects(f.supervisor.send(request), /lead-child-protocol-invalid/)
+  assert.deepEqual(failures, [{ stage: 'child appendReply', code: 'lead-journal-busy' }, { stage: 'frame rpc recordWake', code: 'lead-ipc-invalid' }])
+  assert.ok(!JSON.stringify(failures).includes('private'))
+  const { parseLeadIpc, leadFailureCode } = await import('../src/child-ipc.js')
+  // A failure frame carries names, never a sentence with a path or the person's words.
+  assert.throws(() => parseLeadIpc({ version: 1, type: 'failure', stage: 'appendReply', code: 'could not open /demo/desk/lead' }), /lead-ipc-invalid/)
+  assert.equal(leadFailureCode(new Error('could not open /demo/desk/lead')), 'Error')
+  assert.equal(leadFailureCode(Object.assign(new Error('read /demo/desk'), { code: 'ENOENT' })), 'ENOENT')
+  assert.equal(leadFailureCode(Object.assign(new Error('x'), { wireCode: 'lead-card-stale' })), 'lead-card-stale')
+  await f.supervisor.stop()
+})
+
 test('actual child forwards the durable Messages request id with its reserved body', async () => {
   const { runLeadChild } = await import('../src/' + 'child.js')
   const { fixture: managementFixture, project } = await import('./fixtures/loop.js')
