@@ -6,7 +6,7 @@ import {
   type GoalView, type LedgerQuery, type LedgerReport, type PhoneDashboard, type PhoneProjectShare, type PhoneRange, type PhoneSeatUsage,
   type PhoneSessionRow, type PhoneSessionsList, type PhoneSessionState, type PhoneTeamRow, type PhoneTeamsList, type PhoneTeamStage,
   type PhoneTeamStatus, type PhoneWorkAllowance, type PhoneWorkItem, type PhoneWorkPeriod, type PhoneWorkUsage, type PhoneWorkWorker,
-  type RuntimeId, type SessionId, type SessionSummary, type UsageLane, type UsageReport, type UsageStandingStatus, useFirstNote, usageStandingOf,
+  type RuntimeId, type SessionId, type SessionSummary, type UsageLane, type UsageReport, type UsageStandingStatus, useFirstNote, usageStandingOf, keptReading, pacingAdvice, type PhoneWorkPacing,
 } from '@harnessdesk/protocol'
 import { folderName, micros, money, scrub } from './phone-redact.js'
 
@@ -336,9 +336,19 @@ export class PhoneWorkspace {
         error: report.error ? report.error.needsSignIn === true ? 'sign-in needed' as const : 'reading failed' as const : null,
         spend: report.spend ? { currency: safe(report.spend.currency), today: report.spend.todayCost,
           last30Days: report.spend.windowDays === 30 ? report.spend.windowCost : null, provenance: report.spend.provenance } : null,
+        readAgeMinutes: ageMinutes(report.fetchedAt, now),
+        ...(keptReading(report) ? { refreshFailed: true as const } : {}),
       }
     })
-    return { countsPartial: scan.partial, sessionsScanned: scan.rows.length, asOf: now, runtimes: [...running].map(([name, runningSessions]) => ({ name, runningSessions })), accounts }
+    // The same advice the Dashboard and the phone give, said with the label the Lead was given for that account. With
+    // one account there is no "first", as on the desktop (`pacingNote`).
+    const advice = reports.length < 2 ? null : pacingAdvice(reports.map((report, at) => ({ id: String(at), report })), now)
+    const advised = advice ? accounts[Number(advice.id)]! : null
+    const pacing = advice && advised ? {
+      account: advised.label, reason: advice.reason, window: safe(advice.laneLabel), remainingPercent: advice.remainingPercent,
+      resetsAt: advice.resetsAt, resetsAtLocal: deskClock(advice.resetsAt), readAgeMinutes: ageMinutes(advice.readAt, now),
+    } : null
+    return { countsPartial: scan.partial, sessionsScanned: scan.rows.length, asOf: now, runtimes: [...running].map(([name, runningSessions]) => ({ name, runningSessions })), accounts, pacing }
   }
 
   // --------------------------------------------------------------------- teams
@@ -569,12 +579,16 @@ export class PhoneWorkspace {
         }),
       }
     }
+    const seats = seatRows(reports, this.#ports.seatName)
+    const runtimes = seats.map(seat => allowanceRowOf(seat, now))
+    const pacing = pacingOf(seats, runtimes, now)
     return {
       spentToday: days[6]!.cost,
       days,
-      runtimes: seatRows(reports, this.#ports.seatName).map(seat => allowanceRowOf(seat, now)),
+      runtimes,
       week: period(7, byRuntime7, byProject7, total14),
       month: period(30, byRuntime30, byProject30, total60),
+      ...(pacing ? { pacing } : {}),
     }
   }
 }
@@ -591,9 +605,11 @@ const STANDING_WORD: Record<UsageStandingStatus, string> = {
 const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
   const { report } = seat
   const standing = usageStandingOf(report, now)
+  // A failed refresh that kept its last good figures: they stand, as a stale reading, never as Unknown (#2094).
+  const refreshFailed = keptReading(report)
   const reset = seat.resetsAt === null ? null : resetsIn(seat.resetsAt - now)
   const fraction = (left: number): number => Math.round(Math.min(100, Math.max(0, left)) * 10) / 1000
-  // A failed read's figures are the last ones cached, and Unknown says none is current: send no percent from it.
+  // Unknown means nothing has been read at all; a kept reading is not unknown, so its figures go out with it.
   const unread = standing.status === 'unknown'
   // A balance that decided Out or Overdrawn is the whole story: a window's figures beside it would contradict it.
   const onBalance = standing.lane === null && (standing.status === 'out' || standing.status === 'overdrawn') &&
@@ -631,10 +647,38 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
     ...(report.unverified && borrowed.length ? { unverified: { whose: scrub(report.unverified.whose, 60), lanes: borrowed, readAt: report.unverified.fetchedAt,
       ...(report.unverified.error || now - report.unverified.fetchedAt > report.unverified.staleAfterMs ? { stale: true as const } : {}) } } : {}),
     readAt: report.fetchedAt,
-    ...(now - report.fetchedAt > report.staleAfterMs ? { stale: true } : {}),
+    ...(now - report.fetchedAt > report.staleAfterMs || refreshFailed ? { stale: true } : {}),
     ...(report.error ? { problem: scrub(report.error.message, 120) } : {}),
+    ...(refreshFailed ? { refreshFailed: true as const } : {}),
   }
 }
+
+/**
+ * The phone's pacing note: the account whose allowance is about to be lost, as the desk's own surfaces say it. Only
+ * the `use-first` advice is a note; "resets soonest" with nothing at risk is an order, not something to tell anyone.
+ */
+const pacingOf = (seats: readonly SeatRow[], rows: readonly PhoneWorkAllowance[], now: number): PhoneWorkPacing | null => {
+  // With one account there is no "first", as on the desktop (`pacingNote`).
+  if (seats.length < 2) return null
+  const advice = pacingAdvice(seats.map(seat => ({ id: seat.id, report: seat.report })), now)
+  const row = advice?.reason === 'use-first' ? rows.find(one => one.id === advice.id) : undefined
+  if (!advice || !row) return null
+  return { id: row.id, name: row.name, window: scrub(advice.laneLabel, 40), left: Math.round(advice.remainingPercent * 10) / 1000,
+    resetsAt: advice.resetsAt, readAt: advice.readAt }
+}
+
+/** Whole minutes since a reading, never negative. */
+const ageMinutes = (at: number, now: number): number => Math.max(0, Math.round((now - at) / 60_000))
+
+/**
+ * A time on the desk's own clock, as a person reads it, with its zone: "Tue, Nov 17, 5:00 PM PST". The zone is the
+ * desk process's, so it is named rather than left for the reader to assume. Node writes a narrow no-break space
+ * before AM/PM; a plain space reads the same and survives every client.
+ */
+const deskClock = (at: number): string =>
+  new Date(at)
+    .toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
+    .replace(/\u202f/g, ' ')
 
 /** "45m", "2h 10m", "3d 4h": how long until a window frees up; null once it has. */
 const resetsIn = (ms: number): string | null => {

@@ -362,6 +362,27 @@ test('a meter that fails keeps its last good reading, with the failure beside it
   usage.dispose()
 })
 
+test('a prepaid balance whose refresh fails keeps its last amount and read time, with the failure beside it (#2094)', async () => {
+  // A balance-only account has no window, and a failed refresh used to read as silence: the card and its amount went.
+  const removed: unknown[] = []
+  const balance: MeterReading = { lanes: [], plan: null, account: null, credits: { remaining: 4.58, unit: 'USD', unlimited: false }, reached: null, fetchedAt: 1_000, staleAfterMs: 60_000 }
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([balance, 'the balance service is down'])]]),
+    onReport: () => undefined,
+    onRemoved: (...args) => removed.push(args),
+  })
+  const good = (await usage.refresh(METERED))[0]
+  assert.equal(good?.credits?.remaining, 4.58)
+
+  const after = (await usage.refresh(METERED))[0]
+  assert.equal(after?.credits?.remaining, 4.58, 'the amount we knew is still the best we have')
+  assert.equal(after?.fetchedAt, 1_000, 'dated when it was read')
+  assert.equal(after?.error?.message, 'the balance service is down')
+  assert.deepEqual(removed, [], 'and the account is not dropped')
+  usage.dispose()
+})
+
 test('a meter that fails before it has ever answered is still no card', async () => {
   const logged: string[] = []
   const usage = new UsageService({
