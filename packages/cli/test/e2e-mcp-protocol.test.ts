@@ -164,7 +164,8 @@ test('initialize, tools, reads, the start gate with its daily number and refund,
   })
 
   await t.test('a version this server does not speak is answered with the latest one it does, never echoed', async () => {
-    for (const requested of ['2999-01-01', '2025-06-19', 'latest', '']) {
+    // 2025-03-26 allows batches, which this server does not read, so it is not spoken either.
+    for (const requested of ['2999-01-01', '2025-06-19', '2025-03-26', 'latest', '']) {
       const other = mcpServer(t, env)
       assert.equal((await initialize(other, requested)).result.protocolVersion, MCP_VERSIONS[0], requested)
       // The results follow the version agreed, not the string the client sent.
@@ -174,10 +175,7 @@ test('initialize, tools, reads, the start gate with its daily number and refund,
     }
     const latest = mcpServer(t, env)
     assert.equal((await initialize(latest, '2025-11-25')).result.protocolVersion, '2025-11-25')
-    // 2025-03-26 is spoken, and predates structured content: a string comparison would get it right too, but 2999 would not.
-    const march = mcpServer(t, env)
-    assert.equal((await initialize(march, '2025-03-26')).result.protocolVersion, '2025-03-26')
-    assert.equal((await march.tool('status')).structuredContent, undefined)
+    assert.deepEqual([...MCP_VERSIONS], ['2025-11-25', '2025-06-18', '2024-11-05'])
   })
 
   await t.test('an older protocol gets its text without structured content', async () => {

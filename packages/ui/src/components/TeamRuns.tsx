@@ -163,8 +163,11 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
   const today = new Date(now).toISOString().slice(0, 10)
   const todayCount = runs.filter(run => run.startedAt != null && new Date(run.startedAt).toISOString().slice(0, 10) === today).length
   const prefs = trigger.prefs
-  const daily = prefs ? `${prefs.chargedUsd === null || prefs.day !== today ? 'Unknown spend' : formatMeterUsd(prefs.chargedUsd)} of ${formatMeterUsd(prefs.dailyUsd)} daily cap` : 'Daily cap unavailable'
-  const facts = `${runs.length} ${runs.length === 1 ? 'Run' : 'Runs'} · ${todayCount} today (UTC) · ${daily}${ordered[0] ? ` · Last started ${started(ordered[0])}` : ''}`
+  // The daily cap, pausing and the trigger itself belong to a Team a trigger
+  // runs; a Team started by hand or by an MCP client has none of them.
+  const triggered = origin !== null || runs.some(run => run.intake)
+  const daily = !triggered ? null : prefs ? `${prefs.chargedUsd === null || prefs.day !== today ? 'Unknown spend' : formatMeterUsd(prefs.chargedUsd)} of ${formatMeterUsd(prefs.dailyUsd)} daily cap` : 'Daily cap unavailable'
+  const facts = `${runs.length} ${runs.length === 1 ? 'Run' : 'Runs'} · ${todayCount} today (UTC)${daily ? ` · ${daily}` : ''}${ordered[0] ? ` · Last started ${started(ordered[0])}` : ''}`
   const owner = usePane()?.paneId ?? ''
   useTopBarView(owner, {
     view: { narrowed: filter !== 'All' || query.trim() !== '', content: close => <Menu close={close}>
@@ -174,14 +177,14 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
         label={state} checked={filter === state} value={state === 'All' ? runs.length : runs.filter(run => stateOf(run) === state).length}
         onChange={() => { setFilter(state); close() }} />)}
     </Menu> },
-    more: [
+    more: triggered ? [
       { label: prefs?.paused ? 'Resume every trigger' : 'Pause every trigger', disabled: !prefs ? 'Trigger preferences are unavailable' : trigger.busy ? 'A trigger change is in progress' : false, run: () => { void trigger.pause() } },
       { label: 'Edit the trigger', run: onEdit },
-    ],
+    ] : [],
   }, active && Boolean(owner))
   return <PaneColumn ref={viewport} inset="reading" page data-slot="team-runs" className="@container/runs flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
     <SummaryList aria-label="Runs summary"><SummaryItem label="Runs">{facts}</SummaryItem></SummaryList>
-    <Text role="meta" as="p">Pausing stops watching every source and holds all work started by triggers on this Mac, interrupting its turns and checks. Resuming continues that work and reads what arrived meanwhile; interrupted checks wait for you to run them again.</Text>
+    {triggered && <Text role="meta" as="p">Pausing stops watching every source and holds all work started by triggers on this Mac, interrupting its turns and checks. Resuming continues that work and reads what arrived meanwhile; interrupted checks wait for you to run them again.</Text>}
     {(problem || trigger.problem) && <ActionError>{problem ?? trigger.problem}</ActionError>}
     <div className="min-w-0">
       <Table variant="framed" inset="row" aria-label="Runs" className="table-auto">

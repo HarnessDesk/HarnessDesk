@@ -23,9 +23,11 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.unstubAllGlobals() })
 
 const execution = runFixture('running').execution
+// A trigger's Team: its Runs came from the trigger, which is what earns the cap, pausing and the trigger's own verbs.
+const intake = { key: 'firing-1', trigger: 'review-pr', closureDigest: 'demo', dispatchHeld: false, again: null }
 const runs = [
-  { ...execution, id: 'first-run', state: 'running' as const },
-  { ...execution, id: 'second-run', state: 'settled' as const },
+  { ...execution, id: 'first-run', state: 'running' as const, intake },
+  { ...execution, id: 'second-run', state: 'settled' as const, intake: { ...intake, key: 'firing-2' } },
 ]
 const trigger = (over: Partial<ReturnType<typeof useTeamTrigger>> = {}): ReturnType<typeof useTeamTrigger> => ({
   view: null, ready: false, prefs: triggerPreferences(), busy: false, problem: null,
@@ -143,4 +145,34 @@ it('marks a run an MCP client started with a chip on its title line, and only th
   const chips = [...container.querySelectorAll('tr[data-run]')].map(row => [row.getAttribute('data-run'), [...row.querySelectorAll('[data-slot="chip"]')].filter(chip => chip.textContent === 'MCP').map(chip => chip.closest('[title^="Started by"]')?.getAttribute('title') ?? chip.getAttribute('title'))])
   expect(Object.fromEntries(chips)).toEqual({ 'mcp-run': [`Started by ${sanitizeText(mcp.startedBy.client)} through an MCP client`], 'cli-run': [], 'second-run': [] })
   expect(JSON.stringify(chips)).not.toContain('\\u001b')
+})
+
+it('says nothing about triggers on the Runs of a Team an MCP client or a person started', async () => {
+  const started = [
+    { ...execution, id: 'mcp-run', state: 'running' as const, startedBy: { via: 'mcp' as const, client: 'example-client@1.0.0' } },
+    { ...execution, id: 'hand-run', state: 'settled' as const },
+  ]
+  const show = (shown: typeof started | typeof runs) => act(() => root.render(<StoreProvider store={store}><TopBarProvider>
+    <PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: execution.goal }, sessionKey: null }}>
+      <WorkViewControlsOutlet owner="main" /><TopBarOutlet owner="main" fallback={{ place: 'Review work', more: () => null }} />
+      <TeamRuns runs={shown} findings={new Map()} ledger={undefined} origin={null} trigger={trigger({ prefs: null })} problem={null}
+        onOpen={() => {}} onEdit={edit} onRunVisibility={visibility} active />
+    </PaneProvider>
+  </TopBarProvider></StoreProvider>))
+  show(started)
+  await act(async () => {})
+  const summary = container.querySelector('[aria-label="Runs summary"]')!.textContent!
+  expect(summary).toContain('2 Runs')
+  expect(summary).not.toMatch(/daily cap|Daily cap/)
+  expect(container.textContent).not.toContain('Pausing stops watching')
+  const more = container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')
+  if (more) {
+    await act(async () => more.click())
+    expect([...document.querySelectorAll('[role="menuitem"]')].map(one => one.textContent)).not.toContain('Edit the trigger')
+  }
+  // The same page for a trigger's Runs keeps all of it.
+  show(runs)
+  await act(async () => {})
+  expect(container.querySelector('[aria-label="Runs summary"]')!.textContent).toContain('Daily cap unavailable')
+  expect(container.textContent).toContain('Pausing stops watching')
 })

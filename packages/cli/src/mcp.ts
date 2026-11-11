@@ -27,8 +27,10 @@ const UNNAMED = { name: 'mcp-client', version: '0' } as const
  * The MCP versions this server speaks, latest first. A client asking for one
  * of them gets it; a client asking for any other gets the latest, and decides
  * for itself whether it can go on (the protocol's own negotiation).
+ * 2025-03-26 is left out on purpose: it allows JSON-RPC batches, and this
+ * server reads one message per line. 2024-11-05 has no batches.
  */
-export const MCP_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'] as const
+export const MCP_VERSIONS = ['2025-11-25', '2025-06-18', '2024-11-05'] as const
 type McpVersion = typeof MCP_VERSIONS[number]
 /** The negotiated versions whose tool results carry `structuredContent` beside the text. */
 const STRUCTURED: ReadonlySet<McpVersion> = new Set(['2025-11-25', '2025-06-18'])
