@@ -19,6 +19,11 @@ export const SOON_MS = 5 * 60 * 60 * 1000
 export const CARRY_ON_HOPS = 3
 /** What a continued conversation is sent: the words the Lead's retry already uses. */
 export const CONTINUE_TEXT = 'Continue from where you stopped.'
+/**
+ * The desk-context label the continue goes under: the host's line to the agent, drawn as context in the transcript,
+ * never as something the person typed. It names no runtime.
+ */
+export const CONTINUE_SOURCE = 'Continued after a usage limit'
 
 /** Somewhere the conversation could go on. */
 export interface CarryOnCandidate {
