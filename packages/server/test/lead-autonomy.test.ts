@@ -345,6 +345,33 @@ test('#2106 review: from a phone, No works on any card and Apply on a mode or on
   assert.equal(view.proposals?.find(one => one.id === whole.id)?.state, 'declined')
 })
 
+test('#2117 review 2: a phone cannot Apply a line it was shown with part hidden; No works from it, and the desk applies it', async t => {
+  const r = await proposalRig(t)
+  const hidden = await r.store.proposeRules({ section: 'talk', add: 'Send review notes to ops@acme.dev' })
+  await assert.rejects(r.store.decide({ id: hidden.id!, decision: 'apply', device: phone }), (error: Error & { wireCode?: string }) =>
+    error.wireCode === 'lead-proposal-desk-only' && /hidden on the phone/.test(error.message) && /No/.test(error.message))
+  let view = await r.store.view()
+  assert.equal(view.proposals?.find(one => one.id === hidden.id)?.state, 'pending', 'nothing was decided')
+  assert.equal(view.rules.find(one => one.id === 'talk')?.custom, false, 'nothing was written')
+  view = await r.store.decide({ id: hidden.id!, decision: 'apply' })
+  assert.ok(view.rules.find(one => one.id === 'talk')?.text.endsWith('\nSend review notes to ops@acme.dev'), 'the desk applies the words it shows in full')
+  const path = await r.store.proposeRules({ section: 'done', add: 'Check /srv/acme/private/notes.txt before saying done.' })
+  view = await r.store.decide({ id: path.id!, decision: 'decline', device: phone })
+  assert.equal(view.proposals?.find(one => one.id === path.id)?.state, 'declined', 'No needs no words read in full')
+})
+
+test('#2117 review 2: a rule version\'s proposal id is checked when the file loads, like the rest of the version', async t => {
+  const r = await proposalRig(t)
+  const words = await r.store.proposeRules({ section: 'talk', add: 'Conclusion first.' })
+  await r.store.decide({ id: words.id!, decision: 'apply' })
+  const raw = JSON.parse(await readFile(r.file, 'utf8'))
+  assert.equal(raw.sections.talk.versions.at(-1).proposal, words.id)
+  raw.sections.talk.versions.at(-1).proposal = '<b>s1</b>'
+  await writeFile(r.file, JSON.stringify(raw))
+  const reopened = await r.make()
+  assert.equal((await reopened.view()).rules.find(one => one.id === 'talk')?.custom, false, 'a version that fails the check is not read as the person\'s words')
+})
+
 test('#2106 review: at most three new cards between two of the person\'s messages; asking again is not one', async t => {
   const r = await proposalRig(t)
   for (const kind of ['stuck', 'brief', 'mention'] as const) assert.equal((await r.store.proposeMode({ kind, mode: 'off' })).outcome, 'created')

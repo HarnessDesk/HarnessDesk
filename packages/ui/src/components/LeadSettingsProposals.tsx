@@ -1,5 +1,5 @@
-import { useState, useSyncExternalStore } from 'react'
-import { LEAD_AUTONOMY_LABELS, LEAD_RULE_TITLES, type LeadAutonomyMode, type LeadSettingsProposal } from '@harnessdesk/protocol'
+import { useMemo, useState, useSyncExternalStore } from 'react'
+import { LEAD_AUTONOMY_LABELS, LEAD_RULE_TITLES, type LeadAutonomyMode, type LeadRuleSectionId, type LeadSettingsProposal } from '@harnessdesk/protocol'
 import { Button, Chip, CodeText, InlineParts, Row, Rows, Text } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { useStore } from '../state/context'
@@ -27,6 +27,16 @@ export const leadSettingsProposalTitle = (proposal: LeadSettingsProposal): strin
  * card and the Lead is told. A section's whole new words sit inside their own row, as what changes against the words in
  * force. The phone draws the same card from `autonomy.proposals`.
  */
+/**
+ * A section's whole new words, as what changes against the words in force (the words alone until those are read). The
+ * Lead wrote them, so they are drawn as plain text. The diff is built once per pair of words, not on every store update:
+ * a section runs to thousands of characters.
+ */
+const WholeWords = ({ section, current, text }: { readonly section: LeadRuleSectionId; readonly current: string | undefined; readonly text: string }) => {
+  const diff = useMemo(() => sanitizeText(current === undefined ? text : leadRuleDiff(current, text)), [current, text])
+  return <CodeText block wrap ground="muted" aria-label={`What changes in ${LEAD_RULE_TITLES[section]}`}>{diff}</CodeText>
+}
+
 export const LeadSettingsProposals = ({ proposals }: { readonly proposals: readonly LeadSettingsProposal[] }) => {
   const store = useStore()
   const rules = useSyncExternalStore(store.lead.subscribe, () => store.lead.state.autonomy?.rules)
@@ -38,13 +48,10 @@ export const LeadSettingsProposals = ({ proposals }: { readonly proposals: reado
   return <div data-slot="lead-settings-proposals">
     <Rows aria-label="Change a setting?">{proposals.map(proposal => {
       const change = proposal.change
-      // The Lead wrote these words: drawn as plain text, as what changes against the words in force (the words alone until those are read).
-      const current = change.kind === 'rules' ? rules?.find(one => one.id === change.section)?.text : undefined
       const whole = change.kind === 'rules' && change.add === undefined
-        ? { section: change.section, diff: sanitizeText(current === undefined ? change.text : leadRuleDiff(current, change.text)) } : null
+        ? <WholeWords section={change.section} current={rules?.find(one => one.id === change.section)?.text} text={change.text} /> : null
       return <Row key={proposal.id} title={leadSettingsProposalTitle(proposal)}
-        desc={whole ? <>{LEAD_SETTINGS_EFFECT[change.kind]}
-          <CodeText block wrap ground="muted" aria-label={`What changes in ${LEAD_RULE_TITLES[whole.section]}`}>{whole.diff}</CodeText></> : LEAD_SETTINGS_EFFECT[change.kind]}
+        desc={whole ? <>{LEAD_SETTINGS_EFFECT[change.kind]}{whole}</> : LEAD_SETTINGS_EFFECT[change.kind]}
         titleChip={<InlineParts>
           <Chip variant="quiet" tone="neutral">{change.kind === 'autonomy' ? 'Autonomy' : LEAD_RULE_TITLES[change.section]}</Chip>
           {proposal.askedAgainAt !== undefined && <Chip variant="quiet" tone="neutral" title="Proposed again while it waited for you; still one card">Asked again</Chip>}

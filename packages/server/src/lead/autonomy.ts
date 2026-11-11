@@ -8,6 +8,7 @@ import { LEAD_AUTONOMY_CHANGES_KEPT, LEAD_AUTONOMY_DEFAULTS, LEAD_AUTONOMY_KINDS
   type LeadWakeRecord, LEAD_AUTONOMY_LABELS, LEAD_SETTINGS_PROPOSAL_LIMITS, parseLeadAutonomyPropose, parseLeadRulesPropose, parseLeadSettingsDecide, parseLeadSettingsProposal,
   type LeadAutonomyPropose, type LeadProposalEvent, type LeadRulesPropose, type LeadSettingsChange, type LeadSettingsDecide, type LeadSettingsProposal,
   type LeadSettingsProposeResult } from '@harnessdesk/protocol'
+import { phoneAppliesAtDesk } from '../phone-redact.js'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
 
 const MAX_BYTES = 2 * 1024 * 1024
@@ -126,7 +127,8 @@ export class LeadAutonomyStore {
       if (!Array.isArray(file.versions) || file.versions.length > LEAD_RULE_LIMITS.versions) throw new Error('shape')
       for (const entry of file.versions) {
         if (!Number.isSafeInteger(entry.version) || entry.version < 1 || typeof entry.text !== 'string' || entry.text.length > LEAD_RULE_LIMITS.chars ||
-          !['edit', 'reset', 'rollback'].includes(entry.how) || typeof entry.base?.text !== 'string' || !Number.isSafeInteger(entry.base.version)) throw new Error('shape')
+          !['edit', 'reset', 'rollback'].includes(entry.how) || typeof entry.base?.text !== 'string' || !Number.isSafeInteger(entry.base.version) ||
+          entry.proposal !== undefined && (typeof entry.proposal !== 'string' || !/^s[1-9][0-9]{0,8}$/.test(entry.proposal))) throw new Error('shape')
       }
       out.sections[id] = { versions: file.versions, ...(Number.isSafeInteger(file.acked) ? { acked: file.acked } : {}) }
     }
@@ -357,8 +359,8 @@ export class LeadAutonomyStore {
    * The person's Apply or No on a proposal card, from the window or a phone. Apply makes exactly the change the card
    * shows, through the same path as Settings, recorded as the person's with the proposal's id; words changed since the
    * proposal, or shipped default words that changed under a never-edited section, make it stale instead, and nothing is
-   * written. A phone may say No to any card but applies only a mode or one added line: a section's whole new words are
-   * read and applied at the desk. Neither the Lead's tools nor its door can reach this method.
+   * written. A phone may say No to any card but applies only a mode or one added line it showed exactly: a section's whole
+   * new words, and a line the phone's scrub changed, are read and applied at the desk. Neither the Lead's tools nor its door can reach this method.
    */
   async decide(params: LeadSettingsDecide): Promise<LeadAutonomyView> {
     const { id, decision, device } = parseLeadSettingsDecide(params)
@@ -367,8 +369,10 @@ export class LeadAutonomyStore {
       if (!one) throw refused('lead-proposal-missing', 'That proposal is no longer kept.')
       if (one.state !== 'pending') throw refused('lead-proposal-decided', one.state === 'stale' ? 'A newer proposal or a change of yours replaced this one.' : `This proposal was already ${one.state}.`)
       const change = one.change
-      if (decision === 'apply' && device?.id.startsWith('phone:') && change.kind === 'rules' && change.add === undefined)
-        throw refused('lead-proposal-desk-only', 'New words for a whole section are applied at the desk, where you can read them in full. You can say No from here.')
+      if (decision === 'apply' && device?.id.startsWith('phone:') && phoneAppliesAtDesk(change))
+        throw refused('lead-proposal-desk-only', change.kind === 'rules' && change.add === undefined
+          ? 'New words for a whole section are applied at the desk, where you can read them in full. You can say No from here.'
+          : 'Part of this line was hidden on the phone, so it is applied at the desk, where you can read it in full. You can say No from here.')
       const at = this.ports.now()
       const close = (state: 'applied' | 'declined' | 'stale') => {
         one.state = state; one.decidedAt = at; one.history = [...one.history, { what: state, at }].slice(-LEAD_SETTINGS_PROPOSAL_LIMITS.history)

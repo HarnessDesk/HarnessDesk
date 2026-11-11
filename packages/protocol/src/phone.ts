@@ -633,9 +633,11 @@ export type PhoneLeadActivity = NonNullable<import('./lead.js').LeadWindowProjec
  * - Apply and No, nothing else. A refusal (`lead-rules-stale`: the person's words, or the shipped default under them,
  *   changed since the proposal; `lead-proposal-decided`: answered on another surface) is shown as the desk's sentence,
  *   and the card leaves.
- * - For a section's whole new words (`rules` without `add`), Apply is the desk's: the phone link names the phone on
- *   `lead/settings/decide`, and the desk refuses that Apply with `lead-proposal-desk-only` and a sentence saying to apply
- *   it at the desk. Show No, and say the words are applied at the desk instead of offering Apply; the card stays.
+ * - When `deskOnly` is set, Apply is the desk's: a section's whole new words, or a line the phone's scrub changed (so
+ *   the phone could not show what Apply would write). Decide by `deskOnly`, never by whether `add` is present. The phone
+ *   link names the phone on `lead/settings/decide`, and the desk refuses a phone's Apply on such a card with
+ *   `lead-proposal-desk-only` and a sentence saying to apply it at the desk. Show No, and say the words are applied at
+ *   the desk instead of offering Apply; the card stays.
  * - The words arrive scrubbed like the work board's (paths, addresses and key-shaped strings replaced); draw them as
  *   plain text, never as markup.
  * `applied`, `declined` and `stale` ones need no card; `history` is what the Lead reads to say what happened, never shown

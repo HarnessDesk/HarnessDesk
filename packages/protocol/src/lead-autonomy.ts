@@ -269,6 +269,12 @@ export interface LeadSettingsProposal {
   readonly decidedAt?: number
   /** Oldest first, at most `LEAD_SETTINGS_PROPOSAL_LIMITS.history`. */
   readonly history: readonly LeadProposalEvent[]
+  /**
+   * Set only on a phone's copy: this card is answered No from the phone and applied at the desk, because the phone
+   * cannot show its words exactly as Apply would write them (a section's whole new words, or a line the phone's scrub
+   * changed). The desk refuses a phone's Apply on it with `lead-proposal-desk-only` either way.
+   */
+  readonly deskOnly?: true
 }
 export const LEAD_SETTINGS_PROPOSAL_LIMITS = Object.freeze({
   /** Proposals kept. Pending ones are never dropped (there is at most one per kind and section); applied and stale go first, then declined. */
@@ -345,12 +351,13 @@ const settingsChange: Validator<LeadSettingsChange> = (value, path = '') => {
     ...(source.fromDefault === undefined ? {} : { fromDefault: integer()(source.fromDefault, at(path, 'fromDefault')) }) }
 }
 export const parseLeadSettingsProposal: Validator<LeadSettingsProposal> = (value, path = '') => {
-  const source = only(['id', 'change', 'state', 'proposedAt', 'afterSeq', 'askedAgainAt', 'decidedAt', 'history'])(value, path)
+  const source = only(['id', 'change', 'state', 'proposedAt', 'afterSeq', 'askedAgainAt', 'decidedAt', 'history', 'deskOnly'])(value, path)
   const history = arrayOf(proposalEvent)(source.history, at(path, 'history'))
   if (history.length > LEAD_SETTINGS_PROPOSAL_LIMITS.history) fail(at(path, 'history'), 'too many events')
   return { id: proposalId(source.id, at(path, 'id')), change: settingsChange(source.change, at(path, 'change')),
     state: literalUnion(...LEAD_SETTINGS_PROPOSAL_STATES)(source.state, at(path, 'state')), proposedAt: integer()(source.proposedAt, at(path, 'proposedAt')),
     afterSeq: integer()(source.afterSeq, at(path, 'afterSeq')),
     ...(source.askedAgainAt === undefined ? {} : { askedAgainAt: integer()(source.askedAgainAt, at(path, 'askedAgainAt')) }),
-    ...(source.decidedAt === undefined ? {} : { decidedAt: integer()(source.decidedAt, at(path, 'decidedAt')) }), history }
+    ...(source.decidedAt === undefined ? {} : { decidedAt: integer()(source.decidedAt, at(path, 'decidedAt')) }), history,
+    ...(source.deskOnly === undefined ? {} : { deskOnly: source.deskOnly === true ? true as const : fail(at(path, 'deskOnly'), 'expected true') }) }
 }

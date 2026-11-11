@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { createLeadFixtureStore } from '../preview/frames-lead'
 import { LEAD_RULE_DEFAULTS } from '@harnessdesk/protocol'
 import { leadSettingsProposals, leadSettingsWordsProposal } from '../preview/lead-fixture'
@@ -9,6 +9,13 @@ import { DestinationPageScope } from '../panels/destination-page'
 import { TopBarProvider } from '../panels/top-bar'
 import { LeadPage } from './LeadPage'
 import { LEAD_SETTINGS_EFFECT, LeadSettingsProposals, leadSettingsProposalTitle } from './LeadSettingsProposals'
+import { leadRuleDiff } from './lead-rules-diff'
+
+// The real diff, counted: a section's whole words are diffed once per pair of words, not on every store update.
+vi.mock('./lead-rules-diff', async actual => {
+  const real = await actual<typeof import('./lead-rules-diff')>()
+  return { ...real, leadRuleDiff: vi.fn(real.leadRuleDiff) }
+})
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const clean: (() => void)[] = []
@@ -77,4 +84,17 @@ it('#2106 review: a section\'s whole new words sit inside their own row, as what
   expect(words.textContent).toContain(`- ${LEAD_RULE_DEFAULTS.done.text}`)
   expect(words.textContent).toContain('+ Done means every check run is green and the person reviewed it.')
   expect(row.textContent).toContain(LEAD_SETTINGS_EFFECT.rules)
+})
+
+it('#2117 review 2: a section\'s whole words are diffed once per pair of words, not on every store update', async () => {
+  const { box, store } = await mount(<LeadSettingsProposals proposals={[leadSettingsWordsProposal]} />)
+  await act(async () => { await store.lead.readAutonomy() })
+  const diff = vi.mocked(leadRuleDiff)
+  const after = diff.mock.calls.length
+  expect(after, 'drawn against the words in force').toBeGreaterThan(0)
+  // The same words read again are a store update with nothing new for this card.
+  await act(async () => { await store.lead.readAutonomy() })
+  await act(async () => { await store.lead.readAutonomy() })
+  expect(diff.mock.calls.length, 'no rebuild for the same words').toBe(after)
+  expect(box.querySelector('[aria-label="What changes in What counts as done"]')!.textContent).toContain('+ Done means every check run is green')
 })

@@ -1,12 +1,12 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
 import type { LeadAutonomyView, LeadChatControl, LeadWorkBoard, PhoneLeadMemory, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
-import { LEAD_MEMORY_LIMITS, LEAD_RULE_LIMITS, LEAD_SETTINGS_PROPOSAL_LIMITS } from '@harnessdesk/protocol'
+import { LEAD_MEMORY_LIMITS, LEAD_RULE_LIMITS } from '@harnessdesk/protocol'
 import {
   findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, wireCodeOf, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
 } from '@harnessdesk/protocol'
 import { assessApproval, buildThread, type PhoneApprovalTurn, type ThreadContext } from './phone-thread.js'
-import { folderName, scrub, scrubText } from './phone-redact.js'
+import { folderName, phoneAppliesAtDesk, phoneProposalLine, scrub, scrubText } from './phone-redact.js'
 import type { PhoneWorkspace } from './phone-workspace.js'
 
 /**
@@ -233,15 +233,17 @@ export const phoneWorkBoard = (board: LeadWorkBoard): LeadWorkBoard => ({
 /**
  * Autonomy as the phone gets it: the Lead's proposal words through the same scrub as the board, since the Lead wrote
  * them. A rules card keeps its line breaks (the phone shows a section's words as they would read), capped to the
- * section's limit.
+ * section's limit. A card the phone cannot show exactly as Apply would write it carries `deskOnly`, said outright rather
+ * than left to the absence of `add` (which a line the scrub empties would also produce): the phone offers No alone.
  */
 export const phoneAutonomy = (view: LeadAutonomyView): LeadAutonomyView => view.proposals === undefined ? view : ({
   ...view,
   proposals: view.proposals.map(proposal => {
     if (proposal.change.kind !== 'rules') return proposal
     const { add, ...change } = proposal.change
-    const line = add === undefined ? '' : scrub(add, LEAD_SETTINGS_PROPOSAL_LIMITS.addChars)
-    return { ...proposal, change: { ...change, text: scrubText(change.text, LEAD_RULE_LIMITS.chars), ...(line ? { add: line } : {}) } }
+    const line = add === undefined ? '' : phoneProposalLine(add)
+    return { ...proposal, change: { ...change, text: scrubText(change.text, LEAD_RULE_LIMITS.chars), ...(line ? { add: line } : {}) },
+      ...(phoneAppliesAtDesk(proposal.change) ? { deskOnly: true as const } : {}) }
   }),
 })
 
