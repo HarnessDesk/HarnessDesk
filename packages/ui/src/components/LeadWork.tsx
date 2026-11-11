@@ -38,6 +38,16 @@ const WorkActions = ({ card, onClose }: { readonly card: LeadWorkCard; readonly 
   </Popover>
 }
 
+/** A reminder's line: when it is due, or what became of it. A fired reminder for the person is Said once the Lead's
+ * message was written, Missed when it never was, and not said yet while the Lead is still writing it. */
+const reminderLine = (entry: LeadReminder): string => {
+  if (entry.state !== 'fired') return `Due ${formatLeadRunTime(new Date(entry.dueAt))}`
+  if (entry.delivery === 'said') return `Said ${formatLeadRunTime(new Date(entry.deliveredAt ?? entry.firedAt ?? entry.dueAt))}`
+  if (entry.delivery === 'missed') return `Missed ${formatLeadRunTime(new Date(entry.deliveredAt ?? entry.firedAt ?? entry.dueAt))}`
+  const fired = `Fired ${formatLeadRunTime(new Date(entry.firedAt ?? entry.dueAt))}`
+  return entry.for === 'person' ? `${fired}, not said yet` : fired
+}
+
 /** Reminders the person can see: every one still set, and the ones that fired in the last day. A cancelled one is gone. */
 export const leadVisibleReminders = (board: LeadWorkBoard | null | undefined): readonly LeadReminder[] =>
   (board?.reminders ?? []).filter(entry => entry.state === 'set' || entry.state === 'fired')
@@ -75,8 +85,9 @@ export const LeadWork = () => {
     {reminders.length > 0 && <ToolGroup label="Reminders" heading={`Reminders · ${reminders.length}`} data-work-group="reminders">
       <ListRows surface="panel">{reminders.map(entry => <ListRow key={entry.id} size="sm" data-work-reminder={entry.id}
         title={sanitizeText(entry.text)} wrapTitle
-        // When it is due, or when it fired, is the fact that varies, so it earns the line; it says Fired once, here.
-        subtitle={entry.state === 'fired' ? `Fired ${formatLeadRunTime(new Date(entry.firedAt ?? entry.dueAt))}` : `Due ${formatLeadRunTime(new Date(entry.dueAt))}`}
+        // When it is due, or what became of it, is the fact that varies, so it earns the line. A person's reminder says
+        // Said only once the Lead's message was written; one the Lead never wrote says Missed, never Fired as if said.
+        subtitle={reminderLine(entry)}
         // The Lead's own check-back is a kind, so it is a word on the label's line: quiet hours and autonomy hold it.
         trail={entry.state === 'set' && <>{entry.for === 'lead' && <Chip tone="neutral" title="The Lead's own check-back: quiet hours and your autonomy settings hold it">Check-back</Chip>}
           <Button variant="ghost" size="icon-sm" aria-label={`Cancel reminder: ${sanitizeText(entry.text)}`} title="Cancel reminder" onClick={() => { void cancel(entry) }}><CrossIcon size={16} /></Button></>} />)}</ListRows>

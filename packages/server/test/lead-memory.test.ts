@@ -610,3 +610,16 @@ test('words that only look negative are words: a note with no-op, without, 不�
   // 无法 is "cannot": it negates, the way the English word does.
   assert.equal(leadMemoryNear('本地开发环境可以连接预发数据库', '本地开发环境无法连接预发数据库'), false)
 })
+
+test('a reminder wake is never indexed as the person\'s words in the searchable conversation', async () => {
+  const dir = join(await home(), 'lead')
+  const corpus = await LeadConversationCorpus.open(dir)
+  await corpus.add([
+    { version: 1, id: 'w-1', revision: 1, role: 'user', text: 'Reminder remind-1, which you set for the person, is due now: "renew the staging certificate".', source: 'schedule',
+      wake: { kind: 'reminder', reminder: 'remind-1', text: 'renew the staging certificate' } },
+    { version: 1, id: 'a-1', revision: 2, role: 'assistant', text: 'Time to renew the staging certificate.' },
+    { version: 1, id: 'p-1', revision: 3, role: 'user', text: 'Done, thanks.' }])
+  const docs = corpus.docs()
+  assert.deepEqual(docs.map(doc => [doc.id, doc.by]), [['a-1', 'assistant'], ['p-1', 'person']], 'the wake is not the person\'s; the Lead\'s reply about it is kept')
+})
+
