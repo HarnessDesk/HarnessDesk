@@ -24,6 +24,9 @@ const memoryRig = async (t: TestContext, before?: (directory: string) => Promise
   const service = desk.host.createLeadService({ journal, project, prices: {},
     resolveTool: async () => ({ project, runId: null, start: null, stepId: null, context: context() }),
     freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('unused') },
+    // The supervisor is a fake, so whether this machine's Node could run the Lead's child is not this rig's question:
+    // without this, a runner whose Node fails the probe refuses every send with lead-runtime-unsupported.
+    probeRuntime: async () => ({ supported: true }),
     createSupervisor: settings => { supervisor = settings; return { live: false, ensure: async () => {}, send: async (input: unknown) => { sent.push(input as LeadMessagesRequest); return { status: 'completed', text: '' } }, stop: async () => {}, ownershipWithdrawn() {} } },
   })
   await service.setEnabled(true)
@@ -96,9 +99,6 @@ test('a person request carries the memory status: a declined proposal reads as d
   // The person says it again: their message is the request, and the request says what became of the proposal.
   t.mock.method(r.host.credentials, 'leadStatus', async () => ({ configured: true, protection: 'synthetic cipher' }))
   t.mock.method(r.host.credentials, 'resolveLead', async () => 'fixture-key')
-  // Whether this machine's Node can run the Lead's child is not this test's question: the supervisor is a fake.
-  const realStatus = r.service.status.bind(r.service)
-  t.mock.method(r.service, 'status', async (provider: 'anthropic') => { const { unavailable: _u, unavailableReason: _r, ...rest } = await realStatus(provider) as Record<string, unknown>; return rest })
   await r.host.call('lead/thread/send', { idempotencyKey: 'person-again', text: 'Lead every report with the conclusion, please.' })
   await r.until(() => r.sent.length > 0, 'the person\'s message reached the Lead')
   const blocks = (r.sent.at(-1)!.messages.at(-1)!.content as { type: string; text?: string }[]).map(block => block.text ?? '')
