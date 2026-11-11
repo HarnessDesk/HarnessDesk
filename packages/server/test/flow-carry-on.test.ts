@@ -393,3 +393,26 @@ test('a replacement cut short after its card moved to a Seat that is gone stalls
   assert.match(run.reason ?? '', /cut short after its work moved to a Seat that is gone/)
 })
 
+/* Round 2, P2: the incident hold is checked where every path hands work out, not only in a re-arm. */
+test('a restart that finishes seating a round still leaves a Seat carry-on holds alone', async (t) => {
+  const rig = await goalRig(t)
+  providers(rig)
+  // The desk dies right before the first order goes: the Seat is seated, the round still opening.
+  rig.files.dieWhen = (stored) => stored.operations.some((one) => one.kind === 'turn' && one.state === 'started')
+  await rig.start(WRITE_THEN_REVIEW('beta'), AGENTS).catch(() => undefined)
+  await rig.flows.flush().catch(() => {})
+  assert.ok(!rig.events.includes('order:seat-1'), 'nothing was handed out before the desk died')
+  const seat = rig.sessionOf('seat-1')
+  rig.carryOnHolds = (runtime, sessionId) => runtime === seat.runtime && sessionId === seat.sessionId
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  assert.ok(!rig.events.includes('order:seat-1'), 'carry-on is still answering the limit: no order behind its back')
+
+  rig.carryOnHolds = null
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  assert.ok(rig.events.includes('order:seat-1'), 'let go, the Seat is handed its card')
+})
+

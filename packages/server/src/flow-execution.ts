@@ -3882,6 +3882,12 @@ export class FlowExecutions {
       await turn('finished')
       return null
     }
+    // A Seat whose usage limit carry-on is still answering is carry-on's (§9.3), on every path that hands work out —
+    // a re-arm, a round a restart finishes seating, a release: the order waits, prepared, for carry-on to let go.
+    if (!seat.closed && await this.#port.carryOnHolds?.(seat.session.runtime, seat.session.sessionId)) {
+      await turn('prepared')
+      return null
+    }
     const run = this.#get(id)
     if (run.lead && !await this.#port.holdLeadSeat?.(seat, binding.grant)) return 'lead-worker-ceiling-not-held'
     const found = cardId === null ? null : this.#cardOf(run.goal, cardId)
