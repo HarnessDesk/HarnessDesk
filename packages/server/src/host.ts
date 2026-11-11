@@ -11235,10 +11235,11 @@ export class Host {
     })
   }
 
+  /** The one usage projection; an agent no read has finished for since this host started is not called Not reporting yet. */
   #trackedUsage(reports: readonly UsageReport[]): readonly UsageReport[] {
     const off = this.#state.state.preferences['usageOff']
     return trackedUsage([...this.#runtimes.values()].map(runtime => runtime.info), reports,
-      Array.isArray(off) ? off.filter((id): id is RuntimeId => typeof id === 'string') : [], Date.now())
+      Array.isArray(off) ? off.filter((id): id is RuntimeId => typeof id === 'string') : [], Date.now(), id => this.#usageService.asked(id))
   }
 
   /** One inbox for the bell, the phone and the Work list: the Lead's window, the desk's needs-you work, the kept notices. */
@@ -11261,8 +11262,10 @@ export class Host {
     const entries = rows.flatMap(row => typeof row['id'] === 'string' ? [{
       id: row['id'], kind: typeof row['kind'] === 'string' ? row['kind'] : undefined,
       contentKey: typeof row['contentKey'] === 'string' ? row['contentKey'] : undefined, at: typeof row['at'] === 'number' ? row['at'] : 0,
+      title: typeof row['title'] === 'string' ? row['title'] : undefined,
     }] : [])
-    const gone = supersededUsageNotices(entries, this.#trackedUsage(this.#cachedUsage()), Date.now())
+    const names = new Map([...this.#runtimes.values()].map(runtime => [runtime.info.id, runtime.info.presentation.name] as const))
+    const gone = supersededUsageNotices(entries, this.#trackedUsage(this.#cachedUsage()), Date.now(), names)
     return gone.size === 0 ? kept : kept.filter(row => !(typeof row === 'object' && row !== null && gone.has((row as Record<string, unknown>)['id'] as string)))
   }
 
@@ -11548,6 +11551,7 @@ export class Host {
       workspace: this.#phoneWorkspaceView(),
       leadWork: async () => this.#leadWork && !this.#disposed ? await this.#leadWork.board() : null,
       leadInbox: async () => this.#leadWork && !this.#disposed ? await this.#leadInboxRead() : null,
+      leadTeams: async () => (await this.#goals.list()).map(view => ({ goal: view.goal.id as string, room: view.board?.id ?? null })),
       leadAutonomy: async () => this.#leadAutonomy && !this.#disposed ? await this.#leadAutonomy.view() : null,
       leadMemory: async () => {
         if (!this.#leadWork || this.#disposed) return null

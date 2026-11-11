@@ -1,5 +1,5 @@
 import type { UsageLane, UsagePreference, UsageReport } from '@harnessdesk/protocol'
-import { bindingLane } from '@harnessdesk/protocol'
+import { bindingLane, isSilentUsage } from '@harnessdesk/protocol'
 
 import { paidForAccount, cycleStartFromLanes, periodBounds } from './paid'
 import { paidRatio } from './overview-strip'
@@ -176,8 +176,8 @@ export const STATUS_LABEL: Readonly<Record<RowStatus, string>> = {
   overdrawn: 'Overdrawn',
   overage: 'On overage',
   unlimited: 'Ready',
-  // A read that never answered and an agent with nothing to read say the same word, on the desk and the phone.
-  unknown: 'Not reporting',
+  // A read that failed or came back without usable figures reported something: Unknown, never Not reporting.
+  unknown: 'Unknown',
   notReporting: 'Not reporting',
 }
 
@@ -220,6 +220,8 @@ export const statusOf = (
   view: ReportView,
   now: number,
 ): RowStatus => {
+  // The stand-in for a tracked agent nothing answered for: the one row that says Not reporting.
+  if (isSilentUsage(raw)) return 'notReporting'
   const standing = usageStandingOf(raw, now)
   // Unknown is a read that never answered. A refresh that failed after a good reading keeps that reading's standing,
   // as the card and the phone do; the row marks it stale (#2094).

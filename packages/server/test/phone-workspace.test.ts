@@ -401,7 +401,7 @@ test('a phone allowance says the desk’s own standing, counts down to times and
     ]
     const rows = (await f.workspace.workUsage())!.runtimes
     assert.deepEqual(rows.map(row => row.id), ['fake-agent', 'fake-agent:2', 'fake-agent:3'], 'one agent signed in three times sends three ids')
-    assert.deepEqual(rows.map(row => [row.standing, row.status]), [['unknown', 'Not reporting'], ['out', 'Out'], ['overdrawn', 'Overdrawn']])
+    assert.deepEqual(rows.map(row => [row.standing, row.status]), [['unknown', 'Unknown'], ['out', 'Out'], ['overdrawn', 'Overdrawn']])
     const [failed, out, overdrawn] = rows as [typeof rows[0], typeof rows[0], typeof rows[0]]
     assert.equal(failed.stale, true)
     assert.equal(failed.readAt, NOW - 5000)
@@ -1015,6 +1015,8 @@ test('the phone and the Lead are told which account to use first, with its reset
       // Resetting soonest is only an order to use accounts in: the sentence says so, rather than reading as a note
       // some screen is hiding.
       assert.match(quiet.pacing?.said ?? '', /^Nothing is about to go unused\. Of the accounts with room, Fake Agent · Pro · account 2 resets soonest/)
+      // Said to the person as it stands, so it says nothing about screens or notes.
+      assert.doesNotMatch(quiet.pacing?.said ?? '', /screen|note|suggest/i)
     } finally { await calm.done() }
 
     // With one account there is no "first": neither the phone nor the Lead names one, as on the desktop.

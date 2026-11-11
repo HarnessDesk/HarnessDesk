@@ -598,6 +598,11 @@ export interface AppSnapshot {
    * account, ordered by the host; the screen sorts by urgency itself.
    */
   readonly usage: readonly UsageReport[]
+  /**
+   * Whether the host has answered a usage read since this window connected: every agent was asked then, so one with
+   * no reading is Not reporting. Before that the list is only empty, and no agent is called silent. Absent: answered.
+   */
+  readonly usageAsked?: boolean
   /** Progress of the transcript scan behind the money figures. */
   readonly scan: ScanProgress | null
 

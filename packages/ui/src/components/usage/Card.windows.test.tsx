@@ -28,17 +28,23 @@ describe('plan card windows', () => {
     expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(1)
     expect(host.querySelectorAll('[data-slot="usage-meter-row"]')).toHaveLength(0)
   })
-  it('shows no figure or fill from a read that never answered, under its Not reporting chip', () => {
+  it('shows no figure or fill from a read that never answered, under its Unknown chip: it reported, so it is not silent', () => {
     const host = render({ ...report, lanes: [{ ...report.lanes[0]!, usageKnown: false }], error: { message: 'HTTP 503' } as UsageReport['error'] })
-    expect(host.querySelector('[data-slot="chip"]:last-of-type')?.textContent ?? host.textContent).toContain('Not reporting')
+    expect(host.textContent).toContain('Unknown')
+    expect(host.textContent).not.toContain('Not reporting')
     expect(host.textContent).toContain('—')
     expect(host.textContent).not.toContain('75%')
     expect(host.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBeNull()
   })
+  it('says Not reporting for the stand-in of a tracked agent nothing answered for', () => {
+    const host = render({ ...report, account: null, plan: null, lanes: [], source: { kind: 'runtime', label: 'no source available' }, notReporting: true })
+    expect(host.textContent).toContain('Not reporting')
+    expect(host.textContent).not.toContain('Unknown')
+  })
   it('keeps the last good reading when a refresh fails: its figure, its standing marked stale, and that it failed (#2094)', () => {
     const host = render({ ...report, error: { message: 'HTTP 503' } as UsageReport['error'] })
     expect(host.textContent).toContain('75%')
-    expect(host.textContent).not.toContain('Not reporting')
+    expect(host.textContent).not.toContain('Unknown')
     expect(host.querySelector('[data-slot="chip"][data-stale]')?.textContent).toContain('Ready')
     expect(host.textContent).toContain("Couldn't refresh — HTTP 503")
     expect(host.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('75')

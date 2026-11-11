@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import { LEAD_PULL_REQUEST_REF, runtimeId, sessionId, sessionKey, type LeadDigestRef, type LeadMessageRef, type LeadWorkBoard, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
+import { LEAD_PULL_REQUEST_REF, leadTeamKey, runtimeId, sessionId, sessionKey, type LeadDigestRef, type LeadMessageRef, type LeadWorkBoard, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
 import { Button, InlineParts } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/snapshot'
@@ -81,7 +81,7 @@ export const leadRefLinks = (refs: readonly LeadMessageRef[], desk: LeadRefDesk)
  * so a reply naming one Team both ways is one link. The Team's own name comes before the goal's sentence.
  */
 const teamTarget = (id: string, desk: LeadRefDesk): { target: LeadRefTarget; name: string | null } | null => {
-  const goal = desk.goals.get(id) ?? [...desk.goals.values()].find(one => one.board?.id === id)
+  const goal = desk.goals.get(leadTeamKey([...desk.goals.values()].map(view => ({ goal: view.goal.id, room: view.board?.id ?? null })))(id))
   if (goal) {
     const board = desk.teams.get(goal.goal.id) ?? goal.board
     return { target: { kind: 'goal', id: goal.goal.id }, name: board?.name?.trim() || goal.goal.sentence?.trim() || null }

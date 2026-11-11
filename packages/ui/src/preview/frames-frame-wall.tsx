@@ -282,6 +282,19 @@ export const FrameWall = () => {
     const snapshot = next.getSnapshot()
     // Settings › Runtimes with the Dashboard's kept reading and pacing note (#2094, Q15).
     if (destination === 'settings-runtimes' && query.get('frame-paced') === '1') Object.assign(snapshot, { usage: pacedUsage(snapshot.usage, Date.now()) })
+    // A tracked agent nothing answered for, by its name (frame-silent=Alpha): its readings are dropped wherever the
+    // frame reads usage, so the Dashboard and Settings › Runtimes draw it as Not reporting (#2111).
+    const silentName = query.get('frame-silent')
+    if (silentName && (destination === 'dashboard' || destination === 'settings-runtimes')) {
+      const silent = new Set(snapshot.runtimes.filter(info => info.presentation.name === silentName).map(info => info.id))
+      const heard = <T extends { readonly runtime: string }>(reports: readonly T[]) => reports.filter(report => !silent.has(report.runtime as never))
+      Object.assign(snapshot, { usage: heard(snapshot.usage), usageAsked: true })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method: string, params: unknown) => {
+        const result = await request(method as never, params as never)
+        return (method === 'usage/reports' || method === 'usage/refresh') && Array.isArray(result) ? heard(result as never) : result
+      }) as typeof next.transport.request
+    }
     if (query.has('readme-names')) Object.assign(snapshot, { runtimes: snapshot.runtimes.map(info => {
       const name = README_RUNTIME_NAMES[info.presentation.name] ?? info.presentation.name
       return { ...info, name, presentation: { ...info.presentation, name } }

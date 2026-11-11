@@ -630,9 +630,12 @@ export const STANDING_LABEL: Readonly<Record<UsageStandingStatus, string>> = {
   short: 'Short',
   out: 'Out',
   overdrawn: 'Overdrawn',
-  // Nothing read: the one word every usage surface uses for it, the phone's included.
-  unknown: 'Not reporting',
+  // A read that answered without figures it could use, or failed: it reported, so it is not "Not reporting".
+  unknown: 'Unknown',
 }
+
+/** The word for a tracked agent nothing answered for (`isSilentUsage`): the same on every surface, the phone's included. */
+export const NOT_REPORTING_LABEL = 'Not reporting'
 
 export const STANDING_TONE: Readonly<Record<UsageStandingStatus, 'success' | 'warning' | 'danger' | 'neutral'>> = {
   ready: 'success',

@@ -1,8 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { LEAD_WORK_GROUPS, LEAD_WORK_GROUP_LABELS, leadWorkWaiting, runtimeId, sessionId, sessionKey, type LeadReminder, type LeadWorkBoard, type LeadWorkCard, type LeadWorkGroup, type LeadWorkOutcome, type LeadWorkWaiting } from '@harnessdesk/protocol'
+import { LEAD_WORK_GROUPS, LEAD_WORK_GROUP_LABELS, leadTeamKey, leadWorkOpenCount, leadWorkWaiting, runtimeId, sessionId, sessionKey, type LeadReminder, type LeadWorkBoard, type LeadWorkCard, type LeadWorkGroup, type LeadWorkOutcome, type LeadWorkWaiting } from '@harnessdesk/protocol'
 import { Button, Chip, ListRow, ListRows, Menu, MenuItem, MenuNote, MenuSeparator, Popover, ToolGroup, ToolProse, ToolSection } from '../design'
 import { formatLeadRunTime } from '../lib/lead-time'
-import { useStore } from '../state/context'
+import { useSnapshot, useStore } from '../state/context'
 import { useLeadInbox } from './use-inbox-waiting'
 import { openExternal } from '../lib/desktop'
 import { sanitizeText } from '../lib/sanitize'
@@ -54,12 +54,13 @@ export const LeadWork = () => {
   const store = useStore(), state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => { void store.lead.readWork().catch(() => {}) }, [store, state.revision])
-  const board = state.work, inbox = useLeadInbox()
+  const board = state.work, inbox = useLeadInbox(), goals = useSnapshot().goals
   const reminders = leadVisibleReminders(board)
-  const waiting = board ? leadWorkWaiting(board, inbox) : []
+  // A Team is one Team whichever of its names the board and the inbox hold: its goal id or the room its board is.
+  const waiting = board ? leadWorkWaiting(board, inbox, leadTeamKey([...goals.values()].map(view => ({ goal: view.goal.id, room: view.board?.id ?? null })))) : []
   // Nothing tracked yet is not a card: the rail stays as it was until the Lead starts work or sets a reminder.
   if (!board || board.items.length === 0 && reminders.length === 0 && waiting.length === 0) return null
-  const groups = leadWorkGroups(board, waiting), open = board.items.filter(item => item.closedAt === undefined).length + waiting.length
+  const groups = leadWorkGroups(board, waiting), open = leadWorkOpenCount(board, waiting)
   const openWaiting = (entry: LeadWorkWaiting) => {
     if (entry.kind === 'team') { store.openGoal(entry.id); return }
     const key = chatKey(entry.id)

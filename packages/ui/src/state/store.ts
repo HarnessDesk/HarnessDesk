@@ -636,7 +636,8 @@ export class AppStore {
     )
   }
 
-  #snapshot: AppSnapshot = emptySnapshot()
+  // A window that has not had a usage answer yet says so, so no agent is called Not reporting before it was asked.
+  #snapshot: AppSnapshot = { ...emptySnapshot(), usageAsked: false }
   #accountOwners = new Map<RuntimeId, number>()
   #teamFrameSerial = 0
   /**
@@ -3154,7 +3155,7 @@ export class AppStore {
     try {
       const reports = await this.transport.request('usage/reports', {})
       const unchanged = (runtime: RuntimeId): boolean => this.#usageEvents.get(runtime) === events.get(runtime)
-      this.#patch({ usage: [
+      this.#patch({ usageAsked: true, usage: [
         ...this.#snapshot.usage.filter((report) => !unchanged(report.runtime)),
         ...reports.filter((report) => unchanged(report.runtime)),
       ] })
@@ -3209,7 +3210,8 @@ export class AppStore {
     /* A notice whose figures a newer read no longer bears out leaves first: a window back under its line, or one in
        a cycle the notice did not see, said something that is no longer so (#2111). The host's phone and Lead
        projection drop the same notices by the same rule, so this only keeps the saved inbox from carrying them. */
-    const superseded = supersededUsageNotices(this.#snapshot.inbox, after, now)
+    const names = new Map(this.#snapshot.runtimes.map((entry) => [entry.id, entry.presentation.name] as const))
+    const superseded = supersededUsageNotices(this.#snapshot.inbox, after, now, names)
     if (superseded.size > 0) this.#setInbox(this.#snapshot.inbox.filter(entry => !superseded.has(entry.id)))
     for (const alert of crossings(before, after, nameFor, this.#snapshot.runtimes, now)) {
       this.#keepInfo({ type: 'notice', class: 'info', kind: USAGE_CROSSING_KIND, level: 'warning', message: alert.message, contentKey: alert.contentKey })

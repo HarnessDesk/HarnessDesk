@@ -2024,7 +2024,7 @@ const AgentUsage = ({ siblings }: { siblings: readonly RuntimeInfo[] }) => {
   const now = Date.now()
   // The Dashboard's own list, narrowed to this runtime's accounts: the same accounts, the same readings, and "not
   // reporting" for one nothing has read. An account whose usage the person stopped tracking is left out on both.
-  const reports = trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now).filter((report) => ids.has(report.runtime))
+  const reports = trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now, () => snapshot.usageAsked !== false).filter((report) => ids.has(report.runtime))
   if (reports.length === 0) return null
   return (
     <>

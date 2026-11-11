@@ -111,6 +111,8 @@ export class UsageService {
   readonly #options: UsageServiceOptions
   readonly #cache = new Map<RuntimeId, UsageReport>()
   readonly #inFlight = new Map<RuntimeId, Promise<UsageReport | null>>()
+  /** The agents a read has finished for since this service started, whether or not anything answered. */
+  readonly #asked = new Set<RuntimeId>()
   readonly #watchers: FSWatcher[] = []
   #disposed = false
 
@@ -170,6 +172,14 @@ export class UsageService {
         : {}),
       source: report.source,
     }
+  }
+
+  /**
+   * Whether a read of this agent has finished since the desk started. Until one has, an agent with no reading has not
+   * been asked, which is not the same as having nothing to say: the cache is simply empty after a start.
+   */
+  asked(runtime: RuntimeId): boolean {
+    return this.#asked.has(runtime)
   }
 
   /** The last reading for one agent, without asking anyone. */
@@ -267,7 +277,7 @@ export class UsageService {
     const running = this.#inFlight.get(id)
     if (running) return running
 
-    const work = this.#build(runtime).finally(() => this.#inFlight.delete(id))
+    const work = this.#build(runtime).then((report) => { this.#asked.add(id); return report }).finally(() => this.#inFlight.delete(id))
     this.#inFlight.set(id, work)
     return work
   }

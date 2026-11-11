@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  deskContextContent, leadMessageEnvelope, leadMessageKey, approvalId, itemId, runtimeId, sessionId, turnId, type Approval, type ApprovalOption, type PhoneWorkSnapshot, type Session, type SessionSummary, type Turn,
+  deskContextContent, leadMessageEnvelope, leadTeamKey, leadWorkOpenCount, leadWorkWaiting, type LeadInbox, type LeadWorkBoard, type LeadWorkCard, leadMessageKey, approvalId, itemId, runtimeId, sessionId, turnId, type Approval, type ApprovalOption, type PhoneWorkSnapshot, type Session, type SessionSummary, type Turn,
 } from '@harnessdesk/protocol'
 import { PhoneWork, phoneSessionValues, WorkspaceFeed, type PhoneWorkPorts } from '../src/phone-work.js'
 import { boundLeadChatRead } from '../src/lead/chat-read.js'
@@ -147,6 +147,29 @@ test('the phone Work list names the Teams and chats its Inbox counts that no wor
   // Nothing waits, or no Lead runs: the field is left out.
   assert.equal(Object.hasOwn(await rig({ leadWork: async () => board, leadInbox: async () => ({ version: 1 as const, needsYou: 0, items: [] }) }).work.snapshot(), 'workWaiting'), false)
   assert.equal(Object.hasOwn(await rig({ leadInbox: async () => inbox }).work.snapshot(), 'workWaiting'), false)
+})
+
+test('the phone counts the Work list as the desktop does, and a Team its board names by room is one Team (#2110)', async () => {
+  const card = (id: string, patch: Partial<LeadWorkCard>): LeadWorkCard => ({ id, title: id, project: 'acme-api', stage: 'working', group: 'working',
+    links: { chats: [], teams: [], prs: [], issues: [] }, createdAt: 1, updatedAt: 2, ...patch })
+  const board: LeadWorkBoard = { version: 1, more: 0, items: [
+    card('w1', { stage: 'needs-you', group: 'needs-you', links: { chats: [], teams: ['room-game'], prs: [], issues: [] } }),
+    card('w2', { stage: 'stopped', group: 'done' }),
+    card('w3', { stage: 'done', group: 'done', closedAt: 3 }),
+  ] }
+  const inbox: LeadInbox = { version: 1, needsYou: 2, items: [
+    { id: 'team:goal-game', kind: 'team', title: 'build a game', at: 8, needsYou: true, target: 'goal-game' },
+    { id: 'chat:codex:loose', kind: 'chat', title: 'Tidy the README', at: 6, needsYou: true, target: 'codex:loose' },
+  ] }
+  const teams = [{ goal: 'goal-game', room: 'room-game' }]
+  const snapshot = await rig({ leadWork: async () => board, leadInbox: async () => inbox, leadTeams: async () => teams }).work.snapshot()
+  // The Team the open item holds by its room is not listed again under its goal id.
+  assert.deepEqual(snapshot.workWaiting?.map(entry => entry.id), ['codex:loose'])
+  // What the phone counts (its board's open items and its waiting rows) is the desktop's count for the same desk.
+  const desktop = leadWorkOpenCount(board, leadWorkWaiting(board, inbox, leadTeamKey(teams)))
+  const phone = snapshot.work!.items.filter(item => item.closedAt === undefined).length + (snapshot.workWaiting?.length ?? 0)
+  assert.equal(phone, desktop)
+  assert.equal(phone, 3)
 })
 
 test('the snapshot says what the desk honours, in micro-dollars, with usage left out until there is some', async () => {

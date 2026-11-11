@@ -243,4 +243,9 @@ describe('the Runtimes page lists the accounts the Dashboard lists', () => {
     const region = container.querySelector('[aria-label="Usage by account"]')
     expect(region?.textContent).toContain('not reporting')
   })
+
+  it('calls no agent not reporting before the host has answered a usage read (#2111 review)', async () => {
+    await mount([], null, { usageAsked: false })
+    expect(container.textContent?.toLowerCase()).not.toContain('not reporting')
+  })
 })

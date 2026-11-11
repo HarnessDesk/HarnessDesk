@@ -599,7 +599,7 @@ export class PhoneWorkspace {
 
 const STANDING_WORD: Record<UsageStandingStatus, string> = {
   // Nothing read says what the desk's Plans table and cards say for it.
-  ready: 'Ready', low: 'Low', short: 'Short', out: 'Out', overdrawn: 'Overdrawn', unknown: 'Not reporting',
+  ready: 'Ready', low: 'Low', short: 'Short', out: 'Out', overdrawn: 'Overdrawn', unknown: 'Unknown',
 }
 
 /**
@@ -610,7 +610,7 @@ const STANDING_WORD: Record<UsageStandingStatus, string> = {
 const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
   const { report } = seat
   // A tracked agent nothing has read: listed, as the desk lists it, with no figures and no reading to date.
-  if (isSilentUsage(report)) return { id: seat.id, name: seat.label, models: [], running: [], last7: [], status: STANDING_WORD.unknown, standing: 'unknown', notReporting: true }
+  if (isSilentUsage(report)) return { id: seat.id, name: seat.label, models: [], running: [], last7: [], status: 'Not reporting', standing: 'unknown', notReporting: true }
   const standing = usageStandingOf(report, now)
   // A failed refresh that kept its last good figures: they stand, as a stale reading, never as Unknown (#2094).
   const refreshFailed = keptReading(report)
@@ -682,7 +682,7 @@ const pacingOf = (seats: readonly SeatRow[], rows: readonly PhoneWorkAllowance[]
 const pacingSaid = (account: string, reason: 'use-first' | 'resets-soonest', window: string, left: number, at: string): string =>
   reason === 'use-first'
     ? `Use ${account} first: its ${window} has ${left}% left and resets ${at}, so the rest would go unused.`
-    : `Nothing is about to go unused. Of the accounts with room, ${account} resets soonest (its ${window}, ${left}% left, resets ${at}); that is only the order to use them in, not a note any screen shows.`
+    : `Nothing is about to go unused. Of the accounts with room, ${account} resets soonest (its ${window}, ${left}% left, resets ${at}), so it is the one to use next.`
 
 /** Whole minutes since a reading, never negative. */
 const ageMinutes = (at: number, now: number): number => Math.max(0, Math.round((now - at) / 60_000))

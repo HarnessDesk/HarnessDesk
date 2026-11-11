@@ -451,6 +451,8 @@ test('Lead allowance uses only cached Dashboard reports and never asks a runtime
 test('the Lead and the phone list the accounts the Dashboard lists: nothing read is Not reporting, a stopped agent is left out', async t => {
   // Not metered: the scripted agent reports no allowance, as an agent nobody can read does.
   const { host, runtime, state } = await desk(t)
+  // Straight after a start nothing has been read: an empty cache is not an agent that says nothing (#2111 review).
+  assert.deepEqual((await host.call('lead/usage/summary', {})).accounts, [])
   await host.call('usage/reports', {})
   const summary = await host.call('lead/usage/summary', {})
   assert.deepEqual(summary.accounts.map(account => [account.runtime, account.notReporting, account.windows.length]), [[runtime.info.presentation.name, true, 0]])
@@ -471,9 +473,12 @@ test('the bell and the phone drop an allowance notice a newer read no longer bea
   const crossed = (threshold: number) => usageCrossingKey({ runtime: read!.runtime, account: read!.account, lane: lane.id, resetsAt: lane.resetsAt, threshold })
   const notice = (id: string, title: string) => ({ id, contentKey: id, kind: 'usage:crossing', title, tone: 'warning', at: read!.fetchedAt - 3 * 24 * 3_600_000, read: false })
   // Three days old: one says a line the newer read is under, one says a line it is still over.
-  await state.setPreferences({ inbox: [notice(crossed(80), 'Weekly is 80% used'), notice(crossed(50), 'Weekly is 50% used')] })
+  // From before notices carried figures: one names this agent, which has been read since; one names an agent that has not.
+  const legacy = (id: string, title: string) => ({ id, kind: 'usage:crossing', title, tone: 'warning', at: read!.fetchedAt - 3 * 24 * 3_600_000, read: false })
+  await state.setPreferences({ inbox: [notice(crossed(80), 'Weekly is 80% used'), notice(crossed(50), 'Weekly is 50% used'),
+    legacy('old-own', `${runtime.info.presentation.name} — Weekly is 80% used.`), legacy('old-other', 'Another agent — Weekly is 80% used.')] })
   const items = (await host.call('lead/inbox/read', {})).items.filter(item => item.kind === 'notice')
-  assert.deepEqual(items.map(item => item.title), ['Weekly is 50% used'])
+  assert.deepEqual(items.map(item => item.title).sort(), ['Another agent — Weekly is 80% used.', 'Weekly is 50% used'])
 })
 
 for (const capability of [false, 'erase', 'trash'] as const) test(`phone rows follow runtime deletion capability: ${capability}`, async t => {

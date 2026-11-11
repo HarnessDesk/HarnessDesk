@@ -190,8 +190,8 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
 
   // Every registered agent gets a card, whether or not it reported anything.
   const everyReport = useMemo(
-    () => byUrgency([...trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now)], now),
-    [snapshot.runtimes, snapshot.usage, snapshot.usageOff, now],
+    () => byUrgency([...trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now, () => snapshot.usageAsked !== false)], now),
+    [snapshot.runtimes, snapshot.usage, snapshot.usageOff, snapshot.usageAsked, now],
   )
 
   // Every view reads the same scope, applied here once.

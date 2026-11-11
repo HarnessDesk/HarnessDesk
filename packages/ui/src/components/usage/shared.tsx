@@ -43,6 +43,7 @@ import {
   standingSentence,
   formatWhen,
   STANDING_LABEL,
+  NOT_REPORTING_LABEL,
   STANDING_TONE,
   usageStandingOf,
   type Balance,
@@ -315,7 +316,7 @@ export const Card = ({
       {/* The canonical card inset holds the recorded heading and its state. */}
       <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
         name={agent} agent={account ?? undefined}
-        states={<>{shapeChip}{plan && <Chip tone="neutral" label={plan} title={report.plan ?? undefined} />}<Chip tone={STANDING_TONE[standing.status]} label={STANDING_LABEL[standing.status]} stale={kept} /></>} />
+        states={<>{shapeChip}{plan && <Chip tone="neutral" label={plan} title={report.plan ?? undefined} />}<Chip tone={STANDING_TONE[standing.status]} label={silent ? NOT_REPORTING_LABEL : STANDING_LABEL[standing.status]} stale={kept} /></>} />
 
       {moneyRow}
 

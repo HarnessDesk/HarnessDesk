@@ -42,12 +42,48 @@ test('an allowance notice leaves once a newer read no longer says what it said',
   ]
   const entries = [
     notice(still), notice(dropped), notice(renewed), notice(unread),
-    // A notice from before crossings carried their figures, with a newer read on the desk, says nothing checkable.
+    // A notice from before crossings carried their figures, and that names no agent: nothing can say it is over, so it stays.
     notice('info:usage:crossing:legacy'),
     // Not a usage notice: never touched.
     { id: 'other', contentKey: 'other', kind: 'app:background', at },
   ]
-  assert.deepEqual([...supersededUsageNotices(entries, reports, NOW)].sort(), [dropped, renewed, 'info:usage:crossing:legacy'].sort())
+  assert.deepEqual([...supersededUsageNotices(entries, reports, NOW)].sort(), [dropped, renewed].sort())
   // With no read newer than a notice, nothing is superseded: there is nothing newer to have said otherwise.
   assert.deepEqual([...supersededUsageNotices([notice(dropped, NOW)], reports, NOW)], [])
+})
+
+test('a notice from before crossings carried figures leaves only when its own agent has been read again', () => {
+  const at = NOW - 3 * 24 * 3_600_000
+  const legacy = (id: string, title: string) => ({ id, kind: 'usage:crossing', at, title })
+  const names = new Map([[runtimeId('codex'), 'Codex'], [runtimeId('codex-2'), 'Codex 2'], [runtimeId('cursor'), 'Cursor'], [runtimeId('claude'), 'Claude Code']])
+  const entries = [
+    legacy('codex-old', 'Codex — Weekly is 80% used, 20% left.'),
+    // The longer name wins: this one is Codex 2's, and Codex 2 has not been read since.
+    legacy('codex-2-old', 'Codex 2 · Jane Doe — Weekly is 95% used.'),
+    legacy('cursor-old', 'Cursor — Requests is 80% used.'),
+    // Every account of the agent must have been read since: one of Claude Code's two has not.
+    legacy('claude-old', 'Claude Code · dev@example.com — Session is 80% used.'),
+    legacy('nobody', 'Something else — Weekly is 80% used.'),
+  ]
+  const reports = [
+    report('codex', { account: 'dev@example.com' }), report('codex', { account: 'team@acme.dev' }),
+    report('cursor', { fetchedAt: at - 1 }),
+    report('claude', { account: 'dev@example.com' }), report('claude', { account: 'team@acme.dev', fetchedAt: at - 1 }),
+  ]
+  assert.deepEqual([...supersededUsageNotices(entries, reports, NOW, names)], ['codex-old'])
+  // Without names nothing can be told, and every one of them stays.
+  assert.deepEqual([...supersededUsageNotices(entries, reports, NOW)], [])
+})
+
+test('Not reporting is said of an agent that was asked, never of one a fresh start has not read yet', () => {
+  const runtimes = ['claude', 'codex'].map(id => ({ id: runtimeId(id) }))
+  // Straight after a start the cache is empty and nothing has been asked: no claim either way.
+  assert.deepEqual(trackedUsage(runtimes, [], [], NOW, () => false), [])
+  // Once the first read finishes, an agent that answered nothing is the one that is not reporting.
+  const after = trackedUsage(runtimes, [report('claude')], [], NOW, id => id === runtimeId('codex') || id === runtimeId('claude'))
+  assert.deepEqual(after.map(one => [one.runtime, isSilentUsage(one)]), [['claude', false], ['codex', true]])
+  // Only the flag makes a stand-in: a real report that happens to have nothing in it is a reading, not silence.
+  const empty = report('codex', { source: { kind: 'runtime', label: 'no source available' } })
+  assert.equal(isSilentUsage(empty), false)
+  assert.equal(after.find(one => one.runtime === runtimeId('codex'))!.notReporting, true)
 })
