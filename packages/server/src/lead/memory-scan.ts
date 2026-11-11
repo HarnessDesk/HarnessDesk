@@ -69,6 +69,24 @@ const INSTRUCTIONS: readonly RegExp[] = [
   /\|\s*(?:sh|bash|zsh|python\d?|node|perl|ruby)\b/,
   /\b(?:curl|wget)\s+-?\S+|\brm\s+-[rf]{1,2}\b|\bsudo\s+\S|\beval\s*\(|\bchmod\s+[0-7+]/,
   /\b(?:send|post|upload|forward|exfiltrate)\b[^.]{0,60}\bhttps?:\/\//,
+  // The same, in Chinese: overriding earlier words, skipping review or approval, and acting without the person.
+  /(?:忽略|无视|無視|不要理会|不要理會|忘记|忘記|忘掉|覆盖|覆蓋)[^。.]{0,20}(?:指令|指示|命令|规则|規則|提示词|提示詞|要求|设定|設定)/u,
+  /(?:不需要|不用|无需|無需|不必|跳过|跳過|绕过|繞過|省略|免去)[^。.]{0,12}(?:review|审查|審查|审核|審核|审批|審批|批准|确认|確認|测试|測試|检查|檢查|同意)/u,
+  /(?:直接|自动|自動|悄悄|默默)[^。.]{0,4}(?:合并|合併|merge|批准|通过|通過|推送|push|发布|發布|部署|删除|刪除)/u,
+  /(?:你现在是|你現在是|从现在起你|從現在起你|从现在开始你|從現在開始你|假装你是|假裝你是|扮演)/u,
+  // Merging without anyone looking, never asking the person, and a new rule that puts itself over the person: the
+  // Lead's own ("your new rule"), or one handed to it ("New rule: …", "a new rule for you"). A rule someone else follows
+  // ("the team uses a new rule: …") or where the rules live is a fact.
+  /\b(?:merges?|prs?|pull requests?|changes?)\b[^.]{0,30}\b(?:never|don'?t|do not|doesn'?t|does not|no longer|won'?t)\b[^.]{0,12}\b(?:needs?|requires?|gets?)\b[^.]{0,12}\b(?:reviews?|approvals?|sign-?offs?)\b/,
+  /\bnever (?:ask|check with|confirm with|wait for|consult)\b|\b(?:stop|no more) asking\b|\byour new rules?\b|\bnew rules? for you\b|(?:^|[.;!?\n]\s*)(?:(?:ok|okay|so|and|here'?s|here is)[\s,]+)?(?:(?:a|the|my|one)\s+)?new rules?\s*:/,
+  /(?:绿了|綠了|过了|過了|通过了?|通過了?|green)[^。.]{0,8}(?:就|直接)+(?:合|merge)/u,
+  /不(?:用|必|需要)等(?:人|我|别人|別人|人家)?(?:看|审|審|review|确认|確認|同意|批)/u,
+  /(?:永远|永遠|从不|從不|再也不|不要再|别再|別再)[^。.]{0,4}(?:问|問|请示|請示|确认|確認)/u,
+  /(?:新规则|新規則|新的规则|新的規則|新指令|新的指令)/u,
+  // And in Japanese.
+  /(?:無視|忘れ)[^。.]{0,4}(?:て|ろ|なさい|ください)|(?:指示|命令|ルール|プロンプト)を(?:無視|忘れ)/u,
+  /(?:レビュー|承認|確認|テスト|審査)(?:は|を|も)?(?:不要|いらない|要らない|なしで|無しで|スキップ|飛ばして|省略)/u,
+  /(?:そのまま|直接|勝手に|自動で?)(?:マージ|承認|プッシュ|デプロイ|削除)/u,
 ]
 /** Credentials by shape, beyond the journal's own screen: keys, private-key blocks, assignments and long random runs. */
 const SECRETS: readonly RegExp[] = [
@@ -133,4 +151,40 @@ export const leadMemoryScan = (raw: string): LeadMemoryScan => {
   if (quotedOutput(lines)) return { ok: false, reason: 'quoted-output' }
   if (text.length > LEAD_MEMORY_LIMITS.textChars) return { ok: false, reason: 'too-long' }
   return { ok: true, text }
+}
+
+/** The verb that asks the Lead to keep something, at the very start once any address or "ok" before it is set aside. */
+const REMEMBER: readonly RegExp[] = [
+  /^(?:请|請|帮我|幫我|你)?(?:以后|以後|今后|今後)?(?:都|也|要|一定要)?(?:记住|記住|记下|記下|记一下|記一下|记得|記得|记着|記著)(?:以后|以後|今后|今後)?(?:这条|這條|这个|這個|这句|這句|一下|下来|下來)?[\s:,、]*([\s\S]+)$/u,
+  /^(?:これを|これ)?(?:覚えて(?:おいて|ください|おいてください)?|メモして|記憶して)[\s:,、]*([\s\S]+)$/u,
+  /^(?:(?:please|pls|kindly|can you|could you|would you|will you|i want you to|i need you to|from now on|going forward|always)[\s,]+)*(?:remember|memori[sz]e|keep in mind|note down|make a note(?: of)?)\b(?:\s+(?:this|that))?\s*[:,\-–—]\s*([\s\S]+)$/iu,
+  // "Remember when / the time / how…" looks back at a moment; it is a question, not words to keep.
+  /^(?:(?:please|from now on|going forward)\s+)?(?:remember|memori[sz]e|keep in mind|note down|make a note(?: of)?)\b(?!\s+(?:when|the time|how)\b)(?:\s+(?:this|that))?\s+([\s\S]+)$/iu,
+]
+/** What may come before the verb: up to three short words of address or a yes ("Hey Dex,", "好的，Dex，", "@Dex",
+ * "嗯嗯"), each at most 16 characters. */
+const ADDRESS = /^(?:@?[\p{L}\p{N}_.'\u2019-]{1,16}[\s,、:;!~]*){1,3}$/u
+const STARTS_CJK = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u
+/** Where the address ends, it must say so: a comma or colon after it, an `@` name, or, before a Chinese or Japanese verb,
+ * a space or a name in Latin letters ("嗯嗯 记住", "Dex记住"). "I will remember to…" and "我不记得了" are not requests. */
+const addressed = (address: string, rest: string): boolean =>
+  /[,、:;!~]\s*$/.test(address) || address.startsWith('@') || STARTS_CJK.test(rest) && (/\s$/.test(address) || /^[A-Za-z0-9_.-]+$/.test(address))
+/**
+ * The words a person's message asks the Lead to keep, when it opens by asking that ("记住这条：…", "Hey Dex, remember:
+ * …"); null for any other message. The text is cleaned first, as a memory entry is, so an invisible character cannot
+ * hide the verb. Only the opening is read, past at most three words of address: a message that mentions remembering
+ * somewhere later is just a message.
+ */
+export const leadRememberRequest = (text: string): string | null => {
+  const opening = leadMemoryCleanLines(text).join('\n').trim()
+  for (let at = 0; at <= Math.min(opening.length - 1, 60); at++) {
+    const address = opening.slice(0, at), rest = opening.slice(at)
+    if (at > 0 && (!ADDRESS.test(address) || !addressed(address, rest))) continue
+    for (const pattern of REMEMBER) {
+      const words = pattern.exec(rest)?.[1]?.trim()
+      // "你记得吗" asks whether the Lead remembers; a particle alone is not words to keep.
+      if (words && !/^[吗嗎呢么麼了吧?？!！。.\s]*$/u.test(words)) return words
+    }
+  }
+  return null
 }

@@ -10,7 +10,8 @@ import { readChecks } from './evidence/checks-file.js'
 import { LeadRepeats } from './lead/repeats.js'
 import { HarnessDeskAccount } from './harnessdesk-account.js'
 import { gitSteerContext } from './git-gateway/steer-context.js'
-import { redactGitCommand } from '@harnessdesk/protocol'
+import { leadContextUse, redactGitCommand } from '@harnessdesk/protocol'
+import { leadInbox } from './lead/inbox.js'
 import { GitSteering, type SteerScope } from './git-gateway/steering.js'
 import { parseGitCommand } from '@harnessdesk/protocol'
 import { LeadAutomaticGoals } from './lead/automatic-goals.js'
@@ -179,7 +180,7 @@ import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRe
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
-import type { LeadRuntime } from '@harnessdesk/lead/supervisor'
+import { LeadSupervisor, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
@@ -4070,6 +4071,7 @@ export class Host {
     this.#leadPacing = pacing
     this.#leadChats = new LeadChats({ project, state: () => journal.state, slots: this.#leadSlots(journal), now: options.recovery?.now ?? Date.now, pacing,
       deadlinePassed: async () => { const goal = journal.state.budget?.logicalGoalId; return goal !== undefined && await this.#leadAutonomy?.deadlineElapsed(goal) === true },
+      unansweredAsk: () => this.#leadPresence?.unansweredAsk() ?? null,
       managementAvailable: () => this.#leadService?.managementAvailable === true,
       queuedSends: () => this.registry.all().some(record => record.queue.messages.some(message => {
         const admission = this.registry.queuedAdmission(record, message.id)
@@ -4087,7 +4089,9 @@ export class Host {
       cwd: async (runtime, id) => this.registry.get(runtime, id)?.session.cwd ?? this.#sessionIndex.get(runtime, id)?.cwd ?? null,
       live: (runtime, id) => {
         const held = this.registry.get(runtime, id)
-        return { approvalWaiting: (held?.approvals.size ?? 0) > 0, failed: held?.session.status.type === 'error', queuePaused: held?.queue.status === 'paused' && held.queue.messages.length > 0, queued: (held?.queue.messages.length ?? 0) > 0, running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0 }
+        return { approvalWaiting: (held?.approvals.size ?? 0) > 0, failed: held?.session.status.type === 'error', queuePaused: held?.queue.status === 'paused' && held.queue.messages.length > 0, queued: (held?.queue.messages.length ?? 0) > 0, running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0,
+          // A chat the host no longer holds, after a restart, keeps the stop its kept transcript ended on.
+          stopped: held ? held.session.turns.at(-1)?.status === 'interrupted' : this.#transcripts.lastTurnStopped(runtime, id) }
       },
       work: this.#phoneWorkView(),
       control: {
@@ -4285,6 +4289,11 @@ export class Host {
       },
       ...(this.options.leadRuntimes ? { runtimes: this.options.leadRuntimes } : {}),
       onRuntimeUnavailable: reason => this.#logger.warn('Lead runtime unavailable', { reason }),
+      // A reply that carried protocol output the Lead could not read is logged by its code alone, never its words.
+      createSupervisor: settings => {
+        const warned = { ...settings, onWarning: (code: string) => this.#logger.warn('Lead reply was not shown whole', { code }) }
+        return serviceOptions.createSupervisor ? serviceOptions.createSupervisor(warned) : new LeadSupervisor(warned)
+      },
       onRequestRefused: refusal => this.#logger.warn('Lead request refused before sending', { ...refusal }),
       onRequestWithheld: report => this.#logger.warn('Lead request sent with parts withheld', { ...report }),
       onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
@@ -5945,6 +5954,12 @@ export class Host {
       })),
       leadDeskSummary: params => this.#phoneWorkspaceView().deskSummary(params),
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
+      // One inbox for the bell and the phone: the Lead's window, the desk's needs-you work, and the kept notices.
+      leadInbox: async () => leadInbox({
+        window: await this.#leadWindow().then(window => window.readThread()).catch(() => null),
+        desk: await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
+        kept: this.#state.state.preferences['inbox'], now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id),
+      }),
       leadThreadSend: async (params) => {
         // A text that answers the question just asked is checked against its expiry first, and its receipt names this device.
         const answered = await this.leadPresence.beforeSend(params.device, params.text, params.ask)
@@ -5982,6 +5997,7 @@ export class Host {
       leadMemoryPropose: async params => (await this.#leadMemory()).propose(params, this.#leadJournal?.state.seq ?? 0),
       leadMemorySearch: async params => this.#leadMemorySearch(params.query, params.limit),
       leadContextRead: async () => (await this.#leadWindow()).readContext(),
+      leadContextUse: async () => leadContextUse(await (await this.#leadWindow()).readContext()),
       leadContextCompact: async () => (await this.#leadWindow()).compactContext(),
       leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,
@@ -11184,11 +11200,13 @@ export class Host {
         touchedSince: (since) => this.#sessionIndex.touchedSince(since),
         costliestSince: (since, limit) => this.#sessionIndex.costliestSince(since, limit),
       },
+      stopped: (runtime, id) => !this.registry.get(runtime, id) && this.#transcripts.lastTurnStopped(runtime, id),
       live: () => this.registry.all().flatMap((record) => {
         const id = record.session.id
         if (!this.#sessionIndex.isOwn(record.runtime, id)) return []
         const cost = record.session.usage?.cost
         return [{ runtime: record.runtime, id, failed: record.session.status.type === 'error', queuePaused: record.queue.status === 'paused' && record.queue.messages.length > 0, queued: record.queue.messages.length > 0, running: record.running.size > 0, waiting: record.approvals.size > 0,
+          stopped: record.session.turns.at(-1)?.status === 'interrupted', updatedAt: record.session.updatedAt,
           cost: cost && cost.currency === 'USD' ? cost.amount : null,
           preview: record.session.preview || firstAsk(record.session) }]
       }),
@@ -11522,9 +11540,9 @@ export class Host {
         if (!known) return null
         return this.#runtimeCache.get(String(runtime)).models ?? (known.health().state === 'ready' ? this.call('runtime/models', { runtime }) : null)
       },
-      newSessionValues: async (runtime, cwd, choices) => {
+      newSessionValues: async (runtime, cwd, choices, cautious) => {
         await this.#ensureStarted(this.#runtime({ runtime }))
-        return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params), choices)
+        return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params), choices, cautious)
       },
       create: (params, effectStarted) => createConversation(this.#context, params, effectStarted),
       send: async (params, admitCwd, effectStarted) => {

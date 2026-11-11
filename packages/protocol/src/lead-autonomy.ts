@@ -89,13 +89,26 @@ export interface LeadRuleSectionView {
 /** A thing the host would have done, in Observe, newest first. */
 export interface LeadObservedAction { readonly id: string; readonly at: number; readonly kind: LeadAutonomyKind; readonly note: string }
 export interface LeadDeadline { readonly logicalGoalId: string; readonly startedAt: number; readonly deadlineAt: number; readonly reported: boolean }
+/**
+ * One change to autonomy: a mode, a rule section or the goal's deadline. `by` is always the person: the Lead has no method
+ * that changes any of them. A rules change names the section and its new version, never the words.
+ */
+export type LeadAutonomyChange =
+  | { readonly at: number; readonly by: 'person'; readonly what: 'mode'; readonly kind: LeadAutonomyKind; readonly from: LeadAutonomyMode; readonly to: LeadAutonomyMode }
+  | { readonly at: number; readonly by: 'person'; readonly what: 'rules'; readonly section: LeadRuleSectionId; readonly version: number; readonly how: LeadRuleVersion['how'] }
+  | { readonly at: number; readonly by: 'person'; readonly what: 'deadline'; readonly deadlineAt: number | null }
+/** Changes kept, newest last in the file and newest first on the wire. */
+export const LEAD_AUTONOMY_CHANGES_KEPT = 64
 /** What a phone shows: the table, the recent would-haves, the words in force, the deadline. Read-only except the modes. */
 export interface LeadAutonomyView {
   readonly version: 1
   readonly modes: LeadAutonomyModes
   readonly observed: readonly LeadObservedAction[]
-  readonly rules: readonly { readonly id: LeadRuleSectionId; readonly title: string; readonly text: string; readonly custom: boolean }[]
+  /** `version` 0 is the shipped default; `changedAt` is when the newest version was saved, absent for the default. */
+  readonly rules: readonly { readonly id: LeadRuleSectionId; readonly title: string; readonly text: string; readonly custom: boolean; readonly version?: number; readonly changedAt?: number }[]
   readonly deadline: LeadDeadline | null
+  /** Who changed what, newest first, at most 32. Absent from an older desk. */
+  readonly changes?: readonly LeadAutonomyChange[]
 }
 export interface LeadRulesView {
   readonly version: 1
@@ -186,15 +199,35 @@ const deadline: Validator<LeadDeadline> = (value, path = '') => {
   return { logicalGoalId: goalId(source.logicalGoalId, at(path, 'logicalGoalId')), startedAt: integer()(source.startedAt, at(path, 'startedAt')),
     deadlineAt: integer()(source.deadlineAt, at(path, 'deadlineAt')), reported: source.reported as boolean }
 }
+export const parseLeadAutonomyChange: Validator<LeadAutonomyChange> = (value, path = '') => {
+  const what = literalUnion('mode', 'rules', 'deadline')(isObject(value, path).what, at(path, 'what'))
+  if (what === 'mode') {
+    const source = only(['at', 'by', 'what', 'kind', 'from', 'to'])(value, path)
+    literalUnion('person')(source.by, at(path, 'by'))
+    return { at: integer()(source.at, at(path, 'at')), by: 'person', what, kind: kind(source.kind, at(path, 'kind')), from: mode(source.from, at(path, 'from')), to: mode(source.to, at(path, 'to')) }
+  }
+  if (what === 'rules') {
+    const source = only(['at', 'by', 'what', 'section', 'version', 'how'])(value, path)
+    literalUnion('person')(source.by, at(path, 'by'))
+    return { at: integer()(source.at, at(path, 'at')), by: 'person', what, section: section(source.section, at(path, 'section')),
+      version: integer(1)(source.version, at(path, 'version')), how: literalUnion('edit', 'reset', 'rollback')(source.how, at(path, 'how')) }
+  }
+  const source = only(['at', 'by', 'what', 'deadlineAt'])(value, path)
+  literalUnion('person')(source.by, at(path, 'by'))
+  return { at: integer()(source.at, at(path, 'at')), by: 'person', what, deadlineAt: source.deadlineAt === null ? null : integer(1)(source.deadlineAt, at(path, 'deadlineAt')) }
+}
 export const parseLeadAutonomyView: Validator<LeadAutonomyView> = (value, path = '') => {
-  const source = only(['version', 'modes', 'observed', 'rules', 'deadline'])(value, path)
+  const source = only(['version', 'modes', 'observed', 'rules', 'deadline', 'changes'])(value, path)
   if (source.version !== 1) fail(at(path, 'version'), 'expected 1')
   const rules = arrayOf((one, where = '') => {
-    const row = only(['id', 'title', 'text', 'custom'])(one, where)
+    const row = only(['id', 'title', 'text', 'custom', 'version', 'changedAt'])(one, where)
     if (typeof row.custom !== 'boolean') fail(at(where, 'custom'), 'expected a boolean')
-    return { id: section(row.id, at(where, 'id')), title: line(80)(row.title, at(where, 'title')), text: ruleText(row.text, at(where, 'text')), custom: row.custom as boolean }
+    return { id: section(row.id, at(where, 'id')), title: line(80)(row.title, at(where, 'title')), text: ruleText(row.text, at(where, 'text')), custom: row.custom as boolean,
+      ...(row.version === undefined ? {} : { version: integer()(row.version, at(where, 'version')) }),
+      ...(row.changedAt === undefined ? {} : { changedAt: integer()(row.changedAt, at(where, 'changedAt')) }) }
   })(source.rules, at(path, 'rules'))
   return { version: 1, modes: parseLeadAutonomyModes(source.modes, at(path, 'modes')),
     observed: arrayOf(observedAction)(source.observed, at(path, 'observed')).slice(0, 32), rules,
-    deadline: source.deadline === null ? null : deadline(source.deadline, at(path, 'deadline')) }
+    deadline: source.deadline === null ? null : deadline(source.deadline, at(path, 'deadline')),
+    ...(source.changes === undefined ? {} : { changes: arrayOf(parseLeadAutonomyChange)(source.changes, at(path, 'changes')).slice(0, 32) }) }
 }

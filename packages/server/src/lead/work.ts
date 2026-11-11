@@ -435,13 +435,18 @@ export class LeadWorkLedger {
       this.#stop(item, 'Stopped: no activity the host can see for seven days')
       return
     }
-    const states: { stage: LeadStage; reason: string; settled: boolean; review?: string }[] = []
+    const states: { stage: LeadStage; reason: string; settled: boolean; review?: string; stopped?: true }[] = []
     const replies = this.ports.replies()
     for (const chat of item.links.chats) {
       const watch = item.watch[`chat:${chat}`] ??= {}
       const live = this.ports.chat(chat)
       if (live === null) { if (watch.last !== 'gone') { watch.last = 'gone'; this.#fact(item, 'A chat left the desk') } states.push({ stage: 'idle', reason: 'gone', settled: true }); continue }
-      if (live.stage === 'idle') {
+      if (live.stage === 'idle' && live.reason === 'stopped') {
+        // A stopped turn finished nothing: it is not for the Lead to review, and a later reply does not settle it.
+        if (watch.last !== 'stopped') this.#fact(item, 'A chat was stopped')
+        delete watch.mark
+        states.push({ stage: 'idle', reason: 'stopped', settled: false, stopped: true })
+      } else if (live.stage === 'idle') {
         if (watch.mark === undefined) { watch.mark = replies; this.#fact(item, 'A chat finished') }
         const reported = replies > watch.mark
         states.push({ stage: 'idle', reason: 'idle', settled: reported, ...(reported ? {} : { review: 'Finished; the Lead is checking it' }) })
@@ -453,7 +458,7 @@ export class LeadWorkLedger {
         delete watch.mark; watch.active = true
         states.push({ stage: live.stage, reason: live.reason, settled: false })
       }
-      watch.last = live.stage === 'idle' ? 'idle' : live.reason
+      watch.last = live.stage === 'idle' && live.reason !== 'stopped' ? 'idle' : live.reason
     }
     for (const team of item.links.teams) {
       const watch = item.watch[`team:${team}`] ??= {}
@@ -490,6 +495,11 @@ export class LeadWorkLedger {
     else if (after) { stage = 'blocked'; blocker = `Waits for ${after.id} "${clip(after.title, 60)}"` }
     else if (states.some(state => state.stage === 'working')) stage = 'working'
     else if (states.some(state => state.stage === 'queued')) stage = 'queued'
+    else if (states.some(state => state.stopped) && states.every(state => state.stopped || state.settled)) {
+      // Everything left was stopped, not finished: the item closes as stopped and reopens if the chat works again.
+      this.#stop(item, 'Stopped: its chat was stopped')
+      return
+    }
     else if (states.length && states.every(state => state.settled)) {
       stage = 'done'; item.closedAt = this.ports.now(); item.closedBy = 'host'; item.outcome = 'done'; delete item.remindAt
       this.#fact(item, 'Every link settled')

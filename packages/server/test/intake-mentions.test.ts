@@ -359,6 +359,20 @@ test('the phone lists every decision read-only, newest first, with no path in it
   assert.equal(Object.keys(PHONE_POLICY.methods).filter((method) => method.startsWith('trigger/')).length, 0, 'the phone changes nothing about triggers')
 })
 
+test('the phone lists the armed mention triggers, their mode here and who may ask, with no path in them', E2E, async (t) => {
+  const d = await desk(t)
+  const before = await d.host.call('phone/triage/list', {}) as PhoneTriageList
+  assert.equal(before.triggers?.length, 1)
+  const [trigger] = before.triggers!
+  assert.deepEqual({ ...trigger!, repository: undefined }, { id: 'ask', project: trigger!.project, repository: undefined, mode: 'observe', from: 'me', people: ['a-teammate'], bots: ['release-helper'] })
+  assert.ok(!trigger!.project.includes('/'), 'a project is named by its folder, never a path')
+  assert.match(trigger!.repository ?? '', /^[\w.-]+\/[\w.-]+$/)
+  await act(d)
+  assert.equal((await d.host.call('phone/triage/list', {}) as PhoneTriageList).triggers?.[0]?.mode, 'act')
+  await d.host.call('trigger/disarm', { root: d.repo.dir, id: 'ask' })
+  assert.deepEqual((await d.host.call('phone/triage/list', {}) as PhoneTriageList).triggers, [])
+})
+
 // ------------------------------------------------------------ review round
 
 /** Every call that would change something on the forge: a method other than GET, or a field or body sent. */

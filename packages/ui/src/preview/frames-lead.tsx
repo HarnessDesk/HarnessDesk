@@ -20,7 +20,7 @@ import { LeadAskOptions, LeadAvatar, LeadNameChoice, LeadPlanFlow, LeadTurn, Lea
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
 import { LEAD_SCENES, leadContextFacts, leadPresenceFixture, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadMemoryView, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
-import { LEAD_AUTONOMY_DEFAULTS, LEAD_LIMITS, LEAD_RULE_DEFAULTS, LEAD_RULE_SECTIONS, LEAD_RULE_TITLES, type LeadAutonomyModes, type LeadRuleSectionView, type LeadRuleVersion, type HostMethodName, type LeadWorkBoard, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_AUTONOMY_DEFAULTS, LEAD_LIMITS, LEAD_RULE_DEFAULTS, LEAD_RULE_SECTIONS, LEAD_RULE_TITLES, type LeadAutonomyChange, type LeadAutonomyKind, type LeadAutonomyModes, type LeadAutonomyView, type LeadRuleSectionView, type LeadRuleVersion, type HostMethodName, type LeadWorkBoard, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
 export const createLeadFixtureStore = (scene: LeadScene) => {
@@ -51,7 +51,13 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       defaultUpdated: custom && latest!.base.text !== LEAD_RULE_DEFAULTS[id].text && !kept.has(id) ? { from: latest!.base.text, to: LEAD_RULE_DEFAULTS[id].text } : null, history: [...history].reverse() }
   }
   const rulesView = () => ({ version: 1 as const, sections: LEAD_RULE_SECTIONS.map(sectionView), prompt: LEAD_RULE_SECTIONS.flatMap(id => sectionView(id)).filter(one => one.custom).map(one => `${one.title}: ${one.text}`).join('\n') })
-  const autonomyView = () => ({ version: 1 as const, modes, observed, deadline: null, rules: LEAD_RULE_SECTIONS.map(id => { const one = sectionView(id); return { id, title: one.title, text: one.text, custom: one.custom } }) })
+  // Who changed what, newest first: the host keeps them beside the versions.
+  let changes: LeadAutonomyChange[] = scene === 'settings-autonomy' ? [
+    { at: Date.UTC(2026, 10, 8, 17, 0), by: 'person', what: 'mode', kind: 'stuck', from: 'act', to: 'observe' },
+    { at: Date.UTC(2026, 10, 2, 17, 0), by: 'person', what: 'rules', section: 'talk', version: 1, how: 'edit' },
+  ] : []
+  const autonomyView = (): LeadAutonomyView => ({ version: 1 as const, modes, observed, deadline: null, changes,
+    rules: LEAD_RULE_SECTIONS.map(id => { const one = sectionView(id); return { id, title: one.title, text: one.text, custom: one.custom, version: one.version, ...(one.history[0] ? { changedAt: one.history[0].at } : {}) } }) })
   const emit = (next: LeadWindowProjection) => { current = next; store.lead.changed({ method: 'lead/changed', params: current }) }
   store.transport.request = (async (method: HostMethodName, input: unknown) => {
     const params = input as Record<string, any>
@@ -99,11 +105,18 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
     if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }
     if (method === 'lead/presence/read') return presence
+    // The desk's one inbox: in the app shell, the Lead's plan and a Team that wait on the person, listed under the bell as the phone lists it.
+    if (method === 'lead/inbox/read') return scene === 'app-shell'
+      ? { version: 1, needsYou: 2, items: [{ id: 'lead', kind: 'lead', title: 'Dex is waiting for you', at: Date.UTC(2026, 10, 10, 10), needsYou: true }, { id: 'team:demo-team', kind: 'team', title: 'Rename the status column', project: 'demo', at: Date.UTC(2026, 10, 10, 9), needsYou: true, target: 'demo-team' }] }
+      : { version: 1, needsYou: 0, items: [] }
     if (method === 'lead/presence/dismiss') return presence = { ...presence, digest: presence.digest?.id === params.digest ? null : presence.digest }
     if (method === 'lead/brief/read') return presence.brief
     if (method === 'lead/brief/update') { presence = { ...presence, brief: { ...presence.brief, ...(params.enabled === undefined ? {} : { enabled: params.enabled }), ...(params.at === undefined ? {} : { at: params.at }) } }; return presence.brief }
     if (method === 'lead/autonomy/read' || method === 'lead/deadline/set') return autonomyView()
-    if (method === 'lead/autonomy/set') { modes = { ...modes, [params.kind]: params.mode }; return autonomyView() }
+    if (method === 'lead/autonomy/set') {
+      if (modes[params.kind as LeadAutonomyKind] !== params.mode) changes = [{ at: Date.now(), by: 'person', what: 'mode', kind: params.kind, from: modes[params.kind as LeadAutonomyKind], to: params.mode }, ...changes]
+      modes = { ...modes, [params.kind]: params.mode }; return autonomyView()
+    }
     if (method === 'lead/rules/read') return rulesView()
     if (method === 'lead/rules/update') {
       const list = versions[params.section] ??= []
@@ -113,6 +126,8 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       else if (params.action === 'keep') kept.add(params.section)
       else if (params.action === 'reset') list.push(make('reset', LEAD_RULE_DEFAULTS[params.section as 'talk'].text))
       else if (params.action === 'rollback') list.push({ ...make('rollback', list.find(one => one.version === params.to)!.text), from: params.to })
+      const entry = list.at(-1)
+      if (params.action !== 'keep' && entry) changes = [{ at: entry.at, by: 'person', what: 'rules', section: params.section, version: entry.version, how: entry.how }, ...changes]
       return rulesView()
     }
     if (method === 'lead/work/list') return work

@@ -244,6 +244,17 @@ it('pins new entries unless the person scrolled up', async () => {
   await update({ thread: { ...store.lead.state.thread!, messages: [...store.lead.state.thread!.messages, { version: 1, id: 'message-2', revision: 2, role: 'assistant', text: 'Next' }] } })
   expect(thread.scrollTop).toBe(20)
 })
+it('follows the person\'s own message to the bottom even after they scrolled up', async () => {
+  const { box, update, store } = await mount(); const thread = box.querySelector<HTMLElement>('[aria-label="Dex thread"]')!
+  Object.defineProperties(thread, { clientHeight: { value: 100, configurable: true }, scrollHeight: { value: 500, configurable: true } })
+  await update({ thread: { ...store.lead.state.thread!, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'assistant', text: 'First' }] } })
+  thread.scrollTop = 20; thread.dispatchEvent(new Event('scroll', { bubbles: true }))
+  vi.spyOn(store.lead, 'send').mockResolvedValue(undefined as never)
+  await input(box.querySelector('textarea')!, 'What was the first task?'); await act(async () => button('Send').click())
+  expect(thread.scrollTop).toBe(500)
+  await update({ thread: { ...store.lead.state.thread!, messages: [...store.lead.state.thread!.messages, { version: 1, id: 'message-2', revision: 2, role: 'user', text: 'What was the first task?' }] } })
+  expect(thread.scrollTop).toBe(500)
+})
 it('retries expiry reads with bounded backoff until the host reflects expiry', async () => {
   vi.useFakeTimers()
   try {
@@ -648,6 +659,13 @@ it.each([
   expect(box.querySelector('[data-lead-decision]')).toBeNull()
 })
 
+it('names the Lead by its own name in a wait, the way the phone does', async () => {
+  const base = leadProjection()
+  const { box } = await mount({ ...base, thread: { ...base.thread!, state: 'waiting-for-user', cards: [] }, wayOut: 'resume', waitReason: 'lead-host-shutdown' })
+  expect(box.textContent).toContain('The desk stopped while Dex was working.')
+  expect(box.textContent).not.toContain('the Lead was working')
+})
+
 it('uses one hand-back limit sentence in the thread and dock', async () => {
   const base = leadProjection(), { box } = await mount({ ...base, waitReason: 'lead-handback-limit', wayOut: 'resume', thread: { ...base.thread, state: 'waiting-for-user', messages: [goalMessage], cards: [] } })
   expect(box.querySelector('[data-lead-card="handback-limit"]')).not.toBeNull()
@@ -892,4 +910,14 @@ it('keeps a working turn after send, maps host activity, and replaces it with th
   expect(box.querySelector('article[aria-label="Dex"] [data-slot="lead-avatar"]')).toBe(avatar)
   await act(async () => release({ version: 1, kind: 'sent', revision: 2 } as never))
   await update({ requestInFlight: false })
+})
+it('draws the chats and Teams a reply names as links under it, and opens the one picked', async () => {
+  const base = leadProjection()
+  const reply = { version: 1 as const, id: 'named', revision: 2, role: 'assistant' as const, text: 'The checkout Team is on it.', refs: [{ kind: 'team' as const, id: 'room-preview', title: 'A name the model wrote' }, { kind: 'team' as const, id: 'room-gone' }] }
+  const { store, box } = await mount({ ...base, thread: { ...base.thread, messages: [goalMessage, reply] } })
+  const open = vi.spyOn(store, 'openTeamRoom').mockImplementation(() => {})
+  const links = [...box.querySelectorAll<HTMLButtonElement>('[data-slot="lead-refs"] button')]
+  expect(links.map(link => link.textContent)).toEqual(['Checkout rewrite'])
+  await act(async () => links[0]!.click())
+  expect(open).toHaveBeenCalledWith('room-preview')
 })

@@ -199,6 +199,10 @@ export interface HostContext {
   leadMemorySearch(params: HostParams<'lead/memory/search'>): Promise<HostResult<'lead/memory/search'>>
   /** How full the Lead's conversation is, how much of it the provider read from its cache, and its checkpoints. */
   leadContextRead(): Promise<HostResult<'lead/context/read'>>
+  /** The same, as one figure with no summary text: what the Lead reads about itself and a phone shows. */
+  leadContextUse(): Promise<HostResult<'lead/context/use'>>
+  /** The person's inbox, built from the Lead's window, the desk's needs-you work and the kept notices. */
+  leadInbox(): Promise<HostResult<'lead/inbox/read'>>
   /** The person's "Summarise now": one compaction, refused while the Lead is answering. */
   leadContextCompact(): Promise<HostResult<'lead/context/compact'>>
   readonly leadStarts?: Pick<import('../lead/budgets.js').LeadBudgets, 'validateStart'>
@@ -338,7 +342,7 @@ export interface HostContext {
    * and the person's own controls. The only way a handler reaches triggers;
    * every mutation here is a person's, and none is ever an Agent's tool.
    */
-  readonly intake: Pick<IntakePlane, 'list' | 'preview' | 'arm' | 'disarm' | 'rebaseline' | 'preferences' | 'setPreferences' | 'history' | 'goal' | 'decisions' | 'reevaluate' | 'setMode' | 'triage'>
+  readonly intake: Pick<IntakePlane, 'list' | 'preview' | 'arm' | 'disarm' | 'rebaseline' | 'preferences' | 'setPreferences' | 'history' | 'goal' | 'decisions' | 'reevaluate' | 'setMode' | 'triage' | 'triageTriggers'>
 
   /** The extension kernel, or a refusal that names the build. */
   extensions(): ExtensionHost

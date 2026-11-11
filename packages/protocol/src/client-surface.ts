@@ -22,6 +22,8 @@ export const PRIVATE_CLIENT_METHODS = {
   // The Lead's memory: a proposal only reaches the person's inbox, and a search reads its own notes and conversation.
   'lead/memory/propose': 'read',
   'lead/memory/search': 'read',
+  // How full its own conversation is: a figure, never the conversation or its summaries.
+  'lead/context/use': 'read',
 } as const satisfies Partial<Record<HostMethodName, ClientTier>>
 
 /** The methods the client door answers, each with the tier it needs. */

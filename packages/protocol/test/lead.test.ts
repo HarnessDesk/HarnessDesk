@@ -584,6 +584,15 @@ test('an older host window projection without stage fields remains readable', ()
   assert.equal(result.wayOut, 'resume')
 })
 
+test('every request failure sentence names the Lead the person chose, never "the Lead"', () => {
+  for (const [reason, text] of Object.entries(protocol.LEAD_REQUEST_FAILURE_TEXT)) {
+    assert.doesNotMatch(text, /\bthe Lead\b/i, reason)
+    assert.doesNotMatch(protocol.leadRequestFailure(reason, 'Lex')!.detail, /\bthe Lead\b|\{label\}/i, reason)
+  }
+  assert.equal(protocol.leadRequestFailure('lead-request-refused', 'Lex')!.detail, 'Lex could not send its request, so nothing was spent. Sending a message tries again.')
+  assert.equal(protocol.leadRequestFailure('lead-request-rate-limited', 'Lex')!.detail, 'The provider asked Lex to wait.')
+})
+
 test('a request that did not complete reaches the window as a failure with its code and sentence; other waits carry none', () => {
   // Every request wait but a cancelled one is a failure of the request, not the Lead waiting on the person.
   const requestWaits = protocol.LEAD_MANAGEMENT_REASONS.filter(reason => reason.startsWith('lead-request-') && reason !== 'lead-request-cancelled')
@@ -638,4 +647,14 @@ test('ask labels are trimmed and unique across case and collapsed whitespace', (
   for (const label of ['START  IT', 'start\u00a0it'])
     for (const validate of parse([options[0], { ...options[1], label }])) assert.throws(validate, protocol.ValidationError)
   for (const validate of parse([{ ...options[0], label: 'Start  it' }, options[1]])) assert.doesNotThrow(validate)
+})
+test('a reply carries at most eight refs the phone and desk both read, and only a reply carries any', () => {
+  const refs = [{ kind: 'work', id: 'work-3' }, { kind: 'team', id: 'room-docs', title: 'Docs for Jane Doe' }, { kind: 'chat', id: 'codex:thread-1' }]
+  const reply = { version: 1, id: 'reply', revision: 2, role: 'assistant', text: 'The docs Team is on it.', refs }
+  assert.deepEqual(protocol.parseLeadMessage(reply), reply)
+  assert.throws(() => protocol.parseLeadMessage({ ...reply, role: 'user' }))
+  assert.throws(() => protocol.parseLeadMessage({ ...reply, refs: [{ kind: 'issue', id: 'x' }] }))
+  assert.throws(() => protocol.parseLeadMessage({ ...reply, refs: [refs[0], refs[0]] }))
+  assert.throws(() => protocol.parseLeadMessage({ ...reply, refs: Array.from({ length: 9 }, (_, index) => ({ kind: 'work', id: `work-${index}` })) }))
+  assert.throws(() => protocol.parseLeadMessage({ ...reply, refs: [] }))
 })

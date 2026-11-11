@@ -1,10 +1,11 @@
 import { WireCallError } from '@harnessdesk/client'
 import { leadToolDefinitions, parseLeadToolCall, LeadToolFencedError, LeadToolRefusedError } from './tools.js'
 import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
-  type LeadAsk, type LeadProactive, parseLeadAsk, parseLeadProactiveOutput, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
+  type LeadAsk, type LeadProactive, type LeadMessageRef, LEAD_MESSAGE_REFS_MAX, parseLeadMessageRef, parseLeadAsk, parseLeadProactiveOutput, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
 import type { LeadPermissionCall } from './permissions.js'
 import { LEAD_CONTEXT } from './context.js'
 import { LEAD_CHECKPOINT_OPEN } from './compaction.js'
+import { splitLeadOutput } from './envelope.js'
 import { leadContainsSecret, leadWithholdCredentialsReport, type LeadWithheldPiece } from './credential-screen.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
   MessagesRedactedThinking, MessagesText, MessagesThinking, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
@@ -24,6 +25,7 @@ const TOOL_ERROR = Object.freeze({
   scope: 'Tool failed: the selected project access check failed.',
   deadline: 'Tool refused: the time the person set for this goal has run out, so no new work starts for it. Tell the person, and ask whether to extend it.',
   cap: 'Tool refused: runs started without the person asking are limited, the account may be near its limit, or the Lead is still loading after a restart, so the person\'s next follow-up keeps its room. Wait for a run to finish, then try again.',
+  ask: 'Tool refused: your question to the person is still open and they have not picked an option. Do not act on what it decides; point the person to the question.',
   failed: 'Tool failed: the desk request could not complete.',
   overflow: 'Tool failed: its result exceeded the conversation limit.',
 })
@@ -301,19 +303,42 @@ const usage = (value: unknown): MessagesUsage => {
  * envelope must then be valid. Whatever the text decodes to is returned as `decoded`
  * so the caller's credential scan sees escaped strings too. Proposals are data only;
  * their validators confer no authority to execute them. */
-const proposals = (text: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[]; proactive?: LeadProactive; ask?: LeadAsk; decoded: unknown } => {
+/** The refs an envelope carries, leniently: a malformed one is dropped, never the reply with it. */
+const replyRefs = (value: unknown): readonly LeadMessageRef[] => {
+  if (!Array.isArray(value)) return []
+  const out: LeadMessageRef[] = [], seen = new Set<string>()
+  for (const one of value.slice(0, 32)) {
+    let ref: LeadMessageRef
+    try { ref = parseLeadMessageRef(one) } catch { continue }
+    const key = `${ref.kind}:${ref.id}`
+    if (seen.has(key)) continue
+    seen.add(key); out.push(ref)
+    if (out.length === LEAD_MESSAGE_REFS_MAX) break
+  }
+  return out
+}
+const proposals = (text: string, outer?: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[]; proactive?: LeadProactive; ask?: LeadAsk; refs?: readonly LeadMessageRef[]; decoded: unknown } => {
   let decoded: unknown = null
   try { decoded = JSON.parse(text) } catch { /* prose */ }
-  if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || (decoded as Record<string, unknown>).type !== 'lead-output')
-    return { text, plan: null, cards: [], decoded }
+  let prose = ''
+  if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || (decoded as Record<string, unknown>).type !== 'lead-output') {
+    // The envelope after the prose, or in a code fence, is still the envelope: protocol JSON is never the person's
+    // words. One that names itself but does not validate is left in the text; the host strips it and warns.
+    const split = splitLeadOutput(text)
+    if (!split?.envelope) return { text, plan: null, cards: [], decoded }
+    try { return { ...proposals(JSON.stringify(split.envelope), split.prose), decoded: { decoded, envelope: split.envelope } } } catch { return { text, plan: null, cards: [], decoded } }
+  }
+  if (outer !== undefined) prose = outer
   const candidate = decoded
-  const source = object(candidate, ['version', 'type', 'text', 'ask', 'proactive', 'plan', 'cards'])
+  const source = object(candidate, ['version', 'type', 'text', 'ask', 'proactive', 'plan', 'cards', 'refs'])
   if (source.version !== 1 || source.ask !== undefined && source.proactive !== undefined) return fail()
   if (source.cards !== undefined && (!Array.isArray(source.cards) || source.cards.length > LIMIT.blocks)) return fail()
   const cards = source.cards === undefined ? [] : (source.cards as unknown[]).map(value => parseLeadCard(value))
   if (new Set(cards.map(card => card.id)).size !== cards.length) fail()
-  return { text: source.text === undefined ? '' : string(source.text),
-    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards, ...(source.proactive === undefined ? {} : { proactive: parseLeadProactiveOutput(source.proactive) }), ...(source.ask === undefined ? {} : { ask: parseLeadAsk(source.ask) }), decoded }
+  const own = source.text === undefined ? '' : string(source.text)
+  return { text: prose && own && !prose.includes(own) ? `${prose}\n\n${own}` : prose || own,
+    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards, ...(source.proactive === undefined ? {} : { proactive: parseLeadProactiveOutput(source.proactive) }), ...(source.ask === undefined ? {} : { ask: parseLeadAsk(source.ask) }),
+    ...(source.proactive === undefined && replyRefs(source.refs).length > 0 ? { refs: replyRefs(source.refs) } : {}), decoded }
 }
 /** Cancellation also wins when a broken injected operation ignores its signal. */
 const cancellable = async <T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> => {
@@ -526,6 +551,8 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
                 ? TOOL_ERROR.scope
               : dispatchError instanceof WireCallError && dispatchError.code === 'leadDeadline'
                 ? TOOL_ERROR.deadline
+              : dispatchError instanceof WireCallError && dispatchError.code === 'leadAskOpen'
+                ? TOOL_ERROR.ask
               : dispatchError instanceof WireCallError && dispatchError.code === 'leadRunCap'
                 ? TOOL_ERROR.cap
                 : TOOL_ERROR.failed
@@ -588,6 +615,6 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     }
     return { status: parsed.stop_reason === 'max_tokens' ? 'max-tokens' : signal.aborted ? 'cancelled' : 'completed', usage: used,
       ...(predecessorReason ? { reason: predecessorReason } : {}),
-      text: output.text, ...(output.ask ? { ask: output.ask } : {}), ...(output.proactive ? { proactive: output.proactive } : {}), proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, messages: continuation }
+      text: output.text, ...(output.ask ? { ask: output.ask } : {}), ...(output.refs ? { refs: output.refs } : {}), ...(output.proactive ? { proactive: output.proactive } : {}), proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, messages: continuation }
   } }
 }

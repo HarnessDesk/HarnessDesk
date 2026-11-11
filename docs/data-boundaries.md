@@ -179,7 +179,7 @@ journal on disk. The desktop probes its embedded runtime first, then its bundled
 fetched Node. If no candidate passes, Lead reports unavailable before sending
 a request.
 
-Autonomy is kept in `lead/autonomy.json` in the same folder: the full version history of each of the three rule sections the person edited (their own words, up to 3000 characters a section and 20 versions), what the person has acknowledged of a changed default, the deadline of the goal in hand (the goal's id and two times), and the ids of the live runs the Lead started on its own, which the host counts against its cap. The modes, the sections in force and the deadline are also in the Lead's journal. Nothing in the file leaves the desk except through the Lead's own request: the sections in force are part of the standing instructions of a new conversation epoch, so the provider the Lead already uses receives them under its key, nothing else from the file. A paired phone reads the modes, the sections in force and the deadline, and can change a mode; it cannot edit the words.
+Autonomy is kept in `lead/autonomy.json` in the same folder: the full version history of each of the three rule sections the person edited (their own words, up to 3000 characters a section and 20 versions), what the person has acknowledged of a changed default, the deadline of the goal in hand (the goal's id and two times), the history of the person's changes (the last 64: the time and, for each, a mode moved from and to, a rules section and the version saved, or the deadline set or cleared; no words of the rules), and the ids of the live runs the Lead started on its own, which the host counts against its cap. The modes, the sections in force and the deadline are also in the Lead's journal. Nothing in the file leaves the desk except through the Lead's own request: the sections in force are part of the standing instructions of a new conversation epoch, so the provider the Lead already uses receives them under its key, nothing else from the file. A paired phone reads the modes, the sections in force, the deadline and the 32 newest changes, and can change a mode; it cannot edit the words.
 
 The host keeps the Lead's provider conversation in the Lead state folder:
 `context.jsonl` (the turns and tool results as sent, bounded at 2 MB, desk
@@ -200,6 +200,17 @@ cache; the provider's cache read and write counts are kept in the wake ledger,
 and the spend of a summary request is filed marked as compaction.
 `lead/context/read` gives the window and a paired phone (read tier) the
 context-use and cache facts and the kept summaries' text; it changes nothing.
+`lead/context/use` gives the Lead about itself and a paired phone (read tier)
+four numbers: the window's size, the latest request's prompt size, that as a
+percent, and when the conversation was last summarised. No text.
+
+`lead/inbox/read` gives the window and a paired phone (read tier) the one list
+of what waits on the person: the Lead's own row with a count, an open question,
+waiting Teams and chats, and the kept notices. It is built on the desk from what
+the desk already holds and sends nothing anywhere. Every title and body passes
+the phone scrub first (titles cut to 160 characters, bodies to 300, and paths on
+this machine, addresses and key-shaped strings replaced), on the window as on the phone; ids,
+kinds, times, counts and project display names go as they are.
 
 The Lead's memory is kept in the same folder. `lead/memory-store.json` holds the notes (each at most 400 characters, at most 400 in all), the proposals waiting for the person (at most 24), a normalised copy of the proposals the person declined (at most 200, so the same one is not offered again), the last 40 versions for Undo, whether the Lead may keep its notes without asking, and the day's tidy spend. `lead/memory-conversation.jsonl` is the search copy of the Lead's conversation: the person's messages and the Lead's replies, each cut to 4,000 characters and dated when the desk first saw it, the latest 4,000 kept, and the ids of passages Forget took out (no text). Both are written with owner-only permissions. A store that cannot be read is renamed `memory-store.unreadable-<time>.json` beside it and never sent anywhere. `lead/memory.json`, where earlier versions kept the Lead's memory lines, stays in place and is read once to carry its lines across. Core, at most 6 KB, rides the Lead's model requests in its standing instructions; search results, at most 2 KB, ride the request that asked for them. Search runs on the desk. Once a day the tidy sends the observer model the Lead's own notes (at most 80, each quoted with its id, kind and date) under the Lead's key, and nothing else: the person's notes never leave the desk for it, and a tidy that would cost more than what is left of its daily cap is not sent. Forget removes a note from the store and from every saved version of it, including the notes a tidy merged into it, and drops the passages of the search copy that quote it (its words, however spaced, cased or styled, or nearly the same words); a passage that says it in other words stays searchable. Forget all removes every note, proposal and version and empties the search copy. Neither touches the Lead's journal, `lead/<thread>.ndjson` and its sealed segments, which are kept: its `memory-core` records hold each Core the Lead was given and its `memory-epoch` records the Core an epoch began with, note text included, its checkpoints carry the same, and the conversation a note came from stays in its message records. A paired phone reads the inbox and the counts (read tier) and can keep or decline a proposal and forget one note (answer tier); it cannot propose, search, add, edit, move, undo, forget all or change automatic keeping. Memory never goes into a worker's prompt.
 
@@ -244,7 +255,10 @@ Each such request is held against the Lead's spend limit before it is sent:
 a reserve, then a settle at the usage the provider reports (or the whole hold
 when that cannot be known), are written to the Lead's journal like the Lead's
 own requests. With no Lead goal open, or the limit reached, nothing is sent.
-The paired phone reads the decisions list (`phone/triage/list`) read-only.
+The paired phone reads the decisions list (`phone/triage/list`) read-only, with
+the armed mention triggers beside it: each one's id, project folder name,
+repository, mode on this machine, `from`, and its named people and bots (forge
+logins the triggers file already names).
 
 **Retention:** yours. Deleting the folder, or disarming the trigger, stops it.
 

@@ -18,8 +18,8 @@ export const leadWaitNeedsChange = (reason: string | null | undefined): boolean 
 /** A Lead request that did not complete, as each surface names it. `{label}` is the Lead's name. These are the request
  * waits a person reads as a failure of the request, not as the Lead waiting on them; a cancelled request is neither. */
 export const LEAD_REQUEST_FAILURE_TEXT = {
-  'lead-request-refused': 'The Lead could not send its request, so nothing was spent. Sending a message tries again.',
-  'lead-request-rate-limited': 'The provider asked the Lead to wait.',
+  'lead-request-refused': '{label} could not send its request, so nothing was spent. Sending a message tries again.',
+  'lead-request-rate-limited': 'The provider asked {label} to wait.',
   'lead-request-failed': 'The request was interrupted. Sending a message also continues.',
   'lead-request-max-tokens': 'The request reached its response limit.',
   'lead-request-invalid-response': 'The provider returned an unreadable response.',

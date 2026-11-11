@@ -124,6 +124,12 @@ export class TranscriptDatabase {
     return durableStateIdentity(stored, this.source(runtime, id))
   }
 
+  /** Whether the latest turn kept for a conversation was interrupted, read without decoding the body. */
+  lastTurnInterrupted(runtime: string, id: string): boolean {
+    const row = this.db.prepare("SELECT json_extract(payload,'$.turn.status') AS status FROM turns WHERE runtime=? AND id=? ORDER BY seq DESC LIMIT 1").get(runtime, id)
+    return row?.status === 'interrupted'
+  }
+
   isRemoved(runtime: string, id: string): boolean {
     return this.db.prepare('SELECT removed_at FROM sessions WHERE runtime=? AND id=?').get(runtime, id)?.removed_at != null ||
       !!this.db.prepare('SELECT 1 FROM meta WHERE key=?').get(`deleted:${JSON.stringify([runtime, id])}`)

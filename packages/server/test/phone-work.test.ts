@@ -448,6 +448,50 @@ test('phone starts resolve model selectors before dependent recommendations', as
 })
 
 
+test('a chat the Lead starts never inherits a high-risk permission the person saved for their own chats', async () => {
+  const resolve = async (params: { values?: Record<string, unknown> }) => [
+    { id: 'mode', type: 'select' as const, category: 'mode' as const, label: 'Mode', currentValue: (params.values?.['mode'] ?? 'default') as string,
+      choices: [{ value: 'default', label: 'Default' }, { value: 'acceptEdits', label: 'Accept edits' }, { value: 'bypassPermissions', label: 'Bypass permissions', risk: 'high' as const }],
+      recommendedValue: 'acceptEdits' },
+  ]
+  const preferences = { draftValues: { [RT]: { mode: 'bypassPermissions' } } }
+  assert.deepEqual(await phoneSessionValues(RT, undefined, preferences, resolve), { mode: 'bypassPermissions' }, 'the person’s own start keeps their pick')
+  assert.deepEqual(await phoneSessionValues(RT, undefined, preferences, resolve, {}, true), { mode: 'acceptEdits' }, 'the Lead’s start takes the recommendation')
+  // A runtime that would start on the high-risk choice is held to the first safe one.
+  const risky = async (params: { values?: Record<string, unknown> }) => (await resolve(params)).map(option => ({ ...option, recommendedValue: 'bypassPermissions' }))
+  assert.deepEqual(await phoneSessionValues(RT, undefined, {}, risky, {}, true), { mode: 'default' })
+})
+
+test('a chat the Lead starts never turns on an auto-approve switch, saved or recommended', async () => {
+  const resolve = async (params: { values?: Record<string, unknown> }) => [
+    { id: 'autoApprove', type: 'boolean' as const, category: '_permissions' as const, label: 'Approve everything', currentValue: (params.values?.['autoApprove'] ?? true) as boolean, recommendedValue: true },
+    { id: 'notify', type: 'boolean' as const, category: 'other' as const, label: 'Notify', currentValue: (params.values?.['notify'] ?? true) as boolean },
+  ]
+  const preferences = { draftValues: { [RT]: { autoApprove: true, notify: true } } }
+  assert.deepEqual(await phoneSessionValues(RT, undefined, preferences, resolve), { autoApprove: true, notify: true }, 'the person’s own start keeps their switch')
+  const lead = await phoneSessionValues(RT, undefined, preferences, resolve, {}, true)
+  assert.equal(lead['autoApprove'], false, 'the Lead’s start turns it off, even though the runtime would start on')
+  assert.equal(lead['notify'], true, 'a switch that grants nothing is kept')
+})
+
+test('a high-risk value a model only declares once it is chosen is not carried into a chat the Lead starts', async () => {
+  // The saved mode is not high risk on the base read; the chosen model declares it as such.
+  const resolve = async (params: { values?: Record<string, unknown> }) => {
+    const model = (params.values?.['model'] ?? 'one') as string
+    return [
+      { id: 'model', type: 'select' as const, category: 'model' as const, label: 'Model', currentValue: model,
+        choices: [{ value: 'one', label: 'One' }, { value: 'two', label: 'Two' }], recommendedValue: 'two' },
+      { id: 'mode', type: 'select' as const, category: 'mode' as const, label: 'Mode', currentValue: (params.values?.['mode'] ?? 'default') as string,
+        choices: [{ value: 'default', label: 'Default' }, { value: 'yolo', label: 'Yolo', ...(model === 'two' ? { risk: 'high' as const } : {}) }] },
+    ]
+  }
+  const preferences = { draftValues: { [RT]: { mode: 'yolo' } } }
+  assert.deepEqual(await phoneSessionValues(RT, undefined, preferences, resolve), { model: 'two', mode: 'yolo' })
+  const lead = await phoneSessionValues(RT, undefined, preferences, resolve, {}, true)
+  assert.notEqual(lead['mode'], 'yolo')
+  assert.equal(lead['model'], 'two')
+})
+
 test('a saved profile keeps its implicit model while its dependent choices are validated', async () => {
   const values = await phoneSessionValues(RT, undefined, { draftValues: { [RT]: { profile: 'two', effort: 'low' } } }, async params => {
     const profile = params.values?.['profile'] ?? ''

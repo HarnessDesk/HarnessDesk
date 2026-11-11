@@ -116,9 +116,10 @@ export const runLeadChild = (options: ChildOptions = {}) => {
     recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
     recordWake: async wake => { await rpc('recordWake', [wake]) },
     memoryEpoch: async (goal, epoch, memory) => { await rpc('memoryEpoch', [goal, epoch, memory]) },
-    appendReply: async (text, proactive, ask) => {
-      const message = parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}), ...(ask ? { ask } : {}) })
-      await rpc('appendReply', message.ask ? [message.text, null, message.ask] : message.proactive ? [message.text, message.proactive] : [message.text])
+    appendReply: async (text, proactive, ask, refs) => {
+      const message = parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}), ...(ask ? { ask } : {}), ...(refs?.length ? { refs } : {}) })
+      // The work items the reply names ride as a fourth argument, after an ask or its null.
+      await rpc('appendReply', message.refs ? [message.text, null, message.ask ?? null, message.refs] : message.ask ? [message.text, null, message.ask] : message.proactive ? [message.text, message.proactive] : [message.text])
     },
   }
   let closing: Promise<void> | null = null

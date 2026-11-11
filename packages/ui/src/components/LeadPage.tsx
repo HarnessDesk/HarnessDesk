@@ -1,7 +1,7 @@
 import { leadActivityLabel } from './lead-permission-labels'
 import { PullRequestRecord } from './GitRecord'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { LEAD_REQUEST_FAILURE_TEXT, leadWaitNeedsChange, leadWaitUnsent, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_REQUEST_FAILURE_TEXT, leadWaitNeedsChange, leadWaitUnsent, type LeadMemoryCandidate, type LeadMessageRef, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, InlineParts, LeadSlot, LeadWorking, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, LeadGreeting, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
 import { openExternal } from '../lib/desktop'
 import { leadWakeLine } from '../lib/lead-presence'
@@ -28,16 +28,17 @@ import { LeadStatusPanel, useLeadControls } from './LeadControls'
 import { sidebarPlacement } from '../state/workbench'
 import { formatLeadConsentTime } from './lead-consent-time'
 import { LeadMemoryProposals, leadMemoryPlacement } from './LeadMemory'
+import { LeadRefs } from './LeadRefs'
 
 const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   ...LEAD_REQUEST_FAILURE_TEXT,
   'lead-predecessor-unavailable': "The previous step's result wasn't accepted, so the next step can't start. Message {label} to change the plan, or stop this goal.",
   'lead-predecessor-unverifiable': "HarnessDesk can't confirm what the previous step produced, so the next step won't start. Message {label} to change the plan, or stop this goal.",
   'lead-renewal-blocked': 'The plan could not be renewed because the pending request limit was reached.',
-  'lead-disabled': 'The Lead was disabled.',
+  'lead-disabled': '{label} was disabled.',
   'lead-key-changed': 'The provider key changed. Continue with the current key.',
-  'lead-host-shutdown': 'The desk stopped while the Lead was working.',
-  'lead-ownership-withdrawn': 'The Lead no longer owns its previous run.',
+  'lead-host-shutdown': 'The desk stopped while {label} was working.',
+  'lead-ownership-withdrawn': '{label} no longer owns its previous run.',
   'lead-pr-branch-rewritten': 'The branch was rewritten outside this goal. Reclaim the branch to resume automatic repairs.',
   'lead-pr-head-changed': 'The pull request head changed outside this goal. Inspect the pull request before continuing.',
   'lead-handback-limit': LEAD_HANDBACK_LIMIT,
@@ -54,16 +55,16 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-plan-refused': 'The proposed plan could not be offered. Send a message to change it or use an ordinary chat.',
   'lead-plan-unseatable': "An agent in the reviewed plan can't work within its required permissions. Choose another agent on the desk, or ask for an ordinary chat for this task.",
   'lead-plan-not-independent': "The reviewed plan needs a reviewer from a different provider. Add one on the desk, or ask for an ordinary chat for this task.",
-  'lead-activity-failed': 'The Lead could not read the latest run activity.',
-  'lead-subscription-failed': 'The Lead lost its run activity updates.',
+  'lead-activity-failed': '{label} could not read the latest run activity.',
+  'lead-subscription-failed': '{label} lost its run activity updates.',
   'lead-chat-effect-uncertain': 'The chat operation may have started. Inspect that chat on the desk, then start a new request when ready.',
   'lead-tools-refused': 'The requested desk operation was refused.',
   'lead-card-too-large': 'The request is too large to display safely.',
   'lead-worker-audit-failed': 'A worker approval may have run. Inspect its changes and revoke the uncertain saved rule before resuming. Restart first if saving failed.',
-  'lead-budget-unknown': "HarnessDesk can't confirm what the workers have spent, so the Lead won't make another request. Sending a message tries again.",
+  'lead-budget-unknown': "HarnessDesk can't confirm what the workers have spent, so {label} won't make another request. Sending a message tries again.",
   'lead-run-not-started': 'The plan is approved, but no work has started. Sending a message also continues.',
   'lead-send-deadline': 'The request timed out. Sending a message also continues.',
-  'lead-child-exited': 'The Lead stopped unexpectedly. Sending a message also continues.',
+  'lead-child-exited': '{label} stopped unexpectedly. Sending a message also continues.',
   'lead-request-cancelled': 'The request was cancelled.',
 }
 // Why a goal ended, when no stopped card says it already. A person's own Stop needs no reason.
@@ -81,6 +82,12 @@ const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs
 /** Elapsed time beside Stop: minutes under an hour, then hours and minutes. */
 const EMPTY_ASKS: readonly never[] = []
 export const leadElapsed = (ms: number) => { const minutes = Math.max(0, Math.floor(ms / 60000)); return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m` }
+
+/** What sits under one reply: the chats, Teams and work it names, then any memory proposals it carries. */
+const leadMessageNote = (refs: readonly LeadMessageRef[] | undefined, proposals: readonly LeadMemoryCandidate[] | undefined) => {
+  if (!refs?.length && !proposals?.length) return undefined
+  return <>{refs?.length ? <LeadRefs refs={refs} /> : null}{proposals?.length ? <LeadMemoryProposals candidates={proposals} /> : null}</>
+}
 
 export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
   const store = useStore(), snapshot = useSnapshot(), active = useDestinationActive()
@@ -152,6 +159,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const send = async (text = goal, ask?: string) => {
     if (unavailable || inFlight.current || state.requestInFlight || !text.trim()) return
     inFlight.current = true; sendBaseline.current = [...store.lead.state.thread?.messages ?? []].reverse().find(message => message.role === 'user')?.id ?? null; setSending(true); setError(null)
+    // The person's own message is followed to the bottom, like a session thread, wherever they had scrolled.
+    pinned.current = true
+    if (thread.current) thread.current.scrollTop = thread.current.scrollHeight
     try { await store.lead.send(text.trim(), crypto.randomUUID(), ask); setGoal(current => current === text ? '' : current) }
     catch (error) { refusal(error, !ask) }
     finally { inFlight.current = false; setSending(false); input.current?.focus() }
@@ -263,7 +273,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           ? entry.message.role === 'notice' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={entry.message.id === firstReply?.id ? replyKey : `message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             ask={entry.message.ask} settled={asks.get(entry.message.id)} proactive={entry.message.proactive} disabled={sendDisabled} picked={answers.get(entry.message.id)}
             onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) && asks.get(entry.message.id)?.status !== 'expired' ? label => { if (!sendDisabled) void send(label, entry.message.id) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)}
-            note={proposals.has(entry.message.id) ? <LeadMemoryProposals candidates={proposals.get(entry.message.id)!} /> : undefined} />
+            note={leadMessageNote(entry.message.refs, proposals.get(entry.message.id))} />
           : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
             note={<Chip variant="quiet" tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
@@ -290,11 +300,11 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           <LeadAway active={active} state={state} label={label} />
           {goalActive && <LeadSlot slot="lead-run-strip"><Banner mark={<LeadAvatar name={name} size="turn" />} actions={stopAction}>{phase === 'following' ? `Following #${pr?.number ?? ''}` : repairActive ? `Repairing ${handback.kind === 'checks' ? 'checks' : 'review comments'} · round ${handback.round}` : phase === 'running' ? `${label} is running 1 goal` : phase === 'awaiting-plan' ? 'A plan is waiting for you' : phase === 'waiting-for-user' ? leadWaitUnsent(state.waitReason) ? `${label}'s last request was not sent` : `${label} is waiting for you` : `${label} is planning`}{state.progress?.since !== undefined ? ` · ${leadElapsed(now - state.progress.since)}` : ''}{phase === 'running' && leadWakeLine(state.presence) ? <Text as="span" role="muted">{` · ${leadWakeLine(state.presence)}`}</Text> : null}</Banner></LeadSlot>}
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
-          {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replace('{label}', label)}</Banner>}
-          {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
+          {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replaceAll('{label}', label)}</Banner>}
+          {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason].replaceAll('{label}', label)}</Banner>}
           {setupWait && (state.wayOut !== 'decide-plan' || state.waitReason === 'lead-chat-effect-uncertain') && <Banner actions={state.waitReason === 'lead-chat-effect-uncertain' ? <Button disabled={stopping || decisionPending !== null} aria-busy={stopping} onClick={() => void stop()}>Start new request</Button> : undefined}>{auditWait}</Banner>}
           {!unavailable && !setupWait && state.wayOut === 'resume' && state.waitReason !== 'lead-predecessor-unavailable' && state.waitReason !== 'lead-predecessor-unverifiable' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
-            {state.waitReason ? auditWait ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
+            {state.waitReason ? auditWait ?? `${label} is waiting for you to continue.` : `${label} is waiting for you to continue.`}
           </Banner>}
           {state.wayOut === 'decide-plan' && (renewal
             ? <Banner>{`The earlier approval expired at ${formatLeadConsentTime(state.planConsentExpiresAt!)}.`}</Banner>

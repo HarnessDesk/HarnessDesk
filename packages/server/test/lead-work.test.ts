@@ -135,6 +135,23 @@ test('stages follow scripted chat, Team and pull request changes, and the four g
   assert.deepEqual(r.published.at(-1), board, 'the host published the same projection it answers with')
 })
 
+test('a chat the person stopped reads as Stopped, never In review or Done, and reopens when it works again', async t => {
+  const r = await rig(t)
+  await start(r, 'Fix the stalled build', ['m-1'], 'fixture:a')
+  r.chat('fixture:a', 'working'); await r.ledger.refresh()
+  r.chat('fixture:a', 'idle', 'stopped'); await r.ledger.refresh()
+  let item = card(await r.ledger.board(), 'work-1')
+  assert.equal(item.stage, 'stopped', 'not in review: nothing finished')
+  assert.notEqual(item.outcome, 'done', 'and not done')
+  assert.match(item.fact!, /stopped/i)
+  assert.doesNotMatch(item.fact!, /finished/i)
+  r.reply(); await r.ledger.refresh()
+  assert.equal(card(await r.ledger.board(), 'work-1').stage, 'stopped', 'a Lead reply does not turn a stop into done')
+  r.chat('fixture:a', 'working'); await r.ledger.refresh()
+  item = card(await r.ledger.board(), 'work-1')
+  assert.equal(item.stage, 'working', 'sending the chat more work reopens it')
+})
+
 test('the person closes with Done or Drop, closing is never undone by desk activity, and the file survives a restart', async t => {
   const r = await rig(t)
   await start(r, 'Fix the login redirect', ['m-1'], 'fixture:a')

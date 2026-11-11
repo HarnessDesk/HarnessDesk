@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { leadPresence, leadReadingWords, leadWakeLine } from './lead-presence'
+import { leadPresence, leadReadingWords, leadWakeLine, withDeskNeeds } from './lead-presence'
 import { createLeadState } from '../state/lead'
 import { leadProjection } from '../preview/lead-fixture'
 
@@ -75,11 +75,23 @@ it('falls back to the old count and wording when an older host omits stage', () 
   expect(leadPresence(state.state)).toMatchObject({ needs: 1, word: '1 needs you' })
 })
 
+it('a paused Lead with desk work waiting stays Paused and asleep, with the count beside the word', () => {
+  const paused = { mood: 'sleeping', word: 'Paused', needs: 0, goalActive: false, quiet: false } as const
+  expect(withDeskNeeds(paused, 2)).toMatchObject({ mood: 'sleeping', word: 'Paused · 2 need you', needs: 2 })
+  expect(withDeskNeeds(paused, 1).word).toBe('Paused · 1 needs you')
+  expect(withDeskNeeds(paused, 0)).toBe(paused)
+  const resting = { mood: 'calm', word: 'Ready', needs: 0, goalActive: false } as unknown as Parameters<typeof withDeskNeeds>[0]
+  expect(withDeskNeeds(resting, 1).word).toBe('1 needs you')
+})
+
 it('says a request was not sent instead of that the person is needed or that work goes on', () => {
   for (const waitReason of ['lead-request-unsent', 'lead-request-unsent-again', 'lead-request-held', 'lead-request-held-again', 'lead-request-withheld'] as const) {
     const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
     state.changed({ method: 'lead/changed', params: leadProjection({ waitReason, wayOut: null, thread: { ...leadProjection().thread, state: 'waiting-for-user' } }) })
     expect(state.state.stage).toBe('idle')
     expect(leadPresence(state.state)).toMatchObject({ mood: 'alert', word: 'Not sent', needs: 0, quiet: false })
+    // The desk's own count of other work goes beside the word and never replaces it.
+    expect(withDeskNeeds(leadPresence(state.state), 2)).toMatchObject({ mood: 'alert', word: 'Not sent · 2 need you', needs: 2 })
+    expect(withDeskNeeds(leadPresence(state.state), 0).word).toBe('Not sent')
   }
 })

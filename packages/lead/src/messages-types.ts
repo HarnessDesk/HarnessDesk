@@ -110,6 +110,8 @@ export interface LeadMessagesOptions {
 export type LeadMessagesStatus = 'completed' | 'max-tokens' | 'refused' | 'cancelled' | 'uncertain' | 'rate-limited' | 'failed' | 'invalid-response'
 export interface LeadMessagesResult {
   readonly ask?: import('@harnessdesk/protocol').LeadAsk
+  /** Work items the reply names, from its envelope. */
+  readonly refs?: readonly import('@harnessdesk/protocol').LeadMessageRef[]
   readonly proactive?: import('@harnessdesk/protocol').LeadProactive
   readonly status: LeadMessagesStatus
   /** Static code only. Raw transport errors, provider bodies and abort reasons never escape. */

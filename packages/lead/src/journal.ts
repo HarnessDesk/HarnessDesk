@@ -1,4 +1,4 @@
-import { parseLeadApprovalAudit, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadApprovalAudit, parseLeadAutonomyChange, parseLeadMessageRefs, type LeadMessageRef, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyChange, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import {
   parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_LIMITS, LEAD_MANAGEMENT_REASONS, leadNoSpendLimit, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
@@ -14,6 +14,9 @@ import { parseLeadMemoryCore, type LeadMemoryCore } from './memory.js'
 const boolean = (value: unknown): boolean => { if (typeof value !== 'boolean') throw new Error('lead-journal-boolean'); return value }
 
 export const LEAD_JOURNAL_BYTES = 1_048_576
+/** What a `settings-changed` record says changed: a kind, never the content. */
+export const LEAD_SETTINGS_CHANGES = ['activity', 'name', 'follow', 'credential'] as const
+export type LeadSettingsChange = typeof LEAD_SETTINGS_CHANGES[number]
 export interface LeadRunIdentity { readonly correlationId: string; readonly runId: string; readonly teamId: string }
 export interface LeadRunObservation extends LeadRunIdentity { readonly firstRoundId: string; readonly terminal: boolean }
 export interface LeadArgumentSummary {
@@ -82,7 +85,8 @@ export type LeadJournalEvent =
   | { readonly type: 'management'; readonly phase: 'planning' | 'waiting-for-user'; readonly reason?: string | null }
   | { readonly type: 'invalidate-results' | 'resume' }
   | { readonly type: 'new-goal'; readonly id: string; readonly now: number }
-  | { readonly type: 'settings-changed'; readonly name?: LeadName; readonly follow?: LeadFollowPreferences }
+  /** `what` names the kind of change, never its content: absent only in records written before it existed. */
+  | { readonly type: 'settings-changed'; readonly name?: LeadName; readonly follow?: LeadFollowPreferences; readonly what?: LeadSettingsChange }
   | { readonly type: 'publication'; readonly operation: LeadPublicationOperation; readonly pr: LeadPullRequest | null }
   | { readonly type: 'pr-observed'; readonly pr: LeadPullRequest }
   | { readonly type: 'owned-push'; readonly operation: LeadOwnedPush }
@@ -101,7 +105,7 @@ export type LeadJournalEvent =
   | { readonly type: 'spend-limit'; readonly usdMicros: number | null; readonly now: number; readonly logicalGoalId?: string }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
   /** The person's autonomy modes and the rule sections they edited, as the host saved them. The whole record, so replay needs no history. */
-  | { readonly type: 'autonomy'; readonly autonomy: LeadAutonomyRecord }
+  | { readonly type: 'autonomy'; readonly autonomy: LeadAutonomyRecord; readonly change?: LeadAutonomyChange }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
   | { readonly type: 'card-decision'; readonly decision: LeadCardDecision; readonly expiresAt: number | null }
@@ -213,9 +217,9 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
     'worker-rule-dispatch-cancelled': ['id'], 'worker-rule-dispatch': ['id', 'diff'], 'worker-rule-obsolete': Object.hasOwn(source, 'rule') ? ['rule'] : [], 'worker-rule-saved': ['rule'], 'worker-rule-used': ['id', ...(Object.hasOwn(source, 'diff') ? ['diff'] : [])], 'worker-rule-revoked': ['id', ...(Object.hasOwn(source, 'auditFailed') ? ['auditFailed'] : [])], wake: ['wake'], 'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
-    'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
+    'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow', 'what'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     'second-look-attempt': ['runId', 'stopKey', 'now'], 'second-look-restart': ['runId', 'stopKey', 'roundId', 'now'],
-    'person-caps': ['logicalGoalId', 'caps', 'now'], autonomy: ['autonomy'], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: Object.hasOwn(source, 'from') ? ['from'] : [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
+    'person-caps': ['logicalGoalId', 'caps', 'now'], autonomy: ['autonomy', ...(Object.hasOwn(source, 'change') ? ['change'] : [])], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: Object.hasOwn(source, 'from') ? ['from'] : [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
     'context-compaction-started': ['id', 'at', 'trigger'], 'context-compaction-failed': ['id', 'reason'],
@@ -247,7 +251,8 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'new-goal': event = { type, id: identifier(source.id), now: integer(source.now, 0) }; break
     case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']), ...(Object.hasOwn(source, 'reason') ? { reason: source.reason === null ? null : choice(source.reason, LEAD_MANAGEMENT_REASONS) } : {}) }; break
     case 'message': event = { type, idempotencyKey: nullable(source.idempotencyKey, identifier), message: parseLeadMessage(source.message) }; break
-    case 'settings-changed': event = { type, ...(Object.hasOwn(source, 'name') ? { name: choice(source.name, ['dex', 'lex'] as const) } : {}), ...(Object.hasOwn(source, 'follow') ? { follow: parseLeadFollowPreferences(source.follow) } : {}) }; break
+    case 'settings-changed': event = { type, ...(Object.hasOwn(source, 'name') ? { name: choice(source.name, ['dex', 'lex'] as const) } : {}), ...(Object.hasOwn(source, 'follow') ? { follow: parseLeadFollowPreferences(source.follow) } : {}),
+      ...(Object.hasOwn(source, 'what') ? { what: choice(source.what, LEAD_SETTINGS_CHANGES) } : {}) }; break
     case 'publication': event = { type, operation: parseLeadPublicationOperation(source.operation), pr: nullable(source.pr, parseLeadPullRequest) }; break
     case 'owned-push': event = { type, operation: parseLeadOwnedPush(source.operation) }; break
     case 'pr-observed': event = { type, pr: parseLeadPullRequest(source.pr) }; break
@@ -267,7 +272,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
       if (source.usdMicros !== null && (integer(source.usdMicros) > LEAD_LIMITS.maxUsdMicros)) throw new Error('lead-journal-number')
       event = { type, usdMicros: source.usdMicros as number | null, now: integer(source.now), ...(Object.hasOwn(source, 'logicalGoalId') ? { logicalGoalId: identifier(source.logicalGoalId) } : {}) }; break
     case 'budget': event = { type, event: parseLeadBudgetEvent(source.event) }; break
-    case 'autonomy': event = { type, autonomy: parseLeadAutonomyRecord(source.autonomy) }; break
+    case 'autonomy': event = { type, autonomy: parseLeadAutonomyRecord(source.autonomy), ...(Object.hasOwn(source, 'change') ? { change: parseLeadAutonomyChange(source.change) } : {}) }; break
     case 'policy': event = { type, policy: parseLeadPermissionPolicy(source.policy) }; break
     case 'card': event = { type, card: parseLeadCard(source.card) }; break
     case 'card-decision': event = { type, decision: parseLeadCardDecision(source.decision), expiresAt: nullable(source.expiresAt, integer) }; break
@@ -443,11 +448,11 @@ export class LeadJournal {
     })
   }
   /** Host only; the child's journal port has no such operation. Saves the person's autonomy modes and edited rule sections. */
-  setAutonomy(autonomy: LeadAutonomyRecord): Promise<void> {
+  setAutonomy(autonomy: LeadAutonomyRecord, change?: LeadAutonomyChange): Promise<void> {
     return this.#queue(async () => {
       const parsed = parseLeadAutonomyRecord(autonomy)
       if (JSON.stringify(this.#state.autonomy) === JSON.stringify(parsed)) return
-      await this.#append({ type: 'autonomy', autonomy: parsed })
+      await this.#append({ type: 'autonomy', autonomy: parsed, ...(change ? { change: parseLeadAutonomyChange(change) } : {}) })
     })
   }
   async #append(event: LeadJournalEvent, committed?: () => void): Promise<void> {
@@ -529,7 +534,14 @@ export class LeadJournal {
     if (held && held.goal === at.goal && held.epoch === at.epoch) return
     return this.#append({ type: 'memory-epoch', ...at })
   }) }
-  settingsChanged(name?: LeadName, follow?: LeadFollowPreferences): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }), ...(follow === undefined ? {} : { follow }) })) }
+  /**
+   * Gives every reader a fresh revision. `what` says which kind of change it was, never its content: the name, the follow
+   * preferences, the key, or (with nothing named) the Lead's own activity, which is what a send's ticks are.
+   */
+  settingsChanged(name?: LeadName, follow?: LeadFollowPreferences, what?: LeadSettingsChange): Promise<void> {
+    const kind: LeadSettingsChange = what ?? (name !== undefined ? 'name' : follow !== undefined ? 'follow' : 'activity')
+    return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }), ...(follow === undefined ? {} : { follow }), what: kind }))
+  }
   publication(operation: LeadPublicationOperation, pr: LeadPullRequest | null = null): Promise<void> { return this.#queue(() => this.#append({ type: 'publication', operation, pr })) }
   /** Host-only exit after an external publication succeeded but its final
    * person-gate answer refused. The child cannot release this decision fence. */
@@ -600,10 +612,11 @@ export class LeadJournal {
     }
     return true
   }) }
-  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk): Promise<void> { return this.#queue(() => {
+  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[]): Promise<void> { return this.#queue(() => {
     const revision = this.#state.seq + 1
     return this.#append({ type: 'message', idempotencyKey: null,
-      message: parseLeadMessage({ version: 1, id: `message-${revision}`, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}) }) })
+      message: parseLeadMessage({ version: 1, id: `message-${revision}`, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}),
+        ...(refs?.length ? { refs: parseLeadMessageRefs(refs) } : {}) }) })
   }) }
   #policyChange(state: LeadState, policy: LeadPermissionPolicy, id: string): LeadJournalEvent | null {
     if (!state.policy) throw new Error('lead-policy-unavailable')

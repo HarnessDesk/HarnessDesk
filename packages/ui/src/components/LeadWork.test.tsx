@@ -36,8 +36,8 @@ it('draws the Work card in the rail from the host board: four groups, the wait o
   expect(items(box, 'working')).toEqual(['work-3', 'work-5'])
   expect(card.textContent).toContain('Needs you · 1')
   expect(box.querySelector('[data-work-item="work-4"]')!.textContent).toContain('An approval waits for you')
-  expect(box.querySelector('[data-work-item="work-3"]')!.textContent).not.toContain('A Team is working')
-  expect(card.textContent).toContain('4')
+  expect(box.querySelector('[data-work-item="work-3"]')!.textContent).not.toContain('A chat is working')
+  expect(card.textContent).toContain('5')
 })
 
 it('Done closes the item through the host and it moves to Done; nothing else on the desk is touched', async () => {
@@ -51,7 +51,25 @@ it('Done closes the item through the host and it moves to Done; nothing else on 
   await act(async () => { done.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
   expect(calls).toEqual(['lead/work/close'])
   expect(groups(box)).toEqual(['working', 'in-review', 'done'])
-  expect(items(box, 'done')).toEqual(['work-4', 'work-1'])
+  expect(items(box, 'done')).toEqual(['work-4', 'work-6', 'work-1'])
+})
+
+it('a working item’s menu stops its chat with the same stop the chat sends, and a stopped item says Stopped', async () => {
+  const { box, store } = await mount('work-ledger')
+  const calls: { method: string; params: unknown }[] = []
+  const request = store.transport.request.bind(store.transport)
+  store.transport.request = (async (method: string, params: unknown) => { calls.push({ method, params }); return request(method as never, params as never) }) as typeof store.transport.request
+  expect(box.querySelector('[data-work-item="work-6"]')!.textContent).toContain('Stopped')
+  expect(box.querySelector('[data-work-item="work-1"]')!.textContent).not.toContain('Stopped')
+  await act(async () => { box.querySelector<HTMLButtonElement>('[aria-label="Actions for Rename the status column"]')!.click() })
+  expect([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].some(item => item.textContent?.startsWith('Stop'))).toBe(false)
+  await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+  await act(async () => { box.querySelector<HTMLButtonElement>('[aria-label="Actions for Make the empty state keyboard accessible"]')!.click() })
+  const stop = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.startsWith('Stop'))!
+  expect(stop).toBeDefined()
+  await act(async () => { stop.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(calls.map(call => call.method)).toEqual(['turn/interrupt'])
+  expect(calls[0]!.params).toMatchObject({ runtime: 'fixture', sessionId: 'chat-3' })
 })
 
 it('a live board from the host replaces the card, and no tracked work draws no card', async () => {

@@ -28,6 +28,10 @@ export interface PhoneLiveSession {
   readonly running: boolean
   /** An approval or a question is waiting on the person. */
   readonly waiting: boolean
+  /** The latest turn was interrupted: stopped, not finished. */
+  readonly stopped?: boolean
+  /** When the conversation last changed; a stopped one counts against "finished" only when it changed in the window. */
+  readonly updatedAt?: number
   readonly cost: number | null
   /** Live opening, while the runtime's preview has not reached the index yet. */
   readonly preview?: string | null
@@ -62,12 +66,15 @@ export interface PhoneWorkspacePorts {
   readonly sessions: {
     page(options: { archived: boolean; cursor?: string; pageSize: number }): { rows: { summary: SessionSummary; cost: number | null }[]; nextCursor: string | null }
     isOwn(runtime: RuntimeId, id: SessionId): boolean
-    counts(): { active: number; archived: number }
+    /** `byRuntime` lets a count leave out agents the desk cannot show, as the list does. */
+    counts(): { active: number; archived: number; byRuntime?: readonly { runtime: RuntimeId; active: number; archived: number }[] }
     touchedSince(since: number): number
     costliestSince(since: number, limit: number): { summary: SessionSummary; cost: number }[]
   }
   /** The person's own open conversations that are live in this host right now. */
   readonly live: () => readonly PhoneLiveSession[]
+  /** Whether a conversation the host does not hold ended on a stop, from the host's kept transcript: Stopped survives a restart. */
+  readonly stopped?: (runtime: RuntimeId, id: SessionId) => boolean
   /** The agent's presentation name, from the runtime's own `presentation`; null for an agent this host does not know. */
   readonly seatName: (runtime: RuntimeId) => string | null
   /** Whether this agent moves deleted conversations to the Trash. */
@@ -156,11 +163,11 @@ export class PhoneWorkspace {
   }
 
   #sessionStage(one: PhoneLiveSession | undefined, archived = false) {
-    return leadStage({ kind: 'session', archived, waiting: one?.waiting ?? false, failed: one?.failed ?? false, queuePaused: one?.queuePaused ?? false, running: one?.running ?? false, queued: one?.queued ?? false })
+    return leadStage({ kind: 'session', archived, waiting: one?.waiting ?? false, failed: one?.failed ?? false, queuePaused: one?.queuePaused ?? false, running: one?.running ?? false, queued: one?.queued ?? false, stopped: one?.stopped ?? false })
   }
 
   #counts(live: readonly PhoneLiveSession[]): PhoneSessionsList['counts'] {
-    const { active, archived } = this.#ports.sessions.counts()
+    const { active, archived } = this.#ownCounts()
     const running = live.filter(one => this.#sessionStage(one).stage === 'working').length
     const queued = live.filter(one => this.#sessionStage(one).stage === 'queued').length
     const needsYou = live.filter(one => isWaitingOnYou(this.#sessionStage(one).stage)).length
@@ -200,12 +207,21 @@ export class PhoneWorkspace {
   }
 
   /** Same 200-row pages and 2,000-session ceiling as filtered Sessions reads; also bound empty pages. */
+  /** The person's own conversations by one definition everywhere: those the list can show, so an agent the desk no
+   * longer knows is in no count, as it is in no list. */
+  #ownCounts(): { active: number; archived: number } {
+    const counts = this.#ports.sessions.counts()
+    if (!counts.byRuntime) return counts
+    const shown = counts.byRuntime.filter(one => this.#ports.seatName(one.runtime) !== null)
+    return { active: shown.reduce((sum, one) => sum + one.active, 0), archived: shown.reduce((sum, one) => sum + one.archived, 0) }
+  }
+
   #summarySessions(): { rows: SessionSummary[]; partial: boolean } {
     const rows: SessionSummary[] = []
     let cursor: string | undefined
     for (let pages = 0; pages < SCAN_LIMIT / 200; pages++) {
       const page = this.#ports.sessions.page({ archived: false, cursor, pageSize: 200 })
-      rows.push(...page.rows.slice(0, 200).map(entry => entry.summary))
+      rows.push(...page.rows.slice(0, 200).map(entry => entry.summary).filter(summary => this.#ports.seatName(summary.runtime) !== null))
       if (page.nextCursor === null) return { rows, partial: false }
       cursor = page.nextCursor
     }
@@ -240,7 +256,7 @@ export class PhoneWorkspace {
       for (const counts of [totals[kind], project[kind]]) counts[state]++
     }
     // The index already has an exact aggregate. Live membership is checked without walking old session rows.
-    const active = this.#ports.sessions.counts().active
+    const active = this.#ownCounts().active
     totals.chats.running = liveSessions.filter(one => this.#sessionStage(one).stage === 'working').length
     totals.chats.needsYou = liveSessions.filter(one => isWaitingOnYou(this.#sessionStage(one).stage)).length
     totals.chats.idle = Math.max(0, active - totals.chats.running - totals.chats.needsYou)
@@ -410,7 +426,8 @@ export class PhoneWorkspace {
   /** Conversations touched since a time that are no longer working or waiting, and Teams wrapped since then. */
   #finishedSince(since: number, live: readonly PhoneLiveSession[], teams: readonly PhoneTeamInput[]): number {
     const touched = this.#ports.sessions.touchedSince(since)
-    const busy = live.filter(one => one.running || one.waiting).length
+    // A stopped conversation finished nothing, so it is not counted as finished either.
+    const busy = live.filter(one => one.running || one.waiting || one.stopped === true && (one.updatedAt ?? 0) >= since).length
     const wrapped = teams.filter(({ view }) => view.goal.state === 'wrapped' && view.goal.updatedAt >= since).length
     return Math.max(0, touched - busy) + wrapped
   }
@@ -421,7 +438,15 @@ export class PhoneWorkspace {
     const page = this.sessionsList({ ...(params.archived ? { state: 'archived' as const } : {}), cursor: params.cursor, limit: params.limit ?? WORK_ITEMS })
     const lead = this.#ports.leadChats?.()?.name
     const live = new Map(this.#ports.live().map(one => [`${one.runtime}:${one.id}`, one]))
-    return { items: page.rows.map(row => this.#sessionItem(row, lead, live.get(row.id))), nextCursor: page.next }
+    return { items: page.rows.map(row => this.#sessionItem(row, lead, live.get(row.id) ?? this.#keptStop(row))), nextCursor: page.next }
+  }
+
+  /** A conversation the host no longer holds, after a restart, keeps the stop it ended on. Runtime ids carry no colon. */
+  #keptStop(row: PhoneSessionRow): PhoneLiveSession | undefined {
+    const at = row.id.indexOf(':')
+    if (row.archived === true || at < 0 || !this.#ports.stopped) return undefined
+    const runtime = row.id.slice(0, at) as RuntimeId, id = row.id.slice(at + 1) as SessionId
+    return this.#ports.stopped(runtime, id) ? { runtime, id, running: false, waiting: false, stopped: true, cost: null } : undefined
   }
 
   #sessionItem(row: PhoneSessionRow, leadName: string | undefined, live: PhoneLiveSession | undefined): PhoneWorkItem {
@@ -431,7 +456,7 @@ export class PhoneWorkspace {
       stage, stageReason, id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
       canDelete: row.canDelete, pinned: row.pinned, archived: row.archived === true,
       phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
-      line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : 'Done',
+      line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : stageReason === 'stopped' ? 'Stopped' : 'Done',
       agent: { name: row.seat }, ...(lead ? { by: lead } : {}),
       updatedAt: row.lastActivityAt, ...(row.startedAt === undefined ? {} : { startedAt: row.startedAt }),
       ...(row.cost === null ? {} : { cost: micros(row.cost) }),
@@ -483,7 +508,7 @@ export class PhoneWorkspace {
       updatedAt: row.updatedAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
       team: {
         stage: row.stage, ...(total > 0 ? { stageNote: `${done} of ${total} done` } : {}),
-        startedAt: input.view.goal.createdAt, workers,
+        roomId: input.view.board.id, startedAt: input.view.goal.createdAt, workers,
         reviewers: members.filter(member => /review|referee|audit|critic/i.test(member.role ?? '')).length,
         spent: micros(row.cost ?? 0),
         ...(step ? { step } : {}),
@@ -573,12 +598,15 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
   // A balance that decided Out or Overdrawn is the whole story: a window's figures beside it would contradict it.
   const onBalance = standing.lane === null && (standing.status === 'out' || standing.status === 'overdrawn') &&
     typeof report.credits?.remaining === 'number'
-  const lanes = report.lanes.filter(lane => !lane.placeholder).map(lane => ({
+  const laneRows = (from: readonly UsageLane[], known: boolean) => from.filter(lane => !lane.placeholder).map(lane => ({
     label: scrub(lane.label, 40),
     ...(lane.scope ? { scope: scrub(lane.scope, 40) } : {}),
-    ...(lane.usageKnown === false || unread ? {} : { left: fraction(100 - lane.usedPercent) }),
+    ...(lane.usageKnown === false || !known ? {} : { left: fraction(100 - lane.usedPercent) }),
     ...(lane.resetsAt === null || lane.resetsAt <= now ? {} : { resetsAt: lane.resetsAt }),
   }))
+  const lanes = laneRows(report.lanes, !unread)
+  // Another sign-in's figures travel apart from the agent's own, as the desk's card keeps them: never a lane of its own.
+  const borrowed = report.unverified ? laneRows(report.unverified.lanes, true) : []
   const scoped = standing.scopedOut
   // A non-finite amount turns into null on the wire and breaks the phone's numeric field.
   const raw = report.credits?.remaining
@@ -600,6 +628,8 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
     ...(remaining === null || unread || report.credits?.unlimited ? {} : { balance: { amount: remaining, unit: scrub(report.credits!.unit, 12) } }),
     ...(plan ? { plan: scrub(plan, 40) } : {}),
     ...(useFirstNote(report, now) ? { useFirst: true as const } : {}),
+    ...(report.unverified && borrowed.length ? { unverified: { whose: scrub(report.unverified.whose, 60), lanes: borrowed, readAt: report.unverified.fetchedAt,
+      ...(report.unverified.error || now - report.unverified.fetchedAt > report.unverified.staleAfterMs ? { stale: true as const } : {}) } } : {}),
     readAt: report.fetchedAt,
     ...(now - report.fetchedAt > report.staleAfterMs ? { stale: true } : {}),
     ...(report.error ? { problem: scrub(report.error.message, 120) } : {}),

@@ -875,6 +875,15 @@ export class TranscriptStore {
     finally { verifier.close() }
   }
 
+  /**
+   * Whether the conversation's latest kept turn was stopped. The registry forgets a conversation when the desk
+   * restarts; this is how a stopped chat still reads Stopped afterwards. Unknown or unreadable storage reads not stopped.
+   */
+  lastTurnStopped(runtime: RuntimeId, id: SessionId): boolean {
+    try { return !this.#database.isRemoved(runtime, id) && this.#database.lastTurnInterrupted(runtime, id) }
+    catch { return false }
+  }
+
   /** Metadata of a verified stored body, including conversations with no turns. */
   async readSummary(runtime: RuntimeId, id: SessionId): Promise<SessionSummary | null> {
     const stored = await this.#read(runtime, id)

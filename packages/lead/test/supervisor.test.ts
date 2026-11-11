@@ -897,6 +897,19 @@ test('the host writes a model reply the child asks for, as the assistant message
   } finally { await f.supervisor.stop() }
 })
 
+test('a reply still carrying protocol JSON is written as its prose, with a warning that names no content', async () => {
+  const warnings: string[] = [], asked: string[] = []
+  const raw = 'Which one?\n\n{"version":1,"type":"lead-output","text":"Pick","ask":{"question":"secret-ish words","options":[{"id":"a","label":"A"}],"recommended":"zz"}}'
+  const f = await replyRig([raw], { admitReply: async (text: string) => { asked.push(text) }, onWarning: (code: string) => { warnings.push(code) } })
+  try {
+    await f.supervisor.send(request)
+    assert.equal((await f.replied).ok, true)
+    assert.deepEqual(f.assistant(), ['Which one?'])
+    assert.deepEqual(asked, ['Which one?'])
+    assert.deepEqual(warnings, ['lead-reply-envelope-dropped'])
+  } finally { await f.supervisor.stop() }
+})
+
 test('a reply at the largest size a model text can have is written, and one more character is a broken child', async () => {
   const largest = 'a'.repeat(16_384)
   const fits = await replyRig([largest])
@@ -1150,6 +1163,24 @@ test('the host admits and stores the child ordinary ask across appendReply IPC',
     assert.deepEqual(f.journal.state.messages.at(-1)?.ask, ask)
     assert.deepEqual(admitted, ['A decision.', JSON.stringify(ask)])
   } finally { await f.supervisor.stop() }
+})
+
+test('the work items a reply names cross appendReply IPC as refs, scanned like the words, with or without an ask', async () => {
+  const refs = [{ kind: 'team', id: 'goal-7', title: 'Build a game' }, { kind: 'session', id: 'codex:thread-1' }]
+  const admitted: string[] = []
+  const f = await replyRig(['The Team is running.', null, null, refs], { admitReply: async (text: string) => { admitted.push(text) } })
+  try {
+    await f.supervisor.send(request)
+    assert.equal((await f.replied).ok, true)
+    assert.deepEqual(f.journal.state.messages.at(-1)?.refs, refs)
+    assert.deepEqual(admitted, ['The Team is running.', JSON.stringify(refs)])
+  } finally { await f.supervisor.stop() }
+  // A ref beside a proactive report is not an ordinary reply's: the frame is refused.
+  const bad = await replyRig(['A finding.', { finding: 'x', caveat: 'y', ask: 'z' }, null, refs])
+  try {
+    await bad.supervisor.send(request).catch(() => {})
+    assert.deepEqual(bad.assistant(), [])
+  } finally { await bad.supervisor.stop().catch(() => {}) }
 })
 
 test('an ask-only appendReply frame keeps the child alive and retains the decision in history', async () => {

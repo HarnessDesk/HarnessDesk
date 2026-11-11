@@ -2,14 +2,14 @@ import type { HostPullWatch } from './poll.js'
 import type { PollBatch } from './forge.js'
 import { createHash } from 'node:crypto'
 import { open, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import {
   DEFAULT_TRIGGER_DAILY_USD, TRIGGER_DAILY_USD_MAX, TRIGGER_HISTORY_PAGE,
   type FlowExecution, type FlowOrigin, type ForgeReference, type FlowPreview, type GoalOrigin, type SeatRecord, type TriggerArmPreview,
   type TriggerAttention, type TriggerFact, type TriggerFiring, type TriggerGoalStatus, type TriggerHistoryPage,
   type TriggerDefinition, type TriggerPreferences, type TriggerProjectView, type TriggerSource, type TriggerSourceStatus, type TriggerView,
-  type WireNotification, type PhoneTriageRow, type TriggerDecision, type TriggerDecisionsPage, type TriggerMode,
+  type WireNotification, type PhoneTriageRow, type PhoneTriageTrigger, PHONE_TRIAGE_TRIGGERS_MAX, type TriggerDecision, type TriggerDecisionsPage, type TriggerMode,
 } from '@harnessdesk/protocol'
 
 import type { CredentialCipher } from '../credentials.js'
@@ -1081,6 +1081,22 @@ export class IntakePlane {
   /** Every mention decision on this desk, newest first, for the phone: read only. */
   triage(limit: number): Promise<readonly PhoneTriageRow[]> {
     return this.#mentions.phone(limit)
+  }
+
+  /** The armed mention triggers, for the phone's Mentions page: where each watches, its mode here, and who may ask. */
+  async triageTriggers(): Promise<readonly PhoneTriageTrigger[]> {
+    if (this.#closed) return []
+    const arms = (await this.#consent.armed().catch(() => [] as readonly ArmedTrigger[]))
+      .filter((arm) => arm.definition.on.kind === 'mention')
+      .sort((a, b) => basename(a.project).localeCompare(basename(b.project)) || a.id.localeCompare(b.id))
+      .slice(0, PHONE_TRIAGE_TRIGGERS_MAX)
+    return Promise.all(arms.map(async (arm) => ({
+      id: arm.id, project: basename(arm.project),
+      ...(arm.binding.repository ? { repository: arm.binding.repository } : {}),
+      mode: await this.#mentions.mode(arm),
+      ...(arm.definition.from ? { from: arm.definition.from } : {}),
+      people: [...(arm.definition.people ?? [])], bots: [...(arm.definition.bots ?? [])],
+    })))
   }
 
   // ---------------------------------------------------------------- Goals

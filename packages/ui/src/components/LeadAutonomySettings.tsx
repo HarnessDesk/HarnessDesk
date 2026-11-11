@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { LEAD_AUTONOMY_KINDS, LEAD_AUTONOMY_LABELS, type LeadAutonomyKind, type LeadAutonomyMode, type LeadAutonomyView } from '@harnessdesk/protocol'
+import { LEAD_AUTONOMY_KINDS, LEAD_AUTONOMY_LABELS, LEAD_RULE_TITLES, type LeadAutonomyChange, type LeadAutonomyKind, type LeadAutonomyMode, type LeadAutonomyView } from '@harnessdesk/protocol'
 import { NativeSelect, Row, Rows, Section, Text } from '../design'
 import { useDestinationActive } from '../panels/destination-page'
 import { useStore } from '../state/context'
@@ -13,6 +13,13 @@ const DEADLINES: readonly { readonly value: string; readonly label: string; read
   { value: 'none', label: 'No deadline', ms: null }, { value: '1', label: 'In 1 hour', ms: HOUR }, { value: '4', label: 'In 4 hours', ms: 4 * HOUR }, { value: '24', label: 'In 24 hours', ms: 24 * HOUR },
 ]
 const when = (at: number) => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+const MODE_LABEL = Object.fromEntries(MODES.map(one => [one.value, one.label])) as Record<LeadAutonomyMode, string>
+/** One change in a line: what it was and what it became. A rules change names the section and version, never its words. */
+const changeTitle = (change: LeadAutonomyChange): string => {
+  if (change.what === 'mode') return `${LEAD_AUTONOMY_LABELS[change.kind].title}: ${MODE_LABEL[change.from]} → ${MODE_LABEL[change.to]}`
+  if (change.what === 'rules') return `${LEAD_RULE_TITLES[change.section]}: ${change.how === 'reset' ? 'reset to default' : change.how === 'rollback' ? `version ${change.version} restored` : `version ${change.version} saved`}`
+  return change.deadlineAt === null ? 'Goal deadline cleared' : `Goal deadline set for ${when(change.deadlineAt)}`
+}
 
 /**
  * Settings › Lead › Autonomy: what the Lead does without being asked, one row per kind. The host enforces each row at
@@ -54,6 +61,12 @@ export const LeadAutonomySection = () => {
     {view.observed.length > 0 && <Rows>
       {view.observed.slice(0, 3).map(item => <Row key={item.id} title={item.note} control={<Text role="meta">{when(item.at)}</Text>} />)}
     </Rows>}
+    {(view.changes?.length ?? 0) > 0 && <>
+      <Text role="muted">Recent changes. Only you change these; the Lead cannot.</Text>
+      <Rows aria-label="Autonomy changes">
+        {view.changes!.slice(0, 5).map(change => <Row key={`${change.at}-${changeTitle(change)}`} title={changeTitle(change)} control={<Text role="meta">{when(change.at)}</Text>} />)}
+      </Rows>
+    </>}
     {error && <Text role="muted">{error}</Text>}
   </Section>
 }

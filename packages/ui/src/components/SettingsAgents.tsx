@@ -32,6 +32,7 @@ import {
   accountKey,
   accountName,
   credentialHome,
+  prefsForUsage,
   TINTS,
   tintOf,
   runtimeTint,
@@ -54,6 +55,7 @@ import { Prose } from './Prose'
 import { useFirstNote } from '@harnessdesk/protocol'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
+import { Card as UsageCard } from './usage/shared'
 import { firstInPool, inPoolOrder, isPaced, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, whenOutOf, type WhenOut } from '../lib/account-pool'
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { copyReason, describeCopy, describeFallback, installSummary, standingChip, pinHolds } from '../lib/installs'
@@ -101,7 +103,7 @@ import {
   Text,
 } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
-import { Dialog, ConfirmDialog, EmptyState } from '../design'
+import { Dialog, ConfirmDialog, EmptyState, DashboardAccounts } from '../design'
 
 /**
  * Runtimes — the agent programs HarnessDesk starts — and the accounts under them.
@@ -2015,6 +2017,33 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
  * What belongs to the runtime rather than to any one account: whether it is
  * healthy, what version it is on, and the behaviour it lets HarnessDesk set.
  */
+const AgentUsage = ({ siblings }: { siblings: readonly RuntimeInfo[] }) => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const ids = new Set(siblings.map((entry) => entry.id))
+  const reports = snapshot.usage.filter((report) => ids.has(report.runtime))
+  if (reports.length === 0) return null
+  const now = Date.now()
+  return (
+    <>
+      <SectionHead level="label" name="Usage" />
+      <div aria-label="Usage by account">
+        <DashboardAccounts accounts={reports.map((report) => (
+          <UsageCard
+            key={`${report.runtime}:${report.account ?? ''}`}
+            report={report}
+            info={siblings.find((entry) => entry.id === report.runtime) ?? null}
+            preference={prefsForUsage(report.runtime, report.account, snapshot.accountsByRuntime, snapshot.accountPrefs)}
+            now={now}
+            onRefresh={() => void store.refreshUsage(report.runtime)}
+            onStopTracking={() => store.setUsageTracked(report.runtime, false)}
+          />
+        ))} />
+      </div>
+    </>
+  )
+}
+
 const AgentDetail = ({
   info,
   onBack,
@@ -2122,6 +2151,11 @@ const AgentDetail = ({
         onOpenAccount={onOpenAccount}
         onSignIn={onSignIn}
       />
+
+      {/* What each account has left and whether it lasts to its reset: the
+          Dashboard's own card, so the figure and the pacing sentence here are
+          the ones the Dashboard shows, never a second reading of the report. */}
+      <AgentUsage siblings={siblings} />
 
       {/* By how often each is reached for: who it runs as, then how a new
           session starts, then the build and what it costs to keep running,

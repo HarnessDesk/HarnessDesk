@@ -12,5 +12,10 @@ export const recommendAcpOptions = (options: readonly ConfigOption[], defaultMod
       else if (option.id === 'sandbox' && offers('enabled')) value = 'enabled'
       else if (option.category === 'mode' && offers('acceptEdits')) value = 'acceptEdits'
     }
-    return value !== undefined && refuseOptionValue(option, value) === null ? { ...option, recommendedValue: value } : option
+    // ACP's mode that skips every permission prompt is the widest grant a chat can have: it is marked high risk, so
+    // the composer colours it and work the Lead starts never inherits it.
+    const marked = option.type === 'select' && option.category === 'mode' && option.choices.some(choice => choice.value === 'bypassPermissions' && choice.risk === undefined)
+      ? { ...option, choices: option.choices.map(choice => choice.value === 'bypassPermissions' && choice.risk === undefined ? { ...choice, risk: 'high' as const } : choice) }
+      : option
+    return value !== undefined && refuseOptionValue(marked, value) === null ? { ...marked, recommendedValue: value } : marked
   })

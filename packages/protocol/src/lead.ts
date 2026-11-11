@@ -234,7 +234,19 @@ export interface LeadProactive {
   readonly action?: 'plan' | 'changes' | 'approvals'
 }
 export interface LeadApprovalAudit { readonly ruleId: string; readonly target: string; readonly diff?: string }
+/** What a reply's work item is: a Team (or its goal), a conversation (a session or a chat the Lead runs), or a work-ledger item. */
+export const LEAD_MESSAGE_REF_KINDS = ['team', 'goal', 'session', 'chat', 'work'] as const
+export type LeadMessageRefKind = typeof LEAD_MESSAGE_REF_KINDS[number]
+/**
+ * A work item a reply names, so the window and the phone can open it. Model output: a ref is a pointer, never a grant, and
+ * a surface opens only one it can resolve on the desk itself. A ref it cannot resolve is not drawn.
+ */
+export interface LeadMessageRef { readonly kind: LeadMessageRefKind; readonly id: string; readonly title?: string }
+/** At most this many refs on one reply. */
+export const LEAD_MESSAGE_REFS_MAX = 8
 export interface LeadMessage {
+  /** Work items the reply names, in the order it names them; assistant replies only. */
+  readonly refs?: readonly LeadMessageRef[]
   /** Host attribution: consent counts only the person's own messages. */
   readonly source?: 'person' | 'automatic' | 'schedule'
   /** Host acknowledgement, never supplied by the Lead model. */
@@ -446,7 +458,7 @@ export const LEAD_CONTROL_REFUSALS = ['lead-runtime-unsupported', 'lead-unavaila
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
   'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending', 'lead-ask-expired', 'lead-ask-answered', 'lead-slot-reserved', 'lead-rules-stale', 'lead-rule-empty', 'lead-rule-version-missing', 'lead-deadline-goal', 'lead-deadline-past',
-  'lead-memory-missing', 'lead-memory-stale', 'lead-memory-full', 'lead-memory-core-full'] as const
+  'lead-memory-missing', 'lead-memory-stale', 'lead-memory-full', 'lead-memory-core-full', 'lead-memory-instruction-refused'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
@@ -781,13 +793,17 @@ const parseLeadCheckpointMarker: Validator<LeadCheckpointMarker> = (value, path 
   if (source.fallback !== undefined && source.fallback !== true) return fail(path, 'expected true')
   return { id: id(source.id, `${path}.id`), ...(source.fallback === true ? { fallback: true as const } : {}) }
 }
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint'])
+export const parseLeadMessageRef: Validator<LeadMessageRef> = omitUnset(object<LeadMessageRef>({ kind: literalUnion(...LEAD_MESSAGE_REF_KINDS), id: opaque, title: optional(text(120)) }), ['title'])
+/** The refs a reply carries, at most `LEAD_MESSAGE_REFS_MAX`, one per kind and id. */
+export const parseLeadMessageRefs: Validator<readonly LeadMessageRef[]> = list(parseLeadMessageRef, LEAD_MESSAGE_REFS_MAX, 1, ref => `${ref.kind}:${ref.id}`)
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
   if (message.source !== undefined && message.role !== 'user') fail(path, 'source requires a user message')
   if (message.ask && (message.role !== 'assistant' || message.proactive)) fail(path, 'ask requires an ordinary assistant message')
   if (message.checkpoint && message.role !== 'notice') fail(path, 'a checkpoint marker is a host notice')
+  if (message.refs && message.role !== 'assistant') fail(path, 'refs belong to a reply')
   return message
 }
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {
@@ -1092,6 +1108,27 @@ export interface LeadContextFacts {
    * turns: no compaction runs until it grows further. Absent otherwise. */
   readonly full?: true
 }
+
+/** How full the Lead's conversation is, as one figure: what the Lead reads about itself and what a phone shows. No
+ * summary text, so it carries none of the conversation. */
+export interface LeadContextUse {
+  readonly version: 1
+  readonly windowTokens: number
+  /** The prompt of the latest request, or null before the first. */
+  readonly usedTokens: number | null
+  /** `usedTokens` as a whole percent of the window, or null before the first request. */
+  readonly percent: number | null
+  /** When the earlier conversation was last summarised, or null when it never was. */
+  readonly lastSummaryAt: number | null
+  readonly compacting: boolean
+  readonly full?: true
+}
+export const leadContextUse = (facts: LeadContextFacts): LeadContextUse => ({
+  version: 1, windowTokens: facts.windowTokens, usedTokens: facts.usedTokens,
+  percent: facts.usedTokens === null || facts.windowTokens <= 0 ? null : Math.round(facts.usedTokens / facts.windowTokens * 100),
+  lastSummaryAt: facts.checkpoints.reduce<number | null>((latest, one) => latest === null || one.at > latest ? one.at : latest, null),
+  compacting: facts.compacting, ...(facts.full ? { full: true as const } : {}),
+})
 export const LEAD_CONTEXT_CHECKPOINT_CHARS = 32_768
 const parseLeadCheckpointPerson: Validator<LeadCheckpointPerson> = object({
   messages: list(object({ id, text: boundedText(LEAD_CHECKPOINT_PERSON.messageChars, true, /[\u0000-\u001f\u007f-\u009f]/) }), LEAD_CHECKPOINT_PERSON.messages),

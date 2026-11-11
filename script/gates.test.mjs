@@ -1664,13 +1664,12 @@ test('a named exemption that matches nothing is reported, so the list cannot out
 
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
   const expected = new Map([
-    ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
+    // The rest of the chart kit, the delta and the tone ramp reach Settings › Runtimes through the Dashboard's account card.
+    ['design/ui/chart.tsx', ['ChartTip', 'ChartTipRow']],
     ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
-    ['design/ui/delta.tsx', ['Delta']],
-    ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
     ['design/adapters/terminal.ts', ['terminalAppearance']],
   ])
-  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 19)
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 5)
   assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
   for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
     if (entry.kind === 'data-geometry') {
@@ -1704,13 +1703,13 @@ test('Flow thumbnail SVG is allowed only at its exact data-geometry module path'
 
 test('a single-area export is exempt only when its module, its name and its area all match an entry', () => {
   const chart = path.join(repoRoot, 'packages/ui/src/design/ui/chart.tsx')
-  assert.equal(isSingleAreaPrimitiveExempt(chart, 'ChartCard', 'usage'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(chart, 'ChartTip', 'usage'), true)
   // A new export beside the listed ones is counted, not swept in with its module.
   assert.equal(isSingleAreaPrimitiveExempt(chart, 'ChartLegendPicker', 'usage'), false)
   // A listed export that becomes single to another area is counted again.
-  assert.equal(isSingleAreaPrimitiveExempt(chart, 'ChartCard', 'settings'), false)
+  assert.equal(isSingleAreaPrimitiveExempt(chart, 'ChartTip', 'settings'), false)
   // The same name in another module is not the listed export.
-  assert.equal(isSingleAreaPrimitiveExempt(path.join(repoRoot, 'packages/ui/src/design/ui/card.tsx'), 'ChartCard', 'usage'), false)
+  assert.equal(isSingleAreaPrimitiveExempt(path.join(repoRoot, 'packages/ui/src/design/ui/card.tsx'), 'ChartTip', 'usage'), false)
   const terminal = path.join(repoRoot, 'packages/ui/src/design/adapters/terminal.ts')
   assert.equal(isSingleAreaPrimitiveExempt(terminal, 'terminalAppearance', 'terminalpane'), true)
   assert.equal(isSingleAreaPrimitiveExempt(terminal, 'terminalAppearance', 'usage'), false)

@@ -1,7 +1,8 @@
 import { useState, useSyncExternalStore } from 'react'
 import { leadNoSpendLimit, type LeadName } from '@harnessdesk/protocol'
 import { ConfirmDialog, LeadAvatar, LeadIdentity, MenuItem, MenuNote, MenuSeparator, Text } from '../design'
-import { leadPresence, leadReadingWords, leadWakeLine } from '../lib/lead-presence'
+import { leadPresence, leadReadingWords, leadWakeLine, withDeskNeeds } from '../lib/lead-presence'
+import { useLeadInbox } from './use-inbox-waiting'
 import { useStore } from '../state/context'
 import { leadDollars } from './LeadCards'
 import { leadRefusalText } from './lead-refusals'
@@ -18,7 +19,9 @@ export const useLeadControls = () => {
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   // `name` is the stored setting and gates what reads it; `face` is who the page shows, the journal's first name until one exists.
   const face = name ?? (state.projectMissing ? LEAD_FIRST_NAME : null)
-  const presence = leadPresence(state), label = leadLabel(face)
+  // The Lead's word counts what the desk says needs the person, the same number the bell shows.
+  const inbox = useLeadInbox()
+  const presence = withDeskNeeds(leadPresence(state), inbox?.needsYou), label = leadLabel(face)
   const other: LeadName = face === 'lex' ? 'dex' : 'lex'
   const [confirmPause, setConfirmPause] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
   const ready = state.revision >= 0 && !state.error
