@@ -104,7 +104,13 @@ export interface CarryOnPorts {
   /** A turn running or a send on its way. */
   readonly busy: (runtime: string, sessionId: string) => boolean
   readonly close: (runtime: string, sessionId: string) => Promise<void>
-  readonly resume: (runtime: string, sessionId: string, model?: string) => Promise<void>
+  /** False when the conversation was already open there, so carry-on did not open it; anything else when it did. */
+  readonly resume: (runtime: string, sessionId: string, model?: string) => Promise<boolean | void>
+  /**
+   * What has happened in a conversation, as one comparable string: its handle, its turns, what runs. Equal
+   * before and after means nothing but carry-on touched it; null when it is not open.
+   */
+  readonly footprint: (runtime: string, sessionId: string) => string | null
   /**
    * On the host's path, never counted as the person's message. A `packet` is the desk's own context and goes as
    * such; `continue` is the one plain line that asks the agent to go on.
@@ -122,6 +128,16 @@ export interface CarryOnPorts {
 
 /** True while nothing the person sent has overtaken the operation that took it. */
 type Fence = () => boolean
+
+/** A conversation carry-on itself reopened or created, as it was the moment carry-on had it. */
+interface Opened {
+  readonly runtime: string
+  readonly sessionId: string
+  /** No message from the person into it since. */
+  readonly untouched: Fence
+  /** `CarryOnPorts.footprint` then; null when the host could not say, which never counts as untouched. */
+  readonly footprint: string | null
+}
 
 const PERSON_FIRST = 'The person’s message went first.'
 
@@ -159,9 +175,18 @@ export class CarryOnService {
   #now(): number { return (this.ports.now ?? Date.now)() }
 
   #fence(runtime: string, sessionId: string): Fence {
+    return this.#fenceAt(runtime, sessionId, this.#generations.get(carryOnKey(runtime, sessionId)) ?? 0)
+  }
+
+  #fenceAt(runtime: string, sessionId: string, at: number): Fence {
     const key = carryOnKey(runtime, sessionId)
-    const at = this.#generations.get(key) ?? 0
     return () => (this.#generations.get(key) ?? 0) === at
+  }
+
+  /** A destination carry-on opened is still only carry-on's: nobody sent into it, nothing runs, nothing else changed it. */
+  #untouched(opened: Opened): boolean {
+    return opened.untouched() && !this.ports.busy(opened.runtime, opened.sessionId) &&
+      opened.footprint !== null && this.ports.footprint(opened.runtime, opened.sessionId) === opened.footprint
   }
 
   // ------------------------------------------------------------ reading
@@ -414,8 +439,10 @@ export class CarryOnService {
         if (record.state === 'sending' || record.state === 'deciding') {
           if (record.throttle) { await this.#put({ ...record, state: 'cleared', throttle: undefined, nextAt: null, lastAt: this.#now() } as CarryOnRecord); continue }
           // A send that may have gone out waits for the person: no timer, now or after a later restart, may send again.
+          // The account it was going to stays off the card (it is in `tried`); the note says where to look instead.
+          const there = record.to ? ` to ${record.to.account ? `${record.to.name} · ${record.to.account}` : record.to.name}` : ''
           await this.#settle(record, record.state === 'sending'
-            ? { state: 'asked', nextAt: null, uncertain: true, note: 'The desk restarted while continuing this conversation; the message may already have been sent.' }
+            ? { state: 'asked', nextAt: null, uncertain: true, note: `The desk restarted while continuing this conversation; the message may already have been sent${there}.`.slice(0, 300) }
             : { state: 'asked', nextAt: record.resetsAt !== null && record.resetsAt > this.#now() ? afterReset(record.resetsAt) : null })
         } else if (record.state === 'waiting-reset' || record.state === 'asked') this.#arm(record)
       }
@@ -510,6 +537,8 @@ export class CarryOnService {
   async #retry(record: CarryOnRecord, fence: Fence): Promise<void> {
     const at = { runtime: record.runtime, sessionId: record.sessionId }
     const sending = await this.#settle(record, { state: 'sending', nextAt: null, turnStartedAt: this.#now() })
+    // The claim's own write is an await too: a message sent during it wins before anything is reopened.
+    if (!fence()) { await this.#settle(sending, { state: 'cleared', nextAt: null, throttle: undefined, note: PERSON_FIRST }); return }
     try {
       await this.ports.resume(at.runtime, at.sessionId)
       // The person wrote while it reopened: theirs is the continuation.
@@ -538,19 +567,38 @@ export class CarryOnService {
       state: 'sending', to, toRuntime: target.runtime, mode, turnStartedAt: this.#now(), tried, hops: record.hops + 1,
       ...(chosen.note ? { note: chosen.note } : {}),
     })
+    /**
+     * The person's message went first: carry-on stands down. A destination it opened is let go only while nothing
+     * but carry-on has happened in it — no message, no turn, no other handle. One the person has started using
+     * stays open, and the note says where.
+     */
+    const yieldTo = async (opened?: Opened): Promise<CarryOnRecord> => {
+      if (opened && this.#untouched(opened)) {
+        await this.ports.close(opened.runtime, opened.sessionId).catch(() => {})
+        opened = undefined
+      }
+      const where = opened ? ` The conversation is also open on ${to.account ? `${to.name} · ${to.account}` : to.name}, where it was in use.` : ''
+      // Left open, the incident stays on the conversation as stopped, so its note and link are seen; else it clears.
+      return this.#settle(current, {
+        state: opened ? 'stopped' : 'cleared', nextAt: null, note: `${PERSON_FIRST}${where}`.slice(0, 300),
+        ...(opened && opened.sessionId !== from.sessionId ? { link: { runtime: opened.runtime, sessionId: opened.sessionId } } : {}),
+      })
+    }
+    // Every await above may have let the person in: checked again right before each effect.
+    if (!fence()) return yieldTo()
     let note = chosen.note
     if (mode === 'sameThread') {
+      let opened: Opened | undefined
       try {
         // One live writer per thread: the stuck account lets go before its sibling takes it.
         await this.ports.close(from.runtime, from.sessionId)
         // Closed but not yet reopened elsewhere: the person's message reopens it where they sent it.
-        if (!fence()) return this.#settle(current, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
-        await this.ports.resume(target.runtime, from.sessionId, chosen.model)
-        if (!fence()) {
-          // The sibling took it while the person wrote: hand it back rather than continue under them.
-          await this.ports.close(target.runtime, from.sessionId).catch(() => {})
-          return this.#settle(current, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
-        }
+        if (!fence()) return yieldTo()
+        const untouched = this.#fence(target.runtime, from.sessionId)
+        const reopened = await this.ports.resume(target.runtime, from.sessionId, chosen.model)
+        // Already open there means someone else holds it: never carry-on's to close.
+        if (reopened !== false) opened = { runtime: target.runtime, sessionId: from.sessionId, untouched, footprint: this.ports.footprint(target.runtime, from.sessionId) }
+        if (!fence()) return yieldTo(opened)
       } catch {
         // The sibling could not reopen it: a handoff to the same account instead, and the marker says so.
         mode = 'handoff'
@@ -560,6 +608,7 @@ export class CarryOnService {
         const moved = { runtime: target.runtime, sessionId: from.sessionId }
         // On the thread's last turn; a reopen that has not read its turns back yet takes it on the continue turn instead.
         const marked = this.#mark(current, moved, 'switched', { to, mode, ...(note ? { note } : {}) })
+        if (!fence()) return yieldTo(opened)
         try { await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue') }
         catch { return this.#settle(current, { state: 'asked', note: 'The switch did not go through.' }) }
         if (!marked) this.#mark(current, moved, 'switched', { to, mode, ...(note ? { note } : {}) })
@@ -569,15 +618,14 @@ export class CarryOnService {
     }
     try {
       const text = await this.ports.packet(from, { fromName: record.from.name, ...(record.from.account ? { fromAccount: record.from.account } : {}), at: record.openedAt })
-      if (!fence()) return this.#settle(current, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
+      if (!fence()) return yieldTo()
       const created = await this.ports.create(target.runtime, from, chosen.model)
-      if (!fence()) {
-        // Nothing was sent to it: the empty conversation is let go, and the person's message stands.
-        await this.ports.close(target.runtime, created).catch(() => {})
-        return this.#settle(current, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
-      }
+      // A brand-new conversation has had nothing sent into it but what carry-on sends: its generation starts at zero.
+      const opened: Opened = { runtime: target.runtime, sessionId: created, untouched: this.#fenceAt(target.runtime, created, 0), footprint: this.ports.footprint(target.runtime, created) }
+      if (!fence()) return yieldTo(opened)
       const link = { runtime: target.runtime, sessionId: created }
       current = await this.#settle(current, { mode: 'handoff', link, ...(note ? { note } : {}) })
+      if (!fence()) return yieldTo(opened)
       this.#mark(current, from, 'left', { to, mode: 'handoff', link, ...(note ? { note } : {}) })
       await this.ports.send(link.runtime, link.sessionId, text, 'packet')
       this.#mark(current, link, 'arrived', { to, mode: 'handoff', link: from })

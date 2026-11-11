@@ -111,8 +111,10 @@ export const decide = (input: DecideInput, now: number): CarryOnAction => {
     case 'ask': {
       const { same, other } = best(input)
       const target = same ?? other
+      // One this incident already went to is never offered: a switch refuses it, so the card would offer a dead end.
+      // A restart that left a send to it unconfirmed says so in the incident's note instead.
       const others = ranked(input.candidates.filter(candidate => candidate.runtime !== input.stuck.runtime && candidate !== target &&
-        candidate.resume && candidate.tier < 3 && !candidate.refused && (input.otherAgents || candidate.agent === input.stuck.agent)))
+        candidate.resume && candidate.tier < 3 && !candidate.refused && !input.tried.includes(candidate.runtime) && (input.otherAgents || candidate.agent === input.stuck.agent)))
       return { kind: 'ask', target, mode: target ? modeOf(target, input.stuck.agent) : null, others, wait: resetKnown, scope: input.from }
     }
     case 'switch': {

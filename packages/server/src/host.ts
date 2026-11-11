@@ -5870,6 +5870,10 @@ export class Host {
    * window uses, its sends on the host's path so they never count as the
    * person's.
    */
+  /** Identities for live handles, so carry-on can tell the handle it opened from one somebody else attached. */
+  readonly #carryOnHandles = new WeakMap<object, number>()
+  #carryOnHandleCount = 0
+
   #buildCarryOn(): CarryOnService {
     const preferences = () => this.#state.state.preferences
     const pools = () => {
@@ -5947,8 +5951,18 @@ export class Host {
       },
       close: async (runtime, sessionId) => { await this.call('session/close', key(runtime, sessionId)) },
       resume: async (runtime, sessionId, model) => {
-        if (this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live) return
+        // Already open there: somebody else's handle, which carry-on must never close.
+        if (this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live) return false
         await this.call('session/resume', { ...key(runtime, sessionId), ...(model ? { options: { model } } : {}) })
+        return true
+      },
+      footprint: (runtime, sessionId) => {
+        const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+        if (!record?.live) return null
+        // The handle itself, the turns it holds and what runs: a reattach, a turn or a queued send all change it.
+        let handle = this.#carryOnHandles.get(record.live)
+        if (handle === undefined) { handle = ++this.#carryOnHandleCount; this.#carryOnHandles.set(record.live, handle) }
+        return `${handle}:${record.session.turns.length}:${record.running.size}:${this.#queueBusy(record) ? 1 : 0}`
       },
       // A packet is the host's own words: it goes in as desk context, so the transcript never
         // shows it as something the person typed.
