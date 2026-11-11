@@ -104,6 +104,12 @@ it.each([
   // Only the instructions refusal blames the instructions, memory or rules.
   expect(box.textContent?.includes('memory or rules')).toBe(waitReason === 'lead-request-withheld')
 })
+it('names a second stop at the same step and points at the desk log, without offering Resume again', async () => {
+  const base = leadProjection(), { box } = await mount({ ...base, wayOut: null, waitReason: 'lead-child-exited-again', thread: { ...base.thread, state: 'waiting-for-user' } })
+  expect(box.textContent).toContain('Dex stopped again at the same step, so resuming would only repeat it. The desk log names the step.')
+  expect(button('Resume')).toBeUndefined()
+  expect(box.textContent).not.toContain('{label}')
+})
 it('offers the rail toggle only where a shell draws the rail', async () => {
   expect((await mount()).box.querySelector('[aria-label="Toggle rail"]')).toBeNull()
   expect((await mount(leadProjection(), false, true)).box.querySelector('[aria-label="Toggle rail"]')).not.toBeNull()

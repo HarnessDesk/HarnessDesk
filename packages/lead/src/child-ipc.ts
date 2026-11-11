@@ -29,7 +29,37 @@ export const LEAD_RPC_OPERATIONS = ['recordWake', 'execute', 'updateBudget', 'se
   'restoreResult', 'recoverUnsettledRequests', 'appendReply', 'resolveTool', 'freezePlan', 'readEvidence', 'provider-send',
   'recordContext', 'readContext', 'compactContext', 'memoryEpoch'] as const
 export type LeadRpcOperation = typeof LEAD_RPC_OPERATIONS[number]
-const fail = (): never => { throw new Error('lead-ipc-invalid') }
+/** How many arguments each operation carries, fewest and most. The frame check and the host's dispatch both read this
+ * one table, so an operation can never pass one and break the other: `memoryEpoch` once carried three arguments past a
+ * frame check that allowed two, and the host stopped the child on every new epoch (#2085). */
+export const LEAD_RPC_ARGS: Readonly<Record<LeadRpcOperation, readonly [number, number]>> = {
+  recordWake: [1, 1], execute: [1, 1], updateBudget: [1, 1], setManagementPhase: [2, 2], invalidateResults: [0, 0], offerCard: [1, 1],
+  restoreResult: [2, 2], recoverUnsettledRequests: [0, 0], appendReply: [1, 4], resolveTool: [1, 1], freezePlan: [1, 1], readEvidence: [1, 1],
+  'provider-send': [2, 3], recordContext: [1, 1], readContext: [1, 1], compactContext: [1, 1], memoryEpoch: [3, 3],
+}
+export const leadRpcArgsFit = (operation: LeadRpcOperation, count: number): boolean =>
+  count >= LEAD_RPC_ARGS[operation][0] && count <= LEAD_RPC_ARGS[operation][1]
+const fail = (stage?: string): never => { throw Object.assign(new Error('lead-ipc-invalid'), stage ? { stage } : {}) }
+/** Where the child's loop catches a failure and carries on. A `failure` frame names one of these, or it is dropped. */
+export const LEAD_CHILD_FAILURE_STAGES = ['memoryEpoch', 'messages', 'appendReply', 'settleStarts', 'activity', 'subscribe'] as const
+export type LeadChildFailureStage = typeof LEAD_CHILD_FAILURE_STAGES[number]
+/** The shapes a logged code may take: a `lead-…` code, a system code (`ENOENT`) or a class name. Nothing with a space. */
+const LEAD_CODE = /^lead-[a-z0-9-]{1,60}$/, SYSTEM_CODE = /^[A-Z][A-Z0-9_]{1,40}$/, CLASS_NAME = /^[A-Za-z]{1,40}$/
+export const leadFailureCodeValid = (value: unknown): value is string =>
+  typeof value === 'string' && (LEAD_CODE.test(value) || SYSTEM_CODE.test(value) || CLASS_NAME.test(value))
+/**
+ * What a log may say about a caught failure: its wire code, its `lead-…` message, a system code (`ENOENT`) or its
+ * class name, in that order. Never a free-form message, which can carry a path, a key or the person's words. What it
+ * returns always passes `leadFailureCodeValid`, so a child's own report never fails the host's check.
+ */
+export const leadFailureCode = (failure: unknown): string => {
+  const object = failure && typeof failure === 'object' ? failure as { wireCode?: unknown; message?: unknown; code?: unknown; name?: unknown } : {}
+  if (typeof object.wireCode === 'string' && LEAD_CODE.test(object.wireCode)) return object.wireCode
+  if (typeof object.message === 'string' && LEAD_CODE.test(object.message)) return object.message
+  if (typeof object.code === 'string' && SYSTEM_CODE.test(object.code)) return object.code
+  if (typeof object.name === 'string' && CLASS_NAME.test(object.name)) return object.name
+  return 'unknown'
+}
 export const ipcObject = (value: unknown, fields?: readonly string[]): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fail()
   const object = value as Record<string, unknown>
@@ -46,6 +76,8 @@ const fields: Readonly<Record<string, readonly string[]>> = {
   dispatch: ['id', 'rpcId', 'call', 'correlationId'], 'dispatch-result': ['id', 'ok', 'value'],
   read: ['id', 'call'], 'read-result': ['id', 'ok', 'value'], state: ['state'],
   shutdown: [], 'desk-lost': [], 'ownership-withdrawn': ['runId'], 'evidence-changed': [], 'wait-ended': ['runId', 'reason'], presence: ['presence'], activity: ['busy'],
+  // A failure the child caught and carried on from, for the host log: where it happened and its code, never content.
+  failure: ['stage', 'code'],
 }
 export const parseLeadIpc = (value: unknown): LeadIpcMessage => {
   const object = ipcObject(value), type = ipcText(object.type, 64), selected = fields[type]
@@ -54,8 +86,12 @@ export const parseLeadIpc = (value: unknown): LeadIpcMessage => {
   if ('id' in object) ipcId(object.id)
   if (type === 'activity' && typeof object.busy !== 'boolean') fail()
   if (type === 'rpc') {
-    if (!LEAD_RPC_OPERATIONS.includes(object.operation as LeadRpcOperation) || !Array.isArray(object.args) || object.args.length > (object.operation === 'appendReply' ? 4 : object.operation === 'provider-send' ? 3 : 2)) fail()
+    if (!LEAD_RPC_OPERATIONS.includes(object.operation as LeadRpcOperation)) fail('rpc')
+    const operation = object.operation as LeadRpcOperation
+    if (!Array.isArray(object.args) || !leadRpcArgsFit(operation, object.args.length)) fail(`rpc ${operation}`)
   }
+  // A diagnostic never owns the child: a `failure` frame whose stage or code is not a known name is dropped by the host,
+  // never treated as a broken protocol. Only its envelope is checked here.
   if (['reply', 'dispatch-result', 'read-result'].includes(type) && typeof object.ok !== 'boolean') fail()
   if (type === 'dispatch') { ipcId(object.rpcId); ipcText(object.correlationId, 256) }
   if (type === 'ownership-withdrawn' || type === 'wait-ended') ipcText(object.runId, 256)

@@ -15,9 +15,10 @@ import type { LeadWithheldPiece } from './credential-screen.js'
 import type { LeadMessagesRequest, LeadMessagesResult, MessagesPrice, MessagesHttpResponse, MessagesText, MessagesTurn } from './messages-types.js'
 import { parseLeadContextTurns } from './messages.js'
 import type { LeadContextRecordInput } from './loop.js'
-import { LEAD_FRAME_BYTES, LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadRpcOperation } from './child-ipc.js'
+import { LEAD_FRAME_BYTES, LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, LEAD_CHILD_FAILURE_STAGES, LEAD_RPC_OPERATIONS, leadFailureCode, leadFailureCodeValid, leadRpcArgsFit, type LeadIpcMessage, type LeadRpcOperation } from './child-ipc.js'
 
 export type { LeadChildBootstrap } from './child-ipc.js'
+export { leadFailureCode } from './child-ipc.js'
 import type { LeadChildBootstrap } from './child-ipc.js'
 /** Three 30-second transport attempts plus two bounded retry waits fit below this watchdog. */
 export const LEAD_SEND_DEADLINE_MS = 180_000
@@ -171,6 +172,13 @@ export interface LeadSupervisorOptions {
   readonly admitReply?: (text: string) => Promise<void>
   /** A static code for something the host should log as a warning. Never content. */
   readonly onWarning?: (code: string) => void
+  /**
+   * A failure that stopped the child (`stopped`), or one the child caught and carried on from: where it happened
+   * (`frame rpc memoryEpoch`, `rpc appendReply`, `child appendReply`) and its code. Both are static names, never
+   * content, so the host can log them and tell a repeat from a new failure. The child's own reports are deduplicated
+   * by stage and code and capped per child; past the cap one `lead-failures-suppressed` says the rest were dropped.
+   */
+  readonly onFailure?: (failure: LeadChildFailure) => void
   readonly providerSend?: (requestId: string, body: string, signal: AbortSignal, withheld?: readonly LeadWithheldPiece[]) => Promise<MessagesHttpResponse>
   /** Test seam for the host-owned, already-connected desk socket. */
   readonly connectDesk?: (descriptor: DeskPointer, signal: AbortSignal) => Promise<Socket | null>
@@ -187,6 +195,10 @@ export interface LeadSupervisorOptions {
   /** Test injection retains the exact production argv/environment construction. */
   readonly spawn?: (binary: string, args: readonly string[], options: { env: Record<string, string>; stdio: ['pipe', 'pipe', 'pipe', 'ipc'] | ['pipe', 'pipe', 'pipe']; windowsHide: boolean }) => ChildProcessWithoutNullStreams
 }
+/** Where a Lead child failed and its code: static names for the host log, never content. */
+export interface LeadChildFailure { readonly stage: string; readonly code: string; readonly stopped: boolean }
+/** Distinct failures one child may report before the rest are dropped: a loop failing every tick logs once. */
+export const LEAD_CHILD_FAILURES_PER_RUN = 20
 type Deferred = { resolve(value: unknown): void; reject(error: Error): void }
 interface Running {
   readonly child: ChildProcessWithoutNullStreams
@@ -201,6 +213,9 @@ interface Running {
   exited: boolean
   poisoned: boolean
   reason: string
+  /** The child's own failure reports this run, by stage and code; `suppressed` once the cap was reached. */
+  readonly failures: Set<string>
+  suppressed: boolean
   readonly done: Promise<void>
   finish(): void
   failReady(error: Error): void
@@ -297,23 +312,28 @@ export class LeadSupervisor {
       const done = new Promise<void>(resolve => { finish = resolve })
       const ready = new Promise<void>((resolve, reject) => { markReady = resolve; failReady = reject })
       void ready.catch(() => {})
-      const running: Running = { child, providerAbort: new AbortController(), pending: new Map(), replies: new Map(), journalWork: new Set(), ready: false, initialized: false, rpcId: 0, id: 0, exited: false, poisoned: false,
+      const running: Running = { child, providerAbort: new AbortController(), pending: new Map(), replies: new Map(), journalWork: new Set(), failures: new Set(), suppressed: false, ready: false, initialized: false, rpcId: 0, id: 0, exited: false, poisoned: false,
         reason: 'exited', done, finish, markReady, failReady }
       this.#running = running
       const decoder = new LeadFrameDecoder()
       child.stdout.on('data', (chunk: Uint8Array) => {
         if (running.exited) return
         try { decoder.push(chunk, message => this.#receive(running, message)) }
-        catch { this.#protocolFailure(running) }
+        catch (failure) {
+          // The frame check names the operation it refused; only a name from the fixed list reaches the log.
+          const stage = (failure as { stage?: unknown } | null)?.stage
+          const named = stage === 'rpc' || LEAD_RPC_OPERATIONS.some(operation => stage === `rpc ${operation}`) ? `frame ${stage as string}` : 'frame'
+          this.#protocolFailure(running, named, failure)
+        }
       })
       // Drain without exposing any byte, including an unhandled provider stack.
       child.stderr.on('data', () => {})
-      child.stdin.on('error', () => { if (!running.exited) this.#protocolFailure(running) })
+      child.stdin.on('error', failure => { if (!running.exited) this.#protocolFailure(running, 'stdin', failure) })
       child.once('exit', () => { void this.#exit(running).catch(() => {}) })
       child.once('error', () => { running.reason = 'spawn-failed'; void this.#exit(running).catch(() => {}) })
       const detach = this.options.journal.onChange(() => {
         if (this.#running === running && !running.exited && !running.poisoned && running.initialized) {
-          try { write(running, { type: 'state', state: this.options.journal.state }) } catch { this.#protocolFailure(running) }
+          try { write(running, { type: 'state', state: this.options.journal.state }) } catch (failure) { this.#protocolFailure(running, 'state', failure) }
         }
       })
       void done.then(detach)
@@ -383,6 +403,7 @@ export class LeadSupervisor {
       running.pending.delete(message.id as number); pending.resolve(result); return
     }
     if (message.type === 'activity') { this.#activity(message.busy === true && !this.#stopping); return }
+    if (message.type === 'failure') { this.#childFailure(running, message.stage, message.code); return }
     if (message.type === 'presence') { const presence = parseLeadPresence(message.presence); this.options.onPresence?.(presence); return }
     if (message.type === 'desk-lost') { running.reason = 'desk-lost'; this.#kill(running); return }
     if (message.type === 'wait-ended') {
@@ -408,10 +429,7 @@ export class LeadSupervisor {
       return promise
     }
     try {
-      const arity = { recordWake: 1, execute: 1, updateBudget: 1, setManagementPhase: 2, invalidateResults: 0, offerCard: 1,
-        restoreResult: 2, recoverUnsettledRequests: 0, appendReply: 1, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 2,
-        recordContext: 1, readContext: 1, compactContext: 1, memoryEpoch: 3 }[operation]
-      if (args.length !== arity && !(operation === 'appendReply' && args.length >= 2 && args.length <= 4) && !(operation === 'provider-send' && args.length === 3)) throw error('protocol')
+      if (!leadRpcArgsFit(operation, args.length)) throw error('protocol')
       let value: unknown = null
       switch (operation) {
         case 'recordWake': await durable(journal.recordWake(args[0] as import('@harnessdesk/protocol').LeadWakeRecord)); break
@@ -543,11 +561,30 @@ export class LeadSupervisor {
       }
       // Treat malformed journal commands as a broken protocol, without returning
       // raw journal/provider errors or allowing a later message to overtake it.
-      this.#protocolFailure(running)
+      this.#protocolFailure(running, `rpc ${operation}`, failure)
     }
   }
-  #protocolFailure(running: Running): void {
+  /** Logged by stage and code only. A log never owns the child's lifecycle. */
+  #report(failure: LeadChildFailure): void {
+    try { this.options.onFailure?.(failure) } catch { /* A log never owns the child. */ }
+  }
+  /** A failure the child caught. A diagnostic never owns the child: one that names no known stage or code is dropped
+   * and logged as `lead-failure-invalid`, once per child, like any other repeat. */
+  #childFailure(running: Running, stage: unknown, code: unknown): void {
+    const valid = (LEAD_CHILD_FAILURE_STAGES as readonly unknown[]).includes(stage) && leadFailureCodeValid(code)
+    const failure = valid ? { stage: `child ${stage as string}`, code: code as string, stopped: false } : { stage: 'child', code: 'lead-failure-invalid', stopped: false }
+    const key = `${failure.stage}\u0000${failure.code}`
+    if (running.failures.has(key)) return
+    if (running.failures.size >= LEAD_CHILD_FAILURES_PER_RUN) {
+      if (!running.suppressed) { running.suppressed = true; this.#report({ stage: 'child', code: 'lead-failures-suppressed', stopped: false }) }
+      return
+    }
+    running.failures.add(key); this.#report(failure)
+  }
+  #protocolFailure(running: Running, stage: string, failure?: unknown): void {
     if (running.poisoned || running.exited) return
+    // Said once, with the step that broke, so a child stopped this way is never a silent exit (#2085).
+    if (!this.#stopping) this.#report({ stage, code: leadFailureCode(failure), stopped: true })
     // A child that speaks after the host began stopping it is being cancelled, not breaking the protocol. The exit
     // keeps the stop's own reason, because the host runs a different cleanup for a failure: one that does not spare
     // work a cancellation leaves alone.
@@ -592,12 +629,12 @@ export class LeadSupervisor {
 
   ownershipWithdrawn(runId: string): void {
     const running = this.#running
-    if (running && !running.exited && running.ready) { try { write(running, { type: 'ownership-withdrawn', runId: ipcText(runId, 256) }) } catch { this.#protocolFailure(running) } }
+    if (running && !running.exited && running.ready) { try { write(running, { type: 'ownership-withdrawn', runId: ipcText(runId, 256) }) } catch (failure) { this.#protocolFailure(running, 'ownership-withdrawn', failure) } }
   }
   /** Evidence reaches the desk with no run or card event (a check a person ran): the loop reads it again. */
   evidenceChanged(): void {
     const running = this.#running
-    if (running && !running.exited && running.ready) { try { write(running, { type: 'evidence-changed' }) } catch { this.#protocolFailure(running) } }
+    if (running && !running.exited && running.ready) { try { write(running, { type: 'evidence-changed' }) } catch (failure) { this.#protocolFailure(running, 'evidence-changed', failure) } }
   }
   stop(reason = 'stopped'): Promise<void> {
     if (this.#stopping) return this.#stopping

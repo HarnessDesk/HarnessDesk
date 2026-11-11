@@ -180,7 +180,7 @@ import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRe
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
-import { LeadSupervisor, type LeadRuntime } from '@harnessdesk/lead/supervisor'
+import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
@@ -4295,6 +4295,8 @@ export class Host {
         return serviceOptions.createSupervisor ? serviceOptions.createSupervisor(warned) : new LeadSupervisor(warned)
       },
       onRequestRefused: refusal => this.#logger.warn('Lead request refused before sending', { ...refusal }),
+      // Where the Lead's child failed and the failure's code: a stop, or one it caught and carried on from. Never content.
+      onFailure: failure => this.#logger.warn(failure.stopped ? 'Lead child stopped' : 'Lead child failed and carried on', { stage: failure.stage, code: failure.code }),
       onRequestWithheld: report => this.#logger.warn('Lead request sent with parts withheld', { ...report }),
       onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
       // A `Remember:` line in a reply is read as the same proposal memory_propose makes: scanned, then to the inbox.
@@ -4490,6 +4492,7 @@ export class Host {
         await this.#leadChats?.projectChanged()
       },
       readRequestInFlight: () => this.#leadService?.requestInFlight ?? false,
+      onFailure: (stage, failure) => this.#logger.warn('Lead request failed', { stage, code: leadFailureCode(failure) }),
       readActiveTool: () => this.#leadService?.activeTool ?? null,
       readChatEffectQueued: () => this.#leadChats?.effectsQueued ?? false,
       service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,

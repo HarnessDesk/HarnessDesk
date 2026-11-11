@@ -604,6 +604,22 @@ test('a goal that stalled with nothing started projects its own wait reason and 
   assert.deepEqual(approvedContractOf((s.sends.at(-1) as any).messages.at(-1)), contract)
   s.controls.close()
 })
+// #2085: after the same stop twice the wait offers no Resume. A message from the person is still a way on: it resumes the
+// Lead and sends the request again, so the person can retry once the cause is fixed.
+test('a message sent while the Lead stopped twice at the same step resumes it and sends the request again', async () => {
+  const s = await rig({ configured: true })
+  await s.controls.send({ idempotencyKey: 'first', text: 'Check the build' }); await s.controls.idle()
+  const before = s.sends.length
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-child-exited-again')
+  const wait = await s.controls.readThread()
+  assert.equal(wait.waitReason, 'lead-child-exited-again'); assert.equal(wait.wayOut, null)
+  await s.controls.send({ idempotencyKey: 'retry', text: 'Try again now' }); await s.controls.idle()
+  assert.equal(s.sends.length, before + 1, 'the request was sent again')
+  assert.ok(JSON.stringify((s.sends.at(-1) as any).messages).includes('Try again now'))
+  assert.notEqual(s.journal.state.phase, 'waiting-for-user')
+  assert.equal(s.journal.state.managementReason, null)
+  s.controls.close()
+})
 test('consent expiry offers a fresh plan decision instead of Resume', async () => {
   const s = await rig({ controls: { now: () => 1000001 } }); await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000000)
   await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
