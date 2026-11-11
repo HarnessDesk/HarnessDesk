@@ -183,6 +183,8 @@ const useStanding = (): Standing | null => {
   const runtime = useRuntime()
   const health = useRuntimeHealth()
   const account = useRuntimeAccount()
+  // The conversation this banner sits over: its pane's, not whichever one has focus.
+  const conversation = useSessionKey()
   const agent = agentKey(runtime)
   const siblings = snapshot.runtimes.filter((entry) => agentKey(entry) === agent)
   const pool = snapshot.accountPools[agent]
@@ -239,7 +241,7 @@ const useStanding = (): Standing | null => {
     // asking, or a wait or a send is under way), the banner states the
     // condition and offers no way out of its own beside the card's.
     const rule = carryOnFor(snapshot.carryOnPolicy, pool)
-    const incident = snapshot.activeSessionKey ? snapshot.carryOnIncidents.get(snapshot.activeSessionKey) : undefined
+    const incident = conversation ? snapshot.carryOnIncidents.get(conversation) : undefined
     const deciding = incident !== undefined && CARRY_ON_LIVE.has(incident.state)
     const condition = conditionFor(runtime.id, snapshot.usage, nameFor, Date.now(), {
       prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot)), pool, { reports: snapshot.usage, now: Date.now() }).map((entry) => entry.id),

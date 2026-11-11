@@ -1172,4 +1172,37 @@ describe('the out-of-quota banner under the carry-on rule', () => {
     expect(container.textContent).toContain('Agent A is out of quota')
     expect(action()).toBeUndefined()
   })
+
+  it('asks its own pane’s conversation whether an incident owns the answer, not the focused one', () => {
+    const incident = { incidentId: 'i-1', runtime: 'a', sessionId: 's1', owner: 'chat', state: 'asked', cause: 'credits', from: { name: 'Agent A' }, openedAt: 1, choices: { wait: false }, others: [], alwaysScope: 'desk' }
+    const OTHER = sessionKey('a' as never, 's2' as never)
+    const inPane = (pane: typeof SESSION, active: typeof SESSION) => {
+      const store = makeStore({
+        runtimes: [runtime('a', 'Agent A'), runtime('b', 'Agent B')],
+        accountsByRuntime: { a: { accounts: [{ kind: 'oauth', label: 'Jane Doe' }] }, b: { accounts: [{ kind: 'oauth', label: 'Jane Doe' }] } } as never,
+        usage: [spent('a'), roomy('b')],
+        activeSessionKey: active,
+        carryOnIncidents: new Map([[SESSION, incident as never]]),
+      })
+      act(() => {
+        root.render(
+          <StoreProvider store={store}>
+            <PaneProvider scope={{ paneId: 'p1' as never, view: { kind: 'conversation', session: pane }, sessionKey: pane }}>
+              <StatusBanner onSignIn={() => {}} />
+            </PaneProvider>
+          </StoreProvider>,
+        )
+      })
+    }
+    // Wherever this mount puts the banner, its own way out is the one button that names somewhere to go.
+    const wayOut = () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => /Continue with|Switch to/.test(one.textContent ?? ''))
+    // Focus is on the conversation the card is asking in; this pane's own has no incident.
+    inPane(OTHER, SESSION)
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(wayOut()?.textContent).toBe('Continue with Agent B')
+    // This pane's conversation is the one asking, while focus is elsewhere.
+    inPane(SESSION, OTHER)
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(wayOut()).toBeUndefined()
+  })
 })

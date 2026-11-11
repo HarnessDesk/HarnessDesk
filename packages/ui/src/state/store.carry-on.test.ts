@@ -196,6 +196,48 @@ describe('carry-on in the store', () => {
     expect(store.getSnapshot().carryOnIncidents.get(KEY)?.state).toBe('moved')
   })
 
+  it('an answer sent after a list set out outranks it, whichever comes back first', async () => {
+    push(incident())
+    // The list comes back first, still saying "asked"; the Stop sent after it set out must still land.
+    const read = deferred<unknown>()
+    answers['carryOn/list'] = () => read.promise
+    const loading = store.loadCarryOn()
+    const answer = deferred<unknown>()
+    answers['carryOn/decide'] = () => answer.promise
+    const deciding = store.decideCarryOn({ incidentId: 'incident-1', choice: 'stop', always: false })
+    read.resolve({ incidents: [incident()] })
+    await loading
+    answer.resolve({ incident: incident({ state: 'stopped' }) })
+    await deciding
+    expect(store.getSnapshot().carryOnIncidents.get(KEY)?.state).toBe('stopped')
+
+    // The other way round: the answer first, then the older list.
+    push(incident({ incidentId: 'incident-2' }))
+    const later = deferred<unknown>()
+    answers['carryOn/list'] = () => later.promise
+    const second = store.loadCarryOn()
+    answers['carryOn/decide'] = { incident: incident({ incidentId: 'incident-2', state: 'stopped' }) }
+    await store.decideCarryOn({ incidentId: 'incident-2', choice: 'stop', always: false })
+    later.resolve({ incidents: [incident({ incidentId: 'incident-2' })] })
+    await second
+    expect(store.getSnapshot().carryOnIncidents.get(KEY)).toMatchObject({ incidentId: 'incident-2', state: 'stopped' })
+  })
+
+  it('a stale refusal to an answer sent after a list set out clears the card the list put back', async () => {
+    push(incident())
+    const read = deferred<unknown>()
+    answers['carryOn/list'] = () => read.promise
+    const loading = store.loadCarryOn()
+    const answer = deferred<unknown>()
+    answers['carryOn/decide'] = () => answer.promise
+    const deciding = store.decideCarryOn({ incidentId: 'incident-1', choice: 'stop', always: false })
+    read.resolve({ incidents: [incident()] })
+    await loading
+    answer.reject(refusal('This was already answered.', 'carryOnStale', { incident: null }))
+    await expect(deciding).rejects.toThrow('already answered')
+    expect(store.getSnapshot().carryOnIncidents.has(KEY)).toBe(false)
+  })
+
   it('a list keeps the inbox in step: a question asked while away is kept, one answered while away is read', async () => {
     // A question kept before this window went away, answered elsewhere since.
     store.keep({ id: 'carry-on:incident-0:asked', kind: 'usage:carry-on', tone: 'warning', title: 'Alpha · work reached its usage limit. Choose how to carry on.', at: 1 })
@@ -216,18 +258,86 @@ describe('carry-on in the store', () => {
     expect(store.getSnapshot().inbox.find(entry => entry.id === 'carry-on:incident-1:asked')).toMatchObject({ read: false })
   })
 
+  /** The host's preferences, as a write leaves them: what a read made after the write answers. */
+  const host = (initial: Record<string, unknown>) => {
+    const prefs: Record<string, unknown> = { ...initial }
+    const reads: ReturnType<typeof deferred<unknown>>[] = []
+    let flowing = false
+    // Each read is answered by the test, with the preferences as they stood when it was sent.
+    answers['app/state/get'] = () => {
+      const read = deferred<unknown>()
+      const sent = { ...prefs }
+      reads.push(read)
+      if (flowing) read.resolve(undefined)
+      return read.promise.then(() => sent)
+    }
+    /** From here on every read is answered as soon as it is sent. */
+    const flow = (): void => {
+      flowing = true
+      for (const read of reads) read.resolve(undefined)
+    }
+    return { prefs, reads, flow }
+  }
+
   it('reads both levels of the rule, and drops a read that a write here overtook', async () => {
     answers['app/state/get'] = { carryOn: { onLimit: 'wait', otherAgents: true }, accountPools: { alpha: { whenOut: 'stop' } } }
     await store.loadCarryOnPolicy()
     expect(store.getSnapshot().accountPools[RUNTIME]?.whenOut).toBe('stop')
 
-    const read = deferred<unknown>()
-    answers['app/state/get'] = () => read.promise
+    const { prefs, reads } = host({ carryOn: { onLimit: 'wait', otherAgents: true }, accountPools: { alpha: { whenOut: 'stop' } } })
+    answers['app/state/set'] = (async () => { Object.assign(prefs, { accountPools: { alpha: { whenOut: 'next' } } }); return null }) as never
     const loading = store.loadCarryOnPolicy()
     store.setAccountPool(RUNTIME, { whenOut: 'next' })
-    read.resolve({ carryOn: { onLimit: 'wait', otherAgents: true }, accountPools: { alpha: { whenOut: 'stop' } } })
+    reads[0]!.resolve(undefined)
+    // The overtaken read is asked again, and the second answer has the write in it.
+    await vi.waitFor(() => expect(reads).toHaveLength(2))
+    reads[1]!.resolve(undefined)
     await loading
     expect(store.getSnapshot().accountPools[RUNTIME]?.whenOut).toBe('next')
+  })
+
+  it('a read sent while a write is in flight never undoes the selection shown', async () => {
+    const { prefs, reads, flow } = host({ carryOn: { onLimit: 'ask', otherAgents: true } })
+    const write = deferred<unknown>()
+    answers['app/state/set'] = () => write.promise
+    const writing = store.setCarryOnPolicy({ onLimit: 'stop', otherAgents: true })
+    expect(store.getSnapshot().carryOnPolicy.onLimit).toBe('stop')
+
+    // Sent and answered while the write is still out: it predates the write.
+    const early = store.loadCarryOnPolicy()
+    reads[0]!.resolve(undefined)
+    await early
+    expect(store.getSnapshot().carryOnPolicy.onLimit).toBe('stop')
+
+    // Sent while the write is out, answered after it settled: still from before it.
+    const late = store.loadCarryOnPolicy()
+    Object.assign(prefs, { carryOn: { onLimit: 'stop', otherAgents: true } })
+    write.resolve(null)
+    await writing
+    reads[1]!.resolve(undefined)
+    flow()
+    await late
+    await vi.waitFor(() => expect(store.getSnapshot().carryOnPolicy.onLimit).toBe('stop'))
+  })
+
+  it('a reconnect read that runs before a queued write flushes does not undo it', async () => {
+    Object.assign(store.getSnapshot(), { status: 'open' })
+    const write = deferred<unknown>()
+    answers['app/state/set'] = () => write.promise
+    answers['carryOn/list'] = { incidents: [] }
+    const writing = store.setCarryOnPolicy({ onLimit: 'stop', otherAgents: true })
+    status('reconnecting')
+    // The host still has Ask: the queued write has not reached it yet.
+    answers['app/state/get'] = { carryOn: { onLimit: 'ask', otherAgents: true } }
+    status('open')
+    await vi.waitFor(() => expect(request.mock.calls.filter(([method]) => method === 'app/state/get').length).toBeGreaterThan(0))
+    await Promise.resolve()
+    expect(store.getSnapshot().carryOnPolicy.onLimit).toBe('stop')
+    answers['app/state/get'] = { carryOn: { onLimit: 'stop', otherAgents: true } }
+    write.resolve(null)
+    await writing
+    await vi.waitFor(() => expect(request.mock.calls.filter(([method]) => method === 'app/state/get').length).toBeGreaterThan(1))
+    expect(store.getSnapshot().carryOnPolicy.onLimit).toBe('stop')
   })
 
   it('reads the rules again on reconnect, so an "Always" the host wrote while the link was down is not undone', async () => {

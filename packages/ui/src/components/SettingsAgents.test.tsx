@@ -1659,6 +1659,27 @@ it('an agent page reads the rules again each time it is shown, so a host-written
   expect(loadCarryOnPolicy).toHaveBeenCalled()
 })
 
+it('holds every edit to the pools until the rules read on entry is in', async () => {
+  const setAccountPool = vi.fn()
+  let finish!: () => void
+  const loadCarryOnPolicy = vi.fn(() => new Promise<{ onLimit: 'ask'; otherAgents: boolean }>((resolve) => { finish = () => resolve({ onLimit: 'ask', otherAgents: true }) }))
+  await mountList({ accountPools: { alpha: { order: ['alpha#2', 'alpha'] } }, store: { setAccountPool, loadCarryOnPolicy } })
+  await act(async () => line('Alpha').click())
+  // A move made against the map this page holds would write it back over an "Always" the read is bringing.
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Order"]')!.disabled).toBe(true)
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="When an account runs out"]')!.disabled).toBe(true)
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="ada actions"]')!.click())
+  const held = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(held.map((item) => item.getAttribute('aria-disabled'))).toEqual(['true', 'true'])
+  await act(async () => held[0]!.click())
+  expect(setAccountPool).not.toHaveBeenCalled()
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+
+  await act(async () => finish())
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Order"]')!.disabled).toBe(false)
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="When an account runs out"]')!.disabled).toBe(false)
+})
+
 it('two identities one runtime reports are one place in the queue, with no order to set', async () => {
   await mountList({
     accountsByRuntime: {

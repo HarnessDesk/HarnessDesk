@@ -640,9 +640,18 @@ const AgentAccounts = ({
   const pool = snapshot.accountPools[agent]
   // The pools are read again on each visit: an "Always do this for <agent>"
   // the host wrote from a card elsewhere would otherwise be undone by the
-  // next order change here, which writes the whole map.
+  // next order change here, which writes the whole map. Until the newest
+  // read is in, nothing on this page writes the pools — a move made against
+  // the old map would write it back over the rule the read is bringing.
+  const [poolsReading, setPoolsReading] = useState(true)
+  const poolsRead = useRef(0)
   useEffect(() => {
-    if (destinationActive) void store.loadCarryOnPolicy()
+    if (!destinationActive) return
+    const read = ++poolsRead.current
+    setPoolsReading(true)
+    void store.loadCarryOnPolicy().finally(() => {
+      if (read === poolsRead.current) setPoolsReading(false)
+    })
   }, [destinationActive, store])
   // In the order new sessions use them, so the list is the queue.
   const queue = inPoolOrder(siblings, pool, { reports: snapshot.usage, now: Date.now() })
@@ -669,6 +678,7 @@ const AgentAccounts = ({
   // move by hand would change nothing and is not offered.
   const paced = isPaced(pool)
   const movesFor = (runtime: RuntimeId) => {
+    if (poolsReading) return {}
     const at = listedOrder.indexOf(runtime)
     const move = (delta: number) => () => store.setAccountPool(agent, {
       order: [...movedInPool(listedOrder, runtime, delta), ...order.filter((id) => !listedOrder.includes(id))],
@@ -1005,6 +1015,7 @@ const AgentAccounts = ({
             control={
               <NativeSelect
                 aria-label="Order"
+                disabled={poolsReading}
                 value={paced ? 'soonest' : 'mine'}
                 onChange={(event) => store.setAccountPool(agent, { pace: event.target.value === 'soonest' ? 'soonest' : undefined })}
               >
@@ -1019,6 +1030,7 @@ const AgentAccounts = ({
           control={
             <NativeSelect
               aria-label="When an account runs out"
+              disabled={poolsReading}
               value={pool?.whenOut ?? FOLLOW_DESK}
               onChange={(event) => store.setAccountPool(agent, { whenOut: event.target.value === FOLLOW_DESK ? undefined : event.target.value as WhenOut })}
             >
