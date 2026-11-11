@@ -19,6 +19,27 @@ export const carryOnName = (side: Pick<CarryOnSide, 'name' | 'account'>): string
 export const carryOnSwitchLabel = (target: CarryOnTarget): string =>
   target.mode === 'sameThread' ? `Switch to ${carryOnName(target)}` : `Continue in ${carryOnName(target)}`
 
+/**
+ * Whether a candidate can take the work now. A signed-out account cannot,
+ * and neither can one with no room (tier 3): the card leaves both out
+ * rather than offer somewhere the answer would only be refused.
+ */
+export const carryOnCanTake = (target: CarryOnTarget): boolean => target.state !== 'signedOut' && target.tier < 3
+
+/**
+ * The words of the card's "other" link, naming what its menu holds: other
+ * accounts of the same agent, other agents, or both.
+ */
+export const carryOnOthersLabel = (others: readonly Pick<CarryOnTarget, 'mode'>[]): string => {
+  const accounts = others.some(other => other.mode === 'sameThread')
+  const agents = others.some(other => other.mode !== 'sameThread')
+  return accounts && agents ? 'Choose another…' : agents ? 'Other agent…' : 'Other account…'
+}
+
+/** The heading a candidate is listed under when the menu holds both kinds. */
+export const carryOnOthersGroup = (target: Pick<CarryOnTarget, 'mode'>): string =>
+  target.mode === 'sameThread' ? 'Accounts' : 'Agents'
+
 /** The one chip a candidate that is not simply available wears. */
 export const CARRY_ON_TARGET_CHIP: Readonly<Record<CarryOnTargetState, string>> = {
   nearlyOut: 'Nearly out',

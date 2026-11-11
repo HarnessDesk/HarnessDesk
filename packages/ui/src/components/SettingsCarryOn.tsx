@@ -13,7 +13,7 @@ import { useSnapshot, useStore } from '../state/context'
  */
 export const CARRY_ON_ROWS: readonly { readonly value: CarryOnChoice; readonly title: string; readonly desc?: string; readonly tooltip: string }[] = [
   { value: 'ask', title: 'Ask me', tooltip: 'Shows a card over the conversation each time' },
-  { value: 'switch', title: 'Switch to another account', desc: 'Uses another agent when no account has room', tooltip: 'Carries on without asking, and says where' },
+  { value: 'switch', title: 'Switch to another account', tooltip: 'Carries on without asking, and says where' },
   { value: 'wait', title: 'Wait until it resets', desc: 'Stops when no reset time is known', tooltip: 'Tries once more on the same account when it resets' },
   { value: 'stop', title: 'Stop', tooltip: 'Leaves the conversation stopped, and says so' },
 ]
@@ -30,18 +30,25 @@ export const CarryOnSection = () => {
   const store = useStore()
   const policy = useSnapshot().carryOnPolicy
   const saving = useRef(false)
-  const [loaded, setLoaded] = useState(false)
+  const readRevision = useRef(0)
+  // Each visit reads the rule again, and the controls wait for it: a choice
+  // made against the rule from the last visit could write that old rule back.
+  const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!destinationActive || saving.current) return
+    const revision = ++readRevision.current
     let live = true
-    void store.loadCarryOnPolicy().then(() => { if (live) setLoaded(true) })
+    setLoading(true)
+    // The store drops a read that a write overtook (one from another section,
+    // or "Always do this" on a card); only the newest read ends the wait.
+    void store.loadCarryOnPolicy().finally(() => { if (live && revision === readRevision.current) setLoading(false) })
     return () => { live = false }
   }, [destinationActive, store])
 
   const write = async (next: CarryOnPolicy): Promise<void> => {
-    if (saving.current || (next.onLimit === policy.onLimit && next.otherAgents === policy.otherAgents)) return
+    if (loading || saving.current || (next.onLimit === policy.onLimit && next.otherAgents === policy.otherAgents)) return
     saving.current = true
     setBusy(true)
     try {
@@ -52,7 +59,7 @@ export const CarryOnSection = () => {
     }
   }
 
-  const disabled = !loaded || busy
+  const disabled = loading || busy
   // Nothing switches under Wait or Stop, so whether a switch may change agent is moot there.
   const switching = policy.onLimit === 'ask' || policy.onLimit === 'switch'
   return (

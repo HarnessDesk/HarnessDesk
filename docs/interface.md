@@ -1420,8 +1420,9 @@ used, each with its plan, **Default** on the one new sessions run as, and what
 is left or **Limit reached**. On the agent's page each account's menu offers
 **Move up** and **Move down**, and **When an account runs out** chooses
 **Follow the desk setting** (the default), **Use the next account**, **Ask me**,
-**Wait until it resets** or **Stop** for that agent alone. Use the next account
-also moves new sessions to the next account in that order with room, once, and
+**Wait until it resets** or **Stop** for that agent alone — shown on every
+agent's page, with one account too, since a rule set earlier still applies.
+Use the next account also moves new sessions to the next account in that order with room, once, and
 says so in a notice that can be muted as *Account switches*.
 
 A running conversation that reaches its usage limit carries on by that rule, or
@@ -1431,9 +1432,11 @@ it resets** or **Stop**, with **Use other agents too** (on by default) letting a
 switch continue in a new conversation with another agent when no account of the
 same agent has room. Ask me puts a card over the conversation's composer: the
 account that ran out, when it resets, and **Switch to …** or **Continue in …**
-naming where it would go, **Wait until reset** and **Stop**, with **Other
-account…** listing the rest (an account nearly spent, one on an API key, one
-signed out, which opens Sign in) and **Always do this** to keep the answer as
+naming where it would go, **Wait until reset** and **Stop**, with a link that
+lists the rest by what they are — **Other account…**, **Other agent…**, or
+**Choose another…** with the two under their own headings — offering only the
+ones that can take the work now (an account nearly spent or on an API key wears
+a chip; one signed out or with no room is left out), and **Always do this** to keep the answer as
 the rule, for the desk or for that agent as the card says. Without the box the
 next limit asks again. An unanswered card spends nothing new: at a known reset it
 waits and retries once on the same account, and with no reset known the

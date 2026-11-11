@@ -638,6 +638,12 @@ const AgentAccounts = ({
   const status = snapshot.accountsByRuntime[info.id]
   const agent = agentKey(info)
   const pool = snapshot.accountPools[agent]
+  // The pools are read again on each visit: an "Always do this for <agent>"
+  // the host wrote from a card elsewhere would otherwise be undone by the
+  // next order change here, which writes the whole map.
+  useEffect(() => {
+    if (destinationActive) void store.loadCarryOnPolicy()
+  }, [destinationActive, store])
   // In the order new sessions use them, so the list is the queue.
   const queue = inPoolOrder(siblings, pool, { reports: snapshot.usage, now: Date.now() })
   const order = queue.map((entry) => entry.id)
@@ -655,9 +661,9 @@ const AgentAccounts = ({
   // screen; runtimes not drawn here keep their places behind it.
   const listed = queue.filter((entry) => entry.slot?.gateway || rows.some((row) => row.entry === entry))
   const listedOrder = listed.map((entry) => entry.id)
-  // An order and a rule for running out mean something only once there is a
-  // second runtime to run on. Two identities one runtime reports (an agent
-  // identity and its key) are one place in the queue, not two.
+  // An order means something only once there is a second runtime to run on.
+  // Two identities one runtime reports (an agent identity and its key) are
+  // one place in the queue, not two.
   const ordered = listed.length > 1
   // With the soonest-reset order on, the usage reports set the order, so a
   // move by hand would change nothing and is not offered.
@@ -986,11 +992,14 @@ const AgentAccounts = ({
 
       {/* The queue's rule, beside the queue. "When an account runs out" is
           this agent's answer to the desk's usage-limit rule (Settings ›
-          Approvals) and reaches a running conversation too; its first option
-          follows the desk. The order is the one sentence true of the whole
-          group, so it is said once, under it, rather than on a row. */}
-      {ordered && (
-        <Rows>
+          Permissions) and reaches a running conversation too; its first
+          option follows the desk. It is shown with one account as well: a
+          rule set while there were two still applies, and this is the only
+          place to change it. The order needs two accounts to mean anything.
+          The order is the one sentence true of the whole group, so it is
+          said once, under it, rather than on a row. */}
+      <Rows>
+        {ordered && (
           <Row
             title="Order"
             control={
@@ -1004,21 +1013,21 @@ const AgentAccounts = ({
               </NativeSelect>
             }
           />
-          <Row
-            title="When an account runs out"
-            control={
-              <NativeSelect
-                aria-label="When an account runs out"
-                value={pool?.whenOut ?? FOLLOW_DESK}
-                onChange={(event) => store.setAccountPool(agent, { whenOut: event.target.value === FOLLOW_DESK ? undefined : event.target.value as WhenOut })}
-              >
-                <option value={FOLLOW_DESK}>Follow the desk setting</option>
-                {WHEN_OUT.map((rule) => <option key={rule} value={rule}>{WHEN_OUT_LABEL[rule]}</option>)}
-              </NativeSelect>
-            }
-          />
-        </Rows>
-      )}
+        )}
+        <Row
+          title="When an account runs out"
+          control={
+            <NativeSelect
+              aria-label="When an account runs out"
+              value={pool?.whenOut ?? FOLLOW_DESK}
+              onChange={(event) => store.setAccountPool(agent, { whenOut: event.target.value === FOLLOW_DESK ? undefined : event.target.value as WhenOut })}
+            >
+              <option value={FOLLOW_DESK}>Follow the desk setting</option>
+              {WHEN_OUT.map((rule) => <option key={rule} value={rule}>{WHEN_OUT_LABEL[rule]}</option>)}
+            </NativeSelect>
+          }
+        />
+      </Rows>
       {ordered && <Note ink="muted">New sessions follow the order above.</Note>}
 
       {destinationActive && namingAccount && <AccountNameDialog info={info} adding={adding}

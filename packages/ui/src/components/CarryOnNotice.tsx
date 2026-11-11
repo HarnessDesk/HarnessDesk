@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react'
 import { sessionKey, type CarryOnDecisionChoice, type CarryOnIncidentView, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
 
 import { ActionError, DecisionNotice, type DecisionChoice } from '../design'
-import { carryOnName, carryOnResetLine, carryOnSwitchLabel, CARRY_ON_TARGET_CHIP } from '../lib/carry-on'
-import { useShell } from '../panels/views'
+import { carryOnCanTake, carryOnName, carryOnOthersGroup, carryOnOthersLabel, carryOnResetLine, carryOnSwitchLabel, CARRY_ON_TARGET_CHIP } from '../lib/carry-on'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 
@@ -24,7 +23,6 @@ export const CarryOnNotice = ({ runtime, sessionId }: { runtime: RuntimeId; sess
 
 const CarryOnCard = ({ incident }: { incident: CarryOnIncidentView }) => {
   const store = useStore()
-  const shell = useShell()
   const snapshot = useSnapshot()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -53,6 +51,9 @@ const CarryOnCard = ({ incident }: { incident: CarryOnIncidentView }) => {
       : { id: 'wait', label: 'Wait until reset', disabled: true, hint: 'No reset time' },
     { id: 'stop', label: 'Stop' },
   ]
+  // Only somewhere the work could go now: a signed-out account or one with
+  // no room would only be refused, so neither is offered.
+  const others = incident.others.filter(carryOnCanTake)
   const info = snapshot.runtimes.find(entry => entry.id === incident.runtime)
   const detail = [carryOnResetLine(incident), incident.note].filter(Boolean).join(' · ')
   return (
@@ -63,22 +64,19 @@ const CarryOnCard = ({ incident }: { incident: CarryOnIncidentView }) => {
       choices={choices}
       always={{ label: incident.alwaysScope === 'agent' ? `Always do this for ${incident.from.name}` : 'Always do this' }}
       alternatives={{
-        label: 'Other account…',
-        items: incident.others.map(other => ({
+        label: carryOnOthersLabel(others),
+        items: others.map(other => ({
           id: other.runtime,
           name: carryOnName(other),
+          group: carryOnOthersGroup(other),
           ...(other.state ? { chip: CARRY_ON_TARGET_CHIP[other.state] } : {}),
         })),
-        // A signed-out account is somewhere to sign in, not somewhere to go:
-        // signing in does not answer the card, so "Switch now" waits for the person.
-        onPick: (id, always) => {
-          const other = incident.others.find(entry => entry.runtime === id)
-          if (other?.state === 'signedOut') shell.signIn(other.runtime)
-          else void decide('switch', always, id as RuntimeId)
-        },
+        onPick: (id, always) => void decide('switch', always, id as RuntimeId),
       }}
       busy={busy}
-      onChoose={(id, always) => void decide(id as CarryOnDecisionChoice, always)}
+      // "Switch to B" means B: the target goes with the answer, so the host
+      // refuses it if B is no longer a candidate rather than pick another.
+      onChoose={(id, always) => void decide(id as CarryOnDecisionChoice, always, id === 'switch' ? target?.runtime : undefined)}
     >
       {error ? <ActionError>{error}</ActionError> : null}
     </DecisionNotice>

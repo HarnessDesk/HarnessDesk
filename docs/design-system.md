@@ -2212,7 +2212,8 @@ Settings. Not an overlay — the conversation stays readable and usable, and
 using it is an answer too — so it is a `group`, never a `dialog`.
 
 `alternatives` are the answers that are not the first one: other accounts
-or agents, behind a quiet link that opens a menu of them.
+or agents, behind a quiet link that opens a menu of them — each kind under
+its own heading when the menu holds both.
 
 ### `ComposerNoticeStack`
 

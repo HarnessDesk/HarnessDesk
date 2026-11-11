@@ -945,7 +945,7 @@ const LegacyNoticeHosts = () => {
               detail="Resets at 4:30 PM"
               choices={[{ id: 'switch', label: 'Switch to Alpha · personal', primary: true }, { id: 'wait', label: 'Wait until reset' }, { id: 'stop', label: 'Stop' }]}
               always={{ label: 'Always do this' }}
-              alternatives={{ label: 'Other account…', items: [{ id: 'beta', name: 'Beta', chip: 'Nearly out' }, { id: 'gateway', name: 'Alpha · gateway', chip: 'API key' }], onPick: () => {} }}
+              alternatives={{ label: 'Choose another…', items: [{ id: 'gateway', name: 'Alpha · gateway', chip: 'API key', group: 'Accounts' }, { id: 'beta', name: 'Beta', chip: 'Nearly out', group: 'Agents' }], onPick: () => {} }}
               onChoose={() => {}}
             />
           </ComposerNoticeStack>

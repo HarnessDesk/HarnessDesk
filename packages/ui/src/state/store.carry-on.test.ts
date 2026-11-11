@@ -44,10 +44,27 @@ beforeEach(() => {
   request = vi.fn(async (method: HostMethodName) => {
     const answer = answers[method]
     if (answer instanceof Error) throw answer
+    if (typeof answer === 'function') return (answer as () => Promise<unknown>)()
     return answer ?? null
   })
   vi.spyOn(store.transport, 'request').mockImplementation(request as never)
+  // The kept inbox and the notice policy have answered; one test below holds them back.
+  Object.assign(store.getSnapshot(), { preferencesLoaded: true })
 })
+
+/** A request answered when the test says, to put a push in the middle of it. */
+const deferred = <T>() => {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
+}
+
+const status = (next: 'open' | 'reconnecting'): void =>
+  (store.transport as unknown as { handlers: { onStatus(status: string): void } }).handlers.onStatus(next)
+
+/** A wire refusal as the transport hands it on: its sentence, its code and its data. */
+const refusal = (message: string, code: string, data: unknown): Error => Object.assign(new Error(message), { code, data })
 
 describe('carry-on in the store', () => {
   it('reads every live incident on connect, and keeps what it holds when the host cannot say', async () => {
@@ -111,5 +128,114 @@ describe('carry-on in the store', () => {
     expect(store.getSnapshot().carryOnPolicy).toEqual({ onLimit: 'wait', otherAgents: false })
     await store.setCarryOnPolicy({ onLimit: 'switch', otherAgents: true })
     expect(request).toHaveBeenCalledWith('app/state/set', expect.objectContaining({ patch: { carryOn: { onLimit: 'switch', otherAgents: true } } }))
+  })
+
+  it('binds "Switch to B" to B: the answer carries the target the card named', async () => {
+    push(incident())
+    answers['carryOn/decide'] = { incident: incident({ state: 'moved' }) }
+    await store.decideCarryOn({ incidentId: 'incident-1', choice: 'switch', always: false, target: runtimeId('alpha-2') })
+    expect(request).toHaveBeenCalledWith('carryOn/decide', { incidentId: 'incident-1', choice: 'switch', always: false, target: 'alpha-2' })
+  })
+
+  it('applies the incident a stale refusal carries before saying it, and never retries', async () => {
+    push(incident())
+    // The host's candidates moved on: the card is redrawn with the ones it has now.
+    const now = incident({ others: [{ runtime: runtimeId('beta'), name: 'Beta', mode: 'handoff', tier: 0 }] })
+    answers['carryOn/decide'] = refusal('That account is no longer a candidate.', 'carryOnStale', { incident: now })
+    await expect(store.decideCarryOn({ incidentId: 'incident-1', choice: 'switch', always: false, target: runtimeId('alpha-2') })).rejects.toThrow('no longer a candidate')
+    expect(store.getSnapshot().carryOnIncidents.get(KEY)?.others).toEqual(now.others)
+
+    // Answered in another window: the refusal says there is nothing left to ask, and the card goes.
+    answers['carryOn/decide'] = refusal('This was already answered.', 'carryOnStale', { incident: null })
+    await expect(store.decideCarryOn({ incidentId: 'incident-1', choice: 'stop', always: true })).rejects.toThrow('already answered')
+    expect(store.getSnapshot().carryOnIncidents.has(KEY)).toBe(false)
+    expect(store.getSnapshot().inbox.find(entry => entry.id === 'carry-on:incident-1:asked')?.read).toBe(true)
+    expect(request.mock.calls.filter(([method]) => method === 'carryOn/decide')).toHaveLength(2)
+    expect(store.getSnapshot().carryOnPolicy.onLimit).toBe('ask')
+  })
+
+  it('a list read across a push keeps the push, whichever way it went', async () => {
+    push(incident())
+    const read = deferred<unknown>()
+    answers['carryOn/list'] = () => read.promise
+    const loading = store.loadCarryOn()
+    // Answered while the list was on its way: the list's older "asked" must not bring the card back.
+    push(null)
+    read.resolve({ incidents: [incident()] })
+    await loading
+    expect(store.getSnapshot().carryOnIncidents.has(KEY)).toBe(false)
+
+    const again = deferred<unknown>()
+    answers['carryOn/list'] = () => again.promise
+    const second = store.loadCarryOn()
+    // Opened while the list was on its way: a list from before it must not erase it.
+    push(incident({ incidentId: 'incident-2' }))
+    again.resolve({ incidents: [] })
+    await second
+    expect(store.getSnapshot().carryOnIncidents.get(KEY)?.incidentId).toBe('incident-2')
+  })
+
+  it('a list from a connection that dropped is not applied', async () => {
+    const read = deferred<unknown>()
+    answers['carryOn/list'] = () => read.promise
+    const loading = store.loadCarryOn()
+    status('reconnecting')
+    read.resolve({ incidents: [incident()] })
+    await loading
+    expect(store.getSnapshot().carryOnIncidents.has(KEY)).toBe(false)
+  })
+
+  it('an answer that arrives after a newer push does not replace it', async () => {
+    push(incident())
+    const answer = deferred<unknown>()
+    answers['carryOn/decide'] = () => answer.promise
+    const deciding = store.decideCarryOn({ incidentId: 'incident-1', choice: 'switch', always: false, target: runtimeId('alpha-2') })
+    push(incident({ state: 'moved', to: { name: 'Alpha', account: 'personal' }, mode: 'sameThread' }))
+    answer.resolve({ incident: incident({ state: 'sending' }) })
+    await deciding
+    expect(store.getSnapshot().carryOnIncidents.get(KEY)?.state).toBe('moved')
+  })
+
+  it('a list keeps the inbox in step: a question asked while away is kept, one answered while away is read', async () => {
+    // A question kept before this window went away, answered elsewhere since.
+    store.keep({ id: 'carry-on:incident-0:asked', kind: 'usage:carry-on', tone: 'warning', title: 'Alpha · work reached its usage limit. Choose how to carry on.', at: 1 })
+    answers['carryOn/list'] = { incidents: [incident()] }
+    await store.loadCarryOn()
+    const inbox = store.getSnapshot().inbox
+    expect(inbox.find(entry => entry.id === 'carry-on:incident-1:asked')).toMatchObject({ read: false })
+    expect(inbox.find(entry => entry.id === 'carry-on:incident-0:asked')).toMatchObject({ read: true })
+  })
+
+  it('holds inbox work until the kept inbox and the notice policy have answered', async () => {
+    Object.assign(store.getSnapshot(), { preferencesLoaded: false })
+    push(incident())
+    expect(store.getSnapshot().carryOnIncidents.get(KEY)?.state).toBe('asked')
+    expect(store.getSnapshot().inbox.some(entry => entry.kind === 'usage:carry-on')).toBe(false)
+    answers['app/state/get'] = { inbox: [] }
+    await store.loadPreferences()
+    expect(store.getSnapshot().inbox.find(entry => entry.id === 'carry-on:incident-1:asked')).toMatchObject({ read: false })
+  })
+
+  it('reads both levels of the rule, and drops a read that a write here overtook', async () => {
+    answers['app/state/get'] = { carryOn: { onLimit: 'wait', otherAgents: true }, accountPools: { alpha: { whenOut: 'stop' } } }
+    await store.loadCarryOnPolicy()
+    expect(store.getSnapshot().accountPools[RUNTIME]?.whenOut).toBe('stop')
+
+    const read = deferred<unknown>()
+    answers['app/state/get'] = () => read.promise
+    const loading = store.loadCarryOnPolicy()
+    store.setAccountPool(RUNTIME, { whenOut: 'next' })
+    read.resolve({ carryOn: { onLimit: 'wait', otherAgents: true }, accountPools: { alpha: { whenOut: 'stop' } } })
+    await loading
+    expect(store.getSnapshot().accountPools[RUNTIME]?.whenOut).toBe('next')
+  })
+
+  it('reads the rules again on reconnect, so an "Always" the host wrote while the link was down is not undone', async () => {
+    Object.assign(store.getSnapshot(), { status: 'open' })
+    status('reconnecting')
+    answers['app/state/get'] = { carryOn: { onLimit: 'ask', otherAgents: true }, accountPools: { alpha: { whenOut: 'stop' } } }
+    answers['carryOn/list'] = { incidents: [] }
+    status('open')
+    await vi.waitFor(() => expect(store.getSnapshot().accountPools[RUNTIME]?.whenOut).toBe('stop'))
   })
 })

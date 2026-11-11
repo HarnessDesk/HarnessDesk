@@ -24,7 +24,7 @@ afterEach(() => {
 })
 
 /** A store whose policy changes the way the real one's does: optimistically, and back when a write fails. */
-const mount = (initial: CarryOnPolicy, lands = true) => {
+const mount = (initial: CarryOnPolicy, lands = true, load: () => Promise<unknown> = async () => {}) => {
   let snapshot = { ...emptySnapshot(), status: 'open', carryOnPolicy: initial } as AppSnapshot
   const listeners = new Set<() => void>()
   const set = (policy: CarryOnPolicy) => { snapshot = { ...snapshot, carryOnPolicy: policy }; listeners.forEach(listener => listener()) }
@@ -36,7 +36,7 @@ const mount = (initial: CarryOnPolicy, lands = true) => {
   const store = {
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
     getSnapshot: () => snapshot,
-    loadCarryOnPolicy: vi.fn(async () => {}),
+    loadCarryOnPolicy: vi.fn(load),
     setCarryOnPolicy,
   } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><CarryOnSection /></StoreProvider>))
@@ -82,4 +82,23 @@ it('puts the old answer back when the write does not land', async () => {
   await act(async () => {})
   await act(async () => radios()[3]!.click())
   expect(chosen()).toEqual(['Ask me'])
+})
+
+it('says nothing on the switch row that the other-agents switch already says', async () => {
+  mount(DEFAULT_CARRY_ON)
+  await act(async () => {})
+  expect(container.textContent).not.toContain('Uses another agent')
+})
+
+it('holds every control while the rule is read again, so a choice is never made against an old one', async () => {
+  let finish!: () => void
+  const { setCarryOnPolicy } = mount(DEFAULT_CARRY_ON, true, () => new Promise<void>(resolve => { finish = resolve }))
+  await act(async () => {})
+  expect(radios().every(one => one.disabled || one.getAttribute('aria-disabled') === 'true')).toBe(true)
+  await act(async () => radios()[3]!.click())
+  expect(setCarryOnPolicy).not.toHaveBeenCalled()
+  await act(async () => finish())
+  expect(radios().some(one => one.disabled || one.getAttribute('aria-disabled') === 'true')).toBe(false)
+  await act(async () => radios()[3]!.click())
+  expect(setCarryOnPolicy).toHaveBeenLastCalledWith({ onLimit: 'stop', otherAgents: true })
 })

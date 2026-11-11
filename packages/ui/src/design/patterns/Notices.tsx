@@ -1,7 +1,7 @@
-import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, ChevronIcon, CheckIcon, CrossIcon, InfoIcon, ShieldAlertIcon, TrashIcon } from '../../components/Icons'
-import { ContextMenu, MenuAccountRow, MenuItem, type MenuPoint } from './Menu'
+import { ContextMenu, MenuAccountGroup, MenuAccountRow, MenuItem, type MenuPoint } from './Menu'
 import { Popover } from './Popover'
 import { InboxMenu } from './InboxMenu'
 import { inlineNoticeTitle } from '../primitives/Notice'
@@ -327,6 +327,20 @@ export interface DecisionAlternative {
   readonly mark?: ReactNode
   /** One chip for a state that is not simply available ("Nearly out"); it costs no row height. */
   readonly chip?: string
+  /**
+   * The kind of place it is ("Accounts", "Agents"), when the menu holds more
+   * than one kind: each kind is listed under its own heading, in the order
+   * it first appears.
+   */
+  readonly group?: string
+}
+
+/** Alternatives by kind, in first-seen order; one kind, or none named, is one unheaded list. */
+const groupsOf = (items: readonly DecisionAlternative[]): [string | null, DecisionAlternative[]][] => {
+  const groups = new Map<string, DecisionAlternative[]>()
+  for (const item of items) groups.set(item.group ?? '', [...(groups.get(item.group ?? '') ?? []), item])
+  if (groups.size < 2) return [[null, [...items]]]
+  return [...groups].map(([group, entries]) => [group || null, entries])
 }
 
 /**
@@ -343,7 +357,8 @@ export interface DecisionAlternative {
  * using it is an answer too — so it is a `group`, never a `dialog`.
  *
  * `alternatives` are the answers that are not the first one: other accounts
- * or agents, behind a quiet link that opens a menu of them.
+ * or agents, behind a quiet link that opens a menu of them — each kind under
+ * its own heading when the menu holds both.
  */
 export const DecisionNotice = ({
   message,
@@ -367,7 +382,7 @@ export const DecisionNotice = ({
   /** The box that makes the answer the rule from now on. Unticked each time the card is shown. */
   always?: { readonly label: string }
   alternatives?: {
-    /** The link's words: "Other account…". */
+    /** The link's words, naming what the menu holds: "Other account…", "Other agent…", "Choose another…". */
     readonly label: string
     readonly items: readonly DecisionAlternative[]
     readonly onPick: (id: string, always: boolean) => void
@@ -439,15 +454,18 @@ export const DecisionNotice = ({
         </div>
         {alternatives ? (
           <ContextMenu at={menuAt} label={alternatives.label} onClose={() => setMenuAt(null)} icons={alternatives.items.some(item => item.mark) ? 'all' : 'none'}>
-            {alternatives.items.map(item => (
-              <MenuAccountRow
-                key={item.id}
-                mark={item.mark}
-                name={item.name}
-                tag={item.chip ? <Chip tone="neutral" size="sm">{item.chip}</Chip> : undefined}
-                onSelect={() => alternatives.onPick(item.id, remember)}
-              />
-            ))}
+            {groupsOf(alternatives.items).map(([group, items]) => {
+              const rows = items.map(item => (
+                <MenuAccountRow
+                  key={item.id}
+                  mark={item.mark}
+                  name={item.name}
+                  tag={item.chip ? <Chip tone="neutral" size="sm">{item.chip}</Chip> : undefined}
+                  onSelect={() => alternatives.onPick(item.id, remember)}
+                />
+              ))
+              return group ? <MenuAccountGroup key={group} label={group} mark={null}>{rows}</MenuAccountGroup> : <Fragment key="">{rows}</Fragment>
+            })}
           </ContextMenu>
         ) : null}
       </div>

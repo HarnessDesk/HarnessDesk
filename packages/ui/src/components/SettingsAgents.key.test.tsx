@@ -61,6 +61,7 @@ const mount = async (account: Record<string, unknown>): Promise<void> => {
     getSnapshot: () => snapshot,
     loadAccounts: vi.fn(async () => {}),
     limitsFor: vi.fn(async () => null),
+    loadCarryOnPolicy: async () => ({ onLimit: 'ask', otherAgents: true }),
     readPlan: vi.fn(async () => ({ entry: null, suggestion: null, refusal: null })),
     loadUsage: vi.fn(async () => {}),
     agentCatalog: vi.fn(async () => []),
