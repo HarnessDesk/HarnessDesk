@@ -44,6 +44,7 @@ const reading = (state: LeadState): Omit<LeadPresence, 'quiet'> & { readonly qui
   if (thread.state === 'accepted') return { mood: 'done', word: 'Done', needs: 0, goalActive: false }
   if (thread.state === 'following') return { mood: 'neutral', word: 'Following', needs: 0, goalActive }
   if (goalActive) return { mood: 'working', word: 'Working · 1 goal', needs: 0, goalActive }
+  // The bar keeps one word for a request in flight; the step the host names ("Reading your work") is the live line's to say.
   if (state.requestInFlight) return { mood: 'working', word: 'Thinking', needs: 0, goalActive: false }
   return AT_REST
 }

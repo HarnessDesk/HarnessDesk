@@ -61,6 +61,8 @@ const MEMORY_ONLY = ' Not saved for a reload — it stays only while this window
 export const UNSCOPED_RECOVERY_KEY = '\u0000new-session' as SessionKey
 /** The live composer for an unstarted conversation; separate from recoverable drafts. */
 export const NEW_SESSION_DRAFT_KEY = '\u0000new-session-live' as SessionKey
+/** The Lead composer's live words. One Lead, one draft; an empty box is kept as no draft. */
+export const LEAD_DRAFT_KEY = '\u0000lead-live' as SessionKey
 
 const empty = (draft: Draft): boolean =>
   draft.text.trim() === '' && draft.attachments.length === 0 && !draft.imagesWillBeLostOnReload

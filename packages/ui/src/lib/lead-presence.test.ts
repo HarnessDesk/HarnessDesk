@@ -95,3 +95,10 @@ it('says a request was not sent instead of that the person is needed or that wor
     expect(withDeskNeeds(leadPresence(state.state), 0).word).toBe('Not sent')
   }
 })
+
+it('keeps one presence word while a request is in flight, and leaves the step to the live line (Q16)', () => {
+  const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
+  state.changed({ method: 'lead/changed', params: leadProjection({ requestInFlight: true, activity: { since: 1, method: null, step: 'Starting a chat' } }) })
+  // The bar draws its word before the name; a step there would read "Starting a chat Dex".
+  expect(leadPresence(state.state)).toMatchObject({ mood: 'working', word: 'Thinking' })
+})

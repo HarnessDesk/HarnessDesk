@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { wrapContext, type AgentItem } from '@harnessdesk/protocol'
+import { leadMessageEnvelope, leadMessageKey, splitContextContent, wrapContext, type AgentItem } from '@harnessdesk/protocol'
 
 import { toCodexToolResponse } from '../src/capabilities.js'
 import { mapItem } from '../src/mapping/items.js'
@@ -78,6 +78,19 @@ test('peels HarnessDesk context envelopes from the Codex user text', () => {
   if (mapped.type !== 'userMessage') return
   assert.deepEqual(mapped.content, [{ type: 'text', text: 'Build pong' }])
   assert.deepEqual(mapped.context, [{ label: 'Git', text: 'The workspace is on git branch `main`.' }])
+})
+
+test('a Lead message in Codex history reads back as the Lead\'s block, whole, with nothing of it as typed text (#2090)', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Fix the stalled task.')
+  const mapped = map({ type: 'userMessage', id: 'user-lead', content: [{ type: 'text', text: envelope }] } as Message)
+  assert.ok(mapped.type === 'userMessage')
+  // A message that is only context stays whole in the item; the reader peels it.
+  const split = splitContextContent(mapped.content)
+  assert.equal(split.text, '')
+  const block = split.injections[0]
+  assert.equal(block?.label, 'Lead message from Dex')
+  // The block rebuilds the exact envelope, so the host's record of it still verifies the sender.
+  assert.equal(leadMessageKey('codex:chat', wrapContext(block!.label, block!.text)), leadMessageKey('codex:chat', envelope))
 })
 
 test('peels the known pre-marker Git envelope from Codex history', () => {

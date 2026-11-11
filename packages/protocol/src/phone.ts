@@ -602,3 +602,11 @@ export interface PhoneTriageList {
  * which quiet hours and autonomy hold, so mark it as one. `fired` has reached its time: show it as fired with `firedAt`. `cancelled` is listed for a day with its reason and needs no control. Left out when there are none.
  */
 export type PhoneLeadReminder = import('./lead-work.js').LeadReminder
+
+/**
+ * The Lead's live step as the phone draws it. The phone reads it from the `lead` topic, which carries the Lead window
+ * projection as the desktop reads it: `activity.step` is the step in plain words (thinking, the desk call in flight or
+ * the last one, or writing the reply), the same words the desktop's live line shows. Absent on older desks, where the
+ * phone keeps naming the step from `activity.method`.
+ */
+export type PhoneLeadActivity = NonNullable<import('./lead.js').LeadWindowProjection['activity']>

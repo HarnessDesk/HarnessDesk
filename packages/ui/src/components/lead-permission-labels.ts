@@ -1,4 +1,4 @@
-import type { ClientMethodName } from '@harnessdesk/protocol'
+import { LEAD_STEP_THINKING, leadStepWords, type ClientMethodName } from '@harnessdesk/protocol'
 
 /** One human vocabulary for permission cards and host-observed activity. Unknown calls stay Thinking. */
 const LEAD_METHOD_LABELS: Readonly<Record<ClientMethodName, { readonly permission: string; readonly activity?: string }>> = {
@@ -43,5 +43,6 @@ const LEAD_METHOD_LABELS: Readonly<Record<ClientMethodName, { readonly permissio
 }
 export const PERMISSION_LABELS = Object.fromEntries(Object.entries(LEAD_METHOD_LABELS)
   .map(([method, labels]) => [method, labels.permission])) as Record<ClientMethodName, string>
+/** An older desk publishes only the method; the host's step words come first, so both surfaces say the same. */
 export const leadActivityLabel = (method?: string | null): string =>
-  method && Object.hasOwn(LEAD_METHOD_LABELS, method) ? LEAD_METHOD_LABELS[method as ClientMethodName].activity ?? 'Thinking' : 'Thinking'
+  !method ? LEAD_STEP_THINKING : leadStepWords(method) ?? (Object.hasOwn(LEAD_METHOD_LABELS, method) ? LEAD_METHOD_LABELS[method as ClientMethodName].activity : undefined) ?? LEAD_STEP_THINKING
