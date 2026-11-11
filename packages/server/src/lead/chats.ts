@@ -70,7 +70,8 @@ export interface LeadChatsPorts {
 }
 const refuse = (message: string): never => { throw new Error(message) }
 const MUTATIONS = new Set(['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'])
-const MOVE_TEXT_CHARS = 48 * 1024
+/** The longest move text, in characters; carry-on caps its handoff packet at the same size. */
+export const MOVE_TEXT_CHARS = 48 * 1024
 const MAX_SCAN = 200
 const CURSOR_TTL = 15 * 60 * 1000
 
