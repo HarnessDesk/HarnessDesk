@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { trayMenuTemplate } from './tray-menu.mjs'
 
-const agent = (id, over = {}) => ({ id, name: `Agent ${id}`, detail: 'Ready', needsSignIn: false, brand: null, left: null, ...over })
+const agent = (id, over = {}) => ({ id, name: `Agent ${id}`, detail: 'Ready', needsSignIn: false, brand: null, left: null, current: false, ...over })
 const setup = agents => {
   const calls = []
   const actions = Object.fromEntries(['show', 'newSession', 'openFolder', 'openUsage', 'settings', 'quit', 'signIn'].map(name => [name, (...args) => calls.push([name, ...args])]))
@@ -29,6 +29,22 @@ test('observed readings keep account names, resets and their scoped dashboard ac
   first.click()
   usage.find(one => one.label === 'Agent reviewer — 0% left, resets in 1h').click()
   assert.deepEqual(calls, [['openUsage', 'writer'], ['openUsage', 'reviewer']])
+})
+
+test('the current agent’s row is checked, so it shows whose figure the menu bar carries', () => {
+  const { usage, calls } = setup([
+    agent('other', { detail: '12% left', left: 12 }),
+    agent('now', { detail: '58% left', left: 58, current: true }),
+  ])
+  const current = usage.find(one => one.label === 'Agent now — 58% left')
+  const other = usage.find(one => one.label === 'Agent other — 12% left')
+  assert.equal(current.type, 'checkbox')
+  assert.equal(current.checked, true)
+  assert.equal(current.icon, 'agent:now')
+  assert.equal(other.type, undefined)
+  assert.equal(other.checked, undefined)
+  current.click()
+  assert.deepEqual(calls, [['openUsage', 'now']])
 })
 
 test('sign-in is an action even when a cached reading is still present', () => {
