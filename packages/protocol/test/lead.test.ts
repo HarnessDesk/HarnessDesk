@@ -658,3 +658,11 @@ test('a reply carries at most eight refs the phone and desk both read, and only 
   assert.throws(() => protocol.parseLeadMessage({ ...reply, refs: Array.from({ length: 9 }, (_, index) => ({ kind: 'work', id: `work-${index}` })) }))
   assert.throws(() => protocol.parseLeadMessage({ ...reply, refs: [] }))
 })
+
+test('a reminder line is a plain reply: an assistant message with no ask, report or wake of its own', () => {
+  const line = { version: 1, id: 'message-9', revision: 9, role: 'assistant', text: 'You asked me to remind you: send the notes.', reminded: 'remind-2' }
+  assert.deepEqual(protocol.parseLeadMessage(line), line)
+  assert.throws(() => protocol.parseLeadMessage({ ...line, role: 'user' }), /a reminder line is a plain reply/)
+  assert.throws(() => protocol.parseLeadMessage({ ...line, ask: { question: 'Now?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }], recommended: 'yes' } }))
+  assert.throws(() => protocol.parseLeadMessage({ ...line, reminded: '' }))
+})
