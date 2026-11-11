@@ -243,7 +243,7 @@ import { ATTACHMENT_TRUST_FILE, AttachmentTrust } from './attachments/trust.js'
 import { resolveAttachmentDeclarations } from './attachments/catalog.js'
 import { ghInCheckout, type GhInCheckout } from './evidence/forge.js'
 import { checkoutMarkOf, projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
-import type { SeatOpening } from './evidence/records.js'
+import { consultUsageOf, type SeatOpening } from './evidence/records.js'
 import { incarnationOf, SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
 import { SeatHeldCards } from './seat-held-cards.js'
@@ -254,7 +254,7 @@ import { SessionNames } from './names.js'
 import { redactorFor, redactLog } from './diagnostics.js'
 import { waitFor } from './flow.js'
 import { Flows, runCheck } from './flows.js'
-import { ConsultPlane, type OpenedConsult } from './consult.js'
+import { CONSULT_CLEANUP_MS, CONSULT_CLOSED_REFUSAL, ConsultPlane, type OpenedConsult } from './consult.js'
 import { goalViewForWire } from './goals/wire.js'
 import { dispatchAfter, Serial } from './goals/assignments.js'
 import { goalMembers } from './goals/members.js'
@@ -2572,6 +2572,13 @@ export class Host {
       },
       evidence: { observeTrigger: (firing, goal, fact) => this.#evidence.observeTrigger(firing, goal, fact) },
       seats: () => this.#evidence.seats.all(),
+      consultWindows: () => this.#evidence.seats.consults().flatMap((consult) => {
+        const caller = this.#evidence.seats.byId(consult.seat)
+        return caller ? [{
+          ...caller, id: `${caller.id}/ask/${consult.n}` as SeatRecord['id'], session: { runtime: consult.runtime, sessionId: consult.sessionId },
+          openedAt: consult.openedAt, closed: consult.closedAt === null ? null : { at: consult.closedAt, why: 'answered' }, restored: null,
+        }] : []
+      }),
       interrupt: (goal) => this.#interruptGoal(goal),
       lane: (goal) => this.#allowanceOf(goal),
       refreshLanes: (goals) => this.#refreshAllowances(goals),
@@ -7282,20 +7289,39 @@ export class Host {
         const found = this.#runtimes.get(runtimeId(id))
         return found ? this.#infoOf(found) : null
       },
-      open: async (agent, where) => {
+      open: async (agent, where, signal) => {
         const id = runtimeId(agent.runtime)
         this.#consultOpening.set(id, (this.#consultOpening.get(id) ?? 0) + 1)
+        // The runtime's announcements are held while the consult opens — but
+        // only until the ask's deadline and one cleanup bound after it, never
+        // for as long as a stuck open takes: past that, every other
+        // conversation on the runtime is let through, and a consult that
+        // opens later may be seen until its discard removes it.
+        let held = true
+        let bound: unknown = null
+        const release = (): void => {
+          if (!held) return
+          held = false
+          const left = (this.#consultOpening.get(id) ?? 1) - 1
+          if (left > 0) this.#consultOpening.set(id, left)
+          else this.#consultOpening.delete(id)
+          this.#releaseConsultHeld()
+        }
+        const expire = (): void => { bound = this.#consultSetTimer(release, CONSULT_CLEANUP_MS) }
+        if (signal.aborted) expire()
+        else signal.addEventListener('abort', expire, { once: true })
         try {
           const opened = await this.#openSeat(agent, {
             cwd: where.cwd, ...(where.project ? { project: where.project } : {}), title: 'Consult',
             ceiling: 'read', ephemeral: true, consult: true, withheldTools: ['ask_agent'],
           })
+          // Opened after its hold was let go: its start may have reached a window, so its removal does too.
+          if (!held) this.#consultsShown.add(sessionKey(runtimeId(opened.runtime), makeSessionId(opened.sessionId)))
           return { runtime: opened.runtime, sessionId: opened.sessionId, openedAt: Date.now() }
         } finally {
-          const left = (this.#consultOpening.get(id) ?? 1) - 1
-          if (left > 0) this.#consultOpening.set(id, left)
-          else this.#consultOpening.delete(id)
-          this.#releaseConsultHeld()
+          signal.removeEventListener('abort', expire)
+          if (bound !== null) this.#consultClearTimer(bound)
+          release()
         }
       },
       holdRead: async (consult) => (await this.#holdSeat(consult.runtime, consult.sessionId, 'read')).ceiling.hold === 'held',
@@ -7330,24 +7356,38 @@ export class Host {
         } finally {
           this.#consultTurns.delete(key)
           this.#consulting.delete(key)
+          this.#consultClosed(key)
           this.#consultsGone.add(key)
           if (this.#consultsGone.size > 256) this.#consultsGone.delete(this.#consultsGone.values().next().value!)
         }
       },
       metered: (caller, consult) => this.#intake.consulted(caller, consult),
       meteredStart: (goal, meter, started) => this.#intake.consultStarted(goal, meter, started),
-      meteredEnd: (goal, meter, consult, ended) => this.#intake.consultEnded(goal, meter, ended, this.#consultUsage(consult, ended)),
-      link: (seat, consult, closedAt) => this.#evidence.seats.consulted({ seat, runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt, closedAt }),
+      usage: (consult, ended) => this.#consultUsage(consult, ended),
+      meteredEnd: (goal, meter, ended, final) => this.#intake.consultEnded(goal, meter, ended, final),
+      linkOpened: (seat, consult) => this.#evidence.seats.consultOpened({ seat, n: consult.n, runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt }),
+      linkClosed: (seat, consult, closedAt, usage) => this.#evidence.seats.consultClosed(
+        { seat, n: consult.n, runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt }, closedAt, consultUsageOf(usage),
+      ),
       audit: (entry) => this.#audit.append({
         at: Date.now(), runtime: runtimeId(entry.runtime), sessionId: entry.sessionId, kind: 'consult',
         agent: entry.agent, outcome: entry.outcome, bytesIn: entry.bytesIn, bytesOut: entry.bytesOut, durationMs: entry.durationMs,
       }),
       log: (message, detail) => this.#logger.warn(message, { ...detail }),
       now: () => Date.now(),
-      setTimer: (fire, ms) => this.options.consultTimers ? this.options.consultTimers.setTimer(fire, ms) : setTimeout(fire, ms).unref(),
-      clearTimer: (timer) => this.options.consultTimers ? this.options.consultTimers.clearTimer(timer) : clearTimeout(timer as NodeJS.Timeout),
+      setTimer: (fire, ms) => this.#consultSetTimer(fire, ms),
+      clearTimer: (timer) => this.#consultClearTimer(timer),
     })
     return this.#consult
+  }
+
+  #consultSetTimer(fire: () => void, ms: number): unknown {
+    return this.options.consultTimers ? this.options.consultTimers.setTimer(fire, ms) : setTimeout(fire, ms).unref()
+  }
+
+  #consultClearTimer(timer: unknown): void {
+    if (this.options.consultTimers) this.options.consultTimers.clearTimer(timer)
+    else clearTimeout(timer as NodeJS.Timeout)
   }
 
   /**
@@ -7606,6 +7646,7 @@ export class Host {
     refused: (call, reason) => this.#forge.refuseTool(call.tool, call.args, { runtime: String(call.scope.runtime), sessionId: String(call.scope.sessionId) }, reason, call.startedAt),
     rootOf: (runtime, sessionId) => this.#rootOf(runtime, sessionId),
     ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
+    closedOf: (runtime, sessionId) => this.#closedConsultRefusal(runtime, sessionId),
     causeOf: (runtime, sessionId, turnId) => this.#causeOf(runtime, sessionId, turnId),
     nameOf: (runtime, sessionId) => this.#conversationName(runtime, sessionId),
     say: (runtime, sessionId, text) => void this.#say(runtime, sessionId, text),
@@ -7888,8 +7929,11 @@ export class Host {
     if (event.item.type !== 'subagent') return
     const root = this.#rootOf(String(runtime), String(event.sessionId))
     if (root === null) this.#delegationUncertainRuntimes.add(String(runtime))
+    // A consult's child is the consult's, registered or not, however deep: held as it is, apart from the bounded map below.
+    const consult = this.#consultOf(String(runtime), String(event.sessionId))
     for (const member of event.item.members) {
       if (!member.sessionId || member.sessionId === String(event.sessionId)) continue
+      if (consult !== null) this.#consultFamily.set(sessionKey(runtime, makeSessionId(member.sessionId)), consult)
       if (root !== null) this.#delegatedBy.set(sessionKey(runtime, makeSessionId(member.sessionId)), root)
       if (this.#delegatedBy.size > 2000) {
         const oldest = this.#delegatedBy.keys().next().value
@@ -7917,13 +7961,42 @@ export class Host {
   }
 
   /**
+   * The consult this conversation is, or descends from, by its session key:
+   * the family the desk recorded as it delegated, or — for a child reported
+   * before its parent was known as the consult's — the delegation chain.
+   */
+  #consultOf(runtime: string, sessionId: string): string | null {
+    let key: string = sessionKey(runtimeId(runtime), makeSessionId(sessionId))
+    for (let depth = 0; depth <= 8; depth += 1) {
+      const consult = this.#consultFamily.get(key)
+      if (consult !== undefined) return consult
+      const parent = this.#delegatedBy.get(key as SessionKey)
+      if (!parent) return null
+      key = sessionKey(runtimeId(parent.runtime), makeSessionId(parent.sessionId))
+    }
+    return null
+  }
+
+  #consultClosed(key: string): void {
+    if (this.#consultFamily.get(key) === key) this.#consultsClosed.add(key)
+  }
+
+  /** Why a call from a consult that has closed, or from anything it handed work to, is refused; null otherwise. */
+  #closedConsultRefusal(runtime: string, sessionId: string): string | null {
+    const consult = this.#consultOf(runtime, sessionId)
+    return consult !== null && this.#consultsClosed.has(consult) ? CONSULT_CLOSED_REFUSAL : null
+  }
+
+  /**
    * The Agent or live-flow ceiling governing this conversation. A consult is
    * held at read by the desk itself for its whole life, whatever its
-   * adapter's settings say: it has no Agent and no Flow seat, and a helper it
-   * delegates to resolves to it as its root.
+   * adapter's settings say: it has no Agent and no Flow seat — and so is
+   * every conversation it handed work to, registered or not, however deep,
+   * since the gate asks the ceiling of whichever conversation it resolved as
+   * the root.
    */
   #ceilingOf(runtime: string, sessionId: string): SeatCeiling | null {
-    if (this.#hiddenConsult(sessionKey(runtimeId(runtime), makeSessionId(sessionId)))) return { level: 'read', hold: 'held' }
+    if (this.#consultOf(runtime, sessionId) !== null || this.#hiddenConsult(sessionKey(runtimeId(runtime), makeSessionId(sessionId)))) return { level: 'read', hold: 'held' }
     const seated = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.seatedAs?.ceiling
     if (seated) return seated
     const flowSeat = this.#flows.seatOf(runtime, sessionId)
@@ -8898,6 +8971,19 @@ export class Host {
   readonly #consultTurns = new Map<string, (turn: Turn) => void>()
   /** Consults discarded lately, newest last: a notice of theirs that arrives after the discard stays hidden too. */
   readonly #consultsGone = new Set<string>()
+  /**
+   * Every conversation that is a consult or was handed work by one — a
+   * reported child, and its children — by session key, to its consult. The
+   * read ceiling holds for all of them for the consult's whole life, and
+   * once the consult closes (`#consultsClosed`) every desk-tool call from any
+   * of them is refused. Kept for the desk's life, apart from the bounded
+   * caches (`#consultsGone`, `#delegatedBy`), so nothing a cache forgets lets
+   * a late call through; a consult is one turn, so the set stays small.
+   */
+  readonly #consultFamily = new Map<string, string>()
+  readonly #consultsClosed = new Set<string>()
+  /** Consults that opened after their hold was let go, so a window may have heard them start: their removal is not hidden. */
+  readonly #consultsShown = new Set<string>()
   #consult: ConsultPlane | null = null
 
   /**
@@ -9022,7 +9108,11 @@ export class Host {
       noteLeftOnFailure(refused, { kind: 'alreadyHeld' })
       throw refused
     }
-    if (where.consult) this.#consulting.add(sessionKey(runtime.info.id, live.id))
+    if (where.consult) {
+      const key = sessionKey(runtime.info.id, live.id)
+      this.#consulting.add(key)
+      this.#consultFamily.set(key, key)
+    }
     this.#seating.set(sessionKey(runtime.info.id, live.id), { live, reached: false, removing: false })
     try {
       const session = this.#attach(runtime, live.id, live)
@@ -9067,6 +9157,7 @@ export class Host {
           if (id !== undefined && sessionKey(held.params.runtime, id) === key) this.#consultHeld.splice(at, 1)
         }
         this.#consulting.delete(key)
+        this.#consultClosed(key)
       }
       throw error
     }
@@ -11967,6 +12058,7 @@ export class Host {
       case 'session/removed':
       case 'session/cache-invalidated': {
         const key = sessionKey(notification.params.runtime, notification.params.sessionId)
+        if (notification.method === 'session/removed' && this.#consultsShown.delete(key)) return notification
         if (this.#hiddenConsult(key)) return null
         // A conversation whose start is held back while a consult opens is held with it.
         if (this.#consultHeldKeys.has(key)) {

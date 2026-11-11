@@ -663,19 +663,27 @@ roles:
 The desk opens the asked agent in a conversation no window, Team or search
 shows, in the caller's checkout, ephemeral where the agent can be, and held at
 the `read` ceiling — read back, never assumed — for the consult's whole life,
-desk tools it calls included. It sends the question, takes
+desk tools it calls included, and so is every conversation it hands work to,
+however deep; once it has answered, nothing of it is admitted at all. Before
+the question goes, the desk records which seat asked, beside that seat, so a
+crash mid-answer still leaves the work attributed. It sends the question, takes
 the one turn's last message as the answer (control characters stripped, cut
 at 32 KiB with a marker), and deletes the conversation. Any approval the
 asked agent raises is declined by the desk. The asked agent is never offered
 `ask_agent` itself, so asking is one level deep. Its usage counts against the
 caller's run: on a trigger's Goal it is metered as `<seat>/ask/<n>` on that
 Goal's budget, and a Goal at its cap refuses the ask. The usage is read from
-the live conversation before it is deleted; an agent that reported none
-leaves the Goal's spend unknown, and the next ask is refused with that
-reason. Insight counts the consult under the seat that asked. The deadline
+the live conversation before it is deleted and reconciled with whatever the
+recorded usage already counted — the larger figure stands, never the sum. An
+agent that reported none leaves the Goal's spend unknown, and the next ask is
+refused with that reason until a later reading of that conversation repairs
+it; a question withdrawn before it was sent costs nothing. Insight counts the
+consult under the seat that asked, from that same live reading kept with the
+seat when nothing on disk records more. The deadline
 bounds every step — opening, the read hold, metering and the answer — and
 cleanup has a bound of its own, so a consult that opens after its ask gave up
-is deleted rather than kept.
+is deleted rather than kept, and the agent's other conversations, held back
+while it opens, are let through one cleanup bound after the deadline.
 
 Only an agent whose adapter reports a read ceiling can be asked; any other is
 refused by name when asked. Whether each agent's read mode really prevents

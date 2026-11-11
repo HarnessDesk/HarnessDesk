@@ -22,6 +22,7 @@ import { Admission, AGAIN_MISSING, PAUSED, SKIP_CHANGED, type AdmissionOptions, 
 import { IntakeEffects, type IntakeObservationPort, type TriggerExecutionPort, type TriggerGoalPort } from './apply.js'
 import { AttentionOutbox, type AttentionInput } from './attention.js'
 import { BudgetWatch, TriggerBudgets, utcDay, type BudgetVerdict } from './budget.js'
+import { CONSULT_USAGE_UNKNOWN, type SessionMeter } from './spend.js'
 import { consentMatches, TriggerClosures, TriggerConsent, type ArmBinding, type ArmedTrigger, type TriggerClosure } from './consent.js'
 import { usdMicros } from './definition.js'
 import { ForgeSource } from './forge.js'
@@ -123,6 +124,13 @@ export interface IntakeHostPort {
   readonly evidence: IntakeObservationPort
   /** The Seat book. */
   seats(): readonly SeatRecord[]
+  /**
+   * Consults the Seat book recorded (`seat-consult`), as Seat-shaped windows
+   * keyed `${seat}/ask/${n}`: what a restarted desk meters a consult by when
+   * its live window is gone — one interrupted, or one whose spend is still
+   * unknown and waiting for a reading.
+   */
+  consultWindows?(): readonly SeatRecord[]
   /** Interrupts every live turn on the Goal's open Seats, keeping what each already said. */
   interrupt(goal: string): Promise<void>
   /** Whether the plan the Goal's Seats spend from has allowance left, as the usage service last read it. */
@@ -1186,25 +1194,52 @@ export class IntakePlane {
 
   /**
    * A consult's one turn ended: metered with a usage read made after it,
-   * and with `live` — its usage as the live conversation reported it,
+   * and with `final` — its usage as the live conversation reported it,
    * captured and priced before it is discarded, since an ephemeral consult
-   * leaves nothing on disk to read later. A consult nothing on disk counted
-   * and with no live usage is unknown, never zero: the Goal's next dispatch
-   * and ask are refused until a person checks. Its window closes here, and
-   * is dropped after this read.
+   * leaves nothing on disk to read later; or `unsent` when the question
+   * never went. A consult nothing counted is unknown, never zero: the
+   * Goal's next dispatch and ask are refused, and its window stays on the
+   * Goal so the first valid reading of it reconciles the meter
+   * (`settleConsult`). A known one's window is dropped after this read.
    */
-  async consultEnded(goal: string, id: string, ended: number, live: UsageSample | null): Promise<void> {
+  async consultEnded(goal: string, id: string, ended: number, final: UsageSample | null | 'unsent'): Promise<void> {
     const windows = this.#consults.get(goal)
     const window = windows?.find((one) => one.id === id)
     if (!windows || !window || this.#closed) return
     this.#consults.set(goal, windows.map((one) => one.id === id ? { ...one, closed: { at: ended, why: 'answered' } } : one))
-    try {
-      await this.#meterGoal(goal, { seat: id, ended }, { seat: id, live })
-    } finally {
-      const left = (this.#consults.get(goal) ?? []).filter((one) => one.id !== id)
-      if (left.length > 0) this.#consults.set(goal, left)
-      else this.#consults.delete(goal)
-    }
+    await this.#meterGoal(goal, final === 'unsent' ? undefined : { seat: id, ended }, [{ seat: id, final }])
+  }
+
+  /**
+   * The consult windows a Goal's read attributes by: the live ones, and
+   * those the Seat book recorded whose meter is still open — a consult a
+   * restart interrupted, or one whose spend waits for a reading. An
+   * interrupted consult (its turn begun, never closed) is closed now, with
+   * no final reading.
+   */
+  #consultWindows(goal: string, budget: { readonly meters: Readonly<Record<string, SessionMeter>> }): {
+    readonly windows: readonly SeatRecord[]
+    readonly interrupted: readonly string[]
+  } {
+    const live = this.#consults.get(goal) ?? []
+    const held = new Set(live.map((one) => one.id))
+    const recorded = (this.#port.consultWindows?.() ?? []).filter((one) => one.board === goal && !held.has(one.id) && budget.meters[one.id])
+    const interrupted = recorded.filter((one) => {
+      const meter = budget.meters[one.id]!
+      return meter.turnStartedAt !== null && (meter.turnEndedAt === null || meter.turnStartedAt > meter.turnEndedAt)
+    }).map((one) => one.id)
+    const waiting = recorded.filter((one) => interrupted.includes(one.id) || budget.meters[one.id]!.unknown === CONSULT_USAGE_UNKNOWN)
+    return { windows: [...live, ...waiting], interrupted }
+  }
+
+  /** Closed consult windows whose meter is now known are let go; a wrapped Goal a reading reconciled settles. */
+  async #afterConsultRead(goal: string, wasUnknown: boolean): Promise<void> {
+    const meters = this.#store.read().budgets[goal]?.meters ?? {}
+    const left = (this.#consults.get(goal) ?? []).filter((one) => one.closed === null || meters[one.id]?.unknown === CONSULT_USAGE_UNKNOWN)
+    if (left.length > 0) this.#consults.set(goal, left)
+    else this.#consults.delete(goal)
+    const stillUnknown = Object.values(meters).some((meter) => meter.unknown === CONSULT_USAGE_UNKNOWN)
+    if (wasUnknown && !stillUnknown && this.#wrapped.has(goal)) await this.#budgets.settle(goal)
   }
 
   /**
@@ -1226,9 +1261,13 @@ export class IntakePlane {
       .catch((error: unknown) => this.#port.log('a trigger Seat’s turn could not be metered', { error: String(error) }))
   }
 
+  /** Goals wrapped while this desk ran: a consult's spend reconciled later settles one then. */
+  readonly #wrapped = new Set<string>()
+
   /** A Goal wrapped: its reservation settles against its final spend — only a known, complete one — and its waits end. */
   wrapped(goal: string): void {
     if (this.#closed || !this.#hasBudget(goal)) return
+    this.#wrapped.add(goal)
     void this.#track((async () => {
       await this.#meterGoal(goal)
       await this.#budgets.settle(goal)
@@ -1250,7 +1289,7 @@ export class IntakePlane {
   /** One usage read for one Goal, folded with a turn when one is given. */
   async #meterGoal(
     goal: string, turn?: { readonly seat: string; readonly started?: number; readonly ended?: number },
-    settle?: { readonly seat: string; readonly live: UsageSample | null },
+    settle: readonly { readonly seat: string; readonly final: UsageSample | null | 'unsent' }[] = [],
   ): Promise<void> {
     const budget = this.#store.read().budgets[goal]
     if (!budget) return
@@ -1261,8 +1300,14 @@ export class IntakePlane {
     } catch {
       read = { samples: [], complete: false }
     }
-    const seats = [...this.#port.seats().filter((seat) => seat.board === goal), ...(this.#consults.get(goal) ?? [])]
-    await this.#budgets.read(goal, read.samples, seats, { at, complete: read.complete }, turn, settle)
+    const consults = this.#consultWindows(goal, budget)
+    const wasUnknown = Object.values(budget.meters).some((meter) => meter.unknown === CONSULT_USAGE_UNKNOWN)
+    const seats = [...this.#port.seats().filter((seat) => seat.board === goal), ...consults.windows]
+    // An interrupted consult closes here, at the read that found it, with no final reading.
+    const closing = [...settle, ...consults.interrupted.filter((id) => !settle.some((one) => one.seat === id)).map((seat) => ({ seat, final: null }))]
+    for (const seat of consults.interrupted) await this.#budgets.turn(goal, seat, { ended: at })
+    await this.#budgets.read(goal, read.samples, seats, { at, complete: read.complete }, turn, closing)
+    await this.#afterConsultRead(goal, wasUnknown || closing.length > 0)
   }
 
   /** Every live budget read once: what keeps a Seat inside a turn under a minute stale. */

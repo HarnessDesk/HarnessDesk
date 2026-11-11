@@ -10,10 +10,10 @@ import type {
 
 import type { MachineSeatingFile } from '../agent-seating-file.js'
 import type { GoalPlane } from '../goals/plane.js'
-import type { SeatConsult } from '../evidence/records.js'
+import type { ConsultUsage, SeatConsult } from '../evidence/records.js'
 import type { GoalDocument } from '../goals/store.js'
 import type { Ledger } from '../ledger/index.js'
-import { seatFor, seatWindowOf } from './attribution.js'
+import { seatFor, seatWindowOf, type SeatWindow } from './attribution.js'
 import { canonicalPath, sameCanonicalPath, withCanonicalPaths } from '../path-identity.js'
 import { pairedCosts } from './compare.js'
 import { sumMeasures } from './measures.js'
@@ -102,6 +102,26 @@ const comparisonFingerprint = (report: InsightComparison): string => createHash(
   sources: report.sources.map((source) => ({ id: source.id, observedAt: source.observedAt, stale: source.stale, problem: source.problem })),
 })).digest('hex')
 
+/** Named when a consult closed without a usage reading and the corpus holds none of it either. */
+export const CONSULT_UNKNOWN_GAP = 'A consult a Seat asked closed without reporting its usage, so what it spent is not counted here.'
+
+/** A consult's recorded usage as one sample of the Seat that asked. */
+const consultSample = (consult: SeatConsult, usage: ConsultUsage, project: string): UsageSample => {
+  const id = `consult:${consult.runtime}:${consult.sessionId}`
+  const exact = (value: number): Measure => ({ value, quality: 'exact' })
+  const at = consult.closedAt ?? consult.openedAt
+  return {
+    key: id,
+    source: { id, runtime: consult.runtime, kind: 'transcript', label: 'Consult', observedAt: at, checkedAt: at, stale: false, problem: null },
+    runtime: consult.runtime, sessionId: consult.sessionId, turnId: null, requestId: null, project, model: usage.model,
+    from: consult.openedAt, to: at, scope: 'session', includesChildren: null,
+    input: exact(usage.input), output: exact(usage.output), cacheRead: exact(usage.cacheRead),
+    cacheWrite: usage.cacheWrite === null ? { value: 0, quality: 'estimate' } : exact(usage.cacheWrite),
+    usd: { value: usage.usd, quality: usage.basis === 'vendorMetered' ? 'exact' : 'estimate' },
+    moneyBasis: usage.basis,
+  }
+}
+
 /**
  * One read of a project's recorded usage, with its Goals and Seats, shared by
  * every report drawn from it. Each sample is attributed to its Seat at most
@@ -149,27 +169,66 @@ export class InsightPlane implements InsightReadApi {
     return this.#scanOf(query, await this.port.ledger().readInsight(query, { refresh: true }))
   }
 
-  #scanOf(query: InsightQuery, detail: UsageDetail, held?: { readonly goals: readonly Goal[]; readonly seats: readonly SeatRecord[] }): ProjectScan {
+  #scanOf(query: InsightQuery, read: UsageDetail, held?: { readonly goals: readonly Goal[]; readonly seats: readonly SeatRecord[] }): ProjectScan {
+    const allSeats = held?.seats ?? this.port.seats()
+    const projectSeats = allSeats.filter((seat) => sameCanonicalPath(seat.checkout.project, query.root))
+    const consults = this.#consultsOf(query, read, projectSeats)
+    const detail = consults.detail
     if (detail.samples.length === 0 && detail.gaps.length === 0) return { detail, projectGoals: [], projectSeats: [], seatOf: () => null }
     const projectGoals = (held?.goals ?? this.port.goals.store.list().map((document) => document.goal)).filter((goal) => sameCanonicalPath(goal.root, query.root))
-    const projectSeats = (held?.seats ?? this.port.seats()).filter((seat) => sameCanonicalPath(seat.checkout.project, query.root))
     // A consult's conversation is a window of the Seat that asked: what it spent is folded into that Seat's row.
-    const byId = new Map(projectSeats.map((seat) => [seat.id, seat]))
-    const consultWindows = (this.port.consults?.() ?? []).flatMap((consult) => {
-      const caller = byId.get(consult.seat as SeatRecord['id'])
-      return caller ? [{ ...seatWindowOf(caller), runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt, closedAt: consult.closedAt }] : []
-    })
-    const windows = [...projectSeats.map(seatWindowOf), ...consultWindows]
+    const windows = [...projectSeats.map(seatWindowOf), ...consults.windows]
     // A sample's one Seat among the project's is also its one Seat among any
     // subset holding it: `seatFor` matches runtime, session, folder and window
     // alone, so a narrower report can reuse the project-wide answer.
-    const attributed = new Map<UsageSample, string | null>()
+    const attributed = new Map<UsageSample, string | null>(consults.owned)
     const seatOf = (sample: UsageSample): string | null => {
       let id = attributed.get(sample)
       if (id === undefined) { id = seatFor(sample, windows); attributed.set(sample, id) }
       return id
     }
     return { detail, projectGoals, projectSeats, seatOf }
+  }
+
+  /**
+   * The consults this project's Seats opened: each a window of the Seat that
+   * asked, and — where its live conversation's usage was recorded when it
+   * closed — that usage as one sample of the asking Seat's, since an
+   * ephemeral consult may leave nothing in the corpus. Counted once: the
+   * corpus's own figure for the consult or the recorded one, whichever is
+   * larger, never both. A closed consult whose spend was not known, with
+   * nothing in the corpus either, is named as a gap rather than read as zero.
+   */
+  #consultsOf(query: InsightQuery, read: UsageDetail, seats: readonly SeatRecord[]): {
+    readonly detail: UsageDetail
+    readonly windows: readonly SeatWindow[]
+    readonly owned: readonly (readonly [UsageSample, string])[]
+  } {
+    const byId = new Map(seats.map((seat) => [seat.id, seat]))
+    const windows: SeatWindow[] = []
+    const owned: (readonly [UsageSample, string])[] = []
+    let samples = read.samples
+    const gaps = [...read.gaps]
+    for (const consult of this.port.consults?.() ?? []) {
+      const caller = byId.get(consult.seat as SeatRecord['id'])
+      if (!caller) continue
+      windows.push({ ...seatWindowOf(caller), runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt, closedAt: consult.closedAt })
+      if (consult.closedAt === null || consult.openedAt < query.from || consult.openedAt >= query.to) continue
+      const corpus = samples.filter((sample) => sample.runtime === consult.runtime && sample.sessionId === consult.sessionId)
+      const usage = consult.usage ?? null
+      if (usage === null) {
+        if (corpus.length === 0) gaps.push(CONSULT_UNKNOWN_GAP)
+        continue
+      }
+      // A per-call sample adds; a session sample is a running total, so its largest reading is the whole.
+      const counted = corpus.reduce((sum, sample) => sample.scope === 'call' ? sum + (sample.usd.value ?? 0) : sum, 0)
+        + Math.max(0, ...corpus.filter((sample) => sample.scope === 'session').map((sample) => sample.usd.value ?? 0))
+      if (corpus.length > 0 && corpus.every((sample) => sample.usd.value !== null) && counted >= usage.usd) continue
+      const sample = consultSample(consult, usage, caller.checkout.project)
+      samples = [...samples.filter((one) => !corpus.includes(one)), sample]
+      owned.push([sample, caller.id])
+    }
+    return { detail: samples === read.samples && gaps.length === read.gaps.length ? read : { ...read, samples, gaps: [...new Set(gaps)], sources: [...read.sources, ...owned.map(([sample]) => sample.source)] }, windows, owned }
   }
 
   #report(query: InsightQuery, selectedSeatIds: ReadonlySet<string> | undefined, scan: ProjectScan): InsightReport {

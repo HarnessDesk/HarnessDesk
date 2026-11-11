@@ -5,9 +5,10 @@ import { test, type TestContext } from 'node:test'
 
 import type { GoalView, Intent, SessionSummary, WireNotification } from '@harnessdesk/protocol'
 
-import { CONSULT_PROMPT } from '../src/consult.js'
+import { CONSULT_CLOSED_REFUSAL, CONSULT_PROMPT } from '../src/consult.js'
 import { executionOf } from '../src/flow-recovery.js'
 import type { QuestionTimers } from '../src/host.js'
+import type { UsageSample } from '../src/ledger/insight.js'
 import { claimed, desk, E2E, execution, start, TASK, whenChanged, type Desk } from './fixtures/flow-host-evidence.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { HoldFake, type HoldSession } from './fixtures/hold-runtime.js'
@@ -87,8 +88,8 @@ const mentions = (seen: readonly WireNotification[], runtime: string, sessionId:
 
 interface SeatLine {
   readonly type: string
-  readonly record?: { readonly id: string; readonly session: { readonly sessionId: string } }
-  readonly consult?: { readonly seat: string; readonly runtime: string; readonly sessionId: string }
+  readonly record?: { readonly id: string; readonly session: { readonly sessionId: string }; readonly checkout: { readonly project: string } }
+  readonly consult?: { readonly seat: string; readonly runtime: string; readonly sessionId: string; readonly openedAt: number; readonly closedAt: number | null }
 }
 
 /** Every line of every project's Seat file under the desk's state. */
@@ -109,11 +110,14 @@ test('a seat whose role may ask gets one answer from a hidden, read-only, epheme
   const a = await asking(t)
   answerWith(a.holds, '4')
   const listed: SessionSummary[] = []
+  let linkedBeforeQuestion: (number | null)[] = []
   // A window that lists conversations while the consult is open never sees it.
   a.holds.onSend = (session) => {
     void (async () => {
       const page = await a.d.host.call('session/list', { runtime: 'holdfake' as never }) as { data: SessionSummary[] }
       listed.push(...page.data)
+      // Whose consult this is was on disk before the question reached it: a crash now still attributes the work.
+      linkedBeforeQuestion = (await seatLines(a.d.stateDir)).filter((line) => line.type === 'seat-consult').map((line) => line.consult!.closedAt)
       ;(session as HoldSession).finish('4')
     })()
   }
@@ -136,8 +140,9 @@ test('a seat whose role may ask gets one answer from a hidden, read-only, epheme
   // Whose the consult was is written beside the caller's Seat, so Insight folds what it spent into that Seat.
   const lines = await seatLines(a.d.stateDir)
   const callerSeat = lines.find((line) => line.type === 'seat' && line.record?.session.sessionId === a.caller.sessionId)?.record?.id
-  assert.deepEqual(lines.filter((line) => line.type === 'seat-consult').map((line) => [line.consult?.seat, line.consult?.runtime, line.consult?.sessionId]),
-    [[callerSeat, 'holdfake', String(consult.id)]])
+  assert.deepEqual(linkedBeforeQuestion, [null], 'the opening link was written before the question was sent, and not yet closed')
+  assert.deepEqual(lines.filter((line) => line.type === 'seat-consult').map((line) => [line.consult?.seat, line.consult?.runtime, line.consult?.sessionId, line.consult?.closedAt === null]),
+    [[callerSeat, 'holdfake', String(consult.id), true], [callerSeat, 'holdfake', String(consult.id), false]], 'its opening, then its closing')
 
   const audit = await a.d.host.call('audit/query', {}) as readonly { kind: string; agent?: string; outcome?: string; bytesOut?: number }[]
   const line = audit.find((entry) => entry.kind === 'consult')
@@ -252,6 +257,63 @@ test('the deadline bounds the open: the timer fires while the agent is still ope
   assert.deepEqual(mentions(a.seen, 'holdfake', String(late.id)), [], 'no window heard of it')
 })
 
+test('a consult’s children are held at its read ceiling, registered or not, however deep, and nothing of it runs once it has answered', E2E, async (t) => {
+  const a = await asking(t)
+  const admit = (sessionId: string, tool: string, needs: 'read' | 'edit') => a.d.host.ceilingGate.admit({
+    startedAt: Date.now(), tool, args: undefined, needs, scope: { runtime: 'holdfake' as never, sessionId: sessionId as never }, quiet: true,
+  })
+  const spawn = (parent: string, child: string): void => a.holds.emit({
+    type: 'item/completed', sessionId: parent as never, turnId: 'consult-turn' as never,
+    item: { id: `spawn-${child}` as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: child }] },
+  })
+  let child = ''
+  const during: Record<string, boolean> = {}
+  a.holds.onSend = (session) => {
+    void (async () => {
+      // A child the runtime opens as a conversation of its own: the desk's registry knows it.
+      child = String((await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })).id)
+      assert.ok(a.d.host.registry.get('holdfake' as never, child as never), 'the child is a registered conversation')
+      spawn(String(session.id), child)
+      spawn(child, 'grandchild-1')
+      during['child edits'] = (await admit(child, 'run_tests', 'edit')).admitted
+      during['grandchild edits'] = (await admit('grandchild-1', 'run_tests', 'edit')).admitted
+      during['child reads'] = (await admit(child, 'board_read', 'read')).admitted
+      ;(session as HoldSession).finish('4')
+    })()
+  }
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'q', context: null }, a.caller)
+  assert.deepEqual(during, { 'child edits': false, 'grandchild edits': false, 'child reads': true })
+  // Answered: nothing of it — the consult, its registered child, its nested one — is admitted, not even a read,
+  // and the refusal is the durable one, not a bounded cache that a busy desk evicts.
+  const consult = String(a.holds.held[0]!.id)
+  for (const id of [consult, child, 'grandchild-1']) {
+    assert.deepEqual(await admit(id, 'board_read', 'read'), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL }, id)
+  }
+})
+
+test('a timed-out open lets the runtime’s other conversations through one cleanup bound after the deadline, and the late consult is still discarded', E2E, async (t) => {
+  const a = await asking(t)
+  let open!: () => void
+  a.holds.createGate = new Promise<void>((resolve) => { open = resolve })
+  const pending = a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'q', context: null }, a.caller)
+  await whenChanged(a.d, () => (a.holds.createOptions.length > 0 ? true : null), 'the consult is opening')
+  const [deadline] = [...a.timers.live.values()]
+  deadline!.fire()
+  await assert.rejects(pending, code('askTimeout'))
+  // An ordinary conversation on the same runtime starts while the consult is still stuck opening.
+  a.holds.createGate = null
+  const other = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
+  assert.deepEqual(mentions(a.seen, 'holdfake', String(other.id)), [], 'held while the consult opens, within the bound')
+  const bound = [...a.timers.live.values()].filter((one) => one.ms === 10_000)
+  assert.equal(bound.length, 1, 'the hold is bounded at the deadline')
+  bound[0]!.fire()
+  await whenChanged(a.d, () => (mentions(a.seen, 'holdfake', String(other.id)).length > 0 ? true : null), 'the other conversation reaches the window')
+  open()
+  await whenChanged(a.d, () => (a.holds.held.length === 2 ? true : null), 'the late consult came back')
+  const late = a.holds.held.find((one) => one.id !== other.id)!
+  await whenChanged(a.d, () => (a.d.host.registry.get('holdfake' as never, late.id) === undefined ? true : null), 'the late consult is discarded')
+})
+
 test('approvals inside a consult are declined by the desk, never shown, and the ask still answers', E2E, async (t) => {
   const a = await asking(t)
   let decided: unknown = null
@@ -298,7 +360,7 @@ const storedRun = async (dir: string, run: string): Promise<unknown> => {
 }
 
 /** A trigger Goal whose reviewer Seat may ask `fake` this many times, at work. */
-const triggerSeat = async (t: TestContext, times = 1): Promise<{ d: Awaited<ReturnType<typeof intakeDesk>>; goal: string; caller: { runtime: string; sessionId: string } }> => {
+const triggerSeat = async (t: TestContext, times = 1, usage?: () => readonly UsageSample[]): Promise<{ d: Awaited<ReturnType<typeof intakeDesk>>; goal: string; caller: { runtime: string; sessionId: string } }> => {
   const repo = await makeRepo('hd-consult-trigger-')
   await commitTriggers(repo, `- id: triage
   on: issue
@@ -314,7 +376,7 @@ seed: { role: reviewer, title: Review it }
 rules: []
 `)
   await repo.git('commit', '-qam', 'ask')
-  const d = await intakeDesk({ repo })
+  const d = await intakeDesk({ repo, ...(usage ? { usage } : {}) })
   t.after(() => d.stop())
   const root = repo.dir
   const preview = await d.host.call('trigger/preview', { root, id: 'triage' })
@@ -378,4 +440,49 @@ test('a consult that reported no usage is unknown, never zero, and the Goal’s 
   assert.match(askMeter(d, goal)?.unknown ?? '', /reported no usage/)
   await assert.rejects(d.host.consultPlane.ask({ agent: 'fake', question: 'And 3+3?', context: null }, caller),
     (error: Error) => code('askBudget')(error) && /Spend is unknown/.test(error.message) && /reported no usage/.test(error.message))
+})
+
+/** A corpus reading of one conversation's whole spend, as Insight's scan finds it. */
+const corpusOf = (runtime: string, sessionId: string, project: string, usd: number, from: number, to: number): UsageSample => ({
+  key: `corpus-${sessionId}-${usd}`, runtime, sessionId, turnId: null, requestId: null, project, model: 'fake-1',
+  source: { id: 'corpus', kind: 'corpus', label: 'Recorded usage', observedAt: to, checkedAt: to, stale: false, problem: null },
+  from, to, scope: 'session', includesChildren: null,
+  input: { value: 10, quality: 'exact' }, output: { value: 10, quality: 'exact' }, cacheRead: { value: 0, quality: 'exact' }, cacheWrite: { value: 0, quality: 'exact' },
+  usd: { value: usd, quality: 'exact' }, moneyBasis: 'vendorMetered',
+})
+
+test('an earlier corpus reading never hides the consult’s final live total: 0.10 recorded, 0.42 live, and the Goal is charged 0.42', E2E, async (t) => {
+  const corpus: UsageSample[] = []
+  const { d, goal, caller } = await triggerSeat(t, 1, () => corpus)
+  d.runtime.onSend = (session, text) => {
+    if (!text.includes(CONSULT_PROMPT)) return
+    void (async () => {
+      const project = (await seatLines(d.stateDir)).find((line) => line.type === 'seat')!.record!.checkout.project
+      const at = Date.now()
+      corpus.push(corpusOf('fake', String(session.id), project, 0.1, at, at))
+      await d.host.intakePlane.tick()
+      assert.equal(askMeter(d, goal)?.lastMicros, 100_000, 'the corpus reading was counted first')
+      d.runtime.emit({ type: 'usage/updated', sessionId: session.id, usage: USAGE(0.42) })
+      setImmediate(() => (session as HoldSession).finish('4'))
+    })()
+  }
+  await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
+  const meter = askMeter(d, goal)!
+  assert.deepEqual({ unknown: meter.unknown, lastMicros: meter.lastMicros }, { unknown: null, lastMicros: 420_000 })
+})
+
+test('a consult’s unknown spend is repaired by a later reading of it, and the Goal may ask again', E2E, async (t) => {
+  const corpus: UsageSample[] = []
+  const { d, goal, caller } = await triggerSeat(t, 2, () => corpus)
+  d.runtime.onSend = (session, text) => { if (text.includes(CONSULT_PROMPT)) setImmediate(() => (session as HoldSession).finish('4')) }
+  await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
+  assert.match(askMeter(d, goal)?.unknown ?? '', /reported no usage/)
+  const lines = await seatLines(d.stateDir)
+  const link = lines.find((line) => line.type === 'seat-consult' && line.consult!.closedAt !== null)!.consult!
+  corpus.push(corpusOf('fake', link.sessionId, lines.find((line) => line.type === 'seat')!.record!.checkout.project, 0.05, link.openedAt, link.openedAt))
+  await d.host.intakePlane.tick()
+  const meter = askMeter(d, goal)!
+  assert.deepEqual({ unknown: meter.unknown, lastMicros: meter.lastMicros }, { unknown: null, lastMicros: 50_000 }, 'reconciled from the reading')
+  d.runtime.onSend = (session, text) => { if (text.includes(CONSULT_PROMPT)) setImmediate(() => (session as HoldSession).finish('6')) }
+  assert.equal((await d.host.consultPlane.ask({ agent: 'fake', question: 'And 3+3?', context: null }, caller)).text, '6')
 })

@@ -27,6 +27,7 @@ interface Rig {
   budget: { ok: true } | { ok: false; detail: string }
   held: boolean
   timers: Map<number, () => void>
+  finals: unknown[]
 }
 
 const turn = (text: string, status: Turn['status'] = 'completed'): Turn =>
@@ -42,6 +43,7 @@ const rig = (): Rig => {
     budget: { ok: true },
     held: true,
     timers: new Map(),
+    finals: [],
   } as unknown as Rig
   let spent = 0
   let timer = 0
@@ -64,8 +66,10 @@ const rig = (): Rig => {
     discard: async () => { calls.push('discard'); return null },
     metered: async (_caller, consult) => { calls.push(`metered:${consult.n}`); return `seat-1/ask/${consult.n}` },
     meteredStart: async (_goal, meter) => { calls.push(`meteredStart:${meter}`) },
-    meteredEnd: async (_goal, meter) => { calls.push(`meteredEnd:${meter}`) },
-    link: async (seat) => { calls.push(`link:${seat}`) },
+    usage: () => null,
+    meteredEnd: async (_goal, meter, _ended, final) => { calls.push(`meteredEnd:${meter}`); state.finals.push(final) },
+    linkOpened: async (seat, consult) => { calls.push(`linkOpened:${seat}:${consult.n}`) },
+    linkClosed: async (seat) => { calls.push(`linkClosed:${seat}`) },
     audit: (entry) => { audit.push(entry) },
     log: () => {},
     now: () => 0,
@@ -82,7 +86,7 @@ test('an allowed seat asks once: open, hold read, ask, discard — and the answe
   const r = rig()
   const answer = await r.plane.ask({ agent: 'b', question: 'What is 2+2?', context: 'Arithmetic.' }, scope)
   assert.deepEqual(answer, { text: '4', agentName: 'Agent B', truncated: false })
-  assert.deepEqual(r.calls, ['spend:1', 'open:b:/work/checkout', 'hold', 'ask:What is 2+2?', 'link:seat-1', 'discard'])
+  assert.deepEqual(r.calls, ['spend:1', 'open:b:/work/checkout', 'hold', 'linkOpened:seat-1:1', 'ask:What is 2+2?', 'linkClosed:seat-1', 'discard'])
   assert.equal(r.audit.length, 1)
   assert.deepEqual({ ...r.audit[0], durationMs: 0 }, { runtime: 'a', sessionId: 'caller-1', agent: 'b', outcome: 'answered', bytesIn: 23, bytesOut: 1, durationMs: 0 })
 })
@@ -189,7 +193,7 @@ test('a read ceiling the runtime does not hold refuses, and the consult is still
   const r = rig()
   r.held = false
   await assert.rejects(r.plane.ask({ agent: 'b', question: 'q', context: null }, scope), code('askNoReadCeiling'))
-  assert.deepEqual(r.calls, ['spend:1', 'open:b:/work/checkout', 'hold', 'link:seat-1', 'discard'])
+  assert.deepEqual(r.calls, ['spend:1', 'open:b:/work/checkout', 'hold', 'discard'], 'never asked, so nothing is linked')
   assert.equal(r.audit[0]!['outcome'], 'askNoReadCeiling')
 })
 
@@ -261,4 +265,44 @@ test('a 40 KiB reply reaches the caller truncated, with truncated: true', async 
   assert.equal(answer.truncated, true)
   assert.ok(answer.text.endsWith(ASK_TRUNCATED_MARK))
   assert.equal(r.audit[0]!['outcome'], 'truncated')
+})
+
+test('whose consult it is goes on disk before the question: a desk that stops mid-consult still knows the Seat that asked', async () => {
+  const r = rig()
+  r.seat = { ...r.seat!, trigger: true }
+  r.reply = () => turn('', 'inProgress')
+  const asking = r.plane.ask({ agent: 'b', question: 'q', context: null }, scope)
+  while (!r.calls.some((one) => one.startsWith('ask:'))) await new Promise((resolve) => setImmediate(resolve))
+  const at = (call: string): number => r.calls.findIndex((one) => one.startsWith(call))
+  assert.ok(at('linkOpened:seat-1:1') >= 0 && at('linkOpened:seat-1:1') < at('ask:'), r.calls.join(', '))
+  assert.equal(at('linkClosed'), -1, 'its closing is written separately, once it ends')
+  r.plane.runEnded('run-1')
+  await assert.rejects(asking, code('askCancelled'))
+  assert.ok(at('linkClosed:seat-1') > at('ask:') && at('linkClosed:seat-1') < at('discard'), r.calls.join(', '))
+})
+
+test('a question withdrawn before it is sent spent nothing: the meter closes unsent, not unknown, and no closing is written', async () => {
+  const r = rig()
+  r.seat = { ...r.seat!, trigger: true }
+  ;(r.port as { meteredStart: ConsultPort['meteredStart'] }).meteredStart = (_goal, meter) => { r.calls.push(`meteredStart:${meter}`); return new Promise<void>(() => {}) }
+  const asking = r.plane.ask({ agent: 'b', question: 'q', context: null }, scope)
+  while (!r.calls.some((one) => one.startsWith('meteredStart'))) await new Promise((resolve) => setImmediate(resolve))
+  r.plane.runEnded('run-1')
+  await assert.rejects(asking, code('askCancelled'))
+  assert.equal(r.calls.some((one) => one.startsWith('ask:')), false, 'the question never went')
+  assert.deepEqual(r.finals, ['unsent'])
+  assert.equal(r.calls.some((one) => one.startsWith('linkClosed')), false)
+  assert.equal(r.calls.at(-1), 'discard')
+})
+
+test('a sent question is metered with the usage its live conversation reported, read once before the discard', async () => {
+  const r = rig()
+  r.seat = { ...r.seat!, trigger: true }
+  const live = { key: 'consult:b:consult-1' } as never
+  let reads = 0
+  ;(r.port as { usage: ConsultPort['usage'] }).usage = () => { reads += 1; r.calls.push('usage'); return live }
+  await r.plane.ask({ agent: 'b', question: 'q', context: null }, scope)
+  assert.deepEqual(r.finals, [live])
+  assert.equal(reads, 1)
+  assert.ok(r.calls.indexOf('usage') < r.calls.indexOf('discard'))
 })

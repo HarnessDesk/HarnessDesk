@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import type { UsageSample } from '../src/ledger/insight.js'
-import { attributeSample, goalSpend, meterSample, meterTotal, meterTurn, openMeter, spendOf, type SessionMeter } from '../src/intake/spend.js'
+import { budgetRefusal } from '../src/intake/budget.js'
+import { attributeSample, CONSULT_USAGE_UNKNOWN, goalSpend, meterSample, meterTotal, meterTurn, openMeter, settleConsult, spendOf, type SessionMeter } from '../src/intake/spend.js'
 
 /*
  * A trigger Goal's spend is each of its Seats' own attributed cost, from
@@ -97,4 +98,39 @@ test('vendor and list-price totals retain their provenance', () => {
   assert.deepEqual(goalSpend([meter()], 200), { spentMicros: 0, provenance: 'unknown', why: null })
   // One session's basis cannot change part-way.
   assert.equal(meterTotal(fold(meter(), [sample({ moneyBasis: 'vendorMetered' }), sample({ moneyBasis: 'listPrice', usd: exact(1) })]), 200).micros, null)
+})
+
+test('a consult’s final live reading is reconciled with an earlier corpus reading, never added to it, and never hidden by it', () => {
+  const consult = meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 })
+  const live = (usd: number, over: Partial<UsageSample> = {}) => sample({ key: 'consult:alpha:s1', usd: exact(usd), to: 130, ...over })
+  // The review's case: the corpus read $0.10 mid-turn, the live conversation's final total is $0.42, the Goal's cap is $0.20.
+  const midway = meterSample(consult, sample({ usd: exact(0.1), to: 110 }))
+  const settled = meterTurn(settleConsult(midway, live(0.42)), { ended: 130 })
+  assert.equal(meterTotal(settled, 200).micros, 420_000, 'the final reading stands')
+  const check = { now: 0, deadline: 1, closedRounds: 0, roundLimit: 9, idleRounds: 0, idleLimit: 9, lane: 'available' as const, paused: false, limitMicros: 200_000 }
+  assert.match(budgetRefusal({ ...check, spentMicros: goalSpend([settled], 200).spentMicros }) ?? '', /spend limit/, 'and the Goal at its $0.20 cap refuses')
+  // Per-call corpus figures and the live session total are one spend, counted once.
+  const calls = fold(consult, [sample({ scope: 'call', key: 'c1', usd: exact(0.06) }), sample({ scope: 'call', key: 'c2', usd: exact(0.04) })])
+  assert.equal(meterTotal(meterTurn(settleConsult(calls, live(0.42)), { ended: 130 }), 200).micros, 420_000)
+  // A corpus that counted more than the live total claims keeps the larger figure.
+  assert.equal(meterTotal(meterTurn(settleConsult(meterSample(consult, sample({ usd: exact(0.5) })), live(0.42)), { ended: 130 }), 200).micros, 500_000)
+  // A final reading the meter cannot vouch for leaves it unknown: the corpus figure may not have been complete.
+  assert.equal(meterTotal(settleConsult(midway, live(0, { usd: { value: null, quality: 'unknown' }, moneyBasis: 'unknown' })), 200).micros, null)
+})
+
+test('a consult’s unknown spend is repaired by a later valid reading, and a question never sent is a known zero', () => {
+  const consult = meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 })
+  const unknown = meterTurn(settleConsult(consult, null), { ended: 130 })
+  assert.equal(unknown.unknown, CONSULT_USAGE_UNKNOWN)
+  assert.equal(goalSpend([unknown], 200).spentMicros, null)
+  const repaired = meterSample(unknown, sample({ usd: exact(0.3), to: 140 }))
+  assert.equal(repaired.unknown, null)
+  assert.equal(meterTotal(repaired, 200).micros, 300_000, 'the first valid reading of the consult reconciles it')
+  assert.equal(meterSample(unknown, sample({ usd: { value: null, quality: 'unknown' } })).unknown, CONSULT_USAGE_UNKNOWN, 'an invalid one does not')
+  // Any other unknown stays as it was.
+  const other = meterSample(meter({ fresh: false }), sample())
+  assert.equal(meterSample(other, sample({ usd: exact(9), to: 999 })).unknown, other.unknown)
+  // Withdrawn before the question went: the turn it was about to start is forgotten, and nothing was spent.
+  const unsent = settleConsult(consult, 'unsent')
+  assert.deepEqual(meterTotal(unsent, 200), { micros: 0, why: null })
 })

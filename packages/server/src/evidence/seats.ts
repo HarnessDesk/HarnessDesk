@@ -1,6 +1,6 @@
 import { ceilingOfPermission, sessionKey, type FlowSeatRecord, type SeatId, type SeatRecord } from '@harnessdesk/protocol'
 
-import { foldSeats, mintId, type SeatConsult, type SeatOpening } from './records.js'
+import { foldSeats, mintId, type ConsultUsage, type SeatConsult, type SeatOpening } from './records.js'
 import { projectOf, revisionOf } from './revision.js'
 import type { EvidenceStore } from './store.js'
 
@@ -73,25 +73,41 @@ export class SeatBook {
     for (const project of await this.#store.projects()) {
       const { lines } = await this.#store.read(project, 'seats')
       for (const seat of foldSeats(lines)) this.#index(seat, project)
-      for (const line of lines) {
-        const key = line.type === 'seat-consult' ? sessionKey(line.consult.runtime, line.consult.sessionId) : null
-        if (key && line.type === 'seat-consult' && !this.#consults.has(key)) this.#consults.set(key, line.consult)
-      }
+      for (const line of lines) if (line.type === 'seat-consult') this.#foldConsult(line.consult)
     }
   }
 
-  /**
-   * A Seat asked another agent: the consult's conversation and window are
-   * written beside the Seat's own record, so what the consult spent stays
-   * the Seat's after the conversation is gone and after a restart. Nothing is
-   * written for a Seat this desk does not hold.
-   */
-  async consulted(consult: SeatConsult): Promise<void> {
-    const project = this.#projects.get(consult.seat as SeatId)
+  /** An opening, then the first closing: a second of either changes nothing. */
+  #foldConsult(consult: SeatConsult): boolean {
     const key = sessionKey(consult.runtime, consult.sessionId)
-    if (!project || this.#consults.has(key)) return
+    const known = this.#consults.get(key)
+    if (known && (known.closedAt !== null || consult.closedAt === null)) return false
+    this.#consults.set(key, known ? { ...known, closedAt: consult.closedAt, usage: consult.usage ?? null } : consult)
+    return true
+  }
+
+  /**
+   * A Seat is about to ask another agent: whose consult it is, written
+   * beside the Seat's own record before the question is sent, so what the
+   * consult spends stays the Seat's after the conversation is gone, after a
+   * restart, and after a desk that stopped mid-consult. Nothing is written
+   * for a Seat this desk does not hold.
+   */
+  async consultOpened(consult: Omit<SeatConsult, 'closedAt' | 'usage'>): Promise<void> {
+    await this.#writeConsult({ ...consult, closedAt: null })
+  }
+
+  /** The consult ended: when, and what its live conversation reported it spent (null: unknown). */
+  async consultClosed(consult: Omit<SeatConsult, 'closedAt' | 'usage'>, closedAt: number, usage: ConsultUsage | null): Promise<void> {
+    await this.#writeConsult({ ...consult, closedAt, usage })
+  }
+
+  async #writeConsult(consult: SeatConsult): Promise<void> {
+    const project = this.#projects.get(consult.seat as SeatId)
+    const known = this.#consults.get(sessionKey(consult.runtime, consult.sessionId))
+    if (!project || (known && (known.closedAt !== null || consult.closedAt === null))) return
     await this.#store.append(project, 'seats', [{ type: 'seat-consult', consult }])
-    this.#consults.set(key, consult)
+    this.#foldConsult(consult)
   }
 
   /** Every consult a Seat here opened, as written. */

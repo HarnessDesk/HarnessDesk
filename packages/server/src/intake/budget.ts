@@ -4,8 +4,10 @@ import { DEFAULT_TRIGGER_DAILY_USD } from '@harnessdesk/protocol'
 import { seatWindowOf } from '../insight/attribution.js'
 import type { UsageSample } from '../ledger/insight.js'
 import { usdMicros } from './definition.js'
-import { attributeSample, goalSpend, meterSample, meterTurn, openMeter, type SessionMeter } from './spend.js'
+import { attributeSample, goalSpend, meterSample, meterTurn, openMeter, settleConsult, type SessionMeter } from './spend.js'
 import type { IntakeBudget, IntakeOperation, IntakeSnapshot } from './store.js'
+
+export { CONSULT_USAGE_UNKNOWN } from './spend.js'
 
 /**
  * What unattended work may spend, and where it stops.
@@ -139,9 +141,6 @@ export interface TriggerBudgetPort {
  * A trigger Goal's budget: the dispatch gate, the meters, the stop and the
  * settlement, over the admission journal.
  */
-/** Why a consult's spend is unknown when its conversation reported no usage before it was discarded. */
-export const CONSULT_USAGE_UNKNOWN = 'The agent this Seat asked reported no usage before its conversation closed, so what it spent is unknown.'
-
 export class TriggerBudgets {
   readonly #read: () => IntakeSnapshot
   readonly #transact: <T>(change: (snapshot: IntakeSnapshot) => { readonly next: IntakeSnapshot | null; readonly value: T }) => Promise<T>
@@ -268,16 +267,17 @@ export class TriggerBudgets {
    * session the desk opened at zero: an older session found with nothing
    * says nothing about what it spent.
    *
-   * `settle` closes a consult's meter in the same save: when nothing on disk
-   * counted it, its live usage is folded in, and with none it is unknown —
-   * an ephemeral conversation found with nothing has not been shown to have
-   * spent nothing.
+   * `settle` closes consults' meters in the same save, each with its final
+   * reading (`settleConsult`): reconciled with what the corpus counted, never
+   * added to it; with none and nothing counted, unknown — an ephemeral
+   * conversation found with nothing has not been shown to have spent
+   * nothing; and a question never sent is a known zero.
    */
   read(
     goal: string, samples: readonly UsageSample[], seats: readonly SeatRecord[],
     read: { readonly at: number; readonly complete: boolean },
     turn?: { readonly seat: string; readonly started?: number; readonly ended?: number },
-    settle?: { readonly seat: string; readonly live: UsageSample | null },
+    settle: readonly { readonly seat: string; readonly final: UsageSample | null | 'unsent' }[] = [],
   ): Promise<void> {
     const windows = seats.map(seatWindowOf)
     return this.#transact((snapshot) => {
@@ -294,11 +294,9 @@ export class TriggerBudgets {
         })
         meters[seat.id] = meterSample(meter, sample)
       }
-      const settling = settle ? meters[settle.seat] : undefined
-      if (settle && settling && settling.scope === null && settling.unknown === null) {
-        meters[settle.seat] = settle.live
-          ? meterSample(settling, settle.live)
-          : { ...settling, unknown: CONSULT_USAGE_UNKNOWN }
+      for (const one of settle) {
+        const settling = meters[one.seat]
+        if (settling) meters[one.seat] = settleConsult(settling, one.final)
       }
       if (read.complete) {
         for (const [id, meter] of Object.entries(meters)) {

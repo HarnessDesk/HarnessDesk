@@ -3,6 +3,7 @@ import { sameCanonicalPath } from '../path-identity.js'
 import { isNativeServerName } from '@harnessdesk/protocol'
 import { isRevisionName } from '../git-revision.js'
 import { canonicalRepository } from '../git-gateway/record.js'
+import type { UsageSample } from '../ledger/insight.js'
 
 import type {
   CheckRun,
@@ -78,17 +79,57 @@ export interface SeatClosing {
 }
 
 /**
+ * What a consult's live conversation reported it spent, read before it was
+ * discarded: dollars — the runtime's own (`vendorMetered`) or its tokens at
+ * list price (`listPrice`) — and the tokens behind them. Null when it
+ * reported nothing a dollar figure could be made of.
+ */
+export interface ConsultUsage {
+  readonly model: string | null
+  readonly usd: number
+  readonly basis: 'vendorMetered' | 'listPrice'
+  readonly input: number
+  readonly output: number
+  readonly cacheRead: number
+  /** Null when the runtime does not report cache writes. */
+  readonly cacheWrite: number | null
+}
+
+/** A consult's live usage sample as it is kept: only one with a dollar figure and every token count is. */
+export const consultUsageOf = (sample: UsageSample | null): ConsultUsage | null => {
+  if (!sample || sample.usd.value === null || sample.usd.quality === 'unknown' || sample.usd.quality === 'floor') return null
+  if (sample.moneyBasis !== 'vendorMetered' && sample.moneyBasis !== 'listPrice') return null
+  const count = (value: number | null): number | null => value !== null && Number.isFinite(value) && value >= 0 ? Math.round(value) : null
+  const input = count(sample.input.value)
+  const output = count(sample.output.value)
+  const cacheRead = count(sample.cacheRead.value)
+  if (input === null || output === null || cacheRead === null || !Number.isFinite(sample.usd.value) || sample.usd.value < 0) return null
+  return {
+    model: sample.model, usd: sample.usd.value, basis: sample.moneyBasis, input, output, cacheRead,
+    cacheWrite: sample.cacheWrite.quality === 'exact' ? count(sample.cacheWrite.value) : null,
+  }
+}
+
+/**
  * A consult a Seat opened with `ask_agent`: the other agent's conversation
  * and the window it lived in. What that conversation spent is the asking
  * Seat's, so Insight folds it into that Seat's row; the consult is never a
  * Seat of its own.
+ *
+ * Written twice: opened (`closedAt` null) before the question is sent, so a
+ * desk that stops mid-consult still knows whose it was; then closed, with
+ * the usage its live conversation reported.
  */
 export interface SeatConsult {
   readonly seat: string
+  /** Which of the Seat's asks on its run this was, from 1. */
+  readonly n: number
   readonly runtime: string
   readonly sessionId: string
   readonly openedAt: number
-  readonly closedAt: number
+  readonly closedAt: number | null
+  /** Only on the closing: what it spent, or null when that is unknown. */
+  readonly usage?: ConsultUsage | null
 }
 
 /** One line of a store, as this build reads it. */
@@ -196,11 +237,27 @@ export const seatClosingOf = (value: unknown): SeatClosing | null =>
     ? (value as unknown as SeatClosing)
     : null
 
-export const seatConsultOf = (value: unknown): SeatConsult | null =>
-  isRecord(value) && isId(value['seat']) && isId(value['runtime']) && isId(value['sessionId']) &&
-  isTime(value['openedAt']) && isTime(value['closedAt']) && (value['closedAt'] as number) >= (value['openedAt'] as number)
-    ? { seat: value['seat'] as string, runtime: value['runtime'] as string, sessionId: value['sessionId'] as string, openedAt: value['openedAt'] as number, closedAt: value['closedAt'] as number }
+const isUsd = (value: unknown): value is number => Number.isFinite(value) && (value as number) >= 0
+
+const storedConsultUsage = (value: unknown): ConsultUsage | null =>
+  isRecord(value) && orNull(value['model'], isId) && isUsd(value['usd']) && (value['basis'] === 'vendorMetered' || value['basis'] === 'listPrice') &&
+  isCount(value['input']) && isCount(value['output']) && isCount(value['cacheRead']) && orNull(value['cacheWrite'], isCount)
+    ? {
+        model: value['model'] as string | null, usd: value['usd'] as number, basis: value['basis'] as ConsultUsage['basis'],
+        input: value['input'] as number, output: value['output'] as number, cacheRead: value['cacheRead'] as number, cacheWrite: value['cacheWrite'] as number | null,
+      }
     : null
+
+export const seatConsultOf = (value: unknown): SeatConsult | null => {
+  if (!isRecord(value) || !isId(value['seat']) || !Number.isSafeInteger(value['n']) || (value['n'] as number) < 1 ||
+    !isId(value['runtime']) || !isId(value['sessionId']) || !isTime(value['openedAt'])) return null
+  const opening = { seat: value['seat'] as string, n: value['n'] as number, runtime: value['runtime'] as string, sessionId: value['sessionId'] as string, openedAt: value['openedAt'] as number }
+  if (value['closedAt'] === null) return value['usage'] === undefined ? { ...opening, closedAt: null } : null
+  if (!isTime(value['closedAt']) || (value['closedAt'] as number) < opening.openedAt) return null
+  const usage = value['usage'] === null || value['usage'] === undefined ? null : storedConsultUsage(value['usage'])
+  if (usage === null && value['usage'] !== null && value['usage'] !== undefined) return null
+  return { ...opening, closedAt: value['closedAt'] as number, usage }
+}
 
 const CHECK_STATES = new Set(['pending', 'passed', 'failed', 'skipped', 'cancelled'])
 const isCheckRun = (value: unknown): value is CheckRun =>
@@ -469,7 +526,7 @@ export const lineText = (line: StoredLine): string => `${JSON.stringify({ v: LIN
 /** The id a stored line is known by, for a restore that must not write one twice. */
 export const idOfLine = (line: StoredLine): string =>
   line.type === 'seat-closed' ? `closed:${line.closing.seat}`
-    : line.type === 'seat-consult' ? `consult:${line.consult.runtime}:${line.consult.sessionId}`
+    : line.type === 'seat-consult' ? `${line.consult.closedAt === null ? 'consult' : 'consult-closed'}:${line.consult.runtime}:${line.consult.sessionId}`
       : line.record.id
 
 /**

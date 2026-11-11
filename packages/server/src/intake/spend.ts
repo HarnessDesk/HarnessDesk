@@ -69,12 +69,31 @@ const micros = (usd: number): number | null => (Number.isFinite(usd) && usd >= 0
 export const attributeSample = (sample: UsageSample, seats: readonly SeatWindow[]): string | null => seatFor(sample, seats)
 
 /**
+ * Why a consult's spend is unknown when its conversation closed with no
+ * usage read: the one unknown a later reading repairs, since the consult is
+ * a single finished turn and a valid total for it is the whole of it.
+ */
+export const CONSULT_USAGE_UNKNOWN = 'The agent this Seat asked reported no usage before its conversation closed, so what it spent is unknown.'
+
+/** A meter that has read nothing yet, keeping its Seat, session, turns and the last time it was read. */
+const unread = (meter: SessionMeter): SessionMeter => ({
+  ...meter, scope: null, provenance: null, model: null, baselineMicros: meter.fresh ? 0 : meter.baselineMicros,
+  lastMicros: null, callMicros: 0, calls: [], unknown: null,
+})
+
+/**
  * One sample, folded into one Seat's meter. A sample for another session
  * changes nothing; anything the meter cannot vouch for makes it unknown, and
- * an unknown meter stays unknown — nothing later refunds or repairs it.
+ * an unknown meter stays unknown — nothing later refunds or repairs it, but
+ * for a consult that closed with no usage read (`CONSULT_USAGE_UNKNOWN`),
+ * which the first valid reading of it reconciles.
  */
 export function meterSample(meter: SessionMeter, sample: UsageSample): SessionMeter {
   if (sample.runtime !== meter.runtime || sample.sessionId !== meter.sessionId) return meter
+  if (meter.unknown === CONSULT_USAGE_UNKNOWN) {
+    const reconciled = meterSample(unread(meter), sample)
+    return reconciled.unknown === null ? reconciled : meter
+  }
   if (meter.unknown !== null) return meter
   const unknown = (why: string): SessionMeter => ({ ...meter, unknown: why })
   const at = sample.to ?? sample.from ?? meter.observedAt ?? 0
@@ -105,6 +124,33 @@ export function meterSample(meter: SessionMeter, sample: UsageSample): SessionMe
     ...meter, scope: 'call', provenance: sample.moneyBasis, model: sample.model,
     callMicros: meter.callMicros + value, calls: [...meter.calls, sample.key], observedAt: Math.max(meter.observedAt ?? 0, at),
   }
+}
+
+/**
+ * A consult's meter closed with its final reading, taken from the live
+ * conversation before it was discarded.
+ *
+ * - `unsent`: the question never went, so nothing was spent — a meter that
+ *   read nothing forgets the turn it was about to start, a known zero.
+ * - `null`: no live usage. What a read made after the turn counted stands;
+ *   with nothing counted the spend is unknown (`CONSULT_USAGE_UNKNOWN`).
+ * - a sample: the final total, reconciled with what the corpus counted
+ *   without adding the two — the larger of them stands, as one figure. A
+ *   final reading the meter cannot vouch for leaves it unknown: whether an
+ *   earlier corpus figure was complete cannot then be told.
+ */
+export function settleConsult(meter: SessionMeter, final: UsageSample | null | 'unsent'): SessionMeter {
+  const counted = meter.scope !== null
+  if (final === 'unsent') return !counted && meter.unknown === null ? { ...meter, turnStartedAt: null, turnEndedAt: null } : meter
+  if (final === null) return !counted && meter.unknown === null ? { ...meter, unknown: CONSULT_USAGE_UNKNOWN } : meter
+  if (meter.unknown !== null && meter.unknown !== CONSULT_USAGE_UNKNOWN) return meter
+  const alone = meterSample(unread(meter), final)
+  if (alone.unknown !== null) return { ...meter, unknown: alone.unknown }
+  if (!counted || meter.unknown !== null) return alone
+  const corpus = meter.scope === 'call' ? meter.callMicros : (meter.lastMicros ?? 0) - (meter.baselineMicros ?? 0)
+  const live = (alone.lastMicros ?? 0) - (alone.baselineMicros ?? 0)
+  const observedAt = Math.max(meter.observedAt ?? 0, alone.observedAt ?? 0)
+  return live >= corpus ? { ...alone, observedAt } : { ...meter, observedAt }
 }
 
 /** A turn the host saw start or end on this Seat's session. */

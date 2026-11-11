@@ -63,7 +63,7 @@ test('a kept seat is recorded with the checkout it works in, read from git, and 
   assert.equal('closed' in lines[0].record, false)
 })
 
-test('a consult a Seat opened is written beside that Seat, read back after a restart, and written once', async () => {
+test('a consult a Seat opened is written beside that Seat before it is asked, closed with its usage, read back after a restart, and written once', async () => {
   const repo = await makeRepo()
   const dir = tempDir('hd-evidence-consults-')
   const store = new EvidenceStore(dir)
@@ -73,18 +73,29 @@ test('a consult a Seat opened is written beside that Seat, read back after a res
     standing: { kind: 'permission', permission: 'read' }, ceiling: null, cwd: repo.dir,
     session: { runtime: 'fake', sessionId: 'caller' }, board: null, role: null,
   })
-  const consult = { seat: caller.id, runtime: 'holdfake', sessionId: 'consult-1', openedAt: 110, closedAt: 150 }
-  await book.consulted(consult)
-  await book.consulted(consult)
-  await book.consulted({ ...consult, seat: 'no-such-seat', sessionId: 'consult-2' })
-  assert.deepEqual(book.consults(), [consult], 'written once, and never for a Seat the desk does not hold')
+  const opening = { seat: caller.id, n: 1, runtime: 'holdfake', sessionId: 'consult-1', openedAt: 110 }
+  await book.consultOpened(opening)
+  await book.consultOpened(opening)
+  await book.consultOpened({ ...opening, seat: 'no-such-seat', sessionId: 'consult-2' })
+  assert.deepEqual(book.consults(), [{ ...opening, closedAt: null }], 'written once, and never for a Seat the desk does not hold')
+
+  // A desk that stops while the consult is out still knows whose it was.
+  const interrupted = new SeatBook(new EvidenceStore(dir), () => 120)
+  await interrupted.load()
+  assert.deepEqual(interrupted.consults(), [{ ...opening, closedAt: null }])
+
+  const usage = { model: 'fake-1', usd: 0.42, basis: 'vendorMetered' as const, input: 1000, output: 300, cacheRead: 200, cacheWrite: null }
+  await book.consultClosed(opening, 150, usage)
+  await book.consultClosed(opening, 160, null)
+  const closed = { ...opening, closedAt: 150, usage }
+  assert.deepEqual(book.consults(), [closed], 'its closing is recorded once, separately')
   const project = await canonical(repo.dir)
   const lines = (await readFile(join(store.folderOf(project), 'seats.ndjson'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line))
-  assert.deepEqual(lines.filter((line) => line.type === 'seat-consult').map((line) => line.consult), [consult], 'on disk beside the Seat')
+  assert.deepEqual(lines.filter((line) => line.type === 'seat-consult').map((line) => line.consult), [{ ...opening, closedAt: null }, closed], 'on disk beside the Seat, opening then closing')
 
   const restarted = new SeatBook(new EvidenceStore(dir), () => 200)
   await restarted.load()
-  assert.deepEqual(restarted.consults(), [consult], 'a restarted desk still knows whose the consult was')
+  assert.deepEqual(restarted.consults(), [closed], 'a restarted desk knows whose it was and what it spent')
 })
 
 test("a seat phase 3 keeps for an Agent that says only `ceiling:` is recorded in that order's words, and read back", async () => {
