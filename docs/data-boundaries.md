@@ -51,6 +51,11 @@ host gateway described below. A flow's check command may read
 checkout and lane ports a round's own subjects are — never an arbitrary
 environment map, and never anything that was not already visible in the
 checkout the command runs in.
+When a conversation reaches its usage limit and carries on with another agent,
+the desk copies its recent text into a new conversation with that agent, which
+then goes to that agent's vendor (see [Vendor clouds](#vendor-clouds--already-happening-and-not-ours-to-promise-about));
+this is on by default and is turned off with **Use other agents too** in
+Settings › Permissions.
 
 **Retention:** yours. Deleting the folder deletes it.
 

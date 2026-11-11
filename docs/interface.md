@@ -1418,12 +1418,33 @@ that agent on request and reads its account without changing the default.
 An agent with several accounts lists them under its row in the order they are
 used, each with its plan, **Default** on the one new sessions run as, and what
 is left or **Limit reached**. On the agent's page each account's menu offers
-**Move up** and **Move down**, and **When an account runs out** chooses **Use
-the next account**, **Ask me** (the default: the usage notice offers the next
-one) or **Stop** (it offers nothing). Use the next account moves new sessions to
-the next account in that order with room, once, and says so in a notice that
-can be muted as *Account switches*. A conversation already open stays on its
-account, because its thread lives in that account's history. **Order** chooses
+**Move up** and **Move down**, and **When an account runs out** chooses
+**Follow the desk setting** (the default), **Use the next account**, **Ask me**,
+**Wait until it resets** or **Stop** for that agent alone. Use the next account
+also moves new sessions to the next account in that order with room, once, and
+says so in a notice that can be muted as *Account switches*.
+
+A running conversation that reaches its usage limit carries on by that rule, or
+by **Settings › Permissions › When a usage limit is reached** where the agent
+sets none: **Ask me** (the default), **Switch to another account**, **Wait until
+it resets** or **Stop**, with **Use other agents too** (on by default) letting a
+switch continue in a new conversation with another agent when no account of the
+same agent has room. Ask me puts a card over the conversation's composer: the
+account that ran out, when it resets, and **Switch to …** or **Continue in …**
+naming where it would go, **Wait until reset** and **Stop**, with **Other
+account…** listing the rest (an account nearly spent, one on an API key, one
+signed out, which opens Sign in) and **Always do this** to keep the answer as
+the rule, for the desk or for that agent as the card says. Without the box the
+next limit asks again. An unanswered card spends nothing new: at a known reset it
+waits and retries once on the same account, and with no reset known the
+conversation stays stopped. Wait until reset is not offered when no reset time
+is known. A same-agent switch keeps the thread where the accounts share their
+history; otherwise the work continues in a new conversation that takes the
+place of the old one in the list. Every switch, wait and stop is marked in the
+conversation, with a link between the two conversations of a handoff, and a
+kept copy goes to the inbox (*Usage limits in a conversation*, which can be
+muted; the card and the mark cannot). A Team seat's limit is its Team's notice,
+and a Lead chat's the Lead's, never this card. **Order** chooses
 **My order** or **Prefer the account that resets soonest**: with the second, the
 accounts with room are used in the order their windows refill, the one that
 refills first leading, and the Move up and Move down menus are not offered
