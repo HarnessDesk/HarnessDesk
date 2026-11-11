@@ -1,4 +1,5 @@
 import { act } from 'react'
+import type { FlowExecution } from '@harnessdesk/protocol'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PaneProvider, StoreProvider } from '../state/context'
@@ -35,10 +36,10 @@ const trigger = (over: Partial<ReturnType<typeof useTeamTrigger>> = {}): ReturnT
 })
 const visibility = vi.fn()
 const edit = vi.fn()
-const render = (active = true, source = trigger()): void => act(() => root.render(<StoreProvider store={store}><TopBarProvider>
+const render = (active = true, source = trigger(), shown: readonly FlowExecution[] = runs): void => act(() => root.render(<StoreProvider store={store}><TopBarProvider>
   <PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: execution.goal }, sessionKey: null }}>
     <WorkViewControlsOutlet owner="main" /><TopBarOutlet owner="main" fallback={{ place: 'Review work', more: () => null }} />
-    <TeamRuns runs={runs} findings={new Map()} ledger={undefined} origin={null} trigger={source} problem={null}
+    <TeamRuns runs={shown} findings={new Map()} ledger={undefined} origin={null} triggerTeam trigger={source} problem={null}
       onOpen={() => {}} onEdit={edit} onRunVisibility={visibility} active={active} />
   </PaneProvider>
 </TopBarProvider></StoreProvider>))
@@ -137,7 +138,7 @@ it('marks a run an MCP client started with a chip on its title line, and only th
   const cli = { ...execution, id: 'cli-run', state: 'running' as const, startedBy: { via: 'cli' as const, client: 'harnessdesk@0.1.0' } }
   act(() => root.render(<StoreProvider store={store}><TopBarProvider>
     <PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: execution.goal }, sessionKey: null }}>
-      <TeamRuns runs={[mcp, cli, runs[1]!]} findings={new Map()} ledger={undefined} origin={null} trigger={trigger()} problem={null}
+      <TeamRuns runs={[mcp, cli, runs[1]!]} findings={new Map()} ledger={undefined} origin={null} triggerTeam={false} trigger={trigger()} problem={null}
         onOpen={() => {}} onEdit={edit} onRunVisibility={visibility} active />
     </PaneProvider>
   </TopBarProvider></StoreProvider>))
@@ -152,14 +153,14 @@ it('says nothing about triggers on the Runs of a Team an MCP client or a person 
     { ...execution, id: 'mcp-run', state: 'running' as const, startedAt: Date.now() - 240_000, startedBy: { via: 'mcp' as const, client: 'example-client@1.0.0' } },
     { ...execution, id: 'hand-run', state: 'settled' as const, startedAt: Date.now() - 172_800_000 },
   ]
-  const show = (shown: typeof started | typeof runs) => act(() => root.render(<StoreProvider store={store}><TopBarProvider>
+  const show = (shown: typeof started | typeof runs, triggerTeam: boolean) => act(() => root.render(<StoreProvider store={store}><TopBarProvider>
     <PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: execution.goal }, sessionKey: null }}>
       <WorkViewControlsOutlet owner="main" /><TopBarOutlet owner="main" fallback={{ place: 'Review work', more: () => null }} />
-      <TeamRuns runs={shown} findings={new Map()} ledger={undefined} origin={null} trigger={trigger({ prefs: null })} problem={null}
+      <TeamRuns runs={shown} findings={new Map()} ledger={undefined} origin={null} triggerTeam={triggerTeam} trigger={trigger({ prefs: null })} problem={null}
         onOpen={() => {}} onEdit={edit} onRunVisibility={visibility} active />
     </PaneProvider>
   </TopBarProvider></StoreProvider>))
-  show(started)
+  show(started, false)
   await act(async () => {})
   const summary = container.querySelector('[aria-label="Runs summary"]')!.textContent!
   // A Run started by hand or by an MCP client counts like a trigger's.
@@ -174,8 +175,20 @@ it('says nothing about triggers on the Runs of a Team an MCP client or a person 
     expect([...document.querySelectorAll('[role="menuitem"]')].map(one => one.textContent)).not.toContain('Edit the trigger')
   }
   // The same page for a trigger's Runs keeps all of it.
-  show(runs)
+  show(runs, true)
   await act(async () => {})
   expect(container.querySelector('[aria-label="Runs summary"]')!.textContent).toContain('Daily cap unavailable')
   expect(container.textContent).toContain('Pausing stops watching')
+})
+
+it('keeps a trigger Team\'s cap, Pause and Edit when its status read failed and it has no Runs yet', async () => {
+  // What made the Team is persisted; whether its status or history loaded is a separate question.
+  render(true, trigger({ prefs: null }), [])
+  await act(async () => {})
+  expect(container.querySelector('[aria-label="Runs summary"]')!.textContent).toContain('Daily cap unavailable')
+  expect(container.textContent).toContain('Pausing stops watching')
+  await open('more')
+  const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(one => one.textContent?.trim() ?? '')
+  // Pause is there, refused with its reason while the preferences cannot be read; Edit is there and live.
+  expect(items).toEqual(['Pause every triggerTrigger preferences are unavailable', 'Edit the trigger'])
 })

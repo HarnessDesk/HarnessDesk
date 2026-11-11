@@ -82,11 +82,13 @@ const stateOf = (run: FlowExecution) => run.state === 'stalled' || run.end?.kind
   ? 'Needs you' : run.state === 'settled' ? 'Settled' : run.state === 'stopped' ? 'Stopped' : 'Running'
 
 /** The Team's recorded Runs; opening one retains this page and its filters. */
-export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onOpen, onEdit, onRunVisibility, active }: {
+export const TeamRuns = ({ runs, findings, ledger, origin, triggerTeam, trigger, problem, onOpen, onEdit, onRunVisibility, active }: {
   runs: readonly FlowExecution[]
   findings: ReadonlyMap<string, FindingRunView>
   ledger: FindingsListState | undefined
   origin: TriggerGoalStatus | null
+  /** Whether a trigger made this Team: its persisted origin, never whether its status or Runs have loaded. */
+  triggerTeam: boolean
   trigger: ReturnType<typeof useTeamTrigger>
   problem: string | null
   onOpen: (run: string) => void
@@ -164,8 +166,9 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
   const todayCount = runs.filter(run => run.startedAt != null && new Date(run.startedAt).toISOString().slice(0, 10) === today).length
   const prefs = trigger.prefs
   // The daily cap, pausing and the trigger itself belong to a Team a trigger
-  // runs; a Team started by hand or by an MCP client has none of them.
-  const triggered = origin !== null || runs.some(run => run.intake)
+  // made; a Team started by hand or by an MCP client has none of them. A
+  // trigger Team whose status read failed, or with no Runs yet, still has them.
+  const triggered = triggerTeam
   const daily = !triggered ? null : prefs ? `${prefs.chargedUsd === null || prefs.day !== today ? 'Unknown spend' : formatMeterUsd(prefs.chargedUsd)} of ${formatMeterUsd(prefs.dailyUsd)} daily cap` : 'Daily cap unavailable'
   const facts = `${runs.length} ${runs.length === 1 ? 'Run' : 'Runs'} · ${todayCount} today (UTC)${daily ? ` · ${daily}` : ''}${ordered[0] ? ` · Last started ${started(ordered[0])}` : ''}`
   const owner = usePane()?.paneId ?? ''

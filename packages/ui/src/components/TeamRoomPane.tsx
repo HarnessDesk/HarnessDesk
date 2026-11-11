@@ -1254,7 +1254,7 @@ export const TeamRoomPane = ({
       <div className={styles.split}>
         <div className={styles.body} data-slot="room-body">
           {(triggerKind || open === 'runs') && <div hidden={open !== 'runs'} className={open !== 'runs' ? 'hidden' : 'flex min-h-0 min-w-0 flex-1 flex-col'}>
-            <TeamRuns key={room} runs={runs} findings={snapshot.findingRuns} ledger={snapshot.findings.get(room)} origin={originStatus} trigger={triggerControl}
+            <TeamRuns key={room} runs={runs} findings={snapshot.findingRuns} ledger={snapshot.findings.get(room)} origin={originStatus} triggerTeam={triggerKind} trigger={triggerControl}
               problem={runHistoryProblem?.room === room ? runHistoryProblem.message : runsReviewProblem?.room === room ? runsReviewProblem.text : timelineReadError ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? null}
               onOpen={id => { setChosenRun(id); show('run') }} onEdit={() => store.openFile(`${goal!.goal.root}/.harnessdesk/triggers.yml`)}
               onRunVisibility={onRunReviewVisibility} active={open === 'runs'} />
