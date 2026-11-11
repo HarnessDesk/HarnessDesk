@@ -186,7 +186,7 @@ export interface CarryOnDecision {
  * What the transcript marker says, in words the desktop and the phone share.
  *
  * - `headline`: what happened, naming both sides — agent, account and model.
- * - `detail`: why (the cause, naming the account that ran out) and when its
+ * - `detail`: why (the cause, naming the agent and account that ran out) and when its
  *   limit resets, when known; a note the host recorded follows it.
  * - `link`: the words of the link to the other conversation of a handoff.
  */
@@ -215,8 +215,11 @@ const accountLabel = (account: string | undefined): string | undefined => {
 export const carryOnSideText = (side: CarryOnSide, options: { readonly model?: boolean } = {}): string =>
   [side.name, accountLabel(side.account), options.model === false ? undefined : side.model].filter(Boolean).join(' · ')
 
-/** Who ran out: the account when it has a label, the agent otherwise. */
-const subjectOf = (side: CarryOnSide): string => accountLabel(side.account) ?? side.name
+/**
+ * Who ran out, named as the headline names a side: "Agent · account", or the
+ * agent alone. A bare label such as "work" would read as a sentence about work.
+ */
+const subjectOf = (side: CarryOnSide): string => carryOnSideText(side, { model: false })
 
 const CAUSE: Readonly<Record<CarryOnCause, (who: string) => string>> = {
   credits: (who) => `${who} reached its usage limit`,

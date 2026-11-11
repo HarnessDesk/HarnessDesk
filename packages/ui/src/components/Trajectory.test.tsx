@@ -344,3 +344,12 @@ it('labels a carry-on marker with both sides, as the transcript says it', async 
   expect(rows()[0]?.getAttribute('title')).toContain('Switched from Codex · work to Codex · personal')
   expect(leads()).toEqual(['System'])
 })
+
+it('strips terminal controls from a carry-on label', async () => {
+  await render([{ ...TURN, items: [item('carry', { type: 'carryOn', phase: 'left', cause: 'credits',
+    from: { name: 'Codex', account: 'work' }, to: { name: '\x1b[31mClaude Code\x1b[0m', model: 'Opus\x07' } })] } as unknown as Turn])
+  const title = rows()[0]?.getAttribute('title') ?? ''
+  expect(title).toContain('Continued in a new conversation with Claude Code · Opus')
+  expect(title).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/)
+  expect(container.textContent).not.toContain('[31m')
+})

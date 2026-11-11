@@ -239,7 +239,7 @@ test('a carry-on marker reaches the phone as its own plain line, never folded in
   const result = thread([run('ok'), marker('switched', 'work'), run('ok'), marker('left', 'dev@example.com')])
   const lines = result.turns.filter(one => one.type === 'agent').map(one => (one as { markdown: string }).markdown)
   assert.deepEqual(lines, [
-    'Switched from Codex · work to Codex · personal · Sol. work reached its usage limit.',
+    'Switched from Codex · work to Codex · personal · Sol. Codex · work reached its usage limit.',
     'Continued in a new conversation with Claude Code · Opus. Codex reached its usage limit.',
   ])
   // The marker splits the work into two folds rather than hiding inside one.

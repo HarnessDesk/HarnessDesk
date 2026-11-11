@@ -4,6 +4,7 @@ import { turnId, type AgentItem, type Turn } from '@harnessdesk/protocol'
 
 import {
   activityLabel,
+  carryOnAtBoundary,
   effectiveItemStatus,
   describeTurnWork,
   elapsedOf,
@@ -490,5 +491,18 @@ describe('carry-on markers', () => {
     expect(view.work.map(one => one.id)).toEqual(['c'])
     expect(view.answer.map(one => one.id)).toEqual(['a'])
     expect(view.closing.map(one => one.id)).toEqual(['waiting'])
+  })
+
+  test('a marker at a turn boundary is the only rule there', () => {
+    const plain = turn([item('userMessage', 'u'), item('assistantMessage', 'a')])
+    const opens = turn([marker('switched', 'switched'), item('userMessage', 'u2')])
+    const closes = turn([item('userMessage', 'u3'), marker('stopped', 'stopped')], { status: 'failed' })
+    expect(carryOnAtBoundary(plain, plain)).toBe(false)
+    expect(carryOnAtBoundary(plain, opens)).toBe(true)
+    expect(carryOnAtBoundary(closes, plain)).toBe(true)
+    // A turn that opens on a marker but closed the one before with none: still one rule.
+    expect(carryOnAtBoundary(undefined, opens)).toBe(true)
+    // A closing marker in this turn does not stand at its top boundary.
+    expect(carryOnAtBoundary(plain, closes)).toBe(false)
   })
 })

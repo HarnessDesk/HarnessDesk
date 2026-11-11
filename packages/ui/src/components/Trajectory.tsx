@@ -4,6 +4,7 @@ import { carryOnMarker, typedUserText, type AgentItem, type Turn } from '@harnes
 
 import { ChartKey, ChartKeys, CodeText, ProgressStack, publicationVerb, SeriesDot, Separator, Text, type Tint, type Tone } from '../design'
 import { formatReset } from '../lib/limits'
+import { sanitizeText } from '../lib/sanitize'
 import { toolWords } from '../lib/tool-names'
 import { useActiveSession } from '../state/context'
 import type { ReportFoot } from './Details'
@@ -118,7 +119,8 @@ const labelOf = (item: AgentItem): string => {
     }
     case 'carryOn':
       // The headline the transcript's marker carries: both sides, by name.
-      return carryOnMarker(item, (at) => formatReset(at) ?? '').headline
+      // Names and labels come from agents and accounts: untrusted text.
+      return sanitizeText(carryOnMarker(item, (at) => formatReset(at) ?? '').headline)
     case 'userMessage':
       return typedUserText(item.content).trim() || 'Message'
     default:

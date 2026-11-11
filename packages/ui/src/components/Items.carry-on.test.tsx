@@ -51,7 +51,7 @@ it('draws every phase as a marker across the column, never as a folded row', () 
 it('a same-thread switch names both sides, the account that ran out, and its reset', () => {
   render({ ...base, phase: 'switched', mode: 'sameThread' })
   expect(headline()).toBe('Switched from Codex · work to Codex · personal · Sol')
-  expect(marker()?.textContent).toContain('work reached its usage limit')
+  expect(marker()?.textContent).toContain('Codex · work reached its usage limit')
   expect(marker()?.textContent).toContain(`resets ${formatReset(RESET)}`)
 })
 
@@ -92,7 +92,7 @@ it('waiting, resumed and stopped say the account and the reset in plain words', 
   expect(headline()).toBe('Stopped on Codex · work · Sol')
   expect(marker()?.textContent).toContain('No other account or agent has room.')
   render({ ...base, phase: 'stopped', to: undefined, resetsAt: undefined, note: 'No reset time known' })
-  expect(marker()?.textContent).toContain('work reached its usage limit. No reset time known.')
+  expect(marker()?.textContent).toContain('Codex · work reached its usage limit. No reset time known.')
 })
 
 it('never shows an email, even when a record carries one by mistake', () => {

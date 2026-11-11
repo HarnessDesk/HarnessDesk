@@ -137,6 +137,15 @@ export const splitTurn = (turn: Turn): TurnView => {
   return { prompt: [...opening, ...prompt], work, answer, trailing, closing, changes }
 }
 
+/**
+ * Whether the boundary above a turn already carries a carry-on marker's rule:
+ * the turn opens with one, or the turn before it closed with one. The marker
+ * is then the only rule there; a turn separator beside it would stack two.
+ */
+export const carryOnAtBoundary = (previous: Turn | undefined, turn: Turn): boolean =>
+  turn.items.some((item) => item.type === 'carryOn' && !closesTurn(item)) ||
+  (previous?.items.some((item) => item.type === 'carryOn' && closesTurn(item)) ?? false)
+
 /** The per-file totals of a turn, one row per path, last change wins the kind. */
 export interface FileTotal {
   readonly path: string
