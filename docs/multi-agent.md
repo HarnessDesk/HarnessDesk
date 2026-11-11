@@ -622,7 +622,8 @@ to the channel with a status chip:
 
 A seat's `usage limit` notice is also where its carry-on question goes: while
 the desk asks, the member's latest such notice offers Switch, Wait until reset
-and Stop. A switch seats a replacement for the same card rather than moving the
+and Stop, with an "Always do this" box that makes the answer the rule from then
+on. A switch seats a replacement for the same card rather than moving the
 seat; the round keeps both seats, the stopped one closed with `limit`, and a
 replacement must pass the run's `independentOf` check. While the question is
 open the seat's card is not re-armed. See the decision in `decisions.md`.
