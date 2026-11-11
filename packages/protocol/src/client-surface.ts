@@ -27,6 +27,9 @@ export const PRIVATE_CLIENT_METHODS = {
   // A reminder the person asked for: an entry on the work board the person can cancel. It starts, sends and spends nothing.
   'lead/reminder/set': 'read',
   'lead/reminder/cancel': 'read',
+  // A proposal to change its own settings: a card the person applies or declines. It changes nothing by itself.
+  'lead/autonomy/propose': 'read',
+  'lead/rules/propose': 'read',
 } as const satisfies Partial<Record<HostMethodName, ClientTier>>
 
 /** The methods the client door answers, each with the tier it needs. */
