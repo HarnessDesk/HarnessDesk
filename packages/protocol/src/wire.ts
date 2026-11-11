@@ -1,4 +1,5 @@
 import type { LeadStage } from './lead-stage.js'
+import type { CarryOnDecision, CarryOnIncidentView, CarryOnKey } from './carry-on.js'
 import type { ForgeGitEntry, ForgeRequester } from './forge.js'
 import type {
   PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
@@ -1133,6 +1134,20 @@ export interface HostMethods {
    * `SettingsAgents.tsx`/`PlanCard.tsx`), not a rule enforced here.
    */
   'usage/plan/set': { params: PlanSetInput; result: PlanEntry }
+  /**
+   * Every carry-on incident still live — asked, waiting for a reset, or being
+   * sent — for a window that connected late. Changes after that arrive as
+   * `carryOn/changed`.
+   */
+  'carryOn/list': { params: Record<string, never>; result: { readonly incidents: readonly CarryOnIncidentView[] } }
+  /**
+   * The person's answer to an `asked` incident: switch (to `target`, or the
+   * top candidate), wait for the reset, or stop. `always` writes the choice
+   * as the rule at the incident's `alwaysScope`. Refused with `carryOnStale`
+   * when the incident is no longer asking or the target is no longer a
+   * candidate; nothing is done then.
+   */
+  'carryOn/decide': { params: CarryOnDecision; result: { readonly incident: CarryOnIncidentView } }
   /** Source-qualified historical usage. These reads never mutate a receipt, Goal, or source corpus. */
   'insight/goal': { params: { readonly goal: GoalId }; result: InsightReport }
   /**
@@ -3222,6 +3237,14 @@ export type WireNotification =
       readonly params: { readonly runtime: RuntimeId; readonly account: string | null }
     }
   | { readonly method: 'usage/scanProgress'; readonly params: { readonly progress: ScanProgress } }
+  | {
+      /**
+       * One conversation's carry-on incident changed state. Sent whole on
+       * every change; `incident: null` means it is over and its card goes.
+       */
+      readonly method: 'carryOn/changed'
+      readonly params: { readonly incident: CarryOnIncidentView | null; readonly key: CarryOnKey }
+    }
   | {
       /**
        * The editor plane, whole.
