@@ -241,7 +241,9 @@ describe('the Runtimes page lists the accounts the Dashboard lists', () => {
   it('says a tracked agent with no reading is not reporting, as the Dashboard and the phone do', async () => {
     await mount([])
     const region = container.querySelector('[aria-label="Usage by account"]')
-    expect(region?.textContent).toContain('not reporting')
+    // Said once, in the chip, the word the Dashboard and the phone use.
+    expect(region?.textContent?.match(/not reporting/gi)).toHaveLength(1)
+    expect(region?.textContent).toContain('Not reporting')
   })
 
   it('calls no agent not reporting before the host has answered a usage read (#2111 review)', async () => {

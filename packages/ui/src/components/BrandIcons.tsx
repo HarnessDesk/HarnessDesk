@@ -1,4 +1,4 @@
-import type { SVGProps } from 'react'
+import { useId, useMemo, type SVGProps } from 'react'
 
 import harnessdesk from '../assets/brand/mark.svg?raw'
 import codex from '@lobehub/icons-static-svg/icons/codex.svg?raw'
@@ -234,10 +234,11 @@ const pathsOf = (file: string): string =>
  * app collides with it today, which is exactly the kind of thing that stops
  * being true without anyone noticing.
  *
- * Per brand, not per instance: two OpenClaw marks on one screen still share
- * their ids, and share an identical definition, so the drawing is right and
- * only the strict reading of "unique in the document" is not. A render-time
- * id would fix that half too, at the cost of making every mark stateful.
+ * Per brand here, and per copy when drawn (`BrandMark`): two copies sharing an
+ * identical definition looked harmless, but `url(#id)` takes the document's
+ * first copy, and when that copy sits in a page the app keeps mounted but
+ * hidden (display: none) its gradient paints nothing, so every later copy of
+ * the mark drew nothing. Only the few marks that carry ids pay for that.
  */
 const withOwnIds = (markup: string, owner: string): string =>
   markup
@@ -285,8 +286,20 @@ export type BrandMarkProps = Omit<SVGProps<SVGSVGElement>, 'ref' | 'children' | 
   readonly label?: string
 }
 
-export const BrandMark = ({ brand, size = 16, label, className, ...rest }: BrandMarkProps) => (
-  <svg
+/** Marks whose drawing defines something by id, and so needs ids of its own in every copy. */
+const CARRIES_IDS = new Set((Object.keys(PATHS) as Brand[]).filter((brand) => PATHS[brand].includes('id="')))
+
+export const BrandMark = ({ brand, size = 16, label, className, ...rest }: BrandMarkProps) => {
+  const copy = useId().replace(/[^\w-]/g, '')
+  const markup = useMemo(
+    () => CARRIES_IDS.has(brand)
+      ? PATHS[brand]
+        .replace(/id="(brand-[^"]*)"/g, (_, id: string) => `id="${id}-${copy}"`)
+        .replace(/url\(#(brand-[^)]*)\)/g, (_, id: string) => `url(#${id}-${copy})`)
+      : PATHS[brand],
+    [brand, copy],
+  )
+  return <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox={BOXES[brand]}
     width={size}
@@ -296,9 +309,9 @@ export const BrandMark = ({ brand, size = 16, label, className, ...rest }: Brand
     focusable="false"
     {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
     {...rest}
-    dangerouslySetInnerHTML={{ __html: PATHS[brand] }}
+    dangerouslySetInnerHTML={{ __html: markup }}
   />
-)
+}
 BrandMark.displayName = 'BrandMark'
 
 /**

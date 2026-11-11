@@ -41,6 +41,16 @@ describe('plan card windows', () => {
     expect(host.textContent).toContain('Not reporting')
     expect(host.textContent).not.toContain('Unknown')
   })
+  it('says Not reporting once, in its chip, with one sentence that says why rather than repeating it', () => {
+    const host = render({ ...report, account: null, plan: null, lanes: [], source: { kind: 'runtime', label: 'no source available' }, notReporting: true })
+    expect(host.textContent?.match(/not reporting/gi)).toHaveLength(1)
+    expect(host.querySelector('[data-slot="chip"]')?.textContent).toBe('Not reporting')
+    // No empty figure row: the dash and its word were the chip said again.
+    expect(host.textContent).not.toContain('—')
+    // "reports no plan usage" is false of an agent that usually reports and did not this time.
+    expect(host.textContent).not.toContain('reports no plan usage')
+    expect(host.textContent).toContain('Nothing came back when it was last asked.')
+  })
   it('keeps the last good reading when a refresh fails: its figure, its standing marked stale, and that it failed (#2094)', () => {
     const host = render({ ...report, error: { message: 'HTTP 503' } as UsageReport['error'] })
     expect(host.textContent).toContain('75%')

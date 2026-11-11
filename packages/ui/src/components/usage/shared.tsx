@@ -300,8 +300,11 @@ export const Card = ({
         : money
           ? `spent in ${spend?.windowDays ?? 0}d`
           : 'not metered'
-  const note =
-    borrowed && !drawn.error && view.blocked
+  // A silent agent's chip already says Not reporting: its one line says why, and is true whether it never reports
+  // or usually does and did not this time.
+  const note = silent
+    ? { text: 'Nothing came back when it was last asked.' }
+    : borrowed && !drawn.error && view.blocked
       ? {
           text: `Everything is spent on the ${account ?? 'other sign-in'} — ${agent} may be signed in as another account`,
           tone: 'warn' as const,
@@ -321,7 +324,8 @@ export const Card = ({
       {moneyRow}
 
       <DashboardAccountBody>
-        <DashboardLanes>
+        {/* A silent agent has no figure: a dash and "not reporting" were its chip said again. */}
+        {!silent && <DashboardLanes>
           <DashboardFigure>
             <Text role="figure" tone={unread ? 'neutral' : hero ? usageReadingTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
             <Text role="muted" truncate>{word}</Text>
@@ -339,7 +343,7 @@ export const Card = ({
               {headlineReset && <Text as="div" role="meta">{headlineReset}</Text>}
             </>
           )}
-        </DashboardLanes>
+        </DashboardLanes>}
 
         {/* The rows are the lanes the headline does not already say: the
             promoted lane repeated as the first row was one fact twice. */}
