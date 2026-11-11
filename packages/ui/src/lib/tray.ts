@@ -63,7 +63,13 @@ const nameCounts = (input: TrayInput): ReadonlyMap<string, number> => {
   return names
 }
 
-const agentOf = (info: RuntimeInfo, input: TrayInput, names: ReadonlyMap<string, number>): TrayAgent => {
+interface Described {
+  readonly agent: TrayAgent
+  /** When the agent is back, in the strip's short form; null when no reset is known. */
+  readonly countdown: string | null
+}
+
+const describeAgent = (info: RuntimeInfo, input: TrayInput, names: ReadonlyMap<string, number>): Described => {
   const reports = input.usage.filter((report) => report.runtime === info.id)
   const state = readinessOf({
     registered: true,
@@ -89,26 +95,44 @@ const agentOf = (info: RuntimeInfo, input: TrayInput, names: ReadonlyMap<string,
     ? shownAccountLabel(report.runtime, report.account, { ...input, hideAccountAddresses: input.hideAddresses })
     : null
   return {
-    id: info.id,
-    name: account === null ? name : `${name} · ${account}`,
-    detail:
-      left !== null
-        ? `${left}% left${lane?.shortCountdown ? `, resets in ${lane.shortCountdown}` : ''}`
-        : READINESS_LABEL[state],
-    needsSignIn: state === 'signin',
-    brand: brandForRuntime(info),
-    left,
+    agent: {
+      id: info.id,
+      name: account === null ? name : `${name} · ${account}`,
+      detail:
+        left !== null
+          ? `${left}% left${lane?.shortCountdown ? `, resets in ${lane.shortCountdown}` : ''}`
+          : READINESS_LABEL[state],
+      needsSignIn: state === 'signin',
+      current: info.id === input.activeRuntime,
+      brand: brandForRuntime(info),
+      left,
+    },
+    countdown: lane?.shortCountdown ?? null,
   }
+}
+
+/**
+ * The menu bar speaks for one agent: the one the next Send goes to, which is
+ * the header strip's anchor. It used to carry the least left across the whole
+ * roster, which pinned it to an agent you were not using — one plan spent for
+ * weeks read 0% for weeks. An agent that is out says when it is
+ * back rather than 0%, since that is the one fact a spent plan leaves you to
+ * act on; no reading, or a sign-in still to do, leaves the mark on its own.
+ */
+const titleOf = (current: Described | undefined): string => {
+  const left = current && !current.agent.needsSignIn ? current.agent.left : null
+  if (left === null) return ''
+  if (left === 0 && current?.countdown) return `↻${current.countdown}`
+  return `${left}%`
 }
 
 export const describeTray = (input: TrayInput): TraySummary => {
   const names = nameCounts(input)
-  const agents = input.runtimes.map((info) => agentOf(info, input, names))
-  const figures = agents.map((agent) => agent.left).filter((left): left is number => left !== null)
+  const described = input.runtimes.map((info) => describeAgent(info, input, names))
+  const current = described.find((one) => one.agent.current)
   return {
-    // The menu bar gets the agent with least left: the one figure worth two
-    // characters of a row everything else in the system is also competing for.
-    title: figures.length > 0 ? `${Math.min(...figures)}%` : '',
-    agents,
+    title: titleOf(current),
+    tooltip: current ? `${current.agent.name} — ${current.agent.detail}` : 'HarnessDesk',
+    agents: described.map((one) => one.agent),
   }
 }

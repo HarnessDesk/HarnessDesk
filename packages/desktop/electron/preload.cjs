@@ -61,11 +61,13 @@ contextBridge.exposeInMainWorld('harnessdesk', {
       typeof value === 'number' && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : null
     ipcRenderer.send('harnessdesk:tray-summary', {
       title: typeof summary.title === 'string' ? summary.title.slice(0, 12) : '',
+      tooltip: typeof summary.tooltip === 'string' ? summary.tooltip.slice(0, 160) : '',
       agents: agents.slice(0, 12).map((agent) => ({
         id: String(agent?.id ?? '').slice(0, 64),
         name: String(agent?.name ?? '').slice(0, 60),
         detail: String(agent?.detail ?? '').slice(0, 80),
         needsSignIn: agent?.needsSignIn === true,
+        current: agent?.current === true,
         // A key, never a path: the shell looks it up among the images it has.
         brand: typeof agent?.brand === 'string' && /^[a-z0-9-]{1,32}$/.test(agent.brand) ? agent.brand : null,
         left: percent(agent?.left),
