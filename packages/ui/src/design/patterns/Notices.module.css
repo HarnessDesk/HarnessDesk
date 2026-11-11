@@ -279,7 +279,6 @@
   flex-direction: column;
   gap: var(--hd-space-2);
   min-width: 0;
-  padding-block: var(--hd-space-0-5);
   overflow-wrap: anywhere;
 }
 
