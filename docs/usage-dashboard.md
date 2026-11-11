@@ -957,11 +957,16 @@ hard way somewhere and is cheaper to design out than to fix:
   the credits are what it hit; then no window's figure or reset is said
   beside it, and nothing claims an account is "back first" while one is
   overdrawn, since a top-up can beat any reset.
-  A failed read is Unknown before anything else, even with a cached balance
-  or a spent lane behind it, and Unknown shows none of those cached figures:
-  the card's figure and the Plans table's reading are `—`, the meter has no
-  fill, the phone is sent no percent or balance for it, and it sorts after
-  every account that answered. The cards and the sidebar's count follow the
+  Unknown is a read that never answered: the card's figure and the Plans
+  table's reading are `—`, the meter has no fill, and the phone is sent no
+  percent or balance for it. A refresh that fails after a good reading keeps
+  that reading (#2094): the card and the Plans row show its figures and its
+  own standing under a stale chip, the card says `Couldn't refresh — …` with
+  the read time in its foot, and the phone gets the figures with `stale` and
+  `refreshFailed`. A kept reading that was Out turns Unknown once the windows
+  that stopped it have reset, rather than saying Out with a Back time already
+  past. Either way it sorts after every account that answered, and
+  neither the sidebar strip, `Start on` nor the pacing note decides on it. The cards and the sidebar's count follow the
   same word: in debt, then out, then short, low and ready. A pinned lane does not change it: the pin picks
   the card's headline, and the host, which decides the word for the phone,
   never sees it. Every account-wide window counts, not only the headline:
@@ -975,6 +980,11 @@ hard way somewhere and is cheaper to design out than to fix:
   a spent model's `until …`. The line above the cards, when there is no
   account to recommend, counts by the same word: Out and Overdrawn as out,
   Short and Low as running low.
+  When an account's window is about to refill with more than half of it
+  unspent, that line is the pacing note instead (`pacingNote`, read from
+  `pacingAdvice` like the Lead's answer): `Use Claude Code (team@acme.dev)
+  first — its Weekly has 70% left and resets Sun 8:00 AM.` Settings ›
+  Runtimes shows the same sentence under its explanation.
 - **The headline's meter is a countable budget**, forty segments rather than a
   continuous bar: a smooth bar reads as a percentage and a segmented one reads
   as a budget being spent, which is the thing being drawn. It still fills with

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import type { RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
+import { keptReading } from '@harnessdesk/protocol'
 
 import { paidRatioCaption } from '../../lib/overview-strip'
 import { planLabel } from '../../lib/usage'
@@ -57,7 +58,7 @@ export const PlanFrame = ({
       {/* The canonical card inset holds the recorded heading and its state. */}
       <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
         name={account ?? agent} agent={account ? agent : undefined}
-        states={<>{shapeChip}{plan && <Chip label={plan} title={report.plan ?? undefined} tone="neutral" />}<Chip tone={statusPresentation(status).tone} label={statusPresentation(status).label} /></>} />
+        states={<>{shapeChip}{plan && <Chip label={plan} title={report.plan ?? undefined} tone="neutral" />}<Chip tone={statusPresentation(status).tone} label={statusPresentation(status).label} stale={keptReading(report)} /></>} />
 
       <MoneyRowView money={money} onOpenPlanSettings={onOpenPlanSettings} />
 

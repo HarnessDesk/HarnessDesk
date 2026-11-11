@@ -3,6 +3,7 @@ import {
   bindingLane,
   isBlocked,
   isLaneKnown,
+  pacingAdvice,
   reachedLaneOf,
   remainingOf,
   type SpendSummary,
@@ -545,11 +546,13 @@ const STANDING_ORDER: Readonly<Record<UsageStandingStatus, number>> = {
 
 const rank = (report: UsageReport, now: number): number => {
   const standing = usageStandingOf(report, now)
-  // An unknown standing's `left` is the cached figure: never sort on it.
-  const left = standing.status === 'unknown' ? null : standing.left
+  // A failed refresh keeps its last figures for the card to show, marked stale; the order never sorts on them.
+  const failed = report.error !== null
+  const status = failed ? 'unknown' : standing.status
+  const left = status === 'unknown' ? null : standing.left
   // No measurable lane: after every metered account in its standing, but before an empty one.
   const within = left ?? (report.spend ? 1_000 : 1_001)
-  return STANDING_ORDER[standing.status] * 10_000 + within
+  return STANDING_ORDER[status] * 10_000 + within
 }
 
 /** A prepaid balance a card can actually print: every figure in it nameable. */
@@ -868,6 +871,31 @@ export const rightNow = (
   if (!firstOut || ambiguous(firstOut.report)) return lead
   const more = out.length > 1 ? ` (and ${out.length - 1} more)` : ''
   return `${lead} ${label(firstOut.report)}${more} is out until ${formatWhen(firstOut.standing.backAt ?? now, now)}.`
+}
+
+/**
+ * The pacing note: which account to use first because its window is about to refill with most of it unspent, and
+ * when. "Use Agent A (team@acme.dev) first — its Weekly has 70% left and resets Sun 8:00 AM." The same answer the
+ * Lead gives (`pacingAdvice`, `@harnessdesk/protocol`), so the desk and the Lead never name different accounts.
+ *
+ * Only the use-first case is a note: "the one that refills soonest" is an order, not news, and `rightNow` already
+ * says where to start. A failed or stale reading never decides it, and with one account there is no "first".
+ */
+export const pacingNote = (
+  reports: readonly UsageReport[],
+  nameFor: (report: UsageReport) => string,
+  now: number,
+): string | null => {
+  if (reports.length < 2) return null
+  const advice = pacingAdvice(reports.map((report, at) => ({ id: String(at), report })), now)
+  if (!advice || advice.reason !== 'use-first') return null
+  const chosen = reports[Number(advice.id)]
+  if (!chosen) return null
+  const sameName = reports.filter((other) => nameFor(other) === nameFor(chosen)).length
+  // Two of one name with no account to tell them apart would not say which.
+  if (sameName > 1 && !chosen.account) return null
+  const label = sameName > 1 ? `${nameFor(chosen)} (${chosen.account})` : nameFor(chosen)
+  return `Use ${label} first — its ${advice.laneLabel} has ${advice.remainingPercent}% left and resets ${formatWhen(advice.resetsAt, now)}.`
 }
 
 /** "$2.92", "$373", "$4,639" — cents only where they carry information. */

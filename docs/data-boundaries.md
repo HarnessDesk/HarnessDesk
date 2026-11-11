@@ -161,7 +161,13 @@ balances, reset/run-out timestamps and their basis, freshness/errors, running
 session totals and cached spend. Allowance is projected field by field from the
 Dashboard cache without requesting a vendor refresh; account addresses,
 identifiers and credentials are omitted. Accounts share a presentation name and
-are distinguished by plan and ordinal. Skill-use counts are a separate read.
+are distinguished by plan and ordinal. Each account also says how many minutes old its
+reading is and whether the last refresh failed, and the summary names the account
+to use first with its window, what is left and its reset (`pacing`); all of it
+comes from the same cache. A paired phone's usage rows carry the same
+`refreshFailed` flag and, when an allowance is about to be lost, a `pacing` entry
+(the row's id and name, the window, what is left, the reset and the read time);
+no account address travels in either. Skill-use counts are a separate read.
 For transcript reads and chat actions, only ordinary sessions in the selected canonical project are available; Team
 seats and other projects are refused. Chat state notifications contain ids and
 state, not transcript bytes. Ordinary delegated chats use the desk's saved session

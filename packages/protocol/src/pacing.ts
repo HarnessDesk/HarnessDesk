@@ -114,3 +114,60 @@ export const pacedOrder = <T extends { readonly id: string }>(
     a.at - b.at)
   return ranked.map(one => one.entry)
 }
+
+/** Which account to use first, and why: what the desk's usage surfaces, the Lead and the phone all say. */
+export interface PacingAdvice {
+  /** The candidate's own id, as the caller passed it. */
+  readonly id: string
+  /**
+   * `use-first`: a window is about to refill with more than half unspent (`useFirstNote`), so that allowance is lost
+   * unless it is used. `resets-soonest`: nothing is about to be lost, and this is the account with room whose window
+   * refills first, the one `pacedOrder` leads with.
+   */
+  readonly reason: 'use-first' | 'resets-soonest'
+  readonly laneId: string
+  readonly laneLabel: string
+  /** What that window has left, 0 to 100. */
+  readonly remainingPercent: number
+  /** When that window refills, epoch milliseconds. */
+  readonly resetsAt: number
+  /** When the figures were read, epoch milliseconds. */
+  readonly readAt: number
+}
+
+/**
+ * The account to use first across the candidates given, from cached readings only. Allowance about to be lost wins,
+ * the soonest of those leading (more left breaks a tie); otherwise the account with room whose window refills first.
+ * A failed or stale reading never decides, in either direction, so with no fresh reading there is no advice. Ties keep
+ * the caller's order.
+ */
+export const pacingAdvice = (
+  candidates: readonly { readonly id: string; readonly report: UsageReport }[],
+  now: number,
+): PacingAdvice | null => {
+  const of = (id: string, report: UsageReport, laneId: string, reason: PacingAdvice['reason']): PacingAdvice | null => {
+    const lane = report.lanes.find(each => each.id === laneId)
+    const left = lane ? remainingOf(lane) : null
+    if (!lane || left === null || lane.resetsAt === null) return null
+    return { id, reason, laneId, laneLabel: lane.label, remainingPercent: Math.round(left), resetsAt: lane.resetsAt, readAt: report.fetchedAt }
+  }
+  let urgent: { readonly id: string; readonly report: UsageReport; readonly note: UseFirstNote } | null = null
+  for (const { id, report } of candidates) {
+    const note = useFirstNote(report, now)
+    if (!note) continue
+    if (urgent === null || note.resetsAt < urgent.note.resetsAt ||
+      note.resetsAt === urgent.note.resetsAt && note.remainingPercent > urgent.note.remainingPercent) urgent = { id, report, note }
+  }
+  if (urgent) return of(urgent.id, urgent.report, urgent.note.laneId, 'use-first')
+  let soonest: { readonly id: string; readonly report: UsageReport; readonly resetsAt: number } | null = null
+  for (const { id, report } of candidates) {
+    const rank = paceRankOf([report], now)
+    if (rank.tier !== 0 || rank.resetsAt === null) continue
+    if (soonest === null || rank.resetsAt < soonest.resetsAt) soonest = { id, report, resetsAt: rank.resetsAt }
+  }
+  if (!soonest) return null
+  // The window whose refill ranked it: account-wide first, as the rank reads them.
+  const lane = wideLanes(soonest.report).find(each => each.resetsAt === soonest.resetsAt) ??
+    soonest.report.lanes.find(each => each.placeholder !== true && isLaneKnown(each) && each.resetsAt === soonest.resetsAt)
+  return lane ? of(soonest.id, soonest.report, lane.id, 'resets-soonest') : null
+}
