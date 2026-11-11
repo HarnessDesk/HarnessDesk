@@ -515,8 +515,10 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
   const leadKeys = useLeadSentKeys(id)
   const isLead = (block: { label: string; text: string }) =>
     isLeadMessageSource(block.label) && leadKeys.has(leadMessageKey(id ?? '', wrapContext(block.label, block.text)))
-  const leadBlocks = injections.filter(isLead)
+  // An adapter that peels the desk's envelope off a runtime's history leaves the block in `context`.
+  const leadBlocks = [...injections, ...(item.context ?? [])].filter(isLead)
   const folded = injections.filter(block => !isLead(block))
+  const agentContext = (item.context ?? []).filter(block => !isLead(block))
   const attachments = item.content.filter((part) => part.type !== 'text')
   const images = imagesOf(item)
   const singleImage = images.length === 1
@@ -527,14 +529,14 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
        option rather than something `align="end"` did silently, since the
        room's `ChannelMessage` also aligns "start" and keeps a different look. */
     <Message align="end" rhythm="transcript">
-      {(folded.length > 0 || (item.context?.length ?? 0) > 0) && (
+      {(folded.length > 0 || agentContext.length > 0) && (
         <div style={{ alignSelf: 'stretch' }}>
           {folded.map((injection, index) => (
             <ContextInjection key={index} label={injection.label} text={injection.text} />
           ))}
           {/* Peeled off by the adapter, because the shape of the wrapper is
               the agent's, not ours. See `peelContext`. */}
-          {item.context?.map((block, index) => (
+          {agentContext.map((block, index) => (
             <ContextInjection
               key={`agent-${index}`}
               label={block.label}

@@ -93,6 +93,9 @@ export const transcriptPath = (cwd: string, sessionId: string): string => join(C
 const WRAPPER_TAGS = ['local-command-caveat', 'local-command-stdout', 'local-command-stderr', 'command-name', 'command-message', 'command-args', 'system-reminder', 'preview-annotation-context', 'context'] as const
 const FOLDED_TAGS = ['context', 'preview-annotation-context'] as const
 const PLUMBING_TAGS = [...WRAPPER_TAGS.filter((tag) => !(FOLDED_TAGS as readonly string[]).includes(tag)), 'task-notification'] as const
+// What a replay of stored history is made of. Plans, usage, commands and
+// settings that a load also announces are about the session now, and pass.
+const HISTORY_UPDATES: ReadonlySet<string> = new Set(['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update'])
 const INTERRUPTIONS = ['[Request interrupted by user', '[Request interrupted for tool use']
 const IMAGE_NOTES = /\[Image:[^\]]*\]/g
 const ANSI = /\u001b\[[0-9;]*m/g
@@ -701,6 +704,10 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   readonly #delegations = new Map<string, DelegationRegistry>()
   readonly #outputPollers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #deletedSessions = new Set<string>()
+  // Sessions whose stored history the adapter underneath is replaying inside a
+  // load. That replay is muted: `#replayStored` is the one writer of a reopened
+  // conversation's history (see `loadSession`).
+  readonly #loading = new Set<string>()
   readonly #suppliedMcpServers = new Map<string, readonly string[]>()
   readonly #toolCalls: ToolCallStore = new Map()
   /** The exact input a session was prepared with, and what actually got staged for it — set once at create/load, reapplied unchanged by `#recreate`. */
@@ -769,6 +776,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       }
     }
     client.sessionUpdate = async (params) => {
+      if (this.#loading.has(params.sessionId) && HISTORY_UPDATES.has(params.update.sessionUpdate)) return
       let next = params
       const update = params.update
       if (update.sessionUpdate === 'tool_call_update' && typeof update.toolCallId === 'string' && (update.status === 'completed' || update.status === 'failed')) {
@@ -871,7 +879,17 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     this.#deletedSessions.delete(request.sessionId)
     const instructed = withInstructions(request)
     const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
-    const response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController(), params.cwd) })
+    // The adapter underneath replays the stored transcript itself during the
+    // load, unclassified: an interruption marker arrives as something the
+    // person said and merges into the next message's bubble, and our own replay
+    // below would then write the whole history a second time (#2090).
+    this.#loading.add(request.sessionId)
+    let response: LoadSessionResponse
+    try {
+      response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController(), params.cwd) })
+    } finally {
+      this.#loading.delete(request.sessionId)
+    }
     await this.#forceReadPermissionMode(request.sessionId, remembered)
     this.#suppliedMcpServers.set(request.sessionId, params.mcpServers?.map((server) => server.name) ?? [])
     this.#releaseAttachments(request.sessionId, input?.key)

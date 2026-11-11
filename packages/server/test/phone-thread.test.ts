@@ -40,6 +40,19 @@ test('verified Lead words drop unrelated injections and retain attribution', () 
   assert.ok(!JSON.stringify(result).includes('<context'))
 })
 
+test('a Lead message reads as the Lead\'s on every transcript path, never as envelope text (#2090)', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Fix the stalled task.')
+  const control: LeadChatControl = { id, holder: 'lead', sent: [leadMessageKey(id, envelope)] }
+  const expected = { type: 'you', id: 'you', text: 'Fix the stalled task.', attachments: [], lead: { name: 'Dex' } }
+  // A replay with no desk record that merged the agent's stop marker in front of it.
+  const merged = thread([{ id: itemId('you'), type: 'userMessage', content: [{ type: 'text', text: '[Request interrupted by user]' }, { type: 'text', text: envelope }] }], control)
+  assert.deepEqual(merged.turns[0], expected)
+  // A runtime whose history the adapter already peeled into the item's context.
+  const peeled = thread([{ id: itemId('you'), type: 'userMessage', content: [], context: [{ label: 'Lead message from Dex', text: envelope.slice(envelope.indexOf('\n') + 1, envelope.lastIndexOf('\n')) }] }], control)
+  assert.deepEqual(peeled.turns[0], expected)
+  assert.ok(!JSON.stringify([merged, peeled]).includes('<context'))
+})
+
 test('command output sends a scrubbed forty-line tail and keeps failure and exit code', () => {
   const result = thread([run(Array.from({ length: 45 }, (_, i) => `${i}: ${cwd}/src/a.ts sk-abcdefghijklmnop`).join('\n'))])
   const step = work(result).steps[0]!

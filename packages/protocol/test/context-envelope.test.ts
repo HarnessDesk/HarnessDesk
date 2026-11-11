@@ -377,3 +377,20 @@ test('a Lead receipt is bound to the chat identity, including the runtime', () =
   assert.notEqual(leadMessageKey('fixture:a', envelope), leadMessageKey('other:a', envelope))
   assert.notEqual(leadMessageKey('fixture:a', envelope), leadMessageKey('fixture:a', leadMessageEnvelope('Dex', 'Different words.')))
 })
+
+test('a stop marker the agent replays into the person\'s seat does not push the Lead\'s envelope off the start of the message (#2090)', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Fix the stalled task.')
+  for (const marker of ['[Request interrupted by user]', '[Request interrupted by user for tool use]']) {
+    // A replay with no desk record, merged into one bubble: the marker, then the Lead's message.
+    const split = splitContextContent([{ type: 'text', text: marker }, { type: 'text', text: envelope }])
+    assert.deepEqual(split.injections.map(block => block.label), [leadMessageSource('Dex')])
+    assert.equal(split.text, '')
+    assert.equal(leadMessageWords(split.injections[0]!.text), 'Fix the stalled task.')
+  }
+  // The person's own words that only mention it are still theirs, and stay where they are.
+  const typed = splitContextContent([{ type: 'text', text: 'Why did it say [Request interrupted by user]?' }, { type: 'text', text: envelope }])
+  assert.equal(typed.injections.length, 0)
+  assert.ok(typed.text.startsWith('Why did it say'))
+  // A message that is only the marker is left as it came; the agent's own replay marks it a notice.
+  assert.deepEqual(splitContextContent([{ type: 'text', text: '[Request interrupted by user]' }]), { injections: [], text: '[Request interrupted by user]' })
+})

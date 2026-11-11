@@ -1615,3 +1615,46 @@ test('the source extension crosses the real bridge with metadata only', async t 
   await rm(path)
   assert.equal(await runtime.sourceOf('source-test' as AgentSession['id']), null)
 })
+
+test('a reopened conversation interrupted before a Lead message reads once, with the Lead message whole (#2090)', async () => {
+  const config = scratch('claude-config-')
+  const id = '3f2b0c1a-4d5e-4f60-8a71-9b2c3d4e5f99'
+  const envelope = '<context source="Lead message from Dex" data-hd-envelope="harnessdesk-v1">\nFix the stalled task.\n</context>'
+  // Entries as the CLI really stores them: with ids and a parent chain, which
+  // is what the official adapter needs before it replays a transcript itself.
+  const chain = (n: number) => ({
+    uuid: `00000000-0000-4000-8000-00000000000${n}`,
+    parentUuid: n === 1 ? null : `00000000-0000-4000-8000-00000000000${n - 1}`,
+    timestamp: new Date(1_800_000_000_000 + n * 1000).toISOString(),
+    userType: 'external',
+    version: '2.1.0',
+  })
+  storedSession(config, id, WORKDIR, [
+    { ...said('Build a game'), ...chain(1) },
+    { ...answered('Working on it'), ...chain(2), message: { id: 'msg_1', role: 'assistant', model: 'claude-x', content: [{ type: 'text', text: 'Working on it' }] } },
+    { ...said('[Request interrupted by user]'), ...chain(3) },
+    { ...said(envelope), ...chain(4) },
+    { ...answered('On it.'), ...chain(5), message: { id: 'msg_2', role: 'assistant', model: 'claude-x', content: [{ type: 'text', text: 'On it.' }] } },
+  ])
+  const runtime = make({ CLAUDE_CONFIG_DIR: config })
+  await runtime.start()
+  try {
+    const session = await runtime.resumeSession(id as AgentSession['id'])
+    const items = (await runtime.readSession(session.id)).turns.flatMap((turn) => turn.items)
+    const shown = items.map((item) => item.type === 'userMessage'
+      ? `user: ${item.content.map((part) => part.type === 'text' ? part.text : part.type).join(' | ')}`
+      : `${item.type}: ${textIn(item)}`)
+    // Read once: the adapter's own replay and the bridge's would otherwise
+    // both write the history, the first with the interruption marker merged
+    // into the Lead message's bubble.
+    assert.deepEqual(shown, [
+      'user: Build a game',
+      'assistantMessage: Working on it',
+      'notice: Interrupted',
+      `user: ${envelope}`,
+      'assistantMessage: On it.',
+    ])
+  } finally {
+    await runtime.dispose()
+  }
+})
