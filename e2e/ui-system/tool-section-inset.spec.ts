@@ -13,6 +13,11 @@ import { expect, test, type Page } from '@playwright/test'
  * This reads every open card in the rail previews and fails any visible text
  * or painted box that starts closer to the card's inner edge than the row
  * inset. One pixel of slack: a panel fact's key sits at 11px.
+ *
+ * A hairline inside a card is held to the row edge on both sides: a rule
+ * between rows that runs from border to border is the card's edge reaching
+ * in. It is read as a box whose top or bottom border is painted, or a filled
+ * box at most 2px tall (a `Separator`), or a row's `::before`/`::after` rule.
  */
 const previews = [
   { url: '/preview.html?lead-synthetic=work-ledger', cards: ['Goal', 'Work', 'Recap', 'Spend'] },
@@ -22,6 +27,7 @@ const previews = [
   { url: '/preview.html?inapplicable-actions=check', cards: ['#2 · Verify the change'] },
   { url: '/preview.html?inapplicable-actions=review', cards: ['#3 · Review the change'] },
   { url: '/preview.html?frame-wall=conversation&frame-tool=plugin&frame-plugin-blocks=1', cards: ['Recorded work'] },
+  { url: '/preview.html?frame-wall=library&frame-detail=skill&frame-name=code-review', cards: ['Update', 'Loaded by', 'Source', 'Files', 'Cost'] },
 ] as const
 
 type Flush = { card: string | null; kind: string; what: string; offset: number }
@@ -49,6 +55,7 @@ const readFlush = (page: Page) => page.evaluate(() => {
     const box = section.getBoundingClientRect()
     if (!body || body.hidden || !visible(box)) continue
     const edge = box.left + parseFloat(getComputedStyle(section).borderLeftWidth)
+    const endEdge = box.right - parseFloat(getComputedStyle(section).borderRightWidth)
     const bodyWidth = body.getBoundingClientRect().width
     const card = section.getAttribute('aria-label')
     // A card nested in this one answers for its own edge.
@@ -74,6 +81,27 @@ const readFlush = (page: Page) => page.evaluate(() => {
       const control = element.matches('button, a, input, select, textarea, svg, img, [role="button"]')
       const leftBorder = parseFloat(style.borderLeftWidth) > 0 && !clear(style.borderLeftColor)
       const filled = !clear(style.backgroundColor)
+      const rule = (side: 'Top' | 'Bottom') => parseFloat(style[`border${side}Width`]) > 0 && !clear(style[`border${side}Color`]) && style[`border${side}Style`] !== 'none'
+      const hairline = !leftBorder && (rule('Top') || rule('Bottom') || (filled && r.height <= 2))
+      if (hairline && (r.left - edge < inset - 1 || endEdge - r.right < inset - 1)) {
+        const slot = element.getAttribute('data-slot')
+        flush.push({ card, kind: `rule:${element.tagName.toLowerCase()}${slot ? `[${slot}]` : ''}`, what: (element.textContent ?? '').trim().slice(0, 50), offset: Math.round(Math.min(r.left - edge, endEdge - r.right)) })
+        continue
+      }
+      // A row's rule is often its ::after, a 1px box pinned to the row's sides.
+      for (const pseudo of ['::before', '::after'] as const) {
+        const after = getComputedStyle(element, pseudo)
+        if (after.content === 'none' || after.content === 'normal' || after.display === 'none' || after.position !== 'absolute') continue
+        const tall = parseFloat(after.height)
+        const painted = (!clear(after.backgroundColor) && tall > 0 && tall <= 2) || ((parseFloat(after.borderTopWidth) > 0 || parseFloat(after.borderBottomWidth) > 0) && !clear(after.borderTopColor))
+        if (!painted) continue
+        const left = after.left === 'auto' ? r.left : r.left + parseFloat(after.left)
+        const right = after.right === 'auto' ? r.right : r.right - parseFloat(after.right)
+        if (left - edge < inset - 1 || endEdge - right < inset - 1) {
+          const slot = element.getAttribute('data-slot')
+          flush.push({ card, kind: `rule:${element.tagName.toLowerCase()}${slot ? `[${slot}]` : ''}${pseudo}`, what: (element.textContent ?? '').trim().slice(0, 50), offset: Math.round(Math.min(left - edge, endEdge - right)) })
+        }
+      }
       if (!control && !leftBorder && !filled) continue
       // A full-width band with no edge of its own (a row's hover fill, a divider) is the card's, not a flush box.
       if (!leftBorder && r.width >= bodyWidth - 2) continue

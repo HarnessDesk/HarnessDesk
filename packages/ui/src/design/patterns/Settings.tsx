@@ -651,6 +651,7 @@ export const SectionHead = ({
   action,
   sticky,
   level = 'heading',
+  ink,
   className,
 }: {
   name: ReactNode
@@ -659,6 +660,8 @@ export const SectionHead = ({
   sticky?: boolean
   /** Page bands are headings; field groups and card labels opt into the small label. */
   level?: 'label' | 'heading'
+  /** A label's ink: `muted` for a quiet band of rows under a label of its own (a group inside a card). */
+  ink?: 'muted'
   className?: string
 }) => {
   /* In a dialog a section is a group of the form, and its head is that
@@ -676,7 +679,7 @@ export const SectionHead = ({
              owns truncation and the slot used to measure section names. */
           createElement(inSection ? 'h3' : 'h2', { className: cx(styles.sectionName, TEXT_ROLE.section), 'data-slot': 'section-name', 'data-level': level }, <Text role="section">{name}</Text>)
         ) : (
-          <GroupLabel as={inSection ? 'h3' : 'h2'} className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
+          <GroupLabel as={inSection ? 'h3' : 'h2'} {...(ink ? { ink } : {})} className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
         )}
         {description != null && (
           <span className={styles.sectionDescription} data-slot="section-description">{description}</span>

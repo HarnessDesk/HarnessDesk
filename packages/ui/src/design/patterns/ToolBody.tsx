@@ -81,10 +81,16 @@ export const ToolFold = ({ label, children }: { label: string; children: ReactNo
  * The label stands on the card's row edge; the rows under it bring their own
  * edge, so the group adds none. `label` names the region; `heading` is the
  * visible label when it carries more than the name (a count).
+ *
+ * The label is a quiet band, in muted ink: the card's own title keeps the
+ * secondary ink above it and the rows' names the foreground below, so it reads
+ * as a label of its rows rather than one more row. It sits nearer the rows it
+ * names (4px) than the group before it (12px more above every group after the
+ * first).
  */
 export const ToolGroup = ({ label, heading, children, ...props }: { label: string; heading?: ReactNode; children: ReactNode } & Omit<HTMLAttributes<HTMLElement>, 'className' | 'style' | 'aria-label'>) =>
-  <section {...props} data-slot="tool-group" aria-label={label}>
-    <SectionBody spacing="inline"><SectionHead level="label" name={heading ?? label} /></SectionBody>
+  <section {...props} data-slot="tool-group" aria-label={label} className="[[data-slot=tool-group]+&]:mt-(--hd-space-3) [&_[data-section-head]]:mb-(--hd-space-1)">
+    <SectionBody spacing="inline"><SectionHead level="label" ink="muted" name={heading ?? label} /></SectionBody>
     {children}
   </section>
 

@@ -2947,6 +2947,12 @@ The label stands on the card's row edge; the rows under it bring their own
 edge, so the group adds none. `label` names the region; `heading` is the
 visible label when it carries more than the name (a count).
 
+The label is a quiet band, in muted ink: the card's own title keeps the
+secondary ink above it and the rows' names the foreground below, so it reads
+as a label of its rows rather than one more row. It sits nearer the rows it
+names (4px) than the group before it (12px more above every group after the
+first).
+
 ### `ToolProse`
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
