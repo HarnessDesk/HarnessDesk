@@ -37,11 +37,13 @@ import {
   LIVE_STATES,
   HANDLED_LIMIT,
   RETRY_ATTEMPTS,
+  UNWRITTEN_LIMIT,
   afterReset,
   carryOnKey,
   carryOnTurnKey,
   scheduleTimer,
   type CarryOnRecord,
+  type CarryOnUnwritten,
 } from './incidents.js'
 
 /**
@@ -103,11 +105,14 @@ export interface CarryOnPorts {
   readonly titleOf: (runtime: string, sessionId: string) => string
   /** A turn running or a send on its way. */
   readonly busy: (runtime: string, sessionId: string) => boolean
-  /** With `handle`, closes only while that very handle still holds the conversation; a later one is somebody else's. */
-  readonly close: (runtime: string, sessionId: string, handle?: string) => Promise<void>
   /**
-   * Opens the conversation there. Returns the handle carry-on's own call attached, as evidence taken at the moment
-   * of attachment, or null when it was already open or another opener attached alongside: then it is not carry-on's.
+   * With `lease`, closes only while that lease still holds: the handle carry-on attached, with no other open of the
+   * conversation since. A later handle, or another caller handed the same one, is somebody else's.
+   */
+  readonly close: (runtime: string, sessionId: string, lease?: string) => Promise<void>
+  /**
+   * Opens the conversation there. Returns carry-on's lease on what its own call attached, or null when it was
+   * already open or being opened, or another caller opened it alongside: then it is not carry-on's.
    */
   readonly resume: (runtime: string, sessionId: string, model?: string) => Promise<string | null>
   /**
@@ -123,8 +128,8 @@ export interface CarryOnPorts {
     /** Called once the host has admitted the send at its effect boundary, right before it leaves. */
     admitted?: () => void) => Promise<void>
   /**
-   * A new conversation on `runtime` in the stuck conversation's own folder, with the handle its creation attached
-   * (null when the host could not say).
+   * A new conversation on `runtime` in the stuck conversation's own folder, with carry-on's lease on the handle its
+   * creation attached, taken at the attachment (null when the host could not say).
    */
   readonly create: (runtime: string, from: { readonly runtime: string; readonly sessionId: string }, model?: string) => Promise<{ readonly sessionId: string; readonly handle: string | null }>
   /** The handoff packet, built on the host from the kept transcript. */
@@ -142,7 +147,7 @@ type Fence = () => boolean
 interface Opened {
   readonly runtime: string
   readonly sessionId: string
-  /** The handle carry-on's own call attached: the only one its cleanup may close. */
+  /** Carry-on's lease on what its own call attached: the only thing its cleanup may close. */
   readonly handle: string
   /** No message from the person into it since. */
   readonly untouched: Fence
@@ -210,7 +215,9 @@ export class CarryOnService {
 
   /** What a reconnecting window loads: every live incident the composer shows. */
   list(): readonly CarryOnIncidentView[] {
-    return this.#incidents.all().filter(record => record.owner === 'chat' && !record.throttle && LIVE_STATES.has(record.state)).map(record => this.#view(record))
+    // And one whose marker the conversation could not take yet: until it is written, the card is the only record.
+    return this.#incidents.all().filter(record => record.owner === 'chat' && !record.throttle &&
+      (LIVE_STATES.has(record.state) || record.state !== 'cleared' && !!record.unwritten?.length)).map(record => this.#view(record))
   }
 
   idle(): Promise<void> { return this.#incidents.idle() }
@@ -294,6 +301,43 @@ export class CarryOnService {
         ...rest, ...(link ? { link: { runtime: runtimeId(link.runtime), sessionId: makeSessionId(link.sessionId) } } : {}),
       })
     } catch { /* A marker that cannot be written never stops the move it describes. */ return false }
+  }
+
+  /** The marker, written now; or, when the conversation cannot take it yet, returned to be kept on the record. */
+  #markOrKeep(record: CarryOnRecord, at: { readonly runtime: string; readonly sessionId: string }, phase: CarryOnPhase,
+    extra: Omit<CarryOnUnwritten, 'runtime' | 'sessionId' | 'phase'> = {}): CarryOnUnwritten[] {
+    return this.#mark(record, at, phase, extra) ? [] : [{ runtime: at.runtime, sessionId: at.sessionId, phase, ...extra }]
+  }
+
+  /** The record's waiting markers with these added, as a patch to settle with. */
+  #keep(record: CarryOnRecord, more: readonly CarryOnUnwritten[]): Partial<CarryOnRecord> {
+    return more.length ? { unwritten: [...(record.unwritten ?? []), ...more].slice(-UNWRITTEN_LIMIT) } : {}
+  }
+
+  /**
+   * The conversation can take markers again: a turn started in it, or it was reopened with its turns. The markers
+   * kept for it are written in order; one that still cannot be waits, with every one after it.
+   */
+  reachable(runtime: string, sessionId: string): Promise<void> {
+    const here = (one: CarryOnUnwritten) => one.runtime === runtime && one.sessionId === sessionId
+    if (this.#closed || !this.#incidents.all().some(record => record.unwritten?.some(here))) return Promise.resolve()
+    return this.#incidents.serial(async () => {
+      for (const record of this.#incidents.all()) {
+        const waiting = record.unwritten
+        if (!waiting?.some(here)) continue
+        let blocked = false
+        const still = waiting.filter(one => {
+          if (!here(one) || blocked) return true
+          const { runtime: _r, sessionId: _s, phase, ...extra } = one
+          if (this.#mark(record, one, phase, extra)) return false
+          blocked = true
+          return true
+        })
+        if (still.length === waiting.length) continue
+        const { unwritten: _, ...rest } = record
+        await this.#put({ ...rest, ...(still.length ? { unwritten: still } : {}), lastAt: this.#now() } as CarryOnRecord)
+      }
+    })
   }
 
   // ------------------------------------------------------------ timers
@@ -472,6 +516,7 @@ export class CarryOnService {
     const described = this.ports.describe(runtime)
     const now = this.#now()
     const record: CarryOnRecord = {
+      ...(own?.unwritten?.length ? { unwritten: own.unwritten } : {}),
       incidentId: own?.throttle ? own.incidentId : randomUUID(), runtime, sessionId, owner: 'chat', state: 'waiting-reset', cause: 'rateLimit', turnId,
       agent: described?.agent ?? runtime, from: side(described, runtime), resetsAt: null, nextAt: now + BACKOFF_MS[spent]!,
       openedAt: own?.throttle ? own.openedAt : now, lastAt: now, tried: [], hops: 0, backoff: spent + 1, throttle: true, alwaysScope: 'desk',
@@ -488,8 +533,11 @@ export class CarryOnService {
     const rule = this.ports.policy(agent)
     const now = this.#now()
     const resetsAt = meter?.resetsAt ?? this.ports.rank(runtime).resetsAt ?? null
+    // Markers an earlier incident here still waits to write go on with this one.
+    const waiting = this.#incidents.get(runtime, sessionId)?.unwritten
     // Claim first: on disk before anything is sent.
     const claimed = await this.#put({
+      ...(waiting?.length ? { unwritten: waiting } : {}),
       incidentId: randomUUID(), runtime, sessionId, owner: 'chat', state: 'deciding', cause, turnId, agent,
       from: side(described, runtime, model), ...(model ? { model } : {}),
       resetsAt: resetsAt !== null && resetsAt > now ? resetsAt : null, nextAt: null, openedAt: now, lastAt: now,
@@ -529,13 +577,13 @@ export class CarryOnService {
         return this.#settle(record, { state: 'asked', nextAt })
       }
       case 'stop': {
-        this.#mark(record, at, action.phase, { note: action.note })
-        return this.#settle(record, { state: 'stopped', nextAt: null, note: action.note })
+        const kept = this.#markOrKeep(record, at, action.phase, { note: action.note })
+        return this.#settle(record, { state: 'stopped', nextAt: null, note: action.note, ...this.#keep(record, kept) })
       }
       case 'wait': {
         const nextAt = afterReset(action.resetsAt)
-        this.#mark(record, at, 'waiting')
-        return this.#settle(record, { state: 'waiting-reset', nextAt, resetsAt: action.resetsAt })
+        const kept = this.#markOrKeep(record, at, 'waiting')
+        return this.#settle(record, { state: 'waiting-reset', nextAt, resetsAt: action.resetsAt, ...this.#keep(record, kept) })
       }
       case 'move':
         if (record.hops >= CARRY_ON_HOPS) return this.#act(record, { kind: 'stop', phase: 'exhausted', note: 'no other account or agent has room' }, fence)
@@ -561,8 +609,8 @@ export class CarryOnService {
       await this.#settle(sending, { state: 'asked', note: 'The retry at the reset did not go through.' })
       return
     }
-    if (!record.throttle) this.#mark(record, at, 'resumed')
-    await this.#settle(sending, { state: 'cleared', watch: at, throttle: record.throttle })
+    const kept = record.throttle ? [] : this.#markOrKeep(sending, at, 'resumed')
+    await this.#settle(sending, { state: 'cleared', watch: at, throttle: record.throttle, ...this.#keep(sending, kept) })
   }
 
   async #move(record: CarryOnRecord, target: CarryOnCandidate, mode: CarryOnMode, fence: Fence): Promise<CarryOnRecord> {
@@ -592,11 +640,12 @@ export class CarryOnService {
       }
       if (!opened) return this.#settle(current, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
       // Left open: the incident stops, and a marker in the conversation the person is in says where the work went.
-      // The marker is the record that outlives a reconnect; the incident itself is no longer listed once stopped.
+      // The marker is the record that outlives a reconnect. One the conversation cannot take yet — its body let go
+      // while the person's reopen is still on its way — is kept, and the incident stays listed until it is written.
       const note = `${PERSON_FIRST} The conversation is also open on ${to.account ? `${to.name} · ${to.account}` : to.name}, where it was in use.`.slice(0, 300)
       const link = { runtime: opened.runtime, sessionId: opened.sessionId }
-      this.#mark(current, from, 'stopped', { to, note, link })
-      return this.#settle(current, { state: 'stopped', nextAt: null, note, link })
+      const kept = this.#markOrKeep(current, from, 'stopped', { to, note, link })
+      return this.#settle(current, { state: 'stopped', nextAt: null, note, link, ...this.#keep(current, kept) })
     }
     // Every await above may have let the person in: checked again right before each effect.
     if (!fence()) return yieldTo()
@@ -622,8 +671,9 @@ export class CarryOnService {
         const moved = { runtime: target.runtime, sessionId: from.sessionId }
         // Written only once the send is admitted, so a person who wins inside the dispatch never reads that it moved.
         // On the thread's last turn; a reopen that has not read its turns back yet takes it on the continue turn instead.
+        const switched = { to, mode, ...(note ? { note } : {}) }
         let marked = false
-        const markSwitched = () => { if (!marked) marked = this.#mark(current, moved, 'switched', { to, mode, ...(note ? { note } : {}) }) }
+        const markSwitched = () => { if (!marked) marked = this.#mark(current, moved, 'switched', switched) }
         if (!fence()) return yieldTo(opened)
         try { await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue', fence, markSwitched) }
         catch {
@@ -632,8 +682,9 @@ export class CarryOnService {
           return this.#settle(current, { state: 'asked', note: 'The switch did not go through.' })
         }
         markSwitched()
-        // The incident follows the conversation to the account that now holds it.
-        return this.#settle(current, { state: 'moved', runtime: target.runtime, mode, watch: moved, ...(note ? { note } : {}) }, from)
+        // The incident follows the conversation to the account that now holds it, with the marker if it waits.
+        const kept: CarryOnUnwritten[] = marked ? [] : [{ ...moved, phase: 'switched', ...switched }]
+        return this.#settle(current, { state: 'moved', runtime: target.runtime, mode, watch: moved, ...(note ? { note } : {}), ...this.#keep(current, kept) }, from)
       }
     }
     let opened: Opened | undefined
@@ -649,12 +700,18 @@ export class CarryOnService {
       current = await this.#settle(current, { mode: 'handoff', link, ...(note ? { note } : {}) })
       if (!fence()) return yieldTo(opened)
       // As above: the old conversation says it left only once the packet is admitted.
+      // Each counts only once written: one the conversation could not take yet (the old one's body let go, the new
+      // one's turn not started) is kept, and written when it can be.
+      const leaving = { to, mode: 'handoff' as const, link, ...(note ? { note } : {}) }
       let left = false
-      const markLeft = () => { if (!left) { left = true; this.#mark(current, from, 'left', { to, mode: 'handoff', link, ...(note ? { note } : {}) }) } }
+      const markLeft = () => { if (!left) left = this.#mark(current, from, 'left', leaving) }
       await this.ports.send(link.runtime, link.sessionId, text, 'packet', fence, markLeft)
       markLeft()
-      this.#mark(current, link, 'arrived', { to, mode: 'handoff', link: from })
-      return this.#settle(current, { state: 'moved', watch: link })
+      const kept: CarryOnUnwritten[] = [
+        ...(left ? [] : [{ ...from, phase: 'left' as const, ...leaving }]),
+        ...this.#markOrKeep(current, link, 'arrived', { to, mode: 'handoff', link: from }),
+      ]
+      return this.#settle(current, { state: 'moved', watch: link, ...this.#keep(current, kept) })
     } catch {
       if (!fence()) return yieldTo(opened)
       return this.#settle(current, { state: 'asked', note: 'The handoff did not go through.' })

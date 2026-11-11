@@ -1,10 +1,12 @@
 import { randomInt } from 'node:crypto'
 import {
   CARRY_ON_OWNERS,
+  CARRY_ON_PHASES,
   CARRY_ON_STATES,
   type CarryOnCause,
   type CarryOnMode,
   type CarryOnOwner,
+  type CarryOnPhase,
   type CarryOnScope,
   type CarryOnSide,
   type CarryOnState,
@@ -119,6 +121,22 @@ export class IncidentLedger<T> {
 /** One conversation, as the carry-on ledger keys it. */
 export const carryOnKey = (runtime: string, sessionId: string): string => `${runtime}\u0000${sessionId}`
 
+/**
+ * A transcript marker the conversation could not take when it was written — its body released, or its turn not
+ * started yet — kept with the incident until it can (`CarryOnService.reachable`).
+ */
+export interface CarryOnUnwritten {
+  readonly runtime: string
+  readonly sessionId: string
+  readonly phase: CarryOnPhase
+  readonly to?: CarryOnSide
+  readonly mode?: CarryOnMode
+  readonly note?: string
+  readonly link?: { readonly runtime: string; readonly sessionId: string }
+}
+/** Markers one record keeps waiting: more than one move writes. */
+export const UNWRITTEN_LIMIT = 4
+
 /** The live states: an incident in one of these is still the conversation's. */
 export const LIVE_STATES: ReadonlySet<CarryOnState> = new Set(['deciding', 'asked', 'waiting-reset', 'sending'])
 
@@ -166,6 +184,8 @@ export interface CarryOnRecord {
   readonly handled?: readonly string[]
   /** A send a restart could not confirm: it waits for the person's answer, never for a timer, across later restarts too. */
   readonly uncertain?: true
+  /** Markers still to be written, oldest first. */
+  readonly unwritten?: readonly CarryOnUnwritten[]
 }
 
 /** One failed turn of one conversation, as `CarryOnRecord.handled` fences it. */
@@ -182,6 +202,12 @@ const side = (value: unknown): boolean => {
 const pointer = (value: unknown): boolean => {
   const v = value as Record<string, unknown> | null
   return !!v && typeof v === 'object' && short(v['runtime']) && short(v['sessionId'])
+}
+const unwritten = (value: unknown): boolean => {
+  const v = value as Record<string, unknown> | null
+  return pointer(v) && (CARRY_ON_PHASES as readonly unknown[]).includes(v!['phase']) && (v!['to'] === undefined || side(v!['to'])) &&
+    (v!['mode'] === undefined || v!['mode'] === 'sameThread' || v!['mode'] === 'handoff') && optionalShort(v!['note'], 300) &&
+    (v!['link'] === undefined || pointer(v!['link']))
 }
 
 export const validCarryOnRecord = (value: unknown): value is CarryOnRecord => {
@@ -203,7 +229,9 @@ export const validCarryOnRecord = (value: unknown): value is CarryOnRecord => {
     (v['turnStartedAt'] === undefined || isTimestamp(v['turnStartedAt'])) && optionalShort(v['note'], 300) &&
     (v['handled'] === undefined || Array.isArray(v['handled']) && (v['handled'] as unknown[]).length <= HANDLED_LIMIT &&
       (v['handled'] as unknown[]).every(entry => short(entry, 1000))) &&
-    (v['uncertain'] === undefined || v['uncertain'] === true)
+    (v['uncertain'] === undefined || v['uncertain'] === true) &&
+    (v['unwritten'] === undefined || Array.isArray(v['unwritten']) && (v['unwritten'] as unknown[]).length <= UNWRITTEN_LIMIT &&
+      (v['unwritten'] as unknown[]).every(unwritten))
 }
 
 /**

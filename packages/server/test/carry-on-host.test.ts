@@ -265,3 +265,81 @@ test('a cancel never closes the sibling when another opener attached alongside c
   assert.ok(r.host.registry.get(SIBLING, session.id)?.live, 'the other opener’s handle stays open')
   assert.deepEqual(r.sent.filter(one => one.runtime === SIBLING), [])
 })
+
+// ------------------------------------------------------------ review round 4
+
+test('a cancel never closes the sibling when another opener was handed the very same handle alongside carry-on’s reopen', async t => {
+  const r = await rig(t)
+  await prefer(r, 'switch')
+  const own = <T extends { runtime: unknown }>(value: T): T => ({ ...value, runtime: SIBLING })
+  const read = r.sibling!.readSession.bind(r.sibling!)
+  r.sibling!.readSession = async id => own(await read(id))
+  const resume = r.sibling!.resumeSession.bind(r.sibling!)
+  let session!: Session
+  let calls = 0
+  r.sibling!.resumeSession = async (id, options) => {
+    calls += 1
+    const first = calls === 1
+    const handle = await resume(id, options) as FakeSession
+    if (first) {
+      const snapshot = handle.snapshot.bind(handle)
+      Object.defineProperty(handle, 'runtime', { get: () => SIBLING, configurable: true })
+      handle.snapshot = () => own(snapshot())
+      // While carry-on's reopen is in flight: the person writes, and another window opens the same thread there —
+      // and the adapter hands it the handle it already holds, so the record sees one attachment, not two.
+      person(r, session)
+      await r.host.call('session/resume', { runtime: SIBLING, sessionId: id })
+    }
+    return handle
+  }
+  session = await started(r)
+  r.primary.sessions.get(session.id)!.fail('You have hit your usage limit.', 'credits')
+
+  await r.client.until(() => calls >= 2 && changes(r).at(-1) === null, 10_000, 'carry-on to stand down')
+  const shared = r.sibling!.sessions.get(session.id)
+  assert.ok(shared, 'the shared handle is still the adapter’s')
+  assert.equal(r.host.registry.get(SIBLING, session.id)?.live, shared, 'and still open for the other window')
+  assert.deepEqual(r.sent.filter(one => one.runtime === SIBLING), [])
+})
+
+test('a cancel never closes a handle that replaced the one carry-on’s create attached', async t => {
+  const r = await rig(t, { sibling: false })
+  await prefer(r, 'switch')
+  const session = await started(r)
+  // The fixture's sessions all call themselves 'fake'; the other agent's call themselves by its own id.
+  const own = <T extends { runtime: unknown }>(value: T): T => ({ ...value, runtime: OTHER })
+  const read = r.other.readSession.bind(r.other)
+  r.other.readSession = async id => own(await read(id))
+  const emit = r.other.emit.bind(r.other)
+  r.other.emit = event => emit(event.type === 'session/started' ? { ...event, session: own(event.session) } : event)
+  const resume = r.other.resumeSession.bind(r.other)
+  r.other.resumeSession = async (id, options) => {
+    const handle = await resume(id, options) as FakeSession
+    const snapshot = handle.snapshot.bind(handle)
+    Object.defineProperty(handle, 'runtime', { get: () => OTHER, configurable: true })
+    handle.snapshot = () => own(snapshot())
+    return handle
+  }
+  // Right after the creation attaches its handle, before the create returns, another window reopens the new
+  // conversation on a handle of its own; then the person writes.
+  const capabilities = r.other.info.capabilities as { pluginTools: boolean }
+  capabilities.pluginTools = true
+  let replacement: FakeSession | undefined
+  let racing = false
+  ;(r.other as unknown as { pluginToolsAvailableAt: (cwd: string) => Promise<boolean> }).pluginToolsAvailableAt = async () => {
+    if (racing) return true
+    racing = true
+    const [id] = [...r.other.sessions.keys()]
+    r.other.sessions.delete(id!)
+    await r.host.call('session/resume', { runtime: OTHER, sessionId: id! as Session['id'] })
+    replacement = r.other.sessions.get(id!)
+    person(r, session)
+    return true
+  }
+  r.primary.sessions.get(session.id)!.fail('You have hit your usage limit.', 'credits')
+
+  await r.client.until(() => !!replacement && changes(r).at(-1) === null, 10_000, 'carry-on to stand down')
+  assert.ok(replacement)
+  assert.equal(r.host.registry.get(OTHER, replacement.id)?.live, replacement, 'the other window’s handle stays open')
+  assert.deepEqual(r.sent.filter(one => one.runtime === OTHER), [], 'and the packet never went')
+})

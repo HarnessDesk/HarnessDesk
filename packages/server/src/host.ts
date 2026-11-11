@@ -5879,6 +5879,15 @@ export class Host {
     return handle
   }
 
+  /**
+   * Carry-on's lease on a conversation: the handle it holds and how many opens the conversation had then. It stays
+   * carry-on's only while both are unchanged — no other handle, and no other caller opened it since, even one an
+   * adapter handed the very same handle.
+   */
+  #carryOnLease(runtime: RuntimeId, id: SessionId, live: object): string {
+    return `${this.#carryOnHandle(live)}@${this.registry.opens(runtime, id).opened}`
+  }
+
   #buildCarryOn(): CarryOnService {
     const preferences = () => this.#state.state.preferences
     const pools = () => {
@@ -5954,32 +5963,38 @@ export class Host {
         const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
         return !!record && (record.running.size > 0 || this.#queueBusy(record))
       },
-      close: async (runtime, sessionId, handle) => {
-        if (handle !== undefined) {
-          // Only the handle carry-on attached: a later one, or none, is not carry-on's to close.
-          const live = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live
-          if (!live || this.#carryOnHandle(live) !== handle) return
+      close: async (runtime, sessionId, lease) => {
+        if (lease !== undefined) {
+          // Only on carry-on's own lease: the handle it attached, with no other open since and none under way.
+          const at = key(runtime, sessionId)
+          const live = this.registry.get(at.runtime, at.sessionId)?.live
+          if (!live || this.registry.opens(at.runtime, at.sessionId).pending > 0 || this.#carryOnLease(at.runtime, at.sessionId, live) !== lease) return
         }
         await this.call('session/close', key(runtime, sessionId))
       },
       resume: async (runtime, sessionId, model) => {
         const at = key(runtime, sessionId)
         const before = this.registry.get(at.runtime, at.sessionId)
-        // Already open there: somebody else's handle, which carry-on must never close.
-        if (before?.live) return null
+        // Already open there, or being opened: somebody else's handle, which carry-on must never close.
+        const opens = this.registry.opens(at.runtime, at.sessionId)
+        if (before?.live || opens.pending > 0) return null
         const attaches = before?.liveAttaches ?? 0
         await this.call('session/resume', { ...at, ...(model ? { options: { model } } : {}) })
-        // Evidence of ownership: exactly one attachment since the look before the await, and it is the one live now.
-        // Two mean another opener attached alongside, and then neither handle is provably carry-on's.
+        // Evidence of ownership, per call rather than per handle: exactly one open since the look before the await
+        // (carry-on's own), none still under way, and exactly one attachment, the one live now. Anything more means
+        // another opener came alongside — perhaps handed the very same handle — and then it is not carry-on's.
         const after = this.registry.get(at.runtime, at.sessionId)
-        if (!after?.live || (before !== undefined && after !== before) || after.liveAttaches !== attaches + 1) return null
-        return this.#carryOnHandle(after.live)
+        const now = this.registry.opens(at.runtime, at.sessionId)
+        if (!after?.live || (before !== undefined && after !== before) || after.liveAttaches !== attaches + 1 ||
+          now.opened !== opens.opened + 1 || now.pending > 0) return null
+        return this.#carryOnLease(at.runtime, at.sessionId, after.live)
       },
       footprint: (runtime, sessionId) => {
-        const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+        const at = key(runtime, sessionId)
+        const record = this.registry.get(at.runtime, at.sessionId)
         if (!record?.live) return null
-        // The handle itself, the turns it holds and what runs: a reattach, a turn or a queued send all change it.
-        return `${this.#carryOnHandle(record.live)}:${record.session.turns.length}:${record.running.size}:${this.#queueBusy(record) ? 1 : 0}`
+        // The lease, the turns it holds and what runs: a reattach, another open, a turn or a queued send all change it.
+        return `${this.#carryOnLease(at.runtime, at.sessionId, record.live)}:${record.session.turns.length}:${record.running.size}:${this.#queueBusy(record) ? 1 : 0}`
       },
       // A packet is the host's own words: it goes in as desk context, so the transcript never
         // shows it as something the person typed.
@@ -5997,10 +6012,11 @@ export class Host {
         const source = key(from.runtime, from.sessionId)
         // The new conversation starts in the stuck one's folder, worktree included, so its uncommitted work is there.
         const cwd = this.registry.get(source.runtime, source.sessionId)?.session.cwd ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.cwd
-        const session = await this.call('session/create', { runtime: runtimeId(runtime), options: { ...(cwd ? { cwd } : {}), ...(model ? { model } : {}) } })
-        // The handle the creation attached, taken before any further await lets another opener in.
-        const live = this.registry.get(runtimeId(runtime), makeSessionId(String(session.id)))?.live
-        const handle = live ? this.#carryOnHandle(live) : null
+        // The lease is taken the moment the creation attaches its handle, never from a later read: by the time the
+        // creation returns, another opener may have put a handle of its own there.
+        let handle: string | null = null
+        const session = await createConversation(this.#context, { runtime: runtimeId(runtime), options: { ...(cwd ? { cwd } : {}), ...(model ? { model } : {}) } },
+          undefined, live => { handle = this.#carryOnLease(runtimeId(runtime), live.id, live) })
         const title = this.registry.get(source.runtime, source.sessionId)?.session.title ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.title
         if (title) await this.call('session/setTitle', { runtime: runtimeId(runtime), sessionId: session.id, title }).catch(() => undefined)
         return { sessionId: String(session.id), handle }
@@ -8052,26 +8068,31 @@ export class Host {
     await this.#restingSessions.get(key)
     const held = this.registry.get(runtime, id)
     if (held?.live) return held.live
-    // Two calls arriving together — a send and the option write beside it —
-    // must resume once between them, not once each.
-    const already = this.#reattaching.get(key)
-    if (already) {
-      this.#reopenWaiters.set(key, (this.#reopenWaiters.get(key) ?? 0) + 1)
-      try {
-        return await already
-      } finally {
-        const left = (this.#reopenWaiters.get(key) ?? 1) - 1
-        if (left > 0) this.#reopenWaiters.set(key, left)
-        else this.#reopenWaiters.delete(key)
-      }
-    }
-    const attempt = this.#reattach(this.#runtime({ runtime }), id, route)
-    this.#reattaching.set(key, attempt)
+    // Each caller that needs the conversation opened is an open of its own, the one that joins a reopen in flight
+    // too: all of them are handed the one handle.
+    const release = this.registry.opening(runtime, id)
     try {
-      return await attempt
-    } finally {
-      this.#reattaching.delete(key)
-    }
+      // Two calls arriving together — a send and the option write beside it —
+      // must resume once between them, not once each.
+      const already = this.#reattaching.get(key)
+      if (already) {
+        this.#reopenWaiters.set(key, (this.#reopenWaiters.get(key) ?? 0) + 1)
+        try {
+          return await already
+        } finally {
+          const left = (this.#reopenWaiters.get(key) ?? 1) - 1
+          if (left > 0) this.#reopenWaiters.set(key, left)
+          else this.#reopenWaiters.delete(key)
+        }
+      }
+      const attempt = this.#reattach(this.#runtime({ runtime }), id, route)
+      this.#reattaching.set(key, attempt)
+      try {
+        return await attempt
+      } finally {
+        this.#reattaching.delete(key)
+      }
+    } finally { release() }
   }
 
   /** Conversations being re-opened right now, so concurrent callers share one. */
@@ -10473,6 +10494,10 @@ export class Host {
     if (event.type === 'turn/completed' && !this.#disposed) {
       void this.#carryOn.ended(String(runtime), String(event.sessionId), { id: String(event.turn.id), status: event.turn.status, error: event.turn.error ?? null })
         .catch((error: unknown) => { this.#logger.warn('a carry-on incident could not be handled', { error: error instanceof Error ? error.message : String(error) }) })
+    }
+    // A conversation that can take a transcript marker again gets the ones carry-on had to keep for it.
+    if ((event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'session/started') && !this.#disposed) {
+      void this.#carryOn.reachable(String(runtime), String(event.type === 'session/started' ? event.session.id : event.sessionId)).catch(() => {})
     }
     if (event.type === 'session/closed') {
       this.#team.onSessionClosed(runtime, String(event.sessionId))

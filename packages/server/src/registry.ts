@@ -284,6 +284,33 @@ export class SessionRegistry {
   onDetached(listener: (record: SessionRecord, previous: Session) => void): void { this.#detached = listener }
   readonly #records = new Map<SessionKey, SessionRecord>()
   readonly #removed = new Map<SessionKey, { record: SessionRecord; undoUntil: number }>()
+  /**
+   * Opens of each conversation, counted per call that asks for a handle — never per handle, which an adapter may
+   * hand to several callers at once. Kept past a record's removal, so a count never runs backwards.
+   */
+  readonly #opens = new Map<SessionKey, { readonly opened: number; readonly pending: number }>()
+
+  /**
+   * One caller is opening this conversation: counted at once, and outstanding until the release it returns. Each
+   * caller is its own lease, even when it is handed the same handle as another, or joins another's reopen.
+   */
+  opening(runtime: RuntimeId, id: SessionId): () => void {
+    const key = sessionKey(runtime, id)
+    const held = this.opens(runtime, id)
+    this.#opens.set(key, { opened: held.opened + 1, pending: held.pending + 1 })
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const now = this.opens(runtime, id)
+      this.#opens.set(key, { opened: now.opened, pending: Math.max(0, now.pending - 1) })
+    }
+  }
+
+  /** How many opens this conversation has had, and how many are still under way. */
+  opens(runtime: RuntimeId, id: SessionId): { readonly opened: number; readonly pending: number } {
+    return this.#opens.get(sessionKey(runtime, id)) ?? { opened: 0, pending: 0 }
+  }
   readonly #pendingNotices = new PendingConversationNotices()
   /**
    * Where a conversation seen for the first time learns which Agent it was

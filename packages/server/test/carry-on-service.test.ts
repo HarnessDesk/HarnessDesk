@@ -623,3 +623,74 @@ test('an admitted switch still writes its marker before the continue goes', asyn
   await service.ended('codex', 's1', LIMIT)
   assert.deepEqual(order, ['mark switched', 'send codex-2 s1'])
 })
+
+// ------------------------------------------------------------ markers the conversation cannot take yet
+
+test('a stopped marker the released source cannot take is kept, listed across a reconnect, and written when it reopens', async t => {
+  const r = await rig(t)
+  const resumed = deferred()
+  let resuming = false
+  // The same-thread close let the source's body go; the person's reopen of it is still on its way.
+  let released = true
+  const record: CarryOnPorts['record'] = (runtime, id, item) => {
+    if (released && runtime === 'codex' && id === 's1') return false
+    r.marks.push({ at: `${runtime} ${id}`, item })
+    return true
+  }
+  const service = r.reopen({ record, resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return `handle ${runtime} ${id}` } })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => resuming, 'the sibling’s reopen')
+  const people = [service.personSent('codex', 's1'), service.personSent('codex-2', 's1')]
+  resumed.resolve()
+  await ended; await Promise.all(people)
+  assert.ok(!r.marks.some(mark => mark.item.phase === 'stopped'), 'nothing could be written yet')
+
+  // A window reconnecting — here, after a restart — still finds the note and the link.
+  const again = r.reopen({ record })
+  t.after(() => again.close())
+  await again.restore()
+  const [listed] = again.list()
+  assert.equal(listed?.state, 'stopped', 'the incident is listed while its marker waits')
+  assert.deepEqual(listed?.link, { runtime: 'codex-2', sessionId: 's1' })
+  assert.match(listed?.note ?? '', /also open on Codex · personal/)
+
+  // The person's reopen brings the body back: the marker goes in, and the incident is no longer listed.
+  released = false
+  await again.reachable('codex', 's1')
+  const stopped = r.marks.find(mark => mark.item.phase === 'stopped')
+  assert.ok(stopped, 'the stopped marker is written')
+  assert.equal(stopped.at, 'codex s1')
+  assert.deepEqual(stopped.item.link, { runtime: 'codex-2', sessionId: 's1' })
+  assert.equal((await disk(r.file)).records[0]!['unwritten'], undefined, 'nothing waits any more')
+  assert.deepEqual(again.list(), [])
+})
+
+test('an admitted handoff whose markers could not be written yet settles moved and writes both once the turns are there', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  // The old conversation's body was let go, and the new one's turn has not started when the packet is accepted.
+  const ready = new Set<string>()
+  const service = r.reopen({
+    record: (runtime, id, item) => {
+      if (!ready.has(`${runtime} ${id}`)) return false
+      r.marks.push({ at: `${runtime} ${id}`, item })
+      return true
+    },
+  })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  assert.equal(r.published.at(-1)?.incident?.state, 'moved')
+  assert.deepEqual(phases(r), [], 'none could be written at the move')
+  const kept = (await disk(r.file)).records[0]!['unwritten'] as { phase: string }[]
+  assert.deepEqual(kept.map(one => one.phase), ['left', 'arrived'], 'both are kept, not counted as written')
+
+  // The new conversation's turn starts: its marker goes in. Then the old one reopens.
+  ready.add('claude new-1')
+  await service.reachable('claude', 'new-1')
+  ready.add('codex s1')
+  await service.reachable('codex', 's1')
+  assert.deepEqual(phases(r), ['claude new-1 arrived', 'codex s1 left'])
+  const left = r.marks.find(mark => mark.item.phase === 'left')!
+  assert.deepEqual(left.item.link, { runtime: 'claude', sessionId: 'new-1' })
+  assert.equal((await disk(r.file)).records[0]!['unwritten'], undefined)
+})
