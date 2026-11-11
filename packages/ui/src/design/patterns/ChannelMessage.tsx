@@ -4,6 +4,7 @@ import { BrandMark } from '../../components/BrandIcons'
 import type { Brand } from '../../lib/brands'
 import { Bubble, BubbleContent } from '../ui/bubble'
 import { Button } from '../ui/button'
+import { Checkbox } from '../ui/checkbox'
 import { IconTile } from '../ui/icon-tile'
 import { AgentIcon } from '../../components/Icons'
 import { Message, MessageContent, MessageFooter } from '../ui/message'
@@ -494,7 +495,8 @@ export type ChannelNoticeChoice = {
   readonly label: string
   /** The same answer, said longer, on hover. */
   readonly title?: string
-  readonly onSelect: () => void
+  /** Called with whether the person ticked the notice's "Always do this" box. */
+  readonly onSelect: (always: boolean) => void
   readonly disabled?: boolean
 }
 
@@ -508,9 +510,11 @@ export type ChannelNoticeChoice = {
  * in a busy channel is not that difference.
  *
  * When the stop waits on the person, the same row carries the decision:
- * `choices` as a line of buttons under the sentence, the first one primary,
- * and `note` for the one fact that varies (a candidate that was skipped and
- * why). A Team never gets a second card for it — the notice is where the
+ * `choices` as a line of buttons under the sentence, the first one the
+ * filled act the composer's own decision card draws, `always` as the box that
+ * turns the answer into the rule from now on (its label states its scope, and
+ * it is unticked each time the question is shown), and `note` for the one
+ * fact that varies (a candidate that was skipped and why). A Team never gets a second card for it — the notice is where the
  * room already says the member stopped.
  */
 export const ChannelNotice = ({
@@ -519,6 +523,7 @@ export const ChannelNotice = ({
   text,
   at,
   choices,
+  always,
   note,
 }: {
   readonly about: string
@@ -527,8 +532,11 @@ export const ChannelNotice = ({
   readonly text: string
   readonly at: string
   readonly choices?: readonly ChannelNoticeChoice[]
+  /** The box that makes the answer the rule: "Always do this", or "… for <agent>". */
+  readonly always?: { readonly label: string }
   readonly note?: string
 }) => {
+  const [remember, setRemember] = useState(false)
   const asking = choices !== undefined && choices.length > 0
   return (
     <TurnItem register="light" data-channel="notice" className="flex items-baseline">
@@ -547,16 +555,24 @@ export const ChannelNotice = ({
             {choices.map((choice, index) => (
               <Button
                 key={choice.label}
-                variant={index === 0 ? 'primary' : 'outline'}
+                variant={index === 0 ? 'default' : 'outline'}
                 size="sm"
                 title={choice.title ?? choice.label}
                 disabled={choice.disabled}
-                onClick={choice.onSelect}
+                onClick={() => choice.onSelect(remember)}
               >
                 {choice.label}
               </Button>
             ))}
           </div>
+        ) : null}
+        {asking && always ? (
+          <Checkbox
+            className="mt-1.5"
+            checked={remember}
+            onCheckedChange={(next) => setRemember(next === true)}
+            label={<Text role="meta">{always.label}</Text>}
+          />
         ) : null}
       </div>
     </TurnItem>

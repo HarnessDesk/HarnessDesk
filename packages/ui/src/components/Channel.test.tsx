@@ -854,6 +854,26 @@ it('offers a seat’s carry-on answers on its latest limit notice and sends the 
   expect(decide).toHaveBeenCalledWith({ incidentId: 'incident-1', choice: 'switch', always: false })
 })
 
+it('a seat’s notice can make its answer the rule: the box says where it lands, and the answer carries it', async () => {
+  const { store } = rig()
+  const decide = vi.fn().mockResolvedValue(undefined)
+  ;(store as unknown as { seatCarryOn: { decide: typeof decide } }).seatCarryOn = { decide }
+  const snapshot = store.getSnapshot() as { seatCarryOn: ReadonlyMap<string, CarryOnIncidentView> }
+  snapshot.seatCarryOn = new Map([[sessionKey('codex', 'c1'), seatIncident()]])
+  await render(store, [limitNotice('latest', 200)])
+  const box = container.querySelector<HTMLElement>('[data-channel="notice"] [role="checkbox"]')!
+  expect(box.closest('label')?.textContent).toBe('Always do this')
+  expect(box.getAttribute('aria-checked')).toBe('false')
+  await act(async () => { box.click() })
+  expect(box.getAttribute('aria-checked')).toBe('true')
+  await act(async () => { button('Stop').click() })
+  expect(decide).toHaveBeenCalledWith({ incidentId: 'incident-1', choice: 'stop', always: true })
+
+  snapshot.seatCarryOn = new Map([[sessionKey('codex', 'c1'), seatIncident({ alwaysScope: 'agent' })]])
+  await render(store, [limitNotice('again', 300)])
+  expect(container.querySelector('[data-channel="notice"] [role="checkbox"]')!.closest('label')?.textContent).toBe('Always do this for Builder')
+})
+
 it('shows no answers once a seat’s incident stops asking, and refuses wait when no reset is known', async () => {
   const { store } = rig()
   ;(store as unknown as { seatCarryOn: { decide: () => Promise<void> } }).seatCarryOn = { decide: async () => {} }

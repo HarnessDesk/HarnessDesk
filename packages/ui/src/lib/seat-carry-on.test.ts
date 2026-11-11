@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { runtimeId, sessionKey, type CarryOnIncidentView, type TeamEntry } from '@harnessdesk/protocol'
 
-import { latestLimitNotices, seatCarryOnChoices } from './seat-carry-on'
+import { latestLimitNotices, seatCarryOnAlways, seatCarryOnChoices } from './seat-carry-on'
 
 const incident = (over: Partial<CarryOnIncidentView> = {}): CarryOnIncidentView => ({
   incidentId: 'i', runtime: runtimeId('codex'), sessionId: 's', owner: 'seat', state: 'asked', cause: 'limit',
@@ -10,6 +10,13 @@ const incident = (over: Partial<CarryOnIncidentView> = {}): CarryOnIncidentView 
   choices: { target: { runtime: runtimeId('codex'), name: 'Builder', account: 'account 2', mode: 'sameThread', tier: 0 }, wait: true },
   others: [], alwaysScope: 'desk', ...over,
 } as CarryOnIncidentView)
+
+describe('seatCarryOnAlways', () => {
+  it('says where the rule lands: the desk, or the stuck agent', () => {
+    expect(seatCarryOnAlways(incident())).toBe('Always do this')
+    expect(seatCarryOnAlways(incident({ alwaysScope: 'agent' }))).toBe(`Always do this for ${incident().from.name}`)
+  })
+})
 
 describe('seatCarryOnChoices', () => {
   it('names a sibling account for the same conversation, and a new agent for a handoff', () => {

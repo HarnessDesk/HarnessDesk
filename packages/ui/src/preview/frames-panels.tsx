@@ -202,7 +202,7 @@ export const PanelFrames = () => {
           <ChannelStream entries={new URLSearchParams(location.search).get('channel-case') === 'repeated-recipient' ? repeatedRecipientEntries : TEAM.channel} room={TEAM.id} onTrouble={() => {}} />
         </div>
       </Frame>
-      <Frame id="room-channel-carry-on" title="Room — a seat's usage limit asks what to do">
+      <Frame id="room-channel-carry-on" title="Team — a seat's usage limit asks what to do">
         <div className="max-h-[420px] overflow-y-auto p-4">
           <StoreProvider store={carryOnStore}>
             <ChannelStream entries={[...TEAM.channel.slice(0, 3), carryOnNotice]} room={TEAM.id} onTrouble={() => {}} />

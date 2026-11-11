@@ -2199,6 +2199,7 @@ const ChannelBoard = () => (
           text="You've hit your usage limit. It resets at 5:10 PM."
           at="03:36 PM"
           note="Skipped Builder · account 2: it shares a provider with the work this seat must be independent of."
+          always={{ label: 'Always do this' }}
           choices={[
             { label: 'Continue in Checker', title: 'Continue this seat in Checker, with a handoff of the work so far', onSelect: () => {} },
             { label: 'Wait until reset', onSelect: () => {} },

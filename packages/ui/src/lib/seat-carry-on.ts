@@ -39,6 +39,14 @@ export const seatCarryOnChoices = (
 }
 
 /**
+ * The words of the notice's "Always do this" box, which state where the rule
+ * it writes lands: the desk's own rule, or the stuck agent's override — the
+ * composer card's words, so the person finds the same rule in Settings.
+ */
+export const seatCarryOnAlways = (incident: CarryOnIncidentView): string =>
+  incident.alwaysScope === 'agent' ? `Always do this for ${incident.from.name}` : 'Always do this'
+
+/**
  * The notices a seat's question hangs on, each to its member's session key:
  * for each member, its latest `limit` notice only, so an older stop in the
  * scrollback never offers an answer to the stop happening now.

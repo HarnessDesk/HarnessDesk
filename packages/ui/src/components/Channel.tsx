@@ -18,7 +18,7 @@ import { type Brand, brandForRuntime } from '../lib/brands'
 import { Markdown } from './Markdown'
 import { Face } from '../design'
 import { sanitizeText } from '../lib/sanitize'
-import { latestLimitNotices, seatCarryOnChoices } from '../lib/seat-carry-on'
+import { latestLimitNotices, seatCarryOnAlways, seatCarryOnChoices } from '../lib/seat-carry-on'
 
 /**
  * The channel: what the conversations on one board said, in order.
@@ -375,7 +375,7 @@ export const ChannelStream = ({
   const setTrouble = onTrouble
   /* A seat out of its usage limit whose carry-on asks the person: the answer
      goes on its Team's own notice, the latest one for that member (§9.1). */
-  const carryOnAsk = (entry: TeamNotice): { choices?: readonly ChannelNoticeChoice[]; note?: string } => {
+  const carryOnAsk = (entry: TeamNotice): { choices?: readonly ChannelNoticeChoice[]; always?: { label: string }; note?: string } => {
     const member = asking.get(entry.id)
     const incident = member ? snapshot.seatCarryOn.get(member) : undefined
     const choices = seatCarryOnChoices(incident, timeOf)
@@ -385,12 +385,13 @@ export const ChannelStream = ({
         label: sanitizeText(one.label),
         title: sanitizeText(one.title),
         disabled: one.disabled,
-        onSelect: () => {
+        onSelect: (always: boolean) => {
           setTrouble(null)
-          void store.seatCarryOn.decide({ incidentId: incident.incidentId, choice: one.choice, always: false })
+          void store.seatCarryOn.decide({ incidentId: incident.incidentId, choice: one.choice, always })
             .catch((error: unknown) => setTrouble(error instanceof Error ? error.message : String(error)))
         },
       })),
+      always: { label: sanitizeText(seatCarryOnAlways(incident)) },
       ...(incident.note ? { note: sanitizeText(incident.note) } : {}),
     }
   }
