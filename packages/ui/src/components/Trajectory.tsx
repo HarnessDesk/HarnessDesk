@@ -1,8 +1,9 @@
 import { useEffect, useMemo } from 'react'
 
-import { typedUserText, type AgentItem, type Turn } from '@harnessdesk/protocol'
+import { carryOnMarker, typedUserText, type AgentItem, type Turn } from '@harnessdesk/protocol'
 
 import { ChartKey, ChartKeys, CodeText, ProgressStack, publicationVerb, SeriesDot, Separator, Text, type Tint, type Tone } from '../design'
+import { formatReset } from '../lib/limits'
 import { toolWords } from '../lib/tool-names'
 import { useActiveSession } from '../state/context'
 import type { ReportFoot } from './Details'
@@ -65,6 +66,7 @@ const KIND_LABEL: Record<string, string> = {
   error: 'Error',
   subagent: 'Sub-agent',
   publication: 'Publication',
+  carryOn: 'Carry on',
   modelWaiting: 'Model and waiting',
   notMeasured: 'Not measured',
 }
@@ -114,6 +116,9 @@ const labelOf = (item: AgentItem): string => {
       const title = reference.title ? ` · ${oneLine(reference.title)}` : ''
       return `${publicationVerb(reference)} ${reference.kind === 'branch' ? `${reference.repo} ${reference.ref}` : `#${reference.number}`}${title}`
     }
+    case 'carryOn':
+      // The headline the transcript's marker carries: both sides, by name.
+      return carryOnMarker(item, (at) => formatReset(at) ?? '').headline
     case 'userMessage':
       return typedUserText(item.content).trim() || 'Message'
     default:
@@ -141,6 +146,7 @@ const ROLE: Record<string, string> = {
   error: 'Error',
   subagent: 'Sub-agent',
   publication: 'Post',
+  carryOn: 'System',
 }
 
 const roleOf = (item: AgentItem): string => ROLE[item.type] ?? 'Step'

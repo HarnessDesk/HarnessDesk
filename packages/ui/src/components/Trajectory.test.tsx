@@ -337,3 +337,10 @@ it('labels a branch publication with its address', async () => {
   expect(rows()[0]?.getAttribute('title')).toContain('acme/widgets feature/widgets')
   expect(container.textContent).not.toContain('#undefined')
 })
+
+it('labels a carry-on marker with both sides, as the transcript says it', async () => {
+  await render([{ ...TURN, items: [item('carry', { type: 'carryOn', phase: 'switched', cause: 'credits',
+    from: { name: 'Codex', account: 'work' }, to: { name: 'Codex', account: 'personal' } })] } as unknown as Turn])
+  expect(rows()[0]?.getAttribute('title')).toContain('Switched from Codex · work to Codex · personal')
+  expect(leads()).toEqual(['System'])
+})

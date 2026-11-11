@@ -723,6 +723,9 @@ export const Conversation = ({
                         .join('\n\n')}
                     />
                   )}
+                  {view.closing.map((item) => (
+                    <ItemView key={item.id} item={item} root={session.cwd} />
+                  ))}
                 </div>
               )
             })}
