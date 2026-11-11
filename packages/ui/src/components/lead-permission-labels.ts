@@ -40,6 +40,8 @@ const LEAD_METHOD_LABELS: Readonly<Record<ClientMethodName, { readonly permissio
   'lead/memory/search': { permission: 'Search its notes and earlier conversation', activity: 'Looking back' },
   'lead/reminder/set': { permission: 'Set a reminder', activity: 'Setting a reminder' },
   'lead/reminder/cancel': { permission: 'Cancel a reminder', activity: 'Cancelling a reminder' },
+  'lead/autonomy/propose': { permission: 'Propose a setting for you to apply', activity: 'Proposing a setting' },
+  'lead/rules/propose': { permission: 'Propose a rule for you to apply', activity: 'Proposing a rule' },
 }
 export const PERMISSION_LABELS = Object.fromEntries(Object.entries(LEAD_METHOD_LABELS)
   .map(([method, labels]) => [method, labels.permission])) as Record<ClientMethodName, string>

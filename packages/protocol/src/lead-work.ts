@@ -40,6 +40,10 @@ export const LEAD_WORK_LIMITS = Object.freeze({
   reminderKeptMs: 7 * 24 * 60 * 60 * 1000,
   /** A previous attempt the host stopped this recently still counts as the same work, so a new start asks first. */
   retryMs: 24 * 60 * 60 * 1000,
+  /** Stopped attempts an item keeps, newest kept. */
+  stopsKept: 8,
+  /** Stopped attempts after which the host refuses another until the person answers the Lead's question. */
+  stopsBeforeAsking: 2,
 } as const)
 
 /**
@@ -97,7 +101,14 @@ export interface LeadWorkCard {
   readonly outcome?: LeadWorkOutcome
   /** Who stopped it, for an item that closed because its chat was stopped and the host saw who stopped it. */
   readonly stoppedBy?: 'person' | 'lead'
+  /**
+   * Each attempt under this item that ended because its chat was stopped, oldest first, at most
+   * `LEAD_WORK_LIMITS.stopsKept`; `by` is left out when the host did not see who stopped it. Left out when none was.
+   */
+  readonly stops?: readonly LeadWorkStop[]
 }
+/** One stopped attempt: when the host saw it stopped, and who stopped it when the host saw that. */
+export interface LeadWorkStop { readonly at: number; readonly by?: 'person' | 'lead' }
 /** Open items, then recently closed ones, grouped in `LEAD_WORK_GROUPS` order and newest first inside a group. */
 export interface LeadWorkBoard {
   readonly version: 1
@@ -153,7 +164,14 @@ const links: Validator<LeadWorkLinks> = (value, path = '') => {
   return { chats: ids(LEAD_WORK_LIMITS.linksPerKind)(source.chats, at('chats')), teams: ids(LEAD_WORK_LIMITS.linksPerKind)(source.teams, at('teams')),
     prs: ids(LEAD_WORK_LIMITS.linksPerKind)(source.prs, at('prs')), issues: ids(LEAD_WORK_LIMITS.linksPerKind)(source.issues, at('issues')) }
 }
-const cardFields = ['id', 'title', 'project', 'stage', 'group', 'blocker', 'fact', 'note', 'after', 'remindAt', 'links', 'createdAt', 'updatedAt', 'closedAt', 'outcome', 'stoppedBy']
+const stops: Validator<readonly LeadWorkStop[]> = (value, path = '') => {
+  const out = arrayOf((one, where = '') => {
+    const source = only(['at', 'by'])(one, where), at = (key: string) => where ? `${where}.${key}` : key
+    return { at: time(source.at, at('at')), ...(source.by === undefined ? {} : { by: literalUnion('person', 'lead')(source.by, at('by')) }) }
+  })(value, path)
+  return out.length <= LEAD_WORK_LIMITS.stopsKept ? out : fail(path, `expected at most ${LEAD_WORK_LIMITS.stopsKept} stops`)
+}
+const cardFields = ['id', 'title', 'project', 'stage', 'group', 'blocker', 'fact', 'note', 'after', 'remindAt', 'links', 'createdAt', 'updatedAt', 'closedAt', 'outcome', 'stoppedBy', 'stops']
 const card = (source: Record<string, unknown>, path: string): LeadWorkCard => {
   const at = (key: string) => path ? `${path}.${key}` : key
   const stage = literalUnion(...LEAD_WORK_STAGES)(source.stage, at('stage'))
@@ -168,6 +186,7 @@ const card = (source: Record<string, unknown>, path: string): LeadWorkCard => {
     links: links(source.links, at('links')), createdAt: time(source.createdAt, at('createdAt')), updatedAt: time(source.updatedAt, at('updatedAt')),
     closedAt: optional(time)(source.closedAt, at('closedAt')), outcome: optional(literalUnion('done', 'dropped'))(source.outcome, at('outcome')),
     stoppedBy: optional(literalUnion('person', 'lead'))(source.stoppedBy, at('stoppedBy')),
+    stops: source.stops === undefined ? undefined : stops(source.stops, at('stops')),
   }
   for (const key of Object.keys(out)) if (out[key] === undefined) delete out[key]
   return out as unknown as LeadWorkCard
@@ -295,3 +314,18 @@ export const parseLeadReminderSet: Validator<LeadReminderSet> = (value, path = '
 /** Wire params for `lead/reminder/cancel`, from the Lead, the window or the phone. */
 export const parseLeadReminderCancel: Validator<{ readonly id: string }> = (value, path = '') =>
   ({ id: reminderId(only(['id'])(value, path).id, path ? `${path}.id` : 'id') })
+
+/**
+ * Who stopped an item's attempts, said to the Lead: "the person stopped it each time", "you stopped it each time", or
+ * the count for each actor, with the stops whose actor the host did not see named as such. Never guesses.
+ */
+export const leadStopTally = (stops: readonly LeadWorkStop[]): string => {
+  const person = stops.filter(stop => stop.by === 'person').length, lead = stops.filter(stop => stop.by === 'lead').length
+  const unseen = stops.length - person - lead
+  const times = (n: number) => n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`
+  if (person === stops.length) return stops.length === 1 ? 'the person stopped it' : 'the person stopped it each time'
+  if (lead === stops.length) return stops.length === 1 ? 'you stopped it' : 'you stopped it each time'
+  if (unseen === stops.length) return 'the desk did not see who stopped it'
+  return [person ? `the person stopped it ${times(person)}` : '', lead ? `you stopped it ${times(lead)}` : '',
+    unseen ? `${times(unseen)} the desk did not see who` : ''].filter(Boolean).join(', ')
+}

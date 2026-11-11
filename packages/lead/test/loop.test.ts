@@ -849,7 +849,7 @@ test('a successful tool result beyond the continuation budget does not park the 
   s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(15_000) : call(method, params)
   const loop = exported('createLeadLoop')(s.options)
   // Room for the standing instructions and the tool list below the request bound, but not for the 15,000-byte result.
-  const result = await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(15_900) })) }] })
+  const result = await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(15_800) })) }] })
   assert.equal(result.status, 'completed')
   assert.equal(s.fake.requests[0].body.includes('Desk clock: '), false, 'a full person turn goes without the clock, rather than carrying it inside its own words or being refused')
   assert.match(result.toolResults[0].content, /^Tool failed:.*result.*conversation limit/)

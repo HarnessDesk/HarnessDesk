@@ -184,7 +184,7 @@ import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRe
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadClockLine, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
-import { initialLeadMemoryCore, leadMemoryStatus } from '@harnessdesk/lead'
+import { initialLeadMemoryCore, leadMemoryStatus, leadSettingsStatus } from '@harnessdesk/lead'
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
@@ -4028,7 +4028,9 @@ export class Host {
     const autonomy = new LeadAutonomyStore({ file: join(this.#state.directory, 'lead', 'autonomy.json'), now: () => Date.now(), journal,
       goal: () => { const budget = journal.state.budget; return budget ? { id: budget.logicalGoalId, open: !['accepted', 'declined', 'stopped'].includes(journal.state.phase) } : null },
       report: text => journal.appendReply(text),
-      changed: () => this.#push({ method: 'lead/presence/changed', params: {} }) })
+      changed: () => { this.#push({ method: 'lead/presence/changed', params: {} }); this.#push({ method: 'lead/autonomy/changed', params: {} }) },
+      // Where a proposal card sits (under the Lead's next reply), and whether the person has written since a No.
+      seq: () => journal.state.seq, personSeq: () => this.#leadPersonSeq() })
     this.#leadAutonomy = autonomy
     void autonomy.attach().catch(() => { this.#logger.warn('The Lead autonomy settings could not be read') })
     this.onDispose(() => { if (this.#leadAutonomy === autonomy) this.#leadAutonomy = null })
@@ -4667,7 +4669,11 @@ export class Host {
   async #leadMemoryContext(): Promise<string | null> {
     const journal = this.#leadJournal
     if (!journal) return null
-    return leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
+    const memory = leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
+    // Its own settings and what became of its proposals to change them ride the same note: a settings file that cannot
+    // be read leaves them out rather than the memory status.
+    const settings = this.#leadAutonomy ? await this.#leadAutonomy.view().then(leadSettingsStatus, () => null) : null
+    return settings ? `${memory}\n${settings}` : memory
   }
   /** The status a desk wake carries: null when the memory store cannot be read, or takes longer than
    * `LEAD_WAKE_MEMORY_STATUS_MS` to open, so a corrupt file or a slow first open never stalls or stops a wake. */
@@ -6011,7 +6017,8 @@ export class Host {
       leadChats: { list: params => this.leadChats.list(params), read: params => this.leadChats.read(params),
         start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
       leadAutonomy: { view: () => this.leadAutonomy.view(), set: set => this.leadAutonomy.set(set), rules: () => this.leadAutonomy.rules(),
-        updateRules: update => this.leadAutonomy.updateRules(update), setDeadline: set => this.leadAutonomy.setDeadline(set) },
+        updateRules: update => this.leadAutonomy.updateRules(update), setDeadline: set => this.leadAutonomy.setDeadline(set),
+        proposeMode: params => this.leadAutonomy.proposeMode(params), proposeRules: params => this.leadAutonomy.proposeRules(params), decide: params => this.leadAutonomy.decide(params) },
       leadPresence: { read: (device, options) => this.leadPresence.read(device, options), dismiss: (device, digest) => this.leadPresence.dismiss(device, digest),
         brief: () => this.leadPresence.brief(), updateBrief: update => this.leadPresence.updateBrief(update) },
       leadWork: { board: state => this.leadWork.board(state), read: params => this.leadWork.read(params),

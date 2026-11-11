@@ -37,6 +37,8 @@ const LEAD_STEP_WORDS: Readonly<Record<string, string>> = {
   'lead/work/note': 'Noting progress',
   'lead/memory/propose': 'Offering a note to keep',
   'lead/memory/search': 'Looking back',
+  'lead/autonomy/propose': 'Proposing a setting',
+  'lead/rules/propose': 'Proposing a rule',
 }
 
 /** The words for a desk call, or null for one that names no step of its own (the step before it stays). */

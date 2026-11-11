@@ -1,5 +1,5 @@
 import type {
-  LeadAutonomySet, LeadAutonomyView, LeadDeadlineSet, LeadRulesUpdate, LeadRulesView, LeadBriefSettings, LeadDeviceRef, LeadPresenceView, LeadChatControl, LeadWorkBoard, LeadWorkOutcome, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadMemoryChange, LeadMemoryView, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  LeadAutonomySet, LeadAutonomyView, LeadSettingsDecide, LeadDeadlineSet, LeadRulesUpdate, LeadRulesView, LeadBriefSettings, LeadDeviceRef, LeadPresenceView, LeadChatControl, LeadWorkBoard, LeadWorkOutcome, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadMemoryChange, LeadMemoryView, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
@@ -16,6 +16,8 @@ export interface LeadState {
   readonly away?: LeadPresenceView | null
   /** The Lead's memory: Core, Archive, the proposals waiting and the history; null until read. */
   readonly memory?: LeadMemoryView | null
+  /** The Lead's settings as the desk holds them, with the proposals the Lead made; null until read. */
+  readonly autonomy?: LeadAutonomyView | null
   readonly savedApprovals?: readonly LeadSavedApproval[]
   readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions: readonly LeadAction[]
@@ -74,7 +76,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     }
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
-      : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], work: state.work ?? null, memory: state.memory ?? null, savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], stage: projection.stage, stageReason: projection.stageReason, revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
+      : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], work: state.work ?? null, memory: state.memory ?? null, autonomy: state.autonomy ?? null, savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], stage: projection.stage, stageReason: projection.stageReason, revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
         requestInFlight: projection.requestInFlight, activity: projection.activity, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
     for (const listener of listeners) listener()
   }
@@ -91,6 +93,14 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     for (const listener of listeners) listener()
   }
   const readMemoryView = async () => { check(); const view = await transport.request('lead/memory/view', {}); applyMemory(view); return view }
+  // The settings view carries no revision, so the answer to the latest read or decision is the one shown.
+  let autonomyVersion = 0
+  const applyAutonomy = (view: LeadAutonomyView, version: number) => {
+    if (!available() || version !== autonomyVersion || !view?.modes) return
+    state = { ...state, autonomy: view }
+    for (const listener of listeners) listener()
+  }
+  const settled = async (read: Promise<LeadAutonomyView>) => { const version = ++autonomyVersion; const view = await read; applyAutonomy(view, version); return view }
   let controlVersion = 0
   const retriedControl = new Set<'transient' | 'escalated'>()
   let controlRetry: ReturnType<typeof setTimeout> | undefined
@@ -156,6 +166,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       else if (notification.method === 'lead/work/changed') applyWork(notification.params)
       else if (notification.method === 'lead/presence/changed') void transport.request('lead/presence/read', { device: device() }).then(applyAway, () => {})
       else if (notification.method === 'lead/memory/changed' && notification.params.revision > (state.memory?.revision ?? -1)) void readMemoryView().catch(() => {})
+      else if (notification.method === 'lead/autonomy/changed') void settled(transport.request('lead/autonomy/read', {})).catch(() => {})
     },
     readChatControl,
     async resetChatControl() { check(); applyChats(await transport.request('lead/chats/resetControl', {})) },
@@ -174,8 +185,10 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     async dismissDigest(digest: string) { check(); const view = await transport.request('lead/presence/dismiss', { device: device(), digest }); applyAway(view); return view },
     async readBrief(): Promise<LeadBriefSettings> { check(); return transport.request('lead/brief/read', {}) },
     async updateBrief(update: { readonly enabled?: boolean; readonly at?: string }): Promise<LeadBriefSettings> { check(); return transport.request('lead/brief/update', update) },
-    async readAutonomy(): Promise<LeadAutonomyView> { check(); return transport.request('lead/autonomy/read', {}) },
-    async setAutonomy(set: LeadAutonomySet): Promise<LeadAutonomyView> { check(); return transport.request('lead/autonomy/set', set) },
+    async readAutonomy(): Promise<LeadAutonomyView> { check(); return settled(transport.request('lead/autonomy/read', {})) },
+    async setAutonomy(set: LeadAutonomySet): Promise<LeadAutonomyView> { check(); return settled(transport.request('lead/autonomy/set', set)) },
+    /** The person's Apply or No on a settings proposal the Lead made. Apply makes exactly the change the card shows. */
+    async decideSettings(decision: LeadSettingsDecide): Promise<LeadAutonomyView> { check(); return settled(transport.request('lead/settings/decide', decision)) },
     async readRules(): Promise<LeadRulesView> { check(); return transport.request('lead/rules/read', {}) },
     async updateRules(update: LeadRulesUpdate): Promise<LeadRulesView> { check(); return transport.request('lead/rules/update', update) },
     async setDeadline(set: LeadDeadlineSet): Promise<LeadAutonomyView> { check(); return transport.request('lead/deadline/set', set) },

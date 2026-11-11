@@ -266,6 +266,12 @@ export interface LeadMessage {
    * user turn; a thread projection shows it as a `system` line reading the reminder's own words.
    */
   readonly wake?: LeadMessageWake
+  /**
+   * A line the desk wrote in the Lead's name to say the person's reminder `reminded` while the thread waited on them:
+   * no model wrote it, so it is not the Lead's reply to what came before (the chats it started since its last reply
+   * still count).
+   */
+  readonly reminded?: string
 }
 /** What woke the Lead: `reminder` is the reminder's id, `text` its own words (untrusted, as the person or Lead set them). */
 export interface LeadMessageWake { readonly kind: 'reminder'; readonly reminder: string; readonly text: string }
@@ -467,7 +473,8 @@ export const LEAD_CONTROL_REFUSALS = ['lead-runtime-unsupported', 'lead-unavaila
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
   'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending', 'lead-ask-expired', 'lead-ask-answered', 'lead-slot-reserved', 'lead-rules-stale', 'lead-rule-empty', 'lead-rule-version-missing', 'lead-deadline-goal', 'lead-deadline-past',
-  'lead-memory-missing', 'lead-memory-stale', 'lead-memory-full', 'lead-memory-core-full', 'lead-memory-instruction-refused', 'lead-ask-replaced'] as const
+  'lead-memory-missing', 'lead-memory-stale', 'lead-memory-full', 'lead-memory-core-full', 'lead-memory-instruction-refused', 'lead-ask-replaced',
+  'lead-proposal-missing', 'lead-proposal-decided', 'lead-proposal-desk-only'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
@@ -806,7 +813,7 @@ export const parseLeadMessageRef: Validator<LeadMessageRef> = omitUnset(object<L
 /** The refs a reply carries, at most `LEAD_MESSAGE_REFS_MAX`, one per kind and id. */
 export const parseLeadMessageRefs: Validator<readonly LeadMessageRef[]> = list(parseLeadMessageRef, LEAD_MESSAGE_REFS_MAX, 1, ref => `${ref.kind}:${ref.id}`)
 const parseLeadMessageWake: Validator<LeadMessageWake> = object<LeadMessageWake>({ kind: literalUnion('reminder'), reminder: id, text: text(200) })
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs), wake: optional(parseLeadMessageWake) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs', 'wake'])
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs), wake: optional(parseLeadMessageWake), reminded: optional(id) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs', 'wake', 'reminded'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
@@ -815,6 +822,7 @@ export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   if (message.checkpoint && message.role !== 'notice') fail(path, 'a checkpoint marker is a host notice')
   if (message.refs && message.role !== 'assistant') fail(path, 'refs belong to a reply')
   if (message.wake && message.role !== 'user' && message.role !== 'system') fail(path, 'a wake is a desk turn')
+  if (message.reminded !== undefined && (message.role !== 'assistant' || message.ask || message.proactive)) fail(path, 'a reminder line is a plain reply')
   return message
 }
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {

@@ -193,3 +193,16 @@ test("reminder_set carries what woke the turn, so the host knows whose reminder 
   await tools.dispatch({ method: 'lead/reminder/set', params: { text: 'Follow up', inMinutes: 30, cause: 'person' } }, 'r-2', undefined, 'automatic')
   assert.deepEqual(s.calls.filter(c => c.method === 'lead/reminder/set').map(c => (c.params as { cause?: string }).cause), ['person', 'automatic'])
 })
+
+// #2106: the Lead proposes changes to its own settings; no alias applies one.
+test('the settings tools only propose: no alias reaches a method that changes autonomy, rules or a decision', async () => {
+  const { LEAD_TOOLS, parseLeadToolCall } = await import('../src/tools.js')
+  const methods = Object.values(LEAD_TOOLS).map(entry => entry.method as string)
+  for (const method of ['lead/autonomy/set', 'lead/rules/update', 'lead/settings/decide', 'lead/deadline/set']) assert.equal(methods.includes(method), false, method)
+  assert.deepEqual(parseLeadToolCall({ type: 'tool_use', id: 't1', name: 'autonomy_propose', input: { kind: 'desk-change', mode: 'observe' } }),
+    { method: 'lead/autonomy/propose', params: { kind: 'desk-change', mode: 'observe' } })
+  assert.deepEqual(parseLeadToolCall({ type: 'tool_use', id: 't2', name: 'rules_propose', input: { section: 'talk', add: 'Report in Chinese, conclusion first.' } }),
+    { method: 'lead/rules/propose', params: { section: 'talk', add: 'Report in Chinese, conclusion first.' } })
+  assert.throws(() => parseLeadToolCall({ type: 'tool_use', id: 't3', name: 'settings_decide', input: { id: 's1', decision: 'apply' } }), LeadToolRefusedError)
+  assert.throws(() => parseLeadToolCall({ type: 'tool_use', id: 't4', name: 'autonomy_propose', input: { kind: 'desk-change', mode: 'observe', apply: true } }), LeadToolRefusedError)
+})

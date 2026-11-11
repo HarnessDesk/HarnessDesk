@@ -1,7 +1,7 @@
 import { leadActivityLabel } from './lead-permission-labels'
 import { PullRequestRecord } from './GitRecord'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { LEAD_REQUEST_FAILURE_TEXT, leadWaitNeedsChange, leadWaitUnsent, type LeadMemoryCandidate, type LeadMessageRef, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_REQUEST_FAILURE_TEXT, leadWaitNeedsChange, leadWaitUnsent, type LeadMemoryCandidate, type LeadSettingsProposal, type LeadMessageRef, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, InlineParts, LeadSlot, LeadWorking, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, scrollThreadToEnd, threadFollowsEnd, LeadAvatar, LeadGreeting, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
 import { openExternal } from '../lib/desktop'
 import { leadWakeLine } from '../lib/lead-presence'
@@ -29,6 +29,7 @@ import { LeadStatusPanel, useLeadControls } from './LeadControls'
 import { sidebarPlacement } from '../state/workbench'
 import { formatLeadConsentTime } from './lead-consent-time'
 import { LeadMemoryProposals, leadMemoryPlacement } from './LeadMemory'
+import { LeadSettingsProposals } from './LeadSettingsProposals'
 import { LeadRefs } from './LeadRefs'
 
 const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
@@ -85,10 +86,10 @@ const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs
 const EMPTY_ASKS: readonly never[] = []
 export const leadElapsed = (ms: number) => { const minutes = Math.max(0, Math.floor(ms / 60000)); return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m` }
 
-/** What sits under one reply: the chats, Teams and work it names, then any memory proposals it carries. */
-const leadMessageNote = (refs: readonly LeadMessageRef[] | undefined, proposals: readonly LeadMemoryCandidate[] | undefined) => {
-  if (!refs?.length && !proposals?.length) return undefined
-  return <>{refs?.length ? <LeadRefs refs={refs} /> : null}{proposals?.length ? <LeadMemoryProposals candidates={proposals} /> : null}</>
+/** What sits under one reply: the chats, Teams and work it names, then any memory or settings proposals it carries. */
+const leadMessageNote = (refs: readonly LeadMessageRef[] | undefined, proposals: readonly LeadMemoryCandidate[] | undefined, settings?: readonly LeadSettingsProposal[]) => {
+  if (!refs?.length && !proposals?.length && !settings?.length) return undefined
+  return <>{refs?.length ? <LeadRefs refs={refs} /> : null}{proposals?.length ? <LeadMemoryProposals candidates={proposals} /> : null}{settings?.length ? <LeadSettingsProposals proposals={settings} /> : null}</>
 }
 
 export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
@@ -146,6 +147,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   useEffect(() => { if (active) void store.lead.readThread().catch(refusal) }, [active, store])
   // A desk without memory leaves the thread as it was; the notification keeps it current after this.
   useEffect(() => { if (active) void store.lead.readMemoryView().catch(() => {}) }, [active, store])
+  useEffect(() => { if (active) void store.lead.readAutonomy().catch(() => {}) }, [active, store])
   // The host starts the Lead in the first folder opened, so a folder arriving is the cue to read again.
   const folders = snapshot.workspaces.length
   useEffect(() => { if (active && state.projectMissing && folders) void store.lead.readThread().catch(refusal) }, [active, store, state.projectMissing, folders])
@@ -188,6 +190,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const messages = state.thread?.messages ?? []
   // The Lead's proposals to keep, each under the reply it came with; Keep, Edit or No go to the same store Settings shows.
   const proposals = leadMemoryPlacement(messages, state.memory?.inbox ?? [])
+  // The Lead's proposals to change a mode or a rule section, placed the same way; Apply or No answers them here or on a phone.
+  const settingsProposals = leadMemoryPlacement(messages, (state.autonomy?.proposals ?? []).filter(proposal => proposal.state === 'pending'))
   const latestAsk = [...messages].reverse().find(message => message.role === 'assistant' && (message.ask || message.proactive?.options))
   const asks = new Map(useLeadAsks(state.away?.asks ?? EMPTY_ASKS).map(ask => [ask.id, ask] as const))
   const answers = new Map(messages.flatMap((message, index) => {
@@ -281,7 +285,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           ? entry.message.role === 'notice' || entry.message.role === 'system' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={entry.message.id === firstReply?.id ? replyKey : `message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             ask={entry.message.ask} settled={asks.get(entry.message.id)} proactive={entry.message.proactive} disabled={sendDisabled} picked={answers.get(entry.message.id)}
             onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) && (asks.get(entry.message.id)?.status ?? 'open') === 'open' ? label => { if (!sendDisabled) void send(label, entry.message.id) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)}
-            note={leadMessageNote(entry.message.refs, proposals.get(entry.message.id))} />
+            note={leadMessageNote(entry.message.refs, proposals.get(entry.message.id), settingsProposals.get(entry.message.id))} />
           : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
             note={<Chip variant="quiet" tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />

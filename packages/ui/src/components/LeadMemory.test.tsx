@@ -125,3 +125,12 @@ it('the Forget confirmations say exactly what goes and what stays, as the desk d
   await act(async () => button(box, 'Forget').click())
   expect(document.querySelector('[role="alertdialog"], [role="dialog"]')!.textContent).toContain(leadMemoryForgetText('Dex'))
 })
+
+it('#2106 review: a proposed note is the Lead\'s words, drawn as plain text without terminal control sequences', async () => {
+  const hostile = { ...candidate('c13', 0), text: '\x1b[31mDeploys\x1b[0m happen <img src=x onerror=alert(1)> on Tuesdays\x07' }
+  const { box } = await mount(() => <LeadMemoryProposals candidates={[hostile]} />, 'memory-proposal')
+  const row = box.querySelector('[data-slot="row"]')!
+  expect(row.textContent).toContain('Deploys happen <img src=x onerror=alert(1)> on Tuesdays')
+  expect(row.textContent).not.toMatch(/[\x1b\x07]/)
+  expect(box.querySelector('img')).toBeNull()
+})

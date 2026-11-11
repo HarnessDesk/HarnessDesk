@@ -64,7 +64,8 @@ export const LeadAutonomySection = () => {
     {(view.changes?.length ?? 0) > 0 && <>
       <Text role="muted">Recent changes. Only you change these; the Lead cannot.</Text>
       <Rows aria-label="Autonomy changes">
-        {view.changes!.slice(0, 5).map(change => <Row key={`${change.at}-${changeTitle(change)}`} title={changeTitle(change)} control={<Text role="meta">{when(change.at)}</Text>} />)}
+        {view.changes!.slice(0, 5).map(change => <Row key={`${change.at}-${changeTitle(change)}`} title={changeTitle(change)}
+          desc={change.what !== 'deadline' && change.proposal ? `Applied from proposal ${change.proposal}` : undefined} control={<Text role="meta">{when(change.at)}</Text>} />)}
       </Rows>
     </>}
     {error && <Text role="muted">{error}</Text>}
