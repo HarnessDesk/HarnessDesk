@@ -257,16 +257,21 @@ export const parseLeadReminder: Validator<LeadReminder> = (value, path = '') => 
  * Wire params for `lead/reminder/set`: the Lead sets a reminder the person asked for, either `inMinutes` from now or
  * `at` epoch milliseconds, exactly one of them.
  */
-export interface LeadReminderSet { readonly text: string; readonly at?: number; readonly inMinutes?: number; readonly item?: string }
+export interface LeadReminderSet {
+  readonly text: string; readonly at?: number; readonly inMinutes?: number; readonly item?: string
+  /** What woke the turn, added by the Lead's own dispatcher, never by the model: only `person` sets the person's reminder. */
+  readonly cause?: 'person' | 'automatic'
+}
 export const parseLeadReminderSet: Validator<LeadReminderSet> = (value, path = '') => {
-  const source = only(['text', 'at', 'inMinutes', 'item'])(value, path), at = (key: string) => path ? `${path}.${key}` : key
+  const source = only(['text', 'at', 'inMinutes', 'item', 'cause'])(value, path), at = (key: string) => path ? `${path}.${key}` : key
   const item = optional(workId)(source.item, at('item'))
+  const cause = optional(literalUnion('person', 'automatic'))(source.cause, at('cause'))
   const when = optional(time)(source.at, at('at'))
   const minutes = optional(time)(source.inMinutes, at('inMinutes'))
   if ((when === undefined) === (minutes === undefined)) fail(path, 'expected exactly one of at or inMinutes')
   if (minutes !== undefined && (minutes < 1 || minutes > LEAD_WORK_LIMITS.remindMs / 60_000)) fail(at('inMinutes'), 'expected 1 to 43200 minutes')
   return { text: text(LEAD_WORK_LIMITS.reminderChars)(source.text, at('text')), ...(when === undefined ? {} : { at: when }),
-    ...(minutes === undefined ? {} : { inMinutes: minutes }), ...(item === undefined ? {} : { item }) }
+    ...(minutes === undefined ? {} : { inMinutes: minutes }), ...(item === undefined ? {} : { item }), ...(cause === undefined ? {} : { cause }) }
 }
 /** Wire params for `lead/reminder/cancel`, from the Lead, the window or the phone. */
 export const parseLeadReminderCancel: Validator<{ readonly id: string }> = (value, path = '') =>

@@ -702,7 +702,7 @@ test('a host-attested chat-start preflight refusal reaches the model with its pl
   assert.match(result.toolResults![0]!.content, /Quote only a person message/)
   assert.equal([...s.journal.state.attempts.values()][0]!.outcome, 'failed')
   assert.equal(s.journal.state.chatEffectsSinceReply.started, 0)
-  assert.deepEqual(result.transientTools, ['delegate'], 'the model answers the person with the reason; the Lead is not parked for Resume')
+  assert.ok(!(result.transientTools ?? []).includes('delegate'), 'only the existing-work refusal is answered in the same turn; others keep their handling')
 })
 
 test('a start refused because the work exists returns the existing item, and the Lead carries on to tell the person', async () => {

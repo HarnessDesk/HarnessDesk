@@ -192,6 +192,7 @@ export const leadWorkFixture: LeadWorkBoard = { version: 1, more: 0, items: [
 // A reminder the person asked for, still set, and one that fired: the rail and Scheduled tasks list them with their times.
 reminders: [
   { id: 'remind-2', text: 'Send the changelog to the team', for: 'person', item: 'work-5', dueAt: Date.now() + 90 * 60_000, createdAt: Date.now() - 600_000, state: 'set' },
+  { id: 'remind-3', text: 'Check on Fix the retry status list', for: 'lead', item: 'work-2', dueAt: Date.now() + 3 * 60 * 60_000, createdAt: Date.now() - 300_000, state: 'set' },
   { id: 'remind-1', text: 'Check the review on the retry list', for: 'person', item: 'work-2', dueAt: Date.now() - 20 * 60_000, createdAt: Date.now() - 3_600_000, state: 'fired', firedAt: Date.now() - 20 * 60_000 },
 ] }
 

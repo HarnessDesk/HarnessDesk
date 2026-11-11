@@ -127,3 +127,12 @@ it('lists a reminder that has not fired beside the tasks, with its time, and Can
   act(() => [...row.querySelectorAll('button')].find(one => one.textContent === 'Cancel')!.click())
   expect(cancel).toHaveBeenCalledWith('remind-2')
 })
+
+it("marks the Lead's own check-back as such, beside the person's reminders", () => {
+  const empty: LeadSchedule = { version: 1, quiet: null, tasks: [] }
+  const reminders = [{ id: 'remind-3', text: 'Check on Fix the retry status list', for: 'lead' as const, item: 'work-2', dueAt: new Date(2026, 10, 12, 9).getTime(), createdAt: 1, state: 'set' as const }]
+  const box = mount(<LeadScheduleSettings label="Dex" schedule={empty} pending={false} save={vi.fn()} reminders={reminders} cancelReminder={vi.fn()} />)
+  const row = box.querySelector('[data-lead-reminder="remind-3"]')!
+  expect(row.textContent).toContain('Check-back')
+  expect(row.textContent).not.toContain('Reminder')
+})

@@ -1027,3 +1027,23 @@ test('the ledger claim comes first: a refused duplicate never asks pacing, and t
   assert.equal((result as any).ledgerItem, 'work-2')
   assert.deepEqual(events, ['claim', 'pace', 'create:fixture-2', 'create:default', 'started', 'release'])
 })
+
+test("the Lead's own stop is marked on the ledger only once it is admitted, and a start passes what woke the turn", async t => {
+  const r = await rig(t); r.row('own')
+  const marked: string[] = [], causes: unknown[] = []
+  ;(r.ports as any).ledger = {
+    claim: async (input: any) => { causes.push(input.cause); return { problem: 'Already open as work-1.', item: 'work-1' } },
+    started: async () => 'work-1', release: () => {}, leadStopped: async (id: string) => { marked.push(id) },
+  }
+  r.holders.set('fixture:own', 'person')
+  r.authorize('lead/chat/stop', { id: 'fixture:own' }); await assert.rejects(r.service.stop({ id: 'fixture:own' }), { message: LEAD_CHAT_HELD })
+  assert.deepEqual(marked, [], 'a refused stop marks nothing, so a later stop by the person is read as theirs')
+  r.holders.set('fixture:own', 'lead')
+  r.authorize('lead/chat/stop', { id: 'fixture:own' }); await r.service.stop({ id: 'fixture:own' })
+  assert.deepEqual(marked, ['fixture:own'])
+  r.authorize('lead/chat/start', { text: 'Add the helper' })
+  await r.service.start({ text: 'Add the helper', cause: 'person' })
+  r.authorize('lead/chat/start', { text: 'Add the helper' })
+  await r.service.start({ text: 'Add the helper' })
+  assert.deepEqual(causes, ['person', 'automatic'])
+})

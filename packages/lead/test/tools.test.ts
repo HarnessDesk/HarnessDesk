@@ -185,3 +185,11 @@ test('chat dispatch carries each journal effect id outside model arguments', asy
     assert.equal('effectId' in params, false)
   }
 })
+
+test("reminder_set carries what woke the turn, so the host knows whose reminder it is, and the model cannot choose", async () => {
+  const s = await fixture()
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.dispatch({ method: 'lead/reminder/set', params: { text: 'Call the vendor', inMinutes: 30 } }, 'r-1', undefined, 'person')
+  await tools.dispatch({ method: 'lead/reminder/set', params: { text: 'Follow up', inMinutes: 30, cause: 'person' } }, 'r-2', undefined, 'automatic')
+  assert.deepEqual(s.calls.filter(c => c.method === 'lead/reminder/set').map(c => (c.params as { cause?: string }).cause), ['person', 'automatic'])
+})

@@ -75,10 +75,11 @@ export const LeadWork = () => {
     {reminders.length > 0 && <ToolGroup label="Reminders" heading={`Reminders · ${reminders.length}`} data-work-group="reminders">
       <ListRows surface="panel">{reminders.map(entry => <ListRow key={entry.id} size="sm" data-work-reminder={entry.id}
         title={sanitizeText(entry.text)} wrapTitle
-        // When it is due, or when it fired, is the fact that varies, so it earns the line.
+        // When it is due, or when it fired, is the fact that varies, so it earns the line; it says Fired once, here.
         subtitle={entry.state === 'fired' ? `Fired ${formatLeadRunTime(new Date(entry.firedAt ?? entry.dueAt))}` : `Due ${formatLeadRunTime(new Date(entry.dueAt))}`}
-        trail={entry.state === 'fired' ? <Chip tone="neutral">Fired</Chip>
-          : <Button variant="ghost" size="icon-sm" aria-label={`Cancel reminder: ${sanitizeText(entry.text)}`} title="Cancel reminder" onClick={() => { void cancel(entry) }}><CrossIcon size={16} /></Button>} />)}</ListRows>
+        // The Lead's own check-back is a kind, so it is a word on the label's line: quiet hours and autonomy hold it.
+        trail={entry.state === 'set' && <>{entry.for === 'lead' && <Chip tone="neutral" title="The Lead's own check-back: quiet hours and your autonomy settings hold it">Check-back</Chip>}
+          <Button variant="ghost" size="icon-sm" aria-label={`Cancel reminder: ${sanitizeText(entry.text)}`} title="Cancel reminder" onClick={() => { void cancel(entry) }}><CrossIcon size={16} /></Button></>} />)}</ListRows>
     </ToolGroup>}
     {board.more > 0 && <ToolProse variant="note">{board.more} older closed {board.more === 1 ? 'item' : 'items'} not shown</ToolProse>}
     {error && <ToolProse variant="note">{error}</ToolProse>}

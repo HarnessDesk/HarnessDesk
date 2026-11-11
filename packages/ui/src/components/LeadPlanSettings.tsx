@@ -73,7 +73,7 @@ export const LeadScheduleSettings = ({ label, schedule, pending, save, projects 
           </InlineParts>} />}
         </Fragment>)}
         {reminders.filter(entry => entry.state === 'set').map(entry => <Row key={entry.id} data-lead-reminder={entry.id} title={sanitizeText(entry.text)}
-          titleChip={<Chip tone="neutral">Reminder</Chip>} desc={`Once, ${formatLeadRunTime(new Date(entry.dueAt))}`}
+          titleChip={<Chip tone="neutral">{entry.for === 'lead' ? 'Check-back' : 'Reminder'}</Chip>} desc={`Once, ${formatLeadRunTime(new Date(entry.dueAt))}`}
           control={cancelReminder && <Button variant="quiet" disabled={pending} onClick={() => cancelReminder(entry.id)}>Cancel</Button>} />)}
         {draft ? <Row title="New task" desc={<FormStack>
           <Input aria-label="Task name" placeholder="Name" value={draft.title} maxLength={80} onChange={event => setDraft({ ...draft, title: event.target.value })} />

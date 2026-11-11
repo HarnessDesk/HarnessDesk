@@ -83,19 +83,26 @@ const reminders = (box: HTMLElement) => [...box.querySelectorAll('[data-work-rem
 
 it('lists each reminder with when it is due or fired, and Cancel removes one through the host', async () => {
   const { box, store } = await mount('work-ledger')
-  expect(reminders(box)).toEqual(['remind-2', 'remind-1'])
+  expect(reminders(box)).toEqual(['remind-2', 'remind-3', 'remind-1'])
   const set = box.querySelector<HTMLElement>('[data-work-reminder="remind-2"]')!, fired = box.querySelector<HTMLElement>('[data-work-reminder="remind-1"]')!
+  const checkBack = box.querySelector<HTMLElement>('[data-work-reminder="remind-3"]')!
   expect(set.textContent).toContain('Send the changelog to the team')
-  expect(set.textContent).toMatch(/^.*Due /)
+  expect(set.textContent).toContain('Due ')
   expect(set.textContent).not.toContain('Fired')
-  expect(fired.textContent).toContain('Fired')
+  expect(set.textContent).not.toContain('Check-back')
+  // The Lead's own check-back names the work by its title and says what kind it is, on the label's line.
+  expect(checkBack.textContent).toContain('Check on Fix the retry status list')
+  expect(checkBack.textContent).toContain('Check-back')
+  expect(checkBack.textContent).not.toContain('work-2')
+  // A fired reminder says Fired once, with its time, and has nothing left to cancel.
+  expect(fired.textContent?.match(/Fired/g)).toHaveLength(1)
   expect(fired.querySelector('button')).toBeNull()
   const calls: { method: string; params: unknown }[] = []
   const request = store.transport.request.bind(store.transport)
   store.transport.request = (async (method: string, params: unknown) => { calls.push({ method, params }); return request(method as never, params as never) }) as typeof store.transport.request
   await act(async () => { set.querySelector<HTMLButtonElement>('button[aria-label^="Cancel reminder"]')!.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
   expect(calls).toEqual([{ method: 'lead/reminder/cancel', params: { id: 'remind-2' } }])
-  expect(reminders(box)).toEqual(['remind-1'])
+  expect(reminders(box)).toEqual(['remind-3', 'remind-1'])
 })
 
 it('a reminder alone draws the card, so a reminder is never set where the person cannot see it', async () => {

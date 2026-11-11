@@ -480,7 +480,7 @@ export class LeadChats {
         return { id: '', problem: text.problem }
       }
       // The duplicate guard reads the ledger before anything is created, so a refusal starts nothing.
-      const claim = this.ports.ledger ? await this.ports.ledger.claim({ title: params.text, quotes: this.#quoteIds(params),
+      const claim = this.ports.ledger ? await this.ports.ledger.claim({ title: params.text, quotes: this.#quoteIds(params), cause,
         ...(params.ledgerItem !== undefined ? { ledgerItem: params.ledgerItem } : {}), ...(params.moveFrom !== undefined ? { moveFrom: params.moveFrom } : {}) }) : undefined
       if (claim && 'problem' in claim) {
         this.ports.noteDispatchNotStarted(attemptId)
@@ -626,9 +626,10 @@ export class LeadChats {
       // Stop may return early for an idle chat, before PhoneWork calls admission.
       await this.#notHeld(params.id)
       await this.incidents?.stop(params.id)
-      // Before the stop lands, so the ledger never reads the Lead's own stop as the person's.
-      await this.ports.ledger?.leadStopped?.(params.id).catch(() => {})
-      return this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id) }, effectStarted, this.#liveScope(call, attemptId, () => params.id))
+      // Marked once the stop is admitted and before it lands, so the ledger never reads the Lead's own stop as the
+      // person's, and a refused stop marks nothing.
+      return this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id); await this.ports.ledger?.leadStopped?.(params.id).catch(() => {}) },
+        effectStarted, this.#liveScope(call, attemptId, () => params.id))
     })
   }
 
