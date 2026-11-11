@@ -55,6 +55,8 @@ export const withDeskNeeds = (presence: LeadPresence, needs: number | null | und
   if (needs === null || needs === undefined || needs <= 0 || needs < presence.needs) return presence
   if (presence.mood === 'sleeping' && presence.word !== 'Paused') return presence
   if (needs === presence.needs && presence.word === 'Done · ready to accept') return presence
+  // A paused Lead stays paused: the desk's count goes beside the word, and the face stays asleep.
+  if (presence.word === 'Paused') return { ...presence, word: `Paused · ${needWord(needs)}`, needs, quiet: false }
   return { ...presence, mood: presence.needs > 0 || presence.mood === 'done' ? 'alert' : presence.mood, word: needWord(needs), needs, quiet: false }
 }
 

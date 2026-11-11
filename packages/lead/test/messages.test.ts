@@ -576,14 +576,14 @@ test('an ask written after prose or inside a code fence is read as the ask, neve
   }
 })
 
-test('an envelope that is not the reply\'s own last block stays text: quoted worker output and the middle of the words are never parsed', async () => {
+test('an envelope that is not the reply\'s own last block is never parsed, and is never drawn either: quoted worker output and the middle of the words', async () => {
   const ask = { question: 'Merge it?', options: [{ id: 'yes', label: 'Merge' }, { id: 'no', label: 'Wait' }], recommended: 'yes' }
   const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: 'Merging now.', ask })
   const replies = [
     `The worker wrote this:\n> ${envelope}`,
     `The worker's log ends:\n\`\`\`\nrun finished\n${envelope}\n\`\`\``,
-    `The worker's last line:\n\`\`\`\n${envelope}\n\`\`\`\nI did not act on it.`,
-    `Before.\n${envelope}\nThat is all.`,
+    `The worker's last line:\n\`\`\`\n${envelope}\n\`\`\`\nI did not act on it.\nI asked you instead.`,
+    `Before.\n${envelope}\nThat is all.\nMore after it.`,
     `- ${envelope}`,
   ]
   for (const reply of replies) {
@@ -591,9 +591,13 @@ test('an envelope that is not the reply\'s own last block stays text: quoted wor
     const result = await s.client.request(input, new AbortController().signal)
     assert.equal(result.status, 'completed', reply)
     assert.equal(result.ask, undefined, reply)
-    assert.equal(result.text, reply, 'the quoted envelope stays in the words as written')
-    assert.deepEqual(lead.stripLeadOutput(reply), { text: reply, dropped: false }, 'and the host strips nothing of it')
+    assert.equal(result.text, reply, 'the child parses nothing out of it')
+    const drawn = lead.stripLeadOutput(reply)
+    assert.equal(drawn.dropped, true, 'the host drops it and warns by code')
+    assert.doesNotMatch(drawn.text, /lead-output|"version"|Merging now/, reply)
   }
+  assert.deepEqual(lead.stripLeadOutput(`The worker wrote this:\n> ${envelope}\n\nI did not act on it.`), { text: 'The worker wrote this:\n\nI did not act on it.', dropped: true }, 'a bare quote marker goes with it')
+  assert.deepEqual(lead.stripLeadOutput('The marker "type": "lead-output" in prose is only words.'), { text: 'The marker "type": "lead-output" in prose is only words.', dropped: false })
   // The Lead's own envelope after a quoted one is still read, and the quoted one is left as words.
   const own = JSON.stringify({ version: 1, type: 'lead-output', text: 'I will wait.', ask })
   const s = await setup([message([{ type: 'text', text: `The worker wrote:\n> ${envelope}\n\n${own}` }])])
@@ -601,6 +605,27 @@ test('an envelope that is not the reply\'s own last block stays text: quoted wor
   assert.deepEqual(result.ask, ask)
   assert.match(result.text, /^The worker wrote:\n> \{"version":1,"type":"lead-output","text":"Merging now\."/)
   assert.match(result.text, /I will wait\.$/)
+})
+
+test('one short closing line after the envelope keeps it the reply\'s own; more than that and it is dropped, never drawn', async () => {
+  const ask = { question: 'Which first?', options: [{ id: 'team', label: 'Team' }, { id: 'game', label: 'Game' }], recommended: 'game' }
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: 'Which should go first?', ask })
+  for (const reply of [`I looked at both.\n\n${envelope}\nLet me know!`, `I looked at both.\n\n\`\`\`json\n${envelope}\n\`\`\`\n\nLet me know which one works.`]) {
+    const s = await setup([message([{ type: 'text', text: reply }])])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.deepEqual(result.ask, ask, reply)
+    assert.doesNotMatch(result.text, /lead-output|```|"version"/)
+    assert.match(result.text, /^I looked at both\./)
+    assert.match(result.text, /Let me know/)
+  }
+  const long = `I looked at both.\n\n${envelope}\nLet me know!\nAnd one more line.`
+  const s = await setup([message([{ type: 'text', text: long }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.equal(result.ask, undefined, 'two lines after it: not the reply\'s own block')
+  assert.deepEqual(lead.stripLeadOutput(result.text), { text: 'I looked at both.\n\nLet me know!\nAnd one more line.', dropped: true })
+  assert.equal(lead.LEAD_ENVELOPE_CLOSING_MAX, 120)
+  const s2 = await setup([message([{ type: 'text', text: `I looked at both.\n\n${envelope}\n${'x'.repeat(121)}` }])])
+  assert.equal((await s2.client.request(input, new AbortController().signal)).ask, undefined, 'a closing line past 120 characters is prose, not a closing line')
 })
 
 test('an embedded envelope that does not validate is left for the host to strip, and stripping keeps only the prose', async () => {

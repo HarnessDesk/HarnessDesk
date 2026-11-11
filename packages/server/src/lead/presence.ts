@@ -79,6 +79,28 @@ const unreadable = () => Object.assign(new Error('The Lead presence file could n
  * One file, `<state>/lead/presence.json`. A digest is built here from the work ledger and the journal alone, so every
  * surface is handed the same one; only the optional paragraph comes from a model, and its cost is counted.
  */
+/** Polite words and fillers that do not make a request new: said with or without them, it is the same request. */
+const POLITE = /\b(?:please|pls|plz|kindly|(?:can|could|would) you|just|again|thanks?|thank you)\b|请|麻烦|再|帮我|帮忙|一下|吧|好吗|谢谢/gu
+/** The words of a request, folded for comparison: compatibility forms, case, polite words, punctuation and symbols. */
+const requestWords = (text: string): string[] =>
+  text.normalize('NFKC').toLowerCase().replace(POLITE, ' ').split(/[\p{P}\p{S}\s]+/u).filter(Boolean)
+
+/**
+ * Whether `later` only says `earlier` again. Punctuation, symbols, spacing and polite words never make it new, nor
+ * does an address or a word more or less around the same request: one contains the other, or they differ by one word.
+ * Anything else is the person moving on.
+ */
+export const leadRepeatsRequest = (earlier: string, later: string): boolean => {
+  const a = requestWords(earlier), b = requestWords(later)
+  const joinedA = a.join(''), joinedB = b.join('')
+  if (joinedA === joinedB) return true
+  const [short, long] = joinedA.length <= joinedB.length ? [joinedA, joinedB] : [joinedB, joinedA]
+  if (short.length >= 4 && long.includes(short)) return true
+  const [fewer, more] = a.length <= b.length ? [a, b] : [b, a]
+  if (more.length - fewer.length !== 1 || fewer.length < 2) return false
+  return more.some((_, skip) => more.filter((__, index) => index !== skip).join(' ') === fewer.join(' '))
+}
+
 /** How long after an answer or an expiry the same words, sent without the question's id, are still taken for a late tap. */
 export const LEAD_LATE_TAP_MS = 10 * 60_000
 interface ExpiryNote { readonly text: string; readonly after: string | undefined; readonly note: string; messageId?: string }
@@ -303,12 +325,11 @@ export class LeadPresenceStore {
     if (record?.answer || record?.expiresAt !== undefined && record.expiresAt <= now) return null
     // A question with no clock of its own holds work back for a day at most; after that the person has plainly moved on.
     if (record?.expiresAt === undefined && record && now - record.seenAt > LEAD_ASK_HOLD_MS) return null
-    const same = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase()
     // Only the person's own words count: a schedule's, a trigger's or a reminder's message is not them asking or moving on.
     const person = (one: (typeof messages)[number]) => one.role === 'user' && (one.source === undefined || one.source === 'person')
     const asked = messages.slice(0, at).findLast(person)
     const since = messages.slice(at + 1).filter(person)
-    if (since.some(one => !asked || same(one.text) !== same(asked.text))) return null
+    if (since.some(one => !asked || !leadRepeatsRequest(asked.text, one.text))) return null
     return { id: message.id, question: message.ask!.question, options: message.ask!.options.map(option => option.label) }
   }
   /** Notes for the model about messages the person sent after a question ran out; each belongs to one message. */

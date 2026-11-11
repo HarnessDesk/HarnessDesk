@@ -41,49 +41,70 @@ export interface LeadEnvelopeSplit {
   readonly envelope?: Record<string, unknown>
 }
 
-/** Whether a block that runs from `start` to `end` is the reply's own trailing block: it opens a line, nothing but
- * white space follows it, and it is not inside a fence that holds other text. An envelope in a `>` quote, a list item,
- * a worker's log or the middle of the prose is somebody's output being shown, not the Lead's own. */
+/** The most a closing line after the envelope may hold ("Let me know!") and the envelope still be the reply's own. */
+export const LEAD_ENVELOPE_CLOSING_MAX = 120
+
+/** What follows a block that ends the reply: nothing, or one short closing line with no fence. Null when more follows. */
+const closingAfter = (text: string, end: number): string | null => {
+  const rest = text.slice(end).trim()
+  return rest === '' || rest.length <= LEAD_ENVELOPE_CLOSING_MAX && !/[\r\n]/.test(rest) && !rest.includes('```') ? rest : null
+}
+
+/** Whether a block that runs from `start` to `end` is the reply's own trailing block: it opens a line, at most one short
+ * closing line follows it, and it is not inside a fence that holds other text. An envelope in a `>` quote, a list
+ * item, a worker's log or the middle of the prose is somebody's output being shown, not the Lead's own. */
 const trailing = (text: string, start: number, end: number): boolean => {
-  if (text.slice(end).trim() !== '') return false
+  if (closingAfter(text, end) === null) return false
   const before = text.slice(0, start)
   if (!/(?:^|\n)[ \t]*$/.test(before)) return false
   return (before.match(/```/g)?.length ?? 0) % 2 === 0
 }
 
-/** Finds the `lead-output` envelope that ends `text`, after its prose or as a final fence's only content. Null when
- * there is none: an envelope anywhere else stays text, never parsed. When the last marker sits in a trailing object
- * that never closes, a reply cut short, everything from that opening on is dropped, so a cut envelope is never shown
- * either. */
+/** One envelope's span around a marker: the balanced object that decodes as `lead-output` (and the fence that holds
+ * only it), or, for a reply cut short, the opening that never closes up to the end. Null when the marker is in neither,
+ * as when prose spells the marker out. */
+const around = (text: string, at: number): { start: number; end: number; envelope?: Record<string, unknown> } | null => {
+  let attempts = 0, cut = -1
+  for (let start = text.lastIndexOf('{', at); start >= 0 && attempts < ATTEMPTS; start = text.lastIndexOf('{', start - 1), attempts++) {
+    const end = closing(text, start)
+    if (end < 0) { if (cut < 0) cut = start; continue }
+    if (end < at) continue
+    let decoded: unknown
+    try { decoded = JSON.parse(text.slice(start, end + 1)) } catch { continue }
+    if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || (decoded as Record<string, unknown>).type !== 'lead-output') continue
+    return { ...fenced(text, start, end + 1), envelope: decoded as Record<string, unknown> }
+  }
+  if (cut < 0) return null
+  const fence = /```[a-zA-Z]*[ \t]*\r?\n[ \t]*$/.exec(text.slice(0, cut))
+  return { start: fence ? fence.index : cut, end: text.length }
+}
+
+/** Finds the `lead-output` envelope that ends `text`, after its prose or as a final fence's only content, with at most
+ * one short closing line after it. Null when there is none: an envelope anywhere else is never parsed (and
+ * `stripLeadOutput` keeps it from being shown). When the last marker sits in a trailing object that never closes, a
+ * reply cut short, everything from that opening on is dropped, so a cut envelope is never shown either. */
 export const splitLeadOutput = (text: string): LeadEnvelopeSplit | null => {
   let marker: RegExpExecArray | null = null
   for (const found of text.matchAll(new RegExp(MARKER.source, 'g'))) marker = found as RegExpExecArray
   if (!marker) return null
-  let attempts = 0, cut = -1
-  for (let start = text.lastIndexOf('{', marker.index); start >= 0 && attempts < ATTEMPTS; start = text.lastIndexOf('{', start - 1), attempts++) {
-    const end = closing(text, start)
-    if (end < 0) { if (cut < 0) cut = start; continue }
-    if (end < marker.index) continue
-    let decoded: unknown
-    try { decoded = JSON.parse(text.slice(start, end + 1)) } catch { continue }
-    if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || (decoded as Record<string, unknown>).type !== 'lead-output') continue
-    const span = fenced(text, start, end + 1)
-    if (!trailing(text, span.start, span.end)) return null
-    return { prose: text.slice(0, span.start).trim(), envelope: decoded as Record<string, unknown> }
-  }
-  if (cut < 0) return null
-  const fence = /```[a-zA-Z]*[ \t]*\r?\n[ \t]*$/.exec(text.slice(0, cut))
-  const from = fence ? fence.index : cut
-  return trailing(text, from, text.length) ? { prose: text.slice(0, from).trim() } : null
+  const span = around(text, marker.index)
+  if (!span || !trailing(text, span.start, span.end)) return null
+  const prose = `${text.slice(0, span.start).trim()}\n\n${closingAfter(text, span.end) ?? ''}`.trim()
+  return span.envelope ? { prose, envelope: span.envelope } : { prose }
 }
 
-/** Removes every envelope a text still carries. `dropped` says whether there was any. */
+/** Removes every envelope a text still carries, wherever it sits, so protocol JSON is never drawn: the trailing one the
+ * parser could not validate, and one quoted from a worker or left mid-text, which is never parsed. A quote or list
+ * marker the removal leaves bare goes with it. `dropped` says whether there was any; the caller warns by code only. */
 export const stripLeadOutput = (text: string): { readonly text: string; readonly dropped: boolean } => {
   let current = text, dropped = false
-  for (let split = splitLeadOutput(current); split; split = splitLeadOutput(current)) {
+  for (let guard = 0; guard < 16; guard++) {
+    let span: ReturnType<typeof around> = null
+    for (const found of current.matchAll(new RegExp(MARKER.source, 'g'))) if ((span = around(current, found.index))) break
+    if (!span) break
     dropped = true
-    if (split.prose === current) break
-    current = split.prose
+    current = current.slice(0, span.start) + current.slice(span.end)
   }
-  return { text: current, dropped }
+  if (!dropped) return { text, dropped }
+  return { text: current.split('\n').filter(line => !/^[ \t]*(?:>|[-*+]|\d+[.)])[ \t]*$/.test(line)).join('\n').replace(/\n{3,}/g, '\n\n').trim(), dropped }
 }

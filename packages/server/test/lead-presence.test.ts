@@ -181,6 +181,29 @@ test('an unanswered ask holds work while the person only repeats the request; an
   assert.equal(r.store.unansweredAsk(), null, 'an expired question holds nothing')
 })
 
+test('a near-repeat of the request is still a repeat: punctuation, a polite word, one dropped 再, or the request inside a longer line', async t => {
+  const r = await rig(t)
+  const asked = { id: 'message-1', role: 'user', text: '再帮我开一个修 build a game 的 chat' }
+  const question = { id: 'message-2', role: 'assistant', text: 'Which one?', ask: ask(30) }
+  r.setMessages([asked, question])
+  await r.store.observe()
+  for (const again of ['再帮我开一个修 build a game 的 chat。', '再帮我开一个修 build a game 的 chat?', 'please 再帮我开一个修 build a game 的 chat', '帮我开一个修 build a game 的 chat',
+    '请再帮我开一个修 build a game 的 chat！', '麻烦 帮我开一个修 build-a-game 的 chat', 'Dex, 再帮我开一个修 build a game 的 chat 吧', '开一个修 build a game 的 chat']) {
+    r.setMessages([asked, question, { id: 'message-3', role: 'user', text: again }])
+    assert.equal(r.store.unansweredAsk()?.id, 'message-2', `"${again}" only repeats the request`)
+  }
+  const english = { id: 'message-1', role: 'user', text: 'Open a chat to fix build a game' }
+  r.setMessages([english, question])
+  for (const again of ['Open a chat to fix build a game?', 'please open a chat to fix build a game.', 'Can you open a chat to fix "build a game"!', 'open chat to fix build a game']) {
+    r.setMessages([english, question, { id: 'message-3', role: 'user', text: again }])
+    assert.equal(r.store.unansweredAsk()?.id, 'message-2', `"${again}" only repeats the request`)
+  }
+  for (const moved of ['Fix the game itself', 'Pick the Team one', 'Neither, stop for today']) {
+    r.setMessages([english, question, { id: 'message-3', role: 'user', text: moved }])
+    assert.equal(r.store.unansweredAsk(), null, `"${moved}" is the person moving on`)
+  }
+})
+
 test('a schedule or automatic message never closes the open question; only the person moving on does', async t => {
   const r = await rig(t)
   const asked = { id: 'message-1', role: 'user', text: 'Open a chat to fix the game', source: 'person' as const }

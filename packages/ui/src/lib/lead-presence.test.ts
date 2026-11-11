@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { leadPresence, leadReadingWords, leadWakeLine } from './lead-presence'
+import { leadPresence, leadReadingWords, leadWakeLine, withDeskNeeds } from './lead-presence'
 import { createLeadState } from '../state/lead'
 import { leadProjection } from '../preview/lead-fixture'
 
@@ -73,4 +73,13 @@ it('falls back to the old count and wording when an older host omits stage', () 
     thread: { ...leadProjection().thread, state: 'waiting-for-user' } })
   state.changed({ method: 'lead/changed', params: old as ReturnType<typeof leadProjection> })
   expect(leadPresence(state.state)).toMatchObject({ needs: 1, word: '1 needs you' })
+})
+
+it('a paused Lead with desk work waiting stays Paused and asleep, with the count beside the word', () => {
+  const paused = { mood: 'sleeping', word: 'Paused', needs: 0, goalActive: false, quiet: false } as const
+  expect(withDeskNeeds(paused, 2)).toMatchObject({ mood: 'sleeping', word: 'Paused · 2 need you', needs: 2 })
+  expect(withDeskNeeds(paused, 1).word).toBe('Paused · 1 needs you')
+  expect(withDeskNeeds(paused, 0)).toBe(paused)
+  const resting = { mood: 'calm', word: 'Ready', needs: 0, goalActive: false } as unknown as Parameters<typeof withDeskNeeds>[0]
+  expect(withDeskNeeds(resting, 1).word).toBe('1 needs you')
 })
