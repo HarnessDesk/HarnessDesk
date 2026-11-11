@@ -607,7 +607,10 @@ export const isBlocked = (report: UsageReport): boolean => {
  * - `unknown` — nothing has been read: the refresh failed and there are no
  *   earlier figures to keep. A refresh that fails after a good reading keeps
  *   those figures (`keptReading`), and the standing is theirs, dated when they
- *   were read; every surface then says the refresh failed beside them.
+ *   were read; every surface then says the refresh failed beside them. The one
+ *   exception is a kept reading that was `out` whose blocking windows have
+ *   since reset: its figures say 0% of windows that have refilled, so it is
+ *   `unknown` until a refresh answers.
  * - `out` — the account-wide limit is spent (`isBlocked`), or a prepaid
  *   balance with nothing else to run on is at zero.
  * - `overdrawn` — a prepaid balance below zero. Said as a debt, never as a
@@ -683,7 +686,8 @@ export const hasReading = (report: UsageReport): boolean =>
 /**
  * A refresh failed and the last good figures stand: the report carries an error and figures of its own, still dated
  * (`fetchedAt`) when they were read. The usage service keeps them rather than blanking the account (#2094), and a
- * surface draws them as a stale reading that could not be refreshed, never as unknown.
+ * surface draws them as a stale reading that could not be refreshed, never as unknown (unless it was Out and its
+ * windows have since reset: `usageStandingOf`).
  */
 export const keptReading = (report: UsageReport): boolean => report.error !== null && hasReading(report)
 
@@ -736,6 +740,12 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
       : blockers.length > 0
         ? known.length === resets.length ? Math.max(...known) : null
         : known.length > 0 ? Math.min(...known) : null
+    // A kept reading that was Out stops being evidence once the windows that stopped it have refilled: it was read
+    // before they reset, and the refresh that would say what is left now failed. Unknown, not Out with a Back time
+    // already past, and not Ready on figures that still say 0% left.
+    if (keptReading(report) && backAt !== null && backAt <= now) {
+      return { ...base, scopedOut: null, status: 'unknown', runsOutAt: null, backAt: null }
+    }
     // "One model is out, the others still work" is not true of an account that is out.
     return { ...base, scopedOut: null, status: 'out', runsOutAt: null, backAt }
   }

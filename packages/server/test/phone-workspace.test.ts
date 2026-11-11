@@ -991,11 +991,14 @@ test('the phone and the Lead are told which account to use first, with its reset
     assert.deepEqual(leaks(usage.pacing), [])
 
     const summary = await f.workspace.usageSummary(f.reports)
-    assert.deepEqual(summary.pacing, {
+    const { resetsAtLocal, ...pacing } = summary.pacing!
+    assert.deepEqual(pacing, {
       account: 'Fake Agent · Pro · account 2', reason: 'use-first', window: 'Weekly', remainingPercent: 70,
-      resetsAt: NOW + 20 * HOUR, resetsAtLocal: new Date(NOW + 20 * HOUR).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
-      readAgeMinutes: 3,
+      resetsAt: NOW + 20 * HOUR, readAgeMinutes: 3,
     })
+    // The desk's clock names its zone, and the time reads with a plain space before AM/PM.
+    assert.match(resetsAtLocal, /^[A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M [A-Z][A-Za-z0-9+:\-]+$/)
+    assert.equal(resetsAtLocal.includes('\u202f'), false)
     assert.deepEqual(summary.accounts.map(one => one.readAgeMinutes), [2, 3])
 
     // With nothing about to be lost, the phone shows no note, and the Lead still learns which resets soonest.
@@ -1008,6 +1011,15 @@ test('the phone and the Lead are told which account to use first, with its reset
       assert.equal(quiet.pacing?.reason, 'resets-soonest')
       assert.equal(quiet.pacing?.account, 'Fake Agent · Pro · account 2')
     } finally { await calm.done() }
+
+    // With one account there is no "first": neither the phone nor the Lead names one, as on the desktop.
+    const single = await fixture()
+    try {
+      single.ledger = () => ledgerOf([], 0)
+      single.reports = [report('team@acme.dev', { lanes: weekly(30, 20 * HOUR), fetchedAt: NOW - 60_000, staleAfterMs: HOUR })]
+      assert.equal((await single.workspace.workUsage())!.pacing, undefined)
+      assert.equal((await single.workspace.usageSummary(single.reports)).pacing, null)
+    } finally { await single.done() }
   } finally { await f.done() }
 })
 

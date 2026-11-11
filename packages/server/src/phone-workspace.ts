@@ -340,8 +340,9 @@ export class PhoneWorkspace {
         ...(keptReading(report) ? { refreshFailed: true as const } : {}),
       }
     })
-    // The same advice the Dashboard and the phone give, said with the label the Lead was given for that account.
-    const advice = pacingAdvice(reports.map((report, at) => ({ id: String(at), report })), now)
+    // The same advice the Dashboard and the phone give, said with the label the Lead was given for that account. With
+    // one account there is no "first", as on the desktop (`pacingNote`).
+    const advice = reports.length < 2 ? null : pacingAdvice(reports.map((report, at) => ({ id: String(at), report })), now)
     const advised = advice ? accounts[Number(advice.id)]! : null
     const pacing = advice && advised ? {
       account: advised.label, reason: advice.reason, window: safe(advice.laneLabel), remainingPercent: advice.remainingPercent,
@@ -657,6 +658,8 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
  * the `use-first` advice is a note; "resets soonest" with nothing at risk is an order, not something to tell anyone.
  */
 const pacingOf = (seats: readonly SeatRow[], rows: readonly PhoneWorkAllowance[], now: number): PhoneWorkPacing | null => {
+  // With one account there is no "first", as on the desktop (`pacingNote`).
+  if (seats.length < 2) return null
   const advice = pacingAdvice(seats.map(seat => ({ id: seat.id, report: seat.report })), now)
   const row = advice?.reason === 'use-first' ? rows.find(one => one.id === advice.id) : undefined
   if (!advice || !row) return null
@@ -667,9 +670,15 @@ const pacingOf = (seats: readonly SeatRow[], rows: readonly PhoneWorkAllowance[]
 /** Whole minutes since a reading, never negative. */
 const ageMinutes = (at: number, now: number): number => Math.max(0, Math.round((now - at) / 60_000))
 
-/** A time on the desk's own clock, as a person reads it: "Tue, Nov 17, 5:00 PM". */
+/**
+ * A time on the desk's own clock, as a person reads it, with its zone: "Tue, Nov 17, 5:00 PM PST". The zone is the
+ * desk process's, so it is named rather than left for the reader to assume. Node writes a narrow no-break space
+ * before AM/PM; a plain space reads the same and survives every client.
+ */
 const deskClock = (at: number): string =>
-  new Date(at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  new Date(at)
+    .toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
+    .replace(/\u202f/g, ' ')
 
 /** "45m", "2h 10m", "3d 4h": how long until a window frees up; null once it has. */
 const resetsIn = (ms: number): string | null => {

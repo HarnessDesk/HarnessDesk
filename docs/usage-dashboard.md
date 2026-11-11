@@ -963,7 +963,9 @@ hard way somewhere and is cheaper to design out than to fix:
   that reading (#2094): the card and the Plans row show its figures and its
   own standing under a stale chip, the card says `Couldn't refresh — …` with
   the read time in its foot, and the phone gets the figures with `stale` and
-  `refreshFailed`. Either way it sorts after every account that answered, and
+  `refreshFailed`. A kept reading that was Out turns Unknown once the windows
+  that stopped it have reset, rather than saying Out with a Back time already
+  past. Either way it sorts after every account that answered, and
   neither the sidebar strip, `Start on` nor the pacing note decides on it. The cards and the sidebar's count follow the
   same word: in debt, then out, then short, low and ready. A pinned lane does not change it: the pin picks
   the card's headline, and the host, which decides the word for the phone,

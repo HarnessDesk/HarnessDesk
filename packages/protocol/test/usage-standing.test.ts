@@ -60,6 +60,21 @@ test('a kept reading never forecasts a run-out from figures it could not refresh
   assert.equal(standing.runsOutAt, null)
 })
 
+test('a kept reading that was Out stops saying Out once its window has reset', () => {
+  const out = report({ lanes: [lane({ id: 'weekly', usedPercent: 100, resetsAt: NOW + HOUR })] })
+  assert.equal(usageStandingOf(out, NOW).status, 'out')
+  assert.equal(usageStandingOf(out, NOW).backAt, NOW + HOUR)
+  // The refresh after its reset fails, so the only figures are the ones read while it was out.
+  const kept = { ...out, error: { message: 'no answer' } }
+  const before = usageStandingOf(kept, NOW + HOUR / 2)
+  assert.equal(before.status, 'out')
+  assert.equal(before.backAt, NOW + HOUR)
+  const after = usageStandingOf(kept, NOW + 2 * HOUR)
+  assert.notEqual(after.status, 'out')
+  assert.equal(after.status, 'unknown')
+  assert.equal(after.backAt, null)
+})
+
 test('a kept balance is still a reading: a failed refresh of a prepaid account keeps its amount', () => {
   const kept = report({ lanes: [], credits: { remaining: 4.5, unit: 'USD', unlimited: false }, error: { message: 'no answer' } })
   assert.equal(keptReading(kept), true)

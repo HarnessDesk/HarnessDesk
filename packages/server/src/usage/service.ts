@@ -393,20 +393,20 @@ export class UsageService {
     // Another sign-in's source failing keeps its last figures with the failure
     // on them, and leaves the agent's own standing — and its error — alone.
     if (unverifiedFailure !== null && previous?.unverified && lanes.length === 0) {
-      const kept: UsageReport = {
+      const lastGood: UsageReport = {
         ...previous,
         spend,
         error,
         unverified: { ...previous.unverified, error: { message: unverifiedFailure } },
       }
-      return this.#finish(id, kept)
+      return this.#finish(id, lastGood)
     }
 
     // One provider being down does not blank a card. The last good reading
     // stands with its own age, and the failure is shown beside it.
     if (lanes.length === 0 && !credits && !unverified && error && previous && (kept || previous.unverified)) {
-      const kept: UsageReport = { ...previous, spend, error }
-      return this.#finish(id, kept)
+      const lastGood: UsageReport = { ...previous, spend, error }
+      return this.#finish(id, lastGood)
     }
 
     if (lanes.length === 0 && !credits && !spend && !error && !unverified && !accountActivity) {
