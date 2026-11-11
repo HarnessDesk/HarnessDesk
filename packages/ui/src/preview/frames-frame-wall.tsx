@@ -20,7 +20,7 @@ import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useEffect, useMemo, useState } from 'react'
-import { approvalId, contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, runtimeId, sessionKey, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type AgentItem, type BackgroundTask, type ConfigOption, type HostMethodName, type RuntimeId } from '@harnessdesk/protocol'
+import { approvalId, contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, runtimeId, sessionKey, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type UiBlock, type AgentItem, type BackgroundTask, type ConfigOption, type HostMethodName, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
 installPanelComponent()
@@ -204,6 +204,18 @@ const TopBarProbe = () => {
       ]} /></Page>
   </div>
 }
+
+/** One of every panel block after the first, for a rail card's edge. */
+const EVERY_PANEL_BLOCK: readonly UiBlock[] = [
+  { type: 'keyValue', entries: [{ label: 'Branch', value: 'main' }] },
+  { type: 'list', items: [{ label: 'Read the brief', done: true }, { label: 'Write the change' }] },
+  { type: 'actions', actions: [{ label: 'Refresh', command: 'frame.refresh' }] },
+  { type: 'code', text: 'const answer = 42' },
+  { type: 'document', title: 'Report', sections: [{ heading: 'Summary', text: 'All checks passed.' }] },
+  { type: 'table', columns: [{ key: 'step', label: 'Step' }, { key: 'state', label: 'State' }], rows: [{ step: 'Review', state: 'Passed' }] },
+  { type: 'tree', nodes: [{ label: 'src', expanded: true, children: [{ label: 'index.ts' }] }] },
+  { type: 'diff', path: 'src/index.ts', patch: '@@ -1 +1 @@\n-const answer = 41\n+const answer = 42\n' },
+]
 
 export const FrameWall = () => {
   const themeStore = useStore()
@@ -888,7 +900,9 @@ export const FrameWall = () => {
         id: contributionId('frame.plugin'), owner: pluginInstanceId('frame-fixture'), revision: 1, scope: GLOBAL_SCOPE,
         kind: 'ui', slot: 'details.tab', label: 'Recorded work', order: 0, component: 'hd.panel',
         mounts: tool === 'plugin' ? ['right'] : ['bottom'],
-        data: { title: 'Recorded work', blocks: [{ type: 'markdown', text: 'Synthetic work facts · 長い記録' }] },
+        // `frame-plugin-blocks=1` adds one of every block kind, so a rail card's
+        // edge is measured against the whole vocabulary (tool-section-inset.spec.ts).
+        data: { title: 'Recorded work', blocks: [{ type: 'markdown', text: 'Synthetic work facts · 長い記録' }, ...(query.get('frame-plugin-blocks') === '1' ? EVERY_PANEL_BLOCK : [])] },
       }
       Object.assign(next.getSnapshot(), { contributions: [contribution] })
       next.showViewIn('right', { kind: 'plugin', contribution: contribution.id, label: contribution.label, mounts: contribution.mounts! })

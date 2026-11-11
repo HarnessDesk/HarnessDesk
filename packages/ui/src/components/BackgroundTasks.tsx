@@ -1,4 +1,4 @@
-import { ToolBodyControls } from '../design'
+import { ToolBodyControls, ToolProse } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import { isFinishedTask, type BackgroundTask } from '@harnessdesk/protocol'
@@ -135,8 +135,9 @@ export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
   </>
   const readState = !key || !runtime.capabilities.backgroundTasks ? 'unsupported' : read.key === key ? read.state : 'reading'
   if (card && tasks.length === 0 && (readState === 'loaded' || readState === 'unsupported')) return null
-  const cardBody = tasks.length > 0 ? body : readState === 'reading' ? <Text role="meta">Reading background tasks…</Text>
-    : <ActionError>Background tasks could not be read. <Button variant="link" size="inline-link" onClick={() => setReadAgain(value => value + 1)}>Try again</Button></ActionError>
+  // A state line has no edge of its own: in the card it stands on the card's row edge.
+  const cardBody = tasks.length > 0 ? body : readState === 'reading' ? <ToolProse variant="note">Reading background tasks…</ToolProse>
+    : <SectionBody spacing="inline"><ActionError>Background tasks could not be read. <Button variant="link" size="inline-link" onClick={() => setReadAgain(value => value + 1)}>Try again</Button></ActionError></SectionBody>
   return card ? <ToolSection label="Background tasks" fold defaultOpen={running.length > 0 || tasks.length === 0 || attention} value={tasks.length > 0 ? attention ? <Chip tone="warning">{summary}</Chip> : summary : readState === 'reading' ? 'Reading…' : 'Read failed'} action={clear}>{cardBody}</ToolSection>
     : <PanelFrame testId="background-tasks-panel"><ToolBodyControls>
       <Text role="meta" truncate className="min-w-0 flex-1">{tasks.length > 0 ? tasksCount(split) : 'Background tasks'}</Text>{clear}

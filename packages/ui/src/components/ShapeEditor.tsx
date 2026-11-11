@@ -7,7 +7,7 @@ import type {
 import {
   ActionError, Banner, Chip, BoardMenuButton, Button, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
   Field, Input, Note, NoteList, Row, Rows, SectionHead, Tabs, TabsList, TabsTrigger, Textarea,
-  ConfirmDialog, FlowCanvasToolbar, FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent, MenuItem, ToolSection, ToolBody, ToolProse, ToolBodyControls, ToolFold,
+  ConfirmDialog, FlowCanvasToolbar, FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent, MenuItem, ToolSection, ToolBody, ToolGroup, ToolProse, ToolBodyControls, ToolFold,
 } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { shortSha } from '../lib/evidence'
@@ -622,7 +622,7 @@ export const ShapeEditor = ({ root, context, goal, document: initialDocument, in
               </> : <ToolProse>Select a step to edit it.</ToolProse>}
           </ToolSection>
           <ToolSection key={`advanced:${selectedRule ?? ''}`} label="Flow settings" fold defaultOpen={selectedRule !== null}>
-          <SectionHead level="label" name="Rules" />
+          <ToolGroup label="Rules">
             <ToolProse variant="note">Tried in order; the first match fires. A round that matches nothing ends the Run.</ToolProse>
             {policy?.rules.map((rule, index) => <div key={rule.id}><Row title={`${index + 1}. ${rule.id}`} control={
               <DropdownMenu icons="none"><DropdownMenuTrigger render={<BoardMenuButton aria-label={`Rule ${rule.id} actions`} />} /><DropdownMenuContent align="end">
@@ -630,8 +630,9 @@ export const ShapeEditor = ({ root, context, goal, document: initialDocument, in
                 <DropdownMenuItem label="Move down" icon={<MoveDownIcon size={14} />} disabled={index === policy.rules.length - 1} onClick={() => moveRule(index, 1)} />
                 <DropdownMenuSeparator /><DropdownMenuItem label="Remove rule" variant="destructive" icon={<TrashIcon size={14} />} onClick={() => removeRule(index)} />
               </DropdownMenuContent></DropdownMenu>
-            } /><ShapeRule rule={rule} policy={policy} onChange={next => updateRule(index, next)} /></div>)}
+            } /><ShapeRule embedded rule={rule} policy={policy} onChange={next => updateRule(index, next)} /></div>)}
             {policy?.rules.length === 0 && <ToolProse>No rules yet. The seed round runs, then the Run ends.</ToolProse>}
+          </ToolGroup>
           <ToolFold label="Triggers">
             {savedFlowId ? <ProjectTriggers key={savedFlowId} root={root} flow={savedFlowId} embedded /> : <ToolProse>Save this Flow before adding a trigger.</ToolProse>}
             <TriggerSettings />

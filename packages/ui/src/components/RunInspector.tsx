@@ -130,7 +130,7 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
     : <Words>{unread === 'failed' ? 'Findings could not be read' : 'No findings recorded'}</Words>}</Section>
   const title = card ? `#${card.id} · ${card.title}` : selected?.kind === 'findings' ? 'Findings' : 'Run details'
   const abandon = onAbandon && card
-    ? <div><AbandonCard key={JSON.stringify([execution.id, card.id])} execution={execution} cards={cards} card={card} holder={seat?.name} onAbandon={onAbandon} onStop={onStop} /></div>
+    ? <SectionBody spacing="inline"><AbandonCard key={JSON.stringify([execution.id, card.id])} execution={execution} cards={cards} card={card} holder={seat?.name} onAbandon={onAbandon} onStop={onStop} /></SectionBody>
     : null
   // Until a selected step has a recorded card, inspect its frozen declaration
   // without presenting planned answers as live actions.
@@ -174,7 +174,7 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
       </Section> : !results && attemptsRead ? <Section title="Attempts">{attemptsRead === 'failed' ? <Words>Earlier attempts could not be read</Words>
         : <Text role="meta" as="div">Reading attempts…</Text>}</Section> : null}
       {abandon}
-      <RunAgain run={execution.id} card={card.id} refusal={isRecordState(teamState) ? RECORD_REASON : selected.retryRefusal} terminal={isRecordState(teamState) || execution.state === 'settled' || execution.state === 'stopped'} />
+      <SectionBody spacing="inline"><RunAgain run={execution.id} card={card.id} refusal={isRecordState(teamState) ? RECORD_REASON : selected.retryRefusal} terminal={isRecordState(teamState) || execution.state === 'settled' || execution.state === 'stopped'} /></SectionBody>
     </>
   } else if (selected?.kind === 'person' && card) {
     // A card recorded without its role is still its round's: the round is what opened it.
@@ -211,7 +211,7 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
       </Section>}
       <SummaryList surface="panel"><SummaryItem label="Cost">{costWords(seat?.cost)}</SummaryItem></SummaryList>
       {abandon}
-      {seat?.onOpen ? <Button variant="link" size="inline-link" onClick={seat.onOpen}>Open the conversation</Button> : <Text role="meta">Conversation not kept</Text>}
+      <ToolProse variant="note">{seat?.onOpen ? <Button variant="link" size="inline-link" onClick={seat.onOpen}>Open the conversation</Button> : 'Conversation not kept'}</ToolProse>
     </>
   } else {
     if (inspectionOnly) return null
@@ -310,7 +310,7 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
             <SummaryItem label="Cost">{costSummary ?? 'Not recorded'}</SummaryItem>
           </SummaryList>
           {execution.reason && <ToolProse variant="note"><Words fold>{execution.reason}</Words></ToolProse>}
-          {extra && <div className="mt-2"><Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words></div>}
+          {extra && <SectionBody spacing="inline" className="mt-2"><Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words></SectionBody>}
         </ToolSection>
 
       </div></PanelBody>

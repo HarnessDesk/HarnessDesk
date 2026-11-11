@@ -1,5 +1,5 @@
 import { createContext, useContext, useId, useState, type ReactNode, type HTMLAttributes } from 'react'
-import { Text } from './Settings'
+import { SectionHead, Text } from './Settings'
 import { GroupLabel } from '../ui/group-label'
 import { ToolPaneBody } from '../ui/tool-pane'
 import { SectionBody } from '../ui/section'
@@ -23,6 +23,13 @@ export const ToolBody = ({ children }: { children: ReactNode }) => useContext(Se
  * — the summary a folded card still shows, so a glance down the panel reads
  * every card's state without opening one. A card's rows keep their own 12px
  * edge, which is the card's side padding; the card adds the top and bottom.
+ *
+ * So everything in a card stands on that row edge through a part that knows
+ * it: rows (`Row`, `ListRows surface="panel"`, `SummaryList surface="panel"`,
+ * `Checklist surface="panel"`), a group's label (`ToolGroup`), a sentence or a
+ * note (`ToolProse`), buttons (`ToolBodyControls`). A bare `Button`, `Text` or
+ * `SectionHead` has no edge of its own and lands on the card's border;
+ * `e2e/ui-system/tool-section-inset.spec.ts` measures every card it reaches.
  */
 export const ToolSection = ({ label, children, action, value, fold, defaultOpen = true }: {
   label: string
@@ -69,8 +76,31 @@ export const ToolFold = ({ label, children }: { label: string; children: ReactNo
   </div>
 }
 
+/**
+ * A group of a card's rows under its own label: "Needs you · 1", "Rules".
+ * The label stands on the card's row edge; the rows under it bring their own
+ * edge, so the group adds none. The region is named by its visible label
+ * (`aria-labelledby`), so a reader hears it once: `heading` when it carries
+ * more than `label` (a count), `label` otherwise.
+ *
+ * The label is a quiet band, in muted ink: the card's own title keeps the
+ * secondary ink above it and the rows' names the foreground below, so it reads
+ * as a label of its rows rather than one more row. It sits nearer the rows it
+ * names (4px) than the group before it (12px more above every group after the
+ * first). Only the group's own label takes that 4px; a head inside its rows
+ * keeps its own rhythm.
+ */
+export const ToolGroup = ({ label, heading, children, ...props }: { label: string; heading?: ReactNode; children: ReactNode } & Omit<HTMLAttributes<HTMLElement>, 'className' | 'style' | 'aria-label' | 'aria-labelledby'>) => {
+  const headId = useId()
+  return <section {...props} data-slot="tool-group" aria-labelledby={headId} className="[[data-slot=tool-group]+&]:mt-(--hd-space-3) [&>[data-tool-group-head]>[data-section-head]]:mb-(--hd-space-1)">
+    <SectionBody spacing="inline" data-tool-group-head=""><SectionHead id={headId} level="label" ink="muted" name={heading ?? label} /></SectionBody>
+    {children}
+  </section>
+}
+
 /** Prose and a missing-fact note stand on the card's row edge; a note takes second-line type. */
 export const ToolProse = ({ children, variant = 'prose' }: { children: ReactNode; variant?: 'prose' | 'note' }) => <SectionBody data-slot="tool-prose" spacing={variant === 'note' ? 'inline' : 'tool-prose'}><Text role={variant === 'note' ? 'meta' : 'prose'} ink="secondary">{children}</Text></SectionBody>
 
+/** A card's buttons, on the card's row edge: "What happened?", "Review update…". Never a bare `Button` in a card. */
 export const ToolBodyControls = ({ children, ...props }: { children: ReactNode } & Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'>) => <div {...props} data-slot="tool-controls" data-surface=""
   className="hd-no-drag flex min-w-0 shrink-0 flex-wrap items-center gap-(--hd-space-2) px-(--hd-inset-row) py-(--hd-space-2)">{children}</div>

@@ -80,7 +80,7 @@ export const LeadDetails = () => {
         <Checklist surface="panel">{contract.steps.map((step, at) => <ChecklistItem key={step.id} state={stepState(at)}>{sanitizeText(step.title)}</ChecklistItem>)}</Checklist>
       </ToolSection>
       {workers.length > 0 && <ToolSection label="Workers" fold value={workers.length}>
-        <ListRows>{workers.map(role => <ListRow key={role} size="sm" title={role} />)}</ListRows>
+        <ListRows surface="panel">{workers.map(role => <ListRow key={role} size="sm" title={role} />)}</ListRows>
       </ToolSection>}
     </>}
     {caps && <ToolSection label="Spend" value={budget ? known ? leadNoSpendLimit(caps.usdMicros) ? `${leadDollars(spent)} · no limit` : `${leadDollars(spent)} of ${leadDollars(caps.usdMicros)}` : 'Not confirmed' : leadSpendCap(caps.usdMicros)}
