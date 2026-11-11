@@ -1,4 +1,4 @@
-import { runtimeId, type AccountStatus, type RuntimeId, type RuntimeInfo } from '@harnessdesk/protocol'
+import { runtimeId, type AccountStatus, type RuntimeId, type RuntimeInfo, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import type { AppSnapshot } from '../state/store'
 
@@ -22,6 +22,24 @@ const agent = (id: string, name: string, tagline: string, over: Record<string, u
     presentation: { name, tagline },
     ...over,
   }) as unknown as RuntimeInfo
+
+/**
+ * A whole report, typed, as a host sends one. These reach the same usage cards a host's do, and a partial one built
+ * behind a cast (no `credits`, no `error`) read as a kept reading and blanked the page.
+ */
+const usageReport = (runtime: RuntimeId, account: string, plan: string, lanes: readonly UsageLane[], reached: string | null = null): UsageReport => ({
+  runtime,
+  account,
+  plan,
+  lanes,
+  credits: null,
+  spend: null,
+  reached,
+  source: { kind: 'runtime', label: 'Preview fixture' },
+  fetchedAt: Date.now(),
+  staleAfterMs: 600_000,
+  error: null,
+})
 
 const RUNTIMES: readonly RuntimeInfo[] = [
   agent('codex', 'Codex', 'Coding agent that reads, edits and runs code', {
@@ -165,19 +183,10 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
   // `#plans`/`#planSuggestions`) — the codex report's "plus" matches its own
   // account's `planType` above, and the claude report's "Max 20x" has none
   // (this account already set its own $200 in `harness.tsx`'s `#plans`).
-  usage: [{
-    runtime: runtimeId('codex'),
-    account: 'shane@harnessdesk.app',
-    plan: 'plus',
-    lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10_080, resetsAt: Date.now() + 86_400_000 }],
-    reached: { lane: 'weekly' },
-  }, {
-    runtime: runtimeId('claude'),
-    account: 'shane@harnessdesk.app',
-    plan: 'Max 20x',
-    lanes: [],
-    reached: null,
-  }],
+  usage: [
+    usageReport(runtimeId('codex'), 'shane@harnessdesk.app', 'plus', [{ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10_080, resetsAt: Date.now() + 86_400_000 }], 'weekly'),
+    usageReport(runtimeId('claude'), 'shane@harnessdesk.app', 'Max 20x', []),
+  ],
   logins: scene === 'code'
     ? {
         [runtimeId('devin')]: {
@@ -243,13 +252,7 @@ export const accountPoolSeed = (): Partial<AppSnapshot> => {
     ...seed,
     activeRuntime: second,
     accountsByRuntime: { ...seed.accountsByRuntime, [second]: { accounts: [oauth('dev@example.com', 'plus')], signInMethods: [] } },
-    usage: [...seed.usage, {
-      runtime: second,
-      account: 'dev@example.com',
-      plan: 'plus',
-      lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 38, windowMinutes: 10_080, resetsAt: Date.now() + 4 * 86_400_000 }],
-      reached: null,
-    }],
+    usage: [...seed.usage, usageReport(second, 'dev@example.com', 'plus', [{ id: 'weekly', label: 'Weekly', usedPercent: 38, windowMinutes: 10_080, resetsAt: Date.now() + 4 * 86_400_000 }])],
     accountPools: { codex: { order: [runtimeId('codex'), second], whenOut: 'next' } },
   } as unknown as Partial<AppSnapshot>
 }

@@ -613,11 +613,12 @@ export class LeadJournal {
     }
     return true
   }) }
-  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[]): Promise<void> { return this.#queue(() => {
+  /** `reminded` marks a line the desk wrote to say the person's reminder of that id, never a model's reply. */
+  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[], reminded?: string): Promise<void> { return this.#queue(() => {
     const revision = this.#state.seq + 1
     return this.#append({ type: 'message', idempotencyKey: null,
       message: parseLeadMessage({ version: 1, id: `message-${revision}`, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}),
-        ...(refs?.length ? { refs: parseLeadMessageRefs(refs) } : {}) }) })
+        ...(refs?.length ? { refs: parseLeadMessageRefs(refs) } : {}), ...(reminded !== undefined ? { reminded } : {}) }) })
   }) }
   #policyChange(state: LeadState, policy: LeadPermissionPolicy, id: string): LeadJournalEvent | null {
     if (!state.policy) throw new Error('lead-policy-unavailable')
