@@ -467,7 +467,7 @@ export const LEAD_CONTROL_REFUSALS = ['lead-runtime-unsupported', 'lead-unavaila
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
   'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending', 'lead-ask-expired', 'lead-ask-answered', 'lead-slot-reserved', 'lead-rules-stale', 'lead-rule-empty', 'lead-rule-version-missing', 'lead-deadline-goal', 'lead-deadline-past',
-  'lead-memory-missing', 'lead-memory-stale', 'lead-memory-full', 'lead-memory-core-full', 'lead-memory-instruction-refused'] as const
+  'lead-memory-missing', 'lead-memory-stale', 'lead-memory-full', 'lead-memory-core-full', 'lead-memory-instruction-refused', 'lead-ask-replaced'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
@@ -1171,3 +1171,11 @@ const parseLeadContextCheckpoint: Validator<LeadContextCheckpoint> = omitUnset(o
 export const parseLeadContextFacts: Validator<LeadContextFacts> = omitUnset(object({ version, windowTokens: integer(1, 100_000_000), usedTokens: nullable(wakeTokens),
   cacheHitRate: nullable((value, path = '') => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : fail(path, 'expected a ratio')),
   compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id), full: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['full'])
+/**
+ * The question a Lead message puts to the person, wherever it carries it: an ordinary reply's `ask`, or the options of
+ * a report it wrote on an automatic wake. Every surface draws both as the same buttons, so the desk tracks, answers,
+ * expires and lists both as one question.
+ */
+export const leadMessageAsk = (message: { readonly ask?: LeadAsk; readonly proactive?: LeadProactive }): LeadAsk | undefined =>
+  message.ask ?? (message.proactive?.options?.length && message.proactive.recommended
+    ? { question: message.proactive.ask, options: message.proactive.options, recommended: message.proactive.recommended } : undefined)

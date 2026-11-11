@@ -1,6 +1,6 @@
 import type { LeadState } from '@harnessdesk/lead'
-import { LEAD_PRESENCE_LIMITS, capLeadPushText, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
-  type LeadAsk, type LeadAskState, type LeadBriefSettings, type LeadBriefUpdate, type LeadDeviceRef, type LeadDigest, type LeadDigestItem,
+import { LEAD_PRESENCE_LIMITS, capLeadPushText, leadMessageAsk, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
+  type LeadAsk, type LeadAskState, type LeadProactive, type LeadBriefSettings, type LeadBriefUpdate, type LeadDeviceRef, type LeadDigest, type LeadDigestItem,
   type LeadDigestKind, type LeadDigestRef, type LeadPresenceView, type LeadWorkBoard, type LeadWorkCard } from '@harnessdesk/protocol'
 import { rename } from 'node:fs/promises'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
@@ -21,8 +21,8 @@ export interface LeadPresencePorts {
   /** Decisions the person has not made, from the journal. `position` is the revision they appeared at. */
   readonly waiting: () => readonly { readonly id: string; readonly title: string; readonly position: number }[]
   readonly revision: () => number
-  /** The thread's messages, for the asks among them. */
-  readonly messages: () => readonly { readonly id: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly source?: 'person' | 'automatic' | 'schedule'; readonly wake?: unknown }[]
+  /** The thread's messages, for the asks among them: a reply's `ask`, or the options of a report from an automatic wake. */
+  readonly messages: () => readonly { readonly id: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly proactive?: LeadProactive; readonly source?: 'person' | 'automatic' | 'schedule'; readonly wake?: unknown }[]
   /** Whether quiet hours hold work back right now. */
   readonly quiet: () => Promise<boolean>
   /** Autonomy for the morning brief: `off` and `observed` both mean it is not made; the day is spent either way. */
@@ -55,9 +55,6 @@ interface Mark {
  */
 interface Seen { from: number; at: number; revision: number; spent: number }
 interface Plan { replaces?: string; baseline?: { from: number; spent: number; revision: number }; end?: { revision: number; spent: number }; kind: LeadDigestKind; from: number; to: number; items: LeadDigestItem[]; more: number; spent: number }
-/** How long a question with no expiry of its own holds the work it decides. */
-export const LEAD_ASK_HOLD_MS = 24 * 60 * 60_000
-
 interface AskRecord { seenAt: number; expiresAt?: number; answer?: { option: string; by: string; at: number } }
 interface Stored {
   version: 1
@@ -107,6 +104,10 @@ const spanOf = (id: string): { from: number; to: number } | undefined => {
 const within = (at: number | undefined, span: { from: number; to: number }) => at !== undefined && at >= span.from && at <= span.to
 const clip = (text: string, max: number) => { const flat = text.replace(/\s+/g, ' ').trim(); return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat }
 const refused = () => Object.assign(new Error('lead-ask-expired'), { wireCode: 'lead-ask-expired' })
+const replaced = () => Object.assign(new Error('A newer question replaced this one.'), { wireCode: 'lead-ask-replaced' })
+/** The question an assistant message asks the person, as `leadMessageAsk` reads it; nothing for any other message. */
+const askOf = (message: { readonly role: string; readonly ask?: LeadAsk; readonly proactive?: LeadProactive }): LeadAsk | undefined =>
+  message.role === 'assistant' ? leadMessageAsk(message) : undefined
 const unreadable = () => Object.assign(new Error('The Lead presence file could not be read just now, so nothing was written. Try again in a moment.'), { wireCode: 'unavailable' })
 
 /**
@@ -188,12 +189,20 @@ export class LeadPresenceStore {
   #stored: Stored = fresh()
   #loaded = false
   #unreadable = false
-  constructor(private readonly ports: LeadPresencePorts) { this.#tail = this.#load().catch(() => {}) }
+  /** The record changed on load (reports settled) and is written with the next write even if nothing else changes. */
+  #settled = false
+  /** The report questions the thread already held when this store opened: the only ones an upgrade may settle. */
+  readonly #before: ReadonlySet<string>
+  constructor(private readonly ports: LeadPresencePorts) {
+    // Taken now, before the file is read, so a report appended while it is read is a new question, not an old one.
+    this.#before = new Set(ports.messages().filter(message => !message.ask && askOf(message)).map(message => message.id))
+    this.#tail = this.#load().catch(() => {})
+  }
 
   async #load(): Promise<void> {
     const read = await readBoundedJsonResult(this.ports.file, MAX_BYTES)
     this.#loaded = false; this.#unreadable = false
-    if (read.kind === 'unreadable') { await this.#setAside(); this.#loaded = true; return }
+    if (read.kind === 'unreadable') { await this.#setAside(); this.#settleOldReports(); this.#loaded = true; return }
     if (read.kind === 'value') {
       try {
         const value = read.value as Stored
@@ -212,7 +221,17 @@ export class LeadPresenceStore {
           ...(briefKept ? { briefDigest: briefKept } : {}), ...(seenSpans(seen).length ? { seen: seenSpans(seen) } : {}) }
       } catch { await this.#setAside(); this.#stored = fresh() }
     } else if (read.kind === 'io') return
+    this.#settleOldReports()
     this.#loaded = true
+  }
+  /**
+   * A report question the thread held when this store opened, with no record of its own, was asked while no build that
+   * tracks them was running (before an upgrade, or under an older build since): nobody could answer it, so it is
+   * recorded as expired now, nothing done, and never turns into today's open question. Every start does this.
+   */
+  #settleOldReports(): void {
+    const now = this.ports.now()
+    for (const id of this.#before) if (!this.#stored.asks[id]) { this.#stored.asks[id] = { seenAt: now, expiresAt: now }; this.#settled = true }
   }
   /** A file whose content cannot be understood is moved beside itself and the record starts empty, as the work ledger does. */
   async #setAside(): Promise<void> {
@@ -229,7 +248,7 @@ export class LeadPresenceStore {
       try {
         const out = await work()
         const after = JSON.stringify(this.#stored)
-        if (after !== before) await writeAtomicJson(this.ports.file, this.#stored, async () => {})
+        if (after !== before || this.#settled) { await writeAtomicJson(this.ports.file, this.#stored, async () => {}); this.#settled = false }
         return out
       } catch (error) { this.#stored = JSON.parse(before) as Stored; throw error }
     })
@@ -237,29 +256,49 @@ export class LeadPresenceStore {
     return run
   }
 
-  /** Remember each ask the thread holds: when the host first saw it, and when it stops being answerable. */
-  #observeAsks(): void {
+  /** Remember each ask the thread holds: when the host first saw it, and when it stops being answerable. True when one is new. */
+  #observeAsks(): boolean {
     const now = this.ports.now(), messages = this.ports.messages(), live = new Set<string>()
+    let added = false
     for (const message of messages) {
-      if (message.role !== 'assistant' || !message.ask) continue
+      const ask = askOf(message)
+      if (!ask) continue
       live.add(message.id)
       if (this.#stored.asks[message.id]) continue
-      const minutes = message.ask.expiresInMinutes
+      const minutes = ask.expiresInMinutes
       this.#stored.asks[message.id] = { seenAt: now, ...(minutes ? { expiresAt: now + minutes * 60_000 } : {}) }
+      added = true
     }
     // The window of messages moves on; keep the newest records that still matter.
     const ids = Object.keys(this.#stored.asks)
     if (ids.length > LEAD_PRESENCE_LIMITS.asks * 2) for (const id of ids.sort((a, b) => this.#stored.asks[a]!.seenAt - this.#stored.asks[b]!.seenAt).slice(0, ids.length - LEAD_PRESENCE_LIMITS.asks)) if (!live.has(id)) delete this.#stored.asks[id]
+    return added
+  }
+  /**
+   * The newer question that took the place of the one at `id` before anyone answered it or its time ran out. An ask
+   * holds until it is answered, its own clock runs out, or the Lead asks a newer one; the newest is the only one open.
+   */
+  #replacedBy(id: string, record: AskRecord, now: number): string | undefined {
+    if (record.answer) return undefined
+    const messages = this.ports.messages(), at = messages.findIndex(message => message.id === id)
+    if (at < 0) return undefined
+    const newer = messages.slice(at + 1).find(message => askOf(message) !== undefined)
+    if (!newer) return undefined
+    // A question that ran out before the newer one came is expired, not replaced; one replaced first stays replaced
+    // after its own clock would have run out. A newer one the desk has not recorded yet came now.
+    const seen = this.#stored.asks[newer.id]?.seenAt ?? now
+    return record.expiresAt !== undefined && record.expiresAt <= seen ? undefined : newer.id
   }
   #askStates(): LeadAskState[] {
     const now = this.ports.now()
     const out: LeadAskState[] = []
     for (const message of this.ports.messages()) {
-      const record = message.role === 'assistant' && message.ask ? this.#stored.asks[message.id] : undefined
+      const record = askOf(message) ? this.#stored.asks[message.id] : undefined
       if (!record) continue
       const answered = record.answer !== undefined, expired = !answered && record.expiresAt !== undefined && record.expiresAt <= now
-      out.push({ id: message.id, status: answered ? 'answered' : expired ? 'expired' : 'open', ...(record.expiresAt === undefined ? {} : { expiresAt: record.expiresAt }),
-        ...(record.answer ? { answer: record.answer } : {}) })
+      const replacedBy = this.#replacedBy(message.id, record, now)
+      out.push({ id: message.id, status: answered ? 'answered' : expired || replacedBy ? 'expired' : 'open', ...(record.expiresAt === undefined ? {} : { expiresAt: record.expiresAt }),
+        ...(record.answer ? { answer: record.answer } : {}), ...(replacedBy ? { replacedBy } : {}) })
     }
     return out.slice(-LEAD_PRESENCE_LIMITS.asks)
   }
@@ -439,8 +478,11 @@ export class LeadPresenceStore {
     this.#stored.seen = [...rest, joined].sort((a, b) => a.at - b.at).slice(-SEEN_SPANS)
   }
 
-  /** Every ask the host holds gets its clock the moment it is appended, not when someone first looks. */
-  observe(): Promise<void> { return this.#write(() => this.#observeAsks()) }
+  /**
+   * Every ask the host holds gets its clock the moment it is appended, not when someone first looks. A new one is news
+   * for every device: it is now the open question, and the one before it, if still open, was replaced.
+   */
+  async observe(): Promise<void> { if (await this.#write(() => this.#observeAsks())) this.ports.changed?.() }
 
   /** The newest question that nobody has answered and the person has not talked past, whatever the Lead said after it. */
   #openAsk(): { id: string; ask: LeadAsk } | undefined {
@@ -448,7 +490,8 @@ export class LeadPresenceStore {
     for (let index = messages.length - 1; index >= 0; index--) {
       const message = messages[index]!
       if (message.role === 'user' && !message.wake) return undefined
-      if (message.role === 'assistant' && message.ask) return { id: message.id, ask: message.ask }
+      const ask = askOf(message)
+      if (ask) return { id: message.id, ask }
     }
     return undefined
   }
@@ -461,18 +504,19 @@ export class LeadPresenceStore {
   askSeenAt(id: string): number | undefined { return this.#stored.asks[id]?.seenAt }
   unansweredAsk(): { readonly id: string; readonly question: string; readonly options: readonly string[] } | null {
     const messages = this.ports.messages(), now = this.ports.now()
-    const at = messages.findLastIndex(message => message.role === 'assistant' && message.ask !== undefined)
+    const at = messages.findLastIndex(message => askOf(message) !== undefined)
     if (at < 0) return null
-    const message = messages[at]!, record = this.#stored.asks[message.id]
+    const message = messages[at]!, record = this.#stored.asks[message.id], ask = askOf(message)!
+    // A report's question is open only once the desk has recorded it, so one from before an upgrade is never mistaken for new.
+    if (!record && !message.ask) return null
+    // A question with no clock of its own holds until it is answered or a newer one replaces it; time alone never settles it.
     if (record?.answer || record?.expiresAt !== undefined && record.expiresAt <= now) return null
-    // A question with no clock of its own holds work back for a day at most; after that the person has plainly moved on.
-    if (record?.expiresAt === undefined && record && now - record.seenAt > LEAD_ASK_HOLD_MS) return null
     // Only the person's own words count: a schedule's, a trigger's or a reminder's message is not them asking or moving on.
     const person = (one: (typeof messages)[number]) => one.role === 'user' && (one.source === undefined || one.source === 'person')
     const asked = messages.slice(0, at).findLast(person)
     const since = messages.slice(at + 1).filter(person)
     if (since.some(one => !asked || !leadRepeatsRequest(asked.text, one.text))) return null
-    return { id: message.id, question: message.ask!.question, options: message.ask!.options.map(option => option.label) }
+    return { id: message.id, question: ask.question, options: ask.options.map(option => option.label) }
   }
   /** Notes for the model about messages the person sent after a question ran out; each belongs to one message. */
   #notes: ExpiryNote[] = []
@@ -487,8 +531,8 @@ export class LeadPresenceStore {
   #newestAsk(): { id: string; ask: LeadAsk } | undefined {
     const messages = this.ports.messages()
     for (let index = messages.length - 1; index >= 0; index--) {
-      const message = messages[index]!
-      if (message.role === 'assistant' && message.ask) return { id: message.id, ask: message.ask }
+      const message = messages[index]!, ask = askOf(message)
+      if (ask) return { id: message.id, ask }
     }
     return undefined
   }
@@ -518,22 +562,27 @@ export class LeadPresenceStore {
    * expired question carry a note to the model that nothing was done. Returns a step to run once the send is over.
    */
   async beforeSend(device: LeadDeviceRef | undefined, text: string, askId?: string): Promise<((sent: boolean, messageId?: string) => Promise<void>) | null> {
-    // A tap names the question it answers, so a later message in the thread cannot turn it into plain words.
-    // A question the person has only repeated their request under is still open: typed words can answer it.
-    const held = askId ? undefined : this.unansweredAsk()
-    const open = askId ? this.#askById(askId) : this.#openAsk() ?? (held ? this.#askById(held.id) : undefined)
-    if (askId && !open) throw refused()
-    // Words that are an option of a question nobody can answer any more are not sent as a new request either.
-    const stale = !open ? this.#newestAsk() : undefined
-    const target = open ?? stale
-    if (!target) return null
-    // A tap is its option. Typed words are an answer only when they are the option itself, folded, and never when they
-    // say again the request the question was asked about: a repeat from another device answers nothing.
-    const tapped = askId || !this.#repeatsAskedRequest(target.id, text) ? leadAskOption(target.ask.options, text) : undefined
-    if (stale && !tapped) return null
     const by = device?.label ?? 'Desktop'
+    // A thread that holds no question sends its words as words, whatever state the presence file is in.
+    if (!askId && !this.#newestAsk()) return null
+    // The question is chosen inside the write queue, after every write ahead of this one: a newer question that landed
+    // while these words waited takes them, never the one it replaced.
     return this.#write(() => {
       this.#observeAsks()
+      // A tap names the question it answers, so a later message in the thread cannot turn it into plain words. Typed
+      // words without an id go to the newest question only.
+      // A question the person has only repeated their request under is still open: typed words can answer it.
+      const held = askId ? undefined : this.unansweredAsk()
+      const open = askId ? this.#askById(askId) : this.#openAsk() ?? (held ? this.#askById(held.id) : undefined)
+      if (askId && !open) throw refused()
+      // Words that are an option of a question nobody can answer any more are not sent as a new request either.
+      const stale = !open ? this.#newestAsk() : undefined
+      const target = open ?? stale
+      if (!target) return null
+      // A tap is its option. Typed words are an answer only when they are the option itself, folded, and never when they
+      // say again the request the question was asked about: a repeat from another device answers nothing.
+      const tapped = askId || !this.#repeatsAskedRequest(target.id, text) ? leadAskOption(target.ask.options, text) : undefined
+      if (stale && !tapped) return null
       const record = this.#stored.asks[target.id], now = this.ports.now()
       const expired = !record?.answer && record?.expiresAt !== undefined && record.expiresAt <= now
       const option = tapped
@@ -543,6 +592,8 @@ export class LeadPresenceStore {
       const lastAssistant = [...this.ports.messages()].reverse().find(message => message.role === 'assistant')
       const fresh = askId !== undefined || (lastAssistant?.id === target.id && since !== undefined && now - since <= LEAD_LATE_TAP_MS)
       if (option && record?.answer) { if (fresh) throw Object.assign(new Error(`Already answered on ${record.answer.by}`), { wireCode: 'lead-ask-answered' }); return null }
+      // A tap on a question a newer one replaced does nothing: the person is answering the newer one, or nothing.
+      if (option && askId && record && this.#replacedBy(target.id, record, now)) throw replaced()
       if (stale) { if (expired && option && fresh) throw refused(); return null }
       if (!option || (expired && !fresh)) {
         if (!expired || askId) return null
@@ -570,8 +621,8 @@ export class LeadPresenceStore {
     return asked !== undefined && leadRepeatsRequest(asked.text, text)
   }
   #askById(id: string): { id: string; ask: LeadAsk } | undefined {
-    const message = this.ports.messages().find(candidate => candidate.id === id)
-    return message?.role === 'assistant' && message.ask ? { id: message.id, ask: message.ask } : undefined
+    const message = this.ports.messages().find(candidate => candidate.id === id), ask = message ? askOf(message) : undefined
+    return message && ask ? { id: message.id, ask } : undefined
   }
 
   brief(): Promise<LeadBriefSettings> { return this.#tail.then(() => this.#stored.brief) }

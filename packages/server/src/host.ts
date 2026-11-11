@@ -6026,7 +6026,7 @@ export class Host {
       leadInbox: async () => leadInbox({
         window: await this.#leadWindow().then(window => window.readThread()).catch(() => null),
         desk: await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
-        kept: this.#state.state.preferences['inbox'], now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id),
+        kept: this.#state.state.preferences['inbox'], now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id), ask: this.#leadPresence?.unansweredAsk() ?? null,
       }),
       leadThreadSend: async (params) => {
         // A text that answers the question just asked is checked against its expiry first, and its receipt names this device.

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { LEAD_PRESENCE_LIMITS, capLeadPushText, isLeadDigestRefId, parseLeadPresenceView, type LeadAsk, type LeadDeviceRef, type LeadWorkCard } from '@harnessdesk/protocol'
+import { leadInbox } from '../src/lead/inbox.js'
 import { LEAD_DIGEST_OBSERVER_DAILY_MICROS, LeadPresenceStore, leadRepeatsRequest, leadTurnContext, type LeadPresencePorts } from '../src/lead/presence.js'
 
 const MIN = 60_000
@@ -496,16 +497,6 @@ test('a schedule or automatic message never closes the open question; only the p
   assert.equal(r.store.unansweredAsk(), null, 'a legacy message without a source is the person')
 })
 
-test('a question with no expiry holds work for a day at most', async t => {
-  const r = await rig(t)
-  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, { id: 'message-2', role: 'assistant', text: 'Start it?', ask: ask() }])
-  await r.store.observe()
-  r.tick(23 * 60 * MIN)
-  assert.equal(r.store.unansweredAsk()?.id, 'message-2')
-  r.tick(2 * 60 * MIN)
-  assert.equal(r.store.unansweredAsk(), null, 'past a day the question no longer holds work back')
-})
-
 test('an ask with no expiry stays open; the host, not the model, sets the clock', async t => {
   const r = await rig(t)
   r.setMessages([{ id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask() }])
@@ -856,4 +847,169 @@ test('a digest link id is checked for its kind, and a link the host cannot vouch
   r.setItems([work('work-1', 'done', r.now() - MIN, { closedAt: r.now() - MIN, outcome: 'done', links: { chats: [], teams: [], prs: ['acme/..#3'], issues: [] } })])
   const digest = (await r.store.read(desktop, { active: true })).digest!
   assert.deepEqual(digest.items[0]!.ref, { kind: 'work', id: 'work-1' })
+})
+
+// #2105: the Lead's follow-up after an automatic wake carries its options on the report, not on `ask`.
+const report = { finding: 'The fourth chat ended before its report.', caveat: 'I read only part of it.', ask: 'Let it read the reason and write a report?',
+  options: [{ id: 'read', label: 'Read the reason' }, { id: 'later', label: 'Not now' }], recommended: 'read' }
+
+test('a question an automatic report asks is a question: tracked, answerable by its tap, and its answer is a receipt naming the device', async t => {
+  let changed = 0
+  const r = await rig(t, { changed: () => { changed++ } })
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix the stalled game task' }, { id: 'message-7', role: 'assistant', text: `${report.finding}\n${report.caveat}\n${report.ask}`, proactive: report } as never])
+  await r.store.observe()
+  assert.equal(changed, 1, 'every device is told a new question is open')
+  assert.deepEqual((await r.store.read(desktop, { active: true })).asks, [{ id: 'message-7', status: 'open' }])
+  assert.deepEqual(r.store.unansweredAsk(), { id: 'message-7', question: report.ask, options: ['Read the reason', 'Not now'] })
+  r.tick(14_000)
+  const answeredAt = r.now()
+  const settle = await r.store.beforeSend(phone, 'Not now', 'message-7')
+  assert.ok(settle, 'fourteen seconds after it was asked, the tap is an answer, not an expiry')
+  await settle!(true)
+  const view = await r.store.read(desktop, { active: true })
+  assert.deepEqual(view.asks, [{ id: 'message-7', status: 'answered', answer: { option: 'Not now', by: 'Jane’s iPhone', at: answeredAt } }])
+  await assert.rejects(r.store.beforeSend(desktop, 'Read the reason', 'message-7'), code('lead-ask-answered'), 'the second surface is refused, naming the first')
+})
+
+test('a newer question replaces an older open one: the older reads replaced, refuses a tap, and holds nothing', async t => {
+  const r = await rig(t)
+  const first = { id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask() }
+  r.setMessages([first])
+  await r.store.observe()
+  r.setMessages([first, { id: 'message-5', role: 'assistant', text: 'Which one?', proactive: report } as never])
+  await r.store.observe()
+  const view = await r.store.read(desktop, { active: true })
+  assert.deepEqual(view.asks, [{ id: 'message-3', status: 'expired', replacedBy: 'message-5' }, { id: 'message-5', status: 'open' }])
+  parseLeadPresenceView(view)
+  await assert.rejects(r.store.beforeSend(phone, 'Start it', 'message-3'), code('lead-ask-replaced'))
+  assert.equal(r.store.unansweredAsk()?.id, 'message-5')
+  // An answered question stays answered when a newer one comes; only an open one is replaced.
+  await (await r.store.beforeSend(phone, 'Not now', 'message-5'))!(true)
+  r.setMessages([first, { id: 'message-5', role: 'assistant', text: 'Which one?', proactive: report } as never, { id: 'message-6', role: 'user', text: 'Not now' }, { id: 'message-8', role: 'assistant', text: 'Start it?', ask: ask() }])
+  await r.store.observe()
+  const after = await r.store.read(desktop, { active: true })
+  assert.deepEqual(after.asks.map(one => [one.id, one.status, one.replacedBy]), [['message-3', 'expired', 'message-5'], ['message-5', 'answered', undefined], ['message-8', 'open', undefined]])
+})
+
+test('a question with no expiry of its own holds until it is answered or replaced, however long that takes', async t => {
+  const r = await rig(t)
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, { id: 'message-2', role: 'assistant', text: 'Start it?', ask: ask() }])
+  await r.store.observe()
+  r.tick(3 * 24 * 60 * MIN)
+  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'three days on, nothing has answered it')
+  assert.equal((await r.store.read(desktop, { active: true })).asks[0]!.status, 'open')
+})
+
+test('an upgrade settles the reports already in the thread: an old unanswered report is not today\'s open question, a new one is', async t => {
+  // #2105 review: reports' questions were not tracked before this build; the newest ignored one must not come back as open.
+  const r = await rig(t)
+  const old = { id: 'message-4', role: 'assistant', text: report.ask, proactive: report } as never
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix the stalled game task' }, old])
+  // A record written by the build before, which kept no record of a report's question.
+  await mkdir(dirname(r.file), { recursive: true })
+  await writeFile(r.file, JSON.stringify({ version: 1, devices: {}, asks: {}, brief: { enabled: false, at: '07:30' }, observer: { day: '', usdMicros: 0 } }))
+  r.tick(2 * 24 * 60 * MIN)
+  const upgraded = r.reopen()
+  const view = await upgraded.read(desktop, { active: true })
+  assert.deepEqual(view.asks, [{ id: 'message-4', status: 'expired', expiresAt: r.now() }], 'settled as expired: nothing was done')
+  assert.equal(upgraded.unansweredAsk(), null, 'no open question, so no inbox row and nothing held')
+  assert.equal(leadInbox({ window: null, desk: null, kept: [], now: r.now(), ask: upgraded.unansweredAsk() }).items.length, 0)
+  await assert.rejects(upgraded.beforeSend(phone, 'Read the reason', 'message-4'), code('lead-ask-expired'))
+  // What was settled is written, so a later restart reads it rather than settling it again.
+  assert.deepEqual(JSON.parse(await readFile(r.file, 'utf8')).asks['message-4'], { seenAt: r.now(), expiresAt: r.now() })
+  // A report after the upgrade is a question like any other.
+  r.tick(MIN)
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix the stalled game task' }, old, { id: 'message-9', role: 'assistant', text: report.ask, proactive: report } as never])
+  await upgraded.observe()
+  assert.equal(upgraded.unansweredAsk()?.id, 'message-9')
+  assert.equal(leadInbox({ window: null, desk: null, kept: [], now: r.now(), ask: upgraded.unansweredAsk() }).items[0]?.id, 'ask:message-9')
+  // A store with no file at all settles the same way.
+  await rm(r.file)
+  const fresh = r.reopen()
+  await fresh.read(desktop, { active: true })
+  assert.equal(fresh.unansweredAsk(), null, 'no record at all: every report in the thread predates it')
+})
+
+test('an open report question survives a restart: still open, and answerable by its tap', async t => {
+  const r = await rig(t)
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, { id: 'message-7', role: 'assistant', text: report.ask, proactive: report } as never])
+  await r.store.observe()
+  r.tick(6 * 60 * MIN)
+  const restarted = r.reopen()
+  assert.deepEqual((await restarted.read(desktop, { active: true })).asks, [{ id: 'message-7', status: 'open' }])
+  assert.equal(restarted.unansweredAsk()?.id, 'message-7')
+  const at = r.now()
+  await (await restarted.beforeSend(phone, 'Read the reason', 'message-7'))!(true)
+  assert.deepEqual((await restarted.read(desktop, { active: true })).asks[0]!.answer, { option: 'Read the reason', by: 'Jane’s iPhone', at })
+})
+
+test('a question with its own clock: replaced before it ran out stays replaced; run out before the newer one came is expired', async t => {
+  const r = await rig(t)
+  const timed = { id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask(10) }
+  r.setMessages([timed])
+  await r.store.observe()
+  const asked = r.now()
+  // Replaced at five minutes, inside its ten.
+  r.tick(5 * MIN)
+  r.setMessages([timed, { id: 'message-5', role: 'assistant', text: report.ask, proactive: report } as never])
+  await r.store.observe()
+  r.tick(30 * MIN)
+  assert.deepEqual((await r.store.read(desktop, { active: true })).asks[0], { id: 'message-3', status: 'expired', expiresAt: asked + 10 * MIN, replacedBy: 'message-5' },
+    'still replaced after its own clock would have run out')
+  await assert.rejects(r.store.beforeSend(phone, 'Start it', 'message-3'), code('lead-ask-replaced'))
+
+  const s = await rig(t)
+  s.setMessages([timed])
+  await s.store.observe()
+  const first = s.now()
+  // The newer question comes at twenty minutes, after the ten ran out.
+  s.tick(20 * MIN)
+  s.setMessages([timed, { id: 'message-5', role: 'assistant', text: report.ask, proactive: report } as never])
+  await s.store.observe()
+  assert.deepEqual((await s.store.read(desktop, { active: true })).asks[0], { id: 'message-3', status: 'expired', expiresAt: first + 10 * MIN }, 'ran out first: expired, not replaced')
+  await assert.rejects(s.store.beforeSend(phone, 'Start it', 'message-3'), code('lead-ask-expired'))
+})
+
+
+test('typed option words go to the question open when the claim runs, not the one open when they were sent', async t => {
+  // #2113 review: a newer question that lands while the claim waits in the write queue must take the words.
+  let release: () => void = () => {}
+  let held = false
+  const r = await rig(t, { board: async () => { if (held) await new Promise<void>(resolve => { release = resolve }); return { version: 1, items: [], more: 0 } } })
+  const older = { id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask() }
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, older])
+  await r.store.observe()
+  await r.store.read(desktop, { active: true })
+  r.tick(40 * MIN)
+  held = true
+  // A read that builds a digest holds the queue while it waits on the board.
+  const reading = r.store.read(desktop, { active: true })
+  await new Promise(resolve => setImmediate(resolve))
+  const sending = r.store.beforeSend(phone, 'Start it')
+  // The Lead asks again, with the same options, while the words wait.
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, older, { id: 'message-5', role: 'assistant', text: 'Start it now?', ask: ask() }])
+  held = false
+  release()
+  await reading
+  const settle = await sending
+  assert.ok(settle, 'the words are an answer')
+  await settle!(true)
+  const asks = (await r.store.read(desktop, { active: true })).asks
+  assert.deepEqual(asks.map(one => [one.id, one.status, one.replacedBy, one.answer?.option]), [['message-3', 'expired', 'message-5', undefined], ['message-5', 'answered', undefined, 'Start it']])
+})
+
+test('a report an older desk build appended while this one was away is settled on the next start, not reopened', async t => {
+  // #2113 review: new build -> older build -> new build. The older build records no report's question.
+  const r = await rig(t)
+  const first = { id: 'message-3', role: 'assistant', text: report.ask, proactive: report } as never
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, first])
+  await r.store.observe()
+  await (await r.store.beforeSend(phone, 'Not now', 'message-3'))!(true)
+  // The older build ran and the Lead reported again; it wrote no record of the report's question.
+  r.tick(3 * 24 * 60 * MIN)
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, first, { id: 'message-4', role: 'user', text: 'Not now' }, { id: 'message-6', role: 'assistant', text: report.ask, proactive: report } as never])
+  const back = r.reopen()
+  await back.observe()
+  assert.equal(back.unansweredAsk(), null, 'the report the older build saw is not open')
+  assert.deepEqual((await back.read(desktop, { active: true })).asks.map(one => [one.id, one.status]), [['message-3', 'answered'], ['message-6', 'expired']])
 })

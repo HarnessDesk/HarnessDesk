@@ -66,7 +66,8 @@ export const useLeadInbox = (): LeadInbox | null => {
       if (!one.users) { clearInterval(one.every); clearTimeout(one.soon) }
     }
   }, [store, one])
-  const changed = [lead?.revision, lead?.stage, lead?.personActions?.length, snapshot.goals, snapshot.teams, snapshot.sessions?.size, snapshot.inbox] as const
+  // What became of each question moves the inbox too: an answer from the phone is recorded before the thread moves.
+  const changed = [lead?.revision, lead?.stage, lead?.personActions?.length, lead?.away?.asks, snapshot.goals, snapshot.teams, snapshot.sessions?.size, snapshot.inbox] as const
   useEffect(() => {
     clearTimeout(one.soon)
     one.soon = setTimeout(() => read(store, one), SETTLE_MS)

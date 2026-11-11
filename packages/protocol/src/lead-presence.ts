@@ -133,6 +133,11 @@ export interface LeadAskState {
   readonly expiresAt?: number
   /** Present once answered: the option's label, the device's label and when. */
   readonly answer?: { readonly option: string; readonly by: string; readonly at: number }
+  /**
+   * The newer question that took this one's place before anyone answered it. Its status is then `expired`, so a surface
+   * that does not know this field still offers no answer; one that does says it was replaced rather than that time ran out.
+   */
+  readonly replacedBy?: string
 }
 export interface LeadBriefSettings { readonly enabled: boolean; readonly at: string }
 export interface LeadPresenceView {
@@ -233,15 +238,16 @@ export const parseStoredLeadDigest = (value: unknown): LeadDigest => {
   return parseLeadDigest({ ...top, items: items.slice(0, LEAD_PRESENCE_LIMITS.items) })
 }
 const askState: Validator<LeadAskState> = (value, path = '') => {
-  const source = only(['id', 'status', 'expiresAt', 'answer'])(value, path)
+  const source = only(['id', 'status', 'expiresAt', 'answer', 'replacedBy'])(value, path)
   const expiresAt = optional(time)(source.expiresAt, at(path, 'expiresAt'))
+  const replacedBy = optional(text(64))(source.replacedBy, at(path, 'replacedBy'))
   let answer: LeadAskState['answer']
   if (source.answer !== undefined) {
     const a = only(['option', 'by', 'at'])(source.answer, at(path, 'answer'))
     answer = { option: text(60)(a.option, at(path, 'answer.option')), by: text(LEAD_PRESENCE_LIMITS.labelChars)(a.by, at(path, 'answer.by')), at: time(a.at, at(path, 'answer.at')) }
   }
   return { id: text(64)(source.id, at(path, 'id')), status: literalUnion('open', 'answered', 'expired')(source.status, at(path, 'status')),
-    ...(expiresAt === undefined ? {} : { expiresAt }), ...(answer ? { answer } : {}) }
+    ...(expiresAt === undefined ? {} : { expiresAt }), ...(answer ? { answer } : {}), ...(replacedBy === undefined ? {} : { replacedBy }) }
 }
 export const parseLeadPresenceView: Validator<LeadPresenceView> = (value, path = '') => {
   const source = only(['version', 'digest', 'asks', 'brief'])(value, path)
