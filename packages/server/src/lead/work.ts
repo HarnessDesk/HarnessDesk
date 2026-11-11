@@ -1,11 +1,12 @@
 import { rename } from 'node:fs/promises'
-import { isWaitingOnYou, LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, leadWorkGroup, quoteLeadWorkText, type LeadStage, type LeadWorkBoard, type LeadWorkCard,
+import { isWaitingOnYou, LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, leadWorkGroup, quoteLeadWorkText, type LeadStage, type LeadStopActor, type LeadWorkBoard, type LeadWorkCard,
   type LeadWorkClose, type LeadWorkDetail, type LeadWorkFact, type LeadWorkLinks, type LeadWorkNote, type LeadWorkOrigin, type LeadWorkStage,
   type LeadReminder, type LeadReminderSet } from '@harnessdesk/protocol'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
 
 /** A link's stage in the phone's waiting-on-whom words, with the host's reason for it. */
-export interface LeadWorkLinkState { readonly stage: LeadStage; readonly reason: string }
+/** A link's live state. `turn` names a chat's latest turn, when the host knows it, so a stop is matched to the turn it was for. */
+export interface LeadWorkLinkState { readonly stage: LeadStage; readonly reason: string; readonly turn?: string }
 export interface LeadWorkPorts {
   readonly file: string
   readonly now: () => number
@@ -77,14 +78,22 @@ interface Watch {
   pr?: 'open' | 'merged' | 'closed'
   failing?: boolean
   last?: string
+  /** Who is stopping this chat, recorded right as the stop is sent; read once, when the stop is seen. */
+  stopBy?: StopMark
+  /** Who stopped it, while it stays stopped, and the turn that stop ended. */
+  stoppedBy?: LeadStopActor
+  stoppedTurn?: string
   /** A later chat joined the item after this one: a stop here is an earlier attempt's, not how the item ended. */
   superseded?: boolean
 }
+interface StopMark { by: LeadStopActor; at: number; turn?: string }
 interface Item {
   id: string; title: string; project: string | null; origin: LeadWorkOrigin
   links: { chats: string[]; teams: string[]; prs: string[]; issues: string[] }
   stage: LeadWorkStage; blocker?: string; note?: string; after?: string; remindAt?: number
   createdAt: number; updatedAt: number; closedAt?: number; outcome?: 'done' | 'dropped'; closedBy?: 'person' | 'host'
+  /** Who stopped the chats that closed it, when the host saw one actor do it. */
+  stoppedBy?: LeadStopActor
   timeline: LeadWorkFact[]; watch: Record<string, Watch>
   /** When the host last saw a link it can follow: a chat on the desk, a Team it knows, a pull request it follows. */
   seenAt?: number
@@ -135,6 +144,9 @@ const REASONS: Readonly<Record<string, string>> = {
   'needs-you': 'A Team needs a choice', 'result-ready': 'A result is ready for your review', stopped: 'A Team stopped',
 }
 const kinds = ['chats', 'teams', 'prs', 'issues'] as const
+/** How long a recorded stop may wait to be seen. One that never landed does not name a later stop. */
+export const LEAD_STOP_ACTOR_MS = 60_000
+const STOPPED_FACT: Readonly<Record<LeadStopActor, string>> = { person: 'The person stopped a chat', lead: 'The Lead stopped a chat' }
 const emptyLinks = () => ({ chats: [] as string[], teams: [] as string[], prs: [] as string[], issues: [] as string[] })
 const isItem = (value: unknown): value is Item => {
   const item = value as Item
@@ -156,6 +168,10 @@ export class LeadWorkLedger {
   #token = 0
   #published = ''
   #refreshing: Promise<void> | null = null
+  /** Stops being sent now, by chat: the mark a refresh reads first, before any copy on disk. */
+  #stops = new Map<string, StopMark>()
+  /** Chats whose mark a refresh used or let go; dropped once every item has looked. */
+  #spent = new Set<string>()
   #again = false
   private stored: Stored = { version: 1, next: 1, items: [] }
   /** False until the file has been read: nothing is written over a ledger the host could not read. */
@@ -264,11 +280,44 @@ export class LeadWorkLedger {
     const followed = new Set(this.ports.pullRequests().map(pr => pr.ref))
     return item.links.prs.some(ref => followed.has(ref))
   }
-  #stop(item: Item, why: string): void {
+  #stop(item: Item, why: string, by?: LeadStopActor): void {
     item.closedAt = this.ports.now(); item.closedBy = 'host'; item.stage = 'stopped'
     delete item.blocker; delete item.remindAt; delete item.outcome
+    if (by) item.stoppedBy = by; else delete item.stoppedBy
     this.#fact(item, why)
     this.#endLeadReminders(item, 'Its work was stopped')
+  }
+
+  /**
+   * Who is stopping a chat: the person (from the window or a phone) or the Lead. Called right as the stop is sent, it
+   * takes the mark in memory at once and never waits on or fails with the file, so a stop is never held up; a copy is
+   * written behind it so a restart in between keeps it. The mark is bound to the turn the chat is on, and goes when that
+   * turn is seen stopped (naming the stop), finished, replaced, or after a minute. A chat with no turn running records
+   * nothing. The returned function takes the mark back when the stop could not be sent.
+   */
+  stopping(chat: string, by: LeadStopActor): () => void {
+    const live = this.ports.chat(chat)
+    if (!live || live.stage === 'idle') return () => {}
+    const mark: StopMark = { by, at: this.ports.now(), ...(live.turn ? { turn: live.turn } : {}) }
+    // Two doors inside the window: the last to send is recorded. One whose interrupt then fails hands the record back
+    // to the mark it replaced, which is the stop that landed.
+    const before = this.#stops.get(chat)
+    this.#stops.set(chat, mark)
+    const copy = (now: StopMark | undefined) => void this.#write(() => {
+      for (const item of this.stored.items) {
+        if (item.closedBy === 'person' || !item.links.chats.includes(chat)) continue
+        const watch = item.watch[`chat:${chat}`] ??= {}
+        if (now) { if (this.#stops.get(chat) === now) watch.stopBy = { ...now } }
+        else if (watch.stopBy?.at === mark.at && watch.stopBy.by === mark.by) delete watch.stopBy
+      }
+    }).catch(() => {})
+    copy(mark)
+    return () => {
+      if (this.#stops.get(chat) !== mark) return
+      if (before) this.#stops.set(chat, before)
+      else this.#stops.delete(chat)
+      copy(before)
+    }
   }
   /**
    * Room for one more open item. A full ledger first closes its oldest quiet item (nothing the host can follow), so it
@@ -567,6 +616,9 @@ export class LeadWorkLedger {
           if (teams) this.#teamIds = new Set(teams.keys())
           this.#trim()
           for (const item of this.stored.items) this.#derive(item, teams ?? new Map(), prs, teams !== null)
+          const now = this.ports.now()
+          for (const [chat, request] of this.#stops) if (this.#spent.has(chat) || now - request.at > LEAD_STOP_ACTOR_MS) this.#stops.delete(chat)
+          this.#spent.clear()
         })
       } while (this.#again)
     })()
@@ -584,24 +636,40 @@ export class LeadWorkLedger {
       this.#stop(item, 'Stopped: no activity the host can see for seven days')
       return
     }
-    const states: { stage: LeadStage; reason: string; settled: boolean; review?: string; stopped?: true }[] = []
+    const states: { stage: LeadStage; reason: string; settled: boolean; review?: string; stopped?: true; by?: LeadStopActor }[] = []
     const replies = this.ports.replies()
     for (const chat of item.links.chats) {
       const watch = item.watch[`chat:${chat}`] ??= {}
       const live = this.ports.chat(chat)
-      if (live === null) { if (watch.last !== 'gone') { watch.last = 'gone'; this.#fact(item, 'A chat left the desk') } states.push({ stage: 'idle', reason: 'gone', settled: true }); continue }
-      // An earlier attempt's stop, after a newer chat joined the item: the newer chat says how the item ends.
-      if (watch.superseded && live.stage === 'idle' && live.reason === 'stopped') { watch.last = live.reason; continue }
+      const request = this.#stops.get(chat) ?? watch.stopBy
+      // A stop request is let go when its turn finished or another turn runs, when it is past its minute, and once it names a stop.
+      const spend = () => { delete watch.stopBy; this.#spent.add(chat) }
+      if (live === null) { if (request) spend(); if (watch.last !== 'gone') { watch.last = 'gone'; this.#fact(item, 'A chat left the desk') } states.push({ stage: 'idle', reason: 'gone', settled: true }); continue }
+      // An earlier attempt's stop, after a newer chat joined the item: the newer chat says how the item ends, and nobody
+      // is named for a stop that does not count.
+      if (watch.superseded && live.stage === 'idle' && live.reason === 'stopped') { if (request) spend(); delete watch.stoppedBy; watch.last = live.reason; continue }
+      const fresh = !!request && now - request.at >= 0 && now - request.at <= LEAD_STOP_ACTOR_MS
+      const sameTurn = !request?.turn || !live.turn || request.turn === live.turn
       if (live.stage === 'idle' && live.reason === 'stopped') {
-        // A stopped turn finished nothing: it is not for the Lead to review, and a later reply does not settle it.
-        if (watch.last !== 'stopped') this.#fact(item, 'A chat was stopped')
+        // A stopped turn finished nothing: it is not for the Lead to review, and a later reply does not settle it. A
+        // stop on a turn other than the one last seen stopped is a new stop, even when no look fell in between; so is
+        // one a request was recorded for after the last stop was seen.
+        if (watch.last !== 'stopped' || (live.turn !== undefined && live.turn !== watch.stoppedTurn) || (request && sameTurn)) {
+          const by = fresh && sameTurn ? request!.by : undefined
+          if (request) spend()
+          if (by) watch.stoppedBy = by; else delete watch.stoppedBy
+          if (live.turn) watch.stoppedTurn = live.turn; else delete watch.stoppedTurn
+          this.#fact(item, by ? STOPPED_FACT[by] : 'A chat was stopped')
+        }
         delete watch.mark
-        states.push({ stage: 'idle', reason: 'stopped', settled: false, stopped: true })
+        states.push({ stage: 'idle', reason: 'stopped', settled: false, stopped: true, ...(watch.stoppedBy ? { by: watch.stoppedBy } : {}) })
       } else if (live.stage === 'idle') {
+        if (request) spend()
         if (watch.mark === undefined) { watch.mark = replies; this.#fact(item, 'A chat finished') }
         const reported = replies > watch.mark
         states.push({ stage: 'idle', reason: 'idle', settled: reported, ...(reported ? {} : { review: 'Finished; the Lead is checking it' }) })
       } else {
+        if (request && (!fresh || !sameTurn)) spend()
         if (watch.last !== live.reason) {
           if (live.stage === 'working') this.#fact(item, 'A chat is working')
           else if (isWaitingOnYou(live.stage)) this.#fact(item, REASONS[live.reason] ?? 'A chat waits for you')
@@ -609,6 +677,7 @@ export class LeadWorkLedger {
         delete watch.mark; watch.active = true
         states.push({ stage: live.stage, reason: live.reason, settled: false })
       }
+      if (live.stage !== 'idle' || live.reason !== 'stopped') { delete watch.stoppedBy; delete watch.stoppedTurn }
       watch.last = live.stage === 'idle' && live.reason !== 'stopped' ? 'idle' : live.reason
     }
     for (const team of item.links.teams) {
@@ -635,8 +704,13 @@ export class LeadWorkLedger {
     }
     // Activity reopens what the host itself closed: the Lead sent the chat more work.
     if (item.closedAt !== undefined) {
+      // Stopped again while closed: the item names whoever made the latest stop.
+      if (item.closedBy === 'host' && item.stage === 'stopped' && states.some(state => state.stopped)) {
+        const by = this.#stopActor(states)
+        if (by) item.stoppedBy = by; else delete item.stoppedBy
+      }
       if (!states.some(state => state.stage !== 'idle')) return
-      delete item.closedAt; delete item.outcome; delete item.closedBy
+      delete item.closedAt; delete item.outcome; delete item.closedBy; delete item.stoppedBy
       this.#fact(item, 'Work started again')
     }
     const waiting = states.find(state => isWaitingOnYou(state.stage))
@@ -647,8 +721,10 @@ export class LeadWorkLedger {
     else if (states.some(state => state.stage === 'working')) stage = 'working'
     else if (states.some(state => state.stage === 'queued')) stage = 'queued'
     else if (states.some(state => state.stopped) && states.every(state => state.stopped || state.settled)) {
-      // Everything left was stopped, not finished: the item closes as stopped and reopens if the chat works again.
-      this.#stop(item, 'Stopped: its chat was stopped')
+      // Everything left was stopped, not finished: the item closes as stopped and reopens if the chat works again. It names
+      // who stopped it when one actor stopped every chat and the host saw them do it.
+      const by = this.#stopActor(states)
+      this.#stop(item, by === 'person' ? 'Stopped: the person stopped its chat' : by === 'lead' ? 'Stopped: the Lead stopped its chat' : 'Stopped: its chat was stopped', by)
       return
     }
     else if (states.length && states.every(state => state.settled)) {
@@ -663,6 +739,12 @@ export class LeadWorkLedger {
     if (blocker) item.blocker = blocker; else delete item.blocker
   }
 
+  /** The one actor who made every stop among these states, or none when they differ or one is unknown. */
+  #stopActor(states: readonly { readonly stopped?: true; readonly by?: LeadStopActor }[]): LeadStopActor | undefined {
+    const actors = new Set(states.filter(state => state.stopped).map(state => state.by))
+    return actors.size === 1 ? [...actors][0] : undefined
+  }
+
   #card(item: Item): LeadWorkCard {
     const fact = item.timeline.at(-1)?.text
     return {
@@ -672,6 +754,7 @@ export class LeadWorkLedger {
       links: { chats: [...item.links.chats], teams: [...item.links.teams], prs: [...item.links.prs], issues: [...item.links.issues] },
       createdAt: item.createdAt, updatedAt: item.updatedAt,
       ...(item.closedAt !== undefined ? { closedAt: item.closedAt } : {}), ...(item.outcome ? { outcome: item.outcome } : {}),
+      ...(item.stoppedBy && item.stage === 'stopped' ? { stoppedBy: item.stoppedBy } : {}),
     }
   }
   #board(state: 'open' | 'all'): LeadWorkBoard {

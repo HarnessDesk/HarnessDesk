@@ -71,16 +71,20 @@ const door = async (chooseModel = false, canDelete = false) => {
       { id: 'effort', category: 'thought_level', type: 'select', label: 'Effort', currentValue: params.values?.effort as string ?? 'xhigh', choices: [{ value: 'xhigh', label: 'Extra high' }] },
     ], choices) : ({}), queue: async params => { state.actions.push(['send', params]); state.running = true; return { queuedId: null, sent: true } }, create: async params => { state.actions.push(['create', params]); return conversation },
     send: async params => { state.actions.push(['send', params]); state.running = true },
-    interrupt: async params => { state.actions.push(['stop', params]); state.running = false },
+    // As the host does: the effect starts right before the interrupt is sent.
+    interrupt: async (params, effectStarted) => { effectStarted?.(); state.actions.push(['stop', params]); state.running = false },
     respond: async params => { state.responded.push(params); state.pending = state.pending.filter(one => one.id !== params.approvalId) },
     hasSecret: () => false,
     now: () => 1_000,
   })
   let attached: PhoneLinkControl | null = null
+  const stopping: string[] = []
   const ctx = {
     phone: { state: () => attached?.state() ?? phoneLinkOff, pairing: () => attached!.pairing(), allow: (...a: never[]) => (attached!.allow as any)(...a),
       deny: (id: string) => attached!.deny(id), revoke: (d: string) => attached!.revoke(d) },
     phoneWork: work,
+    // The phone's stop is the person's: the host records it for the work ledger right before the stop is sent.
+    personStopping: (chat: string) => { stopping.push(chat); return () => {} },
   } as unknown as HostContext
   const broadcasters = new Set<(notification: WireNotification) => void>()
   const host = {
@@ -101,7 +105,7 @@ const door = async (chooseModel = false, canDelete = false) => {
   }
   const emit = (notification: unknown): void => broadcasters.forEach(listener => listener(notification as WireNotification))
   const settle = (ms = DELAY * 6) => new Promise(resolve => setTimeout(resolve, ms))
-  return { pair, emit, settle, state, done: async () => { await running.close(); await rm(home, { recursive: true, force: true }) } }
+  return { pair, emit, settle, state, stopping, done: async () => { await running.close(); await rm(home, { recursive: true, force: true }) } }
 }
 
 const isSnapshot = (m: any): boolean => m.t === 'evt' && m.topic === 'workspace'
@@ -150,6 +154,7 @@ test('encrypted phone page and action requests dispatch only the visible choices
     assert.deepEqual((await phone.request('workspace/session/start', { text: '  Hello\n', project: 'acme-api' })).result, { id: KEY })
     assert.deepEqual((await phone.request('workspace/session/send', { id: KEY, text: 'Reply\n' })).result, {})
     assert.deepEqual((await phone.request('workspace/stop', { id: KEY })).result, {})
+    assert.deepEqual(d.stopping, [KEY], 'the phone’s stop is recorded as the person’s')
     assert.deepEqual(d.state.actions, [
       ['create', { runtime: RT, options: { cwd: CWD } }],
       ['send', { runtime: RT, sessionId: SID, input: [{ type: 'text', text: '  Hello\n' }] }],

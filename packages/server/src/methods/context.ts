@@ -166,6 +166,12 @@ export interface HostContext {
   readonly leadChats: Pick<import('../lead/chats.js').LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop'>
   /** The Lead's work ledger; refuses with `lead-unavailable` while no Lead runs here. */
   readonly leadWork: Pick<import('../lead/work.js').LeadWorkLedger, 'board' | 'read' | 'note' | 'close' | 'setReminder' | 'cancelReminder'>
+  /**
+   * The person is stopping chat `runtime:session` (from the window or a phone), so the work ledger says the stop was
+   * theirs. Called right before the interrupt is sent; it returns at once and never throws, so a stop is never held up
+   * by the ledger. The returned function takes the record back when the interrupt fails. Does nothing while no Lead runs.
+   */
+  personStopping(chat: string): () => void
   /** Seen marks, the away digest, the morning brief and the state of each ask; refuses while no Lead runs here. */
   readonly leadPresence: Pick<import('../lead/presence.js').LeadPresenceStore, 'read' | 'dismiss' | 'brief' | 'updateBrief'>
   /** Autonomy modes, the three rule sections with their versions, and goal deadlines; refuses while no Lead runs here. */

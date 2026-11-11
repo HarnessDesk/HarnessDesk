@@ -1454,6 +1454,13 @@ The shared session window frame, independent of its transcript source.
 
 A transcript keeps the session's reading gutter and measured dock clearance.
 
+The dock floats over the thread, and the thread reserves the dock's measured
+height as its bottom padding. With `keepEnd` it also follows its end while
+the reader is there: a notice joining the dock, a late layout or new content
+moves the end, and without following, the last message is left under the
+dock. A reader who scrolled up stays where they are. A screen that already
+follows its own transcript leaves `keepEnd` off.
+
 ### `ConversationDock`
 
 `packages/ui/src/design/patterns/ConversationShell.tsx`

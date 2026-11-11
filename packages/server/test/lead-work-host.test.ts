@@ -187,6 +187,69 @@ test('host: a start and a send that name no cause are automatic', async t => {
   assert.equal((await r.execute({ method: 'lead/chat/send', params: { id, text: 'Keep going' } })).outcome, 'failed', 'a send that names no cause stops at the deadline')
 })
 
+/** Polls the real board until a card reads as asked; the ledger hears a stop when the turn's end arrives. */
+const settle = async (r: Awaited<ReturnType<typeof workRig>>, id: string, done: (card: { stage: string, fact?: string, stoppedBy?: string }) => boolean) => {
+  for (let tries = 0; tries < 100; tries++) {
+    const card = (await r.host.call('lead/work/list', {})).items.find(item => item.id === id) as { stage: string, fact?: string, stoppedBy?: string } | undefined
+    if (card && done(card)) return card
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  return (await r.host.call('lead/work/list', {})).items.find(item => item.id === id) as { stage: string, fact?: string, stoppedBy?: string }
+}
+
+test('host: a stop through the Lead\'s door is the Lead\'s and through the phone\'s door the person\'s; a stop that failed names no later one', async t => {
+  const r = await workRig(t)
+  const start = async (text: string) => {
+    const made = await r.execute({ method: 'lead/chat/start', params: { text } })
+    assert.equal(made.outcome, 'succeeded')
+    const { id, ledgerItem } = made.value as { id: string, ledgerItem: string }
+    return { id, item: ledgerItem, session: r.runtime.sessions.get(id.slice(id.indexOf(':') + 1))! }
+  }
+  const stopped = (card: { stage: string }) => card.stage === 'stopped'
+
+  const lead = await start('Fix the stalled build')
+  assert.equal((await r.execute({ method: 'lead/chat/stop', params: { id: lead.id } })).outcome, 'succeeded')
+  assert.equal((await settle(r, lead.item, stopped)).fact, 'Stopped: the Lead stopped its chat')
+
+  const phone = await start('Write the release notes')
+  await r.host.call('workspace/stop', { id: phone.id })
+  assert.equal((await settle(r, phone.item, stopped)).fact, 'Stopped: the person stopped its chat')
+
+  // An interrupt that fails takes its record back, through either door, so a stop the desk did not send is nobody's.
+  for (const [text, door] of [['Rename the status column', 'lead'], ['Update the onboarding copy', 'phone']] as const) {
+    const chat = await start(text)
+    const interrupt = chat.session.interrupt.bind(chat.session)
+    chat.session.interrupt = async () => { throw new Error('the agent did not take the stop') }
+    if (door === 'lead') assert.equal((await r.execute({ method: 'lead/chat/stop', params: { id: chat.id } })).outcome, 'failed')
+    else await assert.rejects(r.host.call('workspace/stop', { id: chat.id }))
+    assert.notEqual((await settle(r, chat.item, () => true)).stage, 'stopped', `${door}: the chat still runs`)
+    // The agent ends the same turn on its own, inside the minute a record would have lasted.
+    await interrupt()
+    const card = await settle(r, chat.item, stopped)
+    assert.equal(card.fact, 'Stopped: its chat was stopped', `${door}: a failed stop names nobody`)
+    assert.equal(card.stoppedBy, undefined)
+  }
+
+  // Two doors on one chat inside the minute: the last to send is recorded. A door whose interrupt then fails, here
+  // because the other door's stop landed first, hands the record back to the one before it.
+  const both = await start('Retry the flaky upload test')
+  const interrupt = both.session.interrupt.bind(both.session)
+  let open!: () => void
+  const gate = new Promise<void>(resolve => { open = resolve })
+  let waiting = 0
+  both.session.interrupt = async () => { waiting++; await gate; await interrupt() }
+  const person = r.host.call('workspace/stop', { id: both.id })
+  for (let tries = 0; waiting < 1 && tries < 500; tries++) await new Promise(resolve => setTimeout(resolve, 10))
+  const byLead = r.execute({ method: 'lead/chat/stop', params: { id: both.id } })
+  // Both doors reach the interrupt and wait at the gate, the person's first.
+  for (let tries = 0; waiting < 2 && tries < 500; tries++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(waiting, 2, 'both doors sent their stop')
+  open()
+  await person
+  assert.equal((await byLead).outcome, 'failed', 'the person\'s stop landed first, so the Lead\'s found no turn to stop')
+  assert.equal((await settle(r, both.item, stopped)).fact, 'Stopped: the person stopped its chat')
+})
+
 test('a reminder the Lead sets through its door is listed on the board the window and the phone read, and either can cancel it', async t => {
   const r = await workRig(t)
   assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'Ship the changelog' } })).outcome, 'succeeded')

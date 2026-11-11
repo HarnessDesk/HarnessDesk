@@ -62,7 +62,7 @@ const rig = async (t: TestContext, recovery = false) => {
       threadRead: async (params: any) => { calls.push({ method: 'read', params }); return { id: params.id, title: 'Project chat', agent: { name: 'Agent' }, status: 'done', turns: transcript } },
       startInProject: async (params: any, root: string, admit: (id?: string) => Promise<void>, _effect: unknown, _scope: unknown, input?: readonly UserContent[]) => { await admit(); if (startProblem === 'throw') throw new Error('Creation failed before dispatch'); if (startProblem) return { id: '', problem: 'Creation refused' }; row('created'); if (firstRefused) return { id: 'fixture:created', problem: 'The first message did not start.' }; await admit('fixture:created'); sentInput.push(input); calls.push({ method: 'start', params: { ...params, root } }); return { id: 'fixture:created' } },
       sessionSend: async (params: any, admit: () => Promise<void>, _effect: unknown, scope: (cwd: string) => Promise<void>, input?: readonly UserContent[]) => { await admit(); sentInput.push(input); queuedScope = scope; calls.push({ method: 'send', params }); await onSend?.(_effect as () => void); return { queued: true } },
-      stop: async (params: any, admit: () => Promise<void>) => { await admit(); calls.push({ method: 'stop', params }); return {} },
+      stop: async (params: any, admit: () => Promise<void>, effectStarted?: () => void) => { await admit(); effectStarted?.(); calls.push({ method: 'stop', params }); return {} },
     },
   }
   const service = new LeadChats(ports)
@@ -301,6 +301,29 @@ test('an automatic start the cap refuses creates nothing and is handed back as a
   live = 2
   r.authorize('lead/chat/start', { text: 'Then lint.' })
   assert.ok((await r.service.start({ text: 'Then lint.', cause: 'automatic' })).id, 'and automatic work goes ahead when a run ends')
+})
+
+test('a Lead stop tells the ledger it is the Lead’s right as it is sent; a refused stop tells it nothing, and the ledger never holds it up', async t => {
+  const r = await rig(t); r.row('own')
+  const told: { chat: string; by: string; calls: number }[] = []
+  ;(r.ports as any).ledger = { claim: async () => null, started: async () => '', release: () => {}, stopping: (chat: string, by: string) => { told.push({ chat, by, calls: r.calls.length }); return () => {} } }
+  const service = r.restart()
+  t.after(() => service.close())
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await service.stop({ id: 'fixture:own' })
+  assert.deepEqual(told, [{ chat: 'fixture:own', by: 'lead', calls: 0 }], 'recorded before the stop was sent')
+  r.holders.set('fixture:own', 'person')
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await assert.rejects(service.stop({ id: 'fixture:own' }), { message: LEAD_CHAT_HELD })
+  assert.equal(told.length, 1, 'a refused stop is not recorded')
+  r.holders.set('fixture:own', 'lead')
+  ;(r.ports as any).ledger.stopping = () => { throw new Error('ledger unreadable') }
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await service.stop({ id: 'fixture:own' })
+  ;(r.ports as any).ledger.stopping = () => new Promise(() => {})
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await service.stop({ id: 'fixture:own' })
+  assert.equal(r.calls.filter(call => call.method === 'stop').length, 3)
 })
 
 test('a person-held chat refuses Lead send and stop before dispatch, and hand back restores send', async t => {

@@ -4,7 +4,12 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { createLeadFixtureStore } from '../preview/frames-lead'
 import { LeadPage } from './LeadPage'
-import { LeadRecap, leadAsksAt, useLeadAsks, leadDigestSections, leadDigestTitle } from './LeadAway'
+import { LeadRecap, leadAsksAt, useLeadAsks, leadDigestLine, leadDigestNote, leadDigestSections, leadDigestTitle } from './LeadAway'
+import { openExternal } from '../lib/desktop'
+import { leadDigestTarget } from './LeadRefs'
+import { leadDigestMore } from '@harnessdesk/protocol'
+
+vi.mock('../lib/desktop', async original => ({ ...(await original<typeof import('../lib/desktop')>()), openExternal: vi.fn() }))
 import { leadPresenceFixture } from '../preview/lead-fixture'
 import { DestinationPageScope } from '../panels/destination-page'
 
@@ -43,7 +48,47 @@ it('shows the host digest at the top, names this window to the host, and replace
   expect(localStorage.getItem('hd-lead-device-v1')).toMatch(/^[0-9a-f]{24}$/)
 })
 
-it('dismisses the digest through the host, for this device', async () => {
+it('each item the desk can find opens it: a chat, a decision card, a pull request; one it cannot stays a reading', async () => {
+  const { box, store } = await mount()
+  const openSession = vi.spyOn(store, 'openSession').mockResolvedValue(undefined as never)
+  const openDestination = vi.spyOn(store, 'openDestination').mockImplementation(() => {})
+  const row = (id: string) => box.querySelector<HTMLElement>(`[data-slot="lead-away"] [data-digest-item="${id}"]`)!
+  expect(row('work-4').tagName).toBe('BUTTON')
+  expect(row('work-4').getAttribute('data-digest-opens')).toBe('chat')
+  await act(async () => { row('work-4').click() })
+  expect(openSession).toHaveBeenCalledWith('rename-column', { runtime: 'fixture' })
+  await act(async () => { row('plan-2').click() })
+  expect(openDestination).toHaveBeenCalledWith({ kind: 'lead', focus: 'plan-2' })
+  await act(async () => { row('work-1').click() })
+  expect(openExternal).toHaveBeenCalledWith('https://github.com/acme/widgets/pull/42')
+  expect(row('work-5').tagName).toBe('DIV')
+  expect(row('work-5').getAttribute('data-digest-opens')).toBeNull()
+})
+
+it('a pull request link never walks a path: a name of . or .. is no link', () => {
+  const desk = { chats: new Set<string>(), teams: new Set<string>(), goals: new Set<string>(), work: new Set<string>() } as never
+  expect(leadDigestTarget({ kind: 'pr', id: 'acme/.github#7' }, desk)?.target).toEqual({ kind: 'pr', repository: 'acme/.github', number: '7' })
+  for (const id of ['../widgets#1', 'acme/..#1', 'acme/.#2', 'acme/widgets/../x#3']) expect(leadDigestTarget({ kind: 'pr', id }, desk)).toBeNull()
+})
+
+it('a stop says who made it: you, the Lead by name, or the host’s fact when nobody is known', async () => {
+  const stopped = { kind: 'stopped' as const, id: 'work-6', title: 'Retry the upload test', fact: 'Stopped: its chat was stopped' }
+  expect(leadDigestLine({ ...stopped, stoppedBy: 'person' }, 'Dex')).toBe('You stopped it')
+  expect(leadDigestLine({ ...stopped, stoppedBy: 'lead' }, 'Dex')).toBe('Dex stopped it')
+  expect(leadDigestLine(stopped, 'Dex')).toBe('Stopped: its chat was stopped')
+  expect(leadDigestLine({ kind: 'done', id: 'work-1', title: 'Done', stoppedBy: 'person' }, 'Dex')).toBeUndefined()
+  const { box } = await mount()
+  expect(box.querySelector('[data-digest-item="work-6"]')!.textContent).toContain('You stopped it')
+})
+
+it('says that dismissing also clears the items the list had no room for, in the words every surface uses', () => {
+  const digest = leadPresenceFixture(1_000_000_000_000).digest!
+  expect(leadDigestNote({ ...digest, more: 3 })).toMatch(/^3 more not shown; dismissing clears them too · \$/)
+  expect(leadDigestNote({ ...digest, more: 0 })).not.toMatch(/more/)
+  expect(leadDigestMore(3)).toBe('3 more not shown; dismissing clears them too')
+})
+
+it('dismisses the digest through the host, which clears it for the desk', async () => {
   const { box, calls } = await mount()
   await act(async () => { box.querySelector<HTMLButtonElement>('[data-slot="lead-away"] button[aria-label*="ismiss"]')!.click() })
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
