@@ -31,6 +31,12 @@ export interface PacketMeta {
   readonly title: string
   /** When the limit was reached. */
   readonly at: number
+  /**
+   * A seat whose role reads blind (a reviewer its siblings must not see): the
+   * packet carries the request and the instruction only — no recent turns, no
+   * commands, no files — so its blindness survives the move.
+   */
+  readonly blind?: boolean
 }
 
 const quote = (text: string): string => text.split('\n').map(line => `> ${line}`).join('\n')
@@ -76,7 +82,7 @@ export const carryOnPacket = (turns: readonly Turn[], meta: PacketMeta, cap = MO
   const back = `Full history: “${meta.title}” on ${meta.fromName}.`
   const instruction = 'Continue the request above from where it stopped. Check the working tree before redoing anything.'
 
-  const recent = turns.slice(-RECENT)
+  const recent = meta.blind ? [] : turns.slice(-RECENT)
   const turnSections: Section[] = recent.flatMap((turn, at) => {
     const words = turn.items.flatMap(item => item.type === 'assistantMessage' && item.text.trim() ? [item.text] : []).join('\n\n')
     const asked = turn.items.map(typed).find(text => text !== null && text.trim()) ?? null
