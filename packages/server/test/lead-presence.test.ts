@@ -496,16 +496,6 @@ test('a schedule or automatic message never closes the open question; only the p
   assert.equal(r.store.unansweredAsk(), null, 'a legacy message without a source is the person')
 })
 
-test('a question with no expiry holds work for a day at most', async t => {
-  const r = await rig(t)
-  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, { id: 'message-2', role: 'assistant', text: 'Start it?', ask: ask() }])
-  await r.store.observe()
-  r.tick(23 * 60 * MIN)
-  assert.equal(r.store.unansweredAsk()?.id, 'message-2')
-  r.tick(2 * 60 * MIN)
-  assert.equal(r.store.unansweredAsk(), null, 'past a day the question no longer holds work back')
-})
-
 test('an ask with no expiry stays open; the host, not the model, sets the clock', async t => {
   const r = await rig(t)
   r.setMessages([{ id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask() }])
@@ -856,4 +846,55 @@ test('a digest link id is checked for its kind, and a link the host cannot vouch
   r.setItems([work('work-1', 'done', r.now() - MIN, { closedAt: r.now() - MIN, outcome: 'done', links: { chats: [], teams: [], prs: ['acme/..#3'], issues: [] } })])
   const digest = (await r.store.read(desktop, { active: true })).digest!
   assert.deepEqual(digest.items[0]!.ref, { kind: 'work', id: 'work-1' })
+})
+
+// #2105: the Lead's follow-up after an automatic wake carries its options on the report, not on `ask`.
+const report = { finding: 'The fourth chat ended before its report.', caveat: 'I read only part of it.', ask: 'Let it read the reason and write a report?',
+  options: [{ id: 'read', label: 'Read the reason' }, { id: 'later', label: 'Not now' }], recommended: 'read' }
+
+test('a question an automatic report asks is a question: tracked, answerable by its tap, and its answer is a receipt naming the device', async t => {
+  let changed = 0
+  const r = await rig(t, { changed: () => { changed++ } })
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix the stalled game task' }, { id: 'message-7', role: 'assistant', text: `${report.finding}\n${report.caveat}\n${report.ask}`, proactive: report } as never])
+  await r.store.observe()
+  assert.equal(changed, 1, 'every device is told a new question is open')
+  assert.deepEqual((await r.store.read(desktop, { active: true })).asks, [{ id: 'message-7', status: 'open' }])
+  assert.deepEqual(r.store.unansweredAsk(), { id: 'message-7', question: report.ask, options: ['Read the reason', 'Not now'] })
+  r.tick(14_000)
+  const answeredAt = r.now()
+  const settle = await r.store.beforeSend(phone, 'Not now', 'message-7')
+  assert.ok(settle, 'fourteen seconds after it was asked, the tap is an answer, not an expiry')
+  await settle!(true)
+  const view = await r.store.read(desktop, { active: true })
+  assert.deepEqual(view.asks, [{ id: 'message-7', status: 'answered', answer: { option: 'Not now', by: 'Jane’s iPhone', at: answeredAt } }])
+  await assert.rejects(r.store.beforeSend(desktop, 'Read the reason', 'message-7'), code('lead-ask-answered'), 'the second surface is refused, naming the first')
+})
+
+test('a newer question replaces an older open one: the older reads replaced, refuses a tap, and holds nothing', async t => {
+  const r = await rig(t)
+  const first = { id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask() }
+  r.setMessages([first])
+  await r.store.observe()
+  r.setMessages([first, { id: 'message-5', role: 'assistant', text: 'Which one?', proactive: report } as never])
+  await r.store.observe()
+  const view = await r.store.read(desktop, { active: true })
+  assert.deepEqual(view.asks, [{ id: 'message-3', status: 'expired', replacedBy: 'message-5' }, { id: 'message-5', status: 'open' }])
+  parseLeadPresenceView(view)
+  await assert.rejects(r.store.beforeSend(phone, 'Start it', 'message-3'), code('lead-ask-replaced'))
+  assert.equal(r.store.unansweredAsk()?.id, 'message-5')
+  // An answered question stays answered when a newer one comes; only an open one is replaced.
+  await (await r.store.beforeSend(phone, 'Not now', 'message-5'))!(true)
+  r.setMessages([first, { id: 'message-5', role: 'assistant', text: 'Which one?', proactive: report } as never, { id: 'message-6', role: 'user', text: 'Not now' }, { id: 'message-8', role: 'assistant', text: 'Start it?', ask: ask() }])
+  await r.store.observe()
+  const after = await r.store.read(desktop, { active: true })
+  assert.deepEqual(after.asks.map(one => [one.id, one.status, one.replacedBy]), [['message-3', 'expired', 'message-5'], ['message-5', 'answered', undefined], ['message-8', 'open', undefined]])
+})
+
+test('a question with no expiry of its own holds until it is answered or replaced, however long that takes', async t => {
+  const r = await rig(t)
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, { id: 'message-2', role: 'assistant', text: 'Start it?', ask: ask() }])
+  await r.store.observe()
+  r.tick(3 * 24 * 60 * MIN)
+  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'three days on, nothing has answered it')
+  assert.equal((await r.store.read(desktop, { active: true })).asks[0]!.status, 'open')
 })
