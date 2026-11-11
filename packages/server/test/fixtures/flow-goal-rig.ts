@@ -199,6 +199,8 @@ export interface GoalRig {
   board(goal: string): TeamState
   sessionOf(seat: string): { runtime: string; sessionId: string }
   kill(seat: string): void
+  /** Set, the host refuses every replacement Seat (carry-on) with this sentence. */
+  refuseReplace: string | null
 }
 
 export const goalRig = async (
@@ -240,7 +242,7 @@ export const goalRig = async (
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
     goalSerial: new Serial(), seatAsked: null, strictAsks: [] as boolean[], holdsCeilings: true, reserve: null,
-    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, failOrderTimes: 0, turnsEndLater: false, turnEndDelayMs: 120, comesBackAs: null, busySeats: new Set<string>(), raceReleaseOnce: new Set<string>(), onOrder: null, onReseat: null,
+    refuseReplace: null, beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, failOrderTimes: 0, turnsEndLater: false, turnEndDelayMs: 120, comesBackAs: null, busySeats: new Set<string>(), raceReleaseOnce: new Set<string>(), onOrder: null, onReseat: null,
     orderTexts: new Map<string, string[]>(),
     sentences: new Map<string, string>(),
     origins: new Map<string, GoalOrigin>(),
@@ -404,6 +406,31 @@ export const goalRig = async (
     laneOf: (seat) => rig.lanes.get(String(seat.id)) ?? null,
     holdLeadSeat: async () => rig.holdsCeilings,
     reseat: async (seat) => { rig.onReseat?.(seat); return rig.comesBackAs ?? seat.seatLabel },
+    /* Carry-on's replacement, as the host's Goal plane makes it: in the Goal
+       queue, same checkout, the card's claim moved, the old Seat closed `limit`. */
+    replaceSeat: (seat, target) => rig.goalSerial.run(async () => {
+      if (rig.refuseReplace) return { refused: rig.refuseReplace }
+      opened += 1
+      const n = opened
+      const sessionId = target.mode === 'sameThread' ? seat.session.sessionId : `s${n}`
+      const record: SeatRecord = {
+        ...seat, id: `seat-${n}` as SeatRecord['id'], seat: { runtime: target.runtime }, seatLabel: target.runtime,
+        session: { runtime: target.runtime, sessionId }, openedAt: n, closed: null,
+      }
+      peers.push({ runtime: target.runtime as RuntimeId, sessionId, title: null, cwd: seat.checkout.cwd, agent: target.runtime, busy: true, canSteer: false, queuedByUser: 0, model: target.runtime, here: true })
+      await team.joinRoom(seat.board!, target.runtime as RuntimeId, sessionId)
+      rig.seats.set(String(record.id), record)
+      const lane = rig.lanes.get(String(seat.id))
+      if (lane) { rig.lanes.delete(String(seat.id)); rig.lanes.set(String(record.id), { ...lane, seat: String(record.id) }) }
+      if (target.card !== null) {
+        const state = team.stateFor(seat.board!)
+        team.installProjection({ ...state, intents: state.intents.map((card) => card.id === target.card && card.claim
+          ? { ...card, claim: { ...card.claim, runtime: target.runtime as RuntimeId, sessionId } } : card) })
+      }
+      rig.seats.set(String(seat.id), { ...seat, closed: { at: Date.now(), why: 'limit' } })
+      rig.events.push(`replace:${seat.id}->${record.id}:${target.mode}`)
+      return record
+    }),
     changed: () => {},
     publicationChanged: (goal: string) => options.publicationChanged?.(goal),
     log: (message) => rig.logs.push(message),
