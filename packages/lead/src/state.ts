@@ -549,7 +549,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const all = [...state.messages, event.message], excess = Math.max(0, all.length - 256)
       const thread = windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project: null,
         messages: all.slice(excess), olderMessages: state.olderMessages + excess, cards: [] }, 131072)
-      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages, ...(event.message.role === 'assistant' ? { chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 } } : {}),
+      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages, ...(event.message.role === 'assistant' && event.message.reminded === undefined ? { chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 } } : {}),
         sends: event.idempotencyKey === null ? state.sends : [...state.sends, { key: event.idempotencyKey, messageId: event.message.id, revision: event.seq }].slice(-LEAD_SEND_RECEIPTS) }
       break
     }
