@@ -259,7 +259,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     onApprovals: (runId: string) => { void (async () => { try { const run = snapshot.flowExecutions.get(runId) ?? await store.readFlowExecution(runId); store.openGoal(run.goal) } catch (error) { refusal(error) } })() },
   }
   return <ConversationShell ref={shell}>
-    <ConversationThread ref={thread} role="region" aria-label={`${label} thread`} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 24 }}>
+    <ConversationThread ref={thread} keepEnd role="region" aria-label={`${label} thread`} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 24 }}>
       {entries.length || working || live || pr || openingJobs.length || name && state.settings?.nameChosen !== true || state.wakes?.length || origin || state.thread?.olderMessages || state.savedApprovals?.length || state.revokedApprovals?.length || state.waitReason === 'lead-handback-limit' || state.waitReason === 'lead-repair-recovery-failed' ? <Page width="reading" gutter="none">
         <LeadWakeLedger wakes={state.wakes ?? []} />
         {name && <LeadNameIntro name={name} chosen={state.settings?.nameChosen === true} pending={choosingName || !!state.error || state.revision < 0} onChoose={async name => {

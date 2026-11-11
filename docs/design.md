@@ -2495,7 +2495,10 @@ control; an unread recent-folder entry cannot permanently hide that control.
 ## Lead is a conversation
 
 Lead and a session share ConversationShell, ConversationThread, ConversationDock,
-ConversationComposerFrame and the same top-bar registration. LeadMessage uses Items;
+ConversationComposerFrame and the same top-bar registration. The dock floats over
+the thread and the thread reserves its measured height; a thread a screen does
+not follow itself sets `keepEnd`, so a notice joining the dock (the away digest)
+never covers the last message while the reader is at the end. LeadMessage uses Items;
 assistant decision prose uses the same TranscriptAssistantMessage frame as Items.
 The empty state is ConversationEmptyState holding one LeadGreeting: the
 LeadAvatar, a title at the section step (16), one secondary sentence at 14, and

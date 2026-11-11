@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { LEAD_DIGEST_ITEM_LABELS, type LeadAskState, type LeadDigest, type LeadDigestItem } from '@harnessdesk/protocol'
+import { LEAD_DIGEST_ITEM_LABELS, leadDigestMore, type LeadAskState, type LeadDigest, type LeadDigestItem } from '@harnessdesk/protocol'
 import { Button, ListRow, ListRows, ToolBodyControls, ToolGroup, ToolProse, ToolSection } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { useSnapshot, useStore } from '../state/context'
@@ -14,6 +14,9 @@ const zone = (at: number) => new Intl.DateTimeFormat(undefined, { timeZoneName: 
 /** How often an open window asks again, so a question that ran out of time stops offering answers. */
 export const LEAD_PRESENCE_REFRESH_MS = 60_000
 
+/** The digest's last line: what the list had no room for, then what was spent. */
+export const leadDigestNote = (digest: LeadDigest): string =>
+  `${digest.more > 0 ? `${leadDigestMore(digest.more)} · ` : ''}${leadDollars(digest.spentUsdMicros)} spent${digest.kind === 'away' ? ' while away' : ''}`
 export const leadDigestTitle = (digest: LeadDigest): string =>
   digest.kind === 'brief' ? 'Morning brief' : digest.kind === 'recap' ? 'What happened' : `While you were away · ${clock(digest.from)}–${clock(digest.to)} ${zone(digest.to)}`.trim()
 
@@ -97,6 +100,6 @@ export const LeadAway = ({ active, state, label }: { readonly active: boolean; r
           : <ListRow key={`${item.kind}-${item.id}`} {...row} />
       })}</ListRows>
     </ToolGroup>)}
-    <ToolProse variant="note"><span data-slot="lead-away-note">{digest.more > 0 ? `${digest.more} more not shown · ` : ''}{leadDollars(digest.spentUsdMicros)} spent{digest.kind === 'away' ? ' while away' : ''}</span></ToolProse>
+    <ToolProse variant="note"><span data-slot="lead-away-note">{leadDigestNote(digest)}</span></ToolProse>
   </ToolSection></div>
 }

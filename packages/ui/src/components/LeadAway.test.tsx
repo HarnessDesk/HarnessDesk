@@ -4,9 +4,10 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { createLeadFixtureStore } from '../preview/frames-lead'
 import { LeadPage } from './LeadPage'
-import { LeadRecap, leadAsksAt, useLeadAsks, leadDigestLine, leadDigestSections, leadDigestTitle } from './LeadAway'
+import { LeadRecap, leadAsksAt, useLeadAsks, leadDigestLine, leadDigestNote, leadDigestSections, leadDigestTitle } from './LeadAway'
 import { openExternal } from '../lib/desktop'
 import { leadDigestTarget } from './LeadRefs'
+import { leadDigestMore } from '@harnessdesk/protocol'
 
 vi.mock('../lib/desktop', async original => ({ ...(await original<typeof import('../lib/desktop')>()), openExternal: vi.fn() }))
 import { leadPresenceFixture } from '../preview/lead-fixture'
@@ -78,6 +79,13 @@ it('a stop says who made it: you, the Lead by name, or the host’s fact when no
   expect(leadDigestLine({ kind: 'done', id: 'work-1', title: 'Done', stoppedBy: 'person' }, 'Dex')).toBeUndefined()
   const { box } = await mount()
   expect(box.querySelector('[data-digest-item="work-6"]')!.textContent).toContain('You stopped it')
+})
+
+it('says that dismissing also clears the items the list had no room for, in the words every surface uses', () => {
+  const digest = leadPresenceFixture(1_000_000_000_000).digest!
+  expect(leadDigestNote({ ...digest, more: 3 })).toMatch(/^3 more not shown; dismissing clears them too · \$/)
+  expect(leadDigestNote({ ...digest, more: 0 })).not.toMatch(/more/)
+  expect(leadDigestMore(3)).toBe('3 more not shown; dismissing clears them too')
 })
 
 it('dismisses the digest through the host, which clears it for the desk', async () => {

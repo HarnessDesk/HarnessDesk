@@ -264,7 +264,8 @@ export class LeadPresenceStore {
     return out.slice(-LEAD_PRESENCE_LIMITS.asks)
   }
 
-  async #items(since: number, revision: number): Promise<{ items: LeadDigestItem[]; more: number }> {
+  /** Every item since `since`, in the order the person acts on; the caller drops what was seen, then caps the list. */
+  async #items(since: number, revision: number): Promise<LeadDigestItem[]> {
     const board = await this.ports.board().catch(() => null)
     const waiting: LeadDigestItem[] = [], stopped: LeadDigestItem[] = [], done: LeadDigestItem[] = []
     const seen = new Set<string>()
@@ -280,8 +281,7 @@ export class LeadPresenceStore {
     // Decisions that wait on the person but belong to no work item (a plan, a permission change). They open their card.
     for (const card of this.ports.waiting()) if (card.position > revision && !seen.has(card.id))
       waiting.push({ kind: 'waiting', id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'A request waits for you', ref: { kind: 'card', id: card.id } })
-    const all = [...waiting, ...stopped, ...done]
-    return { items: all.slice(0, LEAD_PRESENCE_LIMITS.items), more: Math.max(0, all.length - LEAD_PRESENCE_LIMITS.items) }
+    return [...waiting, ...stopped, ...done]
   }
 
   /** The part of a digest that needs only the ledger; the optional paragraph is added outside the queue. */
@@ -294,8 +294,10 @@ export class LeadPresenceStore {
     const covering = seen.filter(span => span.from <= from && span.at >= from)
     const revision = this.ports.revision(), spentNow = this.ports.spent()
     const found = await this.#items(from, Math.max(baseline.revision, ...covering.map(span => span.revision)))
-    const items = found.items.filter(entry => !seen.some(span => within(entry.at, { from: span.from, to: span.at })))
-    return { kind, from, to, items, more: found.more, end: { revision, spent: spentNow },
+    // What was dismissed is dropped before the list is capped, so it takes no room and is not counted as more.
+    const unseen = found.filter(entry => !seen.some(span => within(entry.at, { from: span.from, to: span.at })))
+    const items = unseen.slice(0, LEAD_PRESENCE_LIMITS.items), more = Math.max(0, unseen.length - LEAD_PRESENCE_LIMITS.items)
+    return { kind, from, to, items, more, end: { revision, spent: spentNow },
       spent: Math.max(0, spentNow - Math.max(baseline.spent, ...covering.map(span => span.spent))) }
   }
   /** One short paragraph from the smaller model, within the day's cap. Slow and paid, so it never runs inside the queue. */

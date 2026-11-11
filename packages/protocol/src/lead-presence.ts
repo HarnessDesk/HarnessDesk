@@ -7,6 +7,12 @@
  */
 import { arrayOf, isBoolean, isNumber, isObject, isString, literalUnion, optional, ValidationError, type Validator } from './validate.js'
 
+/**
+ * The words for the items a digest had no room for. Dismissing a digest dismisses its whole span, these included, so
+ * every surface says so in the same words rather than letting them go unseen.
+ */
+export const leadDigestMore = (more: number): string => `${more} more not shown; dismissing clears them too`
+
 export const LEAD_PRESENCE_LIMITS = Object.freeze({
   /** Away this long and the next look gets a digest. A shorter absence is a glance. */
   awayMs: 30 * 60_000,

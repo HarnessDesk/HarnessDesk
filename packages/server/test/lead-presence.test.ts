@@ -114,6 +114,25 @@ test('a dismissal covers what the digest showed, not what changed after it was b
   assert.equal(next.spentUsdMicros, 7_000, 'and so is what was spent after it')
 })
 
+test('what a dismissal already covered takes no room in a later digest\'s list, and is not counted as more', async t => {
+  const r = await rig(t)
+  await r.store.read(phone, { active: true })
+  r.tick(24 * 60 * MIN)
+  await r.store.read(desktop, { active: true })
+  r.tick(2 * 60 * MIN)
+  const done = (id: string, at: number) => work(id, 'done', at, { closedAt: at, outcome: 'done' })
+  // Eight finished in the window's short absence, listed first on the board; two finished earlier, while only the phone was away.
+  const recent = Array.from({ length: 8 }, (_, index) => done(`work-${index + 1}`, r.now() - (index + 1) * MIN))
+  r.setItems(recent)
+  const short = (await r.store.read(desktop, { active: true })).digest!
+  assert.equal(short.items.length, 8)
+  await r.store.dismiss(desktop, short.id)
+  r.setItems([...recent, done('work-9', r.now() - 20 * 60 * MIN), done('work-10', r.now() - 21 * 60 * MIN)])
+  const week = (await r.store.read(phone, { active: true })).digest!
+  assert.deepEqual(week.items.map(item => item.id).sort(), ['work-10', 'work-9'], 'the earlier two fill the list')
+  assert.equal(week.more, 0, 'and what was dismissed is not counted as more')
+})
+
 test('a short digest dismissed on the window does not drop a longer one a phone still holds', async t => {
   const r = await rig(t)
   await r.store.read(phone, { active: true })

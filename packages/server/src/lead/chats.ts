@@ -629,8 +629,12 @@ export class LeadChats {
       await this.incidents?.stop(params.id)
       // The ledger hears the stop is the Lead's as the effect starts, right before the interrupt is sent; never on the path
       // that only cancels a recovery, and it never holds the stop up.
-      const started = () => { effectStarted(); try { this.ports.ledger?.stopping?.(params.id, 'lead') } catch { /* As above. */ } }
-      return this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id) }, started, this.#liveScope(call, attemptId, () => params.id))
+      // A failed interrupt takes the record back, so a later stop the desk did not send is not put on the Lead.
+      let undo: (() => void) | undefined
+      const started = () => { effectStarted(); try { undo = this.ports.ledger?.stopping?.(params.id, 'lead') } catch { /* As above. */ } }
+      try {
+        return await this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id) }, started, this.#liveScope(call, attemptId, () => params.id))
+      } catch (error) { try { undo?.() } catch { /* Never in the way of the error. */ } throw error }
     })
   }
 

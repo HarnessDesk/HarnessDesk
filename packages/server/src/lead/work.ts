@@ -250,17 +250,25 @@ export class LeadWorkLedger {
     const live = this.ports.chat(chat)
     if (!live || live.stage === 'idle') return () => {}
     const mark: StopMark = { by, at: this.ports.now(), ...(live.turn ? { turn: live.turn } : {}) }
+    // Two doors inside the window: the last to send is recorded. One whose interrupt then fails hands the record back
+    // to the mark it replaced, which is the stop that landed.
+    const before = this.#stops.get(chat)
     this.#stops.set(chat, mark)
-    const copy = (keep: boolean) => void this.#write(() => {
+    const copy = (now: StopMark | undefined) => void this.#write(() => {
       for (const item of this.stored.items) {
         if (item.closedBy === 'person' || !item.links.chats.includes(chat)) continue
         const watch = item.watch[`chat:${chat}`] ??= {}
-        if (keep && this.#stops.get(chat) === mark) watch.stopBy = { ...mark }
-        else if (!keep && watch.stopBy?.at === mark.at && watch.stopBy.by === mark.by) delete watch.stopBy
+        if (now) { if (this.#stops.get(chat) === now) watch.stopBy = { ...now } }
+        else if (watch.stopBy?.at === mark.at && watch.stopBy.by === mark.by) delete watch.stopBy
       }
     }).catch(() => {})
-    copy(true)
-    return () => { if (this.#stops.get(chat) !== mark) return; this.#stops.delete(chat); copy(false) }
+    copy(mark)
+    return () => {
+      if (this.#stops.get(chat) !== mark) return
+      if (before) this.#stops.set(chat, before)
+      else this.#stops.delete(chat)
+      copy(before)
+    }
   }
   /**
    * Room for one more open item. A full ledger first closes its oldest quiet item (nothing the host can follow), so it
