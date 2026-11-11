@@ -1905,6 +1905,12 @@ export class Host {
         return this.#labelOf(seat.seat.runtime, live.options())
       },
       replaceSeat: (seat, target) => this.#replaceSeat(seat, target),
+      // Carry-on's incidents are read from disk lazily: a restart's own resume waits for them, never for its queue.
+      carryOnHolds: async (runtime, sessionId) => {
+        if (this.#carryOnDeciding.has(carryOnKey(runtime, sessionId))) return true
+        await this.#carryOn.loaded()
+        return this.#carryOn.live(runtime, sessionId)
+      },
       // Tells windows only: a run's own journal moved, not the Goal's board,
       // and a view read here could predate the board's own pending write.
       // Each run goes out whole, so a run status on screen never waits to be asked.
@@ -6126,12 +6132,16 @@ export class Host {
         // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
         // last await: a person who writes while the host is resolving the handle wins there too.
         send: async (runtime, sessionId, text, kind, stillOurs, admitted) => {
-          const admission = Object.assign(async () => {}, {
-            assertDispatch: () => { if (!stillOurs()) throw new Error('The person’s message went first.') },
-            // Past the boundary: carry-on's marker goes in now, never for a send the person overtook.
-            ...(admitted ? { dispatchStarted: admitted } : {}),
-          })
           const at = key(runtime, sessionId)
+          // Into a Flow's Seat, the run's own gate rides the same admission: its budget is read when the send goes
+          // (a queued packet's when it drains), and its stop at the boundary itself (§9.4).
+          const run = this.#flows.carriedAdmission(runtime, sessionId)
+          const admission = Object.assign(async () => { await run?.admit() }, {
+            assertDispatch: () => { if (!stillOurs()) throw new Error('The person’s message went first.'); run?.assert() },
+            // Past the boundary: carry-on's marker goes in now, never for a send the person overtook. With the turns the
+            // conversation already had, so carry-on watches the turn this send starts and nothing before it.
+            ...(admitted ? { dispatchStarted: () => admitted((this.registry.get(at.runtime, at.sessionId)?.session.turns ?? []).map((turn) => String(turn.id))) } : {}),
+          })
           const input = [kind === 'packet' ? deskContextContent(text) : { type: 'text' as const, text }]
           // A packet waits its turn behind whatever the conversation is doing: a replacement Seat is still reading
           // its brief. Under the same admission, so the person writing first still wins when it is drained.

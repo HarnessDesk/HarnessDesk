@@ -76,7 +76,7 @@ const rig = async (t: TestContext, options: {
     close: async (runtime, id) => { state.calls.push(`close ${runtime} ${id}`) },
     resume: async (runtime, id) => { state.calls.push(`resume ${runtime} ${id}`); return `handle ${runtime} ${id}` },
     send: async (runtime, id, text, _kind, _stillOurs, admitted) => {
-      admitted?.()
+      admitted?.([])
       // Claim before send: whatever is being sent is already on disk.
       const disk = JSON.parse(await readFile(file, 'utf8')) as { records: { state: string }[] }
       state.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)} [${disk.records.map(record => record.state).join(',')}]`)
@@ -512,12 +512,12 @@ test('the cancel closes only the handle carry-on attached', async t => {
 
 /** A send port that dispatches the way the host does: an await, then the person writes, then the effect. */
 const dispatching = (r: Rig, service: () => CarryOnService, source = { runtime: 'codex', sessionId: 's1' }) =>
-  async (runtime: string, id: string, text: string, _kind: string, stillOurs?: () => boolean, admitted?: () => void) => {
+  async (runtime: string, id: string, text: string, _kind: string, stillOurs?: () => boolean, admitted?: (known: readonly string[]) => void) => {
     await new Promise(resolve => setTimeout(resolve, 1))
     void service().personSent(source.runtime, source.sessionId)
     // The host's admission, at its effect boundary.
     if (stillOurs && !stillOurs()) throw new Error('The person’s message went first.')
-    admitted?.()
+    admitted?.([])
     r.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)}`)
   }
 
@@ -620,7 +620,7 @@ test('an admitted switch still writes its marker before the continue goes', asyn
   const order: string[] = []
   const service = r.reopen({
     record: (runtime, id, item) => { order.push(`mark ${item.phase}`); r.marks.push({ at: `${runtime} ${id}`, item }); return true },
-    send: async (runtime, id, _text, _kind, _stillOurs, admitted) => { admitted?.(); order.push(`send ${runtime} ${id}`) },
+    send: async (runtime, id, _text, _kind, _stillOurs, admitted) => { admitted?.([]); order.push(`send ${runtime} ${id}`) },
   })
   t.after(() => service.close())
   await service.ended('codex', 's1', LIMIT)
@@ -811,4 +811,48 @@ test('a seat asked is answered through the same decide, and a stop hands it back
   await r.service.decide({ incidentId: incident!.incidentId, choice: 'stop', always: false })
   assert.deepEqual(seat.log, ['recover codex s1'])
   assert.equal(r.service.live('codex', 's1'), false)
+})
+
+/*
+ * Review fix 2: a replacement Seat starts on its brief, and its packet goes
+ * after it (queued behind it when the brief is still running). Only the
+ * continuation's own end says whether the move held, so a limit there goes on
+ * as the same incident, with its hops and the accounts it tried.
+ */
+for (const queued of [false, true]) test(`a replacement Seat’s brief never ends the watch; a limit on its ${queued ? 'queued ' : ''}continuation carries the same incident on`, async t => {
+  const seat = seatPorts({ refuse: { 'codex-2': 'it shares a provider with the work this seat must be independent of' } })
+  const r = await rig(t, { owner: 'seat', seat: seat.ports })
+  let drain: (() => void) | null = null
+  const service = r.reopen({
+    send: async (runtime, id, text, _kind, _stillOurs, admitted) => {
+      r.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)}`)
+      // The new Seat already had its brief. Queued, the packet is admitted only when that brief is over.
+      if (queued) drain = () => admitted?.(['brief-1'])
+      else admitted?.(['brief-1'])
+    },
+  })
+  t.after(() => service.close())
+  assert.equal(await service.ended('codex', 's1', LIMIT), true)
+  assert.deepEqual(seat.log, ['replace codex s1 -> claude handoff'])
+  const [moved] = (await disk(r.file)).records
+  assert.equal(moved!['state'], 'moved')
+  assert.equal(moved!['hops'], 1)
+
+  // The brief finishing is not the continuation: the watch stays where it was.
+  assert.equal(await service.ended('claude', 'seat-session-1', { id: 'brief-1', status: 'completed' }), false)
+  if (queued) {
+    assert.deepEqual((await disk(r.file)).records[0]!['watch'], { runtime: 'claude', sessionId: 'seat-session-1', pending: true })
+    drain!()
+    await service.idle()
+  }
+  assert.deepEqual((await disk(r.file)).records[0]!['watch'], { runtime: 'claude', sessionId: 'seat-session-1', skip: ['brief-1'] })
+
+  // The continuation itself hits a limit: the same incident goes on, never a fresh one at hops 0.
+  assert.equal(await service.ended('claude', 'seat-session-1', { ...LIMIT, id: 't-continue' }), true)
+  await service.idle()
+  const records = (await disk(r.file)).records
+  assert.equal(records.length, 1, 'no second incident')
+  assert.equal(records[0]!['incidentId'], moved!['incidentId'])
+  assert.ok(Number(records[0]!['hops']) >= 1, 'its hops are kept')
+  assert.ok((records[0]!['tried'] as string[]).includes('codex') && (records[0]!['tried'] as string[]).includes('claude'), 'and the accounts it tried')
 })

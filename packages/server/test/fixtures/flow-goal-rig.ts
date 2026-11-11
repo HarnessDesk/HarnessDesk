@@ -201,6 +201,8 @@ export interface GoalRig {
   kill(seat: string): void
   /** Set, the host refuses every replacement Seat (carry-on) with this sentence. */
   refuseReplace: string | null
+  /** Whether carry-on holds a conversation (an incident asking or waiting): recovery leaves its card alone. */
+  carryOnHolds: ((runtime: string, sessionId: string) => boolean) | null
 }
 
 export const goalRig = async (
@@ -242,7 +244,7 @@ export const goalRig = async (
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
     goalSerial: new Serial(), seatAsked: null, strictAsks: [] as boolean[], holdsCeilings: true, reserve: null,
-    refuseReplace: null, beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, failOrderTimes: 0, turnsEndLater: false, turnEndDelayMs: 120, comesBackAs: null, busySeats: new Set<string>(), raceReleaseOnce: new Set<string>(), onOrder: null, onReseat: null,
+    refuseReplace: null, carryOnHolds: null, beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, failOrderTimes: 0, turnsEndLater: false, turnEndDelayMs: 120, comesBackAs: null, busySeats: new Set<string>(), raceReleaseOnce: new Set<string>(), onOrder: null, onReseat: null,
     orderTexts: new Map<string, string[]>(),
     sentences: new Map<string, string>(),
     origins: new Map<string, GoalOrigin>(),
@@ -431,6 +433,7 @@ export const goalRig = async (
       rig.events.push(`replace:${seat.id}->${record.id}:${target.mode}`)
       return record
     }),
+    carryOnHolds: async (runtime, sessionId) => rig.carryOnHolds?.(runtime, sessionId) ?? false,
     changed: () => {},
     publicationChanged: (goal: string) => options.publicationChanged?.(goal),
     log: (message) => rig.logs.push(message),

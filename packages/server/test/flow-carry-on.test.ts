@@ -125,6 +125,145 @@ test('a run at its budget gets no switch', async (t) => {
   assert.deepEqual(rig.events.filter((one) => one.startsWith('replace:')), [])
 })
 
+/* Review fix 1: the run's budget and stop are read when a carried send actually goes. */
+test('a carried send reads the run’s budget when it goes, and its stop at the boundary', async (t) => {
+  const rig = await goalRig(t)
+  providers(rig)
+  const run = await rig.startTriggered(WRITE_THEN_REVIEW('beta'), AGENTS)
+  await rig.flows.flush()
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  const old = rig.sessionOf('seat-1')
+  const opened = await rig.flows.replaceSeat(old.runtime, old.sessionId, { runtime: 'alpha-two', mode: 'handoff' })
+  assert.ok(!('refused' in opened))
+  const next = rig.sessionOf(String(opened.id))
+  const admission = rig.flows.carriedAdmission(next.runtime, next.sessionId)!
+  await admission.admit()
+  admission.assert()
+
+  // Spend lands after the replacement opened and before its packet drains: the packet is refused, the run stalls.
+  rig.triggerGate = () => 'Run budget reached'
+  await assert.rejects(admission.admit(), /Run budget reached/)
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'stalled')
+  assert.throws(() => admission.assert(), /no longer handing out work/)
+})
+
+test('spend that lands while a replacement is being checked refuses it before anything moves', async (t) => {
+  const rig = await goalRig(t)
+  providers(rig)
+  const run = await rig.startTriggered(WRITE_THEN_REVIEW('beta'), AGENTS)
+  await rig.flows.flush()
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  const seat = rig.sessionOf('seat-1')
+  let reads = 0
+  // The first read passes; the one after the independence checks finds the budget gone.
+  rig.triggerGate = () => (++reads > 1 ? 'Run budget reached' : null)
+  assert.deepEqual(await rig.flows.replaceSeat(seat.runtime, seat.sessionId, { runtime: 'alpha-two', mode: 'handoff' }), { refused: 'Run budget reached' })
+  assert.equal(reads, 2)
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('replace:')), [])
+  assert.equal(rig.executions.stored(run.id)!.replacing, undefined, 'nothing left journaled')
+})
+
+/* Review fix 3: a crash between the claim moving and the run's journal finishing it. */
+test('a replacement a restart cut short is finished from the card’s claim, and one that never moved is let go', async (t) => {
+  for (const moved of [true, false]) {
+    const rig = await goalRig(t)
+    providers(rig)
+    const started = await rig.start(WRITE_THEN_REVIEW('beta'), AGENTS)
+    await rig.flows.flush()
+    const old = rig.sessionOf('seat-1')
+    if (moved) {
+      // The desk dies at the save that would record the replacement: the port has already moved the claim.
+      rig.files.dieWhen = (stored) => stored.replaced !== undefined
+    } else {
+      // The desk dies right after the journal is saved, before the port moved anything.
+      const save = rig.files.save.bind(rig.files)
+      rig.files.save = async (stored) => { await save(stored); if (stored.replacing) { rig.files.dead = true; throw new Error('(the desk is gone)') } }
+    }
+    await assert.rejects(rig.flows.replaceSeat(old.runtime, old.sessionId, { runtime: 'alpha-two', mode: 'handoff' }))
+    await rig.flows.flush().catch(() => {})
+    const id = rig.flows.executionsFor(started.goal)[0]!.id
+    const stranded = (await rig.restart()).executions.stored(id)!
+    assert.ok(stranded.replacing, 'the restart finds the replacement journaled')
+    await rig.flows.resume()
+    await rig.flows.flush()
+    const run = rig.executions.stored(id)!
+    assert.equal(run.replacing, undefined, 'the journal is settled')
+    if (moved) {
+      assert.deepEqual(run.rounds[0]!.seats, ['seat-1', 'seat-2'])
+      assert.deepEqual(run.replaced, { 'seat-2': 'seat-1' })
+      assert.equal(rig.flows.bindingOf(started.goal, 1)?.session?.runtime, 'alpha-two', 'the run follows the claim to the new Seat')
+      assert.ok(rig.logs.some((one) => one.includes('cut short by a restart')))
+    } else {
+      assert.deepEqual(run.rounds[0]!.seats, ['seat-1'], 'nothing moved, so the run stays on the Seat it had')
+      assert.equal(run.replaced, undefined)
+    }
+  }
+})
+
+/* Review fix 4: work handed to the Seat a replacement took over counts as handed to the replacement. */
+const BASE_FLOW = `
+version: 2
+name: Fresh relay
+base: { remote: origin }
+roles:
+  dev: { kind: agent, uses: writer, grant: edit }
+  tester: { kind: agent, uses: reader, grant: read }
+seed: { role: dev, title: Work }
+rules:
+  - { id: test, on: dev, then: { role: tester, title: Test } }
+`
+test('a replacement keeps the work its predecessor was handed, so its advanced HEAD is not refused after a restart', async (t) => {
+  const BASE = 'a'.repeat(40)
+  const rig = await goalRig(t, { fetchBase: async (_root, base) => ({ ...base, at: BASE }) })
+  providers(rig)
+  rig.heads.set('/repo/.lanes/1', { at: BASE, dirty: false })
+  const started = await rig.start(BASE_FLOW, [agent('writer', ['done']), agent('reader', ['approve'])])
+  await rig.flows.flush()
+  assert.ok(rig.events.includes('order:seat-1'))
+  // The writer committed before its limit: its checkout is past the base now.
+  rig.heads.set('/repo/.lanes/1', { at: 'b'.repeat(40), dirty: false })
+  const old = rig.sessionOf('seat-1')
+  const opened = await rig.flows.replaceSeat(old.runtime, old.sessionId, { runtime: 'alpha-two', mode: 'handoff' })
+  assert.ok(!('refused' in opened))
+  const run = rig.executions.stored(rig.flows.executionsFor(started.goal)[0]!.id)!
+  assert.deepEqual(run.replaced, { 'seat-2': 'seat-1' }, 'the lineage is recorded')
+  assert.ok(run.operations.some((one) => one.kind === 'turn' && one.seat === 'seat-1' && one.state === 'finished'), 'the turn history is not rewritten')
+
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  const after = rig.executions.stored(run.id)!
+  assert.equal(after.state, 'running', after.reason ?? '')
+  assert.ok(!rig.events.includes('release:seat-2'), 'the replacement is not released for a HEAD its predecessor moved')
+  assert.ok(rig.events.includes('order:seat-2'), 'and is handed its card again')
+})
+
+/* Review fix 5: a seat carry-on holds is never handed back by a restart's own recovery. */
+test('a restart leaves a Seat carry-on still holds alone, and re-arms it once carry-on lets go', async (t) => {
+  const rig = await goalRig(t)
+  providers(rig)
+  await rig.start(WRITE_THEN_REVIEW('beta'), AGENTS)
+  await rig.flows.flush()
+  const seat = rig.sessionOf('seat-1')
+  const orders = () => rig.events.filter((one) => one === 'order:seat-1').length
+  const before = orders()
+  rig.kill('seat-1')
+  rig.carryOnHolds = (runtime, sessionId) => runtime === seat.runtime && sessionId === seat.sessionId
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  assert.equal(orders(), before, 'asked or waiting for its reset: no re-arm behind carry-on’s back')
+
+  rig.carryOnHolds = null
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  assert.ok(orders() > before, 'let go, the Seat’s own recovery runs')
+})
+
 /* Review fix 6: every binding of a later role must still fit, and each choice in a chain counts. */
 const TWO_BINDINGS = `
 version: 2

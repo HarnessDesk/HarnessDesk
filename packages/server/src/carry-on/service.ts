@@ -141,8 +141,8 @@ export interface CarryOnPorts {
    * such; `continue` is the one plain line that asks the agent to go on.
    */
   readonly send: (runtime: string, sessionId: string, text: string, kind: 'continue' | 'packet', stillOurs: () => boolean,
-    /** Called once the host has admitted the send at its effect boundary, right before it leaves. */
-    admitted?: () => void) => Promise<void>
+    /** Called once the host has admitted the send at its effect boundary, right before it leaves, with the turns the conversation already had. */
+    admitted?: (known: readonly string[]) => void) => Promise<void>
   /**
    * A new conversation on `runtime` in the stuck conversation's own folder, with carry-on's lease on the handle its
    * creation attached, taken at the attachment (null when the host could not say).
@@ -240,6 +240,9 @@ export class CarryOnService {
   }
 
   // ------------------------------------------------------------ reading
+
+  /** The incidents read from disk: a reader outside the queue (a restart's own recovery) waits for this, never for the queue. */
+  loaded(): Promise<void> { return this.#incidents.loaded() }
 
   /** Whether an incident still holds this conversation: the host leaves its own re-arms alone while one does. */
   live(runtime: string, sessionId: string): boolean {
@@ -487,10 +490,12 @@ export class CarryOnService {
       // A throttle's own retry is followed below, by its backoff; a move's continuation here.
       const prior = own && !own.throttle && own.watch?.runtime === runtime && own.watch.sessionId === sessionId ? own : watched?.throttle ? undefined : watched
       if (prior && !LIVE_STATES.has(prior.state)) {
+        // A turn before the continuation — a replacement Seat's brief — says nothing about whether the move held.
+        const before = !!prior.watch && (prior.watch.pending === true || !!prior.watch.skip?.includes(turn.id))
         if (!failed || !cause || cause === 'throttle') {
           // The continuing turn went through, or failed for a reason of its own: the move held. A throttle there is
           // that conversation's own, backed off below.
-          if (prior.watch) { const { watch: _, ...rest } = prior; await this.#put({ ...rest, lastAt: this.#now() } as CarryOnRecord) }
+          if (prior.watch && !before) { const { watch: _, ...rest } = prior; await this.#put({ ...rest, lastAt: this.#now() } as CarryOnRecord) }
           if (cause !== 'throttle') return false
         } else {
           if (prior.turnId === turn.id) return true
@@ -845,27 +850,46 @@ export class CarryOnService {
     try {
       // As for a chat: each marker is written once its send is admitted, and one the conversation cannot take yet
       // is kept on the incident and written when it can be.
+      // The watch is armed when the continuation is actually sent, with the turns the Seat already had (its brief):
+      // only the continuation's own end says whether the move held, and a limit there carries the chain on (§9.5).
+      let known: readonly string[] | null = null
+      let settledId: string | null = null
+      const watchOf = () => known ? { ...moved, skip: known.slice(-32) } : { ...moved, pending: true as const }
+      const arm = (turns: readonly string[]) => {
+        if (known) return
+        known = turns
+        if (settledId === null) return
+        const incidentId = settledId
+        void this.#incidents.serial(async () => {
+          const now = this.#incidents.byId(incidentId)
+          if (now?.watch?.pending && now.watch.runtime === moved.runtime && now.watch.sessionId === moved.sessionId) await this.#put({ ...now, watch: watchOf() })
+        }).catch(() => {})
+      }
+      const armed = async (record: CarryOnRecord): Promise<CarryOnRecord> => {
+        settledId = record.incidentId
+        return known && record.watch?.pending ? this.#put({ ...record, watch: watchOf() }) : record
+      }
       if (mode === 'sameThread') {
         const switched = { to, mode, ...(note ? { note } : {}) }
         let marked = false
         const markSwitched = () => { if (!marked) marked = this.#mark(current, moved, 'switched', switched) }
-        await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue', fence, markSwitched)
+        await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue', fence, (turns) => { markSwitched(); arm(turns) })
         markSwitched()
         const kept: CarryOnUnwritten[] = marked ? [] : [{ ...moved, phase: 'switched', ...switched }]
-        return await this.#settle(current, { state: 'moved', runtime: moved.runtime, sessionId: moved.sessionId, mode, watch: moved, ...(note ? { note } : {}), ...this.#keep(current, kept) }, from)
+        return await armed(await this.#settle(current, { state: 'moved', runtime: moved.runtime, sessionId: moved.sessionId, mode, watch: watchOf(), ...(note ? { note } : {}), ...this.#keep(current, kept) }, from))
       }
       const text = await this.ports.packet(from, { fromName: record.from.name, ...(record.from.account ? { fromAccount: record.from.account } : {}), at: record.openedAt, ...(blind ? { blind } : {}) })
       current = await this.#settle(current, { mode: 'handoff', link: moved, ...(note ? { note } : {}) })
       const leaving = { to, mode: 'handoff' as const, link: moved, ...(note ? { note } : {}) }
       let left = false
       const markLeft = () => { if (!left) left = this.#mark(current, from, 'left', leaving) }
-      await this.ports.send(moved.runtime, moved.sessionId, text, 'packet', fence, markLeft)
+      await this.ports.send(moved.runtime, moved.sessionId, text, 'packet', fence, (turns) => { markLeft(); arm(turns) })
       markLeft()
       const kept: CarryOnUnwritten[] = [
         ...(left ? [] : [{ ...from, phase: 'left' as const, ...leaving }]),
         ...this.#markOrKeep(current, moved, 'arrived', { to, mode: 'handoff', link: from }),
       ]
-      return await this.#settle(current, { state: 'moved', watch: moved, ...this.#keep(current, kept) })
+      return await armed(await this.#settle(current, { state: 'moved', watch: watchOf(), ...this.#keep(current, kept) }))
     } catch {
       // The new Seat holds the card already: its own recovery hands the card to it, rather than the old one.
       const settled = await this.#settle(current, { state: 'moved', watch: moved, link: moved, note: joinNotes(note, 'the first message to the new seat did not go through') })

@@ -1209,6 +1209,11 @@ export class Flows implements TeamFlows {
     return this.#executions?.refuseSeatTarget(runtime, sessionId, target) ?? Promise.resolve('This seat no longer belongs to a running run.')
   }
 
+  /** The run's own gate a carry-on send into this Seat passes when it actually goes; null for a conversation no run holds. */
+  carriedAdmission(runtime: string, sessionId: string): { readonly admit: () => Promise<void>; readonly assert: () => void } | null {
+    return this.#executions?.carriedAdmission(runtime, sessionId) ?? null
+  }
+
   /** A replacement Seat for the card this conversation holds, on `target`. */
   replaceSeat(runtime: string, sessionId: string, target: { readonly runtime: string; readonly mode: 'sameThread' | 'handoff'; readonly model?: string }): Promise<SeatRecord | { readonly refused: string }> {
     return this.#executions?.replaceSeat(runtime, sessionId, target) ?? Promise.resolve({ refused: 'This seat no longer belongs to a running run.' })

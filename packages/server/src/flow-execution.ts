@@ -106,6 +106,13 @@ export type StoredFlowExecution = FlowExecution & {
   publication?: StoredPublication
   /** Repository of the journaled pre-adoption fetch, retained for aborted-start cleanup. */
   baseRoot?: string
+  /**
+   * A carry-on replacement under way (§9.2), by the seating operation it moves: journaled before the port moves the
+   * card's claim, so a restart in between finishes it from the claim instead of leaving the run on a closed Seat.
+   */
+  replacing?: Readonly<Record<string, { readonly from: string; readonly card: number | null }>>
+  /** Each replacement Seat, to the Seat it replaced: work its predecessor was handed counts as handed to it. */
+  replaced?: Readonly<Record<string, string>>
 }
 
 const cardFinishedAnswer = (card: number): string => `Card #${card} is already finished, so there is nothing to hand this answer to.`
@@ -359,6 +366,11 @@ export interface FlowExecutionPort {
    * card's claim pass to the new one. Absent, a Seat is never replaced.
    */
   replaceSeat?(seat: SeatRecord, target: SeatReplacement): Promise<SeatRecord | { readonly refused: string }>
+  /**
+   * Whether a carry-on incident holds this conversation (asked, waiting for a reset, or being decided): no
+   * recovery hands its card back while one does, whichever path asks — a turn ending, a release, or a restart.
+   */
+  carryOnHolds?(runtime: string, sessionId: string): Promise<boolean>
   changed(goal: string, runs: readonly FlowExecution[]): void
   /** A publication journal changed durably; reads and unsuccessful writes never announce it. */
   publicationChanged?(goal: string): void
@@ -1687,7 +1699,7 @@ export class FlowExecutions {
     if (round.evidence.some(id => facts.filter(one => one.record.id === id && !one.record.restored && one.freshness.state === 'fresh').length !== 1)) return null
     const selected = facts.filter(one => round.evidence.includes(one.record.id) && one.record.fact.kind === 'review')
     if (selected.length === 0 || answers.some(answer => !selected.some(one => one.record.fact.kind === 'review' && one.record.fact.verdict === answer))) return null
-    if (this.#answerable(previous).some(seat => !selected.some(one => one.record.fact.kind === 'review' && one.record.fact.by === seat))) return null
+    if (this.#answerable(run, previous).some(seat => !selected.some(one => one.record.fact.kind === 'review' && one.record.fact.by === seat))) return null
     for (const view of selected) {
       const fact = view.record.fact
       if (fact.kind !== 'review' || view.record.restored || view.freshness.state !== 'fresh' || !answers.includes(fact.verdict) ||
@@ -1882,7 +1894,7 @@ export class FlowExecutions {
       subjects: closure.subjects,
       unsettled: closure.unsettled,
       cards: closure.cards,
-      reviewers: this.#answerable(round),
+      reviewers: this.#answerable(run, round),
       facts,
       outcomes: round.cards.map((id) => board.intents.find((one) => one.id === id)?.outcome ?? null),
     }
@@ -3875,7 +3887,8 @@ export class FlowExecutions {
     const plan = found?.run.id === id ? run.seatPlans?.[String(found.round.n)] : undefined
     // Recovery can resume directly from a journaled Seat, before seating completed.
     // Prove its initial commit before its first order, but let later turns keep its work.
-    const handed = run.operations.some((one) => one.kind === 'turn' && one.card === cardId && one.seat === String(seat.id) && one.state === 'finished')
+    const lineage = this.#lineage(run, String(seat.id))
+    const handed = run.operations.some((one) => one.kind === 'turn' && one.card === cardId && one.seat !== null && lineage.has(one.seat) && one.state === 'finished')
     if (!handed && plan?.base != null) {
       const lane = this.#port.laneOf(seat)
       const reason = !lane || lane.cwd !== seat.checkout.cwd || lane.ports.end < lane.ports.start || lane.state === 'released' || lane.state === 'reserved'
@@ -4642,18 +4655,25 @@ export class FlowExecutions {
       const current = this.#carried(runtime, sessionId)
       if (!current || current.run.id !== found.run.id) return { refused: 'This seat no longer belongs to a running run.' }
       const { operation, seat, round, role } = current
-      if (await this.#overBudget(current.run.id)) return { refused: 'Run budget reached' }
+      const id = current.run.id
+      if (await this.#overBudget(id)) return { refused: 'Run budget reached' }
       const refused = await this.#refuseTarget(current.run, seat, role, target.runtime)
       if (refused) return { refused }
+      // The independence reads awaited: spend that landed meanwhile still refuses, right before anything moves.
+      if (this.#stopRequests.has(id) || this.#get(id).state !== 'running') return { refused: 'This seat no longer belongs to a running run.' }
+      if (await this.#overBudget(id)) return { refused: 'Run budget reached' }
+      const from = String(seat.id)
+      // Journaled before the port moves the claim: a restart in between finishes it from the claim (`resume`).
+      const journaled = this.#get(id)
+      await this.#put({ ...journaled, replacing: { ...journaled.replacing, [operation.key]: { from, card: operation.card } } })
       const opened = await this.#port.replaceSeat!(seat, { ...target, role: round.role, card: operation.card })
-      if ('refused' in opened) return opened
-      const from = String(seat.id), to = String(opened.id)
-      const run = this.#get(current.run.id)
-      await this.#put({
-        ...run,
-        operations: run.operations.map((one) => one.key === operation.key ? { ...one, seat: to } : one),
-        rounds: run.rounds.map((one) => one.seats.includes(from) && !one.seats.includes(to) ? { ...one, seats: [...one.seats, to] } : one),
-      })
+        .catch((error: unknown) => ({ refused: error instanceof Error ? error.message : String(error) }))
+      if ('refused' in opened) {
+        await this.#put(this.#unjournal(this.#get(id), operation.key))
+        return opened
+      }
+      const to = String(opened.id)
+      const run = await this.#put(this.#replaced(this.#get(id), operation.key, from, to))
       try {
         this.#team.setRole(run.goal, opened.session.runtime, opened.session.sessionId, round.role)
       } catch (error) {
@@ -4663,9 +4683,82 @@ export class FlowExecutions {
     })
   }
 
-  /** The Seats of a round still answerable for it: one replaced at a usage limit hands that duty to its replacement. */
-  #answerable(round: FlowRoundState): readonly string[] {
-    return round.seats.filter((id) => this.#port.seatOf(id)?.closed?.why !== 'limit')
+  /** The run with this seating operation's Seat moved to its replacement: the round keeps both, the lineage records it. */
+  #replaced(run: StoredFlowExecution, key: string, from: string, to: string): StoredFlowExecution {
+    return {
+      ...this.#unjournal(run, key),
+      operations: run.operations.map((one) => one.key === key ? { ...one, seat: to } : one),
+      rounds: run.rounds.map((one) => one.seats.includes(from) && !one.seats.includes(to) ? { ...one, seats: [...one.seats, to] } : one),
+      replaced: { ...run.replaced, [to]: from },
+    }
+  }
+
+  #unjournal(run: StoredFlowExecution, key: string): StoredFlowExecution {
+    const { [key]: _done, ...rest } = run.replacing ?? {}
+    const { replacing: _all, ...kept } = run
+    return Object.keys(rest).length > 0 ? { ...kept, replacing: rest } : kept
+  }
+
+  /** A Seat and every Seat it replaced, newest first. */
+  #lineage(run: StoredFlowExecution, seat: string): ReadonlySet<string> {
+    const out = new Set<string>()
+    for (let at: string | undefined = seat; at !== undefined && !out.has(at); at = run.replaced?.[at]) out.add(at)
+    return out
+  }
+
+  /**
+   * A replacement a restart cut short (`replacing`): finished when a Seat
+   * other than the replaced one now holds the card's claim — the port moved
+   * it — and otherwise let go, the run left on the Seat it had.
+   */
+  async #reconcileReplacements(id: string): Promise<void> {
+    for (const [key, entry] of Object.entries(this.#get(id).replacing ?? {})) {
+      const run = this.#get(id)
+      const claim = entry.card === null ? null : this.#team.stateFor(run.goal).intents.find((one) => one.id === entry.card)?.claim ?? null
+      const to = claim ? this.#port.seatsOn(run.goal).find((seat) => !seat.closed && String(seat.id) !== entry.from &&
+        seat.session.runtime === claim.runtime && seat.session.sessionId === claim.sessionId) : undefined
+      if (!to) {
+        await this.#put(this.#unjournal(run, key))
+        continue
+      }
+      await this.#put(this.#replaced(run, key, entry.from, String(to.id)))
+      this.#port.log('a Seat replacement cut short by a restart was finished from its card’s claim', { run: id, from: entry.from, to: String(to.id) })
+    }
+  }
+
+  /**
+   * What a carry-on send into this Seat passes at its effect boundary (§9.4):
+   * the run's own dispatch gate, read when the send actually goes — a packet
+   * queued behind a brief reads it when it drains — and the run's stop, read
+   * synchronously at the boundary itself. Null when no running v2 run holds
+   * the conversation.
+   */
+  carriedAdmission(runtime: string, sessionId: string): { readonly admit: () => Promise<void>; readonly assert: () => void } | null {
+    const found = this.#carried(runtime, sessionId)
+    if (!found) return null
+    const id = found.run.id
+    const stopped = (): boolean => this.#stopRequests.has(id) || this.#runs.get(id)?.state !== 'running' || this.#runs.get(id)?.intake?.dispatchHeld === true
+    return {
+      admit: async () => {
+        if (stopped()) throw new Error('This run is no longer handing out work.')
+        // The run's own gate, read without its queue: a send drains inside the host's dispatch, which a run turn may be
+        // waiting on. Refused, the run is then held or stalled in its own queue, as any dispatch it refused would.
+        if (!await this.#overBudget(id)) return
+        void this.#queue.within(id, async () => { if (this.#get(id).state === 'running') await this.#mayDispatch(id) })
+          .catch((error: unknown) => this.#port.log('a carried send was refused, and its run could not be held', { run: id, error: error instanceof Error ? error.message : String(error) }))
+        throw new Error('Run budget reached')
+      },
+      assert: () => { if (stopped()) throw new Error('This run is no longer handing out work.') },
+    }
+  }
+
+  /**
+   * The Seats of a round still answerable for it: one replaced at a usage limit hands that duty to its replacement —
+   * by the run's own lineage, so a restart that finished the move before the old Seat was closed counts it the same.
+   */
+  #answerable(run: StoredFlowExecution, round: FlowRoundState): readonly string[] {
+    const predecessors = new Set(Object.values(run.replaced ?? {}))
+    return round.seats.filter((id) => !predecessors.has(id) && this.#port.seatOf(id)?.closed?.why !== 'limit')
   }
 
   /**
@@ -4678,6 +4771,9 @@ export class FlowExecutions {
     const run = this.#get(id)
     if (run.state !== 'running' || this.#continued(run)) return
     if (operation.card !== null && run.rounds.some((round) => round.n <= (run.intake?.supersededThrough ?? 0) && round.cards.includes(operation.card!))) return
+    // A Seat whose usage limit carry-on is still answering is carry-on's: its card waits for that answer (§9.3).
+    const holder = operation.seat ? this.#port.seatOf(operation.seat) : null
+    if (holder && !holder.closed && await this.#port.carryOnHolds?.(holder.session.runtime, holder.session.sessionId)) return
     const held = { pending: false }
     if ((run.intake || run.lead) && !await this.#mayDispatch(id, held)) {
       await this.#noteHeld(id, operation, held.pending)
@@ -5040,6 +5136,7 @@ export class FlowExecutions {
       if (which !== 'all' && (which === 'triggered') !== Boolean(run.intake)) continue
       await this.#queue.within(run.id, async () => {
         if (this.#get(run.id).state !== 'running' || this.#continued(this.#get(run.id))) return
+        await this.#reconcileReplacements(run.id)
         /* Read before advancing: a card the advance itself hands out — a
            round it opens, an order a crash left unsent — is handed out by
            it, never a second time here. */
