@@ -3,6 +3,7 @@ import { LEAD_MEMORY_LIMITS, type LeadCard, type LeadMemoryCandidate, type LeadM
 import { Banner, Button, Chip, ConfirmDialog, InlineParts, Input, Row, Rows, Section, SectionHead, Switch, Text } from '../design'
 import { useDestinationActive } from '../panels/destination-page'
 import { useStore } from '../state/context'
+import { sanitizeText } from '../lib/sanitize'
 import { leadRefusalText } from './lead-refusals'
 
 /**
@@ -39,7 +40,7 @@ const ProposalRow = ({ candidate, pending, change }: { readonly candidate: LeadM
         <Button disabled={pending || !editing.trim()} onClick={() => { change({ action: 'keep', id: candidate.id, text: editing.trim() }); setEditing(null) }}>Keep</Button>
         <Button variant="quiet" onClick={() => setEditing(null)}>Cancel</Button>
       </InlineParts>} />
-    : <Row title={candidate.text} titleChip={<InlineParts><Chip variant="quiet" tone="neutral">{KIND[candidate.kind]}</Chip>
+    : <Row title={sanitizeText(candidate.text)} titleChip={<InlineParts><Chip variant="quiet" tone="neutral">{KIND[candidate.kind]}</Chip>
         {candidate.askedAgainAt !== undefined && <Chip variant="quiet" tone="neutral" title="Proposed again while it waited for you; still one note">Asked again</Chip>}</InlineParts>}
       control={<InlineParts>
         <Button variant="outline" disabled={pending} title="Keep this note in memory" onClick={() => change({ action: 'keep', id: candidate.id })}>Keep</Button>

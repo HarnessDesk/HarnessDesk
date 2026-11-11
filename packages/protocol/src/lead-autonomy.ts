@@ -6,6 +6,7 @@
  * epoch. Nothing a rule says can widen what the host admits.
  */
 import { arrayOf, isNumber, isObject, isString, literalUnion, ValidationError, type Validator } from './validate.js'
+import { parseLeadDeviceRef } from './lead-presence.js'
 
 /** The five things the Lead does without being asked. */
 export const LEAD_AUTONOMY_KINDS = ['desk-change', 'stuck', 'repeat', 'mention', 'brief'] as const
@@ -72,6 +73,8 @@ export interface LeadRuleVersion {
   /** Rollback only: the version whose bytes this one carries. */
   readonly from?: number
   readonly base: { readonly version: number; readonly text: string }
+  /** Set when the person saved this version by pressing Apply on the Lead's proposal with this id: the words were the Lead's. */
+  readonly proposal?: string
 }
 export interface LeadRuleSectionView {
   readonly id: LeadRuleSectionId
@@ -94,8 +97,8 @@ export interface LeadDeadline { readonly logicalGoalId: string; readonly started
  * that changes any of them. A rules change names the section and its new version, never the words.
  */
 export type LeadAutonomyChange =
-  | { readonly at: number; readonly by: 'person'; readonly what: 'mode'; readonly kind: LeadAutonomyKind; readonly from: LeadAutonomyMode; readonly to: LeadAutonomyMode }
-  | { readonly at: number; readonly by: 'person'; readonly what: 'rules'; readonly section: LeadRuleSectionId; readonly version: number; readonly how: LeadRuleVersion['how'] }
+  | { readonly at: number; readonly by: 'person'; readonly what: 'mode'; readonly kind: LeadAutonomyKind; readonly from: LeadAutonomyMode; readonly to: LeadAutonomyMode; readonly proposal?: string }
+  | { readonly at: number; readonly by: 'person'; readonly what: 'rules'; readonly section: LeadRuleSectionId; readonly version: number; readonly how: LeadRuleVersion['how']; readonly proposal?: string }
   | { readonly at: number; readonly by: 'person'; readonly what: 'deadline'; readonly deadlineAt: number | null }
 /** Changes kept, newest last in the file and newest first on the wire. */
 export const LEAD_AUTONOMY_CHANGES_KEPT = 64
@@ -204,15 +207,17 @@ const deadline: Validator<LeadDeadline> = (value, path = '') => {
 export const parseLeadAutonomyChange: Validator<LeadAutonomyChange> = (value, path = '') => {
   const what = literalUnion('mode', 'rules', 'deadline')(isObject(value, path).what, at(path, 'what'))
   if (what === 'mode') {
-    const source = only(['at', 'by', 'what', 'kind', 'from', 'to'])(value, path)
+    const source = only(['at', 'by', 'what', 'kind', 'from', 'to', 'proposal'])(value, path)
     literalUnion('person')(source.by, at(path, 'by'))
-    return { at: integer()(source.at, at(path, 'at')), by: 'person', what, kind: kind(source.kind, at(path, 'kind')), from: mode(source.from, at(path, 'from')), to: mode(source.to, at(path, 'to')) }
+    return { at: integer()(source.at, at(path, 'at')), by: 'person', what, kind: kind(source.kind, at(path, 'kind')), from: mode(source.from, at(path, 'from')), to: mode(source.to, at(path, 'to')),
+      ...(source.proposal === undefined ? {} : { proposal: proposalId(source.proposal, at(path, 'proposal')) }) }
   }
   if (what === 'rules') {
-    const source = only(['at', 'by', 'what', 'section', 'version', 'how'])(value, path)
+    const source = only(['at', 'by', 'what', 'section', 'version', 'how', 'proposal'])(value, path)
     literalUnion('person')(source.by, at(path, 'by'))
     return { at: integer()(source.at, at(path, 'at')), by: 'person', what, section: section(source.section, at(path, 'section')),
-      version: integer(1)(source.version, at(path, 'version')), how: literalUnion('edit', 'reset', 'rollback')(source.how, at(path, 'how')) }
+      version: integer(1)(source.version, at(path, 'version')), how: literalUnion('edit', 'reset', 'rollback')(source.how, at(path, 'how')),
+      ...(source.proposal === undefined ? {} : { proposal: proposalId(source.proposal, at(path, 'proposal')) }) }
   }
   const source = only(['at', 'by', 'what', 'deadlineAt'])(value, path)
   literalUnion('person')(source.by, at(path, 'by'))
@@ -243,7 +248,12 @@ export const parseLeadAutonomyView: Validator<LeadAutonomyView> = (value, path =
  */
 export type LeadSettingsChange =
   | { readonly kind: 'autonomy'; readonly autonomy: LeadAutonomyKind; readonly from: LeadAutonomyMode; readonly to: LeadAutonomyMode }
-  | { readonly kind: 'rules'; readonly section: LeadRuleSectionId; readonly fromVersion: number; readonly text: string; readonly add?: string }
+  | { readonly kind: 'rules'; readonly section: LeadRuleSectionId; readonly fromVersion: number; readonly text: string; readonly add?: string
+    /**
+     * Set when the words in force were the shipped default: that default's version. An app update that ships new
+     * default words makes the proposal stale, so Apply never pins the old default under the Lead's line.
+     */
+    readonly fromDefault?: number }
 export const LEAD_SETTINGS_PROPOSAL_STATES = ['pending', 'applied', 'declined', 'stale'] as const
 export type LeadSettingsProposalState = typeof LEAD_SETTINGS_PROPOSAL_STATES[number]
 /** What happened to a proposal, in order: the record the Lead reads its history from, never its own recollection. */
@@ -261,11 +271,15 @@ export interface LeadSettingsProposal {
   readonly history: readonly LeadProposalEvent[]
 }
 export const LEAD_SETTINGS_PROPOSAL_LIMITS = Object.freeze({
-  /** Proposals kept, every state together, newest kept. */
+  /** Proposals kept. Pending ones are never dropped (there is at most one per kind and section); applied and stale go first, then declined. */
   kept: 16,
   history: 8,
   /** The line a rules proposal adds. */
   addChars: 500,
+  /** The person's Noes remembered after their card is dropped, so a declined change stays refused until they write. */
+  declines: 32,
+  /** New proposals between two of the person's messages; asking again does not count. */
+  perTurn: 3,
 })
 /** The Lead's proposal of a mode. Toward Act is allowed: it is only a proposal, and the person decides. */
 export interface LeadAutonomyPropose { readonly kind: LeadAutonomyKind; readonly mode: LeadAutonomyMode }
@@ -279,12 +293,15 @@ export type LeadRulesPropose = { readonly section: LeadRuleSectionId; readonly a
 export interface LeadSettingsProposeResult {
   readonly outcome: 'created' | 'asked-again' | 'same' | 'refused'
   readonly id?: string
-  readonly reason?: 'declined' | 'empty' | 'too-long'
+  readonly reason?: 'declined' | 'empty' | 'too-long' | 'too-many'
   readonly declinedBefore?: true
   readonly note: string
 }
-/** The person's answer on a proposal card. Never on the Lead's door. */
-export interface LeadSettingsDecide { readonly id: string; readonly decision: 'apply' | 'decline' }
+/**
+ * The person's answer on a proposal card. Never on the Lead's door. `device` is set by the phone link itself, never
+ * by what a request says about itself: a phone may say No to any card, and Apply only a mode or a single added line.
+ */
+export interface LeadSettingsDecide { readonly id: string; readonly decision: 'apply' | 'decline'; readonly device?: import('./lead-presence.js').LeadDeviceRef }
 
 const proposalId: Validator<string> = (value, path = '') => {
   const out = isString(value, path)
@@ -308,8 +325,9 @@ export const parseLeadRulesPropose: Validator<LeadRulesPropose> = (value, path =
   return { section: id, text }
 }
 export const parseLeadSettingsDecide: Validator<LeadSettingsDecide> = (value, path = '') => {
-  const source = only(['id', 'decision'])(value, path)
-  return { id: proposalId(source.id, at(path, 'id')), decision: literalUnion('apply', 'decline')(source.decision, at(path, 'decision')) }
+  const source = only(['id', 'decision', 'device'])(value, path)
+  return { id: proposalId(source.id, at(path, 'id')), decision: literalUnion('apply', 'decline')(source.decision, at(path, 'decision')),
+    ...(source.device === undefined ? {} : { device: parseLeadDeviceRef(source.device, at(path, 'device')) }) }
 }
 const proposalEvent: Validator<LeadProposalEvent> = (value, path = '') => {
   const source = only(['what', 'at'])(value, path)
@@ -321,9 +339,10 @@ const settingsChange: Validator<LeadSettingsChange> = (value, path = '') => {
     const source = only(['kind', 'autonomy', 'from', 'to'])(value, path)
     return { kind: which, autonomy: kind(source.autonomy, at(path, 'autonomy')), from: mode(source.from, at(path, 'from')), to: mode(source.to, at(path, 'to')) }
   }
-  const source = only(['kind', 'section', 'fromVersion', 'text', 'add'])(value, path)
+  const source = only(['kind', 'section', 'fromVersion', 'text', 'add', 'fromDefault'])(value, path)
   return { kind: which, section: section(source.section, at(path, 'section')), fromVersion: integer()(source.fromVersion, at(path, 'fromVersion')),
-    text: ruleText(source.text, at(path, 'text')), ...(source.add === undefined ? {} : { add: line(LEAD_SETTINGS_PROPOSAL_LIMITS.addChars)(source.add, at(path, 'add')) }) }
+    text: ruleText(source.text, at(path, 'text')), ...(source.add === undefined ? {} : { add: line(LEAD_SETTINGS_PROPOSAL_LIMITS.addChars)(source.add, at(path, 'add')) }),
+    ...(source.fromDefault === undefined ? {} : { fromDefault: integer()(source.fromDefault, at(path, 'fromDefault')) }) }
 }
 export const parseLeadSettingsProposal: Validator<LeadSettingsProposal> = (value, path = '') => {
   const source = only(['id', 'change', 'state', 'proposedAt', 'afterSeq', 'askedAgainAt', 'decidedAt', 'history'])(value, path)

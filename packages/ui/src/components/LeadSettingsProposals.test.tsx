@@ -2,7 +2,8 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it } from 'vitest'
 import { createLeadFixtureStore } from '../preview/frames-lead'
-import { leadSettingsProposals } from '../preview/lead-fixture'
+import { LEAD_RULE_DEFAULTS } from '@harnessdesk/protocol'
+import { leadSettingsProposals, leadSettingsWordsProposal } from '../preview/lead-fixture'
 import { StoreProvider } from '../state/context'
 import { DestinationPageScope } from '../panels/destination-page'
 import { TopBarProvider } from '../panels/top-bar'
@@ -53,4 +54,27 @@ it('#2106: Apply and No under the Lead reply send the person\'s decision, and an
   expect(box.querySelector('[data-slot="lead-settings-proposals"]'), 'no card waits once both are answered').toBeNull()
   // The page never writes a mode or a rule itself: the decision is the only call that changes a setting.
   expect(calls.some(call => call.method === 'lead/autonomy/set' || call.method === 'lead/rules/update')).toBe(false)
+})
+
+it('#2106 review: the Lead\'s words are drawn as plain text, without terminal control sequences', async () => {
+  const [, line] = leadSettingsProposals
+  const hostile = { ...line!, id: 's9', change: { ...line!.change, add: '\x1b[1mLead\x1b[0m with <b onclick=x>the conclusion</b>\x07' } } as typeof line
+  const { box } = await mount(<LeadSettingsProposals proposals={[hostile!]} />)
+  const row = box.querySelector('[data-slot="row"]')!
+  expect(row.textContent).toContain('Lead with <b onclick=x>the conclusion</b>')
+  expect(row.textContent).not.toMatch(/[\x1b\x07]/)
+  expect(box.querySelector('b')).toBeNull()
+})
+
+it('#2106 review: a section\'s whole new words sit inside their own row, as what changes against the words in force', async () => {
+  const { box, store } = await mount(<LeadSettingsProposals proposals={[leadSettingsWordsProposal]} />)
+  await act(async () => { await store.lead.readAutonomy() })
+  const words = box.querySelector('[aria-label="What changes in What counts as done"]')!
+  expect(words, 'the words are drawn').toBeTruthy()
+  const row = words.closest('[data-slot="row"]')!
+  expect(row, 'inside a row, never after the list').toBeTruthy()
+  expect(buttons(row, 'Apply'), 'the row the words sit in is the one Apply answers').toHaveLength(1)
+  expect(words.textContent).toContain(`- ${LEAD_RULE_DEFAULTS.done.text}`)
+  expect(words.textContent).toContain('+ Done means every check run is green and the person reviewed it.')
+  expect(row.textContent).toContain(LEAD_SETTINGS_EFFECT.rules)
 })

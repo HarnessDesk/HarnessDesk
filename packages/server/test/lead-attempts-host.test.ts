@@ -120,3 +120,21 @@ test('#2108: the stops ride the card, so the rail and the phone can say who stop
   const block = leadWorkCards(await r.host.call('lead/work/list', {}), Date.now())!
   assert.match(block, /2 attempts stopped \(the person stopped it each time\)/)
 })
+
+test('#2108 review: the Lead stopping its own chat twice is not the person saying no, so another attempt goes ahead', async t => {
+  const r = await rig(t)
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id: one, ledgerItem: item } = first.value as { id: string, ledgerItem: string }
+  assert.equal((await r.execute({ method: 'lead/chat/stop', params: { id: one } })).outcome, 'succeeded')
+  await card(r, item, stopped)
+  const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })
+  const two = (second.value as { id: string }).id
+  await card(r, item, found => found.stage !== 'stopped')
+  assert.equal((await r.execute({ method: 'lead/chat/stop', params: { id: two } })).outcome, 'succeeded')
+  const found = await card(r, item, stopped) as Card & { stops?: { by?: string }[] }
+  assert.deepEqual(found.stops?.map(stop => stop.by), ['lead', 'lead'], 'both stops were the Lead\'s own')
+  const chats = r.runtime.sessions.size
+  const third = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (third attempt)', ledgerItem: item } })
+  assert.equal(typeof (third.value as { id?: string }).id, 'string', `no question first: ${JSON.stringify(third.value)}`)
+  assert.equal(r.runtime.sessions.size, chats + 1, 'the third attempt started')
+})

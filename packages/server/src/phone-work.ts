@@ -1,11 +1,12 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
 import type { LeadAutonomyView, LeadChatControl, LeadWorkBoard, PhoneLeadMemory, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
+import { LEAD_MEMORY_LIMITS, LEAD_RULE_LIMITS, LEAD_SETTINGS_PROPOSAL_LIMITS } from '@harnessdesk/protocol'
 import {
   findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, wireCodeOf, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
 } from '@harnessdesk/protocol'
 import { assessApproval, buildThread, type PhoneApprovalTurn, type ThreadContext } from './phone-thread.js'
-import { folderName, scrub } from './phone-redact.js'
+import { folderName, scrub, scrubText } from './phone-redact.js'
 import type { PhoneWorkspace } from './phone-workspace.js'
 
 /**
@@ -229,6 +230,26 @@ export const phoneWorkBoard = (board: LeadWorkBoard): LeadWorkBoard => ({
   ...(board.reminders?.length ? { reminders: board.reminders.map(entry => ({ ...entry, text: scrub(entry.text, 200) || 'Reminder' })) } : {}),
 })
 
+/**
+ * Autonomy as the phone gets it: the Lead's proposal words through the same scrub as the board, since the Lead wrote
+ * them. A rules card keeps its line breaks (the phone shows a section's words as they would read), capped to the
+ * section's limit.
+ */
+export const phoneAutonomy = (view: LeadAutonomyView): LeadAutonomyView => view.proposals === undefined ? view : ({
+  ...view,
+  proposals: view.proposals.map(proposal => {
+    if (proposal.change.kind !== 'rules') return proposal
+    const { add, ...change } = proposal.change
+    const line = add === undefined ? '' : scrub(add, LEAD_SETTINGS_PROPOSAL_LIMITS.addChars)
+    return { ...proposal, change: { ...change, text: scrubText(change.text, LEAD_RULE_LIMITS.chars), ...(line ? { add: line } : {}) } }
+  }),
+})
+
+/** Memory as the phone gets it: a proposed note is the Lead's words, so it goes through the same scrub. */
+export const phoneMemory = (memory: PhoneLeadMemory): PhoneLeadMemory => ({
+  ...memory, inbox: memory.inbox.map(candidate => ({ ...candidate, text: scrub(candidate.text, LEAD_MEMORY_LIMITS.textChars) || 'Note' })),
+})
+
 export class PhoneWork {
   readonly #ports: PhoneWorkPorts
   /** What the phone answered lately, so a thread read after the answer still shows it. In memory only. */
@@ -287,8 +308,8 @@ export class PhoneWork {
       items, projects,
       ...(usage ? { usage } : {}),
       ...(work ? { work: phoneWorkBoard(work) } : {}),
-      ...(autonomy ? { autonomy } : {}),
-      ...(memory ? { memory } : {}),
+      ...(autonomy ? { autonomy: phoneAutonomy(autonomy) } : {}),
+      ...(memory ? { memory: phoneMemory(memory) } : {}),
       models, agents, flows: [], commands: [],
       capabilities: { ...CAPABILITIES, delete: this.#ports.readyRuntimes().some(id => this.#ports.canDelete?.(id) === true), chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
       threads: [],

@@ -885,3 +885,12 @@ test("a check-back is named by its work's title", async t => {
   await r.ledger.note({ id: 'work-1', remindAt: r.now() + DAY })
   assert.equal((await r.ledger.board()).reminders?.[0]?.text, 'Check on Fix the retry status list')
 })
+
+test('#2108 review: stops are checked when the ledger loads, so a stop the host never wrote cannot count toward the guard', async t => {
+  const r = await rig(t)
+  const ledger = await seed(r, stored(4, index => index === 1 ? { stops: [{ at: 1_000, by: 'person' }, { at: 1_001 }] }
+    : index === 2 ? { stops: [{ at: 'yesterday', by: 'person' }] } : index === 3 ? { stops: [{ at: 1_000, by: 'someone' }] } : { stops: 'twice' }))
+  const kept = (await ledger.board('all')).items.map(item => item.id)
+  assert.ok(kept.includes('work-1'), 'well-formed stops load')
+  for (const id of ['work-2', 'work-3', 'work-4']) assert.ok(!kept.includes(id), `${id}'s malformed stops are not loaded`)
+})

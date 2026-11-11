@@ -140,8 +140,11 @@ const WORKSPACE_EVENTS = new Set([
 ])
 const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed', 'lead/memory/changed', 'lead/autonomy/changed'])
 
-/** The methods whose receipts and marks name the device that made them. */
-const PHONE_DEVICE_METHODS = new Set(['lead/presence/read', 'lead/presence/dismiss', 'lead/thread/send'])
+/**
+ * The methods whose receipts and marks name the device that made them, and the one that lets a phone do less:
+ * `lead/settings/decide` refuses a phone's Apply of a section's whole new words, which are read in full at the desk.
+ */
+const PHONE_DEVICE_METHODS = new Set(['lead/presence/read', 'lead/presence/dismiss', 'lead/thread/send', 'lead/settings/decide'])
 const phoneDeviceRef = (device: Device) => ({
   id: `phone:${device.id.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 48)}`,
   label: device.name.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').trim().slice(0, 40) || 'Phone',

@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
-const scenes = ['pending-plan', 'result-person-gate', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'autonomy-proposal'] as const
+const scenes = ['pending-plan', 'result-person-gate', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'autonomy-proposal', 'autonomy-proposal-words'] as const
 for (const theme of ['light', 'dark']) for (const scene of scenes) test(`Lead synthetic ${scene} in ${theme}`, async ({ page }, info) => {
   await page.setViewportSize({ width: 1100, height: 980 })
   await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' || new URL(route.request().url()).hostname === 'localhost' ? route.continue() : route.abort())
@@ -28,6 +28,20 @@ for (const theme of ['light', 'dark']) for (const scene of scenes) test(`Lead sy
     const thread = frame.getByRole('region', { name: / thread$/ })
     const [card, region, reply] = await Promise.all([cards.boundingBox(), thread.boundingBox(), frame.getByText('Those are settings, not notes').boundingBox()])
     expect(card && region && reply && Math.abs(card.x - reply.x) <= 1 && card.x + card.width <= region.x + region.width).toBe(true)
+  }
+  else if (scene === 'autonomy-proposal-words') {
+    const cards = frame.locator('[data-slot="lead-settings-proposals"]')
+    const row = cards.locator('[data-slot="row"]')
+    await expect(row).toHaveCount(1)
+    // The section's new words sit inside the row Apply answers, never loose after the list.
+    const words = row.getByLabel('What changes in What counts as done')
+    await expect(words).toContainText('+ Done means every check run is green and the person reviewed it.')
+    await expect(row.getByRole('button', { name: 'Apply', exact: true })).toBeVisible()
+    const [card, box, inside, title, apply, reply] = await Promise.all([cards.boundingBox(), row.boundingBox(), words.boundingBox(), row.locator('[data-slot="row-title"]').boundingBox(),
+      row.getByRole('button', { name: 'Apply', exact: true }).boundingBox(), frame.getByText('I proposed new words for that section').boundingBox()])
+    expect(card && reply && Math.abs(card.x - reply.x) <= 1).toBe(true)
+    // The words' plate starts on the row's text edge, keeps inside the row, and stops short of the row's buttons.
+    expect(box && inside && title && apply && Math.abs(inside.x - title.x) <= 1 && inside.y >= box.y && inside.y + inside.height <= box.y + box.height + 1 && inside.x + inside.width < apply.x).toBe(true)
   }
   else await expect(frame.locator('[data-slot="lead-pr-status"]')).toContainText('#12')
   expect(await frame.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)

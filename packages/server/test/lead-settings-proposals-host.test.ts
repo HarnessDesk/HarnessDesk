@@ -61,7 +61,7 @@ test('#2106: the Lead proposes an autonomy change as a card; nothing changes unt
   view = await r.host.call('lead/settings/decide', { id, decision: 'apply' })
   assert.equal(view.modes['desk-change'], 'observe')
   assert.deepEqual(view.proposals?.map(one => [one.id, one.state, one.history.map(event => event.what)]), [[id, 'applied', ['proposed', 'applied']]])
-  assert.deepEqual(view.changes?.[0], { at: view.changes![0]!.at, by: 'person', what: 'mode', kind: 'desk-change', from: 'act', to: 'observe' }, 'recorded as the person\'s change')
+  assert.deepEqual(view.changes?.[0], { at: view.changes![0]!.at, by: 'person', what: 'mode', kind: 'desk-change', from: 'act', to: 'observe', proposal: id }, 'recorded as the person\'s change, from the Lead\'s proposal')
   // Proposing what is already in force asks nothing.
   assert.equal(result(await r.tool('autonomy_propose', { kind: 'desk-change', mode: 'observe' })).outcome, 'same')
 })

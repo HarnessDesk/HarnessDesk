@@ -157,7 +157,9 @@ const isItem = (value: unknown): value is Item => {
   return !!item && typeof item === 'object' && typeof item.id === 'string' && /^work-[1-9][0-9]{0,8}$/.test(item.id) &&
     typeof item.title === 'string' && typeof item.createdAt === 'number' && typeof item.updatedAt === 'number' &&
     !!item.links && kinds.every(kind => Array.isArray(item.links[kind]) && item.links[kind].every(link => typeof link === 'string')) &&
-    !!item.origin && Array.isArray(item.origin.quotes) && Array.isArray(item.timeline) && !!item.watch && typeof item.watch === 'object'
+    !!item.origin && Array.isArray(item.origin.quotes) && Array.isArray(item.timeline) && !!item.watch && typeof item.watch === 'object' &&
+    (item.stops === undefined || Array.isArray(item.stops) && item.stops.length <= LEAD_WORK_LIMITS.stopsKept &&
+      item.stops.every(stop => !!stop && typeof stop === 'object' && Number.isSafeInteger(stop.at) && (stop.by === undefined || stop.by === 'person' || stop.by === 'lead')))
 }
 
 /**
@@ -281,13 +283,15 @@ export class LeadWorkLedger {
   }
 
   /**
-   * Another attempt at work stopped `stopsBeforeAsking` times is the person's call, even when the person asked for it:
-   * the host refuses it once, naming what happened, and lets the next attempt through only after the person writes
-   * again (their answer to the Lead's question). Null when the attempt may go ahead.
+   * Another attempt at work the person stopped `stopsBeforeAsking` times is the person's call, even when the person asked
+   * for it: the host refuses it once, naming what happened, and lets the next attempt through only after the person
+   * writes again (their answer to the Lead's question). The Lead's own stops are not counted: stopping its own chat is
+   * not the person saying no. A stop the desk could not attribute is counted, since it may have been the person's.
+   * Null when the attempt may go ahead.
    */
   #askFirst(item: Item): LeadWorkClaimRefusal | null {
-    const stops = item.stops ?? []
-    if (item.closedAt === undefined || item.stage !== 'stopped' || stops.length < LEAD_WORK_LIMITS.stopsBeforeAsking) return null
+    const stops = item.stops ?? [], counted = stops.filter(stop => stop.by !== 'lead').length
+    if (item.closedAt === undefined || item.stage !== 'stopped' || counted < LEAD_WORK_LIMITS.stopsBeforeAsking) return null
     const asked = this.ports.asked?.() ?? 0
     if (item.retryAsked !== undefined && asked > item.retryAsked) return null
     item.retryAsked = asked
