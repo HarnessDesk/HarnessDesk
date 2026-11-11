@@ -72,11 +72,6 @@ interface Stored {
   origin?: { at: number; spent: number }
   /** The spans of away digests and recaps dismissed on any device, oldest first; spans that meet are joined. */
   seen?: Seen[]
-  /**
-   * Set once the questions that end a report from an automatic wake are tracked as questions. A record without it was
-   * written before they were: the reports already in the thread were never answerable, so they are settled, not reopened.
-   */
-  reportAsks?: true
   /** The id of the brief the person dismissed, on any device. */
   briefDone?: string
 }
@@ -230,15 +225,13 @@ export class LeadPresenceStore {
     this.#loaded = true
   }
   /**
-   * A record from before reports' questions were tracked: each report question already in the thread is recorded as
-   * expired now, nothing done, so an upgrade never turns an old, ignored report into today's open question.
+   * A report question the thread held when this store opened, with no record of its own, was asked while no build that
+   * tracks them was running (before an upgrade, or under an older build since): nobody could answer it, so it is
+   * recorded as expired now, nothing done, and never turns into today's open question. Every start does this.
    */
   #settleOldReports(): void {
-    if (this.#stored.reportAsks) return
     const now = this.ports.now()
-    for (const id of this.#before) if (!this.#stored.asks[id]) this.#stored.asks[id] = { seenAt: now, expiresAt: now }
-    this.#stored.reportAsks = true
-    this.#settled = true
+    for (const id of this.#before) if (!this.#stored.asks[id]) { this.#stored.asks[id] = { seenAt: now, expiresAt: now }; this.#settled = true }
   }
   /** A file whose content cannot be understood is moved beside itself and the record starts empty, as the work ledger does. */
   async #setAside(): Promise<void> {
@@ -569,23 +562,27 @@ export class LeadPresenceStore {
    * expired question carry a note to the model that nothing was done. Returns a step to run once the send is over.
    */
   async beforeSend(device: LeadDeviceRef | undefined, text: string, askId?: string): Promise<((sent: boolean, messageId?: string) => Promise<void>) | null> {
-    // A tap names the question it answers, so a later message in the thread cannot turn it into plain words. Typed words
-    // without an id go to the newest question only.
-    // A question the person has only repeated their request under is still open: typed words can answer it.
-    const held = askId ? undefined : this.unansweredAsk()
-    const open = askId ? this.#askById(askId) : this.#openAsk() ?? (held ? this.#askById(held.id) : undefined)
-    if (askId && !open) throw refused()
-    // Words that are an option of a question nobody can answer any more are not sent as a new request either.
-    const stale = !open ? this.#newestAsk() : undefined
-    const target = open ?? stale
-    if (!target) return null
-    // A tap is its option. Typed words are an answer only when they are the option itself, folded, and never when they
-    // say again the request the question was asked about: a repeat from another device answers nothing.
-    const tapped = askId || !this.#repeatsAskedRequest(target.id, text) ? leadAskOption(target.ask.options, text) : undefined
-    if (stale && !tapped) return null
     const by = device?.label ?? 'Desktop'
+    // A thread that holds no question sends its words as words, whatever state the presence file is in.
+    if (!askId && !this.#newestAsk()) return null
+    // The question is chosen inside the write queue, after every write ahead of this one: a newer question that landed
+    // while these words waited takes them, never the one it replaced.
     return this.#write(() => {
       this.#observeAsks()
+      // A tap names the question it answers, so a later message in the thread cannot turn it into plain words. Typed
+      // words without an id go to the newest question only.
+      // A question the person has only repeated their request under is still open: typed words can answer it.
+      const held = askId ? undefined : this.unansweredAsk()
+      const open = askId ? this.#askById(askId) : this.#openAsk() ?? (held ? this.#askById(held.id) : undefined)
+      if (askId && !open) throw refused()
+      // Words that are an option of a question nobody can answer any more are not sent as a new request either.
+      const stale = !open ? this.#newestAsk() : undefined
+      const target = open ?? stale
+      if (!target) return null
+      // A tap is its option. Typed words are an answer only when they are the option itself, folded, and never when they
+      // say again the request the question was asked about: a repeat from another device answers nothing.
+      const tapped = askId || !this.#repeatsAskedRequest(target.id, text) ? leadAskOption(target.ask.options, text) : undefined
+      if (stale && !tapped) return null
       const record = this.#stored.asks[target.id], now = this.ports.now()
       const expired = !record?.answer && record?.expiresAt !== undefined && record.expiresAt <= now
       const option = tapped

@@ -905,7 +905,7 @@ test('an upgrade settles the reports already in the thread: an old unanswered re
   const r = await rig(t)
   const old = { id: 'message-4', role: 'assistant', text: report.ask, proactive: report } as never
   r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix the stalled game task' }, old])
-  // A record written by the build before: no marker.
+  // A record written by the build before, which kept no record of a report's question.
   await mkdir(dirname(r.file), { recursive: true })
   await writeFile(r.file, JSON.stringify({ version: 1, devices: {}, asks: {}, brief: { enabled: false, at: '07:30' }, observer: { day: '', usdMicros: 0 } }))
   r.tick(2 * 24 * 60 * MIN)
@@ -915,8 +915,8 @@ test('an upgrade settles the reports already in the thread: an old unanswered re
   assert.equal(upgraded.unansweredAsk(), null, 'no open question, so no inbox row and nothing held')
   assert.equal(leadInbox({ window: null, desk: null, kept: [], now: r.now(), ask: upgraded.unansweredAsk() }).items.length, 0)
   await assert.rejects(upgraded.beforeSend(phone, 'Read the reason', 'message-4'), code('lead-ask-expired'))
-  // The marker is written, so a later restart does not settle anything again.
-  assert.equal(JSON.parse(await readFile(r.file, 'utf8')).reportAsks, true)
+  // What was settled is written, so a later restart reads it rather than settling it again.
+  assert.deepEqual(JSON.parse(await readFile(r.file, 'utf8')).asks['message-4'], { seenAt: r.now(), expiresAt: r.now() })
   // A report after the upgrade is a question like any other.
   r.tick(MIN)
   r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix the stalled game task' }, old, { id: 'message-9', role: 'assistant', text: report.ask, proactive: report } as never])
@@ -970,3 +970,46 @@ test('a question with its own clock: replaced before it ran out stays replaced; 
   await assert.rejects(s.store.beforeSend(phone, 'Start it', 'message-3'), code('lead-ask-expired'))
 })
 
+
+test('typed option words go to the question open when the claim runs, not the one open when they were sent', async t => {
+  // #2113 review: a newer question that lands while the claim waits in the write queue must take the words.
+  let release: () => void = () => {}
+  let held = false
+  const r = await rig(t, { board: async () => { if (held) await new Promise<void>(resolve => { release = resolve }); return { version: 1, items: [], more: 0 } } })
+  const older = { id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask() }
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, older])
+  await r.store.observe()
+  await r.store.read(desktop, { active: true })
+  r.tick(40 * MIN)
+  held = true
+  // A read that builds a digest holds the queue while it waits on the board.
+  const reading = r.store.read(desktop, { active: true })
+  await new Promise(resolve => setImmediate(resolve))
+  const sending = r.store.beforeSend(phone, 'Start it')
+  // The Lead asks again, with the same options, while the words wait.
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, older, { id: 'message-5', role: 'assistant', text: 'Start it now?', ask: ask() }])
+  held = false
+  release()
+  await reading
+  const settle = await sending
+  assert.ok(settle, 'the words are an answer')
+  await settle!(true)
+  const asks = (await r.store.read(desktop, { active: true })).asks
+  assert.deepEqual(asks.map(one => [one.id, one.status, one.replacedBy, one.answer?.option]), [['message-3', 'expired', 'message-5', undefined], ['message-5', 'answered', undefined, 'Start it']])
+})
+
+test('a report an older desk build appended while this one was away is settled on the next start, not reopened', async t => {
+  // #2113 review: new build -> older build -> new build. The older build records no report's question.
+  const r = await rig(t)
+  const first = { id: 'message-3', role: 'assistant', text: report.ask, proactive: report } as never
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, first])
+  await r.store.observe()
+  await (await r.store.beforeSend(phone, 'Not now', 'message-3'))!(true)
+  // The older build ran and the Lead reported again; it wrote no record of the report's question.
+  r.tick(3 * 24 * 60 * MIN)
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, first, { id: 'message-4', role: 'user', text: 'Not now' }, { id: 'message-6', role: 'assistant', text: report.ask, proactive: report } as never])
+  const back = r.reopen()
+  await back.observe()
+  assert.equal(back.unansweredAsk(), null, 'the report the older build saw is not open')
+  assert.deepEqual((await back.read(desktop, { active: true })).asks.map(one => [one.id, one.status]), [['message-3', 'answered'], ['message-6', 'expired']])
+})
