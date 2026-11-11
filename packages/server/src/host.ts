@@ -5985,9 +5985,11 @@ export class Host {
         // shows it as something the person typed.
         // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
         // last await: a person who writes while the host is resolving the handle wins there too.
-        send: async (runtime, sessionId, text, kind, stillOurs) => {
+        send: async (runtime, sessionId, text, kind, stillOurs, admitted) => {
           const admission = Object.assign(async () => {}, {
             assertDispatch: () => { if (!stillOurs()) throw new Error('The person’s message went first.') },
+            // Past the boundary: carry-on's marker goes in now, never for a send the person overtook.
+            ...(admitted ? { dispatchStarted: admitted } : {}),
           })
           await sendTurn(this.#context, { ...key(runtime, sessionId), input: [kind === 'packet' ? deskContextContent(text) : { type: 'text', text }] }, admission)
         },

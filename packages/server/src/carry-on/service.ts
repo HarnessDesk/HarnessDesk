@@ -119,7 +119,9 @@ export interface CarryOnPorts {
    * On the host's path, never counted as the person's message. A `packet` is the desk's own context and goes as
    * such; `continue` is the one plain line that asks the agent to go on.
    */
-  readonly send: (runtime: string, sessionId: string, text: string, kind: 'continue' | 'packet', stillOurs: () => boolean) => Promise<void>
+  readonly send: (runtime: string, sessionId: string, text: string, kind: 'continue' | 'packet', stillOurs: () => boolean,
+    /** Called once the host has admitted the send at its effect boundary, right before it leaves. */
+    admitted?: () => void) => Promise<void>
   /**
    * A new conversation on `runtime` in the stuck conversation's own folder, with the handle its creation attached
    * (null when the host could not say).
@@ -618,16 +620,18 @@ export class CarryOnService {
       }
       if (mode === 'sameThread') {
         const moved = { runtime: target.runtime, sessionId: from.sessionId }
+        // Written only once the send is admitted, so a person who wins inside the dispatch never reads that it moved.
         // On the thread's last turn; a reopen that has not read its turns back yet takes it on the continue turn instead.
-        const marked = this.#mark(current, moved, 'switched', { to, mode, ...(note ? { note } : {}) })
+        let marked = false
+        const markSwitched = () => { if (!marked) marked = this.#mark(current, moved, 'switched', { to, mode, ...(note ? { note } : {}) }) }
         if (!fence()) return yieldTo(opened)
-        try { await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue', fence) }
+        try { await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue', fence, markSwitched) }
         catch {
           // Refused inside the host's dispatch because the person wrote: theirs stands.
           if (!fence()) return yieldTo(opened)
           return this.#settle(current, { state: 'asked', note: 'The switch did not go through.' })
         }
-        if (!marked) this.#mark(current, moved, 'switched', { to, mode, ...(note ? { note } : {}) })
+        markSwitched()
         // The incident follows the conversation to the account that now holds it.
         return this.#settle(current, { state: 'moved', runtime: target.runtime, mode, watch: moved, ...(note ? { note } : {}) }, from)
       }
@@ -644,8 +648,11 @@ export class CarryOnService {
       const link = { runtime: target.runtime, sessionId: created }
       current = await this.#settle(current, { mode: 'handoff', link, ...(note ? { note } : {}) })
       if (!fence()) return yieldTo(opened)
-      this.#mark(current, from, 'left', { to, mode: 'handoff', link, ...(note ? { note } : {}) })
-      await this.ports.send(link.runtime, link.sessionId, text, 'packet', fence)
+      // As above: the old conversation says it left only once the packet is admitted.
+      let left = false
+      const markLeft = () => { if (!left) { left = true; this.#mark(current, from, 'left', { to, mode: 'handoff', link, ...(note ? { note } : {}) }) } }
+      await this.ports.send(link.runtime, link.sessionId, text, 'packet', fence, markLeft)
+      markLeft()
       this.#mark(current, link, 'arrived', { to, mode: 'handoff', link: from })
       return this.#settle(current, { state: 'moved', watch: link })
     } catch {

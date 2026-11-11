@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -38,6 +39,7 @@ interface Rig {
   readonly sibling: FakeRuntime | null
   readonly other: FakeRuntime
   readonly sent: { runtime: string; session: string; text: string }[]
+  readonly stateDir: string
 }
 
 /** One agent with two accounts over one store (unless `sibling` is off), and a second agent. */
@@ -70,7 +72,7 @@ const rig = async (t: TestContext, options: { readonly sibling?: boolean } = {})
   for (const runtime of [primary, sibling, other]) if (runtime) {
     runtime.onSend = (session, text) => { sent.push({ runtime: String(runtime.info.id), session: String(session.id), text }) }
   }
-  return { host, client, primary, sibling, other, sent }
+  return { host, client, primary, sibling, other, sent, stateDir }
 }
 
 const prefer = (r: Rig, onLimit: 'ask' | 'switch', otherAgents = true) =>
@@ -208,14 +210,18 @@ test('a person who writes while the host dispatches the handoff packet wins: the
   const r = await rig(t, { sibling: false })
   await prefer(r, 'switch')
   const session = await started(r)
-  // The moment the packet's dispatch looks the new conversation up — after carry-on's own last check — the person writes.
+  // The moment the packet's dispatch looks the new conversation up — the link saved, carry-on's own last check passed —
+  // the person writes, on the next microtask: inside the dispatch, before its effect boundary.
+  const linked = () => {
+    try {
+      const disk = JSON.parse(readFileSync(join(r.stateDir, 'carry-on', 'incidents.json'), 'utf8')) as { records: { link?: unknown }[] }
+      return disk.records.some(record => record.link !== undefined)
+    } catch { return false }
+  }
   const get = r.host.registry.get.bind(r.host.registry)
   let fired = false
   r.host.registry.get = ((runtime, id) => {
-    if (!fired && String(runtime) === OTHER) {
-      const left = get(PRIMARY, session.id)?.session.turns.some(turn => turn.items.some(item => item.type === 'carryOn' && item.phase === 'left'))
-      if (left) { fired = true; person(r, session) }
-    }
+    if (!fired && String(runtime) === OTHER && linked()) { fired = true; queueMicrotask(() => person(r, session)) }
     return get(runtime, id)
   }) as typeof r.host.registry.get
   r.primary.sessions.get(session.id)!.fail('You have hit your usage limit.', 'credits')
@@ -223,6 +229,8 @@ test('a person who writes while the host dispatches the handoff packet wins: the
   await r.client.until(() => fired && (changes(r).at(-1) === null || changes(r).some(one => one?.state === 'moved')), 10_000, 'carry-on to settle')
   assert.deepEqual(r.sent.filter(one => one.runtime === OTHER), [], 'no packet behind the person’s message')
   assert.equal(changes(r).at(-1), null, 'carry-on stood down')
+  const left = markers((await r.client.call('session/read', { runtime: PRIMARY, sessionId: session.id })) as Session)
+  assert.deepEqual(left.map(one => one.phase), [], 'and the conversation never says it left')
 })
 
 test('a cancel never closes the sibling when another opener attached alongside carry-on’s reopen', async t => {
