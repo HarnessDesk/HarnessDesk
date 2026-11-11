@@ -235,11 +235,14 @@ test('host: a stop through the Lead\'s door is the Lead\'s and through the phone
   const interrupt = both.session.interrupt.bind(both.session)
   let open!: () => void
   const gate = new Promise<void>(resolve => { open = resolve })
-  both.session.interrupt = async () => { await gate; await interrupt() }
+  let waiting = 0
+  both.session.interrupt = async () => { waiting++; await gate; await interrupt() }
   const person = r.host.call('workspace/stop', { id: both.id })
+  for (let tries = 0; waiting < 1 && tries < 500; tries++) await new Promise(resolve => setTimeout(resolve, 10))
   const byLead = r.execute({ method: 'lead/chat/stop', params: { id: both.id } })
   // Both doors reach the interrupt and wait at the gate, the person's first.
-  await new Promise(resolve => setTimeout(resolve, 100))
+  for (let tries = 0; waiting < 2 && tries < 500; tries++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(waiting, 2, 'both doors sent their stop')
   open()
   await person
   assert.equal((await byLead).outcome, 'failed', 'the person\'s stop landed first, so the Lead\'s found no turn to stop')
