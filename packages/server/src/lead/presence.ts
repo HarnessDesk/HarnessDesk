@@ -1,7 +1,7 @@
 import type { LeadState } from '@harnessdesk/lead'
-import { LEAD_PRESENCE_LIMITS, capLeadPushText, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView,
+import { LEAD_PRESENCE_LIMITS, capLeadPushText, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
   type LeadAsk, type LeadAskState, type LeadBriefSettings, type LeadBriefUpdate, type LeadDeviceRef, type LeadDigest, type LeadDigestItem,
-  type LeadDigestKind, type LeadPresenceView, type LeadWorkBoard } from '@harnessdesk/protocol'
+  type LeadDigestKind, type LeadDigestRef, type LeadPresenceView, type LeadWorkBoard, type LeadWorkCard } from '@harnessdesk/protocol'
 import { rename } from 'node:fs/promises'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
 
@@ -32,7 +32,7 @@ export interface LeadPresencePorts {
   readonly observe?: (input: { readonly items: readonly LeadDigestItem[]; readonly from: number; readonly to: number }) => Promise<{ readonly text: string; readonly usdMicros: number } | null>
   /** One push, already capped for each transport. */
   readonly push?: (notice: { readonly digest: string; readonly phone: { readonly title: string; readonly body: string }; readonly window: { readonly title: string; readonly body: string } }) => void
-  /** Presence changed for every device (the brief arrived, or an ask moved). */
+  /** Presence changed for every device (the brief arrived, an ask moved, or a digest was dismissed). */
   readonly changed?: () => void
 }
 
@@ -41,14 +41,20 @@ interface Mark {
   seenAt: number
   revision: number
   spent: number
-  /** The digest this device has not dismissed. */
+  /** The digest this device has not dismissed, and the journal revision and spend where it ends. */
   pending?: LeadDigest
+  pendingEnd?: { revision: number; spent: number }
   /** Where the latest digest began, for "What happened?" and its spend. */
   last?: { from: number; spent: number; revision: number }
-  /** The id of the brief this device dismissed. */
+  /** The id of the brief this device dismissed, from before a dismissal was the desk's. */
   briefDone?: string
 }
-interface Plan { replaces?: string; baseline?: { from: number; spent: number; revision: number }; kind: LeadDigestKind; from: number; to: number; items: LeadDigestItem[]; more: number; spent: number }
+/**
+ * What the person dismissed, on whichever device: the span the digest covered, `from` to `at`, and the journal revision
+ * and spend where it ended. That span counts as seen on every device; what changed after it is still told.
+ */
+interface Seen { from: number; at: number; revision: number; spent: number }
+interface Plan { replaces?: string; baseline?: { from: number; spent: number; revision: number }; end?: { revision: number; spent: number }; kind: LeadDigestKind; from: number; to: number; items: LeadDigestItem[]; more: number; spent: number }
 /** How long a question with no expiry of its own holds the work it decides. */
 export const LEAD_ASK_HOLD_MS = 24 * 60 * 60_000
 
@@ -67,9 +73,38 @@ interface Stored {
   observer: { day: string; usdMicros: number }
   /** When this record began, with the spend then, so the first brief counts from a real starting point. */
   origin?: { at: number; spent: number }
+  /** The spans of away digests and recaps dismissed on any device, oldest first; spans that meet are joined. */
+  seen?: Seen[]
+  /** The id of the brief the person dismissed, on any device. */
+  briefDone?: string
 }
 const fresh = (): Stored => ({ version: 1, devices: {}, asks: {}, brief: { enabled: false, at: '07:30' }, observer: { day: '', usdMicros: 0 } })
 const dayOf = (at: number) => { const date = new Date(at); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` }
+/** What a work item opens: what is done opens its evidence (pull request, then Team, then chat); anything else opens where it is happening. */
+const digestRef = (card: LeadWorkCard): LeadDigestRef => {
+  const last = (list: readonly string[]) => list[list.length - 1]
+  const pr = last(card.links.prs), team = last(card.links.teams), chat = last(card.links.chats)
+  const order: [LeadDigestRef['kind'], string | undefined][] = card.stage === 'done'
+    ? [['pr', pr], ['team', team], ['chat', chat]]
+    : [['team', team], ['chat', chat], ['pr', pr]]
+  const found = order.find(([kind, id]) => id && isLeadDigestRefId(kind, id))
+  return found ? { kind: found[0], id: found[1]! } : { kind: 'work', id: card.id }
+}
+const stored = (value: unknown): LeadDigest | undefined => { if (value === undefined) return undefined; try { return parseStoredLeadDigest(value) } catch { return undefined } }
+const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+const validEnd = (value: unknown): value is { revision: number; spent: number } => !!value && finite((value as { revision: unknown }).revision) && finite((value as { spent: unknown }).spent)
+const SEEN_SPANS = 8
+const seenSpans = (value: unknown): Seen[] => (Array.isArray(value) ? value : []).flatMap(entry => {
+  const seen = entry as Partial<Seen> | null
+  return seen && finite(seen.from) && finite(seen.at) && finite(seen.revision) && finite(seen.spent) ? [{ from: seen.from, at: seen.at, revision: seen.revision, spent: seen.spent }] : []
+}).slice(-SEEN_SPANS)
+/** The span a digest id names, `<kind>-<from>-<to>`, for an away digest or a recap. */
+const spanOf = (id: string): { from: number; to: number } | undefined => {
+  const match = /^(?:away|recap)-(\d{1,16})-(\d{1,16})$/.exec(id)
+  const from = Number(match?.[1]), to = Number(match?.[2])
+  return match && from <= to ? { from, to } : undefined
+}
+const within = (at: number | undefined, span: { from: number; to: number }) => at !== undefined && at >= span.from && at <= span.to
 const clip = (text: string, max: number) => { const flat = text.replace(/\s+/g, ' ').trim(); return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat }
 const refused = () => Object.assign(new Error('lead-ask-expired'), { wireCode: 'lead-ask-expired' })
 const unreadable = () => Object.assign(new Error('The Lead presence file could not be read just now, so nothing was written. Try again in a moment.'), { wireCode: 'unavailable' })
@@ -77,7 +112,8 @@ const unreadable = () => Object.assign(new Error('The Lead presence file could n
 /**
  * Host-side presence: a seen mark per device, the away digest, the morning brief, and what became of each question.
  * One file, `<state>/lead/presence.json`. A digest is built here from the work ledger and the journal alone, so every
- * surface is handed the same one; only the optional paragraph comes from a model, and its cost is counted.
+ * surface is handed the same one; only the optional paragraph comes from a model, and its cost is counted. Each item
+ * names what it opens. A dismissal is the desk's, not the device's: one made on the phone clears the window too.
  */
 /** Polite words and fillers that do not make a request new: said with or without them, it is the same request. */
 const POLITE = /\b(?:please|pls|plz|kindly|(?:can|could|would) you|just|again|once more|thanks?|thank you)\b|请|麻烦|再|帮我|帮忙|一下|一次|一遍|吧|好吗|谢谢/gu
@@ -165,10 +201,15 @@ export class LeadPresenceStore {
         const devices: Record<string, Mark> = {}
         for (const [id, mark] of Object.entries(value.devices ?? {})) {
           if (typeof mark?.seenAt !== 'number' || typeof mark.label !== 'string') continue
-          devices[id] = { ...mark, ...(mark.pending ? { pending: parseLeadDigest(mark.pending) } : {}) }
+          // A digest written by another version of the host keeps what this one can read; one it cannot read is dropped alone.
+          const { pending, pendingEnd, ...rest } = mark
+          const kept = stored(pending)
+          devices[id] = { ...rest, ...(kept ? { pending: kept } : {}), ...(kept && validEnd(pendingEnd) ? { pendingEnd } : {}) }
         }
-        this.#stored = { ...fresh(), ...value, devices, brief, asks: value.asks && typeof value.asks === 'object' ? value.asks : {},
-          ...(value.briefDigest ? { briefDigest: parseLeadDigest(value.briefDigest) } : {}) }
+        const { briefDigest, seen, ...rest } = value
+        const briefKept = stored(briefDigest)
+        this.#stored = { ...fresh(), ...rest, devices, brief, asks: value.asks && typeof value.asks === 'object' ? value.asks : {},
+          ...(briefKept ? { briefDigest: briefKept } : {}), ...(seenSpans(seen).length ? { seen: seenSpans(seen) } : {}) }
       } catch { await this.#setAside(); this.#stored = fresh() }
     } else if (read.kind === 'io') return
     this.#loaded = true
@@ -223,29 +264,41 @@ export class LeadPresenceStore {
     return out.slice(-LEAD_PRESENCE_LIMITS.asks)
   }
 
-  async #items(since: number, revision: number): Promise<{ items: LeadDigestItem[]; more: number }> {
+  /** Every item since `since`, in the order the person acts on; the caller drops what was seen, then caps the list. */
+  async #items(since: number, revision: number): Promise<LeadDigestItem[]> {
     const board = await this.ports.board().catch(() => null)
     const waiting: LeadDigestItem[] = [], stopped: LeadDigestItem[] = [], done: LeadDigestItem[] = []
     const seen = new Set<string>()
     for (const card of board?.items ?? []) {
-      const entry = (kind: LeadDigestItem['kind']): LeadDigestItem => ({ kind, id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'Untitled work',
-        ...(card.fact || card.blocker ? { fact: clip(card.fact ?? card.blocker ?? '', LEAD_PRESENCE_LIMITS.factChars) } : {}) })
-      if (card.stage === 'done' && card.outcome !== 'dropped' && (card.closedAt ?? card.updatedAt) >= since) done.push(entry('done'))
-      else if (card.stage === 'needs-you' && card.updatedAt >= since) { waiting.push(entry('waiting')); seen.add(card.id) }
-      else if ((card.stage === 'stopped' || card.stage === 'blocked') && card.updatedAt >= since) stopped.push(entry('stopped'))
+      const entry = (kind: LeadDigestItem['kind'], at: number): LeadDigestItem => ({ kind, id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'Untitled work',
+        ...(card.fact || card.blocker ? { fact: clip(card.fact ?? card.blocker ?? '', LEAD_PRESENCE_LIMITS.factChars) } : {}),
+        ref: digestRef(card), at, ...(kind === 'stopped' && card.stoppedBy ? { stoppedBy: card.stoppedBy } : {}) })
+      const closed = card.closedAt ?? card.updatedAt
+      if (card.stage === 'done' && card.outcome !== 'dropped' && closed >= since) done.push(entry('done', closed))
+      else if (card.stage === 'needs-you' && card.updatedAt >= since) { waiting.push(entry('waiting', card.updatedAt)); seen.add(card.id) }
+      else if ((card.stage === 'stopped' || card.stage === 'blocked') && card.updatedAt >= since) stopped.push(entry('stopped', card.updatedAt))
     }
-    // Decisions that wait on the person but belong to no work item (a plan, a permission change).
+    // Decisions that wait on the person but belong to no work item (a plan, a permission change). They open their card.
     for (const card of this.ports.waiting()) if (card.position > revision && !seen.has(card.id))
-      waiting.push({ kind: 'waiting', id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'A request waits for you' })
-    const all = [...waiting, ...stopped, ...done]
-    return { items: all.slice(0, LEAD_PRESENCE_LIMITS.items), more: Math.max(0, all.length - LEAD_PRESENCE_LIMITS.items) }
+      waiting.push({ kind: 'waiting', id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'A request waits for you', ref: { kind: 'card', id: card.id } })
+    return [...waiting, ...stopped, ...done]
   }
 
   /** The part of a digest that needs only the ledger; the optional paragraph is added outside the queue. */
   async #plan(kind: LeadDigestKind, from: number, baseline: { spent: number; revision: number }): Promise<Plan> {
     const to = Math.max(this.ports.now(), from)
-    const { items, more } = await this.#items(from, baseline.revision)
-    return { kind, from, to, items, more, spent: Math.max(0, this.ports.spent() - baseline.spent) }
+    // An away digest leaves out what the person already dismissed, on any device: what happened inside that span. Its
+    // revision and spend count only when the span covers this digest's start; a span later than that start leaves the
+    // spend before it to be told. A recap is asked for, so it says everything in its span; the brief keeps its own day.
+    const seen = kind === 'away' ? this.#stored.seen ?? [] : []
+    const covering = seen.filter(span => span.from <= from && span.at >= from)
+    const revision = this.ports.revision(), spentNow = this.ports.spent()
+    const found = await this.#items(from, Math.max(baseline.revision, ...covering.map(span => span.revision)))
+    // What was dismissed is dropped before the list is capped, so it takes no room and is not counted as more.
+    const unseen = found.filter(entry => !seen.some(span => within(entry.at, { from: span.from, to: span.at })))
+    const items = unseen.slice(0, LEAD_PRESENCE_LIMITS.items), more = Math.max(0, unseen.length - LEAD_PRESENCE_LIMITS.items)
+    return { kind, from, to, items, more, end: { revision, spent: spentNow },
+      spent: Math.max(0, spentNow - Math.max(baseline.spent, ...covering.map(span => span.spent))) }
   }
   /** One short paragraph from the smaller model, within the day's cap. Slow and paid, so it never runs inside the queue. */
   async #paragraph(plan: Plan): Promise<{ text: string; usdMicros: number } | null> {
@@ -269,8 +322,11 @@ export class LeadPresenceStore {
   }
   #view(mark: Mark | undefined): LeadPresenceView {
     const brief = this.#stored.briefDigest
-    const showBrief = brief && mark && mark.briefDone !== brief.id && this.ports.now() - brief.to < BRIEF_LIFE_MS ? brief : null
-    return parseLeadPresenceView({ version: 1, digest: showBrief ?? mark?.pending ?? null, asks: this.#askStates(), brief: this.#stored.brief })
+    const showBrief = brief && mark && mark.briefDone !== brief.id && this.#stored.briefDone !== brief.id && this.ports.now() - brief.to < BRIEF_LIFE_MS ? brief : null
+    // A digest inside the span the person dismissed on any device holds nothing they have not seen.
+    const covered = (digest: LeadDigest) => (this.#stored.seen ?? []).some(span => digest.from >= span.from && digest.to <= span.at)
+    const pending = mark?.pending && !covered(mark.pending) ? mark.pending : null
+    return parseLeadPresenceView({ version: 1, digest: showBrief ?? pending, asks: this.#askStates(), brief: this.#stored.brief })
   }
 
   /**
@@ -317,6 +373,7 @@ export class LeadPresenceStore {
       const digest = this.#finish(plan, result)
       if (plan.kind === 'recap' || digest.items.length || digest.more || digest.spentUsdMicros > 0) {
         mark.pending = digest
+        if (plan.end) mark.pendingEnd = plan.end; else delete mark.pendingEnd
         if (plan.baseline) mark.last = plan.baseline
       }
       return this.#view(mark)
@@ -327,17 +384,59 @@ export class LeadPresenceStore {
     if (ids.length <= LEAD_PRESENCE_LIMITS.devices) return
     for (const id of ids.sort((a, b) => this.#stored.devices[a]!.seenAt - this.#stored.devices[b]!.seenAt).slice(0, ids.length - LEAD_PRESENCE_LIMITS.devices)) delete this.#stored.devices[id]
   }
-  /** Dismisses the digest on this device only; every other device keeps its own copy. */
-  dismiss(device: LeadDeviceRef, digest: string): Promise<LeadPresenceView> {
-    return this.#write(() => {
+  /**
+   * Dismisses a digest for the desk, not the device: what it showed counts as seen on the window and every phone. The
+   * span it covered (from its start to its end, not to the moment of the click) is marked seen with the revision and
+   * spend where it ended, so what changed after it was built is still told. Every device's digest loses what falls inside
+   * that span and goes when nothing is left; a longer one keeps the rest. An id the desk has since rebuilt (a phone still
+   * showing the earlier one) is taken for the span it names, when that span lies inside a digest a device still holds.
+   * Dismissing the brief hides the brief only. Any other id changes nothing.
+   */
+  async dismiss(device: LeadDeviceRef, digest: string): Promise<LeadPresenceView> {
+    const step = await this.#write(() => {
       const mark = this.#stored.devices[device.id]
-      if (mark) {
-        if (mark.pending?.id === digest) delete mark.pending
-        // Dismissing the brief hides the brief only: an away digest it was covering is still there.
-        if (this.#stored.briefDigest?.id === digest) mark.briefDone = digest
+      if (this.#stored.briefDigest?.id === digest) {
+        const changed = this.#stored.briefDone !== digest
+        this.#stored.briefDone = digest
+        return { view: this.#view(mark), changed }
       }
-      return this.#view(mark)
+      const devices = Object.values(this.#stored.devices)
+      const holder = devices.find(one => one.pending?.id === digest)
+      // An id no device holds counts only inside a digest a device still holds: the one the desk rebuilt from it.
+      const named = holder ? undefined : spanOf(digest)
+      const span = holder?.pending ? { from: holder.pending.from, to: holder.pending.to }
+        : named && named.to <= this.ports.now() && devices.some(one => one.pending && one.pending.kind !== 'brief' && one.pending.from <= named.from && named.to <= one.pending.to) ? named : undefined
+      if (!span) return { view: this.#view(mark), changed: false }
+      const end = holder?.pendingEnd
+      const before = JSON.stringify(devices.map(one => [one.pending?.id, one.pending?.items.length]))
+      this.#see(span, end)
+      for (const one of Object.values(this.#stored.devices)) {
+        const pending = one.pending
+        if (!pending) continue
+        if (pending.id === digest || pending.from >= span.from && pending.to <= span.to) { delete one.pending; delete one.pendingEnd; continue }
+        const shown = new Set((holder?.pending?.items ?? []).filter(entry => entry.at === undefined).map(entry => entry.id))
+        const items = pending.items.filter(entry => !within(entry.at, span) && !(entry.at === undefined && shown.has(entry.id)))
+        if (items.length === pending.items.length) continue
+        if (!items.length && !pending.more) { delete one.pending; delete one.pendingEnd; continue }
+        one.pending = parseLeadDigest({ ...pending, items })
+      }
+      const changed = before !== JSON.stringify(devices.map(one => [one.pending?.id, one.pending?.items.length]))
+      return { view: this.#view(mark), changed }
     })
+    // Every other device re-reads, so a phone drops the digest the window dismissed and the other way round.
+    if (step.changed) this.ports.changed?.()
+    return step.view
+  }
+  /** Marks a dismissed span seen, joined with every span it meets; the newest few spans are kept. */
+  #see(span: { from: number; to: number }, end: { revision: number; spent: number } | undefined): void {
+    let joined: Seen = { from: span.from, at: span.to, revision: end?.revision ?? 0, spent: end?.spent ?? 0 }
+    const rest: Seen[] = []
+    for (const one of this.#stored.seen ?? []) {
+      if (one.from <= joined.at && joined.from <= one.at) joined = { from: Math.min(one.from, joined.from), at: Math.max(one.at, joined.at),
+        revision: Math.max(one.revision, joined.revision), spent: Math.max(one.spent, joined.spent) }
+      else rest.push(one)
+    }
+    this.#stored.seen = [...rest, joined].sort((a, b) => a.at - b.at).slice(-SEEN_SPANS)
   }
 
   /** Every ask the host holds gets its clock the moment it is appended, not when someone first looks. */

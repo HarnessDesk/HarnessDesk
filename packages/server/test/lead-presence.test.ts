@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
-import { LEAD_PRESENCE_LIMITS, capLeadPushText, parseLeadPresenceView, type LeadAsk, type LeadDeviceRef, type LeadWorkCard } from '@harnessdesk/protocol'
+import { LEAD_PRESENCE_LIMITS, capLeadPushText, isLeadDigestRefId, parseLeadPresenceView, type LeadAsk, type LeadDeviceRef, type LeadWorkCard } from '@harnessdesk/protocol'
 import { LEAD_DIGEST_OBSERVER_DAILY_MICROS, LeadPresenceStore, leadRepeatsRequest, leadTurnContext, type LeadPresencePorts } from '../src/lead/presence.js'
 
 const MIN = 60_000
@@ -58,8 +58,9 @@ test('a short absence is a glance; thirty minutes away brings one digest of what
   assert.equal((await r.store.read(desktop, { active: true })).digest?.id, digest.id, 'the same digest stays until it is dismissed')
 })
 
-test('the digest is the same on the window and the phone; dismissing on one leaves the other', async t => {
-  const r = await rig(t)
+test('the digest is the same on the window and the phone; dismissing on either clears both, and a new one comes only with something new', async t => {
+  let changed = 0
+  const r = await rig(t, { changed: () => { changed++ } })
   await r.store.read(desktop, { active: true }); await r.store.read(phone, { active: true })
   r.tick(2 * 60 * MIN)
   r.setItems([work('work-2', 'needs-you', r.now() - MIN)])
@@ -67,12 +68,188 @@ test('the digest is the same on the window and the phone; dismissing on one leav
   const onDesktop = (await r.store.read(desktop, { active: true })).digest!
   const onPhone = (await r.store.read(phone, { active: true })).digest!
   assert.deepEqual(onPhone, onDesktop)
-  const after = await r.store.dismiss(desktop, onDesktop.id)
+  const after = await r.store.dismiss(phone, onPhone.id)
   assert.equal(after.digest, null)
-  assert.equal((await r.store.read(desktop, { active: true })).digest, null, 'dismissed stays dismissed')
-  assert.deepEqual((await r.store.read(phone, { active: true })).digest, onPhone, 'the phone still has its own')
+  assert.equal(changed, 1, 'every device is told to read again')
+  assert.equal((await r.store.read(desktop, { active: true })).digest, null, 'the window honours the phone’s dismissal')
+  assert.equal((await r.store.read(phone, { active: true })).digest, null, 'dismissed stays dismissed')
+  assert.equal((await r.store.dismiss(phone, 'away-1-2')).digest, null)
+  assert.equal(changed, 1, 'a digest nobody holds changes nothing')
   const reopened = r.reopen()
-  assert.deepEqual((await reopened.read(phone, { active: true })).digest, onPhone, 'marks survive a restart')
+  assert.equal((await reopened.read(desktop, { active: true })).digest, null, 'the dismissal survives a restart')
+
+  // Away again with nothing new: no digest, though the same item and spend are still in the window of time.
+  r.tick(2 * 60 * MIN)
+  assert.equal((await reopened.read(desktop, { active: true })).digest, null, 'nothing new happened, so nothing is said')
+  assert.equal((await reopened.read(phone, { active: true })).digest, null)
+  // Something new: a digest of only that, on both.
+  r.tick(2 * 60 * MIN)
+  r.setItems([work('work-2', 'needs-you', r.now() - 5 * 60 * MIN), work('work-5', 'done', r.now() - MIN, { closedAt: r.now() - MIN, outcome: 'done' })])
+  r.spend(9_000)
+  const next = (await reopened.read(desktop, { active: true })).digest!
+  assert.deepEqual(next.items.map(item => item.id), ['work-5'], 'only what changed after the dismissal')
+  assert.equal(next.spentUsdMicros, 9_000, 'spend counts from the dismissal')
+  assert.deepEqual((await reopened.read(phone, { active: true })).digest?.items.map(item => item.id), ['work-5'])
+  const stored = JSON.parse(await readFile(r.file, 'utf8'))
+  assert.deepEqual(stored.seen.map((span: { from: number; at: number }) => [span.from, span.at]), [[onPhone.from, onPhone.to]], 'what is seen is the span the dismissed digest covered')
+  assert.equal('by' in stored.seen[0], false, 'nothing reads where it was dismissed, so it is not kept')
+})
+
+test('a dismissal covers what the digest showed, not what changed after it was built', async t => {
+  const r = await rig(t)
+  await r.store.read(desktop, { active: true })
+  r.tick(2 * 60 * MIN)
+  r.setItems([work('work-1', 'needs-you', r.now() - MIN)])
+  r.spend(5_000)
+  const shown = (await r.store.read(desktop, { active: true })).digest!
+  // Something finishes and money is spent after the digest was built, before the person dismisses it.
+  r.tick(5 * MIN)
+  r.setItems([work('work-1', 'needs-you', r.now() - 6 * MIN), work('work-2', 'done', r.now() - 2 * MIN, { closedAt: r.now() - 2 * MIN, outcome: 'done' })])
+  r.spend(7_000)
+  r.tick(3 * MIN)
+  await r.store.dismiss(desktop, shown.id)
+  r.tick(2 * 60 * MIN)
+  const next = (await r.store.read(desktop, { active: true })).digest!
+  assert.deepEqual(next.items.map(item => item.id), ['work-2'], 'what came after the digest is still told')
+  assert.equal(next.spentUsdMicros, 7_000, 'and so is what was spent after it')
+})
+
+test('what a dismissal already covered takes no room in a later digest\'s list, and is not counted as more', async t => {
+  const r = await rig(t)
+  await r.store.read(phone, { active: true })
+  r.tick(24 * 60 * MIN)
+  await r.store.read(desktop, { active: true })
+  r.tick(2 * 60 * MIN)
+  const done = (id: string, at: number) => work(id, 'done', at, { closedAt: at, outcome: 'done' })
+  // Eight finished in the window's short absence, listed first on the board; two finished earlier, while only the phone was away.
+  const recent = Array.from({ length: 8 }, (_, index) => done(`work-${index + 1}`, r.now() - (index + 1) * MIN))
+  r.setItems(recent)
+  const short = (await r.store.read(desktop, { active: true })).digest!
+  assert.equal(short.items.length, 8)
+  await r.store.dismiss(desktop, short.id)
+  r.setItems([...recent, done('work-9', r.now() - 20 * 60 * MIN), done('work-10', r.now() - 21 * 60 * MIN)])
+  const week = (await r.store.read(phone, { active: true })).digest!
+  assert.deepEqual(week.items.map(item => item.id).sort(), ['work-10', 'work-9'], 'the earlier two fill the list')
+  assert.equal(week.more, 0, 'and what was dismissed is not counted as more')
+})
+
+test('a short digest dismissed on the window does not drop a longer one a phone still holds', async t => {
+  const r = await rig(t)
+  await r.store.read(phone, { active: true })
+  r.tick(7 * 24 * 60 * MIN)
+  await r.store.read(desktop, { active: true })
+  r.tick(2 * 60 * MIN)
+  r.setItems([
+    work('work-1', 'done', r.now() - 5 * 24 * 60 * MIN, { closedAt: r.now() - 5 * 24 * 60 * MIN, outcome: 'done' }),
+    work('work-2', 'needs-you', r.now() - MIN),
+  ])
+  const week = (await r.store.read(phone, { active: true })).digest!
+  assert.deepEqual(week.items.map(item => item.id).sort(), ['work-1', 'work-2'])
+  const short = (await r.store.read(desktop, { active: true })).digest!
+  assert.deepEqual(short.items.map(item => item.id), ['work-2'])
+  await r.store.dismiss(desktop, short.id)
+  const left = (await r.store.read(phone, {})).digest
+  assert.deepEqual(left?.items.map(item => item.id), ['work-1'], 'the phone keeps what the window never showed')
+  assert.equal((await r.store.read(desktop, {})).digest, null)
+  await r.store.dismiss(phone, left!.id)
+  assert.equal((await r.store.read(phone, {})).digest, null)
+})
+
+test('dismissing a digest the desk has since rebuilt covers what was shown, from two surfaces at once too', async t => {
+  const r = await rig(t)
+  await r.store.read(desktop, { active: true }); await r.store.read(phone, { active: true })
+  r.tick(2 * 60 * MIN)
+  r.setItems([work('work-1', 'needs-you', r.now() - MIN)])
+  const shownOnPhone = (await r.store.read(phone, { active: true })).digest!
+  // The phone still shows the first digest; the desk rebuilds it after a second absence, with nothing new.
+  r.tick(2 * 60 * MIN)
+  const rebuilt = (await r.store.read(phone, { active: true })).digest!
+  assert.notEqual(rebuilt.id, shownOnPhone.id)
+  await r.store.dismiss(phone, shownOnPhone.id)
+  assert.equal((await r.store.read(phone, {})).digest, null, 'the rebuilt digest held nothing the person had not seen')
+
+  // With something new in the rebuild, only that stays.
+  r.tick(2 * 60 * MIN)
+  r.setItems([work('work-1', 'needs-you', r.now() - 4 * 60 * MIN), work('work-3', 'needs-you', r.now() - MIN)])
+  const first = (await r.store.read(phone, { active: true })).digest!
+  r.tick(2 * 60 * MIN)
+  r.setItems([work('work-1', 'needs-you', r.now() - 6 * 60 * MIN), work('work-3', 'needs-you', r.now() - 2 * 60 * MIN - MIN), work('work-4', 'needs-you', r.now() - MIN)])
+  const again = (await r.store.read(phone, { active: true })).digest!
+  assert.deepEqual(again.items.map(item => item.id).sort(), ['work-3', 'work-4'])
+  await r.store.dismiss(phone, first.id)
+  assert.deepEqual((await r.store.read(phone, {})).digest?.items.map(item => item.id), ['work-4'])
+
+  // The window and the phone dismiss at the same moment, one of them a stale id: nothing comes back.
+  r.tick(2 * 60 * MIN)
+  r.setItems([work('work-5', 'needs-you', r.now() - MIN)])
+  const onDesktop = (await r.store.read(desktop, { active: true })).digest!
+  const stale = (await r.store.read(phone, { active: true })).digest!
+  r.tick(2 * 60 * MIN)
+  const fresh = (await r.store.read(phone, { active: true })).digest!
+  assert.notEqual(fresh.id, stale.id)
+  await Promise.all([r.store.dismiss(phone, stale.id), r.store.dismiss(desktop, onDesktop.id)])
+  assert.equal((await r.store.read(phone, {})).digest, null)
+  assert.equal((await r.store.read(desktop, {})).digest, null)
+  // An id that names no digest, or one from the future, changes nothing.
+  assert.equal((await r.store.dismiss(phone, 'away-x-y')).digest, null)
+  await r.store.dismiss(phone, `away-${r.now() - MIN}-${r.now() + 3 * 60 * MIN}`)
+  r.tick(2 * 60 * MIN)
+  r.setItems([work('work-6', 'needs-you', r.now() - MIN)])
+  assert.deepEqual((await r.store.read(phone, { active: true })).digest?.items.map(item => item.id), ['work-6'])
+})
+
+test('a stored digest with fields this host does not know keeps the record; one it cannot read drops only that digest', async t => {
+  const r = await rig(t)
+  await r.store.read(desktop, { active: true }); await r.store.read(phone, { active: true })
+  await r.store.updateBrief({ enabled: true, at: '06:45' })
+  r.tick(2 * 60 * MIN)
+  r.setItems([work('work-1', 'needs-you', r.now() - MIN)])
+  await r.store.read(desktop, { active: true }); await r.store.read(phone, { active: true })
+  const { writeFile, readdir } = await import('node:fs/promises')
+  const stored = JSON.parse(await readFile(r.file, 'utf8'))
+  stored.devices['window:main'].pending.items[0].later = 'a field from a newer host'
+  stored.devices['window:main'].pending.later = true
+  stored.devices['phone:p1'].pending = { version: 1, id: 42 }
+  await writeFile(r.file, JSON.stringify(stored))
+  const reopened = r.reopen()
+  const view = await reopened.read(desktop, {})
+  assert.deepEqual(view.digest?.items.map(item => item.id), ['work-1'], 'the unknown fields are left out')
+  assert.equal((await reopened.read(phone, {})).digest, null, 'only the digest it could not read is dropped')
+  assert.equal(view.brief.at, '06:45', 'the rest of the record stays')
+  assert.ok(!(await readdir(join(r.home, 'lead'))).some(name => name.includes('corrupt')), 'nothing was set aside')
+})
+
+test('each item kind names what it opens: done opens its evidence, open work where it happens, a decision its card', async t => {
+  const waiting = [{ id: 'plan-1', title: 'A plan waits for you', position: 12 }]
+  const r = await rig(t, { waiting: () => waiting })
+  await r.store.read(desktop, { active: true })
+  r.tick(40 * MIN)
+  const links = (over: Partial<LeadWorkCard['links']>) => ({ links: { chats: [], teams: [], prs: [], issues: [], ...over } })
+  const at = r.now() - MIN
+  r.setItems([
+    work('work-1', 'done', at, { closedAt: at, outcome: 'done', ...links({ chats: ['fixture:a'], teams: ['team-1'], prs: ['acme/app#7'] }) }),
+    work('work-2', 'done', at, { closedAt: at, outcome: 'done', ...links({ chats: ['fixture:b'] }) }),
+    work('work-3', 'needs-you', at, links({ chats: ['fixture:c'], teams: ['team-3'], prs: ['acme/app#9'] })),
+    work('work-4', 'stopped', at, { stoppedBy: 'person', fact: 'Stopped: the person stopped its chat', ...links({ chats: ['fixture:old', 'fixture:d'] }) }),
+    work('work-5', 'blocked', at, links({})),
+    work('work-6', 'stopped', at, { stoppedBy: 'lead', ...links({ chats: ['fixture:e'] }) }),
+    work('work-7', 'stopped', at, links({ chats: ['fixture:f'] })),
+  ])
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  const by = Object.fromEntries(digest.items.map(item => [item.id, item]))
+  assert.deepEqual(by['work-1']!.ref, { kind: 'pr', id: 'acme/app#7' }, 'done: the pull request is the evidence')
+  assert.deepEqual(by['work-2']!.ref, { kind: 'chat', id: 'fixture:b' })
+  assert.deepEqual(by['work-3']!.ref, { kind: 'team', id: 'team-3' }, 'needs you: where the work happens')
+  assert.deepEqual(by['work-4']!.ref, { kind: 'chat', id: 'fixture:d' }, 'the newest chat')
+  assert.deepEqual(by['work-5']!.ref, { kind: 'work', id: 'work-5' }, 'nothing linked: the work item itself')
+  assert.deepEqual(by['plan-1']!.ref, { kind: 'card', id: 'plan-1' }, 'a decision opens its card')
+  assert.equal(by['work-1']!.at, at)
+  assert.equal(by['plan-1']!.at, undefined)
+  assert.equal(by['work-4']!.stoppedBy, 'person')
+  assert.equal(by['work-6']!.stoppedBy, 'lead')
+  assert.equal(by['work-7']!.stoppedBy, undefined, 'a stop the host did not see made stays unattributed')
+  assert.equal(by['work-1']!.stoppedBy, undefined)
+  parseLeadPresenceView({ version: 1, digest, asks: [], brief: { enabled: false, at: '07:30' } })
 })
 
 test('"What happened?" builds a digest on demand, and nothing new is said so', async t => {
@@ -364,9 +541,10 @@ test('the morning brief is off by default, waits for its time, once a day, and r
   await r.store.dismiss(desktop, onDesktop.id)
   const covered = (await r.store.read(desktop, { active: true })).digest!
   assert.equal(covered.kind, 'away', 'the away digest the brief covered is still owed to the desktop')
+  assert.equal((await r.store.read(phone, { active: true })).digest, null, 'the brief the window dismissed is gone from the phone too')
   await r.store.dismiss(desktop, covered.id)
   assert.equal((await r.store.read(desktop, { active: true })).digest, null)
-  assert.equal((await r.store.read(phone, { active: true })).digest?.id, onDesktop.id)
+  assert.equal((await r.store.read(phone, { active: true })).digest, null)
   r.setNow(new Date(2026, 10, 11, 7, 40).getTime())
   assert.equal(await r.store.tick(), true, 'the next day')
 })
@@ -662,4 +840,20 @@ test('untagged words that are an option of the newest ask are refused right afte
   assert.match(c.store.takeExpiryNote()!, /expired at/)
   // A tap that names its ask is refused whenever it arrives.
   await assert.rejects(c.store.beforeSend(phone, 'Start it', 'message-3'), code('lead-ask-expired'))
+})
+
+test('a digest link id is checked for its kind, and a link the host cannot vouch for opens the work item instead', async t => {
+  assert.ok(isLeadDigestRefId('pr', 'acme/widgets#42'))
+  assert.ok(isLeadDigestRefId('pr', 'acme/.github#7'), 'a name may start with a dot')
+  for (const bad of ['../widgets#1', 'acme/..#1', './x#1', 'acme/widgets#0', 'acme/widgets', 'acme/wid gets#1', 'a/b/c#1'])
+    assert.equal(isLeadDigestRefId('pr', bad), false, bad)
+  assert.ok(isLeadDigestRefId('chat', 'fixture:rename-column'))
+  assert.equal(isLeadDigestRefId('chat', 'fixture:has space'), false)
+  assert.equal(isLeadDigestRefId('team', 'goal/../x'), false)
+  const r = await rig(t)
+  await r.store.read(desktop, { active: true })
+  r.tick(2 * 60 * MIN)
+  r.setItems([work('work-1', 'done', r.now() - MIN, { closedAt: r.now() - MIN, outcome: 'done', links: { chats: [], teams: [], prs: ['acme/..#3'], issues: [] } })])
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  assert.deepEqual(digest.items[0]!.ref, { kind: 'work', id: 'work-1' })
 })

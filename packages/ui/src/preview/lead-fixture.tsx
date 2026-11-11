@@ -201,7 +201,10 @@ reminders: [
 /** What the host tells a window that has been away: one digest, and what became of the questions in the thread. */
 export const leadPresenceFixture = (now = Date.now()): LeadPresenceView => ({ version: 1, brief: { enabled: false, at: '07:30' },
   digest: { version: 1, id: `away-${now - 10_800_000}-${now}`, kind: 'away', from: now - 10_800_000, to: now, spentUsdMicros: 1_200_000, more: 0, items: [
-    { kind: 'waiting', id: 'work-4', title: 'Rename the status column', fact: 'An approval waits for you' },
-    { kind: 'done', id: 'work-1', title: 'Update the onboarding copy' },
-    { kind: 'stopped', id: 'work-5', title: 'Ship the changelog after the rename', fact: 'Waits for the column rename' }] },
+    // Each item opens what it names: a chat, a decision card, a pull request. One with nothing the desk can open stays a reading.
+    { kind: 'waiting', id: 'work-4', title: 'Rename the status column', fact: 'An approval waits for you', ref: { kind: 'chat', id: 'fixture:rename-column' }, at: now - 1_200_000 },
+    { kind: 'waiting', id: 'plan-2', title: 'A plan waits for your approval', ref: { kind: 'card', id: 'plan-2' } },
+    { kind: 'stopped', id: 'work-6', title: 'Retry the flaky upload test', fact: 'Stopped: the person stopped its chat', ref: { kind: 'chat', id: 'fixture:upload-retry' }, at: now - 5_400_000, stoppedBy: 'person' },
+    { kind: 'stopped', id: 'work-5', title: 'Ship the changelog after the rename', fact: 'Waits for the column rename', ref: { kind: 'work', id: 'work-5' }, at: now - 3_600_000 },
+    { kind: 'done', id: 'work-1', title: 'Update the onboarding copy', fact: 'Pull request merged', ref: { kind: 'pr', id: 'acme/widgets#42' }, at: now - 7_200_000 }] },
   asks: [{ id: 'ask-answered', status: 'answered', answer: { option: 'Fix focus only', by: 'iPhone', at: now - 3_600_000 } }, { id: 'ask-expired', status: 'expired', expiresAt: now - 600_000 }] })

@@ -32,7 +32,7 @@ export interface LeadChatsPorts {
   readonly index: Pick<SessionIndex, 'list' | 'get' | 'isOwn'>
   /** Actual live/transcript cwd, without restoring archived or removed sessions. */
   readonly cwd: (runtime: RuntimeId, id: SessionId) => Promise<string | null>
-  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly waiting: boolean; readonly approvalWaiting?: boolean; readonly queued?: boolean; readonly failed?: boolean; readonly queuePaused?: boolean; readonly stopped?: boolean }
+  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly waiting: boolean; readonly approvalWaiting?: boolean; readonly queued?: boolean; readonly failed?: boolean; readonly queuePaused?: boolean; readonly stopped?: boolean; readonly turn?: string }
   /** Only the host holds this receipt; it is never exposed to the child. */
   readonly noteDispatchNotStarted: (id: string) => void
   readonly work: Pick<PhoneWork, 'threadRead' | 'startInProject' | 'sessionSend' | 'stop'>
@@ -64,8 +64,9 @@ export interface LeadChatsPorts {
    * desk can start on now; the label is the presentation name the Lead may say, never an address.
    */
   readonly pacing?: { readonly choose: () => Promise<{ readonly agent: string; readonly label: string } | null> }
-  /** The work ledger's duplicate guard: a start joins an open item or makes one, and a duplicate is refused. */
-  readonly ledger?: Pick<LeadWorkLedger, 'claim' | 'started' | 'release'>
+  /** The work ledger's duplicate guard: a start joins an open item or makes one, and a duplicate is refused. It also
+   * hears that the Lead is stopping a chat, so the stop is said to be the Lead's and not the person's. */
+  readonly ledger?: Pick<LeadWorkLedger, 'claim' | 'started' | 'release'> & Partial<Pick<LeadWorkLedger, 'stopping'>>
 }
 const refuse = (message: string): never => { throw new Error(message) }
 const MUTATIONS = new Set(['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'])
@@ -559,8 +560,9 @@ export class LeadChats {
     if (!summary) return null
     if (this.incidents?.get(id)?.state === 'asked') return { stage: 'you-blocked', reason: 'failed' }
     const live = this.ports.live(runtime, session), recovering = this.incidents?.waiting(id) ?? false
-    return leadStage({ kind: 'session', archived: summary.archived === true, waiting: live.approvalWaiting ?? live.waiting, running: recovering || live.running,
+    const state = leadStage({ kind: 'session', archived: summary.archived === true, waiting: live.approvalWaiting ?? live.waiting, running: recovering || live.running,
       failed: recovering ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false, stopped: live.stopped ?? false })
+    return live.turn ? { ...state, turn: live.turn } : state
   }
   send(input: HostParams<'lead/chat/send'>, currentRetry?: () => boolean, retryStarted?: () => void, retryBusy?: () => void): Promise<HostResult<'lead/chat/send'>> {
     const { effectId, cause = 'automatic', ...params } = input
@@ -626,7 +628,14 @@ export class LeadChats {
       // Stop may return early for an idle chat, before PhoneWork calls admission.
       await this.#notHeld(params.id)
       await this.incidents?.stop(params.id)
-      return this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id) }, effectStarted, this.#liveScope(call, attemptId, () => params.id))
+      // The ledger hears the stop is the Lead's as the effect starts, right before the interrupt is sent; never on the path
+      // that only cancels a recovery, and it never holds the stop up.
+      // A failed interrupt takes the record back, so a later stop the desk did not send is not put on the Lead.
+      let undo: (() => void) | undefined
+      const started = () => { effectStarted(); try { undo = this.ports.ledger?.stopping?.(params.id, 'lead') } catch { /* As above. */ } }
+      try {
+        return await this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id) }, started, this.#liveScope(call, attemptId, () => params.id))
+      } catch (error) { try { undo?.() } catch { /* Never in the way of the error. */ } throw error }
     })
   }
 

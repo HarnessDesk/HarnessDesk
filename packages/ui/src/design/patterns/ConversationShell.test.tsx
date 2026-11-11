@@ -1,0 +1,84 @@
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+
+import { ConversationThread } from './ConversationShell'
+
+/**
+ * The dock floats over the thread and the thread reserves its measured height
+ * as bottom padding. Reserving is not enough on its own: when a notice joins
+ * the dock after the thread was scrolled to its end, the end moves and the
+ * last message is left under the dock unless the thread follows it.
+ */
+
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+let container: HTMLDivElement
+let root: Root
+interface Watcher { readonly callback: () => void, watching: boolean }
+let watchers: Watcher[]
+const resize = { forEach: (run: (callback: () => void) => void) => watchers.filter(watcher => watcher.watching).forEach(watcher => run(watcher.callback)), get length() { return watchers.filter(watcher => watcher.watching).length } }
+
+beforeEach(() => {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+  watchers = []
+  vi.stubGlobal('ResizeObserver', class {
+    readonly #watcher: Watcher
+    constructor(callback: () => void) { this.#watcher = { callback, watching: false }; watchers.push(this.#watcher) }
+    observe() { this.#watcher.watching = true }
+    disconnect() { this.#watcher.watching = false }
+  })
+})
+
+afterEach(() => {
+  act(() => root.unmount())
+  container.remove()
+  vi.unstubAllGlobals()
+})
+
+const box = (element: HTMLElement, sizes: { scrollHeight: number, clientHeight: number }) => {
+  Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => sizes.scrollHeight })
+  Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => sizes.clientHeight })
+}
+
+it('keeps its end in view when the dock over it grows, while the reader is at the end', () => {
+  act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  const sizes = { scrollHeight: 1200, clientHeight: 800 }
+  box(thread, sizes)
+  thread.scrollTop = 400
+  act(() => thread.dispatchEvent(new Event('scroll')))
+
+  sizes.scrollHeight = 1600
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(1600)
+})
+
+it('leaves a reader who scrolled up where they are', () => {
+  act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  const sizes = { scrollHeight: 1200, clientHeight: 800 }
+  box(thread, sizes)
+  thread.scrollTop = 100
+  act(() => thread.dispatchEvent(new Event('scroll')))
+
+  sizes.scrollHeight = 1600
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(100)
+})
+
+it('starts at its end before anyone scrolls, still calls the screen\'s own onScroll, and does nothing unasked', () => {
+  const onScroll = vi.fn()
+  act(() => root.render(<ConversationThread keepEnd onScroll={onScroll}><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  box(thread, { scrollHeight: 900, clientHeight: 800 })
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(900)
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  expect(onScroll).toHaveBeenCalledTimes(1)
+
+  act(() => root.render(<ConversationThread><p>last message</p></ConversationThread>))
+  expect(resize).toHaveLength(0)
+})

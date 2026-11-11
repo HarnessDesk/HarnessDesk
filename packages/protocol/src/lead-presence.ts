@@ -7,6 +7,12 @@
  */
 import { arrayOf, isBoolean, isNumber, isObject, isString, literalUnion, optional, ValidationError, type Validator } from './validate.js'
 
+/**
+ * The words for the items a digest had no room for. Dismissing a digest dismisses its whole span, these included, so
+ * every surface says so in the same words rather than letting them go unseen.
+ */
+export const leadDigestMore = (more: number): string => `${more} more not shown; dismissing clears them too`
+
 export const LEAD_PRESENCE_LIMITS = Object.freeze({
   /** Away this long and the next look gets a digest. A shorter absence is a glance. */
   awayMs: 30 * 60_000,
@@ -87,10 +93,24 @@ export interface LeadDigestItem {
   readonly title: string
   /** The evidence line: the latest thing the host saw happen. */
   readonly fact?: string
+  /** Where the item opens: the chat, Team or pull request that is the evidence, the work item, or the decision card. */
+  readonly ref?: LeadDigestRef
+  /** When the change the item reports happened, epoch milliseconds. */
+  readonly at?: number
+  /** Who stopped a stopped item, when the host saw who did: the person (window or phone) or the Lead. Absent: not known. */
+  readonly stoppedBy?: LeadStopActor
 }
+/** Who stopped a chat: the person, from any surface, or the Lead. */
+export type LeadStopActor = 'person' | 'lead'
+export type LeadDigestRefKind = 'chat' | 'team' | 'pr' | 'work' | 'card'
+/**
+ * What a digest item opens. `chat` is `runtime:session`, `team` a Team id, `pr` `owner/repo#number`, `work` a work item
+ * id and `card` a decision card in the Lead conversation. A surface draws a link only for what it can find itself.
+ */
+export interface LeadDigestRef { readonly kind: LeadDigestRefKind; readonly id: string }
 export interface LeadDigest {
   readonly version: 1
-  /** Stable for one digest on one device, so a dismissal names exactly what was seen. */
+  /** Stable for one digest on one device, so a dismissal names exactly what was seen. A dismissal clears it on every device. */
   readonly id: string
   readonly kind: LeadDigestKind
   readonly from: number
@@ -158,14 +178,30 @@ export const parseLeadBriefUpdate: Validator<LeadBriefUpdate> = (value, path = '
   if (out.enabled === undefined && out.at === undefined) fail(path, 'expected enabled or at')
   return out
 }
+/** A pull request as `owner/repo#n`. Neither name may be `.` or `..`, so the id never walks a path when it becomes a link. */
+export const LEAD_PULL_REQUEST_REF = /^((?!\.{1,2}\/)[\w.-]{1,100})\/((?!\.{1,2}#)[\w.-]{1,100})#([1-9]\d{0,9})$/
+/** Whether `id` is a well-formed id for a digest link of this kind: what the host sends and what a reader opens. */
+export const isLeadDigestRefId = (kind: LeadDigestRefKind, id: string): boolean => id.length <= 300 && (
+  kind === 'pr' ? LEAD_PULL_REQUEST_REF.test(id) : kind === 'chat' ? /^[\w.-]{1,64}:[^\s\u0000-\u001f\u007f]{1,235}$/.test(id) : /^[\w.:-]{1,200}$/.test(id))
+const digestRef: Validator<LeadDigestRef> = (value, path = '') => {
+  const source = only(['kind', 'id'])(value, path)
+  const kind = literalUnion('chat', 'team', 'pr', 'work', 'card')(source.kind, at(path, 'kind')), id = text(300)(source.id, at(path, 'id'))
+  return isLeadDigestRefId(kind, id) ? { kind, id } : fail(at(path, 'id'), `expected a ${kind} id`)
+}
+const ITEM_FIELDS = ['kind', 'id', 'title', 'fact', 'ref', 'at', 'stoppedBy'] as const
+const DIGEST_FIELDS = ['version', 'id', 'kind', 'from', 'to', 'items', 'more', 'spentUsdMicros', 'summary', 'summaryUsdMicros'] as const
 const item: Validator<LeadDigestItem> = (value, path = '') => {
-  const source = only(['kind', 'id', 'title', 'fact'])(value, path)
+  const source = only([...ITEM_FIELDS])(value, path)
   const fact = optional(text(LEAD_PRESENCE_LIMITS.factChars))(source.fact, at(path, 'fact'))
+  const ref = optional(digestRef)(source.ref, at(path, 'ref'))
+  const when = optional(time)(source.at, at(path, 'at'))
+  const stoppedBy = optional(literalUnion('person', 'lead'))(source.stoppedBy, at(path, 'stoppedBy'))
   return { kind: literalUnion('done', 'waiting', 'stopped')(source.kind, at(path, 'kind')), id: text(96)(source.id, at(path, 'id')),
-    title: text(LEAD_PRESENCE_LIMITS.titleChars)(source.title, at(path, 'title')), ...(fact === undefined ? {} : { fact }) }
+    title: text(LEAD_PRESENCE_LIMITS.titleChars)(source.title, at(path, 'title')), ...(fact === undefined ? {} : { fact }),
+    ...(ref === undefined ? {} : { ref }), ...(when === undefined ? {} : { at: when }), ...(stoppedBy === undefined ? {} : { stoppedBy }) }
 }
 export const parseLeadDigest: Validator<LeadDigest> = (value, path = '') => {
-  const source = only(['version', 'id', 'kind', 'from', 'to', 'items', 'more', 'spentUsdMicros', 'summary', 'summaryUsdMicros'])(value, path)
+  const source = only([...DIGEST_FIELDS])(value, path)
   if (source.version !== 1) fail(at(path, 'version'), 'unsupported digest version')
   const items = arrayOf(item)(source.items, at(path, 'items'))
   if (items.length > LEAD_PRESENCE_LIMITS.items) fail(at(path, 'items'), 'too many digest items')
@@ -175,6 +211,26 @@ export const parseLeadDigest: Validator<LeadDigest> = (value, path = '') => {
     from: time(source.from, at(path, 'from')), to: time(source.to, at(path, 'to')), items, more: time(source.more, at(path, 'more')),
     spentUsdMicros: time(source.spentUsdMicros, at(path, 'spentUsdMicros')),
     ...(summary === undefined ? {} : { summary }), ...(summaryUsdMicros === undefined ? {} : { summaryUsdMicros }) }
+}
+/**
+ * A digest read back from the host's own record, written by this host or another version of it. Fields this version does
+ * not know are left out, and an item or link it cannot read is dropped, so a record from a newer or older host keeps the
+ * rest of what it holds. Throws only when the digest itself cannot be read.
+ */
+export const parseStoredLeadDigest = (value: unknown): LeadDigest => {
+  const pick = (source: unknown, keys: readonly string[]): Record<string, unknown> =>
+    source && typeof source === 'object' && !Array.isArray(source) ? Object.fromEntries(keys.filter(key => key in source).map(key => [key, (source as Record<string, unknown>)[key]])) : {}
+  const top = pick(value, DIGEST_FIELDS)
+  const items = (Array.isArray(top.items) ? top.items : []).flatMap(entry => {
+    const known = pick(entry, ITEM_FIELDS)
+    // Whole first, then without its link, then as an older host wrote it.
+    for (const drop of [[], ['ref'], ['ref', 'at', 'stoppedBy']]) {
+      const tried = Object.fromEntries(Object.entries(known).filter(([key]) => !drop.includes(key)))
+      try { return [item(tried.ref === undefined ? tried : { ...tried, ref: pick(tried.ref, ['kind', 'id']) })] } catch { /* Try with less. */ }
+    }
+    return []
+  })
+  return parseLeadDigest({ ...top, items: items.slice(0, LEAD_PRESENCE_LIMITS.items) })
 }
 const askState: Validator<LeadAskState> = (value, path = '') => {
   const source = only(['id', 'status', 'expiresAt', 'answer'])(value, path)
