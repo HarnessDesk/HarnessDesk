@@ -510,8 +510,10 @@ test('a kept note answers exists with its entry, and the status says it is kept'
   // Kept in the person's own words, it says so.
   const other = await store.propose({ text: 'Stay quiet about desk changes at night.', kind: 'preference' }, 7, 6)
   const edited = (await store.change({ action: 'keep', id: other.id!, text: 'Stay quiet about desk changes after 22:00.' }, 8)).core.find(one => one.text.includes('22:00'))!
-  assert.deepEqual(store.status().proposals[0], { id: other.id, state: 'edited', text: 'Stay quiet about desk changes after 22:00.', entry: edited.id, at: store.status().proposals[0]!.at },
-    'the words the note says now, never the words the person replaced')
+  assert.deepEqual(store.status().proposals[0], { id: other.id, state: 'edited', text: 'Stay quiet about desk changes after 22:00.', entry: edited.id, at: store.status().proposals[0]!.at,
+    history: store.status().proposals[0]!.history }, 'the words the note says now, never the words the person replaced')
+  // What happened to it is what the store recorded: proposed, then kept in the person's words (#2107).
+  assert.deepEqual(store.status().proposals[0]!.history?.map(event => event.what), ['proposed', 'edited'])
   // Edited again in Settings, the status follows the entry.
   await store.change({ action: 'edit', id: entry.id, text: 'Report in Chinese, short.' })
   assert.deepEqual(store.status().proposals.map(item => [item.id, item.state, item.text]), [[other.id, 'edited', 'Stay quiet about desk changes after 22:00.'], [offered.id, 'edited', 'Report in Chinese, short.']])
