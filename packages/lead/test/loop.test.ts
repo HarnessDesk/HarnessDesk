@@ -860,6 +860,26 @@ test('a successful tool result beyond the continuation budget does not park the 
   await loop.close()
 })
 
+test('a proactive turn one block under the cap keeps its automatic-wake instruction, and the clock is what yields', async () => {
+  const s = await fixture([message([{ type: 'text', text: 'quiet' }])])
+  const loop = exported('createLeadLoop')(s.options)
+  const result = await loop.request({ ...input, proactive: true, messages: [{ role: 'user', content: Array.from({ length: 63 }, (_, n) => ({ type: 'text', text: `desk fact ${n}` })) }] })
+  assert.notEqual(result.status, 'refused', 'never refused for the blocks the desk added')
+  assert.equal(s.fake.requests.length, 1, 'the request went')
+  const sent = JSON.parse(s.fake.requests[0].body), last = sent.messages.at(-1)
+  assert.equal(last.content.length, 64)
+  assert.match(last.content.at(-1).text, /^This is an automatic wake\./, 'the instruction is kept')
+  assert.equal(s.fake.requests[0].body.includes('Desk clock: '), false, 'the clock gave way at the cap')
+  // One block further from the cap, both go, and the clock is the request's last block.
+  const t = await fixture([message([{ type: 'text', text: 'quiet' }])])
+  const roomy = exported('createLeadLoop')(t.options)
+  await roomy.request({ ...input, proactive: true, messages: [{ role: 'user', content: Array.from({ length: 62 }, (_, n) => ({ type: 'text', text: `desk fact ${n}` })) }] })
+  const blocks = JSON.parse(t.fake.requests[0].body).messages.at(-1).content
+  assert.match(blocks.at(-2).text, /^This is an automatic wake\./)
+  assert.match(blocks.at(-1).text, /^Desk clock: /)
+  await loop.close(); await roomy.close()
+})
+
 for (const variant of ['expired consent', 'wrong recipe', 'unknown tool', 'malformed arguments', 'host scope', 'dispatch scope']) {
   test(`${variant} parks after one refused tool turn`, async () => {
     const use = variant === 'unknown tool' ? tool('refused', 'approval_answer', {})

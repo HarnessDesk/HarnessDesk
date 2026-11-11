@@ -405,14 +405,16 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     if (input.epoch !== undefined) epoch = input.epoch
     const { epoch: _epoch, base: _base, kept: _kept, ...sendable } = input
     const allowed = allowance ? withObservation(input.messages, 'Desk message: 80% of the allowance is used. Finish only what the approved plan needs. List review asks outside it in the result instead of doing them.') : input.messages
+    const instructed = input.proactive ? withObservation(allowed, 'This is an automatic wake. Reply with the proactive finding/caveat/ask envelope from your instructions, or stay quiet.') : allowed
     // The desk clock closes every request: desk context of this moment, after the cache mark, and stubbed when stored.
-    const request = { ...sendable, messages: withClock(allowed, leadClockLine(clock.now(), options.timeZone)) }
+    // It goes last, after the desk's other words, so at the block cap it is the one that yields.
+    const request = { ...sendable, messages: withClock(instructed, leadClockLine(clock.now(), options.timeZone)) }
     const system = [input.system, standingInstructions()].filter(Boolean).join('\n')
     let spent: MessagesUsage | undefined
     // The step's last request and what it carried: the store's pressure is that request, never the sum of a retry.
     let last: { usage: MessagesUsage; messages: readonly MessagesTurn[] } | undefined
     try {
-      const sent = input.proactive ? withObservation(request.messages, 'This is an automatic wake. Reply with the proactive finding/caveat/ask envelope from your instructions, or stay quiet.') : request.messages
+      const sent = request.messages
       result = await messages.request({ ...request, messages: sent, system }, active.signal)
       spent = result.usage
       if (result.usage) last = { usage: result.usage, messages: sent }
