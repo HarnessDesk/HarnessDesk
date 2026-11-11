@@ -654,7 +654,11 @@ test('quiet desk wakes that read nothing are not kept: a desk busy for hours doe
   const lead1 = await harness(t, { window: 200_000 })
   await lead1.say('Hello there.')
   const before = { turns: lead1.store.turns.length, bytes: lead.leadContextBytes(lead1.store.turns) }
+  const record = lead1.store.record.bind(lead1.store)
+  let measuredOnly = 0
+  lead1.store.record = async input => { if (!input.turns.length && !input.extend.length && input.usage) measuredOnly++; return record(input) }
   for (let n = 0; n < 40; n++) await lead1.deskChange()
+  assert.equal(measuredOnly, 40, 'each quiet wake still reports what its request measured, so the store\'s readings stay true')
   assert.equal(lead1.journal.state.wakes.filter(wake => wake.source === 'desk-change' && wake.modelTurn).length, 40, 'each change still woke the model')
   assert.deepEqual({ turns: lead1.store.turns.length, bytes: lead.leadContextBytes(lead1.store.turns) }, before,
     'a wake that ended quiet, with no tool and nothing said, left no turns behind')

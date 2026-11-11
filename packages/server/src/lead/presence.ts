@@ -22,7 +22,7 @@ export interface LeadPresencePorts {
   readonly waiting: () => readonly { readonly id: string; readonly title: string; readonly position: number }[]
   readonly revision: () => number
   /** The thread's messages, for the asks among them. */
-  readonly messages: () => readonly { readonly id: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly source?: 'person' | 'automatic' | 'schedule' }[]
+  readonly messages: () => readonly { readonly id: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly source?: 'person' | 'automatic' | 'schedule'; readonly wake?: unknown }[]
   /** Whether quiet hours hold work back right now. */
   readonly quiet: () => Promise<boolean>
   /** Autonomy for the morning brief: `off` and `observed` both mean it is not made; the day is spent either way. */
@@ -447,7 +447,7 @@ export class LeadPresenceStore {
     const messages = this.ports.messages()
     for (let index = messages.length - 1; index >= 0; index--) {
       const message = messages[index]!
-      if (message.role === 'user') return undefined
+      if (message.role === 'user' && !message.wake) return undefined
       if (message.role === 'assistant' && message.ask) return { id: message.id, ask: message.ask }
     }
     return undefined
@@ -479,7 +479,7 @@ export class LeadPresenceStore {
 
   #lastPersonMessage(): { id: string; text: string } | undefined {
     const messages = this.ports.messages()
-    for (let index = messages.length - 1; index >= 0; index--) if (messages[index]!.role === 'user') return messages[index]!
+    for (let index = messages.length - 1; index >= 0; index--) if (messages[index]!.role === 'user' && !messages[index]!.wake) return messages[index]!
     return undefined
   }
 

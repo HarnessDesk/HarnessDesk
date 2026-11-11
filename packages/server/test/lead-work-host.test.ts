@@ -162,6 +162,19 @@ test('a reminder wakes the Lead as a desk wake, never as the person\'s message, 
   assert.notEqual(projection.wayOut, 'resume', 'a wake the Lead stayed quiet on is not the person\'s message left unanswered')
 })
 
+test('a wake counts as said only for the Lead\'s turn that answers it: a later wake\'s reply never says an earlier one was said', async t => {
+  const r = await workRig(t)
+  let calls = 0
+  const controls = r.controls(async () => ({ status: 'completed', text: ++calls === 1 ? '' : 'Time to send the notes.' }))
+  assert.equal(await controls.remind('wake-first', 'Reminder you set for work work-1. Check on it.', { reminder: 'remind-1', text: 'Check on the release', person: false }), true)
+  await controls.idle()
+  assert.equal(await controls.remind('wake-second', 'Reminder remind-2, which you set for the person, is due now. Remind the person now, in one short message.', { reminder: 'remind-2', text: 'send the notes', person: true }), true)
+  await controls.idle()
+  assert.equal(r.journal.state.messages.at(-1)?.text, 'Time to send the notes.')
+  assert.equal(controls.wakeOutcome('wake-second'), 'said')
+  assert.equal(controls.wakeOutcome('wake-first'), 'silent', 'the second wake\'s reply is not the first one\'s')
+})
+
 test('an ask gets its expiry clock when the journal appends it, with nobody looking', async t => {
   const { readFile } = await import('node:fs/promises')
   const { join } = await import('node:path')

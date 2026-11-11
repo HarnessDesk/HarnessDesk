@@ -294,6 +294,8 @@ export class LeadContextStore {
       const tokens = input.usage ? input.usage.input + input.usage.cacheRead + input.usage.cacheWrite : null
       const bytes = input.usage?.bytes ?? leadContextBytes(this.#turns)
       if (tokens !== null) this.#overhead = Math.max(0, tokens - leadEstimatedTokens(bytes))
+      // A step that kept no turns (a quiet desk wake) reports only what its request measured.
+      if (!input.extend.length && !input.turns.length) { if (tokens !== null) this.#measured = { tokens, bytes }; return }
       const base = input.epoch === this.#epoch ? input.base : this.#turns.length
       await this.#append({ base, extend: input.extend, turns: input.turns, measured: tokens === null ? null : { tokens, bytes } })
     })

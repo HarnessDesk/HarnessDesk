@@ -119,17 +119,15 @@ const withObservation = (messages: readonly MessagesTurn[], text: string): reado
     ? [...messages.slice(0, -1), { ...last, content: [...last.content, block] }]
     : [...messages, { role: 'user', content: [block] }]
 }
-/** The desk clock as the request's last block. A person's turn already at the block limit takes it on its last text
- * block instead, and one with no room for it goes without: a request is never refused for the clock it carries. */
+/** The desk clock as the request's last block, a block of its own so it is stubbed when stored and never sits inside the
+ * cached prefix or the person's words. A user turn already at the block limit goes without it: a request is never
+ * refused for the clock it carries. */
 const withClock = (messages: readonly MessagesTurn[], text: string): readonly MessagesTurn[] => {
   const last = messages.at(-1)
-  if (last?.role !== 'user' || last.content.length < TURN_BLOCKS) return withObservation(messages, text)
-  const tail = last.content.at(-1)
-  if (tail?.type !== 'text' || tail.text.length + text.length + 1 > BLOCK_TEXT) return messages
-  return [...messages.slice(0, -1), { ...last, content: [...last.content.slice(0, -1), { ...tail, text: `${tail.text}\n${text}` }] }]
+  return last?.role === 'user' && last.content.length >= TURN_BLOCKS ? messages : withObservation(messages, text)
 }
-/** The Messages client's per-turn block and per-block text bounds (`LIMIT` in messages.ts). */
-const TURN_BLOCKS = 64, BLOCK_TEXT = 16_384
+/** The Messages client's per-turn block bound (`LIMIT.blocks` in messages.ts). */
+const TURN_BLOCKS = 64
 /** API-only management. Messages is the sole model brain. This owner supplies
  * scope, observations, durable cards and wakeups; it never interprets a CLI or
  * treats the subscription stream as an alternate agent. */
@@ -233,9 +231,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens, cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens }
   /** The step's new turns go to the host's stored conversation, desk context as stubs and reasoning left out. A record
    * too large for one frame is pruned first; one that still cannot be sent is lost from the store, never from this turn. */
-  const recordContext = async (stubbed: readonly MessagesTurn[], mark: LeadMessagesRequest['stable'], last: { usage: MessagesUsage; messages: readonly MessagesTurn[] } | undefined) => {
+  const recordContext = async (stubbed: readonly MessagesTurn[], mark: LeadMessagesRequest['stable'], last: { usage: MessagesUsage; messages: readonly MessagesTurn[] } | undefined, usageOnly = false) => {
     if (!options.context) return
-    let record = leadContextRecord(stubbed, mark)
+    // A step whose turns are not kept still reports what its request measured, so the store's readings stay true.
+    let record = usageOnly ? { extend: [], turns: [] } : leadContextRecord(stubbed, mark)
     if (leadContextBytes(record) > LEAD_CONTEXT.requestBytes) record = { ...record, turns: leadPruneContext(record.turns) }
     const usage = last?.usage
     try {
@@ -453,6 +452,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       history = stubbed
       await recordContext(stubbed, input.base ?? input.stable, last)
     }
+    else if (result.messages && passed && last) await recordContext([], input.base ?? input.stable, last, true)
     stepUsage = spent
     requestTemplate = input
     // What the model said belongs to the person, in the order it was said: before the card or the wait that

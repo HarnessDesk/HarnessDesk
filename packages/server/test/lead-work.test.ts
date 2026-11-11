@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, parseLeadWorkBoard, parseLeadWorkDetail, type LeadStage, type LeadWorkBoard } from '@harnessdesk/protocol'
 import { leadWorkCards } from '@harnessdesk/lead'
-import { LeadReminderTimer, LeadWorkLedger, settleLeadReminders, wakeForLeadWork, type LeadWorkLinkState } from '../src/lead/work.js'
+import { LeadReminderTimer, LeadWorkLedger, LEAD_REMINDER_MISSED_MS, settleLeadReminders, wakeForLeadWork, type LeadWorkLinkState } from '../src/lead/work.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 
 const rig = async (t: TestContext) => {
@@ -738,10 +738,13 @@ test('a person reminder counts as said only once the Lead wrote it: a wake that 
   const cards = leadWorkCards(board, r.now())!
   assert.match(cards, /remind-1 for the person "Send the changelog to the team" said to the person/)
   assert.match(cards, /remind-2 for the person "Check the deploy" missed .*never written/, 'the Lead is told it did not remind the person')
-  // A retry the Lead cannot take now is missed at once: the person sees it and the Lead is told, rather than waiting.
+  // A retry the Lead cannot take now waits for a later pass, and reads missed only once it is an hour late.
   const third = await r.ledger.setReminder({ text: 'Water the plants', at: r.now() + 30 * 60_000, cause: 'person' })
   r.tick(30 * 60_000)
   await wakeForLeadWork(r.ledger, wake)
+  await settleLeadReminders(r.ledger, { outcome: () => 'silent', retry: async () => false })
+  assert.equal((await r.ledger.board()).reminders?.find(entry => entry.id === third.id)?.delivery, undefined)
+  r.tick(LEAD_REMINDER_MISSED_MS)
   await settleLeadReminders(r.ledger, { outcome: () => 'silent', retry: async () => false })
   assert.equal((await r.ledger.board()).reminders?.find(entry => entry.id === third.id)?.delivery, 'missed')
 })
@@ -944,3 +947,74 @@ test("a check-back is named by its work's title", async t => {
   await r.ledger.note({ id: 'work-1', remindAt: r.now() + DAY })
   assert.equal((await r.ledger.board()).reminders?.[0]?.text, 'Check on Fix the retry status list')
 })
+
+test('an overdue reminder that cannot be delivered now arms no timer that fires again at once: it is the minute tick\'s', async t => {
+  const r = await rig(t)
+  const timers: { ms: number; run: () => void; cleared: boolean }[] = []
+  let fires = 0
+  const timer: LeadReminderTimer = new LeadReminderTimer({ next: () => r.ledger.nextDue(), now: r.now,
+    // As the host does: try to deliver (here it cannot be: the thread waits on the person), then arm again.
+    fire: () => { fires++; void timer.arm() },
+    setTimer: (run, ms) => { const entry = { ms, run, cleared: false }; timers.push(entry); return () => { entry.cleared = true } } })
+  const set = await r.ledger.setReminder({ text: 'Check the review', at: r.now() + 2 * 60_000, cause: 'person' })
+  await timer.arm()
+  assert.equal(timers.length, 1)
+  r.tick(set.dueAt - r.now())
+  // Run every timer that is armed, as a fake clock would, for a good while: an overdue reminder must not spin.
+  for (let pass = 0; pass < 50; pass++) {
+    const live = timers.filter(entry => !entry.cleared && !(entry as { ran?: boolean }).ran)
+    if (!live.length) break
+    for (const entry of live) { (entry as { ran?: boolean }).ran = true; entry.run() }
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  assert.equal(fires, 1, 'it fired once at its time, and the undelivered reminder armed nothing more')
+  assert.equal(timers.some(entry => entry.ms === 0), false, 'no zero-delay timer')
+  assert.equal(await r.ledger.nextDue(), null, 'nothing ahead to arm for')
+  assert.equal((await r.ledger.dueReminders()).length, 1, 'it is still due, for the minute tick to deliver')
+  // The Lead's own reminder on a closed item would never be delivered, so it arms nothing either.
+  await start(r, 'Fix the login redirect', ['m-1'], 'fixture:a')
+  await r.ledger.setReminder({ text: 'Later about it', at: r.now() + 60 * 60_000, item: 'work-1' })
+  assert.equal(await r.ledger.nextDue(), r.now() + 60 * 60_000)
+  await r.ledger.close({ id: 'work-1', outcome: 'done' })
+  assert.equal(await r.ledger.nextDue(), null)
+  timer.close()
+})
+
+test('a second wake the Lead cannot take now leaves the reminder waiting, not missed; it reads missed only when that wake is silent or an hour has passed', async t => {
+  const r = await rig(t)
+  const outcomes = new Map<string, 'pending' | 'said' | 'silent'>()
+  let accept = false
+  const retried: string[] = []
+  const settle = { outcome: (key: string) => outcomes.get(key) ?? 'pending',
+    retry: async (key: string) => { retried.push(key); return accept } }
+  const one = await r.ledger.setReminder({ text: 'Check the review', at: r.now() + 2 * 60_000, cause: 'person' })
+  r.tick(one.dueAt - r.now())
+  const [due] = await r.ledger.dueReminders()
+  await r.ledger.reminded(due!.id, due!.remindAt, 'wake-1')
+  outcomes.set('wake-1', 'silent')
+  await settleLeadReminders(r.ledger, settle)
+  assert.deepEqual(retried, ['wake-1-again'])
+  let entry = (await r.ledger.board()).reminders?.find(found => found.id === one.id)
+  assert.equal(entry?.delivery, undefined, 'a refused second wake (a turn in flight) leaves it waiting, never missed')
+  accept = true
+  r.tick(5 * 60_000)
+  await settleLeadReminders(r.ledger, settle)
+  assert.deepEqual(retried, ['wake-1-again', 'wake-1-again'], 'tried again on the next pass')
+  outcomes.set('wake-1-again', 'said')
+  await settleLeadReminders(r.ledger, settle)
+  entry = (await r.ledger.board()).reminders?.find(found => found.id === one.id)
+  assert.equal(entry?.delivery, 'said', 'retry refused once, then taken and spoken: said, not missed')
+
+  // One whose second wake can never be taken reads missed once it is an hour late.
+  const two = await r.ledger.setReminder({ text: 'Send the notes', at: r.now() + 2 * 60_000, cause: 'person' })
+  r.tick(two.dueAt - r.now())
+  const [late] = await r.ledger.dueReminders()
+  await r.ledger.reminded(late!.id, late!.remindAt, 'wake-2')
+  outcomes.set('wake-2', 'silent'); accept = false
+  await settleLeadReminders(r.ledger, settle)
+  assert.equal((await r.ledger.board()).reminders?.find(found => found.id === two.id)?.delivery, undefined)
+  r.tick(LEAD_REMINDER_MISSED_MS)
+  await settleLeadReminders(r.ledger, settle)
+  assert.equal((await r.ledger.board()).reminders?.find(found => found.id === two.id)?.delivery, 'missed')
+})
+

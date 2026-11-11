@@ -255,7 +255,7 @@ export class LeadControls {
   }
   /**
    * What became of the wake sent under `key`: `pending` while a request (the host's or the Lead's own tool loop) or a
-   * summary may still write after it, `said` once the Lead wrote a message after it before the person's next one, and
+   * summary may still write after it, `said` once the Lead wrote a message after it before the next user turn (the person's or another wake), and
    * `silent` when it ended without one (quiet, refused or failed).
    */
   wakeOutcome(key: string): 'pending' | 'said' | 'silent' {
@@ -263,7 +263,9 @@ export class LeadControls {
     if (this.#inFlight() || this.#continuation || this.options.context?.compacting) return 'pending'
     const at = send ? state.messages.findIndex(message => message.id === send.messageId) : -1
     if (at < 0) return 'silent'
-    const after = state.messages.slice(at + 1), next = after.findIndex(message => message.role === 'user' && !message.wake)
+    // Only the Lead's turn that answers this wake counts: it ends at the next user turn, a person's message or another
+    // wake, so a later wake's reply or a queued turn's text never says this one was said.
+    const after = state.messages.slice(at + 1), next = after.findIndex(message => message.role === 'user')
     return (next < 0 ? after : after.slice(0, next)).some(message => message.role === 'assistant' && message.text.trim()) ? 'said' : 'silent'
   }
   workerApprovalsChanged(): Promise<void> {
