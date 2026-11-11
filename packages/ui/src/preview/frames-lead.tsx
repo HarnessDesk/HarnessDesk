@@ -140,6 +140,11 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       const rest = work.items.filter(item => item.id !== params.id)
       return work = { ...work, items: [...rest.filter(item => item.group !== 'done'), done, ...rest.filter(item => item.group === 'done')] }
     }
+    if (method === 'lead/reminder/cancel') {
+      // As on the desk: a reminder that has not fired is marked cancelled and leaves the lists; a fired one stays as it was.
+      if (!work.reminders?.some(entry => entry.id === params.id)) throw { code: 'notFound' }
+      return work = { ...work, reminders: work.reminders.map(entry => entry.id === params.id && entry.state === 'set' ? { ...entry, state: 'cancelled' as const, cancelledAt: Date.now(), why: 'Cancelled' } : entry) }
+    }
     if (method === 'lead/wakes/read') return { revision: current.revision, wakes: scene === 'wake-ledger' ? leadWakeFixture : [] }
     if (method === 'lead/budget/raise') {
       if (params.expectedRevision !== current.revision) throw { code: 'lead-revision-stale' }

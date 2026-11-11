@@ -225,6 +225,8 @@ export const phoneWorkBoard = (board: LeadWorkBoard): LeadWorkBoard => ({
     }
     return out
   }),
+  // Reminders ride the same board: what the phone lists with its due time and cancels through lead/reminder/cancel.
+  ...(board.reminders?.length ? { reminders: board.reminders.map(entry => ({ ...entry, text: scrub(entry.text, 200) || 'Reminder' })) } : {}),
 })
 
 export class PhoneWork {

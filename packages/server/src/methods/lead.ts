@@ -56,4 +56,7 @@ export const leadMethods = {
   'lead/rules/read': ctx => ctx.leadAutonomy.rules(),
   'lead/rules/update': (ctx, params) => ctx.leadAutonomy.updateRules(params),
   'lead/deadline/set': (ctx, params) => ctx.leadAutonomy.setDeadline(params),
+  // A reminder is a scheduled entry on the same board: listed, cancellable from every surface, fired by the minute timer.
+  'lead/reminder/set': (ctx, params) => ctx.leadWork.setReminder(params),
+  'lead/reminder/cancel': (ctx, params) => ctx.leadWork.cancelReminder(params),
 } satisfies MethodsUnder<'lead/'>

@@ -2973,6 +2973,10 @@ export interface HostMethods {
   'lead/memory/propose': { params: import('./lead-memory.js').LeadMemoryProposal; result: import('./lead-memory.js').LeadMemoryProposalResult }
   /** The Lead's search over Archive and its own past conversation, summarised parts included. */
   'lead/memory/search': { params: import('./lead-memory.js').LeadMemorySearch; result: import('./lead-memory.js').LeadMemorySearchResult }
+  /** The Lead sets a reminder the person asked for. The created entry is the only proof it is set; it is listed on the work board. */
+  'lead/reminder/set': { params: import('./lead-work.js').LeadReminderSet; result: import('./lead-work.js').LeadReminder }
+  /** Cancels a reminder that has not fired, from the Lead, the window or the phone. */
+  'lead/reminder/cancel': { params: { readonly id: string }; result: import('./lead-work.js').LeadWorkBoard }
 }
 
 /** One browser HarnessDesk found, and can start with remote debugging. */

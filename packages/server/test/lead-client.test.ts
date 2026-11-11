@@ -522,3 +522,9 @@ test('Lead client authority lets the Lead read its own context use', async t => 
   const { authority } = await rig(t)
   assert.equal(await authority.authorize({ id: 1, method: 'lead/context/use', params: {} } as never), null)
 })
+
+test('Lead client authority lets the Lead set and cancel a reminder on its own board', async t => {
+  const { authority } = await rig(t)
+  assert.equal(await authority.authorize({ id: 1, method: 'lead/reminder/set', params: { text: 'Send the notes', inMinutes: 30 } } as never), null)
+  assert.equal(await authority.authorize({ id: 2, method: 'lead/reminder/cancel', params: { id: 'remind-1' } } as never), null)
+})
