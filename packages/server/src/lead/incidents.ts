@@ -1,12 +1,9 @@
-import { randomInt } from 'node:crypto'
 import type { AgentError, LeadChatIncident, RateLimits } from '@harnessdesk/protocol'
 import { scrub } from '../phone-redact.js'
-import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
+import { BACKOFF_MS, INCIDENT_LIMIT, IncidentLedger, RETRY_ATTEMPTS, afterReset, isTimestamp as timestamp, scheduleTimer as schedule } from '../carry-on/incidents.js'
 
-export const LEAD_CHAT_RETRY_ATTEMPTS = 2
-export const LEAD_CHAT_LIMIT = 64
-const BACKOFF_MS = [60_000, 300_000] as const
-const RESET_JITTER_MIN_MS = 250, RESET_JITTER_MAX_MS = 1250
+export const LEAD_CHAT_RETRY_ATTEMPTS = RETRY_ATTEMPTS
+export const LEAD_CHAT_LIMIT = INCIDENT_LIMIT
 interface StoredIncident extends LeadChatIncident {
   readonly turnId: string
   readonly nextAt: number | null
@@ -29,15 +26,10 @@ interface Ports {
   readonly retry: (id: string, current: () => boolean, started: () => void) => Promise<void | 'not-started' | 'busy'>
   readonly publish: (incident: LeadChatIncident) => Promise<void>
 }
-const schedule = (run: () => void, delay: number): (() => void) => {
-  const timer = setTimeout(run, Math.min(delay, 2_147_483_647)); timer.unref()
-  return () => clearTimeout(timer)
-}
 const kinds = ['quota', 'credits', 'transient', 'failed']
 const states = ['waiting-reset', 'retrying', 'asked', 'moved', 'stopped', 'cleared']
 const codes = ['auth', 'credits', 'rateLimit', 'versionGate', 'sandboxDenied', 'network', 'interrupted', 'runtimeUnavailable', 'protocol', 'unknown']
-const timestamp = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
-const valid = (v: any): v is StoredIncident => v && typeof v === 'object' && typeof v.chatId === 'string' && v.chatId.length <= 300 &&
+const valid = (v: any): v is StoredIncident => !! v && typeof v === 'object' && typeof v.chatId === 'string' && v.chatId.length <= 300 &&
   v.chatId.indexOf(':') > 0 && kinds.includes(v.kind) && states.includes(v.state) && Number.isInteger(v.attempts) && v.attempts >= 0 && v.attempts <= LEAD_CHAT_RETRY_ATTEMPTS &&
   timestamp(v.firstAt) && timestamp(v.lastAt) && (v.resetsAt === null || timestamp(v.resetsAt)) && (v.nextAt === null || timestamp(v.nextAt)) &&
   typeof v.turnId === 'string' && v.turnId.length > 0 && v.turnId.length <= 300 && codes.includes(v.lastError?.code) && typeof v.lastError?.message === 'string' && v.lastError.message.length <= 300 &&
@@ -46,19 +38,28 @@ const valid = (v: any): v is StoredIncident => v && typeof v === 'object' && typ
   (v.movedTo === undefined || typeof v.movedTo === 'string' && v.movedTo.length <= 300)
 
 /** A durable timer ledger, with no model or allowance port. Claim before sending:
- * a crash after a claim asks the person rather than replaying an uncertain send. */
+ * a crash after a claim asks the person rather than replaying an uncertain send.
+ * The file, its cap, the backoff and the reset jitter are carry-on's (`../carry-on/incidents.ts`);
+ * what stays here is the Lead's own: the person's answer, the retry claim and its receipt. */
 export class LeadChatIncidents {
-  #records = new Map<string, StoredIncident>()
+  readonly #records: IncidentLedger<StoredIncident>
   #timers = new Map<string, () => void>()
   #tail: Promise<unknown> = Promise.resolve()
   #effects = new Set<Promise<void>>()
   #retryTail: Promise<void> = Promise.resolve()
   #claims = new Map<string, { active: boolean; started: boolean }>()
   #revisions = new Map<string, { revoked: number; dispatch: number }>()
-  #loaded = false
   #closed = false
   #generation = 0
-  constructor(private readonly ports: Ports) {}
+  constructor(private readonly ports: Ports) {
+    this.#records = new IncidentLedger<StoredIncident>({
+      file: ports.file, label: 'Lead incidents', recordLabel: 'Lead incident', keyOf: record => record.chatId, valid,
+      header: () => ({ project: ports.project }), accepts: file => file['project'] === ports.project,
+      adopt: record => record.personRevision === undefined && ports.personRevision ? { ...record, personRevision: ports.personRevision() } : record,
+      evicted: id => { this.#claims.delete(id); this.#revisions.delete(id); this.#timers.get(id)?.(); this.#timers.delete(id) },
+      ...(ports.problem ? { problem: ports.problem } : {}),
+    })
+  }
   get(id: string): LeadChatIncident | undefined { return this.#records.get(id) }
   waiting(id: string): boolean { return ['waiting-reset', 'retrying'].includes(this.#records.get(id)?.state ?? '') }
   observationRevision(id: string): number { return this.#revisions.get(id)?.dispatch ?? 0 }
@@ -93,31 +94,9 @@ export class LeadChatIncidents {
   #queue<T>(run: () => Promise<T>): Promise<T> {
     const task = this.#tail.then(run); this.#tail = task.catch(() => {}); return task
   }
-  async #load(): Promise<void> {
-    if (this.#loaded) return
-    const read = await readBoundedJsonResult(this.ports.file, 256 * 1024)
-    if (read.kind === 'missing') { this.#loaded = true; return }
-    if (read.kind !== 'value') { this.ports.problem?.('Lead incidents could not be read; starting empty.'); this.#loaded = true; return }
-    const v = read.value as { version?: unknown; project?: unknown; records?: unknown }
-    if (!v || v.version !== 1 || typeof v.project !== 'string' || !Array.isArray(v.records)) {
-      this.ports.problem?.('Lead incidents were invalid; starting empty.')
-    } else if (v.project === this.ports.project) {
-      let dropped = false
-      for (const record of v.records) {
-        if (!valid(record) || this.#records.has(record.chatId)) { dropped = true; continue }
-        this.#records.set(record.chatId, record.personRevision === undefined && this.ports.personRevision
-          ? { ...record, personRevision: this.ports.personRevision() } : record)
-        if (this.#records.size > LEAD_CHAT_LIMIT) { this.#records.delete(this.#records.keys().next().value!); dropped = true }
-      }
-      if (dropped) this.ports.problem?.('Invalid or excess Lead incident records were dropped.')
-    }
-    this.#loaded = true
-  }
+  #load(): Promise<void> { return this.#records.load() }
   async #save(record: StoredIncident): Promise<void> {
-    const next = new Map(this.#records); next.delete(record.chatId); next.set(record.chatId, record)
-    while (next.size > LEAD_CHAT_LIMIT) { const id = next.keys().next().value!; next.delete(id); this.#claims.delete(id); this.#revisions.delete(id); this.#timers.get(id)?.(); this.#timers.delete(id) }
-    await writeAtomicJson(this.ports.file, { version: 1, project: this.ports.project, records: [...next.values()] }, async () => {})
-    this.#records = next
+    await this.#records.save(record)
     if (record.state !== 'retrying') this.#claims.delete(record.chatId)
   }
   #arm(record: StoredIncident): void {
@@ -214,7 +193,7 @@ export class LeadChatIncidents {
       const automatic = previous?.state !== 'asked' && (kind === 'quota' || kind === 'transient') && attempts < LEAD_CHAT_RETRY_ATTEMPTS
       const record: StoredIncident = { chatId, personRevision: this.ports.personRevision?.(), turnId: turnId.slice(0, 300), kind, attempts, firstAt: active?.firstAt ?? now, lastAt: now, resetsAt,
         lastError: { code: error.code, message: scrub(error.message, 300) }, state: automatic ? 'waiting-reset' : 'asked',
-        nextAt: automatic ? resetsAt !== null && resetsAt > now ? resetsAt + randomInt(RESET_JITTER_MIN_MS, RESET_JITTER_MAX_MS + 1) : now + BACKOFF_MS[attempts]! : null }
+        nextAt: automatic ? resetsAt !== null && resetsAt > now ? afterReset(resetsAt) : now + BACKOFF_MS[attempts]! : null }
       await this.#save(record)
       if (automatic) this.#arm(record)
       else return record
@@ -235,7 +214,7 @@ export class LeadChatIncidents {
       const now = this.ports.now()
       const next: StoredIncident = { ...record, attempts: 0, blocked: 0, firstAt: now, lastAt: now, personRevision: this.ports.personRevision?.(),
         state: atReset ? 'waiting-reset' : 'retrying', nextAt: atReset ? record.resetsAt !== null && record.resetsAt > now
-          ? record.resetsAt + randomInt(RESET_JITTER_MIN_MS, RESET_JITTER_MAX_MS + 1) : now + BACKOFF_MS[0] : null }
+          ? afterReset(record.resetsAt) : now + BACKOFF_MS[0] : null }
       await this.#save(next); this.#arm(next)
       const settle = (stopped: boolean) => this.#queue(async () => {
         if (this.#records.get(id) !== next) return
