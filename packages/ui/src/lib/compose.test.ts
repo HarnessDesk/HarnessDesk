@@ -44,4 +44,20 @@ describe('handing a message to the composer', () => {
     }
     expect(await handOverToComposer({ text: 'nobody' }, { frames: 3 })).toBe(false)
   })
+
+  it('stops offering a request that no longer stands, before any composer can take it', async () => {
+    let dispatches = 0
+    let standing = true
+    const counter = (): void => {
+      dispatches += 1
+      standing = false
+    }
+    window.addEventListener('harnessdesk:compose', counter)
+    try {
+      expect(await handOverToComposer({ text: 'overtaken' }, { frames: 8, live: () => standing })).toBe(false)
+      expect(dispatches).toBe(1)
+    } finally {
+      window.removeEventListener('harnessdesk:compose', counter)
+    }
+  })
 })

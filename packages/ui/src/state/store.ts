@@ -2483,15 +2483,34 @@ export class AppStore {
    * which repository to open first. A draft already typed in the new-chat
    * composer is set aside to restore, never overwritten.
    */
-  async fillFromPromptLink(link: PromptLink): Promise<'filled' | 'unmatched' | 'not-opened'> {
+  async fillFromPromptLink(link: PromptLink): Promise<'filled' | 'unmatched' | 'not-opened' | 'not-taken' | 'superseded'> {
+    // The newest link wins: one still waiting on the host when another
+    // arrives must not, on its return, navigate or replace the newer draft.
+    const generation = ++this.#promptLinkGeneration
+    const current = (): boolean => generation === this.#promptLinkGeneration
     const workspaces = await this.transport.request('workspace/recent', {}).catch(() => this.#snapshot.workspaces)
+    if (!current()) return 'superseded'
     const project = matchPromptLinkProject(link.repo, workspaces)
     if (!project) {
       this.notice('warning', `Open this repository first: ${promptLinkRepoText(link.repo)}`)
       return 'unmatched'
     }
-    const held = this.drafts.live(NEW_SESSION_DRAFT_KEY)
-    if (held && held.text !== link.prompt && (held.text.trim() !== '' || held.attachments.length > 0)) {
+    // Read before the pane turns into the draft (a conversation's composer
+    // leaving for it starts the draft empty) and again after (a new chat's
+    // composer already on screen keeps what it holds).
+    const before = this.drafts.live(NEW_SESSION_DRAFT_KEY)
+    await this.startSessionIn(project.path)
+    if (!current()) return 'superseded'
+    if (this.#snapshot.workspace?.path !== project.path) return 'not-opened'
+    // Whatever the new chat's draft holds is set aside, not overwritten:
+    // its words unless they are the link's own, and its chips always.
+    const after = this.drafts.live(NEW_SESSION_DRAFT_KEY)
+    const setAside = new Set<string>()
+    for (const held of [before, after]) {
+      if (!held || (held.attachments.length === 0 && (held.text.trim() === '' || held.text === link.prompt))) continue
+      const identity = JSON.stringify([held.text, held.attachments.map((attachment) => attachment.path)])
+      if (setAside.has(identity)) continue
+      setAside.add(identity)
       this.addRecoverableDraft(UNSCOPED_RECOVERY_KEY, {
         text: held.text,
         attachments: held.attachments,
@@ -2499,13 +2518,13 @@ export class AppStore {
         detail: 'Set aside for the draft a link opened. Restore it to the composer you choose.',
       })
     }
-    await this.startSessionIn(project.path)
-    if (this.#snapshot.workspace?.path !== project.path) return 'not-opened'
-    // Kept for a composer drawn later, and handed to the one on screen now.
+    // Kept for a composer drawn later, and handed to the new draft on screen
+    // now — that pane's draft alone, once it is drawn.
     this.drafts.setLive(NEW_SESSION_DRAFT_KEY, { text: link.prompt, attachments: [] })
     this.#patch({ promptLinkDraft: { text: link.prompt, context: promptLinkContext(link) } })
-    await handOverToComposer({ text: link.prompt, replace: true })
-    return 'filled'
+    const taken = await handOverToComposer({ text: link.prompt, paneId: this.#snapshot.layout.focused, newDraft: true }, { live: current })
+    if (!current()) return 'superseded'
+    return taken ? 'filled' : 'not-taken'
   }
 
   /** The draft a prompt link filled was edited or sent: it is the person's own now. */
@@ -4217,6 +4236,8 @@ export class AppStore {
    * agent, one Enter from going to the very agent being left.
    */
   #parkedHandoff: DraftHandoff | null = null
+  /** Which prompt link is the newest: an older one still in flight stops where it is. */
+  #promptLinkGeneration = 0
 
   /**
    * The last reopen refusal toasted for a conversation that is not a gone

@@ -61,8 +61,15 @@ const KNOWN = ['repo', 'prompt', 'pr', 'flow']
  * make the app do anything, and it lets a newer link still fill a draft in
  * an older app. Their values are never read.
  */
+/** The one route, as written: `harnessdesk://new`, an optional `/`, then the query or nothing. */
+const ROUTE = /^harnessdesk:\/\/new\/?(?:\?|$)/
+
 export const parsePromptLink = value => {
   if (typeof value !== 'string' || value.length > PROMPT_LINK_MAX_URL) return null
+  // The route is read from the string as written: `new URL` resolves dot
+  // segments, so `harnessdesk://new/send/..` would otherwise come out as
+  // `/` — and every path other than an empty one or `/` is a focus hint.
+  if (!ROUTE.test(value)) return null
   let url
   try {
     url = new URL(value)
