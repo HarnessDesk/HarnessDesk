@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, parseLeadWorkBoard, parseLeadWorkDetail, type LeadStage, type LeadWorkBoard } from '@harnessdesk/protocol'
 import { LeadWorkLedger, wakeForLeadWork, type LeadWorkLinkState } from '../src/lead/work.js'
+import { dispatch, type HostContext } from '../src/methods/index.js'
 
 const rig = async (t: TestContext) => {
   const home = await mkdtemp(join(tmpdir(), 'lead-work-'))
@@ -150,6 +151,58 @@ test('a chat the person stopped reads as Stopped, never In review or Done, and r
   r.chat('fixture:a', 'working'); await r.ledger.refresh()
   item = card(await r.ledger.board(), 'work-1')
   assert.equal(item.stage, 'working', 'sending the chat more work reopens it')
+})
+
+test('a stop names who made it: the person from either surface, the Lead, or nobody when the host did not see who', async t => {
+  const r = await rig(t)
+  await start(r, 'Fix the stalled build', ['m-1'], 'fixture:a')
+  await start(r, 'Write the release notes', ['m-2'], 'fixture:b')
+  await start(r, 'Rename the status column', ['m-3'], 'fixture:c')
+  for (const id of ['fixture:a', 'fixture:b', 'fixture:c']) r.chat(id, 'working')
+  await r.ledger.refresh()
+  await r.ledger.stopping('fixture:a', 'person')
+  await r.ledger.stopping('fixture:b', 'lead')
+  // Who is about to stop a chat is written before the stop lands, so it survives a restart in between.
+  const reopened = await r.reopen()
+  for (const id of ['fixture:a', 'fixture:b', 'fixture:c']) r.chat(id, 'idle', 'stopped')
+  await reopened.refresh()
+  const board = parseLeadWorkBoard(await reopened.board())
+  assert.equal(card(board, 'work-1').stoppedBy, 'person')
+  assert.equal(card(board, 'work-1').fact, 'Stopped: the person stopped its chat')
+  assert.equal(card(board, 'work-2').stoppedBy, 'lead')
+  assert.equal(card(board, 'work-2').fact, 'Stopped: the Lead stopped its chat')
+  assert.equal(card(board, 'work-3').stoppedBy, undefined, 'nobody recorded this stop')
+  assert.equal(card(board, 'work-3').fact, 'Stopped: its chat was stopped')
+  const timeline = (await reopened.read({ id: 'work-1' })).timeline.map(fact => fact.text)
+  assert.ok(timeline.includes('The person stopped a chat'), 'the timeline names the person too')
+  assert.ok((await reopened.read({ id: 'work-2' })).timeline.some(fact => fact.text === 'The Lead stopped a chat'))
+
+  // A stop asked for that never landed does not name the next stop, ten minutes on.
+  r.chat('fixture:c', 'working'); await reopened.refresh()
+  await reopened.stopping('fixture:c', 'person')
+  r.tick(11 * 60_000)
+  r.chat('fixture:c', 'idle', 'stopped'); await reopened.refresh()
+  assert.equal(card(await reopened.board(), 'work-3').stoppedBy, undefined)
+
+  // Work that starts again forgets who stopped it last time.
+  r.chat('fixture:a', 'working'); await reopened.refresh()
+  const again = card(await reopened.board(), 'work-1')
+  assert.equal(again.stage, 'working')
+  assert.equal(again.stoppedBy, undefined)
+  // A chat no item holds is not an error.
+  await reopened.stopping('fixture:none', 'person')
+})
+
+test('the window’s stop and the phone’s stop both tell the host the person is stopping, before the stop is sent', async () => {
+  const order: string[] = []
+  const ctx = {
+    personStopping: async (chat: string) => { order.push(`person:${chat}`) },
+    sessions: { live: async (params: { runtime: string; sessionId: string }) => ({ interrupt: async () => { order.push(`interrupt:${params.runtime}:${params.sessionId}`) } }) },
+    phoneWork: { stop: async (params: { id: string }, admit?: () => Promise<void>) => { await admit?.(); order.push(`phone-stop:${params.id}`); return {} } },
+  } as unknown as HostContext
+  await dispatch(ctx, 'turn/interrupt', { runtime: 'fixture', sessionId: 'a' } as never)
+  await dispatch(ctx, 'workspace/stop', { id: 'fixture:b' } as never)
+  assert.deepEqual(order, ['person:fixture:a', 'interrupt:fixture:a', 'person:fixture:b', 'phone-stop:fixture:b'])
 })
 
 test('the person closes with Done or Drop, closing is never undone by desk activity, and the file survives a restart', async t => {

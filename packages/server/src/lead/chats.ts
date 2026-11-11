@@ -64,8 +64,9 @@ export interface LeadChatsPorts {
    * desk can start on now; the label is the presentation name the Lead may say, never an address.
    */
   readonly pacing?: { readonly choose: () => Promise<{ readonly agent: string; readonly label: string } | null> }
-  /** The work ledger's duplicate guard: a start joins an open item or makes one, and a duplicate is refused. */
-  readonly ledger?: Pick<LeadWorkLedger, 'claim' | 'started' | 'release'>
+  /** The work ledger's duplicate guard: a start joins an open item or makes one, and a duplicate is refused. It also
+   * hears that the Lead is stopping a chat, so the stop is said to be the Lead's and not the person's. */
+  readonly ledger?: Pick<LeadWorkLedger, 'claim' | 'started' | 'release'> & Partial<Pick<LeadWorkLedger, 'stopping'>>
 }
 const refuse = (message: string): never => { throw new Error(message) }
 const MUTATIONS = new Set(['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'])
@@ -625,7 +626,9 @@ export class LeadChats {
       // Stop may return early for an idle chat, before PhoneWork calls admission.
       await this.#notHeld(params.id)
       await this.incidents?.stop(params.id)
-      return this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id) }, effectStarted, this.#liveScope(call, attemptId, () => params.id))
+      // Admitted means the stop goes ahead: the ledger hears it is the Lead's before the stop lands. The ledger never holds it up.
+      return this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id); await this.ports.ledger?.stopping?.(params.id, 'lead').catch(() => {}) },
+        effectStarted, this.#liveScope(call, attemptId, () => params.id))
     })
   }
 

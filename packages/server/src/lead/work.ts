@@ -1,5 +1,5 @@
 import { rename } from 'node:fs/promises'
-import { isWaitingOnYou, LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, leadWorkGroup, quoteLeadWorkText, type LeadStage, type LeadWorkBoard, type LeadWorkCard,
+import { isWaitingOnYou, LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, leadWorkGroup, quoteLeadWorkText, type LeadStage, type LeadStopActor, type LeadWorkBoard, type LeadWorkCard,
   type LeadWorkClose, type LeadWorkDetail, type LeadWorkFact, type LeadWorkLinks, type LeadWorkNote, type LeadWorkOrigin, type LeadWorkStage } from '@harnessdesk/protocol'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
 
@@ -72,12 +72,18 @@ interface Watch {
   pr?: 'open' | 'merged' | 'closed'
   failing?: boolean
   last?: string
+  /** Who asked for this chat to stop, written before the stop lands; read once, when the stop is seen. */
+  stopBy?: { by: LeadStopActor; at: number }
+  /** Who stopped it, while it stays stopped. */
+  stoppedBy?: LeadStopActor
 }
 interface Item {
   id: string; title: string; project: string | null; origin: LeadWorkOrigin
   links: { chats: string[]; teams: string[]; prs: string[]; issues: string[] }
   stage: LeadWorkStage; blocker?: string; note?: string; after?: string; remindAt?: number
   createdAt: number; updatedAt: number; closedAt?: number; outcome?: 'done' | 'dropped'; closedBy?: 'person' | 'host'
+  /** Who stopped the chats that closed it, when the host saw one actor do it. */
+  stoppedBy?: LeadStopActor
   timeline: LeadWorkFact[]; watch: Record<string, Watch>
   /** When the host last saw a link it can follow: a chat on the desk, a Team it knows, a pull request it follows. */
   seenAt?: number
@@ -109,6 +115,9 @@ const REASONS: Readonly<Record<string, string>> = {
   'needs-you': 'A Team needs a choice', 'result-ready': 'A result is ready for your review', stopped: 'A Team stopped',
 }
 const kinds = ['chats', 'teams', 'prs', 'issues'] as const
+/** How long a recorded stop request may wait for the stop it names. One that never landed does not name a later stop. */
+export const LEAD_STOP_ACTOR_MS = 10 * 60_000
+const STOPPED_FACT: Readonly<Record<LeadStopActor, string>> = { person: 'The person stopped a chat', lead: 'The Lead stopped a chat' }
 const emptyLinks = () => ({ chats: [] as string[], teams: [] as string[], prs: [] as string[], issues: [] as string[] })
 const isItem = (value: unknown): value is Item => {
   const item = value as Item
@@ -216,10 +225,23 @@ export class LeadWorkLedger {
     const followed = new Set(this.ports.pullRequests().map(pr => pr.ref))
     return item.links.prs.some(ref => followed.has(ref))
   }
-  #stop(item: Item, why: string): void {
+  #stop(item: Item, why: string, by?: LeadStopActor): void {
     item.closedAt = this.ports.now(); item.closedBy = 'host'; item.stage = 'stopped'
     delete item.blocker; delete item.remindAt; delete item.outcome
+    if (by) item.stoppedBy = by; else delete item.stoppedBy
     this.#fact(item, why)
+  }
+
+  /**
+   * Who is about to stop a chat: the person (from the window or a phone) or the Lead. Written before the stop is sent, on
+   * every item that holds the chat, so the stop the host then sees is said to be theirs. A request older than ten minutes
+   * when a stop is seen names nobody: that stop never landed, and a later one is not theirs.
+   */
+  stopping(chat: string, by: LeadStopActor): Promise<void> {
+    return this.#write(() => {
+      const at = this.ports.now()
+      for (const item of this.stored.items) if (item.closedBy !== 'person' && item.links.chats.includes(chat)) (item.watch[`chat:${chat}`] ??= {}).stopBy = { by, at }
+    })
   }
   /**
    * Room for one more open item. A full ledger first closes its oldest quiet item (nothing the host can follow), so it
@@ -435,7 +457,7 @@ export class LeadWorkLedger {
       this.#stop(item, 'Stopped: no activity the host can see for seven days')
       return
     }
-    const states: { stage: LeadStage; reason: string; settled: boolean; review?: string; stopped?: true }[] = []
+    const states: { stage: LeadStage; reason: string; settled: boolean; review?: string; stopped?: true; by?: LeadStopActor }[] = []
     const replies = this.ports.replies()
     for (const chat of item.links.chats) {
       const watch = item.watch[`chat:${chat}`] ??= {}
@@ -443,9 +465,14 @@ export class LeadWorkLedger {
       if (live === null) { if (watch.last !== 'gone') { watch.last = 'gone'; this.#fact(item, 'A chat left the desk') } states.push({ stage: 'idle', reason: 'gone', settled: true }); continue }
       if (live.stage === 'idle' && live.reason === 'stopped') {
         // A stopped turn finished nothing: it is not for the Lead to review, and a later reply does not settle it.
-        if (watch.last !== 'stopped') this.#fact(item, 'A chat was stopped')
+        if (watch.last !== 'stopped') {
+          const by = watch.stopBy && now - watch.stopBy.at >= 0 && now - watch.stopBy.at <= LEAD_STOP_ACTOR_MS ? watch.stopBy.by : undefined
+          delete watch.stopBy
+          if (by) watch.stoppedBy = by; else delete watch.stoppedBy
+          this.#fact(item, by ? STOPPED_FACT[by] : 'A chat was stopped')
+        }
         delete watch.mark
-        states.push({ stage: 'idle', reason: 'stopped', settled: false, stopped: true })
+        states.push({ stage: 'idle', reason: 'stopped', settled: false, stopped: true, ...(watch.stoppedBy ? { by: watch.stoppedBy } : {}) })
       } else if (live.stage === 'idle') {
         if (watch.mark === undefined) { watch.mark = replies; this.#fact(item, 'A chat finished') }
         const reported = replies > watch.mark
@@ -458,6 +485,7 @@ export class LeadWorkLedger {
         delete watch.mark; watch.active = true
         states.push({ stage: live.stage, reason: live.reason, settled: false })
       }
+      if (live.stage !== 'idle' || live.reason !== 'stopped') delete watch.stoppedBy
       watch.last = live.stage === 'idle' && live.reason !== 'stopped' ? 'idle' : live.reason
     }
     for (const team of item.links.teams) {
@@ -485,7 +513,7 @@ export class LeadWorkLedger {
     // Activity reopens what the host itself closed: the Lead sent the chat more work.
     if (item.closedAt !== undefined) {
       if (!states.some(state => state.stage !== 'idle')) return
-      delete item.closedAt; delete item.outcome; delete item.closedBy
+      delete item.closedAt; delete item.outcome; delete item.closedBy; delete item.stoppedBy
       this.#fact(item, 'Work started again')
     }
     const waiting = states.find(state => isWaitingOnYou(state.stage))
@@ -496,8 +524,11 @@ export class LeadWorkLedger {
     else if (states.some(state => state.stage === 'working')) stage = 'working'
     else if (states.some(state => state.stage === 'queued')) stage = 'queued'
     else if (states.some(state => state.stopped) && states.every(state => state.stopped || state.settled)) {
-      // Everything left was stopped, not finished: the item closes as stopped and reopens if the chat works again.
-      this.#stop(item, 'Stopped: its chat was stopped')
+      // Everything left was stopped, not finished: the item closes as stopped and reopens if the chat works again. It names
+      // who stopped it when one actor stopped every chat and the host saw them do it.
+      const actors = new Set(states.filter(state => state.stopped).map(state => state.by))
+      const by = actors.size === 1 ? [...actors][0] : undefined
+      this.#stop(item, by === 'person' ? 'Stopped: the person stopped its chat' : by === 'lead' ? 'Stopped: the Lead stopped its chat' : 'Stopped: its chat was stopped', by)
       return
     }
     else if (states.length && states.every(state => state.settled)) {
@@ -520,6 +551,7 @@ export class LeadWorkLedger {
       links: { chats: [...item.links.chats], teams: [...item.links.teams], prs: [...item.links.prs], issues: [...item.links.issues] },
       createdAt: item.createdAt, updatedAt: item.updatedAt,
       ...(item.closedAt !== undefined ? { closedAt: item.closedAt } : {}), ...(item.outcome ? { outcome: item.outcome } : {}),
+      ...(item.stoppedBy && item.stage === 'stopped' ? { stoppedBy: item.stoppedBy } : {}),
     }
   }
   #board(state: 'open' | 'all'): LeadWorkBoard {

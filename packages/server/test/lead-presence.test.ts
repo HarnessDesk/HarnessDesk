@@ -58,8 +58,9 @@ test('a short absence is a glance; thirty minutes away brings one digest of what
   assert.equal((await r.store.read(desktop, { active: true })).digest?.id, digest.id, 'the same digest stays until it is dismissed')
 })
 
-test('the digest is the same on the window and the phone; dismissing on one leaves the other', async t => {
-  const r = await rig(t)
+test('the digest is the same on the window and the phone; dismissing on either clears both, and a new one comes only with something new', async t => {
+  let changed = 0
+  const r = await rig(t, { changed: () => { changed++ } })
   await r.store.read(desktop, { active: true }); await r.store.read(phone, { active: true })
   r.tick(2 * 60 * MIN)
   r.setItems([work('work-2', 'needs-you', r.now() - MIN)])
@@ -67,12 +68,63 @@ test('the digest is the same on the window and the phone; dismissing on one leav
   const onDesktop = (await r.store.read(desktop, { active: true })).digest!
   const onPhone = (await r.store.read(phone, { active: true })).digest!
   assert.deepEqual(onPhone, onDesktop)
-  const after = await r.store.dismiss(desktop, onDesktop.id)
+  const after = await r.store.dismiss(phone, onPhone.id)
   assert.equal(after.digest, null)
-  assert.equal((await r.store.read(desktop, { active: true })).digest, null, 'dismissed stays dismissed')
-  assert.deepEqual((await r.store.read(phone, { active: true })).digest, onPhone, 'the phone still has its own')
+  assert.equal(changed, 1, 'every device is told to read again')
+  assert.equal((await r.store.read(desktop, { active: true })).digest, null, 'the window honours the phone’s dismissal')
+  assert.equal((await r.store.read(phone, { active: true })).digest, null, 'dismissed stays dismissed')
+  assert.equal((await r.store.dismiss(phone, 'away-1-2')).digest, null)
+  assert.equal(changed, 1, 'a digest nobody holds changes nothing')
   const reopened = r.reopen()
-  assert.deepEqual((await reopened.read(phone, { active: true })).digest, onPhone, 'marks survive a restart')
+  assert.equal((await reopened.read(desktop, { active: true })).digest, null, 'the dismissal survives a restart')
+
+  // Away again with nothing new: no digest, though the same item and spend are still in the window of time.
+  r.tick(2 * 60 * MIN)
+  assert.equal((await reopened.read(desktop, { active: true })).digest, null, 'nothing new happened, so nothing is said')
+  assert.equal((await reopened.read(phone, { active: true })).digest, null)
+  // Something new: a digest of only that, on both.
+  r.tick(2 * 60 * MIN)
+  r.setItems([work('work-2', 'needs-you', r.now() - 5 * 60 * MIN), work('work-5', 'done', r.now() - MIN, { closedAt: r.now() - MIN, outcome: 'done' })])
+  r.spend(9_000)
+  const next = (await reopened.read(desktop, { active: true })).digest!
+  assert.deepEqual(next.items.map(item => item.id), ['work-5'], 'only what changed after the dismissal')
+  assert.equal(next.spentUsdMicros, 9_000, 'spend counts from the dismissal')
+  assert.deepEqual((await reopened.read(phone, { active: true })).digest?.items.map(item => item.id), ['work-5'])
+  const stored = JSON.parse(await readFile(r.file, 'utf8'))
+  assert.equal(stored.seen.by, 'Jane’s iPhone', 'the desk records where it was dismissed')
+})
+
+test('each item kind names what it opens: done opens its evidence, open work where it happens, a decision its card', async t => {
+  const waiting = [{ id: 'plan-1', title: 'A plan waits for you', position: 12 }]
+  const r = await rig(t, { waiting: () => waiting })
+  await r.store.read(desktop, { active: true })
+  r.tick(40 * MIN)
+  const links = (over: Partial<LeadWorkCard['links']>) => ({ links: { chats: [], teams: [], prs: [], issues: [], ...over } })
+  const at = r.now() - MIN
+  r.setItems([
+    work('work-1', 'done', at, { closedAt: at, outcome: 'done', ...links({ chats: ['fixture:a'], teams: ['team-1'], prs: ['acme/app#7'] }) }),
+    work('work-2', 'done', at, { closedAt: at, outcome: 'done', ...links({ chats: ['fixture:b'] }) }),
+    work('work-3', 'needs-you', at, links({ chats: ['fixture:c'], teams: ['team-3'], prs: ['acme/app#9'] })),
+    work('work-4', 'stopped', at, { stoppedBy: 'person', fact: 'Stopped: the person stopped its chat', ...links({ chats: ['fixture:old', 'fixture:d'] }) }),
+    work('work-5', 'blocked', at, links({})),
+    work('work-6', 'stopped', at, { stoppedBy: 'lead', ...links({ chats: ['fixture:e'] }) }),
+    work('work-7', 'stopped', at, links({ chats: ['fixture:f'] })),
+  ])
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  const by = Object.fromEntries(digest.items.map(item => [item.id, item]))
+  assert.deepEqual(by['work-1']!.ref, { kind: 'pr', id: 'acme/app#7' }, 'done: the pull request is the evidence')
+  assert.deepEqual(by['work-2']!.ref, { kind: 'chat', id: 'fixture:b' })
+  assert.deepEqual(by['work-3']!.ref, { kind: 'team', id: 'team-3' }, 'needs you: where the work happens')
+  assert.deepEqual(by['work-4']!.ref, { kind: 'chat', id: 'fixture:d' }, 'the newest chat')
+  assert.deepEqual(by['work-5']!.ref, { kind: 'work', id: 'work-5' }, 'nothing linked: the work item itself')
+  assert.deepEqual(by['plan-1']!.ref, { kind: 'card', id: 'plan-1' }, 'a decision opens its card')
+  assert.equal(by['work-1']!.at, at)
+  assert.equal(by['plan-1']!.at, undefined)
+  assert.equal(by['work-4']!.stoppedBy, 'person')
+  assert.equal(by['work-6']!.stoppedBy, 'lead')
+  assert.equal(by['work-7']!.stoppedBy, undefined, 'a stop the host did not see made stays unattributed')
+  assert.equal(by['work-1']!.stoppedBy, undefined)
+  parseLeadPresenceView({ version: 1, digest, asks: [], brief: { enabled: false, at: '07:30' } })
 })
 
 test('"What happened?" builds a digest on demand, and nothing new is said so', async t => {
@@ -364,9 +416,10 @@ test('the morning brief is off by default, waits for its time, once a day, and r
   await r.store.dismiss(desktop, onDesktop.id)
   const covered = (await r.store.read(desktop, { active: true })).digest!
   assert.equal(covered.kind, 'away', 'the away digest the brief covered is still owed to the desktop')
+  assert.equal((await r.store.read(phone, { active: true })).digest, null, 'the brief the window dismissed is gone from the phone too')
   await r.store.dismiss(desktop, covered.id)
   assert.equal((await r.store.read(desktop, { active: true })).digest, null)
-  assert.equal((await r.store.read(phone, { active: true })).digest?.id, onDesktop.id)
+  assert.equal((await r.store.read(phone, { active: true })).digest, null)
   r.setNow(new Date(2026, 10, 11, 7, 40).getTime())
   assert.equal(await r.store.tick(), true, 'the next day')
 })

@@ -5950,6 +5950,7 @@ export class Host {
       leadWork: { board: state => this.leadWork.board(state), read: params => this.leadWork.read(params),
         note: async params => { const card = await this.leadWork.note(params); void this.leadWork.refresh(); return card },
         close: params => this.leadWork.close(params) },
+      personStopping: async chat => { await this.#leadWork?.stopping(chat, 'person').catch(() => {}) },
       // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
       leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary([...this.#runtimes.values()].flatMap(runtime => {
         const report = this.#usageService.cached(runtime.info.id)

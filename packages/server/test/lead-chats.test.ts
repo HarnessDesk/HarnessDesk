@@ -303,6 +303,27 @@ test('an automatic start the cap refuses creates nothing and is handed back as a
   assert.ok((await r.service.start({ text: 'Then lint.', cause: 'automatic' })).id, 'and automatic work goes ahead when a run ends')
 })
 
+test('a Lead stop tells the ledger it is the Lead’s, once admitted and before it lands; a refused stop tells it nothing', async t => {
+  const r = await rig(t); r.row('own')
+  const told: { chat: string; by: string; calls: number }[] = []
+  ;(r.ports as any).ledger = { claim: async () => null, started: async () => '', release: () => {}, stopping: async (chat: string, by: string) => { told.push({ chat, by, calls: r.calls.length }) } }
+  const service = r.restart()
+  t.after(() => service.close())
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await service.stop({ id: 'fixture:own' })
+  assert.deepEqual(told, [{ chat: 'fixture:own', by: 'lead', calls: 0 }], 'recorded before the stop was sent')
+  r.holders.set('fixture:own', 'person')
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await assert.rejects(service.stop({ id: 'fixture:own' }), { message: LEAD_CHAT_HELD })
+  assert.equal(told.length, 1, 'a refused stop is not recorded')
+  // A ledger that cannot write never holds the stop up.
+  r.holders.set('fixture:own', 'lead')
+  ;(r.ports as any).ledger.stopping = async () => { throw new Error('ledger unreadable') }
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await service.stop({ id: 'fixture:own' })
+  assert.equal(r.calls.filter(call => call.method === 'stop').length, 2)
+})
+
 test('a person-held chat refuses Lead send and stop before dispatch, and hand back restores send', async t => {
   const r = await rig(t); r.row('own'); r.holders.set('fixture:own', 'person')
   const params = { id: 'fixture:own', text: 'Run the tests.' }

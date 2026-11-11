@@ -84,6 +84,8 @@ export interface LeadWorkCard {
   readonly updatedAt: number
   readonly closedAt?: number
   readonly outcome?: LeadWorkOutcome
+  /** Who stopped it, for an item that closed because its chat was stopped and the host saw who stopped it. */
+  readonly stoppedBy?: 'person' | 'lead'
 }
 /** Open items, then recently closed ones, grouped in `LEAD_WORK_GROUPS` order and newest first inside a group. */
 export interface LeadWorkBoard {
@@ -135,7 +137,7 @@ const links: Validator<LeadWorkLinks> = (value, path = '') => {
   return { chats: ids(LEAD_WORK_LIMITS.linksPerKind)(source.chats, at('chats')), teams: ids(LEAD_WORK_LIMITS.linksPerKind)(source.teams, at('teams')),
     prs: ids(LEAD_WORK_LIMITS.linksPerKind)(source.prs, at('prs')), issues: ids(LEAD_WORK_LIMITS.linksPerKind)(source.issues, at('issues')) }
 }
-const cardFields = ['id', 'title', 'project', 'stage', 'group', 'blocker', 'fact', 'note', 'after', 'remindAt', 'links', 'createdAt', 'updatedAt', 'closedAt', 'outcome']
+const cardFields = ['id', 'title', 'project', 'stage', 'group', 'blocker', 'fact', 'note', 'after', 'remindAt', 'links', 'createdAt', 'updatedAt', 'closedAt', 'outcome', 'stoppedBy']
 const card = (source: Record<string, unknown>, path: string): LeadWorkCard => {
   const at = (key: string) => path ? `${path}.${key}` : key
   const stage = literalUnion(...LEAD_WORK_STAGES)(source.stage, at('stage'))
@@ -149,6 +151,7 @@ const card = (source: Record<string, unknown>, path: string): LeadWorkCard => {
     after: optional(workId)(source.after, at('after')), remindAt: optional(time)(source.remindAt, at('remindAt')),
     links: links(source.links, at('links')), createdAt: time(source.createdAt, at('createdAt')), updatedAt: time(source.updatedAt, at('updatedAt')),
     closedAt: optional(time)(source.closedAt, at('closedAt')), outcome: optional(literalUnion('done', 'dropped'))(source.outcome, at('outcome')),
+    stoppedBy: optional(literalUnion('person', 'lead'))(source.stoppedBy, at('stoppedBy')),
   }
   for (const key of Object.keys(out)) if (out[key] === undefined) delete out[key]
   return out as unknown as LeadWorkCard

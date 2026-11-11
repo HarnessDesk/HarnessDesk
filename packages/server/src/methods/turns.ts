@@ -59,7 +59,10 @@ export const turnMethods = {
   },
 
   'turn/interrupt': async (ctx, params) => {
-    await (await ctx.sessions.live(params)).interrupt()
+    const live = await ctx.sessions.live(params)
+    // A stop from the window is the person's; the Lead stops through lead/chat/stop and never reaches this method.
+    await ctx.personStopping(`${params.runtime}:${params.sessionId}`)
+    await live.interrupt()
     return null
   },
 

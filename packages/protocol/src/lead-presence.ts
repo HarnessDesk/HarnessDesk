@@ -87,10 +87,24 @@ export interface LeadDigestItem {
   readonly title: string
   /** The evidence line: the latest thing the host saw happen. */
   readonly fact?: string
+  /** Where the item opens: the chat, Team or pull request that is the evidence, the work item, or the decision card. */
+  readonly ref?: LeadDigestRef
+  /** When the change the item reports happened, epoch milliseconds. */
+  readonly at?: number
+  /** Who stopped a stopped item, when the host saw who did: the person (window or phone) or the Lead. Absent: not known. */
+  readonly stoppedBy?: LeadStopActor
 }
+/** Who stopped a chat: the person, from any surface, or the Lead. */
+export type LeadStopActor = 'person' | 'lead'
+export type LeadDigestRefKind = 'chat' | 'team' | 'pr' | 'work' | 'card'
+/**
+ * What a digest item opens. `chat` is `runtime:session`, `team` a Team id, `pr` `owner/repo#number`, `work` a work item
+ * id and `card` a decision card in the Lead conversation. A surface draws a link only for what it can find itself.
+ */
+export interface LeadDigestRef { readonly kind: LeadDigestRefKind; readonly id: string }
 export interface LeadDigest {
   readonly version: 1
-  /** Stable for one digest on one device, so a dismissal names exactly what was seen. */
+  /** Stable for one digest on one device, so a dismissal names exactly what was seen. A dismissal clears it on every device. */
   readonly id: string
   readonly kind: LeadDigestKind
   readonly from: number
@@ -158,11 +172,19 @@ export const parseLeadBriefUpdate: Validator<LeadBriefUpdate> = (value, path = '
   if (out.enabled === undefined && out.at === undefined) fail(path, 'expected enabled or at')
   return out
 }
+const digestRef: Validator<LeadDigestRef> = (value, path = '') => {
+  const source = only(['kind', 'id'])(value, path)
+  return { kind: literalUnion('chat', 'team', 'pr', 'work', 'card')(source.kind, at(path, 'kind')), id: text(300)(source.id, at(path, 'id')) }
+}
 const item: Validator<LeadDigestItem> = (value, path = '') => {
-  const source = only(['kind', 'id', 'title', 'fact'])(value, path)
+  const source = only(['kind', 'id', 'title', 'fact', 'ref', 'at', 'stoppedBy'])(value, path)
   const fact = optional(text(LEAD_PRESENCE_LIMITS.factChars))(source.fact, at(path, 'fact'))
+  const ref = optional(digestRef)(source.ref, at(path, 'ref'))
+  const when = optional(time)(source.at, at(path, 'at'))
+  const stoppedBy = optional(literalUnion('person', 'lead'))(source.stoppedBy, at(path, 'stoppedBy'))
   return { kind: literalUnion('done', 'waiting', 'stopped')(source.kind, at(path, 'kind')), id: text(96)(source.id, at(path, 'id')),
-    title: text(LEAD_PRESENCE_LIMITS.titleChars)(source.title, at(path, 'title')), ...(fact === undefined ? {} : { fact }) }
+    title: text(LEAD_PRESENCE_LIMITS.titleChars)(source.title, at(path, 'title')), ...(fact === undefined ? {} : { fact }),
+    ...(ref === undefined ? {} : { ref }), ...(when === undefined ? {} : { at: when }), ...(stoppedBy === undefined ? {} : { stoppedBy }) }
 }
 export const parseLeadDigest: Validator<LeadDigest> = (value, path = '') => {
   const source = only(['version', 'id', 'kind', 'from', 'to', 'items', 'more', 'spentUsdMicros', 'summary', 'summaryUsdMicros'])(value, path)
