@@ -41,13 +41,22 @@ export const LEAD_INBOX_LIMIT = 40
 
 /**
  * How many things only the person can do for the Lead now: each approval it waits on, a way out it offers (resume, a
- * plan to decide), and a chat effect it could not confirm. The Lead's row in the inbox and the Lead's own word on every
- * surface count by this one rule, so they never disagree.
+ * plan to decide), a chat effect it could not confirm, and the question it asked that the desk holds open (`openAsk`).
+ * The Lead's rows in the inbox and the Lead's own word on every surface count by this one rule (`leadNeedsYou`), so
+ * they never disagree.
  */
 export const leadPersonNeeds = (lead: {
   readonly personActions?: readonly unknown[] | undefined
   readonly wayOut?: string | null | undefined
   readonly waitReason?: string | null | undefined
   readonly thread?: { readonly state: string } | null | undefined
+  readonly openAsk?: boolean | undefined
 }): number => (lead.personActions?.length ?? 0) + (lead.wayOut || lead.waitReason === 'lead-chat-effect-uncertain' ? 1 : 0)
-  + (lead.thread?.state === 'awaiting-plan' && lead.wayOut !== 'decide-plan' ? 1 : 0)
+  + (lead.thread?.state === 'awaiting-plan' && lead.wayOut !== 'decide-plan' ? 1 : 0) + (lead.openAsk ? 1 : 0)
+
+/**
+ * The Lead's whole count: its open question, plus, while its stage waits on the person, everything else it waits on
+ * and never less than one. The inbox's Lead rows add up to this, and the Lead's word says this number.
+ */
+export const leadNeedsYou = (lead: Parameters<typeof leadPersonNeeds>[0], waiting: boolean): number =>
+  (waiting ? Math.max(1, leadPersonNeeds({ ...lead, openAsk: false })) : 0) + (lead.openAsk ? 1 : 0)
