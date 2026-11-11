@@ -450,6 +450,11 @@ export interface PhoneWorkSnapshot {
  * What the phone draws of the Lead's memory beside the thread: the proposals waiting for Keep, Edit or No (each under
  * the first Lead reply after `afterSeq`, the message revision it was proposed at), and how much is kept. The lists
  * themselves come from `lead/memory/view`; Keep, Edit, No and Forget go back through `lead/memory/change`.
+ *
+ * A proposal the Lead makes again while it still waits stays one proposal: the desk moves its `afterSeq` to the newer
+ * message, so the chip follows the conversation down to the reply that asked again, and sets `askedAgainAt`: the time
+ * it was proposed again, which the phone may show as an "Asked again" chip beside the kind, as the desktop does. The id
+ * does not change, so a Keep already in flight still lands.
  */
 export interface PhoneLeadMemory {
   readonly revision: number

@@ -32,6 +32,11 @@ export const LEAD_MEMORY_LIMITS = Object.freeze({
   /** What the tidy may spend in a day, in micro-dollars, on the observer model. */
   tidyDailyUsdMicros: 20_000,
   idChars: 64,
+  /** What the desk remembers of the Lead's own proposals and what the person did with each, newest first. */
+  proposals: 40,
+  /** Of those, how many each request tells the Lead about, and the bytes that whole note may take. */
+  statusProposals: 8,
+  statusBytes: 4096,
 } as const)
 
 export type LeadMemoryKind = 'preference' | 'fact' | 'lesson' | 'rule'
@@ -63,8 +68,11 @@ export interface LeadMemoryCandidate {
   readonly kind: LeadMemoryKind
   readonly source: LeadMemorySource
   readonly proposedAt: number
-  /** The Lead's journal position when it proposed this: the first reply after it carries the Keep chip. */
+  /** The Lead's journal position when it proposed this: the first reply after it carries the Keep chip. Proposing the
+   * same words again moves it to that later reply. */
   readonly afterSeq: number
+  /** When the Lead proposed the same words again while this one waited: its Keep chip moved under that reply. */
+  readonly askedAgainAt?: number
 }
 /** Why the desk refused a proposal before it reached the inbox. */
 export type LeadMemoryRefusal = 'empty' | 'too-long' | 'instruction' | 'secret' | 'quoted-output' | 'duplicate' | 'declined' | 'inbox-full'
@@ -123,10 +131,18 @@ export interface LeadMemoryProposal {
   /** The work or result it came from, when there is one. */
   readonly source?: { readonly kind: 'message' | 'result'; readonly id: string }
 }
+/**
+ * What the desk did with a proposal. `created`: a new proposal waits for the person's Keep (id cN). `pending`: the same
+ * words already wait (the existing id); its Keep chip moves under the reply this turn writes. `exists`: already in
+ * memory (the entry's id). `kept`: kept at once, because the person turned on keeping the Lead's facts and lessons
+ * (id mN). `refused`: with a reason. Only `exists` and `kept` mean the note is in memory.
+ */
 export interface LeadMemoryProposalResult {
-  readonly outcome: 'inbox' | 'kept' | 'refused'
+  readonly outcome: 'created' | 'pending' | 'exists' | 'kept' | 'refused'
   readonly id?: string
   readonly reason?: LeadMemoryRefusal
+  /** On `created`: the person said No to the same words before, and has written since. */
+  readonly declinedBefore?: true
 }
 export interface LeadMemorySearch { readonly query: string; readonly limit?: number }
 /** One hit: Archive entries, the Lead's own past conversation (the person's and its own words), and the summaries
@@ -176,9 +192,11 @@ export const parseLeadMemoryEntry: Validator<LeadMemoryEntry> = (value, path = '
     version: count(item.version, at(path, 'version')) }
 }
 export const parseLeadMemoryCandidate: Validator<LeadMemoryCandidate> = (value, path = '') => {
-  const item = only(['id', 'text', 'kind', 'source', 'proposedAt', 'afterSeq'])(value, path)
+  const item = only(['id', 'text', 'kind', 'source', 'proposedAt', 'afterSeq', 'askedAgainAt'])(value, path)
+  const again = optional(time)(item.askedAgainAt, at(path, 'askedAgainAt'))
   return { id: id(item.id, at(path, 'id')), text: text(LEAD_MEMORY_LIMITS.textChars)(item.text, at(path, 'text')), kind: kind(item.kind, at(path, 'kind')),
-    source: source(item.source, at(path, 'source')), proposedAt: time(item.proposedAt, at(path, 'proposedAt')), afterSeq: count(item.afterSeq, at(path, 'afterSeq')) }
+    source: source(item.source, at(path, 'source')), proposedAt: time(item.proposedAt, at(path, 'proposedAt')), afterSeq: count(item.afterSeq, at(path, 'afterSeq')),
+    ...(again === undefined ? {} : { askedAgainAt: again }) }
 }
 const versionSummary: Validator<LeadMemoryVersionSummary> = (value, path = '') => {
   const item = only(['version', 'at', 'by', 'added', 'removed', 'changed', 'tidy', 'undoable', 'undone'])(value, path)
@@ -234,10 +252,11 @@ export const parseLeadMemoryProposal: Validator<LeadMemoryProposal> = (value, pa
     ...(from ? { source: { kind: literalUnion('message', 'result')(from.kind, at(path, 'source.kind')), id: text(256)(from.id, at(path, 'source.id')) } } : {}) }
 }
 export const parseLeadMemoryProposalResult: Validator<LeadMemoryProposalResult> = (value, path = '') => {
-  const item = only(['outcome', 'id', 'reason'])(value, path)
-  const outcome = literalUnion('inbox', 'kept', 'refused')(item.outcome, at(path, 'outcome'))
+  const item = only(['outcome', 'id', 'reason', 'declinedBefore'])(value, path)
+  const outcome = literalUnion('created', 'pending', 'exists', 'kept', 'refused')(item.outcome, at(path, 'outcome'))
   const ref = optional(id)(item.id, at(path, 'id')), reason = optional(literalUnion(...LEAD_MEMORY_REFUSALS))(item.reason, at(path, 'reason'))
-  return { outcome, ...(ref ? { id: ref } : {}), ...(reason ? { reason } : {}) }
+  if (item.declinedBefore !== undefined && item.declinedBefore !== true) fail(at(path, 'declinedBefore'), 'expected true')
+  return { outcome, ...(ref ? { id: ref } : {}), ...(reason ? { reason } : {}), ...(item.declinedBefore === true ? { declinedBefore: true as const } : {}) }
 }
 export const parseLeadMemorySearch: Validator<LeadMemorySearch> = (value, path = '') => {
   const item = only(['query', 'limit'])(value, path)

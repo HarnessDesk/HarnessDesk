@@ -77,19 +77,21 @@ test('every proposal on the fixed attack list is refused before the inbox, and o
   }
   assert.equal(store.inbox().length, 0, 'nothing refused reached the inbox')
   for (const text of BENIGN) assert.equal(leadMemoryScan(text).ok, true, text)
-  for (const text of BENIGN) assert.equal((await store.propose({ text, kind: 'preference' }, 1)).outcome, 'inbox', text)
+  for (const text of BENIGN) assert.equal((await store.propose({ text, kind: 'preference' }, 1)).outcome, 'created', text)
   assert.deepEqual(words(store.inbox() as never), BENIGN)
   // What has to be shown about a refused secret is redacted.
   assert.doesNotMatch(leadMemoryRedact('The deploy key is sk-ant-api03-abcdefghijklmnopqrstuvwxyz012345.'), /abcdefghij/) // hd-secrets-ok
 })
 
-test('a near-duplicate is refused: the same words however spaced or cased, or 80% of them shared', async () => {
+test('a near-duplicate is never a second proposal: the same words however spaced or cased, or 80% of them shared', async () => {
   const { store } = await open()
-  assert.equal((await store.propose({ text: 'Prefer small pull requests for review.', kind: 'preference' }, 1)).outcome, 'inbox')
-  assert.equal((await store.propose({ text: '  prefer SMALL pull-requests, for review!', kind: 'preference' }, 1)).reason, 'duplicate')
+  const first = await store.propose({ text: 'Prefer small pull requests for review.', kind: 'preference' }, 1)
+  assert.equal(first.outcome, 'created')
+  assert.deepEqual(await store.propose({ text: '  prefer SMALL pull-requests, for review!', kind: 'preference' }, 1), { outcome: 'pending', id: first.id })
   assert.ok(leadMemoryNear('Run the linter and the type check before every review.', 'Run the linter and the type check before each review.') === false)
   assert.ok(leadMemoryNear('Run linter, type check, unit tests and format before every review request.', 'Run linter, type check, unit tests and format before every review.'))
-  assert.equal((await store.propose({ text: 'Prefer small pull requests for every review.', kind: 'preference' }, 1)).reason, 'duplicate')
+  assert.deepEqual(await store.propose({ text: 'Prefer small pull requests for every review.', kind: 'preference' }, 1), { outcome: 'pending', id: first.id })
+  assert.equal(store.inbox().length, 1)
 })
 
 test('the inbox round-trips: Keep, Keep with an edit, No, and a declined line is not offered again', async () => {
@@ -480,4 +482,131 @@ test('merging without review, never asking and a new rule over the person read a
     assert.deepEqual(leadMemoryScan(leadRememberRequest(`Dex, remember: ${text}`) ?? ''), { ok: false, reason: 'instruction' }, `remembered: ${text}`)
   for (const text of ['I review PRs on Fridays', '我习惯 PR 绿了以后自己看一遍再合', 'Ask me before merging anything big', '合并前需要两个人 review'])
     assert.equal(leadMemoryScan(text).ok, true, text)
+})
+
+// #2088: the Lead said "already recorded" of a proposal that only waited, and of ones the person declined or forgot.
+test('proposing what already waits answers pending with the same id, and moves the one chip under this reply', async () => {
+  let clock = 1000
+  const { store, dir } = await open({ now: () => clock })
+  const first = await store.propose({ text: 'Lead every report with the conclusion.', kind: 'preference' }, 10, 9)
+  assert.equal(first.outcome, 'created')
+  clock = 2000
+  const again = parseLeadMemoryProposalResult(await store.propose({ text: 'lead every report with the conclusion', kind: 'preference' }, 20, 19))
+  assert.deepEqual(again, { outcome: 'pending', id: first.id })
+  const view = parseLeadMemoryView(store.view())
+  assert.deepEqual(view.inbox.map(item => [item.id, item.afterSeq, item.askedAgainAt]), [[first.id, 20, 2000]], 'one proposal, placed after the later reply')
+  assert.deepEqual(store.status().proposals.map(item => [item.id, item.state]), [[first.id, 'pending']])
+  assert.deepEqual(view.core, [], 'nothing is in memory until the person keeps it')
+  assert.deepEqual((await LeadMemoryStore.open({ dir })).view().inbox, view.inbox, 'it survives a restart')
+})
+
+test('a kept note answers exists with its entry, and the status says it is kept', async () => {
+  const { store } = await open()
+  const offered = await store.propose({ text: 'Report in Chinese.', kind: 'preference' }, 3, 2)
+  const view = await store.change({ action: 'keep', id: offered.id! }, 4)
+  const entry = view.core[0]!
+  assert.deepEqual(await store.propose({ text: 'Report in Chinese!', kind: 'preference' }, 6, 5), { outcome: 'exists', id: entry.id })
+  assert.deepEqual(store.status().proposals.map(item => [item.id, item.state, item.entry]), [[offered.id, 'kept', entry.id]])
+  // Kept in the person's own words, it says so.
+  const other = await store.propose({ text: 'Stay quiet about desk changes at night.', kind: 'preference' }, 7, 6)
+  const edited = (await store.change({ action: 'keep', id: other.id!, text: 'Stay quiet about desk changes after 22:00.' }, 8)).core.find(one => one.text.includes('22:00'))!
+  assert.deepEqual(store.status().proposals[0], { id: other.id, state: 'edited', text: 'Stay quiet about desk changes after 22:00.', entry: edited.id, at: store.status().proposals[0]!.at },
+    'the words the note says now, never the words the person replaced')
+  // Edited again in Settings, the status follows the entry.
+  await store.change({ action: 'edit', id: entry.id, text: 'Report in Chinese, short.' })
+  assert.deepEqual(store.status().proposals.map(item => [item.id, item.state, item.text]), [[other.id, 'edited', 'Stay quiet about desk changes after 22:00.'], [offered.id, 'edited', 'Report in Chinese, short.']])
+})
+
+test('a declined proposal is offered again once the person says it again, and says it was declined before', async () => {
+  const { store } = await open()
+  const offered = await store.propose({ text: 'Lead every report with the conclusion.', kind: 'preference' }, 5, 4)
+  await store.change({ action: 'dismiss', id: offered.id! }, 8)
+  assert.deepEqual(store.status().proposals.map(item => [item.id, item.state]), [[offered.id, 'declined']])
+  // Words the person wrote before their No do not reopen it: the No is the later word.
+  assert.deepEqual(await store.propose({ text: 'Lead every report with the conclusion.', kind: 'preference' }, 9, 7), { outcome: 'refused', reason: 'declined', id: offered.id })
+  // Written after it, they do.
+  const again = parseLeadMemoryProposalResult(await store.propose({ text: 'Lead every report with the conclusion.', kind: 'preference' }, 12, 11))
+  assert.equal(again.outcome, 'created')
+  assert.equal(again.declinedBefore, true)
+  assert.notEqual(again.id, offered.id)
+  assert.equal(store.inbox().length, 1)
+  // A second No stands again until the person writes once more.
+  await store.change({ action: 'dismiss', id: again.id! }, 14)
+  assert.equal((await store.propose({ text: 'Lead every report with the conclusion.', kind: 'preference' }, 15, 11)).reason, 'declined')
+})
+
+test('a forgotten note is not in memory: the status says forgotten without its words, and the same words are a new proposal', async () => {
+  const { store, dir } = await open()
+  const offered = await store.propose({ text: 'Report in Chinese to the person.', kind: 'preference' }, 3, 2)
+  const id = (await store.change({ action: 'keep', id: offered.id! }, 4)).core[0]!.id
+  await store.change({ action: 'forget', id }, 5)
+  assert.deepEqual(store.status().proposals.map(item => [item.id, item.state, item.text]), [[offered.id, 'forgotten', null]])
+  assert.doesNotMatch(await readFile(join(dir, 'memory-store.json'), 'utf8'), /Chinese/, 'forgotten means its words are gone')
+  assert.equal(store.status().entries.includes(id), false)
+  assert.equal((await store.propose({ text: 'Report in Chinese to the person.', kind: 'preference' }, 7, 6)).outcome, 'created')
+})
+
+test('after Forget all, nothing proposed before counts: declined words may be proposed again and the status says memory was cleared', async () => {
+  let clock = Date.parse('2026-11-10T17:00:00Z')
+  const { store } = await open({ now: () => clock })
+  const a = await store.propose({ text: 'Report in Chinese.', kind: 'preference' }, 2, 1)
+  await store.change({ action: 'dismiss', id: a.id! }, 3)
+  clock += 1000
+  await store.change({ action: 'forget-all' }, 4)
+  const status = store.status()
+  assert.deepEqual([status.proposals, status.entries, status.clearedAt], [[], [], clock])
+  assert.equal((await store.propose({ text: 'Report in Chinese.', kind: 'preference' }, 5, 1)).outcome, 'created')
+})
+
+test('a kept proposal a tidy merged reads as kept in the merged note; one Undo took out reads as forgotten', async () => {
+  const { store } = await open()
+  await store.change({ action: 'auto', on: true })
+  const a = await store.propose({ text: 'Staging Postgres listens on port 5433.', kind: 'fact' }, 1)
+  const b = await store.propose({ text: 'Staging Postgres is reachable from the desk.', kind: 'fact' }, 1)
+  assert.deepEqual([a.outcome, b.outcome], ['kept', 'kept'])
+  const tidy = await store.tidy({ merge: [{ ids: [a.id!, b.id!], text: 'Staging Postgres listens on port 5433 and is reachable from the desk.' }], drop: [] })
+  assert.equal(tidy.outcome, 'applied')
+  const merged = store.entries().at(-1)!.id
+  assert.deepEqual(store.status().proposals.map(item => [item.id, item.state, item.entry, item.text]), [[b.id, 'kept', merged, store.entries().at(-1)!.text], [a.id, 'kept', merged, store.entries().at(-1)!.text]])
+  await store.change({ action: 'undo', version: (tidy as { version: number }).version })
+  await store.change({ action: 'undo', version: store.view().history.find(item => item.by === 'lead' && item.undoable)!.version })
+  assert.equal(store.status().proposals.find(item => item.id === b.id)!.state, 'undone', 'Undo took it out; the person did not forget it')
+})
+
+test('a kept note taken out by something other than Forget or Undo reads as removed, never as forgotten', async () => {
+  let clock = 1000
+  const { store } = await open({ now: () => clock++ })
+  await store.change({ action: 'auto', on: true })
+  const older = await store.propose({ text: 'Staging Postgres listens on port 5433.', kind: 'fact' }, 1)
+  const newer = await store.propose({ text: 'Staging Postgres listens on port 5433 behind the VPN gateway.', kind: 'fact' }, 2)
+  assert.deepEqual([older.outcome, newer.outcome], ['kept', 'kept'])
+  // A tidy finds the newer note says it all and drops the older one.
+  assert.equal((await store.tidy({ merge: [], drop: [{ id: older.id!, by: newer.id! }] })).outcome, 'applied')
+  assert.equal(store.entries().some(entry => entry.id === older.id), false)
+  assert.deepEqual(store.status().proposals.map(item => [item.id, item.state]), [[newer.id, 'kept'], [older.id, 'removed']])
+})
+
+test('a negation is a different note: "never" against the same words is not the note already kept', async () => {
+  const { store } = await open()
+  const offered = await store.propose({ text: 'Merge pull requests after review.', kind: 'preference' }, 3, 2)
+  await store.change({ action: 'keep', id: offered.id! }, 4)
+  assert.equal((await store.propose({ text: 'Never merge pull requests after review.', kind: 'preference' }, 6, 5)).outcome, 'created')
+  assert.equal((await store.propose({ text: "Don't merge pull requests after review.", kind: 'preference' }, 8, 7)).outcome, 'pending', 'two negated forms are the same note')
+  assert.equal(leadMemoryNear('Run the linter before review.', 'Do not run the linter before review.'), false)
+  assert.equal(leadMemoryNear('提交前运行测试', '提交前不运行测试'), false)
+  assert.equal(leadMemoryNear('Run the linter before review.', 'run the linter before review!'), true)
+})
+
+test('words that only look negative are words: a note with no-op, without, 不错 or 非常 is still told from its opposite', () => {
+  for (const [note, opposite] of <[string, string][]>[
+    ['Run the smoke tests on no-op deploys to staging.', "Don't run the smoke tests on no-op deploys to staging."],
+    ['Ship nightly builds without the debug symbols attached.', 'Never ship nightly builds without the debug symbols attached.'],
+    ['这个模块的测试覆盖率不错', '这个模块的测试覆盖率不好'],
+    ['这个服务非常稳定，可以直接上线', '这个服务非常不稳定，可以直接上线'],
+  ]) {
+    assert.equal(leadMemoryNear(note, opposite), false, note)
+    assert.equal(leadMemoryNear(note, `${note} `), true, note)
+  }
+  // 无法 is "cannot": it negates, the way the English word does.
+  assert.equal(leadMemoryNear('本地开发环境可以连接预发数据库', '本地开发环境无法连接预发数据库'), false)
 })

@@ -1073,11 +1073,26 @@ test('a person resume resets the no-progress bound', async () => {
 })
 
 test('three oversized successful reads park without a fourth request', async () => {
+  // The first request is filled to `margin` bytes under the request limit (`LIMIT.bytes` in messages.ts), measured from
+  // the request this loop builds, so longer instructions or tool text shrink the filler instead of the room left. Each
+  // round's continuation (a tool_use turn, its placeholder result and the reserved diagnostic space) costs a few hundred
+  // bytes: 8 KiB holds three rounds and stays far below one 15,000-byte result, which therefore never fits and parks.
+  const limit = 1_048_576, margin = 8_192, blocks = 64, result = 15_000
+  const filled = (size: number) => [{ role: 'user', content: Array.from({ length: blocks }, () => ({ type: 'text', text: 'x'.repeat(size) })) }]
+  const probe = await fixture([message([{ type: 'text', text: 'measured' }])])
+  const measure = exported('createLeadLoop')(probe.options)
+  await measure.request({ ...input, messages: filled(1) })
+  await measure.close()
+  const base = Buffer.byteLength(probe.fake.requests[0].body) - blocks
+  const size = Math.floor((limit - margin - base) / blocks)
+  assert.ok(size > 0 && size <= 16_384, `filler ${size} fits a text block`)
   const s = await fixture(Array.from({ length: 5 }, (_, i) => message([tool(`usage-${i}`, 'library_usage')], { stop_reason: 'tool_use' })))
   const call = s.options.desk.call
-  s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(15_000) : call(method, params)
+  s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(result) : call(method, params)
   const loop = exported('createLeadLoop')(s.options)
-  await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(15_900) })) }] })
+  await loop.request({ ...input, messages: filled(size) })
+  const room = limit - Buffer.byteLength(s.fake.requests[0].body)
+  assert.ok(room >= margin && room < margin + blocks + 1024, `the first request leaves ${room} bytes`)
   for (let i = 0; i < 4; i++) { await s.tick(); await loop.idle() }
   assert.equal(s.fake.requests.length, 3)
   assert.equal(loop.state.reason, 'lead-tools-refused')

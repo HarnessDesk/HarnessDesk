@@ -180,6 +180,7 @@ import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRe
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
+import { initialLeadMemoryCore, leadMemoryStatus } from '@harnessdesk/lead'
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
@@ -454,6 +455,8 @@ const HELD_WAIT_SEC = 45
  * is judged by its session again, exactly as it was before the mark existed.
  */
 const SEND_ACCEPT_DEADLINE_MS = 30_000
+/** How long a desk wake waits for the memory store before it goes on without the memory status. */
+const LEAD_WAKE_MEMORY_STATUS_MS = 2_000
 
 /**
  * Where the built-in Agents ship: `agents/` at the root of this package, beside
@@ -3955,7 +3958,7 @@ export class Host {
 
   /** One host-owned supervisor, enabled explicitly by the authenticated Lead
    * service owner in the next slice step. Construction itself never spawns. */
-  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'> & { readonly recovery?: { readonly now: () => number; readonly schedule: (run: () => void, delay: number) => () => void }
+  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport' | 'probeRuntime'> & { readonly recovery?: { readonly now: () => number; readonly schedule: (run: () => void, delay: number) => () => void }
     /** The stored conversation (the context engine); absent, each request is rebuilt from the thread's words. */
     readonly context?: LeadContextStore }): LeadService {
     if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
@@ -4285,6 +4288,7 @@ export class Host {
         readContext: (epoch: number, room: number) => leadContext.read(epoch, room),
         compactContext: async (trigger: 'due' | 'overflow') => await this.#leadControls?.compactForWake(trigger) ?? false,
       } : {}),
+      readMemoryStatus: () => this.#leadMemoryStatusForWake(),
       onManagementStopped: reason => {
         if (reason === 'lead-host-shutdown') void this.#leadChats?.close()
         else if (reason === 'lead-disabled' || reason === 'lead-request-cancelled') this.#leadChats?.incidents?.cancel()
@@ -4304,7 +4308,7 @@ export class Host {
       // A `Remember:` line in a reply is read as the same proposal memory_propose makes: scanned, then to the inbox.
       onRemember: lines => {
         const after = journal.state.seq
-        for (const line of lines) this.#leadMemoryTrack(this.#leadMemory().then(store => store.propose({ text: line, kind: 'preference' }, after)), 'Lead memory proposal was not saved')
+        for (const line of lines) this.#leadMemoryTrack(this.#leadMemory().then(store => store.propose({ text: line, kind: 'preference' }, after, this.#leadPersonSeq())), 'Lead memory proposal was not saved')
       },
       readEvidence: async (runId, read) => { await secondLook(runId); return { ...await options.readEvidence(runId, read), personActions: (await personActions.read()).filter(action => action.runId === runId) } }, broker: this.#credentials,
       resolveTool: async call => {
@@ -4459,6 +4463,7 @@ export class Host {
         try { cards = leadWorkCards(await work.board(), Date.now()) } catch (error) { if (!note || turn.proactive) throw error }
         return leadTurnContext(cards, note, turn.proactive)
       },
+      readMemoryContext: () => this.#leadMemoryContext(),
       approveRepeat: async (id, contract, reactivate) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now(), reactivate) },
       freezeRepeat: async contract => ({ ...contract, digest: leadContractDigest(contract) }),
       validateRepeat: async contract => {
@@ -4613,6 +4618,31 @@ export class Host {
       } })
   }
 
+  /** The journal position of the person's latest message to the Lead. A No they gave before it no longer keeps the
+   * Lead from proposing the same words again: they said it again. */
+  #leadPersonSeq(): number {
+    const messages = this.#leadJournal?.state.messages ?? []
+    for (let at = messages.length - 1; at >= 0; at--) {
+      const message = messages[at]!
+      if (message.role === 'user' && (message.source ?? 'person') === 'person') return message.revision
+    }
+    return 0
+  }
+  /** What each request tells the Lead about memory now: what became of its proposals, and what changed since the
+   * Core its standing instructions hold. */
+  async #leadMemoryContext(): Promise<string | null> {
+    const journal = this.#leadJournal
+    if (!journal) return null
+    return leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
+  }
+  /** The status a desk wake carries: null when the memory store cannot be read, or takes longer than
+   * `LEAD_WAKE_MEMORY_STATUS_MS` to open, so a corrupt file or a slow first open never stalls or stops a wake. */
+  async #leadMemoryStatusForWake(): Promise<string | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), LEAD_WAKE_MEMORY_STATUS_MS); timer.unref?.() })
+    try { return await Promise.race([this.#leadMemoryContext().catch(() => null), late]) }
+    finally { clearTimeout(timer) }
+  }
   /** The Lead's memory: Core, Archive, the inbox and their versions, beside the journal. Opened once; the first open
    * carries today's kept and offered lines across from the planner's file, which is left where it is. */
   #leadMemory(): Promise<LeadMemoryStore> {
@@ -5999,10 +6029,10 @@ export class Host {
       leadScheduleUpdate: async params => this.#leadRepeats ? this.#leadRepeats.write(params.schedule) : this.#leadPlanner().writeSchedule(params.schedule),
       // The earlier read and update keep working, over the new store.
       leadMemoryRead: async () => (await this.#leadMemory()).legacy(),
-      leadMemoryUpdate: async params => (await this.#leadMemory()).replaceLegacy(params.memory),
+      leadMemoryUpdate: async params => (await this.#leadMemory()).replaceLegacy(params.memory, this.#leadJournal?.state.seq ?? 0),
       leadMemoryView: async () => this.#leadMemoryShown((await this.#leadMemory()).view()),
-      leadMemoryChange: async params => this.#leadMemoryShown(await (await this.#leadMemory()).change(params)),
-      leadMemoryPropose: async params => (await this.#leadMemory()).propose(params, this.#leadJournal?.state.seq ?? 0),
+      leadMemoryChange: async params => this.#leadMemoryShown(await (await this.#leadMemory()).change(params, this.#leadJournal?.state.seq ?? 0)),
+      leadMemoryPropose: async params => (await this.#leadMemory()).propose(params, this.#leadJournal?.state.seq ?? 0, this.#leadPersonSeq()),
       leadMemorySearch: async params => this.#leadMemorySearch(params.query, params.limit),
       leadContextRead: async () => (await this.#leadWindow()).readContext(),
       leadContextUse: async () => leadContextUse(await (await this.#leadWindow()).readContext()),

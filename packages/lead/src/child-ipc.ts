@@ -27,7 +27,7 @@ export const LEAD_FRAME_BYTES = 1_048_576
 export const LEAD_PROBE_PREFIX = 'lead-probe '
 export const LEAD_RPC_OPERATIONS = ['recordWake', 'execute', 'updateBudget', 'setManagementPhase', 'invalidateResults', 'offerCard',
   'restoreResult', 'recoverUnsettledRequests', 'appendReply', 'resolveTool', 'freezePlan', 'readEvidence', 'provider-send',
-  'recordContext', 'readContext', 'compactContext', 'memoryEpoch'] as const
+  'recordContext', 'readContext', 'compactContext', 'memoryEpoch', 'readMemoryStatus'] as const
 export type LeadRpcOperation = typeof LEAD_RPC_OPERATIONS[number]
 /** How many arguments each operation carries, fewest and most. The frame check and the host's dispatch both read this
  * one table, so an operation can never pass one and break the other: `memoryEpoch` once carried three arguments past a
@@ -35,7 +35,7 @@ export type LeadRpcOperation = typeof LEAD_RPC_OPERATIONS[number]
 export const LEAD_RPC_ARGS: Readonly<Record<LeadRpcOperation, readonly [number, number]>> = {
   recordWake: [1, 1], execute: [1, 1], updateBudget: [1, 1], setManagementPhase: [2, 2], invalidateResults: [0, 0], offerCard: [1, 1],
   restoreResult: [2, 2], recoverUnsettledRequests: [0, 0], appendReply: [1, 4], resolveTool: [1, 1], freezePlan: [1, 1], readEvidence: [1, 1],
-  'provider-send': [2, 3], recordContext: [1, 1], readContext: [1, 1], compactContext: [1, 1], memoryEpoch: [3, 3],
+  'provider-send': [2, 3], recordContext: [1, 1], readContext: [1, 1], compactContext: [1, 1], memoryEpoch: [3, 3], readMemoryStatus: [0, 0],
 }
 export const leadRpcArgsFit = (operation: LeadRpcOperation, count: number): boolean =>
   count >= LEAD_RPC_ARGS[operation][0] && count <= LEAD_RPC_ARGS[operation][1]
