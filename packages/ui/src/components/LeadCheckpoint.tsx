@@ -3,6 +3,7 @@ import { LEAD_CHECKPOINT_SECTIONS, parseLeadContextFacts, type LeadCheckpointPer
 import { Banner, Button, Chip, Dialog, Marker, MarkerContent, Row, Rows, Section, Text } from '../design'
 import { useDestinationActive } from '../panels/destination-page'
 import { sanitizeText } from '../lib/sanitize'
+import { formatAge } from '../lib/usage'
 import { useStore } from '../state/context'
 import { leadRefusalText } from './lead-refusals'
 
@@ -70,10 +71,12 @@ const CheckpointBody = ({ checkpoint }: { readonly checkpoint: LeadContextCheckp
 const thousands = (tokens: number) => tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens)
 const percent = (share: number) => `${Math.round(share * 100)}%`
 /** The words Settings shows for the conversation's facts. */
-export const leadContextWords = (facts: LeadContextFacts) => ({
+export const leadContextWords = (facts: LeadContextFacts, now = Date.now()) => ({
   used: facts.usedTokens === null ? 'Nothing sent yet' : `${percent(facts.usedTokens / facts.windowTokens)} of ${thousands(facts.windowTokens)} tokens`,
   cache: facts.cacheHitRate === null ? 'No requests yet' : `${percent(facts.cacheHitRate)} of the prompt read from the cache`,
-  summaries: facts.compacting ? 'Summarising now' : facts.checkpoints.length === 0 ? 'None yet' : String(facts.checkpoints.length),
+  // When the last summary was made is the fact that varies, as the phone shows it beside the count.
+  summaries: facts.compacting ? 'Summarising now' : facts.checkpoints.length === 0 ? 'None yet'
+    : `${facts.checkpoints.length} · last ${formatAge(facts.checkpoints.at(-1)!.at, now)}`,
 })
 
 /** Settings › Lead: how full the conversation is and how much the provider served from its cache. Facts, read when shown. */

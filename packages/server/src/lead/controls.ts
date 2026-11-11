@@ -105,6 +105,8 @@ export class LeadControls {
   /** Set only by a path the person took (their own message, their plan approval, their resume); read once by the next request. */
   #personRequest = false
   #requestWaitReason: string | null = null
+  /** The request in hand is a desk wake the schedule made (a reminder), whatever the thread's origin. */
+  #scheduleRequest = false
   #requestConversation = true
   #closed = false
   #lastRevision = -1
@@ -247,7 +249,24 @@ export class LeadControls {
   }
   #unanswered(): boolean {
     const state = this.options.journal.state
-    return !this.#continuation && state.messages.findLast(message => message.role === 'user' || message.role === 'assistant')?.role === 'user'
+    // A desk wake the Lead let pass is not the person's message left unanswered: Resume would only wake it again.
+    const last = state.messages.findLast(message => message.role === 'user' || message.role === 'assistant')
+    return !this.#continuation && last?.role === 'user' && !last.wake
+  }
+  /**
+   * What became of the wake sent under `key`: `pending` while a request (the host's or the Lead's own tool loop) or a
+   * summary may still write after it, `said` once the Lead wrote a message after it before the next user turn (the person's or another wake), and
+   * `silent` when it ended without one (quiet, refused or failed).
+   */
+  wakeOutcome(key: string): 'pending' | 'said' | 'silent' {
+    const state = this.options.journal.state, send = state.sends.find(one => one.key === key)
+    if (this.#inFlight() || this.#continuation || this.options.context?.compacting) return 'pending'
+    const at = send ? state.messages.findIndex(message => message.id === send.messageId) : -1
+    if (at < 0) return 'silent'
+    // Only the Lead's turn that answers this wake counts: it ends at the next user turn, a person's message or another
+    // wake, so a later wake's reply or a queued turn's text never says this one was said.
+    const after = state.messages.slice(at + 1), next = after.findIndex(message => message.role === 'user')
+    return (next < 0 ? after : after.slice(0, next)).some(message => message.role === 'assistant' && message.text.trim()) ? 'said' : 'silent'
   }
   workerApprovalsChanged(): Promise<void> {
     this.#actionsGeneration++
@@ -360,7 +379,8 @@ export class LeadControls {
   }
   async #continue(): Promise<void> {
     const { journal, service } = this.options
-    const proactive = this.#automaticRequest, person = this.#personRequest; this.#automaticRequest = false; this.#personRequest = false
+    const proactive = this.#automaticRequest, person = this.#personRequest, scheduled = this.#scheduleRequest
+    this.#automaticRequest = false; this.#personRequest = false; this.#scheduleRequest = false
     if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) || journal.state.budget?.stop || journal.state.managementReason === 'lead-worker-audit-failed') {
       this.#requestInFlight = false
       await journal.settingsChanged()
@@ -418,7 +438,7 @@ export class LeadControls {
           ...(stored ? { epoch: stored.epoch, ...(stored.base ? { base: stored.base } : {}), ...(stored.stable ? { stable: stored.stable } : {}), ...(kept ? { kept } : {}) } : {}),
           ...(proactive ? { proactive: true } : {}),
           // Only the person's own path is the person's; every other request (a scheduled run, a trigger's) names its source, and one that names none is automatic.
-          wakeSource: person ? 'person' as const : journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const }
+          wakeSource: person ? 'person' as const : scheduled || journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const }
       }
       // A compaction under way finishes first; past the hard line one runs now, whatever else is happening.
       await this.#contextWork
@@ -610,20 +630,31 @@ export class LeadControls {
   /** A schedule slot redeems only a previously person-approved contract, and gets
    * its own logical goal, step ids, budget and fresh host-clock consent. */
   /**
-   * A reminder the Lead set on a work item wakes it while a conversation is open, as the same schedule-sourced
-   * proactive request a scheduled run makes. False when it cannot go now (a request in flight, an uncertain effect,
-   * a closed or waiting thread, no key); the host's minute timer offers it again. A closed thread takes it through
-   * the automatic-goal path instead.
+   * A reminder that came due wakes the Lead as a desk wake: a schedule-sourced turn the journal marks `wake`, so no
+   * surface draws it as the person's message. One the person asked for (`wake.person`) is said in plain words, like a
+   * reply, and the Lead is pressed once more if it stays quiet; the Lead's own check-back keeps the proactive envelope,
+   * where silence is a fair answer. `begin` opens a goal first when the thread has closed, the way a scheduled run
+   * does. False when it cannot go now (a request in flight, an uncertain effect, a closed or waiting thread, no key);
+   * the host's timer offers it again.
    */
-  remind(key: string, text: string): Promise<boolean> { return this.#queue(async () => {
+  remind(key: string, text: string, wake?: { readonly reminder: string; readonly text: string; readonly person: boolean }, begin = false): Promise<boolean> { return this.#queue(async () => {
     const { journal, service } = this.options
     if (journal.state.sends.some(send => send.key === key)) return true
-    if (this.#inFlight() || hasUncertainLeadChatEffect(journal.state) || journal.state.budget?.stop) return false
-    if (!['draft', 'running', 'following'].includes(journal.state.phase)) return false
-    if (leadContainsSecret([text])) return false
+    if (this.#inFlight() || leadContainsSecret([text, wake?.text ?? ''])) return false
     const status = await service.status('anthropic').catch(() => null)
     if (!status?.configured || status.unavailable) return false
-    await this.#commitRequest(committed => journal.appendMessage(key, text, 'schedule', committed), true)
+    if (begin && wake && canBeginLeadGoal(journal.state)) {
+      try { await this.options.stopRequest?.() } catch { return false }
+      if (this.#continuation) await this.#continuation
+      if (!canBeginLeadGoal(journal.state) || this.#inFlight()) return false
+      await journal.beginGoal(this.options.nextId(), this.options.now())
+      await journal.setOrigin({ source: 'schedule', event: 'work-reminder', subject: wake.reminder, url: null }, key)
+    }
+    if (hasUncertainLeadChatEffect(journal.state) || journal.state.budget?.stop) return false
+    if (!['draft', 'running', 'following'].includes(journal.state.phase)) return false
+    const marked = wake ? { kind: 'reminder' as const, reminder: wake.reminder, text: wake.text } : undefined
+    const person = wake?.person === true
+    await this.#commitRequest(committed => journal.appendMessage(key, text, 'schedule', () => { committed(); this.#scheduleRequest = true }, marked), !person, undefined, true, false)
     return true
   }) }
   runScheduled(task: LeadScheduledTask, slot: number): Promise<{ logicalGoalId: string; approved: boolean; reason?: string }> { return this.#queue(async () => {

@@ -112,6 +112,19 @@ it('a working item’s menu stops its chat with the same stop the chat sends, an
   expect(calls.find(call => call.method === 'turn/interrupt')!.params).toMatchObject({ runtime: 'fixture', sessionId: 'chat-3' })
 })
 
+it('a reminder whose message was never written says Missed, and one still being said does not claim it was', async () => {
+  const { box, store } = await mount('work-ledger')
+  const fired = leadWorkFixture.reminders!.find(entry => entry.id === 'remind-1')!
+  const { delivery: _said, deliveredAt: _at, ...waking } = fired
+  await act(async () => { store.lead.changed({ method: 'lead/work/changed', params: { ...leadWorkFixture, reminders: [
+    { ...fired, delivery: 'missed', deliveredAt: fired.firedAt! + 60_000 }, { ...waking, id: 'remind-4' }] } }) })
+  const missed = box.querySelector<HTMLElement>('[data-work-reminder="remind-1"]')!, pending = box.querySelector<HTMLElement>('[data-work-reminder="remind-4"]')!
+  expect(missed.textContent).toContain('Missed ')
+  expect(missed.textContent).not.toMatch(/Said|Fired/)
+  expect(pending.textContent).toContain('not said yet')
+  expect(pending.textContent).not.toContain('Said ')
+})
+
 it('a live board from the host replaces the card, and no tracked work draws no card', async () => {
   const { box, store } = await mount('empty')
   expect(box.querySelector('section[aria-label="Work"]')).toBeNull()
@@ -134,8 +147,9 @@ it('lists each reminder with when it is due or fired, and Cancel removes one thr
   expect(checkBack.textContent).toContain('Check on Fix the retry status list')
   expect(checkBack.textContent).toContain('Check-back')
   expect(checkBack.textContent).not.toContain('work-2')
-  // A fired reminder says Fired once, with its time, and has nothing left to cancel.
-  expect(fired.textContent?.match(/Fired/g)).toHaveLength(1)
+  // A person's reminder the Lead told them about says Said once, with its time, never Fired, and has nothing left to cancel.
+  expect(fired.textContent?.match(/Said /g)).toHaveLength(1)
+  expect(fired.textContent).not.toContain('Fired')
   expect(fired.querySelector('button')).toBeNull()
   const calls: { method: string; params: unknown }[] = []
   const request = store.transport.request.bind(store.transport)
