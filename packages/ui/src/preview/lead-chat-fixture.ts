@@ -3,7 +3,7 @@ import { previewStore, PREVIEW_SESSION_KEY } from './harness'
 import { leadProjection } from './lead-fixture'
 
 /** Synthetic conversation, host receipt and button actions; never connects to a desk. */
-export const createLeadChatFixture = (holder: LeadChatHolder = 'lead', theme: 'light' | 'dark' = 'light', scenario: 'normal' | 'offline' | 'unreadable' | 'read-error' | 'replay' = 'normal') => {
+export const createLeadChatFixture = (holder: LeadChatHolder = 'lead', theme: 'light' | 'dark' = 'light', scenario: 'normal' | 'offline' | 'unreadable' | 'read-error' | 'replay' | 'interrupted' = 'normal') => {
   const store = previewStore({ leadAvailable: true, theme })
   const prior = store.getSnapshot().sessions.get(PREVIEW_SESSION_KEY)!
   const id = `${prior.runtime}:${prior.id}`
@@ -18,10 +18,21 @@ export const createLeadChatFixture = (holder: LeadChatHolder = 'lead', theme: 'l
     ] }
   }
   const session = { ...prior, title: 'Check the retry behavior', cwd: '/workspace/demo', goal: null, status: { type: 'idle' as const },
-    turns: [{ id: 'lead-chat-turn' as never, status: 'completed' as const, items: [
+    turns: [...(scenario === 'interrupted' ? [
+      // A worker chat reopened from the agent's own record after a stop: the replay hands the stop marker over as one
+      // more part of the Lead's message, with no desk record of either (#2090).
+      { id: 'lead-chat-first' as never, status: 'interrupted' as const, items: [
+        { type: 'userMessage' as const, id: 'lead-chat-first-user' as never, content: [{ type: 'text' as const, text: 'Check the retry behavior' }] },
+        { type: 'assistantMessage' as const, id: 'lead-chat-first-answer' as never, phase: 'final' as const, text: 'Reading the retry code first.' },
+      ] },
+      { id: 'lead-chat-turn' as never, status: 'completed' as const, items: [
+        { type: 'userMessage' as const, id: 'lead-chat-user' as never, content: [{ type: 'text' as const, text: '[Request interrupted by user]' }, { type: 'text' as const, text: envelope }] },
+        { type: 'assistantMessage' as const, id: 'lead-chat-answer' as never, phase: 'final' as const, text: 'The focused tests pass. The retry limit and request ordering are covered.' },
+      ] },
+    ] : [{ id: 'lead-chat-turn' as never, status: 'completed' as const, items: [
       { type: 'userMessage' as const, id: 'lead-chat-user' as never, content: [deskContextContent(envelope)] },
       { type: 'assistantMessage' as const, id: 'lead-chat-answer' as never, phase: 'final' as const, text: 'The focused tests pass. The retry limit and request ordering are covered.' },
-    ] }] }
+    ] }])] }
   Object.assign(store.getSnapshot(), { sessions: new Map([[PREVIEW_SESSION_KEY, session]]) })
   let controlReads = 0
   const request = store.transport.request.bind(store.transport)
