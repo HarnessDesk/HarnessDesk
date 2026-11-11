@@ -659,6 +659,21 @@ test('a clipped envelope mid-reply loses only its own line, quote block or inlin
   assert.deepEqual(lead.stripLeadOutput(`${template}\n\n{"version":1,"type":"lead-output","text":"cut`), { text: template, dropped: true })
 })
 
+test('a clipped envelope ends at the line break where its JSON stops, so the prose lines after it stay', () => {
+  // An open object whose next line is prose: the JSON stopped at that line break.
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"version":1,"type":"lead-output",\nThat is why it stopped.\nRestart it.'),
+    { text: 'Worker said:\nThat is why it stopped.\nRestart it.', dropped: true })
+  // Pretty-printed and cut after a value: the lines of JSON go, the prose line after them stays.
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{\n  "version": 1,\n  "type": "lead-output",\n  "text": "hi"\nThen it crashed and I restarted it.\nAll good now.'),
+    { text: 'Worker said:\nThen it crashed and I restarted it.\nAll good now.', dropped: true })
+  // A list item that holds a clipped envelope goes alone; the next item is not taken with it.
+  assert.deepEqual(lead.stripLeadOutput('Steps:\n- {"version":1,"type":"lead-output","text":"x"\n- second step stays\n- third'),
+    { text: 'Steps:\n- second step stays\n- third', dropped: true })
+  // true, false and null are whole words: "nullable" and "trueish" are prose, not split.
+  assert.deepEqual(lead.stripLeadOutput('See {"type":"lead-output","ask":nullable fields} here. Rest stays.'), { text: 'See nullable fields} here. Rest stays.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Log: {"type":"lead-output","ok":trueish and more text after. Rest stays.'), { text: 'Log: trueish and more text after. Rest stays.', dropped: true })
+})
+
 test('stripping an envelope tidies only where it was: other quote separators, list markers and blank lines stay', () => {
   const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: 'Merging now.' })
   const kept = 'A quote:\n> first\n>\n> second\n\nSteps:\n1.\n   Do the thing.\n\n\n\nLater.'

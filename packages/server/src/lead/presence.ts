@@ -80,9 +80,24 @@ const unreadable = () => Object.assign(new Error('The Lead presence file could n
  * surface is handed the same one; only the optional paragraph comes from a model, and its cost is counted.
  */
 /** Polite words and fillers that do not make a request new: said with or without them, it is the same request. */
-const POLITE = /\b(?:please|pls|plz|kindly|(?:can|could|would) you|just|again|thanks?|thank you)\b|请|麻烦|再|帮我|帮忙|一下|吧|好吗|谢谢/gu
-/** Words that turn a request around. A message that carries one is never the request said again. */
-const NEGATION = /\b(?:don['\u2019]?t|do not|stop|never|cancel|not)\b|别|不要|不用|不必|停|取消|算了/u
+const POLITE = /\b(?:please|pls|plz|kindly|(?:can|could|would) you|just|again|once more|thanks?|thank you)\b|请|麻烦|再|帮我|帮忙|一下|一次|一遍|吧|好吗|谢谢/gu
+/** Words that turn a request around. One the earlier request did not carry makes the later one never the request said
+ * again; the same words with the same negation are. "停" alone is not one: 停车场 is a car park. */
+const NEGATION = /\b(?:don['\u2019]?t|do not|stop|never|cancel|not)\b|别|不要|不用|不必|停下|停掉|停止|取消|算了/gu
+const negations = (text: string): Map<string, number> => {
+  const counts = new Map<string, number>()
+  for (const [word] of text.normalize('NFKC').toLowerCase().replaceAll('\u2019', "'").matchAll(NEGATION)) counts.set(word, (counts.get(word) ?? 0) + 1)
+  return counts
+}
+const CJK_CHAR = /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/gu
+/** Words with each Chinese, Japanese or Korean character a word of its own, since those carry no spaces. */
+const charWords = (words: readonly string[]): string[] => words.join(' ').replace(CJK_CHAR, ' $1 ').split(/\s+/u).filter(Boolean)
+/** Whether the two say the same words with one of them moved ("修停车场的 bug", "停车场的 bug 修"). */
+const oneMoved = (a: readonly string[], b: readonly string[]): boolean => {
+  if (a.length !== b.length || a.length < 3 || a.join(' ') === b.join(' ')) return false
+  return a.some((word, i) => b.some((other, j) => other === word &&
+    a.filter((_, index) => index !== i).join(' ') === b.filter((_, index) => index !== j).join(' ')))
+}
 /** The words of a request, folded for comparison: compatibility forms, case, polite words, punctuation and symbols. */
 const requestWords = (text: string): string[] =>
   text.normalize('NFKC').toLowerCase().replace(POLITE, ' ').split(/[\p{P}\p{S}\s]+/u).filter(Boolean)
@@ -92,43 +107,41 @@ const CONTAINED = 0.8
 /**
  * Whether `later` only says `earlier` again. Punctuation, symbols, spacing and polite words never make it new, nor
  * does an address or a word more or less around the same request: one contains the other and is at least four fifths
- * of it, or they differ by one word. A negation ("don't", "stop", "别…了", "不要") is never a repeat, and anything else
- * is the person moving on.
+ * of it, they differ by one word, or one word moved. A negation the request did not carry ("don't", "stop", "别…了",
+ * "不要") is never a repeat; the same words again, negation and all, are. Anything else is the person moving on.
  */
 export const leadRepeatsRequest = (earlier: string, later: string): boolean => {
-  if (NEGATION.test(later.normalize('NFKC').toLowerCase())) return false
+  const before = negations(earlier)
+  for (const [word, count] of negations(later)) if (count > (before.get(word) ?? 0)) return false
   const a = requestWords(earlier), b = requestWords(later)
   const joinedA = a.join(''), joinedB = b.join('')
   if (joinedA === joinedB) return true
   const [short, long] = joinedA.length <= joinedB.length ? [joinedA, joinedB] : [joinedB, joinedA]
   if (short.length >= 4 && long.includes(short) && short.length >= CONTAINED * long.length) return true
+  if (oneMoved(charWords(a), charWords(b))) return true
   const [fewer, more] = a.length <= b.length ? [a, b] : [b, a]
   if (more.length - fewer.length !== 1 || fewer.length < 2) return false
   return more.some((_, skip) => more.filter((__, index) => index !== skip).join(' ') === fewer.join(' '))
 }
 
-/** Words around a choice that do not change which option it names: "the", "pick", "选". */
-const CHOOSING = /\b(?:the|option|pick|choose|go with|i choose|i pick)\b|选择|选|就/gu
+/** Words around a choice that do not change which option it names: "the", "I pick", "选". */
+const CHOOSING = /\b(?:the|option|pick|choose|go with|i choose|i pick|i'll take|i will take|let's go with)\b|选择|选|就/gu
 /** A text folded to tokens for matching an option: each Chinese, Japanese or Korean character is a token of its own. */
 const optionTokens = (text: string): string[] =>
-  requestWords(text.normalize('NFKC').toLowerCase().replace(CHOOSING, ' ').replace(/([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/gu, ' $1 '))
-const within = (words: readonly string[], part: readonly string[]) =>
-  part.length > 0 && words.some((_, at) => part.every((word, offset) => words[at + offset] === word))
+  charWords(requestWords(text.normalize('NFKC').toLowerCase().replaceAll('\u2019', "'").replace(CHOOSING, ' ')))
 
 /**
- * The option a typed answer gives. A tap's exact label, or the label folded like a request ("Game.", "game", "The
- * game", "选 Game"), is that option. With `named`, a message that names exactly one option, and no negation, is
- * that option too; one that names two, or says "not", is not an answer.
+ * The option a typed answer gives: a tap's exact label, or the whole message folded down to one label with nothing
+ * left over but choosing words ("Game.", "the game", "选 game", "I pick game"). Words that only mention an option
+ * ("build a game", "fix 2 bugs", "这是什么") answer nothing: short labels turn up in ordinary sentences.
  */
-export const leadAskOption = <T extends { readonly label: string }>(options: readonly T[], text: string, named = false): T | undefined => {
+export const leadAskOption = <T extends { readonly label: string }>(options: readonly T[], text: string): T | undefined => {
   const exact = options.find(option => option.label === text)
   if (exact) return exact
-  const words = optionTokens(text)
-  const folded = options.filter(option => optionTokens(option.label).join(' ') === words.join(' ') && words.length > 0)
-  if (folded.length === 1) return folded[0]
-  if (!named || NEGATION.test(text.normalize('NFKC').toLowerCase())) return undefined
-  const mentioned = options.filter(option => within(words, optionTokens(option.label)))
-  return mentioned.length === 1 ? mentioned[0] : undefined
+  const words = optionTokens(text).join(' ')
+  if (!words) return undefined
+  const folded = options.filter(option => optionTokens(option.label).join(' ') === words)
+  return folded.length === 1 ? folded[0] : undefined
 }
 
 /** How long after an answer or an expiry the same words, sent without the question's id, are still taken for a late tap. */
@@ -415,16 +428,16 @@ export class LeadPresenceStore {
     const stale = !open ? this.#newestAsk() : undefined
     const target = open ?? stale
     if (!target) return null
-    // A late tap must be the option itself; to a question still open, words that name exactly one option answer it.
-    const tapped = leadAskOption(target.ask.options, text), named = stale || askId ? tapped : leadAskOption(target.ask.options, text, true)
+    // A tap is its option. Typed words are an answer only when they are the option itself, folded, and never when they
+    // say again the request the question was asked about: a repeat from another device answers nothing.
+    const tapped = askId || !this.#repeatsAskedRequest(target.id, text) ? leadAskOption(target.ask.options, text) : undefined
     if (stale && !tapped) return null
     const by = device?.label ?? 'Desktop'
     return this.#write(() => {
       this.#observeAsks()
       const record = this.#stored.asks[target.id], now = this.ports.now()
       const expired = !record?.answer && record?.expiresAt !== undefined && record.expiresAt <= now
-      // Only a question still waiting is answered by words that merely name an option; after an answer or an expiry it takes the option itself.
-      const option = record?.answer || expired ? tapped : named
+      const option = tapped
       // Untagged words are held to a refusal only while they can still be a late tap: the question is the Lead's last word
       // and its answer or expiry is recent. A tap that names its question is refused whenever it arrives.
       const since = record?.answer?.at ?? (expired ? record!.expiresAt : undefined)
@@ -450,6 +463,12 @@ export class LeadPresenceStore {
         this.ports.changed?.()
       }
     })
+  }
+  /** Whether `text` says again the person's request the question `id` was asked about. */
+  #repeatsAskedRequest(id: string, text: string): boolean {
+    const messages = this.ports.messages(), at = messages.findIndex(message => message.id === id)
+    const asked = messages.slice(0, Math.max(at, 0)).findLast(one => one.role === 'user' && (one.source === undefined || one.source === 'person'))
+    return asked !== undefined && leadRepeatsRequest(asked.text, text)
   }
   #askById(id: string): { id: string; ask: LeadAsk } | undefined {
     const message = this.ports.messages().find(candidate => candidate.id === id)

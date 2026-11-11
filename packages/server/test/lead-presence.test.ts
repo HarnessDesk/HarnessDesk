@@ -249,6 +249,59 @@ test('a typed answer that names one option closes the question as that answer, f
   await assert.rejects(r.store.beforeSend(desktop, 'Game'), (error: Error & { wireCode?: string }) => error.wireCode === 'lead-ask-expired', 'the option itself is still a late tap')
 })
 
+test('a repeat sent from the phone answers nothing: the hold stays, and the person’s own tap on another option is taken', async t => {
+  const r = await rig(t)
+  const asked = { id: 'message-1', role: 'user', text: '再帮我开一个修 build a game 的 chat', source: 'person' as const }
+  const q4: LeadAsk = { question: '新会话要修哪一个？', options: [{ id: 'team', label: 'team' }, { id: 'game', label: 'game' }, { id: 'verify', label: 'verify' }], recommended: 'game' }
+  const question = { id: 'message-2', role: 'assistant', text: '新会话要修哪一个？', ask: q4 }
+  r.setMessages([asked, question])
+  await r.store.observe()
+  const step = await r.store.beforeSend(phone, asked.text)
+  await step?.(true, 'message-3')
+  r.setMessages([asked, question, { id: 'message-3', role: 'user', text: asked.text, source: 'person' as const }])
+  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'the repeat leaves the question holding the work')
+  assert.equal((await r.store.read(desktop, { active: true })).asks.find(one => one.id === 'message-2')?.answer, undefined, 'nobody answered it')
+  const tap = await r.store.beforeSend(desktop, 'team', 'message-2')
+  assert.ok(tap, 'the tap on team is taken')
+  await tap!(true)
+  assert.equal((await r.store.read(desktop, { active: true })).asks.find(one => one.id === 'message-2')?.answer?.option, 'team')
+})
+
+test('a typed answer is the whole message folded to one label; words that only mention an option answer nothing', async t => {
+  const sets: Record<string, { labels: string[]; not: string[]; answers: [string, string][] }> = {
+    ab: { labels: ['A', 'B'], not: ['build a game', 'fix a bug', 'I want a plan', 'what is plan A?'], answers: [['A', 'A'], ['b.', 'B']] },
+    yesNo: { labels: ['Yes', 'No'], not: ['no idea, just open the chat', 'yes but first check CI', 'is there no other way?'], answers: [['No', 'No'], ['yes', 'Yes']] },
+    numbers: { labels: ['1', '2'], not: ['fix 2 bugs', 'give me 1 minute'], answers: [['2', '2']] },
+    eval: { labels: ['team', 'game', 'verify'], not: ['why did the team stall?', 'the game in HarnessDesk', 'verify the game', '再帮我开一个修 build a game 的 chat'], answers: [['game', 'game'], ['Game.', 'game'], ['the game', 'game'], ['选 game', 'game'], ['I pick game', 'game']] },
+    titled: { labels: ['The Team', 'The game', 'Verify first'], not: ['fix the game', 'what is the team doing?'], answers: [['The game.', 'The game']] },
+    chinese: { labels: ['是', '否'], not: ['这是什么', '是不是应该先看一下'], answers: [['否', '否']] },
+    goWait: { labels: ['Go ahead', 'Wait'], not: ['wait, what does it do?', 'can you wait for CI then go ahead'], answers: [['go ahead', 'Go ahead']] },
+    startDrop: { labels: ['Start it', 'Drop it'], not: ['why did you start it?', 'start it after lunch'], answers: [['drop it', 'Drop it']] },
+  }
+  const asked = { id: 'message-1', role: 'user', text: 'Open a chat for the next step' }
+  const answerOf = async (labels: string[], text: string) => {
+    const r = await rig(t)
+    const question = { id: 'message-2', role: 'assistant', text: 'Which?', ask: { question: 'Which?', options: labels.map((label, index) => ({ id: `o${index}`, label })) } }
+    r.setMessages([asked, question])
+    await r.store.observe()
+    const step = await r.store.beforeSend(phone, text)
+    await step?.(true)
+    return (await r.store.read(desktop, { active: true })).asks.find(one => one.id === 'message-2')?.answer?.option
+  }
+  for (const [name, set] of Object.entries(sets)) {
+    for (const text of set.not) assert.equal(await answerOf(set.labels, text), undefined, `${name}: "${text}" answers nothing`)
+    for (const [text, label] of set.answers) assert.equal(await answerOf(set.labels, text), label, `${name}: "${text}" answers ${label}`)
+  }
+})
+
+test('a negation turns a request around only when it is new: the same words again, negation and all, are a repeat', () => {
+  for (const [earlier, later] of [['修停车场的 bug', '停车场的 bug 再修一次'], ['Cancel the build and fix the game', 'Cancel the build and fix the game'],
+    ['Stop the stalled run and open a chat', 'stop the stalled run and open a chat'], ['不要合并，先修 game', '不要合并，先修 game']] as const)
+    assert.equal(leadRepeatsRequest(earlier, later), true, `${earlier} → ${later}`)
+  for (const [earlier, later] of [['修复构建', '别修复构建了'], ['Open a chat to fix the game', "Don't open a chat to fix the game"], ['修复构建', '停下修复构建']] as const)
+    assert.equal(leadRepeatsRequest(earlier, later), false, `${earlier} → ${later}`)
+})
+
 test('a schedule or automatic message never closes the open question; only the person moving on does', async t => {
   const r = await rig(t)
   const asked = { id: 'message-1', role: 'user', text: 'Open a chat to fix the game', source: 'person' as const }

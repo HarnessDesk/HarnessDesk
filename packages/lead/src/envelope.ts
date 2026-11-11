@@ -61,13 +61,18 @@ const trailing = (text: string, start: number, end: number): boolean => {
 }
 
 /** Where a run of JSON-shaped text that opens at `start` stops: just past the brace that balances it, at the first
- * character JSON could not hold there (a word, a backtick), or at a line break inside a string, which no JSON string
- * holds. With `multiline` false it also stops at the end of the line. String-aware. */
+ * character JSON could not hold there (a word, a backtick, "nullable"), or at a line break inside a string, which no
+ * JSON string holds. With `multiline` it goes on past a line break only when the next line carries on as JSON, its
+ * first character a quote, brace or bracket; a prose line after it ends it at the break. Without, it stops at the end
+ * of the line. String-aware. */
 const jsonEnd = (text: string, start: number, multiline: boolean): number => {
   let depth = 0, quoted = false, escaped = false, index = start
   for (; index < text.length; index++) {
     const char = text[index]!
-    if (char === '\n' || char === '\r') { if (quoted || !multiline) return index; continue }
+    if (char === '\n' || char === '\r') {
+      if (quoted || !multiline || !/^\s*["{[\]}]/.test(text.slice(index))) return index
+      continue
+    }
     if (quoted) {
       if (escaped) escaped = false
       else if (char === '\\') escaped = true
@@ -77,7 +82,7 @@ const jsonEnd = (text: string, start: number, multiline: boolean): number => {
     if (char === '"') quoted = true
     else if (char === '{' || char === '[') depth++
     else if (char === '}' || char === ']') { if (--depth <= 0) return index + 1 }
-    else if (/^(?:true|false|null)/.test(text.slice(index, index + 5))) index += text[index] === 'f' ? 4 : 3
+    else if (/^(?:true|false|null)(?![\p{L}\p{N}_])/u.test(text.slice(index, index + 6))) index += text[index] === 'f' ? 4 : 3
     else if (!/[ \t:,0-9.eE+-]/.test(char)) return index
   }
   return index
@@ -100,7 +105,13 @@ const clipped = (text: string, cut: number): { start: number; end: number } => {
     while (end < text.length && QUOTE_LINE.test(text.slice(end + 1, lineEnd(text, end + 1)))) end = lineEnd(text, end + 1)
     return { start: cut, end }
   }
-  if (/^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?$/.test(text.slice(lineStart, cut))) return fenced(text, cut, lineEnd(text, jsonEnd(text, cut, true)))
+  if (/^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?$/.test(text.slice(lineStart, cut))) {
+    // The rest of the envelope's own line goes with it; on a later line, only up to where the JSON stopped.
+    let end = jsonEnd(text, cut, true)
+    if (text.lastIndexOf('\n', end - 1) < cut) end = lineEnd(text, end)
+    else while (end > cut && /[ \t]/.test(text[end - 1]!)) end--
+    return fenced(text, cut, end)
+  }
   let end = jsonEnd(text, cut, false)
   while (end > cut && /[ \t]/.test(text[end - 1]!)) end--
   return { start: cut, end }
