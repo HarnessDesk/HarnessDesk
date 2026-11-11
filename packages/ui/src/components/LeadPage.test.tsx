@@ -91,6 +91,7 @@ it.each([
   ['lead-request-unsent', "The desk did not send Dex's last request, so nothing was spent. Sending a message tries again.", false],
   ['lead-request-unsent-again', "The desk again did not send Dex's request, so nothing was spent. The desk log names the check that stopped it.", true],
   ['lead-request-held', "The desk held back Dex's last request because part of the conversation looked like a password, key or token", false],
+  ['lead-request-held-again', "The desk held back Dex's request again because part of the conversation still looks like a password, key or token. The desk log names the request.", true],
   ['lead-request-withheld', "Dex's instructions, memory or rules look like they hold a password, key or token", false],
 ] as const)('says %s was not sent, and what to do, without Resume', async (waitReason, words, log) => {
   const base = leadProjection(), { box } = await mount({ ...base, wayOut: null, waitReason, thread: { ...base.thread, state: 'waiting-for-user' } })

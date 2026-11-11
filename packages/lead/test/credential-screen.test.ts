@@ -45,6 +45,22 @@ test('a credential value in any script is caught by the request check, and a pla
   for (const text of ['password=***abc', 'authorization: …abc', 'secret=[redacted]x']) assert.equal(lead.leadDataContainsCredential(text), true, text)
 })
 
+// A placeholder ends at a delimiter, or at the quote that really closes an encoded string. Anything glued to it is a value.
+const dodges = ['password=..."abc', 'password=***\\"hunter2', 'password=…"hunter2', 'Authorization: Bearer …\\realtoken', 'password=…Abc', 'password=[redacted]"x']
+const passing = ['  authorization: … keys}', 'authorization: …', 'password=***', 'token=...']
+const encodings = (text: string) => [text, JSON.stringify([text]), JSON.stringify(JSON.stringify({ output: [text, 'next'] }))]
+
+test('a value glued to a placeholder by a quote or an escape is still a credential, in every encoding', () => {
+  for (const text of dodges) {
+    for (const encoded of encodings(text)) assert.equal(lead.leadDataContainsCredential(encoded), true, encoded)
+    assert.equal(lead.leadMessagesContainSecret({ messages: conversation(chatRead(text)) }, 'synthetic-provider-key'), true, text)
+  }
+  for (const text of passing) {
+    for (const encoded of encodings(text)) assert.equal(lead.leadDataContainsCredential(encoded), false, encoded)
+    assert.equal(lead.leadMessagesContainSecret({ messages: conversation(chatRead(text)) }, 'synthetic-provider-key'), false, text)
+  }
+})
+
 test('withholding replaces only the pieces the host would refuse, so the rest of the conversation still goes', () => {
   const turns = [...conversation(chatRead(`  token: ${github}`)),
     { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'The loader chat stopped while printing its config.' }] },

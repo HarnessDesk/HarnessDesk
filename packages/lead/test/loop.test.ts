@@ -2405,6 +2405,23 @@ test('a second refusal before sending in a row says so, and one that completes i
   } finally { await loop.close() }
 })
 
+test('a second hold of the conversation in a row says so, and one that completes in between starts over', async () => {
+  const held = async () => { throw Object.assign(new Error('lead-provider-withheld'), { wireCode: 'lead-provider-withheld' }) }
+  const refused = async () => { throw Object.assign(new Error('lead-provider-refused'), { wireCode: 'lead-provider-refused' }) }
+  const s = await fixture([held, held, message(), held, refused, held])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    const reasons: (string | null)[] = []
+    for (let i = 0; i < 6; i++) {
+      await loop.request({ ...input, wakeSource: 'person' })
+      reasons.push(s.journal.state.managementReason)
+      if (s.journal.state.phase === 'waiting-for-user') await s.journal.resume()
+    }
+    // A different refusal in between is not the same part held again.
+    assert.deepEqual(reasons, ['lead-request-held', 'lead-request-held-again', null, 'lead-request-held', 'lead-request-unsent', 'lead-request-held'])
+  } finally { await loop.close() }
+})
+
 test('a wake whose request was sent and lost is recorded as failed, not as silence', async () => {
   const s = await fixture([async () => { throw new Error('lost after send') }])
   const loop = exported('createLeadLoop')(s.options)

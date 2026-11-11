@@ -49,9 +49,9 @@ const tokenShape = /\b(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{60,}|
 const tokens = new RegExp(tokenShape.source, 'g')
 // A value that is only a placeholder is not a credential: `authorization: …` is a line the desk clipped, and
 // `password=***` one already masked. Read as credentials, either refused every request whose history held it. The
-// placeholder must be the whole value, up to a delimiter, the end, or the quote or escape that ends it inside encoded JSON;
-// any other value, in any script, still counts.
-const placeholder = String.raw`(?:…+|\.{3,}|\*+|•+|\[redacted\]|<redacted>)(?=[\s,;"\\]|$)`
+// placeholder must be the whole value: it ends at a delimiter, the end, an encoded line break, or a quote that really
+// closes an encoded string (followed by a delimiter or the end). Anything glued on, in any script, is a value.
+const placeholder = String.raw`(?:…+|\.{3,}|\*+|•+|\[redacted\]|<redacted>)(?=[\s,;]|\\[nrt](?![A-Za-z0-9])|\\?"(?=[\s,;:\]}]|\\|$)|$)`
 const headers = new RegExp(String.raw`\b(Cookie|Authorization|x-api-key):[ \t]*(?!(?:(?:Bearer|Basic|Token)[ \t]+)?${placeholder})(?:(?:Bearer|Basic|Token)[ \t]+)?[^\s,;]+`, 'gi')
 const assignments = new RegExp(String.raw`\b(api[_-]?key|access[_-]?token|token|secret|password)\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|(?!${placeholder})[^\s,;]+)`, 'gi')
 const secretName = /^(?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|token|secret|password|cookie|authorization|bearer)$/i

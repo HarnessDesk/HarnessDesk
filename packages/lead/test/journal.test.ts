@@ -590,6 +590,21 @@ test('the journal masks a credential value in any script, and keeps a value that
   }
 })
 
+test('the journal masks a value glued to a placeholder, and keeps placeholders in every encoding', async () => {
+  const masked = [
+    ['password=..."abc', 'password=[redacted]'], ['password=***\\"hunter2', 'password=[redacted]'], ['password=…"hunter2', 'password=[redacted]'],
+    ['Authorization: Bearer …\\realtoken', 'Authorization: [redacted]'], ['password=…Abc', 'password=[redacted]'], ['password=[redacted]"x', 'password=[redacted]'],
+  ] as const
+  const kept = ['  authorization: … keys}', 'authorization: …', 'password=***', 'token=...']
+    .flatMap(text => [text, JSON.stringify([text]), JSON.stringify(JSON.stringify({ output: [text, 'next'] }))])
+  for (const [text, expected] of [...masked, ...kept.map(text => [text, text] as const)]) {
+    const journal = await open(memory(), { digestContract: () => 'b'.repeat(64) })
+    await journal.setPolicy(policy)
+    const offered = await journal.offerCard({ ...plan, contract: { ...contract, goal: `Fix ${text}` } })
+    assert.equal(offered.contract.goal, `Fix ${expected}`, text)
+  }
+})
+
 test('loading validates historical prose without running current write masks', async () => {
   const history = [
     { version: 1, seq: 1, type: 'policy', policy },

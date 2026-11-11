@@ -199,8 +199,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let hostOverflow = false
   /** A desk wake the provider refused as too long, compacted and owed once more. */
   let wakeOverflow = false
-  // The last request the desk refused before sending: a second refusal in a row points the person at the desk log.
-  let unsentLast = false
+  // How the last request ended when the desk refused it before sending: the same refusal twice in a row says so and
+  // points the person at the desk log. Any other outcome starts over.
+  let notSentLast: string | null = null
   /** Sums a step's requests (a person-owed retry is a second one) for the wake ledger. */
   const addUsage = (a: MessagesUsage | undefined, b: MessagesUsage | undefined): MessagesUsage | undefined => !a ? b : !b ? a : {
     inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens,
@@ -457,8 +458,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     }
     if (overflowWake) wakeOverflow = false
     else if (input.epoch !== undefined) hostOverflow = false
-    const unsentBefore = unsentLast
-    unsentLast = result.reason === 'lead-messages-unsent'
+    const again = result.reason !== undefined && notSentLast === result.reason
+    notSentLast = result.reason === 'lead-messages-unsent' || result.reason === 'lead-messages-held' ? result.reason : null
     if (!['completed'].includes(result.status)) {
       if (result.reason === 'lead-messages-capacity') {
         await waitForUser('lead-request-failed')
@@ -466,8 +467,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       }
       await writeOffUncertain()
       // Not sent at all: settled at zero, and the person is told why rather than to send it again as it was.
-      await waitForUser(result.reason === 'lead-messages-withheld' ? 'lead-request-withheld' : result.reason === 'lead-messages-held' ? 'lead-request-held'
-        : result.reason === 'lead-messages-unsent' ? unsentBefore ? 'lead-request-unsent-again' : 'lead-request-unsent' : `lead-request-${result.status}`)
+      await waitForUser(result.reason === 'lead-messages-withheld' ? 'lead-request-withheld'
+        : result.reason === 'lead-messages-held' ? again ? 'lead-request-held-again' : 'lead-request-held'
+        : result.reason === 'lead-messages-unsent' ? again ? 'lead-request-unsent-again' : 'lead-request-unsent' : `lead-request-${result.status}`)
       return result
     }
     try { await tools.settleStarts() }
