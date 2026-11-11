@@ -1056,7 +1056,28 @@ export interface LeadUsageSummary {
     readonly spend: { readonly currency: string; readonly today: number | null; readonly last30Days: number | null; readonly provenance: import('./usage.js').SpendProvenance } | null
     /** Allowance that expires unspent: more than half is left and a window is about to refill. Absent otherwise. */
     readonly useFirst?: true
+    /** Whole minutes between when these figures were read and `asOf`. */
+    readonly readAgeMinutes: number
+    /** The latest refresh failed; the windows are the last good figures, read `readAgeMinutes` ago. Absent otherwise. */
+    readonly refreshFailed?: true
   }[]
+  /**
+   * Which account to use first, from fresh readings only (`pacingAdvice`): `use-first` when a window refills soon with
+   * more than half unspent, else `resets-soonest`, the account with room whose window refills first. Null when no
+   * reading is fresh enough to decide.
+   */
+  readonly pacing: {
+    /** The same label as the account's entry. */
+    readonly account: string
+    readonly reason: 'use-first' | 'resets-soonest'
+    readonly window: string
+    readonly remainingPercent: number
+    /** Absolute epoch milliseconds. */
+    readonly resetsAt: number
+    /** The same time on the desk's own clock, as the person reads it ("Tue, Nov 17, 5:00 PM"). */
+    readonly resetsAtLocal: string
+    readonly readAgeMinutes: number
+  } | null
 }
 
 /** Where the Lead's earlier conversation was summarised. The notice carries only the marker; the summary is read by id. */

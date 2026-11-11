@@ -136,10 +136,11 @@ const meterFor = (
   // No lane is no bar. A permanent row of dashes teaches people to stop
   // looking, and the screen is where "why is this one missing" is answered.
   if (!lane || !lane.known || lane.remainingPercent === null) return null
-  // A failed read keeps its last lanes, but none of them is current: the card, Plans and the phone say Unknown, so
-  // the strip neither counts nor promotes it as out, and says no figure or Back time from the cached lane.
+  // A failed read keeps its last lanes, and the card, Plans and the phone show them marked stale with their read time.
+  // A 34px bar has no room for "as of 25 minutes ago", so the strip decides nothing on them: it neither counts nor
+  // promotes the account as out, and says no figure or Back time from the kept lane.
   const standing = usageStandingOf(report, now)
-  const unread = standing.status === 'unknown'
+  const unread = standing.status === 'unknown' || report.error !== null
   // The balance decided (the source hit its credits): the healthy window beside it is no figure to show.
   const onCredits = !unread && standing.lane === null && (standing.status === 'out' || standing.status === 'overdrawn')
   const spent = !unread && !onCredits && lane.remainingPercent <= 0
@@ -230,7 +231,7 @@ const entryFor = (info: RuntimeInfo, input: StripInput): Entry => {
     .filter((meter): meter is StripMeter => meter !== null)
   // The account that decides, not the first one that happened to arrive — and one whose read failed only when no
   // account has a current reading: a cached 90% is not a reason to stand in front of a live 40%.
-  const live = reports.filter((report) => usageStandingOf(report, input.now).status !== 'unknown')
+  const live = reports.filter((report) => report.error === null && usageStandingOf(report, input.now).status !== 'unknown')
   const decided = workingAccount(live.length > 0 ? live : reports, preferenceFor)
   const meter =
     meters.find((entry) => entry.report === decided) ?? meters.find((entry) => !entry.unread) ?? meters[0] ?? null

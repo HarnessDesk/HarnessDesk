@@ -1,6 +1,7 @@
 import { type ReactNode, useMemo } from 'react'
 
 import type { AccountStatus, LedgerReport, LedgerRow, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
+import { keptReading } from '@harnessdesk/protocol'
 
 import { dashboardReadLabel } from '../../lib/dashboard-read'
 import { prefsForUsage, runtimeTint, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
@@ -273,8 +274,11 @@ export const Card = ({
   // ever "left", and which window it belongs to is said on the line under the
   // bar rather than smuggled into the figure.
   const money = spend?.windowCost != null ? formatMoney(spend.windowCost, spend.currency) : null
-  // A failed read keeps the last figures it had, and the Unknown chip promises none is current: no figure, no fill. (Another sign-in's cached figures are labelled as such in the note.)
+  // A read that never answered has nothing to draw: no figure, no fill. A refresh that failed after a good reading
+  // keeps that reading — its figures, its standing, marked stale, with the read time in the foot (#2094).
+  // (Another sign-in's cached figures are labelled as such in the note.)
   const unread = !borrowed && standing.status === 'unknown'
+  const kept = !borrowed && keptReading(report)
   const figure = unread
     ? '—'
     : hero
@@ -309,7 +313,7 @@ export const Card = ({
       {/* The canonical card inset holds the recorded heading and its state. */}
       <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
         name={agent} agent={account ?? undefined}
-        states={<>{shapeChip}{plan && <Chip tone="neutral" label={plan} title={report.plan ?? undefined} />}<Chip tone={STANDING_TONE[standing.status]} label={STANDING_LABEL[standing.status]} /></>} />
+        states={<>{shapeChip}{plan && <Chip tone="neutral" label={plan} title={report.plan ?? undefined} />}<Chip tone={STANDING_TONE[standing.status]} label={STANDING_LABEL[standing.status]} stale={kept} /></>} />
 
       {moneyRow}
 
@@ -355,8 +359,8 @@ export const Card = ({
         )}
       </DashboardAccountBody>
 
-      <DashboardAccountFoot source={speaks ? report.source.label : ''} stale={view.stale}
-        age={hero && speaks ? <Text role="meta" tone={view.stale ? 'warning' : 'neutral'}>· {dashboardReadLabel(drawn.fetchedAt, now, performance.timeOrigin)}</Text> : undefined}
+      <DashboardAccountFoot source={speaks ? report.source.label : ''} stale={view.stale || kept}
+        age={(hero || kept) && speaks ? <Text role="meta" tone={view.stale || kept ? 'warning' : 'neutral'}>· {dashboardReadLabel(drawn.fetchedAt, now, performance.timeOrigin)}</Text> : undefined}
         actions={        <Popover
           label={<MoreIcon size={14} />}
           title={`What to do about ${agent}`}
@@ -624,6 +628,8 @@ export const noteOf = (
   hasSpend: boolean,
   now: number,
 ): { text: string; tone?: Tone } | null => {
+  // A refresh that failed after a good reading: the figures above are that reading, and the foot says how old.
+  if (report.error && keptReading(report)) return { text: `Couldn't refresh — ${report.error.message}`, tone: 'warn' }
   if (report.error) return { text: report.error.message, tone: 'bad' }
   const standing = usageStandingOf(report, now)
   // The balance decides when there is no plan lane, or when the source says the credits are what it hit.

@@ -220,7 +220,8 @@ export const statusOf = (
   now: number,
 ): RowStatus => {
   const standing = usageStandingOf(raw, now)
-  // A failed read keeps the last good lanes and balance, but nothing in them is current: say Unknown, as the card and the phone do.
+  // Unknown is a read that never answered. A refresh that failed after a good reading keeps that reading's standing,
+  // as the card and the phone do; the row marks it stale (#2094).
   if (standing.status === 'unknown') return 'unknown'
   const balance = shape === 'balance' ? (balanceOf(raw.credits)?.remaining ?? null) : null
   if (balance !== null && balance < 0) return 'overdrawn'
@@ -389,7 +390,7 @@ export const describeRow = (report: UsageReport, now: number, preference?: Usage
   const view = describeReport(drawn, { now, maxLanes: 3, preference: deciding ? { ...preference, pinLaneId: deciding } : preference })
   const statusView = borrowed ? describeReport(report, { now, maxLanes: 0 }) : view
   const status = statusOf(report, shape, statusView, now)
-  // A failed read's figures are the last ones cached: Unknown draws no percent and sorts on none.
+  // Unknown has no figure to draw and sorts on none; a kept reading draws its last good figure.
   const left = status === 'unknown' ? { percent: null } : leftOf(shape, drawn, view)
   return {
     key: `${report.runtime}:${report.account ?? ''}`,
@@ -425,6 +426,9 @@ export const sortRows = (rows: readonly PlanRow[]): readonly PlanRow[] =>
   [...rows].sort((a, b) => rankOf(a) - rankOf(b) || tiebreak(a, b))
 
 const rankOf = (row: PlanRow): number => {
+  // A kept reading draws its last good figure, marked stale, but sorts with the rows that have none: the order is a
+  // judgement of what needs looking at, and the overview's own order never ranks on a failed read either.
+  if (row.raw.error !== null) return 1_000
   if (row.status === 'out' || row.status === 'overdrawn') return -1
   if (row.left.percent !== null) return row.left.percent
   return row.shape === 'none' ? 1_001 : 1_000

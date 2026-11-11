@@ -6,6 +6,9 @@
 .accountHead > [data-slot='text'] { min-width: 0; }
 .mark { display: inline-grid; flex: none; place-items: center; }
 .states { display: flex; gap: var(--hd-space-1-5); margin-left: auto; flex: none; }
+.accountFoot { display: flex; align-items: center; gap: var(--hd-space-2); min-width: 0; }
+.accountFoot > [data-slot='text'] { min-width: 0; }
+.footControl { display: flex; align-items: center; gap: var(--hd-space-1-5); margin-left: auto; flex: none; }
 .accountBody { display: flex; flex-direction: column; gap: var(--hd-card-gap); min-width: 0; }
 .figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--hd-space-2); min-width: 0; }
 .figure [data-slot='pace-badge'] { align-self: center; }

@@ -325,6 +325,31 @@ export interface PhoneWorkAllowance {
   /** Never an account: the phone shows none, so the desk sends none. */
   readonly running: readonly string[]
   readonly last7: readonly PhoneMoney[]
+  /**
+   * The latest refresh failed and the figures on this row are the last good ones, read at `readAt` (`stale` is set
+   * too). The standing, `left` and `lanes` are theirs, never Unknown; the phone says "couldn't refresh" beside them.
+   * Left out when the latest refresh worked, and by a desk older than this field.
+   */
+  readonly refreshFailed?: true
+}
+
+/**
+ * Which account to use first: one whose window refills soon with more than half of it unspent (`pacingAdvice`,
+ * reason `use-first`), the same note the desk's Dashboard and Settings › Runtimes show.
+ */
+export interface PhoneWorkPacing {
+  /** The `PhoneWorkAllowance.id` of that account's row. */
+  readonly id: string
+  /** The row's own name. */
+  readonly name: string
+  /** The window about to refill ("Weekly"). */
+  readonly window: string
+  /** 0–1 of that window still unspent. */
+  readonly left: number
+  /** When it refills, epoch milliseconds. */
+  readonly resetsAt: number
+  /** When the desk read these figures, epoch milliseconds. */
+  readonly readAt: number
 }
 
 export interface PhoneWorkPeriod {
@@ -352,6 +377,8 @@ export interface PhoneWorkUsage {
   readonly runtimes: readonly PhoneWorkAllowance[]
   readonly week: PhoneWorkPeriod
   readonly month: PhoneWorkPeriod
+  /** Left out when no account is about to lose allowance, and by a desk older than this field. */
+  readonly pacing?: PhoneWorkPacing
 }
 
 /** Which controls the desk honours. A control it cannot is left out of the phone's screens. */

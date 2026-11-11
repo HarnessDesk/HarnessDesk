@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 
 import type { RuntimeId, RuntimeInfo, UsagePreference } from '@harnessdesk/protocol'
+import { keptReading } from '@harnessdesk/protocol'
 
 import { usageReadingTone } from '../../lib/limits'
 import {
@@ -234,7 +235,7 @@ const TableRowGroup = ({
         <DashboardPlanName name={account ?? name} meta={[account && name, shapeWords(row)].filter(Boolean).join(' · ')} />
       </TableCell>
       <TableCell>
-        <Chip tone={statusPresentation(row.status).tone} label={statusPresentation(row.status).label} />
+        <Chip tone={statusPresentation(row.status).tone} label={statusPresentation(row.status).label} stale={keptReading(row.raw)} />
       </TableCell>
       <TableCell numeric>
         <LeftCell row={row} name={account ?? name} />

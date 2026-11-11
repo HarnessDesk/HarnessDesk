@@ -512,9 +512,9 @@ describe('statusOf', () => {
 
   // The four cases `reportNeedsAttention` (`lib/usage.ts`) already caught
   // that the card's own tone check missed — review of #1069, B2.
-  it('is "unknown" for a report carrying its own error, even with a fine-looking view', () => {
+  it('is "unknown" for a read that never answered, whatever its view', () => {
     const subject = report({
-      lanes: [lane({ id: 'weekly', usedPercent: 10 })],
+      lanes: [lane({ id: 'weekly', usedPercent: 10, usageKnown: false })],
       error: { message: 'Could not reach the account' },
     })
     expect(statusOf(subject, 'windows', describeReport(subject, { now: NOON }), NOON)).toBe('unknown')
@@ -546,20 +546,20 @@ describe('statusOf', () => {
     expect(statusOf(subject, 'windows', view, NOON)).toBe('low')
   })
 
-  // A failed refresh keeps the last good figures; the card and the phone say Unknown, so Plans does too.
-  it('is "unknown" for a failed read, even with a cached balance below zero or a spent lane', () => {
+  // A failed refresh keeps the last good figures, and the card and the phone show them marked stale, so Plans does too (#2094).
+  it('keeps the last standing of a failed refresh — a cached balance below zero, a spent lane', () => {
     const owing = report({ credits: { remaining: -2, unit: 'USD' }, error: { message: 'Could not reach the account' } })
-    expect(statusOf(owing, 'balance', describeReport(owing, { now: NOON }), NOON)).toBe('unknown')
+    expect(statusOf(owing, 'balance', describeReport(owing, { now: NOON }), NOON)).toBe('overdrawn')
     const spent = report({ lanes: [lane({ id: 'weekly', usedPercent: 100 })], error: { message: 'Could not reach the account' } })
-    expect(statusOf(spent, 'windows', describeReport(spent, { now: NOON }), NOON)).toBe('unknown')
+    expect(statusOf(spent, 'windows', describeReport(spent, { now: NOON }), NOON)).toBe('out')
   })
 
-  it('draws no percent for an Unknown row, and sorts it on none', () => {
+  it('draws the last figure of a kept reading but sorts it after every row that answered', () => {
     const failed = describeRow(report({ lanes: [lane({ id: 'weekly', usedPercent: 95 })], error: { message: 'Could not reach the account' } }), NOON)
     const fine = describeRow(report({ runtime: runtimeId('b'), lanes: [lane({ id: 'weekly', usedPercent: 40 })] }), NOON)
-    expect(failed.status).toBe('unknown')
-    expect(failed.left.percent).toBeNull()
-    expect(sortRows([failed, fine]).map((row) => row.status)).toEqual(['ready', 'unknown'])
+    expect(failed.status).toBe('low')
+    expect(failed.left.percent).toBe(5)
+    expect(sortRows([failed, fine]).map((row) => row.raw.runtime)).toEqual([runtimeId('b'), failed.raw.runtime])
   })
 })
 
