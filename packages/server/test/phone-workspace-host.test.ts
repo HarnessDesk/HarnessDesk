@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test, type TestContext } from 'node:test'
-import { approvalId, itemId, runtimeId, sessionId, turnId, type Session, type SessionSummary } from '@harnessdesk/protocol'
+import { approvalId, itemId, runtimeId, sessionId, turnId, usageCrossingKey, type Session, type SessionSummary } from '@harnessdesk/protocol'
 import { Host } from '../src/host.js'
 import { SessionIndex } from '../src/session-index.js'
 import { StateStore } from '../src/state.js'
@@ -446,6 +446,34 @@ test('Lead allowance uses only cached Dashboard reports and never asks a runtime
   assert.equal(typeof result.asOf, 'number')
   assert.equal(result.accounts.length, 1)
   assert.equal(result.accounts[0]!.windows[0]!.remaining, 42)
+})
+
+test('the Lead and the phone list the accounts the Dashboard lists: nothing read is Not reporting, a stopped agent is left out', async t => {
+  // Not metered: the scripted agent reports no allowance, as an agent nobody can read does.
+  const { host, runtime, state } = await desk(t)
+  await host.call('usage/reports', {})
+  const summary = await host.call('lead/usage/summary', {})
+  assert.deepEqual(summary.accounts.map(account => [account.runtime, account.notReporting, account.windows.length]), [[runtime.info.presentation.name, true, 0]])
+  const usage = (await phoneCall(host, 'workspace/read', {})).usage
+  if (usage) assert.deepEqual(usage.runtimes.map((row: any) => [row.name, row.status, row.notReporting, row.readAt]), [[runtime.info.presentation.name, 'Not reporting', true, undefined]])
+  // Stopped tracking on the desk: no surface lists it any more.
+  await state.setPreferences({ usageOff: [runtime.info.id] })
+  assert.deepEqual((await host.call('lead/usage/summary', {})).accounts, [])
+})
+
+test('the bell and the phone drop an allowance notice a newer read no longer bears out (#2111)', async t => {
+  const { host, state, runtime } = await desk(t, false, true, undefined, true)
+  const resetsAt = Date.now() + 4 * 24 * 3_600_000
+  runtime.getRateLimits = async () => ({ lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 60, windowMinutes: 7 * 24 * 60, resetsAt }] })
+  const read = (await host.call('usage/reports', {})).find(one => one.lanes.some(lane => lane.usageKnown !== false))
+  const lane = read!.lanes.find(one => one.usageKnown !== false)!
+  assert.ok(lane.usedPercent >= 50 && lane.usedPercent < 80, `the scripted reading sits between the two lines (${lane.usedPercent}%)`)
+  const crossed = (threshold: number) => usageCrossingKey({ runtime: read!.runtime, account: read!.account, lane: lane.id, resetsAt: lane.resetsAt, threshold })
+  const notice = (id: string, title: string) => ({ id, contentKey: id, kind: 'usage:crossing', title, tone: 'warning', at: read!.fetchedAt - 3 * 24 * 3_600_000, read: false })
+  // Three days old: one says a line the newer read is under, one says a line it is still over.
+  await state.setPreferences({ inbox: [notice(crossed(80), 'Weekly is 80% used'), notice(crossed(50), 'Weekly is 50% used')] })
+  const items = (await host.call('lead/inbox/read', {})).items.filter(item => item.kind === 'notice')
+  assert.deepEqual(items.map(item => item.title), ['Weekly is 50% used'])
 })
 
 for (const capability of [false, 'erase', 'trash'] as const) test(`phone rows follow runtime deletion capability: ${capability}`, async t => {

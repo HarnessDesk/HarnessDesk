@@ -65,9 +65,9 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   let projection = base
   if (!['loading', 'empty', 'goal-composer', 'opening-jobs', 'wake-ledger'].includes(scene) && !scene.startsWith('settings-')) thread.messages = [{ version: 1, id: 'goal', revision: 1, role: 'user', text: leadContract.goal }]
   if (['pending-plan', 'consent-expired', 'stale-card-replacement', 'narrow', 'app-shell'].includes(scene)) { thread.cards = [{ ...leadPlan, revision: scene === 'consent-expired' || scene === 'stale-card-replacement' ? 2 : 1 }]; thread.state = 'awaiting-plan'; thread.cardPositions = { plan: 2 } }
-  // A reply that names work: the work item and its chat become links, a Team this desk does not have does not.
+  // A reply that names work: the work items and the Team it names by its board become links, a Team this desk does not have does not.
   if (scene === 'work-ledger') thread.messages = [...thread.messages, { version: 1, id: 'work-reply', revision: 2, role: 'assistant', text: 'The keyboard work is running in its chat, and the retry list is waiting for review.',
-    refs: [{ kind: 'work', id: 'work-3' }, { kind: 'work', id: 'work-2' }, { kind: 'team', id: 'room-gone', title: 'Not on this desk' }] }]
+    refs: [{ kind: 'work', id: 'work-3' }, { kind: 'work', id: 'work-2' }, { kind: 'team', id: 'game-room', title: 'Team' }, { kind: 'team', id: 'room-gone', title: 'Not on this desk' }] }]
   if (scene === 'repeating-plan') { thread.cards = [leadRepeatingPlan]; thread.state = 'awaiting-plan'; thread.cardPositions = { 'repeat-plan': 2 } }
   if (scene === 'second-look') { thread.cards = [leadSecondLook]; thread.contract = leadContract; thread.state = 'running' }
   if (scene === 'allowance-warning') { thread.cards = [leadAllowanceWarning]; thread.contract = leadContract; thread.state = 'running'; thread.budget = { ...leadBudget, leadUsdMicros: 1000000, workerUsdMicros: 3000000 } }
@@ -194,7 +194,7 @@ const workCard = (n: number, title: string, stage: LeadWorkStage, extra: Partial
 })
 /** One item in each of the four groups the window and the phone draw, Needs you first, and one the person stopped. */
 export const leadWorkFixture: LeadWorkBoard = { version: 1, more: 0, items: [
-  workCard(4, 'Rename the status column', 'needs-you', { blocker: 'An approval waits for you' }),
+  workCard(4, 'Rename the status column', 'needs-you', { blocker: 'An approval waits for you', links: { chats: ['fixture:rename-column'], teams: [], prs: [], issues: [] } }),
   workCard(3, 'Make the empty state keyboard accessible', 'working', { links: { chats: ['fixture:chat-3'], teams: ['demo-team'], prs: [], issues: [] }, fact: 'A chat is working' }),
   workCard(5, 'Ship the changelog after the rename', 'blocked', { after: 'work-4', note: 'Waits for the column rename' }),
   workCard(2, 'Fix the retry status list', 'in-review', { links: { chats: ['fixture:chat-2'], teams: [], prs: ['acme/widgets#42'], issues: [] }, fact: 'Pull request acme/widgets#42 is open' }),

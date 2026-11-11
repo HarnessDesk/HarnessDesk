@@ -2,7 +2,7 @@ import { leadActivityLabel } from './lead-permission-labels'
 import { PullRequestRecord } from './GitRecord'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { LEAD_REQUEST_FAILURE_TEXT, leadWaitNeedsChange, leadWaitUnsent, type LeadMemoryCandidate, type LeadMessageRef, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, ConfirmDialog, InlineParts, LeadSlot, LeadWorking, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, LeadGreeting, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
+import { Banner, Button, Chip, ConfirmDialog, InlineParts, LeadSlot, LeadWorking, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, scrollThreadToEnd, threadFollowsEnd, LeadAvatar, LeadGreeting, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
 import { openExternal } from '../lib/desktop'
 import { leadWakeLine } from '../lib/lead-presence'
 import { LeadNameIntro } from './LeadNameIntro'
@@ -100,6 +100,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const drafts = draftsOf(store)
   const [goal, setGoal] = useState(() => initialGoal || drafts.live(LEAD_DRAFT_KEY)?.text || ''), [error, setError] = useState<string | null>(null)
   useEffect(() => { drafts.setLive(LEAD_DRAFT_KEY, { text: goal, attachments: [] }) }, [drafts, goal])
+  // A refusal of words the person sent is about those words: emptying the box takes the warning with them.
+  const refusedDraft = useRef(false)
+  useEffect(() => { if (refusedDraft.current && !goal.trim()) { refusedDraft.current = false; setError(null) } }, [goal])
   const [confirmStop, setConfirmStop] = useState(false), [stopping, setStopping] = useState(false)
   const stoppingRef = useRef(false)
   const [choosingName, setChoosingName] = useState(false)
@@ -107,7 +110,6 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const [sending, setSending] = useState(false), [resuming, setResuming] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null), inFlight = useRef(false), thread = useRef<HTMLDivElement>(null)
   const decisionLock = useRef(false), [decisionPending, setDecisionPending] = useState<string | null>(null)
-  const pinned = useRef(true)
   const [selectedDecision, setSelectedDecision] = useState<string | null>(focus)
   const requestedDecisionFocus = useRef<string | null>(null)
   const focusDock = (id: string) => {
@@ -115,7 +117,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     if (element) { element.focus({ preventScroll: true }); requestedDecisionFocus.current = null }
   }
   // A missing folder is the store's state and the greeting's step, never a warning banner as well.
-  const refusal = (error: unknown, typed = false) => { if (!store.lead.state.projectMissing || leadRefusalText(error) !== REFUSALS['lead-project-missing']) setError(leadRefusalText(error, typed)) }
+  const refusal = (error: unknown, typed = false) => { refusedDraft.current = false; if (!store.lead.state.projectMissing || leadRefusalText(error) !== REFUSALS['lead-project-missing']) setError(leadRefusalText(error, typed)) }
   const { owner } = useDestinationPage(), controls = useLeadControls(), { name, face, label, presence } = controls
   const shellActions = useShell()
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
@@ -166,10 +168,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     if (unavailable || inFlight.current || state.requestInFlight || !text.trim()) return
     inFlight.current = true; sendBaseline.current = [...store.lead.state.thread?.messages ?? []].reverse().find(message => message.role === 'user')?.id ?? null; setSending(true); setError(null)
     // The person's own message is followed to the bottom, like a session thread, wherever they had scrolled.
-    pinned.current = true
-    if (thread.current) thread.current.scrollTop = thread.current.scrollHeight
+    if (thread.current) scrollThreadToEnd(thread.current)
     try { await store.lead.send(text.trim(), crypto.randomUUID(), ask); setGoal(current => current === text ? '' : current) }
-    catch (error) { refusal(error, !ask) }
+    catch (error) { refusal(error, !ask); refusedDraft.current = !ask && text === goal }
     finally { inFlight.current = false; setSending(false); input.current?.focus() }
   }
   const steer = async () => {
@@ -229,7 +230,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     const element = [...(thread.current?.querySelectorAll<HTMLElement>('[data-lead-card]') ?? [])].find(node => node.dataset.leadCard === actionablePlan.card.id)
     element?.scrollIntoView?.({ block: 'end' })
   }
-  useEffect(() => { if (pinned.current && thread.current) thread.current.scrollTop = thread.current.scrollHeight }, [active, state.revision])
+  // The thread follows its own end as it grows; a new revision is followed here too, for a change no resize reports.
+  useEffect(() => { if (thread.current && threadFollowsEnd(thread.current)) scrollThreadToEnd(thread.current) }, [active, state.revision])
   useEffect(() => { if (state.wayOut === 'decide-plan') scrollToPlan() }, [state.wayOut, actionablePlan?.kind === 'card' ? `${actionablePlan.card.id}:${actionablePlan.card.revision}` : null])
   const focusedDecision = useRef<string | null>(null)
   useEffect(() => {
@@ -264,7 +266,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     onApprovals: (runId: string) => { void (async () => { try { const run = snapshot.flowExecutions.get(runId) ?? await store.readFlowExecution(runId); store.openGoal(run.goal) } catch (error) { refusal(error) } })() },
   }
   return <ConversationShell ref={shell}>
-    <ConversationThread ref={thread} keepEnd role="region" aria-label={`${label} thread`} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 24 }}>
+    <ConversationThread ref={thread} keepEnd role="region" aria-label={`${label} thread`}>
       {entries.length || working || live || pr || openingJobs.length || name && state.settings?.nameChosen !== true || state.wakes?.length || origin || state.thread?.olderMessages || state.savedApprovals?.length || state.revokedApprovals?.length || state.waitReason === 'lead-handback-limit' || state.waitReason === 'lead-repair-recovery-failed' ? <Page width="reading" gutter="none">
         <LeadWakeLedger wakes={state.wakes ?? []} />
         {name && <LeadNameIntro name={name} chosen={state.settings?.nameChosen === true} pending={choosingName || !!state.error || state.revision < 0} onChoose={async name => {

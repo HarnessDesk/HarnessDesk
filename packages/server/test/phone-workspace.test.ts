@@ -401,7 +401,7 @@ test('a phone allowance says the desk’s own standing, counts down to times and
     ]
     const rows = (await f.workspace.workUsage())!.runtimes
     assert.deepEqual(rows.map(row => row.id), ['fake-agent', 'fake-agent:2', 'fake-agent:3'], 'one agent signed in three times sends three ids')
-    assert.deepEqual(rows.map(row => [row.standing, row.status]), [['unknown', 'Unknown'], ['out', 'Out'], ['overdrawn', 'Overdrawn']])
+    assert.deepEqual(rows.map(row => [row.standing, row.status]), [['unknown', 'Not reporting'], ['out', 'Out'], ['overdrawn', 'Overdrawn']])
     const [failed, out, overdrawn] = rows as [typeof rows[0], typeof rows[0], typeof rows[0]]
     assert.equal(failed.stale, true)
     assert.equal(failed.readAt, NOW - 5000)
@@ -991,7 +991,9 @@ test('the phone and the Lead are told which account to use first, with its reset
     assert.deepEqual(leaks(usage.pacing), [])
 
     const summary = await f.workspace.usageSummary(f.reports)
-    const { resetsAtLocal, ...pacing } = summary.pacing!
+    const { resetsAtLocal, said, ...pacing } = summary.pacing!
+    // The Lead repeats a sentence the desk wrote, so the reason reads the same wherever it is said.
+    assert.equal(said, `Use Fake Agent · Pro · account 2 first: its Weekly has 70% left and resets ${resetsAtLocal}, so the rest would go unused.`)
     assert.deepEqual(pacing, {
       account: 'Fake Agent · Pro · account 2', reason: 'use-first', window: 'Weekly', remainingPercent: 70,
       resetsAt: NOW + 20 * HOUR, readAgeMinutes: 3,
@@ -1010,6 +1012,9 @@ test('the phone and the Lead are told which account to use first, with its reset
       const quiet = await calm.workspace.usageSummary(calm.reports)
       assert.equal(quiet.pacing?.reason, 'resets-soonest')
       assert.equal(quiet.pacing?.account, 'Fake Agent · Pro · account 2')
+      // Resetting soonest is only an order to use accounts in: the sentence says so, rather than reading as a note
+      // some screen is hiding.
+      assert.match(quiet.pacing?.said ?? '', /^Nothing is about to go unused\. Of the accounts with room, Fake Agent · Pro · account 2 resets soonest/)
     } finally { await calm.done() }
 
     // With one account there is no "first": neither the phone nor the Lead names one, as on the desktop.

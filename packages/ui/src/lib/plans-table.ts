@@ -176,7 +176,8 @@ export const STATUS_LABEL: Readonly<Record<RowStatus, string>> = {
   overdrawn: 'Overdrawn',
   overage: 'On overage',
   unlimited: 'Ready',
-  unknown: 'Unknown',
+  // A read that never answered and an agent with nothing to read say the same word, on the desk and the phone.
+  unknown: 'Not reporting',
   notReporting: 'Not reporting',
 }
 

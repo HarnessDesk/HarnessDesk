@@ -1,7 +1,7 @@
 import { type ReactNode, useMemo } from 'react'
 
 import type { AccountStatus, LedgerReport, LedgerRow, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
-import { keptReading } from '@harnessdesk/protocol'
+import { isSilentUsage, keptReading } from '@harnessdesk/protocol'
 
 import { dashboardReadLabel } from '../../lib/dashboard-read'
 import { prefsForUsage, runtimeTint, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
@@ -238,7 +238,9 @@ export const Card = ({
   const balance = balanceOf(report.credits)
   // The agent's own standing, read from its own report: a borrowed sign-in's
   // figures are drawn, never judged as this agent's.
-  const standing = usageStandingOf(report, now)
+  // A tracked agent nothing has read stands as not reporting, the word the Plans table and the phone use for it.
+  const silent = isSilentUsage(report)
+  const standing = silent ? { ...usageStandingOf(report, now), status: 'unknown' as const } : usageStandingOf(report, now)
   const own = borrowed ? usageStandingOf(drawn, now) : standing
   // When the balance decided (the source hit its credits), a healthy window's figure, meter and reset would
   // contradict the chip: the balance is the headline then, and the window stays a row below.

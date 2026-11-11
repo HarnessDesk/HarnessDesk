@@ -31,6 +31,15 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     goals: new Map([['demo-team', { goal: { id: 'demo-team', root: '/workspace/demo', state: 'open', sentence: 'Restore keyboard focus' } }]]),
     flowExecutions: new Map([['stalled', { id: 'stalled', goal: 'demo-team', state: 'stalled', rounds: [] }], ['finished', { id: 'finished', goal: 'demo-team', state: 'settled', rounds: [] }]]),
   })
+  // The Team the Work list names under Needs you, listed by its goal; the reply names it by its board, as the Lead's tools do.
+  if (scene === 'work-ledger') {
+    const snapshot = store.getSnapshot()
+    const goal = { goal: { id: 'game-team', root: '/workspace/demo', state: 'open', sentence: 'Build a small browser game' }, board: { id: 'game-room', name: 'Build a small browser game' } }
+    Object.assign(snapshot, {
+      goals: new Map([...snapshot.goals, ['game-team', goal as never]]),
+      teams: new Map([...snapshot.teams, ['game-team', { id: 'game-room', name: 'Build a small browser game' } as never]]),
+    })
+  }
   const shellRequest = store.transport.request.bind(store.transport)
   let current = leadSceneProjection(scene), schedule = leadSchedule, memory = leadMemory
   let memoryView = scene === 'memory-proposal-again' ? leadMemoryAgainView : scene === 'memory-proposal' || scene === 'settings-memory' ? leadMemoryView : { ...leadMemoryView, revision: 0, core: [], archive: [], inbox: [], history: [], coreBytes: 0 }
@@ -108,7 +117,10 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     // The desk's one inbox: in the app shell, the Lead's plan and a Team that wait on the person, listed under the bell as the phone lists it.
     if (method === 'lead/inbox/read') return scene === 'app-shell'
       ? { version: 1, needsYou: 2, items: [{ id: 'lead', kind: 'lead', title: 'Dex is waiting for you', at: Date.UTC(2026, 10, 10, 10), needsYou: true }, { id: 'team:demo-team', kind: 'team', title: 'Rename the status column', project: 'demo', at: Date.UTC(2026, 10, 10, 9), needsYou: true, target: 'demo-team' }] }
-      : { version: 1, needsYou: 0, items: [] }
+      // The Work list: the item that waits on an approval, and a Team that needs the person that no item holds.
+      : scene === 'work-ledger'
+        ? { version: 1, needsYou: 2, items: [{ id: 'team:game-team', kind: 'team', title: 'Build a small browser game', project: 'demo', at: Date.UTC(2026, 10, 10, 9), needsYou: true, target: 'game-team' }, { id: 'chat:fixture:rename-column', kind: 'chat', title: 'Rename the status column', project: 'demo', at: Date.UTC(2026, 10, 10, 8), needsYou: true, target: 'fixture:rename-column' }] }
+        : { version: 1, needsYou: 0, items: [] }
     if (method === 'lead/presence/dismiss') return presence = { ...presence, digest: presence.digest?.id === params.digest ? null : presence.digest }
     if (method === 'lead/brief/read') return presence.brief
     if (method === 'lead/brief/update') { presence = { ...presence, brief: { ...presence.brief, ...(params.enabled === undefined ? {} : { enabled: params.enabled }), ...(params.at === undefined ? {} : { at: params.at }) } }; return presence.brief }

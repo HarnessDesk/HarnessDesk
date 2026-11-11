@@ -87,7 +87,7 @@ const fableSpent = report(
 /** A second account whose own weekly really is gone. */
 const reallySpent = report('work@acme.dev', [lane({ id: 'weekly', usedPercent: 100 })], 'weekly')
 
-const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = null): Promise<AppStore> => {
+const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = null, extra: Partial<AppSnapshot> = {}): Promise<AppStore> => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -96,6 +96,7 @@ const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = 
     accountsByRuntime: { [CLAUDE]: status },
     healthByRuntime: { [CLAUDE]: { state: 'ready' } },
     usage,
+    ...extra,
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -226,5 +227,20 @@ describe('the agent page in Settings › Runtimes', () => {
     expect(usage!.textContent).toContain(said!)
     expect(usage!.textContent).toContain('60%')
     expect(usage!.textContent).toContain('work@acme.dev')
+  })
+})
+
+describe('the Runtimes page lists the accounts the Dashboard lists', () => {
+  it('leaves out an account whose usage the person stopped tracking, as the Dashboard does', async () => {
+    const payg = { ...report('olivia@acme.dev', []), plan: null, spend: { currency: 'USD', todayCost: 4, windowCost: 2115, windowDays: 30, provenance: 'reported' } } as unknown as UsageReport
+    await mount([payg], null, { usageOff: [CLAUDE] })
+    expect(container.querySelector('[aria-label="Usage by account"]')).toBeNull()
+    expect(container.textContent).not.toContain('Pay as you go')
+  })
+
+  it('says a tracked agent with no reading is not reporting, as the Dashboard and the phone do', async () => {
+    await mount([])
+    const region = container.querySelector('[aria-label="Usage by account"]')
+    expect(region?.textContent).toContain('not reporting')
   })
 })

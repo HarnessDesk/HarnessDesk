@@ -1448,18 +1448,17 @@ A live update that removes the opener or disables confirmation can request
 
 The shared session window frame, independent of its transcript source.
 
-### `ConversationThread`
+### `scrollThreadToEnd`
 
 `packages/ui/src/design/patterns/ConversationShell.tsx`
 
-A transcript keeps the session's reading gutter and measured dock clearance.
+Moves a thread to its end and keeps it following there, as when the person sends a message.
 
-The dock floats over the thread, and the thread reserves the dock's measured
-height as its bottom padding. With `keepEnd` it also follows its end while
-the reader is there: a notice joining the dock, a late layout or new content
-moves the end, and without following, the last message is left under the
-dock. A reader who scrolled up stays where they are. A screen that already
-follows its own transcript leaves `keepEnd` off.
+### `threadFollowsEnd`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+Whether a thread is following its end: true until the reader scrolls away from it.
 
 ### `ConversationDock`
 

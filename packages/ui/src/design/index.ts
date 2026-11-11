@@ -299,7 +299,7 @@ export { CustomizeTabs, type CustomizeSection } from './patterns/CustomizeTabs'
 export { LeadContract } from './patterns/lead-contract'
 export { LeadPlanFlow, leadRoleWord } from './patterns/LeadPlanFlow'
 
-export { ConversationShell, ConversationThread, ConversationDock, ConversationComposerFrame, TranscriptAssistantMessage } from './patterns/ConversationShell'
+export { ConversationShell, ConversationThread, ConversationDock, ConversationComposerFrame, TranscriptAssistantMessage, scrollThreadToEnd, threadFollowsEnd } from './patterns/ConversationShell'
 export { LeadAvatar, LeadGreeting, LeadIdentity, LeadLineNote, LeadNameChoice, LeadSlot, LeadTurn } from './patterns/LeadAvatar'
 
 export { LeadAskOptions } from './patterns/LeadAskOptions'

@@ -56,6 +56,31 @@ describe('usage alerts from a refresh', () => {
   })
 })
 
+describe('an allowance notice a newer read superseded (#2111)', () => {
+  it('leaves the Inbox once a newer read puts the window back under the line', async () => {
+    answers['usage/refresh'] = [report('dev@example.com', 70)]
+    await store.refreshUsage()
+    answers['usage/refresh'] = [report('dev@example.com', 85)]
+    await store.refreshUsage()
+    expect(store.getSnapshot().inbox.map((notice) => notice.kind)).toEqual(['usage:crossing'])
+
+    // A later read of the same account in the same window, under 80% again: the notice no longer holds.
+    answers['usage/refresh'] = [{ ...report('dev@example.com', 40), fetchedAt: Date.now() + 1_000 }]
+    await store.refreshUsage()
+    expect(store.getSnapshot().inbox).toEqual([])
+  })
+
+  it('stays while a newer read still says what it said', async () => {
+    answers['usage/refresh'] = [report('dev@example.com', 70)]
+    await store.refreshUsage()
+    answers['usage/refresh'] = [report('dev@example.com', 85)]
+    await store.refreshUsage()
+    answers['usage/refresh'] = [{ ...report('dev@example.com', 88), fetchedAt: Date.now() + 1_000 }]
+    await store.refreshUsage()
+    expect(store.getSnapshot().inbox.map((notice) => notice.kind)).toEqual(['usage:crossing'])
+  })
+})
+
 describe('what the store keeps and says (review of #216)', () => {
   it('keeps one reading of an account whose none arrives spelled two ways', async () => {
     answers['usage/refresh'] = [report(null, 70)]

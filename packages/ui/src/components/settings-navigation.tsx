@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { RuntimeInfo } from '@harnessdesk/protocol'
+import { LEAD_AUTONOMY_LABELS, LEAD_RULE_TITLES, type RuntimeInfo } from '@harnessdesk/protocol'
 import type { AppSnapshot } from '../state/store'
 import type { Section } from './Settings'
 import { agentGroups } from '../lib/accounts'
@@ -21,6 +21,16 @@ export interface SettingsNavGroup {
   readonly label: string
   readonly entries: readonly SettingsNavEntry[]
 }
+/** Every row the Lead page holds, so search finds the page by any of them. The autonomy and rule titles come from
+ * the protocol's own labels, so a renamed row is still found. */
+const LEAD_KEYWORDS: readonly string[] = [
+  'dex', 'lex', 'who runs your desk', 'provider key', 'model', 'allowances', 'spending limit', 'round allowance', 'plan consent',
+  'permissions', 'permission mode', 'rules', 'triggers', 'checks failed', 'review comment', 'follow pull requests',
+  'conversation', 'context', 'cache', 'summarise', 'summaries', 'autonomy', 'goal deadline',
+  ...Object.values(LEAD_AUTONOMY_LABELS).map(label => label.title.toLowerCase()), 'mention', 'stuck', 'repeat',
+  ...Object.values(LEAD_RULE_TITLES).map(title => title.toLowerCase()), 'morning brief', 'brief',
+  'scheduled tasks', 'reminder', 'reminders', 'quiet hours', 'memory', 'notes', 'remember', 'forget',
+]
 export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): readonly SettingsNavGroup[] => {
   const accountCount = snapshot.runtimes.reduce((n, info) => n + (snapshot.accountsByRuntime[info.id]?.accounts.length ?? 0), 0)
   const worst = worstReadiness(agentGroups(snapshot.runtimes).map(group => agentReadiness(group.siblings, snapshot)))
@@ -28,7 +38,7 @@ export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): rea
   return [
     { label: 'Preferences', entries: [
       { id: 'profile', label: 'Account', icon: <UserIcon size={16} />, keywords: ['sign in', 'sign out', 'phone', 'linked phones', 'reachable', 'desk name', 'rename', 'pair', 'name', 'picture'] },
-      ...(snapshot.leadAvailable ? [{ id: 'lead' as const, label: 'Lead', icon: <LeadIcon size={16} />, keywords: ['dex', 'lex', 'allowances', 'provider key', 'permissions'] }] : []),
+      ...(snapshot.leadAvailable ? [{ id: 'lead' as const, label: 'Lead', icon: <LeadIcon size={16} />, keywords: LEAD_KEYWORDS }] : []),
       { id: 'general', label: 'General', icon: <SlidersIcon size={16} />, keywords: ['backup', 'restore', 'export', 'diagnostics', 'support', 'data', 'sync', 'account', 'transcripts', 'this mac'] },
       { id: 'appearance', label: 'Appearance', icon: <ThemeSystemIcon size={16} />, keywords: ['theme', 'dark', 'light', 'system', 'interface', 'desk', 'studio', 'palette', 'blueprint', 'editorial', 'accent', 'colour', 'color', 'corners', 'radius', 'surface', 'cards', 'sheet', 'faces', 'avatar shape', 'round', 'font', 'text size', 'line numbers', 'wrap', 'indent', 'tab', 'density', 'sort', 'code editor'] },
       { id: 'notifications', label: 'Notifications', icon: <BellIcon size={16} />, keywords: ['banner', 'message', 'mute', 'silence', 'alert', 'stop showing', 'remind', 'finished turns', 'failures', 'approvals', 'needs you', 'quota', 'rate limit', 'macos'] },

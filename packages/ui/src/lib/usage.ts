@@ -630,7 +630,8 @@ export const STANDING_LABEL: Readonly<Record<UsageStandingStatus, string>> = {
   short: 'Short',
   out: 'Out',
   overdrawn: 'Overdrawn',
-  unknown: 'Unknown',
+  // Nothing read: the one word every usage surface uses for it, the phone's included.
+  unknown: 'Not reporting',
 }
 
 export const STANDING_TONE: Readonly<Record<UsageStandingStatus, 'success' | 'warning' | 'danger' | 'neutral'>> = {

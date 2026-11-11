@@ -52,7 +52,7 @@ import { splitHealth, type Unavailable } from '../lib/health'
 import { shortPath } from '../lib/paths'
 import { withCount } from '../lib/with-count'
 import { Prose } from './Prose'
-import { useFirstNote } from '@harnessdesk/protocol'
+import { trackedUsage, useFirstNote } from '@harnessdesk/protocol'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
 import { Card as UsageCard } from './usage/shared'
@@ -2021,9 +2021,11 @@ const AgentUsage = ({ siblings }: { siblings: readonly RuntimeInfo[] }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const ids = new Set(siblings.map((entry) => entry.id))
-  const reports = snapshot.usage.filter((report) => ids.has(report.runtime))
-  if (reports.length === 0) return null
   const now = Date.now()
+  // The Dashboard's own list, narrowed to this runtime's accounts: the same accounts, the same readings, and "not
+  // reporting" for one nothing has read. An account whose usage the person stopped tracking is left out on both.
+  const reports = trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now).filter((report) => ids.has(report.runtime))
+  if (reports.length === 0) return null
   return (
     <>
       <SectionHead level="label" name="Usage" />

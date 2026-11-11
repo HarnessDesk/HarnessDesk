@@ -1,4 +1,4 @@
-import { burn, remainingOf, leadStage, isWaitingOnYou } from '@harnessdesk/protocol'
+import { burn, remainingOf, leadStage, isWaitingOnYou, isSilentUsage } from '@harnessdesk/protocol'
 import { teamLeadStage } from './work-stage.js'
 import {
   sessionIndexCursorOf, sessionLabel,
@@ -327,11 +327,13 @@ export class PhoneWorkspace {
       if (report.credits) windows.push({ label: 'Balance', kind: 'balance', unlimited: report.credits.unlimited === true, windowMinutes: null,
         remainingPercent: null, remaining: report.credits.remaining, unit: safe(report.credits.unit), resetsAt: null,
         reached: report.reached === 'credits' || report.credits.unlimited !== true && report.credits.remaining !== null && report.credits.remaining <= 0, projection: null })
+      const silent = isSilentUsage(report)
       return {
         runtime, label: `${runtime}${plan ? ` · ${safe(plan)}` : ''}${totals.get(runtime)! > 1 ? ` · account ${ordinal}` : ''}`,
         plan: plan === null ? null : safe(plan), runningSessions: running.get(runtime) ?? 0, windows,
         reached: report.reached !== null, fetchedAt: report.fetchedAt,
-        stale: now - report.fetchedAt > report.staleAfterMs,
+        stale: !silent && now - report.fetchedAt > report.staleAfterMs,
+        ...(silent ? { notReporting: true as const } : {}),
         ...(useFirstNote(report, now) ? { useFirst: true as const } : {}),
         error: report.error ? report.error.needsSignIn === true ? 'sign-in needed' as const : 'reading failed' as const : null,
         spend: report.spend ? { currency: safe(report.spend.currency), today: report.spend.todayCost,
@@ -342,11 +344,13 @@ export class PhoneWorkspace {
     })
     // The same advice the Dashboard and the phone give, said with the label the Lead was given for that account. With
     // one account there is no "first", as on the desktop (`pacingNote`).
-    const advice = reports.length < 2 ? null : pacingAdvice(reports.map((report, at) => ({ id: String(at), report })), now)
+    const read = reports.filter(report => !isSilentUsage(report))
+    const advice = read.length < 2 ? null : pacingAdvice(reports.map((report, at) => ({ id: String(at), report })), now)
     const advised = advice ? accounts[Number(advice.id)]! : null
     const pacing = advice && advised ? {
       account: advised.label, reason: advice.reason, window: safe(advice.laneLabel), remainingPercent: advice.remainingPercent,
       resetsAt: advice.resetsAt, resetsAtLocal: deskClock(advice.resetsAt), readAgeMinutes: ageMinutes(advice.readAt, now),
+      said: pacingSaid(advised.label, advice.reason, safe(advice.laneLabel), advice.remainingPercent, deskClock(advice.resetsAt)),
     } : null
     return { countsPartial: scan.partial, sessionsScanned: scan.rows.length, asOf: now, runtimes: [...running].map(([name, runningSessions]) => ({ name, runningSessions })), accounts, pacing }
   }
@@ -594,7 +598,8 @@ export class PhoneWorkspace {
 }
 
 const STANDING_WORD: Record<UsageStandingStatus, string> = {
-  ready: 'Ready', low: 'Low', short: 'Short', out: 'Out', overdrawn: 'Overdrawn', unknown: 'Unknown',
+  // Nothing read says what the desk's Plans table and cards say for it.
+  ready: 'Ready', low: 'Low', short: 'Short', out: 'Out', overdrawn: 'Overdrawn', unknown: 'Not reporting',
 }
 
 /**
@@ -604,6 +609,8 @@ const STANDING_WORD: Record<UsageStandingStatus, string> = {
  */
 const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
   const { report } = seat
+  // A tracked agent nothing has read: listed, as the desk lists it, with no figures and no reading to date.
+  if (isSilentUsage(report)) return { id: seat.id, name: seat.label, models: [], running: [], last7: [], status: STANDING_WORD.unknown, standing: 'unknown', notReporting: true }
   const standing = usageStandingOf(report, now)
   // A failed refresh that kept its last good figures: they stand, as a stale reading, never as Unknown (#2094).
   const refreshFailed = keptReading(report)
@@ -659,13 +666,23 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
  */
 const pacingOf = (seats: readonly SeatRow[], rows: readonly PhoneWorkAllowance[], now: number): PhoneWorkPacing | null => {
   // With one account there is no "first", as on the desktop (`pacingNote`).
-  if (seats.length < 2) return null
+  if (seats.filter(seat => !isSilentUsage(seat.report)).length < 2) return null
   const advice = pacingAdvice(seats.map(seat => ({ id: seat.id, report: seat.report })), now)
   const row = advice?.reason === 'use-first' ? rows.find(one => one.id === advice.id) : undefined
   if (!advice || !row) return null
   return { id: row.id, name: row.name, window: scrub(advice.laneLabel, 40), left: Math.round(advice.remainingPercent * 10) / 1000,
     resetsAt: advice.resetsAt, readAt: advice.readAt }
 }
+
+/**
+ * The pacing advice as the Lead says it. "Use first" is the note the Dashboard and the phone show; "resets soonest"
+ * is only the order of the accounts with room, which no surface shows as a note, so the sentence says it plainly as
+ * that order and never as a suggestion from somewhere the person cannot see.
+ */
+const pacingSaid = (account: string, reason: 'use-first' | 'resets-soonest', window: string, left: number, at: string): string =>
+  reason === 'use-first'
+    ? `Use ${account} first: its ${window} has ${left}% left and resets ${at}, so the rest would go unused.`
+    : `Nothing is about to go unused. Of the accounts with room, ${account} resets soonest (its ${window}, ${left}% left, resets ${at}); that is only the order to use them in, not a note any screen shows.`
 
 /** Whole minutes since a reading, never negative. */
 const ageMinutes = (at: number, now: number): number => Math.max(0, Math.round((now - at) / 60_000))

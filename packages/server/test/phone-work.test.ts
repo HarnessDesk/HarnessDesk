@@ -139,6 +139,16 @@ test('the snapshot carries the autonomy table for the phone, and leaves it out w
   assert.equal(Object.hasOwn(await rig().work.snapshot(), 'autonomy'), false)
 })
 
+test('the phone Work list names the Teams and chats its Inbox counts that no work item holds (#2110)', async () => {
+  const board = { version: 1 as const, more: 0, items: [] }
+  const inbox = { version: 1 as const, needsYou: 1, items: [{ id: 'team:goal-game', kind: 'team' as const, title: 'build a game', project: 'acme-api', at: 8, needsYou: true, target: 'goal-game' }] }
+  const snapshot = await rig({ leadWork: async () => board, leadInbox: async () => inbox }).work.snapshot()
+  assert.deepEqual(snapshot.workWaiting, [{ kind: 'team', id: 'goal-game', title: 'build a game', project: 'acme-api', at: 8 }])
+  // Nothing waits, or no Lead runs: the field is left out.
+  assert.equal(Object.hasOwn(await rig({ leadWork: async () => board, leadInbox: async () => ({ version: 1 as const, needsYou: 0, items: [] }) }).work.snapshot(), 'workWaiting'), false)
+  assert.equal(Object.hasOwn(await rig({ leadInbox: async () => inbox }).work.snapshot(), 'workWaiting'), false)
+})
+
 test('the snapshot says what the desk honours, in micro-dollars, with usage left out until there is some', async () => {
   const empty = await rig().work.snapshot()
   assert.deepEqual(empty, {

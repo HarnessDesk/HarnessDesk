@@ -2,7 +2,7 @@ import { sessionVisible } from './session-visible'
 import { AdjacentReadChanges, preserveAdjacentLocal, reconcileAdjacentRead } from './adjacent-read'
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
 import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
-import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
+import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue, supersededUsageNotices, USAGE_CROSSING_KIND } from '@harnessdesk/protocol'
 import { createLeadState } from './lead'
 import { createPhoneState } from './phone'
 import { readDiffPrefs } from '../editor'
@@ -3205,8 +3205,14 @@ export class AppStore {
         this.#snapshot.accountPrefs,
         this.#snapshot.hideAccountAddresses,
       )
-    for (const alert of crossings(before, after, nameFor, this.#snapshot.runtimes, Date.now())) {
-      this.infoNotice('warning', alert.message, 'usage:crossing')
+    const now = Date.now()
+    /* A notice whose figures a newer read no longer bears out leaves first: a window back under its line, or one in
+       a cycle the notice did not see, said something that is no longer so (#2111). The host's phone and Lead
+       projection drop the same notices by the same rule, so this only keeps the saved inbox from carrying them. */
+    const superseded = supersededUsageNotices(this.#snapshot.inbox, after, now)
+    if (superseded.size > 0) this.#setInbox(this.#snapshot.inbox.filter(entry => !superseded.has(entry.id)))
+    for (const alert of crossings(before, after, nameFor, this.#snapshot.runtimes, now)) {
+      this.#keepInfo({ type: 'notice', class: 'info', kind: USAGE_CROSSING_KIND, level: 'warning', message: alert.message, contentKey: alert.contentKey })
     }
   }
 
