@@ -47,18 +47,21 @@ export const leadMemoryTokens = (text: string): string[] => {
 }
 /** The same entry however it is spaced, cased or punctuated. */
 export const leadMemoryKey = (text: string): string => leadMemoryTokens(text).join(' ')
-/** Two entries say the same thing: equal once normalised, or sharing at least 80% of their words. */
 /** "Don't", "do not", "never", "no", 不, 别, ない: a note and its negation share nearly every word, so near-matching
  * reads whether each side is negated apart from its words, and two sides that differ are never the same note. Works on
- * a note and on its key (where "don't" reads "don t"). */
+ * a note and on its key (where "don't" reads "don t"). Only words that negate count: in "no-op", "do nothing",
+ * "without", 不错 ("not bad") and 非常 ("very") nothing is negated, so they are words like any other, and a "don't" in
+ * front of such a note still reads as its opposite. 无法 is "cannot" and still counts. A tidy's merge is the observer
+ * model's judgement and does not pass through this check. */
 const NEGATION_AUX = /\b(?:do|does|did|is|are|was|were|wo|ca|should|would|could|must|have|has|had|need)n(?:['\u2019]|\s)t\b|\b(?:do|does|did)\s+not\b/g
-const NEGATION_WORD = /\b(?:not|never|no|none|nobody|nothing|nowhere|neither|nor|cannot|without)\b/g
-const NEGATION_CJK = /[不别別没沒勿无無非莫]|ない|ません/g
+const NEGATION_WORD = /\b(?:not|never|no(?!-)|none|nobody|nowhere|neither|nor|cannot)\b/g
+const NEGATION_CJK = /不(?![错錯])|非(?!常)|[别別没沒勿无無莫]|ない|ません/g
 const polarity = (text: string): { readonly negative: boolean; readonly rest: string } => {
   const read = reading(text).replace(NEGATION_AUX, ' not ')
   const rest = read.replace(NEGATION_WORD, ' ').replace(NEGATION_CJK, ' ')
   return { negative: rest !== read, rest }
 }
+/** Two entries say the same thing: equal once normalised, or sharing at least 80% of their words, negated alike. */
 export const leadMemoryNear = (a: string, b: string): boolean => {
   const one = polarity(a), two = polarity(b)
   if (one.negative !== two.negative) return false

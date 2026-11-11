@@ -165,7 +165,8 @@ export interface LeadSupervisorOptions {
   readonly readContext?: (epoch: number, room: number) => Promise<{ readonly epoch: number; readonly messages: readonly MessagesTurn[] } | null>
   /** Before a desk wake: compact if due past the hard line, or after the provider refused the wake as too long. */
   readonly compactContext?: (trigger: 'due' | 'overflow') => Promise<boolean>
-  /** The desk's memory status for a desk wake the child builds (`leadMemoryStatus`), or null. */
+  /** The desk's memory status for a desk wake the child builds (`leadMemoryStatus`), or null. A rejection answers null
+   * and warns `lead-memory-status-unavailable`; it never stops the child. */
   readonly readMemoryStatus?: () => Promise<string | null>
   readonly admitCardOffer?: (card: LeadCard) => void
   readonly admitBudgetEvent?: (event: LeadBudgetEvent) => void
@@ -548,7 +549,11 @@ export class LeadSupervisor {
           break
         }
         case 'readMemoryStatus': {
-          const status = await this.options.readMemoryStatus?.()
+          // The status is context, never a reason to stop: a memory store the host cannot read leaves the wake without it.
+          const status = await Promise.resolve().then(() => this.options.readMemoryStatus?.()).catch(() => {
+            try { this.options.onWarning?.('lead-memory-status-unavailable') } catch { /* A log never owns a reply. */ }
+            return null
+          })
           value = typeof status === 'string' && Buffer.byteLength(status) <= LEAD_MEMORY_LIMITS.statusBytes ? status : null
           break
         }

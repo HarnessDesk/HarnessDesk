@@ -455,6 +455,8 @@ const HELD_WAIT_SEC = 45
  * is judged by its session again, exactly as it was before the mark existed.
  */
 const SEND_ACCEPT_DEADLINE_MS = 30_000
+/** How long a desk wake waits for the memory store before it goes on without the memory status. */
+const LEAD_WAKE_MEMORY_STATUS_MS = 2_000
 
 /**
  * Where the built-in Agents ship: `agents/` at the root of this package, beside
@@ -4284,7 +4286,7 @@ export class Host {
         readContext: (epoch: number, room: number) => leadContext.read(epoch, room),
         compactContext: async (trigger: 'due' | 'overflow') => await this.#leadControls?.compactForWake(trigger) ?? false,
       } : {}),
-      readMemoryStatus: () => this.#leadMemoryContext(),
+      readMemoryStatus: () => this.#leadMemoryStatusForWake(),
       onManagementStopped: reason => {
         if (reason === 'lead-host-shutdown') void this.#leadChats?.close()
         else if (reason === 'lead-disabled' || reason === 'lead-request-cancelled') this.#leadChats?.incidents?.cancel()
@@ -4630,6 +4632,14 @@ export class Host {
     const journal = this.#leadJournal
     if (!journal) return null
     return leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
+  }
+  /** The status a desk wake carries: null when the memory store cannot be read, or takes longer than
+   * `LEAD_WAKE_MEMORY_STATUS_MS` to open, so a corrupt file or a slow first open never stalls or stops a wake. */
+  async #leadMemoryStatusForWake(): Promise<string | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), LEAD_WAKE_MEMORY_STATUS_MS); timer.unref?.() })
+    try { return await Promise.race([this.#leadMemoryContext().catch(() => null), late]) }
+    finally { clearTimeout(timer) }
   }
   /** The Lead's memory: Core, Archive, the inbox and their versions, beside the journal. Opened once; the first open
    * carries today's kept and offered lines across from the planner's file, which is left where it is. */

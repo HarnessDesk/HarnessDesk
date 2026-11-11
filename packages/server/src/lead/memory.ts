@@ -520,6 +520,8 @@ export class LeadMemoryStore {
    * dropped; a merged sentence passes the same scan as a proposal; the Lead's Core entries nobody used in
    * `unusedMs` move to Archive. A tidy after which no entry says more than `tidyLossShare` of the words the Lead's entries said is refused.
    */
+  // A merge is the observer model's call on which notes say the same thing; it is not held to leadMemoryNear's
+  // polarity check, so its own instructions ("never merge notes that differ") are what keep a note from its negation.
   tidy(plan: LeadMemoryTidyPlan): Promise<LeadMemoryTidyOutcome> {
     return this.#serial(async () => {
       const at = this.#now(), entries = this.#state.entries, byId = new Map(entries.map(entry => [entry.id, entry]))

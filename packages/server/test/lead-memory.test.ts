@@ -596,3 +596,17 @@ test('a negation is a different note: "never" against the same words is not the 
   assert.equal(leadMemoryNear('提交前运行测试', '提交前不运行测试'), false)
   assert.equal(leadMemoryNear('Run the linter before review.', 'run the linter before review!'), true)
 })
+
+test('words that only look negative are words: a note with no-op, without, 不错 or 非常 is still told from its opposite', () => {
+  for (const [note, opposite] of <[string, string][]>[
+    ['Run the smoke tests on no-op deploys to staging.', "Don't run the smoke tests on no-op deploys to staging."],
+    ['Ship nightly builds without the debug symbols attached.', 'Never ship nightly builds without the debug symbols attached.'],
+    ['这个模块的测试覆盖率不错', '这个模块的测试覆盖率不好'],
+    ['这个服务非常稳定，可以直接上线', '这个服务非常不稳定，可以直接上线'],
+  ]) {
+    assert.equal(leadMemoryNear(note, opposite), false, note)
+    assert.equal(leadMemoryNear(note, `${note} `), true, note)
+  }
+  // 无法 is "cannot": it negates, the way the English word does.
+  assert.equal(leadMemoryNear('本地开发环境可以连接预发数据库', '本地开发环境无法连接预发数据库'), false)
+})

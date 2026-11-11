@@ -755,6 +755,32 @@ test('the child reads the desk\'s memory status through the host: the text, or n
   }
 })
 
+test('a memory status the host cannot read answers null and leaves the child running: the wake goes on without the block', async () => {
+  let replied!: (message: any) => void
+  const reply = new Promise<any>(resolve => { replied = resolve })
+  let asked = 0
+  let killed = false
+  const warnings: string[] = []
+  const failures: unknown[] = []
+  const child = fake((value, child) => {
+    if (value.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+    if (value.type === 'request') { asked = value.id; child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'readMemoryStatus', args: [] })) }
+    if (value.type === 'reply') { replied(value); child.stdout.write(frame({ version: 1, type: 'response', id: asked, result: { status: 'completed' } })) }
+    if (value.type === 'shutdown') { killed = true; child.kill() }
+  })
+  const f = await fixture({ spawn: () => child, readMemoryStatus: async () => { throw new Error('memory store unreadable') },
+    onWarning: (code: string) => { warnings.push(code) }, onFailure: (failure: unknown) => { failures.push(failure) } })
+  const sent = f.supervisor.send(request)
+  const message = await reply
+  assert.equal(message.ok, true)
+  assert.equal(message.value, null)
+  assert.equal((await sent as any).status, 'completed')
+  assert.equal(killed, false)
+  assert.deepEqual(failures, [])
+  assert.deepEqual(warnings, ['lead-memory-status-unavailable'])
+  await f.supervisor.stop()
+})
+
 test('a child stopped for a broken frame, and a failure it caught, both reach the host by stage and code alone', async () => {
   const failures: any[] = []
   const child = fake((value, child) => {
