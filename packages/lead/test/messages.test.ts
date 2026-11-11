@@ -640,6 +640,32 @@ test('an embedded envelope that does not validate is left for the host to strip,
   assert.deepEqual(lead.stripLeadOutput('Plain words with {braces} only.'), { text: 'Plain words with {braces} only.', dropped: false })
 })
 
+test('a clipped envelope mid-reply loses only its own line, quote block or inline fragment, and the words after it stay', () => {
+  // (i) Quoted from a worker that stopped mid-envelope, with the Lead's recommendation after it.
+  assert.deepEqual(lead.stripLeadOutput('The worker printed this before it stopped:\n> {"version":1,"type":"lead-output","text":"Merging now\n> and pushing\n\nI recommend we stop the worker and look at its branch.'),
+    { text: 'The worker printed this before it stopped:\n\nI recommend we stop the worker and look at its branch.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('The worker printed:\n{"version":1,"type":"lead-output","text":"Merging\n\nI recommend stopping it.'),
+    { text: 'The worker printed:\n\nI recommend stopping it.', dropped: true })
+  // (ii) Prose that explains the bug by quoting the marker inline keeps the rest of its sentence and its paragraphs.
+  assert.deepEqual(lead.stripLeadOutput('The bug: a worker quoted `{"type":"lead-output"` in its log, and the desk drew it.\n\nThe fix strips it.\n\nNothing else changes.'),
+    { text: 'The bug: a worker quoted in its log, and the desk drew it.\n\nThe fix strips it.\n\nNothing else changes.', dropped: true })
+  // (iii) An unrelated `{` earlier in the prose never cuts anything, before a trailing envelope or one mid-reply.
+  const template = 'Use a template like {name and fill it in.'
+  assert.deepEqual(lead.stripLeadOutput(`${template}\n\n{"version":1,"type":"lead-output","text":"Done.",}`), { text: template, dropped: true })
+  assert.deepEqual(lead.splitLeadOutput(`${template}\n\n{"version":1,"type":"lead-output","text":"Done.",}`), { prose: template })
+  assert.deepEqual(lead.stripLeadOutput(`${template}\n\nThe worker said {"type":"lead-output","text":"x",} and stopped.\n\nSecond paragraph.`),
+    { text: `${template}\n\nThe worker said and stopped.\n\nSecond paragraph.`, dropped: true })
+  // A reply really cut short at its end still loses everything from the opening on.
+  assert.deepEqual(lead.stripLeadOutput(`${template}\n\n{"version":1,"type":"lead-output","text":"cut`), { text: template, dropped: true })
+})
+
+test('stripping an envelope tidies only where it was: other quote separators, list markers and blank lines stay', () => {
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: 'Merging now.' })
+  const kept = 'A quote:\n> first\n>\n> second\n\nSteps:\n1.\n   Do the thing.\n\n\n\nLater.'
+  assert.deepEqual(lead.stripLeadOutput(`${kept}\n\nThe worker wrote:\n> ${envelope}\n\nDone.`), { text: `${kept}\n\nThe worker wrote:\n\nDone.`, dropped: true })
+  assert.deepEqual(lead.stripLeadOutput(`${kept}\n\n- ${envelope}\n\n\nDone.`), { text: `${kept}\n\nDone.`, dropped: true })
+})
+
 test('fresh proactive output without options is refused', async () => {
   const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: { finding: 'Found.', caveat: 'No work yet.', ask: 'Start?' } }) }])])
   assert.equal((await s.client.request(input, new AbortController().signal)).status, 'invalid-response')

@@ -584,6 +584,15 @@ test('an older host window projection without stage fields remains readable', ()
   assert.equal(result.wayOut, 'resume')
 })
 
+test('every request failure sentence names the Lead the person chose, never "the Lead"', () => {
+  for (const [reason, text] of Object.entries(protocol.LEAD_REQUEST_FAILURE_TEXT)) {
+    assert.doesNotMatch(text, /\bthe Lead\b/i, reason)
+    assert.doesNotMatch(protocol.leadRequestFailure(reason, 'Lex')!.detail, /\bthe Lead\b|\{label\}/i, reason)
+  }
+  assert.equal(protocol.leadRequestFailure('lead-request-refused', 'Lex')!.detail, 'Lex could not send its request, so nothing was spent. Sending a message tries again.')
+  assert.equal(protocol.leadRequestFailure('lead-request-rate-limited', 'Lex')!.detail, 'The provider asked Lex to wait.')
+})
+
 test('a request that did not complete reaches the window as a failure with its code and sentence; other waits carry none', () => {
   // Every request wait but a cancelled one is a failure of the request, not the Lead waiting on the person.
   const requestWaits = protocol.LEAD_MANAGEMENT_REASONS.filter(reason => reason.startsWith('lead-request-') && reason !== 'lead-request-cancelled')

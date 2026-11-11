@@ -81,24 +81,54 @@ const unreadable = () => Object.assign(new Error('The Lead presence file could n
  */
 /** Polite words and fillers that do not make a request new: said with or without them, it is the same request. */
 const POLITE = /\b(?:please|pls|plz|kindly|(?:can|could|would) you|just|again|thanks?|thank you)\b|请|麻烦|再|帮我|帮忙|一下|吧|好吗|谢谢/gu
+/** Words that turn a request around. A message that carries one is never the request said again. */
+const NEGATION = /\b(?:don['\u2019]?t|do not|stop|never|cancel|not)\b|别|不要|不用|不必|停|取消|算了/u
 /** The words of a request, folded for comparison: compatibility forms, case, polite words, punctuation and symbols. */
 const requestWords = (text: string): string[] =>
   text.normalize('NFKC').toLowerCase().replace(POLITE, ' ').split(/[\p{P}\p{S}\s]+/u).filter(Boolean)
+/** The shorter of two folded requests must hold this much of the longer one's characters for containment to be a repeat. */
+const CONTAINED = 0.8
 
 /**
  * Whether `later` only says `earlier` again. Punctuation, symbols, spacing and polite words never make it new, nor
- * does an address or a word more or less around the same request: one contains the other, or they differ by one word.
- * Anything else is the person moving on.
+ * does an address or a word more or less around the same request: one contains the other and is at least four fifths
+ * of it, or they differ by one word. A negation ("don't", "stop", "别…了", "不要") is never a repeat, and anything else
+ * is the person moving on.
  */
 export const leadRepeatsRequest = (earlier: string, later: string): boolean => {
+  if (NEGATION.test(later.normalize('NFKC').toLowerCase())) return false
   const a = requestWords(earlier), b = requestWords(later)
   const joinedA = a.join(''), joinedB = b.join('')
   if (joinedA === joinedB) return true
   const [short, long] = joinedA.length <= joinedB.length ? [joinedA, joinedB] : [joinedB, joinedA]
-  if (short.length >= 4 && long.includes(short)) return true
+  if (short.length >= 4 && long.includes(short) && short.length >= CONTAINED * long.length) return true
   const [fewer, more] = a.length <= b.length ? [a, b] : [b, a]
   if (more.length - fewer.length !== 1 || fewer.length < 2) return false
   return more.some((_, skip) => more.filter((__, index) => index !== skip).join(' ') === fewer.join(' '))
+}
+
+/** Words around a choice that do not change which option it names: "the", "pick", "选". */
+const CHOOSING = /\b(?:the|option|pick|choose|go with|i choose|i pick)\b|选择|选|就/gu
+/** A text folded to tokens for matching an option: each Chinese, Japanese or Korean character is a token of its own. */
+const optionTokens = (text: string): string[] =>
+  requestWords(text.normalize('NFKC').toLowerCase().replace(CHOOSING, ' ').replace(/([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/gu, ' $1 '))
+const within = (words: readonly string[], part: readonly string[]) =>
+  part.length > 0 && words.some((_, at) => part.every((word, offset) => words[at + offset] === word))
+
+/**
+ * The option a typed answer gives. A tap's exact label, or the label folded like a request ("Game.", "game", "The
+ * game", "选 Game"), is that option. With `named`, a message that names exactly one option, and no negation, is
+ * that option too; one that names two, or says "not", is not an answer.
+ */
+export const leadAskOption = <T extends { readonly label: string }>(options: readonly T[], text: string, named = false): T | undefined => {
+  const exact = options.find(option => option.label === text)
+  if (exact) return exact
+  const words = optionTokens(text)
+  const folded = options.filter(option => optionTokens(option.label).join(' ') === words.join(' ') && words.length > 0)
+  if (folded.length === 1) return folded[0]
+  if (!named || NEGATION.test(text.normalize('NFKC').toLowerCase())) return undefined
+  const mentioned = options.filter(option => within(words, optionTokens(option.label)))
+  return mentioned.length === 1 ? mentioned[0] : undefined
 }
 
 /** How long after an answer or an expiry the same words, sent without the question's id, are still taken for a late tap. */
@@ -377,19 +407,24 @@ export class LeadPresenceStore {
    */
   async beforeSend(device: LeadDeviceRef | undefined, text: string, askId?: string): Promise<((sent: boolean, messageId?: string) => Promise<void>) | null> {
     // A tap names the question it answers, so a later message in the thread cannot turn it into plain words.
-    const open = askId ? this.#askById(askId) : this.#openAsk()
+    // A question the person has only repeated their request under is still open: typed words can answer it.
+    const held = askId ? undefined : this.unansweredAsk()
+    const open = askId ? this.#askById(askId) : this.#openAsk() ?? (held ? this.#askById(held.id) : undefined)
     if (askId && !open) throw refused()
     // Words that are an option of a question nobody can answer any more are not sent as a new request either.
     const stale = !open ? this.#newestAsk() : undefined
     const target = open ?? stale
     if (!target) return null
-    const option = target.ask.options.find(candidate => candidate.label === text)
-    if (stale && !option) return null
+    // A late tap must be the option itself; to a question still open, words that name exactly one option answer it.
+    const tapped = leadAskOption(target.ask.options, text), named = stale || askId ? tapped : leadAskOption(target.ask.options, text, true)
+    if (stale && !tapped) return null
     const by = device?.label ?? 'Desktop'
     return this.#write(() => {
       this.#observeAsks()
       const record = this.#stored.asks[target.id], now = this.ports.now()
       const expired = !record?.answer && record?.expiresAt !== undefined && record.expiresAt <= now
+      // Only a question still waiting is answered by words that merely name an option; after an answer or an expiry it takes the option itself.
+      const option = record?.answer || expired ? tapped : named
       // Untagged words are held to a refusal only while they can still be a late tap: the question is the Lead's last word
       // and its answer or expiry is recent. A tap that names its question is refused whenever it arrives.
       const since = record?.answer?.at ?? (expired ? record!.expiresAt : undefined)

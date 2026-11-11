@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { LEAD_PRESENCE_LIMITS, capLeadPushText, parseLeadPresenceView, type LeadAsk, type LeadDeviceRef, type LeadWorkCard } from '@harnessdesk/protocol'
-import { LEAD_DIGEST_OBSERVER_DAILY_MICROS, LeadPresenceStore, leadTurnContext, type LeadPresencePorts } from '../src/lead/presence.js'
+import { LEAD_DIGEST_OBSERVER_DAILY_MICROS, LeadPresenceStore, leadRepeatsRequest, leadTurnContext, type LeadPresencePorts } from '../src/lead/presence.js'
 
 const MIN = 60_000
 const desktop: LeadDeviceRef = { id: 'window:main', label: 'Desktop' }
@@ -202,6 +202,51 @@ test('a near-repeat of the request is still a repeat: punctuation, a polite word
     r.setMessages([english, question, { id: 'message-3', role: 'user', text: moved }])
     assert.equal(r.store.unansweredAsk(), null, `"${moved}" is the person moving on`)
   }
+})
+
+test('a repeat is the same request said again: a longer line with more in it, or a negation, is the person moving on', () => {
+  const asked = 'Open a chat to fix the game'
+  for (const again of [asked, 'Open a chat to fix the game.', 'open a chat to fix the game!', 'Please open a chat to fix the game?']) assert.equal(leadRepeatsRequest(asked, again), true, again)
+  assert.equal(leadRepeatsRequest(asked, 'Open a chat to fix the game, the one in HarnessDesk'), false, 'the request inside a much longer line says more')
+  for (const negated of ["Don't open a chat to fix the game", 'Don’t open a chat to fix the game', 'Do not open a chat to fix the game', 'Stop, open a chat to fix the game']) {
+    assert.equal(leadRepeatsRequest(asked, negated), false, negated)
+  }
+  assert.equal(leadRepeatsRequest('帮我修复构建', '修复构建'), true)
+  for (const negated of ['别修复构建了', '不要修复构建']) assert.equal(leadRepeatsRequest('帮我修复构建', negated), false, negated)
+})
+
+test('a typed answer that names one option closes the question as that answer, folded like a tap', async t => {
+  const q4: LeadAsk = { question: 'Fix the Team or the game first?', options: [{ id: 'team', label: 'Team' }, { id: 'game', label: 'Game' }], recommended: 'game' }
+  const asked = { id: 'message-1', role: 'user', text: 'Open a chat to fix the game' }
+  const question = { id: 'message-2', role: 'assistant', text: 'Which first?', ask: q4 }
+  // Typed straight after the question, and typed after the person repeated the request while it was open.
+  for (const typed of ['Game', 'game', 'The game', 'Game.', '选 Game']) for (const before of [[], [{ id: 'message-3', role: 'user', text: 'Open a chat to fix the game.' }]]) {
+    const r = await rig(t)
+    r.setMessages([asked, question, ...before])
+    await r.store.observe()
+    assert.equal(r.store.unansweredAsk()?.id, 'message-2')
+    const step = await r.store.beforeSend(desktop, typed)
+    assert.ok(step, typed)
+    await step!(true)
+    r.setMessages([asked, question, ...before, { id: 'message-4', role: 'user', text: typed }])
+    assert.equal(r.store.unansweredAsk(), null, `"${typed}" answers the question`)
+    assert.equal((await r.store.read(desktop, { active: true })).asks.find(one => one.id === 'message-2')?.answer?.option, 'Game', typed)
+  }
+  for (const notAnswer of ['Team or game?', 'Not the game']) {
+    const r = await rig(t)
+    r.setMessages([asked, question])
+    await r.store.observe()
+    const step = await r.store.beforeSend(desktop, notAnswer)
+    await step?.(true)
+    assert.equal((await r.store.read(desktop, { active: true })).asks.find(one => one.id === 'message-2')?.answer, undefined, `"${notAnswer}" names no single option`)
+  }
+  // After the question ran out, words that only mention an option are a new request, never refused as a late tap.
+  const r = await rig(t)
+  r.setMessages([asked, { ...question, ask: { ...q4, expiresInMinutes: 5 } }])
+  await r.store.observe()
+  r.tick(6 * MIN)
+  assert.ok(await r.store.beforeSend(desktop, 'Open a chat to fix the game, the one in HarnessDesk'))
+  await assert.rejects(r.store.beforeSend(desktop, 'Game'), (error: Error & { wireCode?: string }) => error.wireCode === 'lead-ask-expired', 'the option itself is still a late tap')
 })
 
 test('a schedule or automatic message never closes the open question; only the person moving on does', async t => {
