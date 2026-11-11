@@ -736,6 +736,18 @@ it('renders saved approvals as a plain list with quiet row actions sharing the d
   await act(async () => settle())
 })
 
+it('draws a reminder wake as a desk line, never as the person\'s message, and the reply after it as the Lead\'s own turn', async () => {
+  const base = leadProjection()
+  const wake: any = { version: 1, id: 'message-2', revision: 2, role: 'system', text: 'Reminder: check the release notes', wake: { kind: 'reminder', reminder: 'remind-1', text: 'check the release notes' } }
+  const reply: any = { version: 1, id: 'message-3', revision: 3, role: 'assistant', text: 'Time to check the release notes.' }
+  const { box } = await mount({ ...base, thread: { ...base.thread, messages: [wake, reply] } })
+  const line = box.querySelector('article[aria-label="Desk"]')
+  expect(line?.textContent).toBe('Reminder: check the release notes')
+  expect(box.querySelector('article[aria-label="You"]')).toBeNull()
+  expect(box.querySelector('[data-slot="message"][data-align="end"]')).toBeNull()
+  expect(box.textContent).toContain('Time to check the release notes.')
+})
+
 it('shows host approval notices separately and opens the exact allowed diff', async () => {
   const base = leadProjection(), diff = '+export const demo = 2'
   const notice: any = { version: 1, id: 'message-2', revision: 2, role: 'notice', text: 'Allowed under your rule for this goal: /workspace/demo/demo.ts', approval: { ruleId: 'saved', target: '/workspace/demo/demo.ts', diff } }

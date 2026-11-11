@@ -92,6 +92,14 @@ it('shows context use and the cache hit rate as facts, and Summarise now compact
   expect(leadContextWords(facts({ usedTokens: null, cacheHitRate: null, checkpoints: [] }))).toEqual({ used: 'Nothing sent yet', cache: 'No requests yet', summaries: 'None yet' })
 })
 
+it('says when the last summary was made, as the phone does', () => {
+  const hour = 60 * 60_000, now = 10 * hour
+  const two = facts({ checkpoints: [{ ...facts().checkpoints[0]!, at: now - 9 * hour }, { ...facts().checkpoints[0]!, id: 'checkpoint-2', at: now - 8 * hour }] })
+  expect(leadContextWords(two, now).summaries).toBe('2 · last 8h ago')
+  expect(leadContextWords(facts({ checkpoints: [{ ...facts().checkpoints[0]!, at: now - 10_000 }] }), now).summaries).toBe('1 · last just now')
+  expect(leadContextWords({ ...two, compacting: true }, now).summaries).toBe('Summarising now')
+})
+
 it('keeps a refused Summarise now on screen in the person\'s words', async () => {
   const lead = { readContext: vi.fn(async () => facts()), compactContext: vi.fn(async () => { throw Object.assign(new Error('x'), { wireCode: 'lead-request-in-flight' }) }) }
   await act(async () => render(<LeadContextSection />, lead))

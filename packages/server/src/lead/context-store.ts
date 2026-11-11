@@ -6,7 +6,7 @@ import {
   leadCheckpointCompose, leadFallbackCheckpoint, leadFitTurns, leadHistory, leadMergedTurns, leadNextSoftShare, leadPairedTurns, leadPersonSection, leadPersonQuotes, leadCheckpointModelPart,
   leadPruneContext, parseLeadContextTurns, LEAD_CONTEXT_UNCOUNTED,
   type LeadCompactionTrigger, type LeadContextMark, type LeadContextRecordInput, type LeadJournal, type LeadMessagesRequest,
-  type LeadMessagesResult, type MessagesText, type MessagesTurn, leadClip
+  type LeadMessagesResult, type MessagesText, type MessagesTurn, leadClip, LEAD_WAKE_REFERENCE
 } from '@harnessdesk/lead'
 import { parseLeadContextFacts, type LeadCheckpointPerson, type LeadContextCheckpoint, type LeadContextFacts } from '@harnessdesk/protocol'
 import { readBoundedJson, writeAtomicJson } from './bounded-json.js'
@@ -61,10 +61,19 @@ export interface LeadContextConnections {
   readonly ledgerIds?: () => Promise<readonly string[]>
   /** The same screen a reply passes before the person sees it; throws when the text must not be shown. */
   readonly screen?: (text: string) => Promise<void>
+  /** The desk as it stands now (the clock and the current work cards), read for each checkpoint so it never keeps a stale fact. */
+  readonly deskNow?: () => Promise<string | null>
 }
 
-const personIds = (turns: readonly MessagesTurn[]): string[] => turns.flatMap(turn => turn.role !== 'user' ? [] : turn.content.flatMap(block =>
-  block.type === 'text' && block.text.startsWith(PERSON_REFERENCE) ? [block.text.slice(PERSON_REFERENCE.length).trim()] : []))
+const referenced = (prefixes: readonly string[]) => (turns: readonly MessagesTurn[]): string[] => turns.flatMap(turn => turn.role !== 'user' ? [] : turn.content.flatMap(block => {
+  const prefix = block.type === 'text' ? prefixes.find(one => block.text.startsWith(one)) : undefined
+  return prefix !== undefined && block.type === 'text' ? [block.text.slice(prefix.length).trim()] : []
+}))
+/** Journal messages the stored turns hold: the person's own, and the desk's wakes. A wake is stored and sent once like a
+ * person message, but it is never quoted as the person's words. */
+const personIds = referenced([PERSON_REFERENCE, LEAD_WAKE_REFERENCE])
+/** Only the person's own messages: what a checkpoint quotes as theirs. */
+const spokenIds = referenced([PERSON_REFERENCE])
 const integer = (value: unknown, fallback: number) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : fallback
 const textBlocks = (value: unknown): MessagesText[] => {
   if (!Array.isArray(value) || !value.length) return []
@@ -229,10 +238,11 @@ export class LeadContextStore {
    * A message the journal no longer holds is named by its reference.
    */
   #personSection(region: readonly MessagesTurn[], tail: readonly MessagesTurn[]): LeadCheckpointPerson {
-    const later = new Set(personIds(tail)), ids = [...new Set([...this.#known, ...personIds(region)])].filter(id => !later.has(id))
-    const recorded = new Map(this.options.journal.state.messages.flatMap(message => message.role === 'user' ? [[message.id, message.text] as const] : []))
+    const wakes = new Set(this.options.journal.state.messages.flatMap(message => message.wake ? [message.id] : []))
+    const later = new Set(personIds(tail)), ids = [...new Set([...this.#known, ...spokenIds(region)])].filter(id => !later.has(id) && !wakes.has(id))
+    const recorded = new Map(this.options.journal.state.messages.flatMap(message => message.role === 'user' && !message.wake ? [[message.id, message.text] as const] : []))
     const covered = new Set(ids)
-    const words = this.options.journal.state.messages.flatMap(message => message.role === 'user' && covered.has(message.id) ? [{ id: message.id, text: message.text }] : [])
+    const words = this.options.journal.state.messages.flatMap(message => message.role === 'user' && !message.wake && covered.has(message.id) ? [{ id: message.id, text: message.text }] : [])
     return leadPersonQuotes(words, ids.filter(id => !recorded.has(id)))
   }
   /** Person messages the stored conversation does not hold yet, oldest first, as the words a request carries. */
@@ -367,6 +377,8 @@ export class LeadContextStore {
       const previous = leadCheckpointText(region[0])
       let requiredIds: readonly string[] = []
       try { requiredIds = await this.#connections.ledgerIds?.() ?? [] } catch { /* A checkpoint without the ledger's ids still stands. */ }
+      let deskNow: string | null = null
+      try { deskNow = await this.#connections.deskNow?.() ?? null } catch { /* Without it the checkpoint is written from the conversation alone. */ }
       const regionBytes = leadContextBytes(region)
       // The person's words come from the desk, never from the model: only a message the desk recorded as theirs.
       const quotes = this.#personSection(region, this.#turns.slice(from)), person = leadPersonSection(quotes)
@@ -376,7 +388,7 @@ export class LeadContextStore {
         const spent = journal.state.budget?.leadUsdMicros ?? 0
         let reason: string
         try {
-          const result = await send({ messages: leadCheckpointMessages(region, leadCheckpointInstruction({ merging: previous !== null, requiredIds })),
+          const result = await send({ messages: leadCheckpointMessages(region, leadCheckpointInstruction({ merging: previous !== null, requiredIds, deskNow })),
             maxTokens: LEAD_CONTEXT.checkpointTokens, compaction: true, epoch: this.#epoch, ...(leadContextMarkOf(region) ? { stable: leadContextMarkOf(region)! } : {}) })
           usdMicros += Math.max(0, (journal.state.budget?.leadUsdMicros ?? 0) - spent)
           // Refused (the budget, a stop) or cut short is not the model failing to write: the run ends, uncounted.

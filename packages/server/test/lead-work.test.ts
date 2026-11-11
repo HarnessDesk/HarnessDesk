@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, parseLeadWorkBoard, parseLeadWorkDetail, type LeadStage, type LeadWorkBoard } from '@harnessdesk/protocol'
-import { LeadWorkLedger, wakeForLeadWork, type LeadWorkLinkState } from '../src/lead/work.js'
+import { leadWorkCards } from '@harnessdesk/lead'
+import { LeadReminderTimer, LeadWorkLedger, settleLeadReminders, wakeForLeadWork, type LeadWorkLinkState } from '../src/lead/work.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 
 const rig = async (t: TestContext) => {
@@ -706,6 +707,64 @@ test('a reminder for the person is a real entry: listed with its time, fired onc
   await assert.rejects(r.ledger.cancelReminder({ id: 'remind-9' }), /no reminder remind-9/)
   r.tick(LEAD_WORK_LIMITS.reminderShownMs)
   assert.equal((await r.ledger.board()).reminders, undefined, 'ended reminders leave the board after a day')
+})
+
+test('a person reminder counts as said only once the Lead wrote it: a wake that ended silent is tried once more, then shown as missed', async t => {
+  const r = await rig(t)
+  const first = await r.ledger.setReminder({ text: 'Send the changelog to the team', at: r.now() + 30 * 60_000, cause: 'person' })
+  const second = await r.ledger.setReminder({ text: 'Check the deploy', at: r.now() + 30 * 60_000, cause: 'person' })
+  r.tick(30 * 60_000)
+  const { calls, wake } = wakes()
+  assert.equal(await wakeForLeadWork(r.ledger, wake), 2)
+  let board = await r.ledger.board()
+  assert.deepEqual(board.reminders?.map(entry => [entry.id, entry.state, entry.delivery]), [[first.id, 'fired', undefined], [second.id, 'fired', undefined]], 'woken is not yet said')
+  assert.deepEqual(parseLeadWorkBoard(JSON.parse(JSON.stringify(board))), board, 'and the board passes the wire parser, with nothing internal on it')
+  const outcomes = new Map<string, 'pending' | 'said' | 'silent'>([[calls[0]!.key, 'pending'], [calls[1]!.key, 'silent']])
+  const retries: { key: string; text: string }[] = []
+  const settle = { outcome: (key: string) => outcomes.get(key) ?? 'silent', retry: async (key: string, text: string) => { retries.push({ key, text }); return true } }
+  await settleLeadReminders(r.ledger, settle)
+  assert.deepEqual(retries.map(retry => retry.key), [`${calls[1]!.key}-again`], 'the silent one is tried once more, under its own key; the running one waits')
+  assert.match(retries[0]!.text, /not written/); assert.match(retries[0]!.text, /"Check the deploy"/)
+  outcomes.set(calls[0]!.key, 'said')
+  r.tick(1_000)
+  await settleLeadReminders(r.ledger, settle)
+  await settleLeadReminders(r.ledger, settle)
+  assert.equal(retries.length, 1, 'the second try ended silent too: nothing more is tried')
+  board = await r.ledger.board()
+  const shown = new Map(board.reminders?.map(entry => [entry.id, entry]))
+  assert.equal(shown.get(first.id)?.delivery, 'said'); assert.equal(shown.get(first.id)?.deliveredAt, r.now())
+  assert.equal(shown.get(second.id)?.delivery, 'missed', 'shown as missed, never as said')
+  assert.equal(shown.get(second.id)?.state, 'fired', 'an older phone still reads a state it knows')
+  const cards = leadWorkCards(board, r.now())!
+  assert.match(cards, /remind-1 for the person "Send the changelog to the team" said to the person/)
+  assert.match(cards, /remind-2 for the person "Check the deploy" missed .*never written/, 'the Lead is told it did not remind the person')
+  // A retry the Lead cannot take now is missed at once: the person sees it and the Lead is told, rather than waiting.
+  const third = await r.ledger.setReminder({ text: 'Water the plants', at: r.now() + 30 * 60_000, cause: 'person' })
+  r.tick(30 * 60_000)
+  await wakeForLeadWork(r.ledger, wake)
+  await settleLeadReminders(r.ledger, { outcome: () => 'silent', retry: async () => false })
+  assert.equal((await r.ledger.board()).reminders?.find(entry => entry.id === third.id)?.delivery, 'missed')
+})
+
+test('a reminder fires at its own time: one timer is armed for the soonest one, never left to the next minute tick', async t => {
+  const r = await rig(t)
+  const timers: { ms: number; run: () => void; cleared: boolean }[] = []
+  const fired: number[] = []
+  const timer = new LeadReminderTimer({ next: () => r.ledger.nextDue(), now: r.now, fire: () => { fired.push(r.now()) },
+    setTimer: (run, ms) => { const entry = { ms, run, cleared: false }; timers.push(entry); return () => { entry.cleared = true } } })
+  await timer.arm()
+  assert.equal(timers.length, 0, 'nothing set, nothing armed')
+  await r.ledger.setReminder({ text: 'Later', at: r.now() + 3 * 60 * 60_000, cause: 'person' })
+  await r.ledger.setReminder({ text: 'Sooner', at: r.now() + 10 * 60_000 + 500, cause: 'person' })
+  await timer.arm()
+  assert.equal(timers.at(-1)!.ms, 10 * 60_000 + 500, 'armed for the soonest, to the millisecond')
+  assert.equal(timers.filter(entry => !entry.cleared).length, 1, 'one timer at a time')
+  r.tick(10 * 60_000 + 500)
+  timers.at(-1)!.run()
+  assert.deepEqual(fired, [r.now()], 'it fires at the due time')
+  await timer.arm()
+  timer.close()
+  assert.equal(timers.at(-1)!.cleared, true, 'closing the host clears the armed timer')
 })
 
 test('a reminder is refused, with a reason, for a time that passed, a time too far ahead, a closed item, or a full list', async t => {
