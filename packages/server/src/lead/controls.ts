@@ -445,7 +445,9 @@ export class LeadControls {
       try { this.options.onFailure?.('request', failure) } catch { /* A log never owns the request. */ }
       this.#requestInFlight = this.#continueAgain
       const revision = journal.state.seq
-      if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase)) await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+      // The service may already have latched the repeat-stop wait for this same failure (its exit can land before
+      // this catch runs); a generic failure never overwrites it, whichever order the two arrive in.
+      if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase) && journal.state.managementReason !== 'lead-child-exited-again') await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
       if (journal.state.seq === revision) await journal.settingsChanged()
     }
   }

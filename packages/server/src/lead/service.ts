@@ -237,6 +237,8 @@ export class LeadService {
           let decoded: unknown
           try { decoded = JSON.parse(response.body) } catch { /* Non-JSON errors still pass the literal scan. */ }
           scan(decoded)
+          // A provider answer, whatever its status, proves the child got past every step before the request: the count of repeated exits starts over.
+          this.#lastExit = null
           if (this.#providerFinalized.has(requestId)) return result
           if (response.status >= 200 && response.status < 300) {
             const rawUsage = decoded !== null && typeof decoded === 'object' && !Array.isArray(decoded)
@@ -339,11 +341,11 @@ export class LeadService {
   }
   #exited(reason: string): Promise<void> {
     this.#activity(false)
+    // Taken on every exit, before the guard below, so a failure never attaches to a later exit it did not cause.
+    const stoppedBy = this.#stoppedBy; this.#stoppedBy = null
     if (this.#exiting) return this.#exiting
     // Called only after the child has fully exited and its pending dispatches
     // have rejected. Recovery never races a live dispatch from that child.
-    // Taken on every exit, so a failure never attaches to a later exit it did not cause.
-    const stoppedBy = this.#stoppedBy; this.#stoppedBy = null
     const task = (async () => {
       try {
         try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-send-deadline'].includes(reason) ? this.#expectedExit(reason) : this.#unexpectedExit(reason, stoppedBy)) }
@@ -458,7 +460,8 @@ export class LeadService {
     this.#assertOpen()
     if (generation !== this.#generation) throw new Error('lead-lifecycle-changed')
     const result = await this.#supervisor.send(input)
-    // Any result that came back, failed or refused included, proves the child ran: the count of repeated exits starts over.
+    // Any result that came back, failed or refused included, proves the child ran: the count of repeated exits starts over
+    // (a provider answer during the request already reset it).
     this.#lastExit = null
     return result
   }

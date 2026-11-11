@@ -159,6 +159,34 @@ test('the count of repeated stops starts over when a request comes back in any s
   await attempt(); assert.equal(reasons.at(-1), 'lead-child-exited', 'the key changed')
 })
 
+// The service latches its wait when the child exits; the request's own catch in the controls writes a generic failure.
+// Either can land first. The repeat-stop wait is the one that names the cause, so it is what stays, in both orders.
+for (const order of ['exit before the request fails', 'request fails before the exit'] as const) test(`a repeated stop keeps its own wait when the ${order}`, async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true); await s.service.send(input)
+  const { LeadControls } = await import(new URL('../src/lead/controls.js', import.meta.url).href)
+  let next = 0
+  const controls = new LeadControls({ journal: s.journal, service: s.service, project: { id: 'synthetic', path: s.home }, model: 'synthetic-model',
+    now: () => 100, nextId: () => `card-${++next}`, push: () => {}, decidePerson: async () => {}, decideResult: async () => {} })
+  t.after(() => controls.close())
+  let exitLater: (() => Promise<void>) | null = null
+  s.process().send = async function () {
+    s.options().onFailure({ ...memoryEpochStop, stopped: true })
+    const exit = async () => { this.live = false; await s.options().onExit('protocol-invalid') }
+    if (order === 'exit before the request fails') await exit()
+    else exitLater = exit
+    throw new Error('lead-child-exited')
+  }
+  const reasons: (string | null)[] = []
+  for (const [index, text] of ['Check the build', 'Check it again'].entries()) {
+    await controls.send({ idempotencyKey: `send-${index}`, text }); await controls.idle()
+    if (exitLater) { const exit: () => Promise<void> = exitLater; exitLater = null; await exit() }
+    reasons.push(s.journal.state.managementReason)
+  }
+  assert.equal(reasons[1], 'lead-child-exited-again')
+  assert.equal(s.journal.state.phase, 'waiting-for-user')
+})
+
 test('two simultaneous sends start one child only after explicit enable', async t => {
   const s = await rig(t)
   await assert.rejects(s.service.send(input), /lead-disabled/)
@@ -380,6 +408,28 @@ const providerTemplate = await (async () => {
 const providerBody = (patch: object = {}) => JSON.stringify({ ...providerTemplate, ...patch })
 const providerReserve = (journal: any, requestId: string, body = providerBody(), maxOutputTokens = 32) => journal.updateBudget({
   version: 1, type: 'reserve', now: 100, requestId, inputTokens: Buffer.byteLength(body) + 1024, maxOutputTokens, ...providerPrice,
+})
+// A provider answer comes back during a request, before the request itself resolves: it proves the child got past
+// every step before the request, so the count of repeated stops starts over there too, whatever the status.
+test('the count of repeated stops starts over when the provider answers, before the request resolves', async t => {
+  let status = 200
+  const s = await rig(t, { messagesTransport: { send: async () => ({ status, body: JSON.stringify({ usage: { input_tokens: 1, output_tokens: 1 } }) }) } })
+  await s.service.setEnabled(true); await s.service.send(input)
+  const { control, reasons, attempt } = failingChild(s)
+  control.failure = memoryEpochStop
+  await attempt(); await attempt()
+  assert.deepEqual(reasons, ['lead-child-exited', 'lead-child-exited-again'])
+  for (const [index, answered] of [200, 529].entries()) {
+    status = answered
+    const requestId = `provider-answer-${index}`
+    await providerReserve(s.journal, requestId)
+    assert.equal((await s.options().providerSend(requestId, providerBody(), new AbortController().signal)).status, answered)
+    await attempt(); assert.equal(reasons.at(-1), 'lead-child-exited', `answered ${answered}`)
+    await attempt(); assert.equal(reasons.at(-1), 'lead-child-exited-again')
+  }
+  // A send the host refused before the transport is not an answer: the count stands.
+  await assert.rejects(s.options().providerSend('never-reserved', providerBody(), new AbortController().signal), /lead-provider-failed/)
+  await attempt(); assert.equal(reasons.at(-1), 'lead-child-exited-again')
 })
 /** A reservation the way the child makes one, through the host, so the host knows it reserved it. */
 const childReserve = (s: { journalRpc(operation: string, args: unknown[]): Promise<unknown> }, requestId: string, body = providerBody(), maxOutputTokens = 32) => s.journalRpc('updateBudget', [{
