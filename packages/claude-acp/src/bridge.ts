@@ -696,11 +696,15 @@ const decorateSessionOptions = <T extends { configOptions?: SessionConfigOption[
 
 /** What a load knows while the adapter underneath replays a stored conversation. */
 type LoadReplay = {
-  /** The stored kind of each user text the person did not type, by its trimmed text. */
-  readonly kinds: ReadonlyMap<string, StoredKind>
+  /**
+   * The stored kind of each user text the person did not type, by its trimmed
+   * text, with how many times it is stored. A match is used up, so the same
+   * words the person typed later stay theirs.
+   */
+  readonly kinds: Map<string, { readonly kind: StoredKind; left: number }>
   /** Echoed command output already shown once. */
   readonly noticed: Set<string>
-  /** The replay sent a user message: the history is its, and the bridge sends none. */
+  /** The replay sent any part of the history: the history is its, and the bridge sends none. */
   heard: boolean
 }
 
@@ -725,14 +729,32 @@ const userTexts = (entry: Record<string, unknown>): readonly string[] => {
     : (block as { type?: string; text?: unknown })?.type === 'text' ? [String((block as { text: unknown }).text)] : [])
 }
 
-const storedKinds = (entries: readonly Record<string, unknown>[]): ReadonlyMap<string, StoredKind> => {
-  const kinds = new Map<string, StoredKind>()
+const storedKinds = (entries: readonly Record<string, unknown>[]): Map<string, { readonly kind: StoredKind; left: number }> => {
+  const kinds = new Map<string, { readonly kind: StoredKind; left: number }>()
   for (const entry of entries) {
     const kind = entry.type === 'user' ? storedKindOf(entry) : undefined
-    if (kind) for (const text of userTexts(entry)) kinds.set(text.trim(), kind)
+    if (!kind) continue
+    for (const text of userTexts(entry)) {
+      const key = text.trim()
+      const known = kinds.get(key)
+      if (known) known.left++
+      else kinds.set(key, { kind, left: 1 })
+    }
   }
   return kinds
 }
+
+/** The stored kind of a replayed user text, used up once it is matched. */
+const takeKind = (loading: LoadReplay, text: string): StoredKind | undefined => {
+  const key = text.trim()
+  const known = loading.kinds.get(key)
+  if (!known) return undefined
+  if (--known.left === 0) loading.kinds.delete(key)
+  return known.kind
+}
+
+/** What a replay of stored history is made of: hearing any of it means the replay is the history. */
+const HISTORY_UPDATES: ReadonlySet<string> = new Set(['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update'])
 
 /**
  * A user message the adapter underneath replays, read as the bridge's own
@@ -744,9 +766,8 @@ const storedKinds = (entries: readonly Record<string, unknown>[]): ReadonlyMap<s
 const rereadReplayed = (params: SessionNotification, loading: LoadReplay): SessionNotification | null => {
   const update = params.update
   if (update.sessionUpdate !== 'user_message_chunk') return params
-  loading.heard = true
   if (update.content.type !== 'text') return params
-  const replay = classifyReplayed(update.content.text, loading.kinds.get(update.content.text.trim()))
+  const replay = classifyReplayed(update.content.text, takeKind(loading, update.content.text))
   if (replay === null) return null
   const echo = replay.kind === 'notice' && replay.echo === true
   if (echo && loading.noticed.has(replay.text)) return null
@@ -765,7 +786,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   // Sessions whose stored history the adapter underneath is replaying inside a
   // load. Its replay is the history (thoughts, tool kinds, diffs and locations
   // are its own); the bridge only re-reads the person's side of it, and
-  // replays the stored file itself only when that replay sent nothing (see
+  // replays the stored file itself only when that replay sent no part of the history (see
   // `loadSession`).
   readonly #loading = new Map<string, LoadReplay>()
   readonly #suppliedMcpServers = new Map<string, readonly string[]>()
@@ -838,6 +859,8 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     client.sessionUpdate = async (params) => {
       let next = params
       const loading = this.#loading.get(params.sessionId)
+      // Any part of the history marks the replay as the history; none of it is held back.
+      if (loading && HISTORY_UPDATES.has(params.update.sessionUpdate)) loading.heard = true
       if (loading && params.update.sessionUpdate === 'user_message_chunk') {
         const reread = rereadReplayed(params, loading)
         if (reread === null) return
@@ -948,7 +971,8 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     // load, and its replay is the richer one. Its user messages are read
     // through the same classifier as ours, so an interruption marker is a
     // notice and never merges into the next message's bubble; and ours runs
-    // only when it sent nothing, so the history is written once (#2090).
+    // only when it sent no part of the history, so the history is written
+    // once (#2090).
     const entries = storedEntries(request.sessionId)
     const loading: LoadReplay = { kinds: storedKinds(entries), noticed: new Set(), heard: false }
     this.#loading.set(request.sessionId, loading)

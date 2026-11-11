@@ -1722,6 +1722,60 @@ test('a load passes the adapter\'s replay and anything live as they came, and re
   ])
 })
 
+const loadWith = async (t: import('node:test').TestContext, id: string, entries: Record<string, unknown>[], replay: readonly SessionNotification['update'][]): Promise<string[]> => {
+  const sent: SessionNotification[] = []
+  const client = { sessionUpdate: async (params: SessionNotification) => { sent.push(params) }, requestPermission: async () => ({}) }
+  t.mock.method(ClaudeAcpAgent.prototype, 'loadSession', async function (this: ClaudeAcpAgent, params: { sessionId: string }) {
+    for (const update of replay) await this.client.sessionUpdate({ sessionId: params.sessionId, update })
+    return { sessionId: params.sessionId, configOptions: [] }
+  })
+  // The bridge has the stored file too, so a second replay would show.
+  const config = scratch('claude-config-')
+  storedSession(config, id, WORKDIR, entries)
+  const before = process.env['CLAUDE_CONFIG_DIR']
+  process.env['CLAUDE_CONFIG_DIR'] = config
+  t.after(() => { if (before === undefined) delete process.env['CLAUDE_CONFIG_DIR']; else process.env['CLAUDE_CONFIG_DIR'] = before })
+  const agent = new HarnessDeskClaudeAgent(client as never, { stateDir: scratch('claude-load-state-'), log: () => {} })
+  await agent.loadSession({ sessionId: id, cwd: WORKDIR, mcpServers: [] })
+  return sent.filter((note) => ['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update'].includes(note.update.sessionUpdate)).map((note) => {
+    const update = note.update as { sessionUpdate: string; content?: { text?: string }; title?: string; toolCallId?: string; _meta?: { harnessdesk?: { notice?: boolean } } }
+    return `${update.sessionUpdate}${update._meta?.harnessdesk?.notice ? ' (notice)' : ''}: ${update.content?.text ?? update.title ?? update.toolCallId}`
+  })
+}
+
+test('a load whose replay has no user message still writes the history once', async (t) => {
+  const shown = await loadWith(t, '3f2b0c1a-4d5e-4f60-8a71-9b2c3d4e5f93', [
+    { ...said('Caveat: only plumbing here.'), isMeta: true },
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_r1', name: 'Read', input: { file_path: 'a.ts' } }, { type: 'text', text: 'Read it.' }] } },
+  ], [
+    { sessionUpdate: 'tool_call', toolCallId: 'toolu_r1', title: 'Read a.ts', kind: 'read', status: 'pending' },
+    { sessionUpdate: 'tool_call_update', toolCallId: 'toolu_r1', status: 'completed' },
+    { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Read it.' } },
+  ])
+  assert.deepEqual(shown, ['tool_call: Read a.ts', 'tool_call_update: toolu_r1', 'agent_message_chunk: Read it.'])
+})
+
+test('a load names what Claude Code added once, keeps the person\'s same words theirs, and shows an echo once', async (t) => {
+  const added = 'Caveat: the hook said the tests are slow.'
+  const echo = '<local-command-stdout>Set model to opus</local-command-stdout>'
+  const shown = await loadWith(t, '3f2b0c1a-4d5e-4f60-8a71-9b2c3d4e5f92', [
+    { ...said('Build a game') }, { ...said(added), isMeta: true }, { ...said(added) },
+  ], [
+    { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'Build a game' } },
+    { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: added } },
+    { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: echo } },
+    { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: echo } },
+    // The person later typed the same words: theirs, not Claude Code's.
+    { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: added } },
+  ])
+  assert.deepEqual(shown, [
+    'user_message_chunk: Build a game',
+    `user_message_chunk (notice): Claude Code added: ${added}`,
+    'user_message_chunk (notice): Set model to opus',
+    `user_message_chunk: ${added}`,
+  ])
+})
+
 test('a reopened conversation interrupted before a Lead message reads once, with the Lead message whole (#2090)', async () => {
   const config = scratch('claude-config-')
   const id = '3f2b0c1a-4d5e-4f60-8a71-9b2c3d4e5f99'

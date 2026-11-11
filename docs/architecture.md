@@ -92,7 +92,7 @@ enough:
   loader's replay is the history (thoughts, tool kinds, diffs and locations are its own); the
   bridge re-reads only its user messages, so a stop marker is an Interrupted notice and what the
   person never typed is dropped or named, and replays the stored `.jsonl` itself only when the
-  loader sent no user message. Every other update during a load passes as it came.
+  loader sent no part of the history (no message, thought or tool call). Every other update during a load passes as it came.
 - **`cursor-acp`** — a real bridge onto `cursor-agent --print
   --output-format stream-json` (the npm `cursor-agent-acp` is a stub that
   ends every turn immediately). It decomposes Cursor's model catalogue into
