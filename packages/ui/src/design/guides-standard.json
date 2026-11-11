@@ -2418,7 +2418,8 @@
         "button[popover-trigger] \"Inbox\" Δ2": 1,
         "span[text] \"Alpha\" Δ1": 1,
         "span[text] \"HarnessDesk\" Δ2": 1,
-        "span[text] \"HarnessDesk\" Δ3": 1
+        "span[text] \"HarnessDesk\" Δ3": 1,
+        "span[text] \"not metered\" Δ1": 1
       },
       "overflow": {},
       "offScale": {}

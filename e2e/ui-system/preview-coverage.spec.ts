@@ -593,7 +593,7 @@ test.describe('preview coverage', () => {
       for (const component of (await collectCoverage(page)).covered) covered.add(component)
     })
 
-    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers', '?flows-page=catalogue', '?flows-page=editor', '?frame-wall=library&frame-detail=skill&frame-name=code-review', '?frame-wall=agents&frame-account-name=dialog', '?lead-synthetic=app-shell', '?lead-synthetic=result-person-gate', '?lead-synthetic=memory-proposal', '?lead-synthetic=settings-configured']).entries()) test(`coverage page 1: query ${item}`, async () => {
+    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers', '?flows-page=catalogue', '?flows-page=editor', '?frame-wall=library&frame-detail=skill&frame-name=code-review', '?frame-wall=agents&frame-account-name=dialog', '?lead-synthetic=app-shell', '?lead-synthetic=result-person-gate', '?lead-synthetic=memory-proposal', '?lead-synthetic=settings-configured', '?lead-synthetic=work-ledger']).entries()) test(`coverage page 1: query ${item}`, async () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto(`/preview.html${query}`)
       if (query === '?board-list') {
@@ -609,6 +609,8 @@ test.describe('preview coverage', () => {
       if (query === '?lead-synthetic=settings-configured') await expect(page.getByRole('combobox', { name: 'Permission mode', exact: true })).toBeVisible()
       // The Lead's offered note sits under the reply it came with, with Keep, Edit and No.
       if (query === '?lead-synthetic=memory-proposal') await expect(page.getByRole('button', { name: 'Keep', exact: true })).toBeVisible()
+      // A reply that names work carries links under it: the pull request the desk has for the work it names.
+      if (query === '?lead-synthetic=work-ledger') await expect(page.locator('[data-slot="lead-refs"]').getByRole('button', { name: 'Fix the retry status list', exact: true })).toBeVisible()
       if (query.includes('frame-detail=skill')) await expect(page.locator('[data-slot="skill-page"]')).toBeVisible()
       await settleCoveragePage(page)
       const result = await collectCoverage(page)
