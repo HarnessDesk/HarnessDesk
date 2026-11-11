@@ -29,6 +29,17 @@ export const LEAD_WORK_LIMITS = Object.freeze({
   /** An open item with no link the host can see for this long closes as stopped. */
   quietMs: 7 * 24 * 60 * 60 * 1000,
   idChars: 64,
+  /** A reminder's own words: what the person or the Lead is reminded of. */
+  reminderChars: 200,
+  /** Reminders set and not yet due, for the person and the Lead together. */
+  remindersSet: 20,
+  /** The nearest a reminder for the person may be set: a minute from when it is set. */
+  reminderGapMs: 60 * 1000,
+  /** A fired or cancelled reminder stays on the board this long, and in the file a week. */
+  reminderShownMs: 24 * 60 * 60 * 1000,
+  reminderKeptMs: 7 * 24 * 60 * 60 * 1000,
+  /** A previous attempt the host stopped this recently still counts as the same work, so a new start asks first. */
+  retryMs: 24 * 60 * 60 * 1000,
 } as const)
 
 /**
@@ -93,6 +104,11 @@ export interface LeadWorkBoard {
   readonly items: readonly LeadWorkCard[]
   /** Closed items left out of Done. */
   readonly more: number
+  /**
+   * Every reminder still set, soonest first, then the ones that fired or were cancelled in the last day, newest first.
+   * Left out when there are none.
+   */
+  readonly reminders?: readonly LeadReminder[]
 }
 export interface LeadWorkFact { readonly at: number; readonly text: string }
 export interface LeadWorkDetail extends LeadWorkCard {
@@ -158,11 +174,13 @@ const card = (source: Record<string, unknown>, path: string): LeadWorkCard => {
 }
 export const parseLeadWorkCard: Validator<LeadWorkCard> = (value, path = '') => card(only(cardFields)(value, path), path)
 export const parseLeadWorkBoard: Validator<LeadWorkBoard> = (value, path = '') => {
-  const source = only(['version', 'items', 'more'])(value, path), at = (key: string) => path ? `${path}.${key}` : key
+  const source = only(['version', 'items', 'more', 'reminders'])(value, path), at = (key: string) => path ? `${path}.${key}` : key
   if (source.version !== 1) fail(at('version'), 'unsupported work board version')
   const items = arrayOf(parseLeadWorkCard)(source.items, at('items'))
   if (items.length > LEAD_WORK_LIMITS.items) fail(at('items'), 'too many work items')
-  return { version: 1, items, more: time(source.more, at('more')) }
+  const reminders = source.reminders === undefined ? undefined : arrayOf(parseLeadReminder)(source.reminders, at('reminders'))
+  if (reminders && reminders.length > LEAD_WORK_LIMITS.remindersSet * 2) fail(at('reminders'), 'too many reminders')
+  return { version: 1, items, more: time(source.more, at('more')), ...(reminders?.length ? { reminders } : {}) }
 }
 export const parseLeadWorkDetail: Validator<LeadWorkDetail> = (value, path = '') => {
   const source = only([...cardFields, 'origin', 'timeline'])(value, path), at = (key: string) => path ? `${path}.${key}` : key
@@ -197,3 +215,74 @@ export const parseLeadWorkList: Validator<{ readonly state?: 'open' | 'all' }> =
 }
 export const parseLeadWorkRead: Validator<{ readonly id: string }> = (value, path = '') =>
   ({ id: workId(only(['id'])(value, path).id, path ? `${path}.id` : 'id') })
+
+/**
+ * A reminder as a scheduled entry the person can see and cancel. `person` reminders are ones the person asked for: when
+ * due they wake the Lead to tell the person. `lead` reminders are the Lead's own: an item's check-back, set through
+ * `lead/work/note` (`kind: 'check-back'`), or one set in a turn no person's message woke. Only `fired` means it arrived;
+ * a `set` one has not, however close its time.
+ */
+export type LeadReminderState = 'set' | 'fired' | 'cancelled'
+export interface LeadReminder {
+  /** `remind-<n>`. */
+  readonly id: string
+  /** Untrusted prose: what to remind of, at most 200 characters. */
+  readonly text: string
+  readonly for: 'person' | 'lead'
+  /** The work item it is about, when it is about one. */
+  readonly item?: string
+  readonly dueAt: number
+  readonly createdAt: number
+  readonly state: LeadReminderState
+  readonly firedAt?: number
+  readonly cancelledAt?: number
+  /** Why it ended without firing, in the host's words. */
+  readonly why?: string
+  /**
+   * `check-back` marks the one check-back an item has, set through `lead/work/note`: a new time replaces it, it is the
+   * card's `remindAt`, and its wakes count toward the item's cap. Left out for a reminder set through `lead/reminder/set`,
+   * even a `lead` one on an item.
+   */
+  readonly kind?: 'check-back'
+}
+const reminderId: Validator<string> = (value, path = '') => {
+  const out = isString(value, path)
+  return /^remind-[1-9][0-9]{0,8}$/.test(out) ? out : fail(path, 'expected a reminder id such as remind-3')
+}
+export const parseLeadReminder: Validator<LeadReminder> = (value, path = '') => {
+  const source = only(['id', 'text', 'for', 'item', 'dueAt', 'createdAt', 'state', 'firedAt', 'cancelledAt', 'why', 'kind'])(value, path)
+  const at = (key: string) => path ? `${path}.${key}` : key
+  const out: Record<string, unknown> = {
+    id: reminderId(source.id, at('id')), text: text(LEAD_WORK_LIMITS.reminderChars)(source.text, at('text')),
+    for: literalUnion('person', 'lead')(source.for, at('for')), item: optional(workId)(source.item, at('item')),
+    dueAt: time(source.dueAt, at('dueAt')), createdAt: time(source.createdAt, at('createdAt')),
+    state: literalUnion('set', 'fired', 'cancelled')(source.state, at('state')),
+    firedAt: optional(time)(source.firedAt, at('firedAt')), cancelledAt: optional(time)(source.cancelledAt, at('cancelledAt')),
+    why: optional(text(200))(source.why, at('why')), kind: optional(literalUnion('check-back'))(source.kind, at('kind')),
+  }
+  for (const key of Object.keys(out)) if (out[key] === undefined) delete out[key]
+  return out as unknown as LeadReminder
+}
+/**
+ * Wire params for `lead/reminder/set`: the Lead sets a reminder the person asked for, either `inMinutes` from now or
+ * `at` epoch milliseconds, exactly one of them.
+ */
+export interface LeadReminderSet {
+  readonly text: string; readonly at?: number; readonly inMinutes?: number; readonly item?: string
+  /** What woke the turn, added by the Lead's own dispatcher, never by the model: only `person` sets the person's reminder. */
+  readonly cause?: 'person' | 'automatic'
+}
+export const parseLeadReminderSet: Validator<LeadReminderSet> = (value, path = '') => {
+  const source = only(['text', 'at', 'inMinutes', 'item', 'cause'])(value, path), at = (key: string) => path ? `${path}.${key}` : key
+  const item = optional(workId)(source.item, at('item'))
+  const cause = optional(literalUnion('person', 'automatic'))(source.cause, at('cause'))
+  const when = optional(time)(source.at, at('at'))
+  const minutes = optional(time)(source.inMinutes, at('inMinutes'))
+  if ((when === undefined) === (minutes === undefined)) fail(path, 'expected exactly one of at or inMinutes')
+  if (minutes !== undefined && (minutes < 1 || minutes > LEAD_WORK_LIMITS.remindMs / 60_000)) fail(at('inMinutes'), 'expected 1 to 43200 minutes')
+  return { text: text(LEAD_WORK_LIMITS.reminderChars)(source.text, at('text')), ...(when === undefined ? {} : { at: when }),
+    ...(minutes === undefined ? {} : { inMinutes: minutes }), ...(item === undefined ? {} : { item }), ...(cause === undefined ? {} : { cause }) }
+}
+/** Wire params for `lead/reminder/cancel`, from the Lead, the window or the phone. */
+export const parseLeadReminderCancel: Validator<{ readonly id: string }> = (value, path = '') =>
+  ({ id: reminderId(only(['id'])(value, path).id, path ? `${path}.id` : 'id') })

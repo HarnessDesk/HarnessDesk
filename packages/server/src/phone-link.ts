@@ -89,6 +89,8 @@ export const PHONE_POLICY: PhonePolicy = {
     // propose and search stay off the phone.
     'lead/memory/view': 'read',
     'lead/memory/change': 'answer',
+    // A reminder listed on the work board: the phone cancels one, as the window does. Setting one is the Lead's.
+    'lead/reminder/cancel': 'run',
   },
   topics: { lead: 'read', workspace: 'read', notices: 'read', presence: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.

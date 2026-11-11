@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { realpath } from 'node:fs/promises'
 import test, { type TestContext } from 'node:test'
 import { createLeadJournal, leadWorkCards, type LeadJournalRecord, type LeadPermissionCall, type LeadPermissionContext, type MessagesTurn } from '@harnessdesk/lead'
-import { LEAD_WORK_GROUPS, LEAD_WORK_LIMITS } from '@harnessdesk/protocol'
+import { LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, parseLeadReminderSet } from '@harnessdesk/protocol'
 import { LeadControls } from '../src/lead/controls.js'
 import { PHONE_POLICY } from '../src/phone-link.js'
 import { evidenceDesk } from './fixtures/evidence-desk.js'
@@ -53,6 +53,7 @@ test('a duplicate chat start is refused naming the open item; ledgerItem adds th
   const problem = (again.value as { problem: string }).problem
   assert.match(problem, /work-1 "Fix the retry status list"/)
   assert.match(problem, /ledgerItem "work-1"/)
+  assert.equal((again.value as { ledgerItem?: string }).ledgerItem, 'work-1', 'the refusal returns the existing item')
   assert.equal(r.runtime.sessions.size, sessions, 'a refused duplicate starts no chat')
   assert.equal(r.journal.state.chatEffectsSinceReply.started, 1)
   const added = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the retry status list', ledgerItem: 'work-1' } })
@@ -248,3 +249,29 @@ test('host: a stop through the Lead\'s door is the Lead\'s and through the phone
   assert.equal((await byLead).outcome, 'failed', 'the person\'s stop landed first, so the Lead\'s found no turn to stop')
   assert.equal((await settle(r, both.item, stopped)).fact, 'Stopped: the person stopped its chat')
 })
+
+test('a reminder the Lead sets through its door is listed on the board the window and the phone read, and either can cancel it', async t => {
+  const r = await workRig(t)
+  assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'Ship the changelog' } })).outcome, 'succeeded')
+  const set = await r.execute({ method: 'lead/reminder/set', params: { text: 'Send the changelog to the team', inMinutes: 90, item: 'work-1', cause: 'person' } })
+  assert.equal(set.outcome, 'succeeded')
+  const entry = set.value as { id: string; dueAt: number; state: string; for: string; item?: string }
+  assert.equal(entry.id, 'remind-1'); assert.equal(entry.state, 'set'); assert.equal(entry.for, 'person'); assert.equal(entry.item, 'work-1')
+  assert.ok(Math.abs(entry.dueAt - (Date.now() + 90 * 60_000)) < 10_000)
+  const board = await r.host.call('lead/work/list', {})
+  assert.deepEqual(board.reminders?.map(found => [found.id, found.state]), [['remind-1', 'set']])
+  assert.deepEqual((await r.host.call('workspace/read', {})).work?.reminders?.map(found => found.id), ['remind-1'], 'the phone reads the same entry')
+  assert.equal(PHONE_POLICY.methods['lead/reminder/cancel'], 'run', 'the phone may cancel a reminder')
+  assert.equal(PHONE_POLICY.methods['lead/reminder/set'], undefined, 'and only the Lead sets one')
+  const unattended = await r.execute({ method: 'lead/reminder/set', params: { text: 'Follow up on the mention', inMinutes: 30 } })
+  assert.equal((unattended.value as { for: string }).for, 'lead', 'a reminder set with no person turn behind it is the Lead\'s own')
+  await r.host.call('lead/reminder/cancel', { id: (unattended.value as { id: string }).id })
+  const closed = await r.execute({ method: 'lead/reminder/set', params: { text: 'Nothing', at: Date.now() - DAY } })
+  assert.equal(closed.outcome, 'failed', 'a time that passed sets nothing')
+  const cancelled = await r.host.call('lead/reminder/cancel', { id: 'remind-1' })
+  assert.equal(cancelled.reminders?.find(found => found.id === 'remind-1')?.state, 'cancelled')
+  await assert.rejects(r.host.call('lead/reminder/cancel', { id: 'remind-1' }), /already cancelled/)
+  assert.throws(() => parseLeadReminderSet({ text: 'Both', at: Date.now() + DAY, inMinutes: 5 }), /exactly one of at or inMinutes/)
+  assert.throws(() => parseLeadReminderSet({ text: 'Never', inMinutes: 0 }), /1 to 43200/)
+})
+const DAY = 24 * 60 * 60 * 1000

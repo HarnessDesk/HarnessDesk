@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { LEAD_SCHEDULE_LIMITS, leadNoSpendLimit, parseLeadSchedule, type LeadSchedule, type LeadScheduledTask, type LeadTaskRepeat } from '@harnessdesk/protocol'
+import { LEAD_SCHEDULE_LIMITS, leadNoSpendLimit, parseLeadSchedule, type LeadReminder, type LeadSchedule, type LeadScheduledTask, type LeadTaskRepeat } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, FormStack, InlineParts, Input, NativeSelect, Row, Rows, Section, Switch, Text, Textarea } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { useStore, useSnapshot } from '../state/context'
@@ -12,8 +12,11 @@ import { leadDollars, leadSpendCap } from './LeadCards'
 const REPEATS = leadRepeatWords
 const newId = () => `task-${crypto.randomUUID()}`
 
-export const LeadScheduleSettings = ({ label, schedule, pending, save, projects = [], control, canRunNow = false, focus }: {
+export const LeadScheduleSettings = ({ label, schedule, pending, save, projects = [], control, canRunNow = false, focus, reminders = [], cancelReminder }: {
   readonly control?: (taskId: string, action: 'pause' | 'resume' | 'stop' | 'run-now') => void
+  /** Reminders still set, which fire once at their time; the person cancels one here as on the rail. */
+  readonly reminders?: readonly LeadReminder[]
+  readonly cancelReminder?: (id: string) => void
   readonly canRunNow?: boolean
   readonly focus?: string | null
   readonly projects?: readonly { readonly name: string; readonly path: string }[]
@@ -69,6 +72,9 @@ export const LeadScheduleSettings = ({ label, schedule, pending, save, projects 
             <Button variant="quiet" disabled={pending || !control} onClick={() => control?.(task.id, 'stop')}>Stop</Button>
           </InlineParts>} />}
         </Fragment>)}
+        {reminders.filter(entry => entry.state === 'set').map(entry => <Row key={entry.id} data-lead-reminder={entry.id} title={sanitizeText(entry.text)}
+          titleChip={<Chip tone="neutral">{entry.for === 'lead' ? 'Check-back' : 'Reminder'}</Chip>} desc={`Once, ${formatLeadRunTime(new Date(entry.dueAt))}`}
+          control={cancelReminder && <Button variant="quiet" disabled={pending} onClick={() => cancelReminder(entry.id)}>Cancel</Button>} />)}
         {draft ? <Row title="New task" desc={<FormStack>
           <Input aria-label="Task name" placeholder="Name" value={draft.title} maxLength={80} onChange={event => setDraft({ ...draft, title: event.target.value })} />
           <Textarea aria-label="Task goal" placeholder={`What ${label} should get done`} value={draft.goal} maxLength={2000} onChange={event => setDraft({ ...draft, goal: event.target.value })} />
@@ -83,7 +89,7 @@ export const LeadScheduleSettings = ({ label, schedule, pending, save, projects 
             put([...schedule.tasks, { id: newId(), title: draft.title.trim(), goal: draft.goal.trim(), every: draft.every, at: draft.at, enabled: true, lastRunAt: null }]); setDraft(null) }}>Add</Button>
           <Button variant="quiet" onClick={() => setDraft(null)}>Cancel</Button>
         </InlineParts>} />
-          : <Row title={schedule.tasks.length ? null : 'No scheduled tasks'} control={<Button variant="outline" disabled={pending || schedule.tasks.length >= LEAD_SCHEDULE_LIMITS.tasks}
+          : <Row title={schedule.tasks.length || reminders.some(entry => entry.state === 'set') ? null : 'No scheduled tasks'} control={<Button variant="outline" disabled={pending || schedule.tasks.length >= LEAD_SCHEDULE_LIMITS.tasks}
             onClick={() => setDraft({ title: '', goal: '', every: 'weekdays', at: '09:00' })}>Add task…</Button>} />}
       </Rows>
     </Section>
@@ -113,6 +119,8 @@ export const LeadPlanSettingsSection = ({ label, focus }: { readonly label: stri
       if (!cancelled) setSchedule(parseLeadSchedule(schedule))
     }).catch(() => { /* A host without these files shows no section; the rest of Settings › Lead stands. */ })
     refresh()
+    // Reminders live on the work board, which pushes its own changes once read.
+    void store.lead.readWork().catch(() => {})
     // A skipped slot changes only the schedule file, so no thread notification accompanies it.
     const timer = setInterval(refresh, 30000)
     return () => { cancelled = true; clearInterval(timer) }
@@ -126,6 +134,7 @@ export const LeadPlanSettingsSection = ({ label, focus }: { readonly label: stri
     {schedule && <LeadScheduleSettings projects={snapshot.workspaces.filter(project => !!project.repo || !!project.git)} label={label} schedule={schedule} pending={pending}
       focus={focus} canRunNow={!!lead.thread && ['draft', 'accepted', 'declined', 'stopped'].includes(lead.thread.state) && !lead.requestInFlight && !lead.progress}
       control={(taskId, action) => run(() => store.lead.controlRepeat(taskId, action), value => setSchedule(parseLeadSchedule(value)))}
+      reminders={lead.work?.reminders ?? []} cancelReminder={id => run(() => store.lead.cancelReminder(id), () => {})}
       save={next => run(() => store.lead.updateSchedule(next), value => setSchedule(parseLeadSchedule(value)))} />}
   </>
 }

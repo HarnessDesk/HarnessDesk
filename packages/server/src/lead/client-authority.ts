@@ -81,6 +81,8 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
         if (request.method === 'lead/memory/propose' || request.method === 'lead/memory/search') return null
         // How full its own conversation is: a figure, with no summary text.
         if (request.method === 'lead/context/use') return null
+        // A reminder is an entry on the same work board, which the person sees and can cancel; it starts nothing.
+        if (request.method === 'lead/reminder/set' || request.method === 'lead/reminder/cancel') return null
         // Re-resolve the pinned location, including on reads, rather than allowing
         // a renamed/deleted project to be replaced by a new alias at dispatch.
         // The three desk-wide reads above deliberately return before this project check.
