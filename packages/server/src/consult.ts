@@ -27,6 +27,9 @@ export const ASK_INPUT_BYTES = 16 * 1024
 export const ASK_ANSWER_BYTES = 32 * 1024
 export const ASK_TRUNCATED_MARK = '\n\n[answer truncated at 32 KiB]'
 
+/** The most one cleanup step — a meter's last read, the link, the discard — may take once an ask has ended. */
+export const CONSULT_CLEANUP_MS = 10_000
+
 export const CONSULT_PROMPT =
   'You are being consulted by another agent. Answer the question below. You may read files in this checkout; you cannot change anything or ask anyone else. Reply with your answer only.'
 
@@ -64,9 +67,13 @@ export interface ConsultPort {
   /** The trigger gate by Goal; ok for a Goal no trigger opened. */
   beforeDispatch(goal: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly detail: string }>
   runtime(id: string): RuntimeInfo | null
-  /** Opens the consult hidden, ephemeral and asking for the read ceiling, in the caller's checkout. */
+  /**
+   * Opens the consult hidden, ephemeral and asking for the read ceiling, in
+   * the caller's checkout. The plane stops waiting when the ask's deadline
+   * passes; a conversation that comes back after that is discarded.
+   */
   open(agent: FlowSeat, where: { readonly cwd: string; readonly project: string | null }): Promise<OpenedConsult>
-  /** Whether the runtime now holds the read ceiling — read back, never assumed. */
+  /** Whether the runtime now holds the read ceiling — read back, never assumed. Bounded by the deadline too. */
   holdRead(consult: OpenedConsult): Promise<boolean>
   /**
    * Sends the question as the desk's own notice and settles with the turn
@@ -77,7 +84,17 @@ export interface ConsultPort {
   discard(consult: OpenedConsult): Promise<string | null>
   /** Meters the consult on the caller's trigger Goal; answers the meter key, or null when the Goal is not metered. */
   metered(caller: SeatRecord, consult: OpenedConsult & { readonly n: number }): Promise<string | null>
-  meteredEnd(goal: string, meter: string, turn: { readonly started: number; readonly ended: number }): Promise<void>
+  /** The consult's one turn is about to be sent: recorded before it is, so the meter never reads a working consult as idle. */
+  meteredStart(goal: string, meter: string, started: number): Promise<void>
+  /**
+   * The ask ended: the consult's usage is captured from the live
+   * conversation and priced before it is discarded — a deleted conversation
+   * cannot be read. Usage that cannot be known leaves the meter unknown,
+   * which refuses the Goal's next dispatch and ask.
+   */
+  meteredEnd(goal: string, meter: string, consult: OpenedConsult, ended: number): Promise<void>
+  /** Records that this consult was the caller's Seat asking, so what it spent is the caller's in Insight. */
+  link(seat: string, consult: OpenedConsult, closedAt: number): Promise<void>
   audit(entry: {
     readonly runtime: string
     readonly sessionId: string
@@ -130,6 +147,43 @@ export class ConsultPlane implements AgentsEngine {
   readonly #byRun = new Map<string, Set<AbortController>>()
 
   constructor(private readonly port: ConsultPort) {}
+
+  /** Waits for a step only until the ask's deadline or cancel: an abort rejects at once with its reason. */
+  #within<T>(signal: AbortSignal, work: Promise<T>): Promise<T> {
+    if (signal.aborted) return Promise.reject(signal.reason)
+    return new Promise<T>((resolve, reject) => {
+      const stop = (): void => { reject(signal.reason) }
+      signal.addEventListener('abort', stop, { once: true })
+      work.then(
+        (value) => { signal.removeEventListener('abort', stop); resolve(value) },
+        (error: unknown) => { signal.removeEventListener('abort', stop); reject(error) },
+      )
+    })
+  }
+
+  /** One cleanup step, bounded: what fails or outlasts `CONSULT_CLEANUP_MS` is logged, and the ask's line goes on. */
+  async #bounded<T>(step: string, work: Promise<T>): Promise<T | undefined> {
+    let timer: unknown = null
+    const late = new Promise<undefined>((resolve) => {
+      timer = this.port.setTimer(() => {
+        this.port.log(`a consult’s ${step} did not finish in time`, { ms: CONSULT_CLEANUP_MS })
+        resolve(undefined)
+      }, CONSULT_CLEANUP_MS)
+    })
+    try {
+      return await Promise.race([work, late])
+    } catch (error) {
+      this.port.log(`a consult’s ${step} failed`, { error: String(error) })
+      return undefined
+    } finally {
+      this.port.clearTimer(timer)
+    }
+  }
+
+  async #discard(consult: OpenedConsult): Promise<void> {
+    const left = await this.#bounded('discard', this.port.discard(consult).catch((error: unknown) => `could not be discarded: ${String(error)}`))
+    if (left === undefined || left) this.port.log('a consult conversation was not deleted', { runtime: consult.runtime, session: consult.sessionId, left: left ?? 'did not finish in time' })
+  }
 
   ask(input: AskInput, scope: AgentsScope): Promise<AskAnswer> {
     const runtime = scope.runtime ?? ''
@@ -202,33 +256,28 @@ export class ConsultPlane implements AgentsEngine {
 
     let outcome = 'failed'
     let bytesOut = 0
+    let opening: Promise<OpenedConsult> | null = null
     let consult: OpenedConsult | null = null
+    let meter: Promise<string | null> | null = null
     try {
       if (controller.signal.aborted) throw controller.signal.reason
-      // 6. Open, hidden and read-only, in the caller's checkout.
+      // 6. Open, hidden and read-only, in the caller's checkout — waited for only until the deadline.
       // The role's own seat for that agent: its model and effort, when it names them.
       const spec = seat.ask.seats.find((one) => one.runtime === input.agent) ?? { runtime: input.agent }
-      consult = await this.port.open(spec, { cwd: caller.cwd, project: caller.project })
-      if (controller.signal.aborted) throw controller.signal.reason
-      if (!await this.port.holdRead(consult)) {
+      opening = this.port.open(spec, { cwd: caller.cwd, project: caller.project })
+      consult = await this.#within(controller.signal, opening)
+      if (!await this.#within(controller.signal, this.port.holdRead(consult))) {
         throw refused('askNoReadCeiling', `${target.presentation.name} cannot be held read-only here, so it is not asked.`)
       }
       // Counted against the caller's run: the consult's usage is metered on the caller's Goal.
       const callerSeat = this.port.seat(seat.seat)
-      const meter = callerSeat && seat.trigger ? await this.port.metered(callerSeat, { ...consult, n }) : null
+      meter = callerSeat && seat.trigger ? this.port.metered(callerSeat, { ...consult, n }) : null
+      const key = meter ? await this.#within(controller.signal, meter) : null
+      // The turn's start is on the meter before the question goes.
+      if (key) await this.#within(controller.signal, this.port.meteredStart(seat.goal, key, this.port.now()))
       // 8. Ask, and wait for the one turn.
       const text = [CONSULT_PROMPT, input.question, ...(input.context ? [input.context] : [])].join('\n\n')
-      const turnStarted = this.port.now()
-      let turn: Turn
-      try {
-        turn = await this.port.ask(consult, text, controller.signal)
-      } finally {
-        if (meter) {
-          await this.port.meteredEnd(seat.goal, meter, { started: turnStarted, ended: this.port.now() }).catch((error: unknown) => {
-            this.port.log('a consult’s usage could not be metered', { error: String(error) })
-          })
-        }
-      }
+      const turn = await this.port.ask(consult, text, controller.signal)
       if (turn.status === 'failed') {
         throw refused('askFailed', `${target.presentation.name} could not answer: ${turn.error?.message ?? 'its turn failed'}.`)
       }
@@ -248,10 +297,16 @@ export class ConsultPlane implements AgentsEngine {
       scope.signal?.removeEventListener('abort', withdraw)
       live.delete(controller)
       if (live.size === 0) this.#byRun.delete(seat.run)
-      // 9. Discard, always.
+      // 9. Metered from the live conversation, linked to the caller, then discarded — each step bounded.
       if (consult) {
-        const left = await this.port.discard(consult).catch((error: unknown) => `could not be discarded: ${String(error)}`)
-        if (left) this.port.log('a consult conversation was not deleted', { runtime: consult.runtime, session: consult.sessionId, left })
+        const ended = this.port.now()
+        const key = meter ? await this.#bounded('meter', meter) : null
+        if (key) await this.#bounded('usage', this.port.meteredEnd(seat.goal, key, consult, ended))
+        await this.#bounded('link', this.port.link(seat.seat, consult, ended))
+        await this.#discard(consult)
+      } else if (opening) {
+        // The deadline or a cancel ended the wait for it: a conversation that comes back later is discarded then.
+        void opening.then((late) => this.#discard(late), () => undefined)
       }
       this.port.audit({ runtime, sessionId, agent: input.agent, outcome, bytesIn, bytesOut, durationMs: this.port.now() - startedAt })
     }

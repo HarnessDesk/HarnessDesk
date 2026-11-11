@@ -2513,6 +2513,7 @@ export class Host {
       ledger: () => this.#ledgerService,
       goals: this.#goals,
       seats: () => this.#evidence.seats.all(),
+      consults: () => this.#evidence.seats.consults(),
       seating: this.#machineSeating,
     })
     this.#provenance = new ProvenancePlane({
@@ -7334,7 +7335,9 @@ export class Host {
         }
       },
       metered: (caller, consult) => this.#intake.consulted(caller, consult),
-      meteredEnd: (goal, meter, turn) => this.#intake.consultEnded(goal, meter, turn),
+      meteredStart: (goal, meter, started) => this.#intake.consultStarted(goal, meter, started),
+      meteredEnd: (goal, meter, consult, ended) => this.#intake.consultEnded(goal, meter, ended, this.#consultUsage(consult, ended)),
+      link: (seat, consult, closedAt) => this.#evidence.seats.consulted({ seat, runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt, closedAt }),
       audit: (entry) => this.#audit.append({
         at: Date.now(), runtime: runtimeId(entry.runtime), sessionId: entry.sessionId, kind: 'consult',
         agent: entry.agent, outcome: entry.outcome, bytesIn: entry.bytesIn, bytesOut: entry.bytesOut, durationMs: entry.durationMs,
@@ -7345,6 +7348,38 @@ export class Host {
       clearTimer: (timer) => this.options.consultTimers ? this.options.consultTimers.clearTimer(timer) : clearTimeout(timer as NodeJS.Timeout),
     })
     return this.#consult
+  }
+
+  /**
+   * What a consult spent, as its live conversation reports it, read before
+   * it is discarded: an ephemeral conversation may leave nothing on disk.
+   * The runtime's own dollar figure when it gives one; else its tokens at
+   * the model's list price, an estimate; else a sample with no dollars,
+   * which the meter reads as unknown. Null when it reported no usage at all.
+   */
+  #consultUsage(consult: OpenedConsult, ended: number): UsageSample | null {
+    const record = this.registry.get(runtimeId(consult.runtime), makeSessionId(consult.sessionId))
+    const usage = record?.session.usage
+    if (!record || !usage) return null
+    const id = `consult:${consult.runtime}:${consult.sessionId}`
+    const total = usage.total
+    const exact = (value: number): { readonly value: number; readonly quality: 'exact' } => ({ value: Math.max(0, value), quality: 'exact' })
+    const cacheWrite = total.cacheWriteTokens
+    const dollars = usage.cost && usage.cost.currency === 'USD' && Number.isFinite(usage.cost.amount) && usage.cost.amount >= 0 ? usage.cost.amount : null
+    const sample: UsageSample = {
+      key: id,
+      source: { id, runtime: consult.runtime, kind: 'transcript', label: 'Consult', observedAt: ended, checkedAt: ended, stale: false, problem: null },
+      runtime: consult.runtime, sessionId: consult.sessionId, turnId: null, requestId: null, project: null,
+      model: record.session.settings?.model ?? null, from: consult.openedAt, to: ended, scope: 'session', includesChildren: null,
+      input: exact(total.inputTokens - total.cachedInputTokens - (cacheWrite ?? 0)),
+      output: exact(total.outputTokens),
+      cacheRead: exact(total.cachedInputTokens),
+      // A runtime that does not report cache writes is priced as writing none: an estimate either way.
+      cacheWrite: cacheWrite === undefined ? { value: 0, quality: 'estimate' } : exact(cacheWrite),
+      usd: dollars === null ? { value: null, quality: 'unknown' } : { value: dollars, quality: 'exact' },
+      moneyBasis: dollars === null ? 'unknown' : 'vendorMetered',
+    }
+    return dollars === null ? this.#ledgerService.price(sample) : sample
   }
 
   /**
@@ -7881,8 +7916,14 @@ export class Host {
     return this.registry.get(runtimeId(at.runtime), makeSessionId(at.sessionId)) ? at : null
   }
 
-  /** The Agent or live-flow ceiling governing this conversation. */
+  /**
+   * The Agent or live-flow ceiling governing this conversation. A consult is
+   * held at read by the desk itself for its whole life, whatever its
+   * adapter's settings say: it has no Agent and no Flow seat, and a helper it
+   * delegates to resolves to it as its root.
+   */
   #ceilingOf(runtime: string, sessionId: string): SeatCeiling | null {
+    if (this.#hiddenConsult(sessionKey(runtimeId(runtime), makeSessionId(sessionId)))) return { level: 'read', hold: 'held' }
     const seated = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.seatedAs?.ceiling
     if (seated) return seated
     const flowSeat = this.#flows.seatOf(runtime, sessionId)

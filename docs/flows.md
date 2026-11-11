@@ -662,13 +662,20 @@ roles:
 
 The desk opens the asked agent in a conversation no window, Team or search
 shows, in the caller's checkout, ephemeral where the agent can be, and held at
-the `read` ceiling — read back, never assumed. It sends the question, takes
+the `read` ceiling — read back, never assumed — for the consult's whole life,
+desk tools it calls included. It sends the question, takes
 the one turn's last message as the answer (control characters stripped, cut
 at 32 KiB with a marker), and deletes the conversation. Any approval the
 asked agent raises is declined by the desk. The asked agent is never offered
 `ask_agent` itself, so asking is one level deep. Its usage counts against the
 caller's run: on a trigger's Goal it is metered as `<seat>/ask/<n>` on that
-Goal's budget, and a Goal at its cap refuses the ask.
+Goal's budget, and a Goal at its cap refuses the ask. The usage is read from
+the live conversation before it is deleted; an agent that reported none
+leaves the Goal's spend unknown, and the next ask is refused with that
+reason. Insight counts the consult under the seat that asked. The deadline
+bounds every step — opening, the read hold, metering and the answer — and
+cleanup has a bound of its own, so a consult that opens after its ask gave up
+is deleted rather than kept.
 
 Only an agent whose adapter reports a read ceiling can be asked; any other is
 refused by name when asked. Whether each agent's read mode really prevents

@@ -63,7 +63,9 @@ const rig = (): Rig => {
     }),
     discard: async () => { calls.push('discard'); return null },
     metered: async (_caller, consult) => { calls.push(`metered:${consult.n}`); return `seat-1/ask/${consult.n}` },
+    meteredStart: async (_goal, meter) => { calls.push(`meteredStart:${meter}`) },
     meteredEnd: async (_goal, meter) => { calls.push(`meteredEnd:${meter}`) },
+    link: async (seat) => { calls.push(`link:${seat}`) },
     audit: (entry) => { audit.push(entry) },
     log: () => {},
     now: () => 0,
@@ -80,7 +82,7 @@ test('an allowed seat asks once: open, hold read, ask, discard — and the answe
   const r = rig()
   const answer = await r.plane.ask({ agent: 'b', question: 'What is 2+2?', context: 'Arithmetic.' }, scope)
   assert.deepEqual(answer, { text: '4', agentName: 'Agent B', truncated: false })
-  assert.deepEqual(r.calls, ['spend:1', 'open:b:/work/checkout', 'hold', 'ask:What is 2+2?', 'discard'])
+  assert.deepEqual(r.calls, ['spend:1', 'open:b:/work/checkout', 'hold', 'ask:What is 2+2?', 'link:seat-1', 'discard'])
   assert.equal(r.audit.length, 1)
   assert.deepEqual({ ...r.audit[0], durationMs: 0 }, { runtime: 'a', sessionId: 'caller-1', agent: 'b', outcome: 'answered', bytesIn: 23, bytesOut: 1, durationMs: 0 })
 })
@@ -115,7 +117,53 @@ test('money: a trigger’s Goal at its cap refuses with askBudget; under it, the
   r.budget = { ok: true }
   await r.plane.ask({ agent: 'b', question: 'q', context: null }, scope)
   assert.ok(r.calls.includes('metered:1'))
-  assert.ok(r.calls.includes('meteredEnd:seat-1/ask/1'))
+  // The turn's start is on the meter before the question is sent, and its end after the turn.
+  const at = (call: string): number => r.calls.findIndex((one) => one.startsWith(call))
+  assert.ok(at('meteredStart:seat-1/ask/1') > at('metered:1') && at('meteredStart:seat-1/ask/1') < at('ask:'), r.calls.join(', '))
+  assert.ok(at('meteredEnd:seat-1/ask/1') > at('ask:') && at('meteredEnd:seat-1/ask/1') < at('discard'), r.calls.join(', '))
+})
+
+test('the deadline bounds the open: the timer fires while opening is held — askTimeout at once, and the late conversation is discarded', async () => {
+  const r = rig()
+  let opened!: (consult: OpenedConsult) => void
+  ;(r.port as { open: ConsultPort['open'] }).open = (agent) => {
+    r.calls.push(`open:${agent.runtime}`)
+    return new Promise((resolve) => { opened = resolve })
+  }
+  const asking = r.plane.ask({ agent: 'b', question: 'q', context: null }, scope)
+  while (!r.calls.some((one) => one.startsWith('open'))) await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(r.timers.size, 1)
+  for (const fire of r.timers.values()) fire()
+  await assert.rejects(asking, code('askTimeout'))
+  assert.deepEqual(r.calls, ['spend:1', 'open:b'], 'nothing was asked, held or discarded yet')
+  assert.equal(r.audit[0]!['outcome'], 'askTimeout')
+  opened({ runtime: 'b', sessionId: 'consult-late', openedAt: 0 })
+  while (!r.calls.includes('discard')) await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(r.calls, ['spend:1', 'open:b', 'discard'], 'the conversation that came back late is discarded, never asked')
+})
+
+test('the deadline bounds the hold and the meter; cleanup is bounded too: a discard that never ends is logged, and the ask still ends', async () => {
+  const r = rig()
+  r.seat = { ...r.seat!, trigger: true }
+  const logged: string[] = []
+  ;(r.port as { log: ConsultPort['log'] }).log = (message) => { logged.push(message) }
+  ;(r.port as { holdRead: ConsultPort['holdRead'] }).holdRead = () => { r.calls.push('hold'); return new Promise<boolean>(() => {}) }
+  ;(r.port as { discard: ConsultPort['discard'] }).discard = () => { r.calls.push('discard'); return new Promise<string | null>(() => {}) }
+  const asking = r.plane.ask({ agent: 'b', question: 'q', context: null }, scope)
+  while (!r.calls.includes('hold')) await new Promise((resolve) => setImmediate(resolve))
+  const [deadline] = [...r.timers.values()]
+  deadline!()
+  // Cleanup runs under its own timer: fire each one as it is set until the ask ends.
+  let ended = false
+  void asking.catch(() => undefined).finally(() => { ended = true })
+  while (!ended) {
+    await new Promise((resolve) => setImmediate(resolve))
+    for (const fire of [...r.timers.values()]) fire()
+  }
+  await assert.rejects(asking, code('askTimeout'))
+  assert.ok(r.calls.includes('discard'))
+  assert.ok(logged.some((one) => /discard did not finish in time/.test(one)), logged.join(' | '))
+  assert.equal(r.timers.size, 0, 'every timer is cleared')
 })
 
 test('sizes: an empty question, a 17 KiB question or context — askTooLarge, and nothing opens', async () => {
@@ -141,7 +189,7 @@ test('a read ceiling the runtime does not hold refuses, and the consult is still
   const r = rig()
   r.held = false
   await assert.rejects(r.plane.ask({ agent: 'b', question: 'q', context: null }, scope), code('askNoReadCeiling'))
-  assert.deepEqual(r.calls, ['spend:1', 'open:b:/work/checkout', 'hold', 'discard'])
+  assert.deepEqual(r.calls, ['spend:1', 'open:b:/work/checkout', 'hold', 'link:seat-1', 'discard'])
   assert.equal(r.audit[0]!['outcome'], 'askNoReadCeiling')
 })
 

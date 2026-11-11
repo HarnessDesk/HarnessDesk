@@ -85,6 +85,26 @@ const code = (expected: string) => (error: unknown): boolean => (error as { wire
 const mentions = (seen: readonly WireNotification[], runtime: string, sessionId: string): WireNotification[] =>
   seen.filter((notification) => JSON.stringify(notification).includes(`"${sessionId}"`) && JSON.stringify(notification).includes(`"${runtime}"`))
 
+interface SeatLine {
+  readonly type: string
+  readonly record?: { readonly id: string; readonly session: { readonly sessionId: string } }
+  readonly consult?: { readonly seat: string; readonly runtime: string; readonly sessionId: string }
+}
+
+/** Every line of every project's Seat file under the desk's state. */
+const seatLines = async (dir: string): Promise<SeatLine[]> => {
+  const out: SeatLine[] = []
+  const walk = async (at: string): Promise<void> => {
+    for (const entry of await readdir(at, { withFileTypes: true }).catch(() => [])) {
+      const path = join(at, entry.name)
+      if (entry.isDirectory()) await walk(path)
+      else if (entry.name === 'seats.ndjson') out.push(...(await readFile(path, 'utf8')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as SeatLine))
+    }
+  }
+  await walk(dir)
+  return out
+}
+
 test('a seat whose role may ask gets one answer from a hidden, read-only, ephemeral consult in its own checkout', E2E, async (t) => {
   const a = await asking(t)
   answerWith(a.holds, '4')
@@ -112,6 +132,12 @@ test('a seat whose role may ask gets one answer from a hidden, read-only, epheme
   assert.equal(a.d.host.registry.get('holdfake' as never, consult.id), undefined, 'discarded once it answered')
   assert.deepEqual(mentions(a.seen, 'holdfake', String(consult.id)), [], 'no window heard anything of the consult')
   assert.equal(listed.some((row) => row.id === consult.id), false, 'session/list never lists it')
+
+  // Whose the consult was is written beside the caller's Seat, so Insight folds what it spent into that Seat.
+  const lines = await seatLines(a.d.stateDir)
+  const callerSeat = lines.find((line) => line.type === 'seat' && line.record?.session.sessionId === a.caller.sessionId)?.record?.id
+  assert.deepEqual(lines.filter((line) => line.type === 'seat-consult').map((line) => [line.consult?.seat, line.consult?.runtime, line.consult?.sessionId]),
+    [[callerSeat, 'holdfake', String(consult.id)]])
 
   const audit = await a.d.host.call('audit/query', {}) as readonly { kind: string; agent?: string; outcome?: string; bytesOut?: number }[]
   const line = audit.find((entry) => entry.kind === 'consult')
@@ -160,6 +186,23 @@ test('the gate, allowed: the seat is offered ask_agent; another agent is refused
   assert.deepEqual(withheld, ['ask_agent'], 'and is not offered the tool')
 })
 
+test('the desk holds a consult at read for its whole life: a desk tool that edits is refused, a read is not', E2E, async (t) => {
+  const a = await asking(t)
+  const admissions: { tool: string; admitted: boolean }[] = []
+  a.holds.onSend = (session) => {
+    void (async () => {
+      const scope = { runtime: 'holdfake' as never, sessionId: session.id }
+      for (const [tool, needs] of [['run_tests', 'edit'], ['board_read', 'read']] as const) {
+        const { admitted } = await a.d.host.ceilingGate.admit({ startedAt: Date.now(), tool, args: undefined, needs, scope, quiet: true })
+        admissions.push({ tool, admitted })
+      }
+      ;(session as HoldSession).finish('4')
+    })()
+  }
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'q', context: null }, a.caller)
+  assert.deepEqual(admissions, [{ tool: 'run_tests', admitted: false }, { tool: 'board_read', admitted: true }])
+})
+
 test('a runtime that does not hold the read ceiling is refused, and its conversation is discarded', E2E, async (t) => {
   const a = await asking(t)
   a.holds.habit = 'settlesElsewhere'
@@ -186,6 +229,27 @@ test('the timeout: an agent that never answers is askTimeout after the role’s 
   timers[0]!.fire()
   await assert.rejects(pending, code('askTimeout'))
   assert.equal(a.d.host.registry.get('holdfake' as never, a.holds.held[0]!.id), undefined)
+})
+
+test('the deadline bounds the open: the timer fires while the agent is still opening — askTimeout then, and the late conversation is discarded unseen', E2E, async (t) => {
+  const a = await asking(t)
+  let open!: () => void
+  a.holds.createGate = new Promise<void>((resolve) => { open = resolve })
+  let sent = false
+  a.holds.onSend = () => { sent = true }
+  const pending = a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'q', context: null }, a.caller)
+  await whenChanged(a.d, () => (a.holds.createOptions.length > 0 ? true : null), 'the consult is opening')
+  const timers = [...a.timers.live.values()]
+  assert.deepEqual(timers.map((one) => one.ms), [30_000])
+  timers[0]!.fire()
+  await assert.rejects(pending, code('askTimeout'))
+  assert.equal(a.holds.held.length, 0, 'the ask ended while the agent was still opening')
+  open()
+  await whenChanged(a.d, () => (a.holds.held.length === 1 ? true : null), 'the late conversation came back')
+  const late = a.holds.held[0]!
+  await whenChanged(a.d, () => (a.d.host.registry.get('holdfake' as never, late.id) === undefined ? true : null), 'the late conversation is discarded')
+  assert.equal(sent, false, 'it was never asked')
+  assert.deepEqual(mentions(a.seen, 'holdfake', String(late.id)), [], 'no window heard of it')
 })
 
 test('approvals inside a consult are declined by the desk, never shown, and the ask still answers', E2E, async (t) => {
@@ -233,7 +297,8 @@ const storedRun = async (dir: string, run: string): Promise<unknown> => {
   throw new Error(`no stored run ${run} under ${dir}`)
 }
 
-test('on a trigger’s Goal the consult is metered against the caller’s run, as its own window on the caller’s Goal', E2E, async (t) => {
+/** A trigger Goal whose reviewer Seat may ask `fake` this many times, at work. */
+const triggerSeat = async (t: TestContext, times = 1): Promise<{ d: Awaited<ReturnType<typeof intakeDesk>>; goal: string; caller: { runtime: string; sessionId: string } }> => {
   const repo = await makeRepo('hd-consult-trigger-')
   await commitTriggers(repo, `- id: triage
   on: issue
@@ -244,7 +309,7 @@ test('on a trigger’s Goal the consult is metered against the caller’s run, a
   await writeFile(join(repo.dir, '.harnessdesk', 'flows', 'review-pr.yml'), `version: 2
 name: Review a pull request
 roles:
-  reviewer: { kind: agent, uses: reviewer, grant: read, ask: { seats: [fake], times: 1 } }
+  reviewer: { kind: agent, uses: reviewer, grant: read, ask: { seats: [fake], times: ${times} } }
 seed: { role: reviewer, title: Review it }
 rules: []
 `)
@@ -266,12 +331,51 @@ rules: []
     const view = await d.host.call('goal/read', { goal }) as GoalView
     return view.board.intents.find((one: Intent) => one.state === 'claimed' && one.claim) ?? null
   }, 'its Seat at work')
+  return { d, goal, caller: { runtime: card.claim!.runtime, sessionId: card.claim!.sessionId } }
+}
+
+/** The consult's meter on the Goal, `${seat}/ask/${n}`. */
+const askMeter = (d: Awaited<ReturnType<typeof intakeDesk>>, goal: string, n = 1) =>
+  Object.entries(d.host.intakePlane.journal.read().budgets[goal]!.meters).find(([key]) => key.endsWith(`/ask/${n}`))?.[1] ?? null
+
+const USAGE = (usd: number | null) => ({
+  total: { totalTokens: 1500, inputTokens: 1200, cachedInputTokens: 200, outputTokens: 300, reasoningOutputTokens: 0 },
+  last: { totalTokens: 1500, inputTokens: 1200, cachedInputTokens: 200, outputTokens: 300, reasoningOutputTokens: 0 },
+  ...(usd === null ? {} : { cost: { amount: usd, currency: 'USD' } }),
+})
+
+test('on a trigger’s Goal the consult is metered against the caller’s run, as its own window on the caller’s Goal', E2E, async (t) => {
+  const { d, goal, caller } = await triggerSeat(t)
   d.runtime.onSend = (session, text) => { if (text.includes(CONSULT_PROMPT)) setImmediate(() => (session as HoldSession).finish('4')) }
-  const caller = { runtime: card.claim!.runtime, sessionId: card.claim!.sessionId }
   assert.deepEqual(d.host.withheldTools(caller), [], 'the trigger Seat whose role may ask is offered the tool')
   const answer = await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
   assert.equal(answer.text, '4')
   const meters = Object.keys(d.host.intakePlane.journal.read().budgets[goal]!.meters)
   assert.ok(meters.some((key) => key.endsWith('/ask/1')), `a meter for the consult on the caller’s Goal: ${meters.join(', ')}`)
   assert.equal(d.pushed.some((one) => one.method === 'event' && one.params.event.type === 'session/started' && one.params.event.session.title === 'Consult'), false)
+})
+
+test('a consult’s usage is read from the live conversation before it is discarded, and its turn is on the meter before the question goes', E2E, async (t) => {
+  const { d, goal, caller } = await triggerSeat(t)
+  let startedBeforeAnswer: number | null = null
+  d.runtime.onSend = (session, text) => {
+    if (!text.includes(CONSULT_PROMPT)) return
+    startedBeforeAnswer = askMeter(d, goal)?.turnStartedAt ?? null
+    d.runtime.emit({ type: 'usage/updated', sessionId: session.id, usage: USAGE(0.42) })
+    setImmediate(() => (session as HoldSession).finish('4'))
+  }
+  await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
+  assert.notEqual(startedBeforeAnswer, null, 'the turn’s start was recorded before the consult was asked')
+  const meter = askMeter(d, goal)!
+  assert.deepEqual({ unknown: meter.unknown, scope: meter.scope, provenance: meter.provenance, lastMicros: meter.lastMicros },
+    { unknown: null, scope: 'session', provenance: 'vendorMetered', lastMicros: 420_000 }, 'the consult’s own 0.42 USD, not zero')
+})
+
+test('a consult that reported no usage is unknown, never zero, and the Goal’s next ask is refused with why', E2E, async (t) => {
+  const { d, goal, caller } = await triggerSeat(t, 2)
+  d.runtime.onSend = (session, text) => { if (text.includes(CONSULT_PROMPT)) setImmediate(() => (session as HoldSession).finish('4')) }
+  await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
+  assert.match(askMeter(d, goal)?.unknown ?? '', /reported no usage/)
+  await assert.rejects(d.host.consultPlane.ask({ agent: 'fake', question: 'And 3+3?', context: null }, caller),
+    (error: Error) => code('askBudget')(error) && /Spend is unknown/.test(error.message) && /reported no usage/.test(error.message))
 })

@@ -77,10 +77,25 @@ export interface SeatClosing {
   readonly why: string
 }
 
+/**
+ * A consult a Seat opened with `ask_agent`: the other agent's conversation
+ * and the window it lived in. What that conversation spent is the asking
+ * Seat's, so Insight folds it into that Seat's row; the consult is never a
+ * Seat of its own.
+ */
+export interface SeatConsult {
+  readonly seat: string
+  readonly runtime: string
+  readonly sessionId: string
+  readonly openedAt: number
+  readonly closedAt: number
+}
+
 /** One line of a store, as this build reads it. */
 export type StoredLine =
   | { readonly type: 'seat'; readonly record: SeatOpening }
   | { readonly type: 'seat-closed'; readonly closing: SeatClosing }
+  | { readonly type: 'seat-consult'; readonly consult: SeatConsult }
   | { readonly type: 'evidence'; readonly record: EvidenceRecord }
 
 /** A new record's id. */
@@ -179,6 +194,12 @@ export const seatOpeningOf = (value: unknown): SeatOpening | null => {
 export const seatClosingOf = (value: unknown): SeatClosing | null =>
   isRecord(value) && isId(value['seat']) && isTime(value['at']) && isFilled(value['why'])
     ? (value as unknown as SeatClosing)
+    : null
+
+export const seatConsultOf = (value: unknown): SeatConsult | null =>
+  isRecord(value) && isId(value['seat']) && isId(value['runtime']) && isId(value['sessionId']) &&
+  isTime(value['openedAt']) && isTime(value['closedAt']) && (value['closedAt'] as number) >= (value['openedAt'] as number)
+    ? { seat: value['seat'] as string, runtime: value['runtime'] as string, sessionId: value['sessionId'] as string, openedAt: value['openedAt'] as number, closedAt: value['closedAt'] as number }
     : null
 
 const CHECK_STATES = new Set(['pending', 'passed', 'failed', 'skipped', 'cancelled'])
@@ -427,6 +448,11 @@ export const lineOf = (value: unknown, where: LineWhere): StoredLine | null => {
       const closing = seatClosingOf(value['closing'])
       return closing ? { type: 'seat-closed', closing } : null
     }
+    case 'seat-consult': {
+      if (where.file !== 'seats') return null
+      const consult = seatConsultOf(value['consult'])
+      return consult ? { type: 'seat-consult', consult } : null
+    }
     case 'evidence': {
       if (where.file !== 'evidence') return null
       const record = evidenceRecordOf(value['record'])
@@ -442,7 +468,9 @@ export const lineText = (line: StoredLine): string => `${JSON.stringify({ v: LIN
 
 /** The id a stored line is known by, for a restore that must not write one twice. */
 export const idOfLine = (line: StoredLine): string =>
-  line.type === 'seat-closed' ? `closed:${line.closing.seat}` : line.record.id
+  line.type === 'seat-closed' ? `closed:${line.closing.seat}`
+    : line.type === 'seat-consult' ? `consult:${line.consult.runtime}:${line.consult.sessionId}`
+      : line.record.id
 
 /**
  * Every Seat, with how it ended. A second closing of the same seat changes

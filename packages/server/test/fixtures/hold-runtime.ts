@@ -81,8 +81,12 @@ export class HoldFake extends FakeRuntime {
 
   #opened = 0
 
+  /** When set, opening a conversation waits on it: a runtime slow to open. */
+  createGate: Promise<void> | null = null
+
   override async createSession(options: SessionOptions): Promise<AgentSession> {
     this.createOptions.push(options)
+    if (this.createGate) await this.createGate
     this.#opened += 1
     const id = sessionId(`hold-session-${this.#opened}`)
     const model = options.model ?? 'fake-1'

@@ -384,18 +384,25 @@ export class Ledger {
     return pass.byProject.get(canonicalPath(root)) ?? []
   }
 
+  /**
+   * A sample with no dollar figure, priced at its model's list rates when
+   * every token count is known — an estimate, marked `listPrice`. Anything
+   * else comes back as it was.
+   */
+  price(sample: UsageSample): UsageSample {
+    if (sample.usd.value !== null || !sample.model) return sample
+    const rates = this.#pricing.rateObservation(sample.model).rates
+    if (!rates) return sample
+    const parts = [sample.input, sample.output, sample.cacheRead, sample.cacheWrite]
+    if (parts.some((part) => part.value === null)) return sample
+    const value = sample.input.value! * rates.input + sample.output.value! * rates.output + sample.cacheRead.value! * rates.cacheRead + sample.cacheWrite.value! * rates.cacheWrite
+    return { ...sample, usd: { value, quality: 'estimate' as const }, moneyBasis: 'listPrice' as const }
+  }
+
   async #readInsight(query: InsightQuery, options: { readonly refresh?: boolean }, pass: InsightPass): Promise<UsageDetail> {
     const { sources: detailSources, gaps } = pass
     const selected = this.#ofRoot(pass, query.root).filter((sample) => sample.from !== null && sample.from >= query.from && sample.from < query.to)
-    const priced = selected.map((sample) => {
-      if (sample.usd.value !== null || !sample.model) return sample
-      const rates = this.#pricing.rateObservation(sample.model).rates
-      if (!rates) return sample
-      const parts = [sample.input, sample.output, sample.cacheRead, sample.cacheWrite]
-      if (parts.some((part) => part.value === null)) return sample
-      const value = sample.input.value! * rates.input + sample.output.value! * rates.output + sample.cacheRead.value! * rates.cacheRead + sample.cacheWrite.value! * rates.cacheWrite
-      return { ...sample, usd: { value, quality: 'estimate' as const }, moneyBasis: 'listPrice' as const }
-    })
+    const priced = selected.map((sample) => this.price(sample))
     const readSources = [...new Map([
       ...detailSources,
       ...priced.map((sample) => sample.source),

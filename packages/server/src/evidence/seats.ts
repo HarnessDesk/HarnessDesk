@@ -1,6 +1,6 @@
 import { ceilingOfPermission, sessionKey, type FlowSeatRecord, type SeatId, type SeatRecord } from '@harnessdesk/protocol'
 
-import { foldSeats, mintId, type SeatOpening } from './records.js'
+import { foldSeats, mintId, type SeatConsult, type SeatOpening } from './records.js'
 import { projectOf, revisionOf } from './revision.js'
 import type { EvidenceStore } from './store.js'
 
@@ -54,6 +54,8 @@ export class SeatBook {
   readonly #bySession = new Map<string, SeatId[]>()
   /** The project each Seat's record is kept under, so its closing goes beside its opening. */
   readonly #projects = new Map<SeatId, string>()
+  /** Consults each Seat opened with `ask_agent`, by the consult's conversation. */
+  readonly #consults = new Map<string, SeatConsult>()
   /** Openings still reading git before they write: a quit waits for them too (`settled`). */
   readonly #inFlight = new Set<Promise<unknown>>()
 
@@ -67,10 +69,34 @@ export class SeatBook {
     this.#byId.clear()
     this.#bySession.clear()
     this.#projects.clear()
+    this.#consults.clear()
     for (const project of await this.#store.projects()) {
       const { lines } = await this.#store.read(project, 'seats')
       for (const seat of foldSeats(lines)) this.#index(seat, project)
+      for (const line of lines) {
+        const key = line.type === 'seat-consult' ? sessionKey(line.consult.runtime, line.consult.sessionId) : null
+        if (key && line.type === 'seat-consult' && !this.#consults.has(key)) this.#consults.set(key, line.consult)
+      }
     }
+  }
+
+  /**
+   * A Seat asked another agent: the consult's conversation and window are
+   * written beside the Seat's own record, so what the consult spent stays
+   * the Seat's after the conversation is gone and after a restart. Nothing is
+   * written for a Seat this desk does not hold.
+   */
+  async consulted(consult: SeatConsult): Promise<void> {
+    const project = this.#projects.get(consult.seat as SeatId)
+    const key = sessionKey(consult.runtime, consult.sessionId)
+    if (!project || this.#consults.has(key)) return
+    await this.#store.append(project, 'seats', [{ type: 'seat-consult', consult }])
+    this.#consults.set(key, consult)
+  }
+
+  /** Every consult a Seat here opened, as written. */
+  consults(): readonly SeatConsult[] {
+    return [...this.#consults.values()]
   }
 
   /** Writes a kept seat's record, and answers it once it is on disk. */

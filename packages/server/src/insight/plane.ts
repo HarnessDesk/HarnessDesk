@@ -10,6 +10,7 @@ import type {
 
 import type { MachineSeatingFile } from '../agent-seating-file.js'
 import type { GoalPlane } from '../goals/plane.js'
+import type { SeatConsult } from '../evidence/records.js'
 import type { GoalDocument } from '../goals/store.js'
 import type { Ledger } from '../ledger/index.js'
 import { seatFor, seatWindowOf } from './attribution.js'
@@ -118,7 +119,11 @@ export class InsightPlane implements InsightReadApi {
   readonly #stamps = new Map<string, Stamp>()
 
   constructor(
-    private readonly port: { readonly ledger: () => Ledger; readonly goals: GoalPlane; readonly seats: () => readonly SeatRecord[]; readonly seating: MachineSeatingFile; readonly now?: () => number },
+    private readonly port: {
+      readonly ledger: () => Ledger; readonly goals: GoalPlane; readonly seats: () => readonly SeatRecord[]; readonly seating: MachineSeatingFile; readonly now?: () => number
+      /** Consults Seats opened with `ask_agent`: their conversations' usage is the asking Seat's. */
+      readonly consults?: () => readonly SeatConsult[]
+    },
   ) {}
 
   #now(): number { return this.port.now?.() ?? Date.now() }
@@ -148,7 +153,13 @@ export class InsightPlane implements InsightReadApi {
     if (detail.samples.length === 0 && detail.gaps.length === 0) return { detail, projectGoals: [], projectSeats: [], seatOf: () => null }
     const projectGoals = (held?.goals ?? this.port.goals.store.list().map((document) => document.goal)).filter((goal) => sameCanonicalPath(goal.root, query.root))
     const projectSeats = (held?.seats ?? this.port.seats()).filter((seat) => sameCanonicalPath(seat.checkout.project, query.root))
-    const windows = projectSeats.map(seatWindowOf)
+    // A consult's conversation is a window of the Seat that asked: what it spent is folded into that Seat's row.
+    const byId = new Map(projectSeats.map((seat) => [seat.id, seat]))
+    const consultWindows = (this.port.consults?.() ?? []).flatMap((consult) => {
+      const caller = byId.get(consult.seat as SeatRecord['id'])
+      return caller ? [{ ...seatWindowOf(caller), runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt, closedAt: consult.closedAt }] : []
+    })
+    const windows = [...projectSeats.map(seatWindowOf), ...consultWindows]
     // A sample's one Seat among the project's is also its one Seat among any
     // subset holding it: `seatFor` matches runtime, session, folder and window
     // alone, so a narrower report can reuse the project-wide answer.

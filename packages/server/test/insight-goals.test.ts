@@ -96,3 +96,24 @@ test('one read resolves each folder once, the ledger’s own comparisons include
   assert.equal(batch.reports.find((report) => report.goal === 'goal-a')!.totals.turns.value, 100)
   assert.ok(resolved <= 5, `${resolved} folder resolutions for ${elsewhere.length} samples`)
 })
+
+test('a consult a Seat opened with ask_agent is that Seat’s: its conversation’s usage folds into the asking Seat’s row', async () => {
+  const seat = counted({ built: 0 })
+  const consultSample = (from: number): UsageSample => ({ ...sample('/repo', 'consult-1', 5), key: `consult-${from}`, from, to: from + 1 })
+  const detail = { samples: [sample('/repo', 'seat-a', 1), consultSample(10), consultSample(40)], sources: [source], gaps: [], complete: true }
+  const plane = (consults?: () => readonly import('../src/evidence/records.js').SeatConsult[]) => new InsightPlane({
+    ledger: () => ({ readInsight: async () => detail, readInsights: async (queries: readonly InsightQuery[]) => queries.map(() => detail) }) as never,
+    goals: goals as never, seats: () => [seat('seat-a', 'goal-a', '/repo')] as never, seating: {} as never, now: () => 90 * 86_400_000 + 20,
+    ...(consults ? { consults } : {}),
+  })
+  const seatRow = (report: InsightReport) => report.breakdowns.find((one) => one.dimension === 'seat')!.rows.find((one) => one.seat === 'seat-a')!
+
+  const query = { root: '/repo', from: 0, to: 86_400_000 }
+  const linked = await plane(() => [{ seat: 'seat-a', runtime: 'runtime', sessionId: 'consult-1', openedAt: 5, closedAt: 20 }]).usage(query)
+  assert.equal(seatRow(linked).amounts.usd.value, 6, 'the Seat’s own 1 and its consult’s 5, inside the consult’s window')
+  assert.equal(linked.breakdowns[0]!.unattributed.usd.value, 5, 'a sample of that conversation outside its window stays unattributed')
+
+  assert.equal((await plane(() => [{ seat: 'seat-a', runtime: 'runtime', sessionId: 'consult-1', openedAt: 5, closedAt: 20 }]).goal('goal-a')).totals.usd.value, 6, 'and on the Seat’s Goal')
+  const unlinked = await plane().usage(query)
+  assert.equal(seatRow(unlinked).amounts.usd.value, 1, 'without the link the consult is nobody’s')
+})

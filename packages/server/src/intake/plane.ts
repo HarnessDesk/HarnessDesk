@@ -1178,18 +1178,28 @@ export class IntakePlane {
     return id
   }
 
+  /** A consult's one turn is about to be sent: its start is on the meter first, so a working consult never reads as idle. */
+  async consultStarted(goal: string, id: string, started: number): Promise<void> {
+    if (this.#closed || !this.#consults.get(goal)?.some((one) => one.id === id)) return
+    await this.#meterGoal(goal, { seat: id, started })
+  }
+
   /**
    * A consult's one turn ended: metered with a usage read made after it,
-   * before its conversation is discarded — a deleted conversation cannot be
-   * read. Its window closes here, and is dropped after this read.
+   * and with `live` — its usage as the live conversation reported it,
+   * captured and priced before it is discarded, since an ephemeral consult
+   * leaves nothing on disk to read later. A consult nothing on disk counted
+   * and with no live usage is unknown, never zero: the Goal's next dispatch
+   * and ask are refused until a person checks. Its window closes here, and
+   * is dropped after this read.
    */
-  async consultEnded(goal: string, id: string, turn: { readonly started: number; readonly ended: number }): Promise<void> {
+  async consultEnded(goal: string, id: string, ended: number, live: UsageSample | null): Promise<void> {
     const windows = this.#consults.get(goal)
     const window = windows?.find((one) => one.id === id)
     if (!windows || !window || this.#closed) return
-    this.#consults.set(goal, windows.map((one) => one.id === id ? { ...one, closed: { at: turn.ended, why: 'answered' } } : one))
+    this.#consults.set(goal, windows.map((one) => one.id === id ? { ...one, closed: { at: ended, why: 'answered' } } : one))
     try {
-      await this.#meterGoal(goal, { seat: id, ...turn })
+      await this.#meterGoal(goal, { seat: id, ended }, { seat: id, live })
     } finally {
       const left = (this.#consults.get(goal) ?? []).filter((one) => one.id !== id)
       if (left.length > 0) this.#consults.set(goal, left)
@@ -1238,7 +1248,10 @@ export class IntakePlane {
   // --------------------------------------------------------------- meters
 
   /** One usage read for one Goal, folded with a turn when one is given. */
-  async #meterGoal(goal: string, turn?: { readonly seat: string; readonly started?: number; readonly ended?: number }): Promise<void> {
+  async #meterGoal(
+    goal: string, turn?: { readonly seat: string; readonly started?: number; readonly ended?: number },
+    settle?: { readonly seat: string; readonly live: UsageSample | null },
+  ): Promise<void> {
     const budget = this.#store.read().budgets[goal]
     if (!budget) return
     const at = this.#port.now()
@@ -1249,7 +1262,7 @@ export class IntakePlane {
       read = { samples: [], complete: false }
     }
     const seats = [...this.#port.seats().filter((seat) => seat.board === goal), ...(this.#consults.get(goal) ?? [])]
-    await this.#budgets.read(goal, read.samples, seats, { at, complete: read.complete }, turn)
+    await this.#budgets.read(goal, read.samples, seats, { at, complete: read.complete }, turn, settle)
   }
 
   /** Every live budget read once: what keeps a Seat inside a turn under a minute stale. */

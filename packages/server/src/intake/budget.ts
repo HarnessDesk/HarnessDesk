@@ -139,6 +139,9 @@ export interface TriggerBudgetPort {
  * A trigger Goal's budget: the dispatch gate, the meters, the stop and the
  * settlement, over the admission journal.
  */
+/** Why a consult's spend is unknown when its conversation reported no usage before it was discarded. */
+export const CONSULT_USAGE_UNKNOWN = 'The agent this Seat asked reported no usage before its conversation closed, so what it spent is unknown.'
+
 export class TriggerBudgets {
   readonly #read: () => IntakeSnapshot
   readonly #transact: <T>(change: (snapshot: IntakeSnapshot) => { readonly next: IntakeSnapshot | null; readonly value: T }) => Promise<T>
@@ -264,11 +267,17 @@ export class TriggerBudgets {
    * A Seat is witnessed only when the desk has read it before, or it is a
    * session the desk opened at zero: an older session found with nothing
    * says nothing about what it spent.
+   *
+   * `settle` closes a consult's meter in the same save: when nothing on disk
+   * counted it, its live usage is folded in, and with none it is unknown —
+   * an ephemeral conversation found with nothing has not been shown to have
+   * spent nothing.
    */
   read(
     goal: string, samples: readonly UsageSample[], seats: readonly SeatRecord[],
     read: { readonly at: number; readonly complete: boolean },
     turn?: { readonly seat: string; readonly started?: number; readonly ended?: number },
+    settle?: { readonly seat: string; readonly live: UsageSample | null },
   ): Promise<void> {
     const windows = seats.map(seatWindowOf)
     return this.#transact((snapshot) => {
@@ -284,6 +293,12 @@ export class TriggerBudgets {
           openedAt: seat.openedAt, fresh: false, delegation: 'unknown',
         })
         meters[seat.id] = meterSample(meter, sample)
+      }
+      const settling = settle ? meters[settle.seat] : undefined
+      if (settle && settling && settling.scope === null && settling.unknown === null) {
+        meters[settle.seat] = settle.live
+          ? meterSample(settling, settle.live)
+          : { ...settling, unknown: CONSULT_USAGE_UNKNOWN }
       }
       if (read.complete) {
         for (const [id, meter] of Object.entries(meters)) {
