@@ -1050,6 +1050,18 @@ repeats it as a quiet note and never works it out. Another sign-in's figures for
 Antigravity account read through `agy`) travel apart as `unverified: {whose, lanes, readAt, stale?}`, never as the row's own
 lanes. The same module orders an agent's accounts for
 *Prefer the account that resets soonest* (`pacedOrder`) and picks the account the Lead's chat start runs on.
+A refresh that fails after a good reading keeps that reading: `UsageService` holds the last lanes and balance with
+their `fetchedAt` and sets the report's `error`, and `usageStandingOf` judges the kept figures (`unknown` is only a
+reading that never answered, or a kept Out reading whose blocking windows have since reset; `keptReading` names the
+kept case). The phone row then carries `refreshFailed` and
+`stale` beside the kept `left` and `readAt`, the Dashboard card and Plans row show the figures under a stale chip
+with "Couldn't refresh", and decisions (the overview's order, the sidebar strip, "Start on", pacing) still never rank
+on a failed read. `pacingAdvice` names the one account to use first across all accounts: the Lead's `usage_summary`
+returns it as `pacing` with the window, what is left, the reset (also on the desk's own clock) and the read age, and
+each account carries `readAgeMinutes` and `refreshFailed` (the reset text names the desk's time zone); none of the
+three names an account with fewer than two; the phone's usage gets it as `pacing` only when an
+allowance is about to be lost (`use-first`), and the Dashboard's What is left line and Settings › Runtimes say the same
+sentence (`pacingNote`).
 `workspace/sessions/list` pages the same session index for active
 and archived conversations, so the recent snapshot is not a limit on what a
 phone can show. The native client follows those pages and refreshes them on

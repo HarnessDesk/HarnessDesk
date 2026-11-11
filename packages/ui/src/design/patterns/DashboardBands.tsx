@@ -31,8 +31,9 @@ export const DashboardAccounts = ({ accounts }: { readonly accounts: readonly Re
 export const DashboardAccountHead = ({ mark, name, agent, states }: { readonly mark?: ReactNode; readonly name: ReactNode; readonly agent?: ReactNode; readonly states: ReactNode }) =>
   <CardContent><div className={styles.accountHead}>{mark && <span className={styles.mark}>{mark}</span>}<Text role="subject" truncate>{name}</Text>{agent && <Text role="meta" truncate>{agent}</Text>}<span className={styles.states}><ChipLook.Provider value="quiet">{states}</ChipLook.Provider></span></div></CardContent>
 export const DashboardAccountBody = ({ children }: { readonly children: ReactNode }) => <CardContent><div className={styles.accountBody}>{children}</div></CardContent>
+/** Where a reading came from and how old it is, on the card's own inset like the heading and figures above it. */
 export const DashboardAccountFoot = ({ source, age, actions, stale }: { readonly source: ReactNode; readonly age?: ReactNode; readonly actions?: ReactNode; readonly stale?: boolean }) =>
-  <CardContent data-stale={stale ? '' : undefined}><Row kind="record" title={<Text role="meta" truncate>{source}</Text>} control={<>{age}{actions}</>} /></CardContent>
+  <CardContent data-stale={stale ? '' : undefined}><div data-slot="account-foot" className={styles.accountFoot}><Text role="meta" truncate>{source}</Text><span className={styles.footControl}>{age}{actions}</span></div></CardContent>
 /** A plan's measured figure and its qualifiers, never a new control. */
 export const DashboardFigure = ({ children }: { readonly children: ReactNode }) => <div className={styles.figure}>{children}</div>
 /** Related meter rows inside one account. */

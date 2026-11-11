@@ -1510,6 +1510,12 @@ Overview's two related sections; the secondary column yields on narrow pages.
 
 Plan readings share a responsive card grid.
 
+### `DashboardAccountFoot`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Where a reading came from and how old it is, on the card's own inset like the heading and figures above it.
+
 ### `DashboardFigure`
 
 `packages/ui/src/design/patterns/DashboardBands.tsx`
