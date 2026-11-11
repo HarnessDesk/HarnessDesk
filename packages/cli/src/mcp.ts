@@ -99,10 +99,12 @@ export async function serveMcp(argv: readonly string[]): Promise<number> {
       send({ method: 'notifications/progress', params: { progressToken: token, progress: at, total, message: state ? `Run ${run} is ${state}` : `Waiting for run ${run}` } })
     }
     const ticker = progressing ? setInterval(() => progress(Date.now() - begun), MCP_PROGRESS_EVERY_MS) : undefined
-    let out = '', err = ''
+    let out = ''
+    // Kept as written: a failing command's own refusal is its last write, after any preview or warning.
+    const err: string[] = []
     const io: CommandIo = {
       out: text => { out += text },
-      err: text => { if (trace) process.stderr.write(text); else err += text },
+      err: text => { if (trace) process.stderr.write(text); else err.push(text) },
       interactive: false,
       signal,
       surface: 'mcp',
@@ -117,7 +119,12 @@ export async function serveMcp(argv: readonly string[]): Promise<number> {
       const value = { ...(parsed ?? {}), exit, ended: WAIT_ENDINGS[exit]! }
       return structured(JSON.stringify(value), value)
     }
-    if (exit !== 0) return { content: [{ type: 'text', text: `exit ${exit}: ${(err.trim() || out.trim())}` }], isError: true }
+    if (exit !== 0) {
+      // The refusal leads, so its code is the first thing read; what the command said before it follows.
+      const said = err.at(-1)?.trim() || out.trim()
+      const before = err.slice(0, -1).join('').trim()
+      return { content: [{ type: 'text', text: `exit ${exit}: ${said}${before ? `\n\n${before}` : ''}` }], isError: true }
+    }
     return parsed ? structured(out.trimEnd(), parsed) : { content: [{ type: 'text', text: out }] }
   }
 
