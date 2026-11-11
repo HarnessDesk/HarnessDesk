@@ -104,6 +104,7 @@ import {
   type ToolSentenceDetail,
 } from '../lib/tool-names'
 import {
+  AskAgentIcon,
   SubagentIcon,
   AlertIcon,
   BrainIcon,
@@ -1130,7 +1131,7 @@ const AskAgentCall = ({ item }: { item: ToolCallItem }) => {
   ]
   return (
     <Row
-      icon={<SubagentIcon size={14} />}
+      icon={<AskAgentIcon size={14} />}
       title={waiting ? `Waiting for approval · ${said}` : said}
       meta={formatDuration(item.durationMs)}
       status={waiting ? undefined : effectiveItemStatus(item)}

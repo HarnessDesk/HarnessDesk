@@ -759,4 +759,11 @@ describe('ask_agent', () => {
     const gone = call({ tool: 'ask_agent', args: { agent: 'retired', question: 'q' } })
     expect(render(gone).textContent).toContain('Asked another agent')
   })
+
+  it('its mark says what it is — one question asked of another agent — never a sub-agent of this conversation', () => {
+    const header = render(call({ tool: 'ask_agent', args: { agent: 'second', question: 'q' }, result: [{ type: 'text', text: 'a' }] }))
+    const titles = [...header.querySelectorAll('[title]')].map((one) => one.getAttribute('title'))
+    expect(titles).toContain('Asked another agent one question')
+    expect(titles).not.toContain('Sub-agent of this conversation')
+  })
 })
