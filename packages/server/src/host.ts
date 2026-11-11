@@ -6016,7 +6016,12 @@ export class Host {
         // creation returns, another opener may have put a handle of its own there.
         let handle: string | null = null
         const session = await createConversation(this.#context, { runtime: runtimeId(runtime), options: { ...(cwd ? { cwd } : {}), ...(model ? { model } : {}) } },
-          undefined, live => { handle = this.#carryOnLease(runtimeId(runtime), live.id, live) })
+          undefined, live => {
+            // A brand-new conversation has had no open but this creation, which counts none: the runtime may have
+            // announced it before the create returned, and an opener that reached it then holds the handle too.
+            const opens = this.registry.opens(runtimeId(runtime), live.id)
+            handle = opens.opened === 0 && opens.pending === 0 ? this.#carryOnLease(runtimeId(runtime), live.id, live) : null
+          })
         const title = this.registry.get(source.runtime, source.sessionId)?.session.title ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.title
         if (title) await this.call('session/setTitle', { runtime: runtimeId(runtime), sessionId: session.id, title }).catch(() => undefined)
         return { sessionId: String(session.id), handle }

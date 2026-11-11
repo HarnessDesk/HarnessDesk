@@ -343,3 +343,38 @@ test('a cancel never closes a handle that replaced the one carry-on’s create a
   assert.equal(r.host.registry.get(OTHER, replacement.id)?.live, replacement, 'the other window’s handle stays open')
   assert.deepEqual(r.sent.filter(one => one.runtime === OTHER), [], 'and the packet never went')
 })
+
+// ------------------------------------------------------------ review round 5
+
+test('a cancel never closes a created conversation another window opened between its announcement and its attachment', async t => {
+  const r = await rig(t, { sibling: false })
+  await prefer(r, 'switch')
+  const session = await started(r)
+  // The fixture's sessions all call themselves 'fake'; the other agent's call themselves by its own id.
+  const own = <T extends { runtime: unknown }>(value: T): T => ({ ...value, runtime: OTHER })
+  const read = r.other.readSession.bind(r.other)
+  r.other.readSession = async id => own(await read(id))
+  const emit = r.other.emit.bind(r.other)
+  r.other.emit = event => emit(event.type === 'session/started' ? { ...event, session: own(event.session) } : event)
+  // The runtime announces the new conversation; before the create returns, another window resumes it and is handed
+  // the very handle the creation holds; then carry-on attaches it, and the person writes.
+  const create = r.other.createSession.bind(r.other)
+  let created: FakeSession | undefined
+  r.other.createSession = async options => {
+    const handle = await create(options) as FakeSession
+    const snapshot = handle.snapshot.bind(handle)
+    Object.defineProperty(handle, 'runtime', { get: () => OTHER, configurable: true })
+    handle.snapshot = () => own(snapshot())
+    await r.host.call('session/resume', { runtime: OTHER, sessionId: handle.id })
+    created = handle
+    person(r, session)
+    return handle
+  }
+  r.primary.sessions.get(session.id)!.fail('You have hit your usage limit.', 'credits')
+
+  await r.client.until(() => !!created && changes(r).at(-1) === null, 10_000, 'carry-on to stand down')
+  assert.ok(created)
+  assert.equal(r.other.sessions.get(created.id), created, 'the shared handle is still the adapter’s')
+  assert.equal(r.host.registry.get(OTHER, created.id)?.live, created, 'and still open for the other window')
+  assert.deepEqual(r.sent.filter(one => one.runtime === OTHER), [], 'and the packet never went')
+})
