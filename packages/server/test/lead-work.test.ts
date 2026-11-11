@@ -463,7 +463,7 @@ test('another go at work the host closed is refused with that item named, and le
     if (title.startsWith('Another attempt')) { if (!('problem' in again)) r.ledger.release(again); continue }
     assert.ok('problem' in again, `"${title}" is the same work as the stopped try`)
     assert.equal(again.item, 'work-1')
-    assert.match(again.problem, /tried 10 minutes ago/); assert.match(again.problem, /person stopped its chat/); assert.match(again.problem, /ask whether to start another attempt/)
+    assert.match(again.problem, /tried 10 minutes ago/); assert.match(again.problem, /its chat was stopped/); assert.match(again.problem, /ask whether to start another attempt/)
   }
   const attempt = await start(r, 'Fix the login redirect', ['m-3'], 'fixture:b', 'work-1')
   assert.deepEqual(attempt, { item: 'work-1' }, 'the person asked again: the attempt joins the same item')
@@ -488,21 +488,15 @@ test('an old stopped try no longer blocks a start once a day has passed', async 
   r.ledger.release(claim)
 })
 
-test("a stop the person makes is an ordinary ending named as theirs, and the Lead's own stop is named as the Lead's", async t => {
+test('a stopped chat is an ordinary ending: nothing waits on the person, and the item says its chat was stopped', async t => {
   const r = await rig(t)
   await start(r, 'Fix the stalled build', ['m-1'], 'fixture:a')
-  await start(r, 'Rewrite the exporter', ['m-2'], 'fixture:b')
-  r.chat('fixture:a', 'working'); r.chat('fixture:b', 'working'); await r.ledger.refresh()
-  await r.ledger.leadStopped('fixture:b')
-  r.chat('fixture:a', 'idle', 'stopped'); r.chat('fixture:b', 'idle', 'stopped'); await r.ledger.refresh()
-  const person = await r.ledger.read({ id: 'work-1' }), lead = await r.ledger.read({ id: 'work-2' })
-  assert.equal(person.stage, 'stopped'); assert.notEqual(person.group, 'needs-you', 'a stop is not something the person owes')
-  assert.equal(person.fact, 'Stopped: the person stopped its chat')
-  assert.ok(person.timeline.some(fact => fact.text === 'The person stopped its chat'))
-  assert.equal(lead.fact, 'Stopped: the Lead stopped its chat')
-  r.chat('fixture:b', 'working'); await r.ledger.refresh()
-  r.chat('fixture:b', 'idle', 'stopped'); await r.ledger.refresh()
-  assert.equal((await r.ledger.read({ id: 'work-2' })).fact, 'Stopped: the person stopped its chat', 'the Lead mark ends when the chat works again')
+  r.chat('fixture:a', 'working'); await r.ledger.refresh()
+  r.chat('fixture:a', 'idle', 'stopped'); await r.ledger.refresh()
+  const item = await r.ledger.read({ id: 'work-1' })
+  assert.equal(item.stage, 'stopped'); assert.notEqual(item.group, 'needs-you', 'a stop is not something the person owes')
+  assert.equal(item.fact, 'Stopped: its chat was stopped', 'who stopped it is not guessed here')
+  assert.ok(item.timeline.some(fact => fact.text === 'A chat was stopped'))
 })
 
 test('a reminder for the person is a real entry: listed with its time, fired once when due on the clock, and a cancelled one never fires', async t => {

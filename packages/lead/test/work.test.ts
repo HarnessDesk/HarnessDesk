@@ -73,9 +73,9 @@ test('an unfired reminder is never shown as arrived, however close or late its t
 test('a reminder or a stopped try alone still carries the block; a dropped item and an old stop do not', () => {
   const set = { id: 'remind-1', text: 'Call back', for: 'person' as const, dueAt: now + 60 * 60_000, createdAt: now, state: 'set' as const }
   assert.match(leadWorkCards({ ...board([]), reminders: [set] }, now)!, /remind-1/)
-  const stopped = card(6, 'stopped', { closedAt: now - 10 * 60_000, fact: 'Stopped: the person stopped its chat' })
+  const stopped = card(6, 'stopped', { closedAt: now - 10 * 60_000, fact: 'Stopped: its chat was stopped' })
   const text = leadWorkCards(board([stopped]), now)!
-  assert.match(text, /Stopped in the last day, closed \(ask the person before another attempt\):\n- work-6 \[stopped\] .* last: "Stopped: the person stopped its chat" ended 10m ago/)
+  assert.match(text, /Stopped in the last day, closed \(ask the person before another attempt\):\n- work-6 \[stopped\] .* last: "Stopped: its chat was stopped" ended 10m ago/)
   assert.equal(leadWorkCards(board([{ ...stopped, outcome: 'dropped' }]), now), null, 'what the person dropped is not offered again')
   assert.equal(leadWorkCards(board([{ ...stopped, closedAt: now - DAY - 1 }]), now), null)
 })

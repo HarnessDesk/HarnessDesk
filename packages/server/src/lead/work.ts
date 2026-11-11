@@ -77,8 +77,6 @@ interface Watch {
   pr?: 'open' | 'merged' | 'closed'
   failing?: boolean
   last?: string
-  /** The Lead stopped this chat itself; any other stop is the person's. */
-  byLead?: boolean
   /** A later chat joined the item after this one: a stop here is an earlier attempt's, not how the item ended. */
   superseded?: boolean
 }
@@ -523,13 +521,6 @@ export class LeadWorkLedger {
     })
   }
 
-  /** The Lead is stopping this chat itself, so the stop it causes is not taken for the person's. */
-  leadStopped(chat: string): Promise<void> {
-    return this.#write(() => {
-      for (const item of this.stored.items) if (item.links.chats.includes(chat)) (item.watch[`chat:${chat}`] ??= {}).byLead = true
-    })
-  }
-
   #reminders(): Reminder[] { return this.stored.reminders ??= [] }
   #set(): Reminder[] { return this.#reminders().filter(entry => entry.state === 'set') }
   #checkBack(item: Item): Reminder | undefined { return this.#set().find(entry => entry.for === 'lead' && entry.item === item.id) }
@@ -588,21 +579,19 @@ export class LeadWorkLedger {
       this.#stop(item, 'Stopped: no activity the host can see for seven days')
       return
     }
-    const states: { stage: LeadStage; reason: string; settled: boolean; review?: string; stopped?: true; by?: string }[] = []
+    const states: { stage: LeadStage; reason: string; settled: boolean; review?: string; stopped?: true }[] = []
     const replies = this.ports.replies()
     for (const chat of item.links.chats) {
       const watch = item.watch[`chat:${chat}`] ??= {}
       const live = this.ports.chat(chat)
       if (live === null) { if (watch.last !== 'gone') { watch.last = 'gone'; this.#fact(item, 'A chat left the desk') } states.push({ stage: 'idle', reason: 'gone', settled: true }); continue }
-      if (live.stage === 'idle' && live.reason === 'stopped' && watch.superseded) {
-        // An earlier attempt's stop, after a newer chat joined: the newer chat says how the item ends.
-        if (watch.last !== 'stopped') this.#fact(item, 'An earlier chat was stopped')
-      } else if (live.stage === 'idle' && live.reason === 'stopped') {
-        // A stopped turn finished nothing: it is not for the Lead to review, and a later reply does not settle it. A
-        // stop the Lead did not make is the person's, and that is an ordinary ending, not something to resume.
-        if (watch.last !== 'stopped') this.#fact(item, watch.byLead ? 'The Lead stopped its chat' : 'The person stopped its chat')
+      // An earlier attempt's stop, after a newer chat joined the item: the newer chat says how the item ends.
+      if (watch.superseded && live.stage === 'idle' && live.reason === 'stopped') { watch.last = live.reason; continue }
+      if (live.stage === 'idle' && live.reason === 'stopped') {
+        // A stopped turn finished nothing: it is not for the Lead to review, and a later reply does not settle it.
+        if (watch.last !== 'stopped') this.#fact(item, 'A chat was stopped')
         delete watch.mark
-        states.push({ stage: 'idle', reason: 'stopped', settled: false, stopped: true, by: watch.byLead ? 'the Lead' : 'the person' })
+        states.push({ stage: 'idle', reason: 'stopped', settled: false, stopped: true })
       } else if (live.stage === 'idle') {
         if (watch.mark === undefined) { watch.mark = replies; this.#fact(item, 'A chat finished') }
         const reported = replies > watch.mark
@@ -612,7 +601,7 @@ export class LeadWorkLedger {
           if (live.stage === 'working') this.#fact(item, 'A chat is working')
           else if (isWaitingOnYou(live.stage)) this.#fact(item, REASONS[live.reason] ?? 'A chat waits for you')
         }
-        delete watch.mark; delete watch.byLead; delete watch.superseded; watch.active = true
+        delete watch.mark; watch.active = true
         states.push({ stage: live.stage, reason: live.reason, settled: false })
       }
       watch.last = live.stage === 'idle' && live.reason !== 'stopped' ? 'idle' : live.reason
@@ -654,7 +643,7 @@ export class LeadWorkLedger {
     else if (states.some(state => state.stage === 'queued')) stage = 'queued'
     else if (states.some(state => state.stopped) && states.every(state => state.stopped || state.settled)) {
       // Everything left was stopped, not finished: the item closes as stopped and reopens if the chat works again.
-      this.#stop(item, `Stopped: ${states.find(state => state.stopped)?.by ?? 'the person'} stopped its chat`)
+      this.#stop(item, 'Stopped: its chat was stopped')
       return
     }
     else if (states.length && states.every(state => state.settled)) {

@@ -186,7 +186,7 @@ export const leadWorkFixture: LeadWorkBoard = { version: 1, more: 0, items: [
   workCard(3, 'Make the empty state keyboard accessible', 'working', { links: { chats: ['fixture:chat-3'], teams: ['demo-team'], prs: [], issues: [] }, fact: 'A chat is working' }),
   workCard(5, 'Ship the changelog after the rename', 'blocked', { after: 'work-4', note: 'Waits for the column rename' }),
   workCard(2, 'Fix the retry status list', 'in-review', { links: { chats: ['fixture:chat-2'], teams: [], prs: ['acme/widgets#42'], issues: [] }, fact: 'Pull request acme/widgets#42 is open' }),
-  workCard(6, 'Draft the release notes', 'stopped', { fact: 'Stopped: the person stopped its chat' }),
+  workCard(6, 'Draft the release notes', 'stopped', { fact: 'Stopped: its chat was stopped' }),
   workCard(1, 'Update the onboarding copy', 'done', { closedAt: Date.now() - 600_000, outcome: 'done' }),
 ],
 // A reminder the person asked for, still set, and one that fired: the rail and Scheduled tasks list them with their times.
