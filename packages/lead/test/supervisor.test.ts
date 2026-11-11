@@ -746,15 +746,75 @@ test('a child stopped for a broken frame, and a failure it caught, both reach th
   })
   const f = await fixture({ spawn: () => child, onFailure: (failure: unknown) => { failures.push(failure) } })
   await assert.rejects(f.supervisor.send(request), /lead-child-protocol-invalid/)
-  assert.deepEqual(failures, [{ stage: 'child appendReply', code: 'lead-journal-busy' }, { stage: 'frame rpc recordWake', code: 'lead-ipc-invalid' }])
+  assert.deepEqual(failures, [{ stage: 'child appendReply', code: 'lead-journal-busy', stopped: false }, { stage: 'frame rpc recordWake', code: 'lead-ipc-invalid', stopped: true }])
   assert.ok(!JSON.stringify(failures).includes('private'))
-  const { parseLeadIpc, leadFailureCode } = await import('../src/child-ipc.js')
-  // A failure frame carries names, never a sentence with a path or the person's words.
-  assert.throws(() => parseLeadIpc({ version: 1, type: 'failure', stage: 'appendReply', code: 'could not open /demo/desk/lead' }), /lead-ipc-invalid/)
+  await f.supervisor.stop()
+})
+
+test('a failure report is a diagnostic: malformed ones are dropped, repeats are logged once and a run is capped, and the child keeps working', async () => {
+  const failures: any[] = []
+  const { LEAD_CHILD_FAILURES_PER_RUN } = await module()
+  const child = fake((value, child) => {
+    if (value.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+    else if (value.type === 'request') {
+      const report = (stage: unknown, code: unknown) => child.stdout.write(frame({ version: 1, type: 'failure', stage, code }))
+      // Prose, a path, an unknown stage and a code past the length a child can produce: none is fatal, each is dropped.
+      report('appendReply', 'could not open /demo/desk/lead for Jane Doe')
+      report('read the person\'s notes', 'lead-journal-busy')
+      report('appendReply', `lead-${'x'.repeat(61)}`)
+      report('appendReply', 42)
+      // A loop failing every tick says it once.
+      for (let tick = 0; tick < 5; tick++) report('activity', 'lead-child-operation-failed')
+      for (let n = 0; n < LEAD_CHILD_FAILURES_PER_RUN + 5; n++) report('messages', `lead-step-${n}`)
+      child.stdout.write(frame({ version: 1, type: 'response', id: value.id, result: { status: 'completed' } }))
+    }
+  })
+  const f = await fixture({ spawn: () => child, onFailure: (failure: unknown) => { failures.push(failure) } })
+  assert.equal((await f.supervisor.send(request)).status, 'completed')
+  assert.equal(f.supervisor.live, true, 'no diagnostic stops the child')
+  assert.deepEqual(failures.slice(0, 2), [{ stage: 'child', code: 'lead-failure-invalid', stopped: false }, { stage: 'child activity', code: 'lead-child-operation-failed', stopped: false }])
+  assert.equal(failures.length, LEAD_CHILD_FAILURES_PER_RUN + 1)
+  assert.deepEqual(failures.at(-1), { stage: 'child', code: 'lead-failures-suppressed', stopped: false })
+  assert.ok(!JSON.stringify(failures).match(/Jane|demo|notes/))
+  await f.supervisor.stop()
+})
+
+test('a logged code is only ever a name the host accepts back', async () => {
+  const { leadFailureCode, leadFailureCodeValid } = await import('../src/child-ipc.js')
   assert.equal(leadFailureCode(new Error('could not open /demo/desk/lead')), 'Error')
   assert.equal(leadFailureCode(Object.assign(new Error('read /demo/desk'), { code: 'ENOENT' })), 'ENOENT')
   assert.equal(leadFailureCode(Object.assign(new Error('x'), { wireCode: 'lead-card-stale' })), 'lead-card-stale')
-  await f.supervisor.stop()
+  assert.equal(leadFailureCode(new Error(`lead-${'x'.repeat(80)}`)), 'Error', 'a lead code too long for the host is never sent')
+  for (const failure of [new Error(`lead-${'x'.repeat(60)}`), new TypeError('x'), { wireCode: 'lead-a' }, 'text', null, { name: 'Has space' }, { code: 'econn' }])
+    assert.ok(leadFailureCodeValid(leadFailureCode(failure)), String(leadFailureCode(failure)))
+  for (const code of ['has space', 'lead-UPPER', '/demo/desk', '', 'x'.repeat(41)]) assert.equal(leadFailureCodeValid(code), false, code)
+})
+
+// #2085 came from a child call that drifted from the host's table. Every call the child can make is driven here and
+// checked against the same table the host reads, at every argument shape the call can take.
+test('every call the child makes to the host sends an argument count the table allows', async () => {
+  const { leadChildRpcPorts } = await import('../src/' + 'child.js')
+  const { LEAD_RPC_OPERATIONS, leadRpcArgsFit } = await import('../src/child-ipc.js')
+  const sent: { operation: string; count: number }[] = []
+  const rpc = async (operation: any, args: unknown[]) => { sent.push({ operation, count: args.length }); return operation === 'readContext' ? null : operation === 'compactContext' ? true : {} }
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  const ports = leadChildRpcPorts(rpc, () => journal.state)
+  const ask = { question: 'Start the review?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }], recommended: 'yes' }
+  const proactive = { finding: 'The build is red.', caveat: 'Nothing restarted.', ask: 'Look now?' }
+  const refs = [{ kind: 'chat', id: 'chat-1' }]
+  const port = ports.journal
+  await port.execute({} as any); await port.updateBudget({} as any); await port.setManagementPhase('running'); await port.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  await port.invalidateResults(); await port.offerCard({} as any); await port.restoreResult('result-1', 1); await port.recoverUnsettledRequests()
+  await port.recordWake({} as any); await port.memoryEpoch('lead-goal', 1, journal.state.memory)
+  await port.appendReply('Done.'); await port.appendReply('Found.', proactive as any); await port.appendReply('Which?', undefined, ask as any)
+  await port.appendReply('See the chat.', undefined, undefined, refs as any); await port.appendReply('See the chat. Which?', undefined, ask as any, refs as any)
+  await ports.resolveTool({} as any); await ports.freezePlan({}); await ports.readEvidence('run-1')
+  await ports.transport.send({ requestId: 'request-1', body: '{}' } as any); await ports.transport.send({ requestId: 'request-1', body: '{}', withheld: [{}] } as any)
+  await ports.context.record({} as any); await ports.context.read(1); await ports.context.compact('due')
+  for (const call of sent) assert.ok(leadRpcArgsFit(call.operation as any, call.count), `${call.operation} sent ${call.count}`)
+  assert.deepEqual([...new Set(sent.map(call => call.operation))].sort(), [...LEAD_RPC_OPERATIONS].sort(), 'every operation was driven')
+  assert.ok(sent.some(call => call.operation === 'appendReply' && call.count === 4))
+  assert.ok(sent.some(call => call.operation === 'provider-send' && call.count === 3))
 })
 
 test('actual child forwards the durable Messages request id with its reserved body', async () => {

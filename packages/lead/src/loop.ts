@@ -1,6 +1,6 @@
 import { LEAD_REVIEWED_RESULT } from './recipes/reviewed-result.js'
 import { isWaitingOnYou, type LeadStage } from '@harnessdesk/protocol'
-import type { LeadJournalPort } from './child-ipc.js'
+import type { LeadChildFailureStage, LeadJournalPort } from './child-ipc.js'
 import { leadProactiveReport, type LeadWakeRecord, clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
 import { isLeadQuiet, leadApprovedPlan, leadInstructions, leadObservation, type LeadSeatChoices } from './instructions.js'
@@ -62,7 +62,7 @@ export interface LeadLoopOptions {
    * A failure the loop caught and carried on from (a wait for the person, a dropped record). `stage` is a static name;
    * the caller reduces `failure` to a code before it goes anywhere, so no content reaches a log (#2085).
    */
-  readonly onFailure?: (stage: string, failure: unknown) => void
+  readonly onFailure?: (stage: LeadChildFailureStage, failure: unknown) => void
 }
 /** What the child reports to, and reads from, the host's stored conversation. */
 export interface LeadContextPort {
@@ -172,7 +172,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   // system prompt that changed, so a rename or a settings change waits for the next goal.
   // A compaction is also an epoch boundary: the conversation after it carries no reasoning, so the instructions may
   // change there too, and only there (onEpoch).
-  const noteFailure = (stage: string, failure: unknown): void => { try { options.onFailure?.(stage, failure) } catch { /* A log never owns a turn. */ } }
+  const noteFailure = (stage: LeadChildFailureStage, failure: unknown): void => { try { options.onFailure?.(stage, failure) } catch { /* A log never owns a turn. */ } }
   let instructionsFor: string | null = null, instructions = '', epoch = journal.state.context?.epoch ?? 0
   // The Core an epoch first read is journaled, so a restart in the same epoch reads it again rather than a later one.
   let memoryRecorded: Promise<unknown> = Promise.resolve()

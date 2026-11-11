@@ -15,7 +15,7 @@ import type { LeadWithheldPiece } from './credential-screen.js'
 import type { LeadMessagesRequest, LeadMessagesResult, MessagesPrice, MessagesHttpResponse, MessagesText, MessagesTurn } from './messages-types.js'
 import { parseLeadContextTurns } from './messages.js'
 import type { LeadContextRecordInput } from './loop.js'
-import { LEAD_FRAME_BYTES, LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, leadFailureCode, leadFailureName, leadRpcArgsFit, type LeadIpcMessage, type LeadRpcOperation } from './child-ipc.js'
+import { LEAD_FRAME_BYTES, LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, LEAD_CHILD_FAILURE_STAGES, LEAD_RPC_OPERATIONS, leadFailureCode, leadFailureCodeValid, leadRpcArgsFit, type LeadIpcMessage, type LeadRpcOperation } from './child-ipc.js'
 
 export type { LeadChildBootstrap } from './child-ipc.js'
 export { leadFailureCode } from './child-ipc.js'
@@ -173,9 +173,10 @@ export interface LeadSupervisorOptions {
   /** A static code for something the host should log as a warning. Never content. */
   readonly onWarning?: (code: string) => void
   /**
-   * A failure that stopped the child, or one the child caught and carried on from: where it happened (`frame`,
-   * `rpc memoryEpoch`, `child appendReply`) and its code. Both are short static names, never content, so the host can
-   * log them and tell a repeat from a new failure.
+   * A failure that stopped the child (`stopped`), or one the child caught and carried on from: where it happened
+   * (`frame rpc memoryEpoch`, `rpc appendReply`, `child appendReply`) and its code. Both are static names, never
+   * content, so the host can log them and tell a repeat from a new failure. The child's own reports are deduplicated
+   * by stage and code and capped per child; past the cap one `lead-failures-suppressed` says the rest were dropped.
    */
   readonly onFailure?: (failure: LeadChildFailure) => void
   readonly providerSend?: (requestId: string, body: string, signal: AbortSignal, withheld?: readonly LeadWithheldPiece[]) => Promise<MessagesHttpResponse>
@@ -195,7 +196,9 @@ export interface LeadSupervisorOptions {
   readonly spawn?: (binary: string, args: readonly string[], options: { env: Record<string, string>; stdio: ['pipe', 'pipe', 'pipe', 'ipc'] | ['pipe', 'pipe', 'pipe']; windowsHide: boolean }) => ChildProcessWithoutNullStreams
 }
 /** Where a Lead child failed and its code: static names for the host log, never content. */
-export interface LeadChildFailure { readonly stage: string; readonly code: string }
+export interface LeadChildFailure { readonly stage: string; readonly code: string; readonly stopped: boolean }
+/** Distinct failures one child may report before the rest are dropped: a loop failing every tick logs once. */
+export const LEAD_CHILD_FAILURES_PER_RUN = 20
 type Deferred = { resolve(value: unknown): void; reject(error: Error): void }
 interface Running {
   readonly child: ChildProcessWithoutNullStreams
@@ -210,6 +213,9 @@ interface Running {
   exited: boolean
   poisoned: boolean
   reason: string
+  /** The child's own failure reports this run, by stage and code; `suppressed` once the cap was reached. */
+  readonly failures: Set<string>
+  suppressed: boolean
   readonly done: Promise<void>
   finish(): void
   failReady(error: Error): void
@@ -306,7 +312,7 @@ export class LeadSupervisor {
       const done = new Promise<void>(resolve => { finish = resolve })
       const ready = new Promise<void>((resolve, reject) => { markReady = resolve; failReady = reject })
       void ready.catch(() => {})
-      const running: Running = { child, providerAbort: new AbortController(), pending: new Map(), replies: new Map(), journalWork: new Set(), ready: false, initialized: false, rpcId: 0, id: 0, exited: false, poisoned: false,
+      const running: Running = { child, providerAbort: new AbortController(), pending: new Map(), replies: new Map(), journalWork: new Set(), failures: new Set(), suppressed: false, ready: false, initialized: false, rpcId: 0, id: 0, exited: false, poisoned: false,
         reason: 'exited', done, finish, markReady, failReady }
       this.#running = running
       const decoder = new LeadFrameDecoder()
@@ -314,8 +320,10 @@ export class LeadSupervisor {
         if (running.exited) return
         try { decoder.push(chunk, message => this.#receive(running, message)) }
         catch (failure) {
-          const stage = leadFailureName((failure as { stage?: unknown } | null)?.stage)
-          this.#protocolFailure(running, stage ? `frame ${stage}` : 'frame', failure)
+          // The frame check names the operation it refused; only a name from the fixed list reaches the log.
+          const stage = (failure as { stage?: unknown } | null)?.stage
+          const named = stage === 'rpc' || LEAD_RPC_OPERATIONS.some(operation => stage === `rpc ${operation}`) ? `frame ${stage as string}` : 'frame'
+          this.#protocolFailure(running, named, failure)
         }
       })
       // Drain without exposing any byte, including an unhandled provider stack.
@@ -395,7 +403,7 @@ export class LeadSupervisor {
       running.pending.delete(message.id as number); pending.resolve(result); return
     }
     if (message.type === 'activity') { this.#activity(message.busy === true && !this.#stopping); return }
-    if (message.type === 'failure') { this.#report(`child ${message.stage as string}`, message.code as string); return }
+    if (message.type === 'failure') { this.#childFailure(running, message.stage, message.code); return }
     if (message.type === 'presence') { const presence = parseLeadPresence(message.presence); this.options.onPresence?.(presence); return }
     if (message.type === 'desk-lost') { running.reason = 'desk-lost'; this.#kill(running); return }
     if (message.type === 'wait-ended') {
@@ -557,13 +565,26 @@ export class LeadSupervisor {
     }
   }
   /** Logged by stage and code only. A log never owns the child's lifecycle. */
-  #report(stage: string, code: string): void {
-    try { this.options.onFailure?.({ stage, code }) } catch { /* A log never owns the child. */ }
+  #report(failure: LeadChildFailure): void {
+    try { this.options.onFailure?.(failure) } catch { /* A log never owns the child. */ }
+  }
+  /** A failure the child caught. A diagnostic never owns the child: one that names no known stage or code is dropped
+   * and logged as `lead-failure-invalid`, once per child, like any other repeat. */
+  #childFailure(running: Running, stage: unknown, code: unknown): void {
+    const valid = (LEAD_CHILD_FAILURE_STAGES as readonly unknown[]).includes(stage) && leadFailureCodeValid(code)
+    const failure = valid ? { stage: `child ${stage as string}`, code: code as string, stopped: false } : { stage: 'child', code: 'lead-failure-invalid', stopped: false }
+    const key = `${failure.stage}\u0000${failure.code}`
+    if (running.failures.has(key)) return
+    if (running.failures.size >= LEAD_CHILD_FAILURES_PER_RUN) {
+      if (!running.suppressed) { running.suppressed = true; this.#report({ stage: 'child', code: 'lead-failures-suppressed', stopped: false }) }
+      return
+    }
+    running.failures.add(key); this.#report(failure)
   }
   #protocolFailure(running: Running, stage: string, failure?: unknown): void {
     if (running.poisoned || running.exited) return
     // Said once, with the step that broke, so a child stopped this way is never a silent exit (#2085).
-    if (!this.#stopping) this.#report(stage, leadFailureCode(failure))
+    if (!this.#stopping) this.#report({ stage, code: leadFailureCode(failure), stopped: true })
     // A child that speaks after the host began stopping it is being cancelled, not breaking the protocol. The exit
     // keeps the stop's own reason, because the host runs a different cleanup for a failure: one that does not spare
     // work a cancellation leaves alone.

@@ -4296,7 +4296,7 @@ export class Host {
       },
       onRequestRefused: refusal => this.#logger.warn('Lead request refused before sending', { ...refusal }),
       // Where the Lead's child failed and the failure's code: a stop, or one it caught and carried on from. Never content.
-      onFailure: failure => this.#logger.warn('Lead child failed', { stage: failure.stage, code: failure.code }),
+      onFailure: failure => this.#logger.warn(failure.stopped ? 'Lead child stopped' : 'Lead child failed and carried on', { stage: failure.stage, code: failure.code }),
       onRequestWithheld: report => this.#logger.warn('Lead request sent with parts withheld', { ...report }),
       onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
       // A `Remember:` line in a reply is read as the same proposal memory_propose makes: scanned, then to the inbox.

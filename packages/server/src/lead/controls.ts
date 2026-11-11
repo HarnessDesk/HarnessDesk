@@ -445,9 +445,7 @@ export class LeadControls {
       try { this.options.onFailure?.('request', failure) } catch { /* A log never owns the request. */ }
       this.#requestInFlight = this.#continueAgain
       const revision = journal.state.seq
-      // A child that already stopped the same way twice keeps that wait: it names why, and Resume would not help.
-      if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase) && journal.state.managementReason !== 'lead-child-exited-again')
-        await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+      if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase)) await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
       if (journal.state.seq === revision) await journal.settingsChanged()
     }
   }

@@ -10,7 +10,7 @@ import type { LeadState } from './state.js'
 import type { LeadDispatch } from './journal.js'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadAcceptanceEvidence } from './acceptance.js'
-import { createLeadLoop, type LeadLoop } from './loop.js'
+import { createLeadLoop, type LeadContextPort, type LeadLoop } from './loop.js'
 import { leadBudgetProjection } from './budget.js'
 import { parseLeadSeatChoices } from './instructions.js'
 import { createLeadTools, type LeadResolvedTool } from './tools.js'
@@ -80,6 +80,49 @@ const parseBootstrap = (value: unknown): LeadChildConfig => {
 }
 /** The only child entry. No journal storage is opened: every journal operation
  * and host-derived scope crosses the bounded, validated stdin/stdout port. */
+type LeadChildRpc = (operation: LeadRpcOperation, args: unknown[], dispatch?: LeadDispatch) => Promise<unknown>
+/**
+ * Every call the child makes to the host, built on one `rpc`. Exported so a test can drive each one and check the
+ * arguments it sends against `LEAD_RPC_ARGS`: a call that carries one more than the table allows stops the child
+ * (#2085).
+ */
+export const leadChildRpcPorts = (rpc: LeadChildRpc, readState: () => LeadState) => {
+  const journal: LeadJournalPort = {
+    get state() { return structuredClone(readState()) },
+    execute: (attempt, dispatch) => rpc('execute', [attempt], dispatch) as ReturnType<LeadJournalPort['execute']>,
+    updateBudget: event => rpc('updateBudget', [event]) as ReturnType<LeadJournalPort['updateBudget']>,
+    setManagementPhase: async (phase, reason = null) => { await rpc('setManagementPhase', [phase, reason]) },
+    invalidateResults: async () => { await rpc('invalidateResults', []) },
+    offerCard: card => rpc('offerCard', [card]) as ReturnType<LeadJournalPort['offerCard']>,
+    restoreResult: async (id, revision) => { await rpc('restoreResult', [id, revision]) },
+    recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
+    recordWake: async wake => { await rpc('recordWake', [wake]) },
+    memoryEpoch: async (goal, epoch, memory) => { await rpc('memoryEpoch', [goal, epoch, memory]) },
+    appendReply: async (text, proactive, ask, refs) => {
+      const message = parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}), ...(ask ? { ask } : {}), ...(refs?.length ? { refs } : {}) })
+      // The work items the reply names ride as a fourth argument, after an ask or its null.
+      await rpc('appendReply', message.refs ? [message.text, null, message.ask ?? null, message.refs] : message.ask ? [message.text, null, message.ask] : message.proactive ? [message.text, message.proactive] : [message.text])
+    },
+  }
+  return {
+    journal,
+    resolveTool: async (call: LeadPermissionCall): Promise<LeadResolvedTool> => await rpc('resolveTool', [call]) as LeadResolvedTool,
+    freezePlan: async <T>(contract: T): Promise<T> => await rpc('freezePlan', [contract]) as T,
+    readEvidence: async (runId: string): Promise<LeadAcceptanceEvidence> => await rpc('readEvidence', [runId]) as LeadAcceptanceEvidence,
+    transport: { send: (request => rpc('provider-send', request.withheld?.length ? [request.requestId, request.body, request.withheld] : [request.requestId, request.body])) as MessagesTransport['send'] },
+    context: {
+      record: async record => { await rpc('recordContext', [record]) },
+      compact: async trigger => (await rpc('compactContext', [trigger])) === true,
+      read: async epoch => {
+        const value = await rpc('readContext', [epoch])
+        if (value === null) return null
+        const fresh = ipcObject(value, ['epoch', 'messages'])
+        if (typeof fresh.epoch !== 'number' || !Number.isSafeInteger(fresh.epoch) || fresh.epoch < 0) throw denied()
+        return { epoch: fresh.epoch, messages: parseLeadContextTurns(fresh.messages).turns }
+      },
+    } satisfies Required<LeadContextPort>,
+  }
+}
 const spendKnown = (state: LeadState | null) => !!state?.budget && leadBudgetProjection(state.budget, Date.now()).spend === 'known'
 
 export const runLeadChild = (options: ChildOptions = {}) => {
@@ -105,23 +148,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
       catch { pending.delete(id); reject(denied()) }
     })
   }
-  const journal: LeadJournalPort = {
-    get state() { if (!state) throw denied(); return structuredClone(state) },
-    execute: (attempt, dispatch) => rpc('execute', [attempt], dispatch) as ReturnType<LeadJournalPort['execute']>,
-    updateBudget: event => rpc('updateBudget', [event]) as ReturnType<LeadJournalPort['updateBudget']>,
-    setManagementPhase: async (phase, reason = null) => { await rpc('setManagementPhase', [phase, reason]) },
-    invalidateResults: async () => { await rpc('invalidateResults', []) },
-    offerCard: card => rpc('offerCard', [card]) as ReturnType<LeadJournalPort['offerCard']>,
-    restoreResult: async (id, revision) => { await rpc('restoreResult', [id, revision]) },
-    recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
-    recordWake: async wake => { await rpc('recordWake', [wake]) },
-    memoryEpoch: async (goal, epoch, memory) => { await rpc('memoryEpoch', [goal, epoch, memory]) },
-    appendReply: async (text, proactive, ask, refs) => {
-      const message = parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}), ...(ask ? { ask } : {}), ...(refs?.length ? { refs } : {}) })
-      // The work items the reply names ride as a fourth argument, after an ask or its null.
-      await rpc('appendReply', message.refs ? [message.text, null, message.ask ?? null, message.refs] : message.ask ? [message.text, null, message.ask] : message.proactive ? [message.text, message.proactive] : [message.text])
-    },
-  }
+  const ports = leadChildRpcPorts(rpc, () => { if (!state) throw denied(); return state }), journal = ports.journal
   let closing: Promise<void> | null = null
   const close = (): Promise<void> => {
     if (closing) return closing
@@ -148,7 +175,6 @@ export const runLeadChild = (options: ChildOptions = {}) => {
           rawNotifications: false, client: { name: 'Lead', version: '1' } })))(config)
         if (closed) { client.close(); return }
         const project = config.project; childProject = project
-        const resolveTool = async (call: LeadPermissionCall): Promise<LeadResolvedTool> => await rpc('resolveTool', [call]) as LeadResolvedTool
         const desk = { call: client.call, synced: client.synced, snapshot: client.snapshot, events: () => ({
           async *[Symbol.asyncIterator]() {
             for await (const event of client!.events()) {
@@ -163,7 +189,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
           // A failure the loop caught and carried on from reaches the host log by its stage and code, never its words.
           onFailure: (stage, failure) => { if (!closed) { try { send({ type: 'failure', stage, code: leadFailureCode(failure) }) } catch { /* A log never owns the turn. */ } } },
           clock: { now: Date.now, schedule: callback => { const timer = setTimeout(callback, 50); return () => clearTimeout(timer) } },
-          nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', request.withheld?.length ? [request.requestId, request.body, request.withheld] : [request.requestId, request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header
+          nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: ports.transport, // hd-secrets-ok: public marker; the host adds the real header
             countInput: async body => new TextEncoder().encode(body).length + 1024,
             wait: (ms, signal) => new Promise((resolve, reject) => {
               if (signal.aborted) { reject(denied()); return }
@@ -171,19 +197,10 @@ export const runLeadChild = (options: ChildOptions = {}) => {
               const aborted = () => { clearTimeout(timer); signal.removeEventListener('abort', aborted); reject(denied()) }
               const timer = setTimeout(done, ms); signal.addEventListener('abort', aborted, { once: true })
             }) },
-          resolveTool, freezePlan: async contract => await rpc('freezePlan', [contract]) as typeof contract,
-          readEvidence: async runId => await rpc('readEvidence', [runId]) as LeadAcceptanceEvidence,
+          resolveTool: ports.resolveTool, freezePlan: ports.freezePlan, readEvidence: ports.readEvidence,
           // The host parses what it reads back; what it sends here is parsed again before a request carries it.
           onEpoch: at => ({ standingAddendum: leadEpochAddendum(at ? { ...journal.state, memory: at.memory } : journal.state) }),
-          context: { record: async record => { await rpc('recordContext', [record]) },
-            compact: async trigger => (await rpc('compactContext', [trigger])) === true,
-            read: async epoch => {
-              const value = await rpc('readContext', [epoch])
-              if (value === null) return null
-              const fresh = ipcObject(value, ['epoch', 'messages'])
-              if (typeof fresh.epoch !== 'number' || !Number.isSafeInteger(fresh.epoch) || fresh.epoch < 0) throw denied()
-              return { epoch: fresh.epoch, messages: parseLeadContextTurns(fresh.messages).turns }
-            } } })
+          context: ports.context })
         // A run that goes quiet sends no event; a minute's tick lets the gate call it stuck. It costs no request unless it is.
         setInterval(() => { if (!closed) loop?.poke() }, 60_000).unref()
         send({ type: 'ready' }); void loop.start().catch(fail); return
@@ -224,7 +241,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         const parsed = parseClientMessage({ id: 1, method: call.method, params: call.params })
         const tools = createLeadTools({ journal, desk: client, project: childProject!,
           now: Date.now, nextId: randomUUID, synchronized: () => loop!.state.synchronized,
-          resolveTool: async call => await rpc('resolveTool', [call]) as LeadResolvedTool })
+          resolveTool: ports.resolveTool })
         try { const result = await tools.execute({ method: parsed.method, params: parsed.params } as LeadPermissionCall)
           if (result.outcome !== 'succeeded') throw denied()
           send({ type: 'read-result', id: message.id, ok: true, value: result.value ?? null })

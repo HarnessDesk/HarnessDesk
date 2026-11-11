@@ -76,41 +76,87 @@ test('a runtime that fails the probe reports unavailable, with its reason, witho
 
 // #2085: every Resume started a child that stopped at the same step, and the Lead went back and forth between a Resume
 // wait and an unexpected stop without ever saying why. The second identical stop names itself instead.
-test('a child that stops at the same step again says so instead of offering Resume, until a request completes', async t => {
+const failingChild = (s: Awaited<ReturnType<typeof rig>>) => {
+  const control = { failure: null as { stage: string; code: string } | null, exit: 'protocol-invalid', result: null as null | { status: string } }
+  s.process().send = async function () {
+    if (control.result) return control.result
+    if (control.failure) s.options().onFailure({ ...control.failure, stopped: true })
+    this.live = false; await s.options().onExit(control.exit)
+    throw new Error('lead-child-exited')
+  }
+  const reasons: (string | null)[] = []
+  const attempt = async () => {
+    await assert.rejects(s.service.send(input), /lead-child-exited/)
+    reasons.push(s.journal.state.managementReason)
+  }
+  return { control, reasons, attempt }
+}
+const memoryEpochStop = { stage: 'frame rpc memoryEpoch', code: 'lead-ipc-invalid' }
+
+test('a child that stops at the same logged step again says so instead of offering Resume', async t => {
   const logged: unknown[] = []
   const s = await rig(t, { onFailure: failure => { logged.push(failure) } })
   await s.service.setEnabled(true)
   assert.equal((await s.service.send(input)).status, 'completed')
-  let failure: { stage: string; code: string } | null = { stage: 'frame rpc memoryEpoch', code: 'lead-ipc-invalid' }
-  const process = s.process()
-  process.send = async function () {
-    if (!failure) return { status: 'completed' }
-    s.options().onFailure(failure)
-    this.live = false; await s.options().onExit('protocol-invalid')
-    throw new Error('lead-child-protocol-invalid')
-  }
-  const reasons: (string | null)[] = []
-  const attempt = async () => {
-    await assert.rejects(s.service.send(input), /lead-child-protocol-invalid/)
-    reasons.push(s.journal.state.managementReason)
-  }
+  const { control, reasons, attempt } = failingChild(s)
+  control.failure = memoryEpochStop
   await attempt(); await attempt(); await attempt()
   assert.deepEqual(reasons, ['lead-child-exited', 'lead-child-exited-again', 'lead-child-exited-again'])
   // A different step is a new failure, not a repeat.
-  failure = { stage: 'rpc appendReply', code: 'lead-ipc-invalid' }
+  control.failure = { stage: 'rpc appendReply', code: 'lead-ipc-invalid' }
   await attempt()
-  // A request that completes starts the count over.
-  const kept = failure; failure = null
-  assert.equal((await s.service.send(input)).status, 'completed')
-  failure = kept
-  await attempt()
-  assert.deepEqual(reasons.slice(3), ['lead-child-exited', 'lead-child-exited'])
-  assert.equal(logged.length, 5)
-  assert.deepEqual(logged[0], { stage: 'frame rpc memoryEpoch', code: 'lead-ipc-invalid' })
+  assert.equal(reasons.at(-1), 'lead-child-exited')
+  assert.deepEqual(logged[0], { ...memoryEpochStop, stopped: true })
   // A failure the child caught and carried on from is logged, and never keys an exit.
-  s.options().onFailure({ stage: 'child appendReply', code: 'lead-journal-busy' })
+  s.options().onFailure({ stage: 'child appendReply', code: 'lead-journal-busy', stopped: false })
   await attempt()
   assert.equal(reasons.at(-1), 'lead-child-exited-again')
+  assert.equal(logged.length, 6)
+})
+
+test('an exit that logged nothing is never called a repeat, and a stop never keys a later exit it did not cause', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true)
+  await s.service.send(input)
+  const { control, reasons, attempt } = failingChild(s)
+  // Killed, desk lost, startup timed out: nothing in the log names a step, so Resume stays on offer each time.
+  for (const exit of ['exited', 'exited', 'desk-lost', 'desk-lost', 'startup-timeout', 'startup-timeout']) { control.exit = exit; await attempt() }
+  assert.deepEqual(reasons, Array(6).fill('lead-child-exited'))
+  // A logged stop then an exit that logged nothing, then the logged stop again: no two in a row match.
+  control.exit = 'protocol-invalid'; control.failure = memoryEpochStop; await attempt()
+  control.failure = null; await attempt()
+  control.failure = memoryEpochStop; await attempt()
+  assert.deepEqual(reasons.slice(6), ['lead-child-exited', 'lead-child-exited', 'lead-child-exited'])
+  // A stop logged for a child that then exits by deadline does not carry over to the next unexpected exit.
+  s.options().onFailure({ ...memoryEpochStop, stopped: true })
+  s.process().live = false; await s.options().onExit('lead-send-deadline')
+  assert.equal(s.journal.state.managementReason, 'lead-send-deadline')
+  control.failure = null; await attempt()
+  // Had that stop carried over, this exit would have taken its key and the next real stop would read as a repeat.
+  control.failure = memoryEpochStop; await attempt()
+  assert.deepEqual(reasons.slice(-2), ['lead-child-exited', 'lead-child-exited'])
+})
+
+test('the count of repeated stops starts over when a request comes back in any state, the Lead is switched off and on, or the key changes', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true)
+  await s.service.send(input)
+  const { control, reasons, attempt } = failingChild(s)
+  control.failure = memoryEpochStop
+  const twice = async () => { await attempt(); await attempt() }
+  await twice()
+  assert.deepEqual(reasons, ['lead-child-exited', 'lead-child-exited-again'])
+  // A request that reached the provider and came back failed proves the child ran.
+  for (const status of ['failed', 'refused']) {
+    control.result = { status }; assert.equal((await s.service.send(input)).status, status); control.result = null
+    await attempt(); assert.equal(reasons.at(-1), 'lead-child-exited', status)
+  }
+  await attempt(); assert.equal(reasons.at(-1), 'lead-child-exited-again')
+  await s.service.setEnabled(false); await s.service.setEnabled(true)
+  await attempt(); assert.equal(reasons.at(-1), 'lead-child-exited', 'switched off and on')
+  await attempt(); assert.equal(reasons.at(-1), 'lead-child-exited-again')
+  await s.service.setKey('anthropic', key)
+  await attempt(); assert.equal(reasons.at(-1), 'lead-child-exited', 'the key changed')
 })
 
 test('two simultaneous sends start one child only after explicit enable', async t => {
