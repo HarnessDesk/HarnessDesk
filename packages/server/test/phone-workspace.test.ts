@@ -11,6 +11,7 @@ import { dispatch, type HostContext } from '../src/methods/index.js'
 import { phoneLinkOff, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
 import { PhoneWorkspace, scrub, type PhoneLiveSession, type PhoneTeamInput } from '../src/phone-workspace.js'
 import { PhoneWork } from '../src/phone-work.js'
+import { UsageService } from '../src/usage/service.js'
 import { SessionIndex } from '../src/session-index.js'
 
 const agent = runtimeId('fake-agent')
@@ -393,7 +394,8 @@ test('a phone allowance says the desk’s own standing, counts down to times and
   try {
     f.ledger = () => ledgerOf([], 0)
     f.reports = [
-      report(HOSTILE.email, { fetchedAt: NOW - 5000, error: { message: `token refused for ${HOSTILE.email}` } } as never),
+      // Never read: a failed refresh with no earlier figures to keep. A kept reading is the #2094 test below.
+      report(HOSTILE.email, { lanes: [], fetchedAt: NOW - 5000, error: { message: `token refused for ${HOSTILE.email}` } } as never),
       report('john@example.com', { lanes: [{ id: 'session', label: '5-hour', usedPercent: 100, windowMinutes: 300, resetsAt: NOW + HOUR }] }),
       report('kim@example.com', { lanes: [], credits: { remaining: -2.15, unit: 'USD' } }),
     ]
@@ -405,11 +407,8 @@ test('a phone allowance says the desk’s own standing, counts down to times and
     assert.equal(failed.readAt, NOW - 5000)
     assert.equal(failed.problem, 'token refused for …')
     assert.equal(failed.plan, 'Pro')
-    assert.deepEqual(failed.lanes, [
-      { label: '5-hour', resetsAt: NOW + 2 * HOUR },
-      { label: 'Weekly', resetsAt: NOW + 70 * HOUR },
-      { label: 'Weekly (one model)', scope: 'one model' },
-    ], 'a failed read names its windows but sends none of the cached figures')
+    assert.equal(failed.lanes, undefined)
+    assert.equal(failed.refreshFailed, undefined, 'nothing was kept, so nothing is said to be stale figures')
     assert.deepEqual([failed.left, failed.used, failed.weekUsed, failed.balance], [undefined, undefined, undefined, undefined])
     assert.equal(out.backAt, NOW + HOUR)
     assert.equal(out.left, 0)
@@ -922,6 +921,93 @@ test('the phone and the Lead both learn which allowance is about to expire unspe
     assert.deepEqual(rows.map(row => row.useFirst), [true, undefined, undefined, undefined])
     const summary = await f.workspace.usageSummary(f.reports)
     assert.deepEqual(summary.accounts.map(one => one.useFirst), [true, undefined, undefined, undefined])
+  } finally { await f.done() }
+})
+
+test('a refresh that fails after a good reading keeps the figures and their read time on the phone and for the Lead (#2094)', async () => {
+  // The good reading goes through the desk's own usage service, then its refresh fails; what the service keeps is
+  // what the phone and the Lead are given.
+  let failing = false
+  const runtime = {
+    info: { id: agent, name: 'fake', capabilities: { metered: true }, presentation: { name: 'Fake Agent' } },
+    health: () => ({ state: 'ready' }),
+    getRateLimits: async () => {
+      if (failing) throw new Error('the provider is down for dev@example.com')
+      return { planType: 'Pro', lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 38, windowMinutes: 10080, resetsAt: NOW + 100 * HOUR }] }
+    },
+    getAccount: async () => ({ accounts: [], signInMethods: [] }),
+  } as unknown as import('@harnessdesk/protocol').AgentRuntime
+  let clock = NOW - 25 * 60_000
+  const service = new UsageService({ runtimes: () => [runtime], meters: new Map(), onReport: () => undefined, now: () => clock })
+  const good = await service.refresh()
+  clock = NOW
+  failing = true
+  const failed = await service.refresh()
+  service.dispose()
+
+  const before = await fixture(), after = await fixture()
+  try {
+    for (const f of [before, after]) f.ledger = () => ledgerOf([], 0)
+    before.reports = [...good]
+    after.reports = [...failed]
+    const goodRow = (await before.workspace.workUsage())!.runtimes[0]!
+    const row = (await after.workspace.workUsage())!.runtimes[0]!
+    assert.equal(goodRow.left, 0.62)
+    assert.equal(goodRow.refreshFailed, undefined)
+    assert.equal(row.standing, 'ready', 'not unknown: the last good reading still stands')
+    assert.equal(row.status, 'Ready')
+    assert.equal(row.left, 0.62, 'the figures survive')
+    assert.deepEqual(row.lanes, [{ label: 'Weekly', left: 0.62, resetsAt: NOW + 100 * HOUR }])
+    assert.equal(row.readAt, NOW - 25 * 60_000, 'and so does the time they were read')
+    assert.equal(row.refreshFailed, true, 'the phone is told the refresh failed')
+    assert.equal(row.stale, true)
+    assert.ok(row.problem?.startsWith('the provider is down'))
+    assert.deepEqual(leaks(row), [])
+
+    const lead = (await after.workspace.usageSummary(failed)).accounts[0]!
+    assert.equal(lead.windows[0]!.remainingPercent, 62)
+    assert.equal(lead.fetchedAt, NOW - 25 * 60_000)
+    assert.equal(lead.readAgeMinutes, 25)
+    assert.equal(lead.refreshFailed, true)
+    assert.equal(lead.error, 'reading failed')
+    const fresh = (await before.workspace.usageSummary(good)).accounts[0]!
+    assert.equal(fresh.refreshFailed, undefined)
+  } finally { await before.done(); await after.done() }
+})
+
+test('the phone and the Lead are told which account to use first, with its reset time and read time (Q15)', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    const weekly = (usedPercent: number, resetsIn: number) => [{ id: 'weekly', label: 'Weekly', usedPercent, windowMinutes: 10080, resetsAt: NOW + resetsIn }]
+    // The first account has more left, but the second's week refills in 20 hours with 70% unspent.
+    f.reports = [
+      report('dev@example.com', { lanes: weekly(10, 6 * 24 * HOUR), fetchedAt: NOW - 2 * 60_000, staleAfterMs: HOUR }),
+      report('team@acme.dev', { lanes: weekly(30, 20 * HOUR), fetchedAt: NOW - 3 * 60_000, staleAfterMs: HOUR }),
+    ]
+    const usage = (await f.workspace.workUsage())!
+    assert.deepEqual(usage.pacing, { id: usage.runtimes[1]!.id, name: usage.runtimes[1]!.name, window: 'Weekly', left: 0.7, resetsAt: NOW + 20 * HOUR, readAt: NOW - 3 * 60_000 })
+    assert.equal(usage.runtimes[1]!.useFirst, true)
+    assert.deepEqual(leaks(usage.pacing), [])
+
+    const summary = await f.workspace.usageSummary(f.reports)
+    assert.deepEqual(summary.pacing, {
+      account: 'Fake Agent · Pro · account 2', reason: 'use-first', window: 'Weekly', remainingPercent: 70,
+      resetsAt: NOW + 20 * HOUR, resetsAtLocal: new Date(NOW + 20 * HOUR).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+      readAgeMinutes: 3,
+    })
+    assert.deepEqual(summary.accounts.map(one => one.readAgeMinutes), [2, 3])
+
+    // With nothing about to be lost, the phone shows no note, and the Lead still learns which resets soonest.
+    const calm = await fixture()
+    try {
+      calm.ledger = () => ledgerOf([], 0)
+      calm.reports = [report('dev@example.com', { lanes: weekly(40, 5 * 24 * HOUR), staleAfterMs: HOUR }), report('team@acme.dev', { lanes: weekly(40, 3 * 24 * HOUR), staleAfterMs: HOUR })]
+      assert.equal((await calm.workspace.workUsage())!.pacing, undefined)
+      const quiet = await calm.workspace.usageSummary(calm.reports)
+      assert.equal(quiet.pacing?.reason, 'resets-soonest')
+      assert.equal(quiet.pacing?.account, 'Fake Agent · Pro · account 2')
+    } finally { await calm.done() }
   } finally { await f.done() }
 })
 

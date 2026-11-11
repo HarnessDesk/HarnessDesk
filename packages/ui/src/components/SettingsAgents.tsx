@@ -46,7 +46,7 @@ import {
   registrySentence,
 } from '../lib/acp-registry'
 import { describeLimits, formatReset } from '../lib/limits'
-import { formatResetCountdown } from '../lib/usage'
+import { formatResetCountdown, pacingNote } from '../lib/usage'
 import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
 import { shortPath } from '../lib/paths'
@@ -2265,6 +2265,10 @@ export const RuntimesSection = ({
   const openAccount = (runtime: RuntimeId, key: string): void => setView({ kind: 'account', runtime, key })
 
   const groups = useMemo(() => agentGroups(snapshot.runtimes), [snapshot.runtimes])
+  const pacing = useMemo(
+    () => pacingNote(snapshot.usage, (report) => snapshot.runtimes.find((entry) => entry.id === report.runtime)?.presentation.name ?? 'Runtime', Date.now()),
+    [snapshot.usage, snapshot.runtimes],
+  )
   const needle = query.trim().toLowerCase()
 
   const listed = useMemo(
@@ -2343,6 +2347,9 @@ export const RuntimesSection = ({
         </Button>
       </Toolbar>}
 <PageExplanation>What your Agents run on: the runtimes HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
+      {/* Which account to spend first, when an allowance is about to refill unspent: the page that lists the accounts
+          is where that choice is made (Q15). The Dashboard and the Lead say the same sentence. */}
+      {pacing && <Note>{pacing}</Note>}
 
       {/* Two agents fit on a screen and need no help being found; the filters
           arrive with the third, which is where scrolling starts. */}

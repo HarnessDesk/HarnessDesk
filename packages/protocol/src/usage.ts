@@ -604,7 +604,10 @@ export const isBlocked = (report: UsageReport): boolean => {
  * balance was "Out" in the table and "Ready" on the card above it. Every
  * surface now reads this and draws the word it returns.
  *
- * - `unknown` — the last reading failed; nothing below it is current.
+ * - `unknown` — nothing has been read: the refresh failed and there are no
+ *   earlier figures to keep. A refresh that fails after a good reading keeps
+ *   those figures (`keptReading`), and the standing is theirs, dated when they
+ *   were read; every surface then says the refresh failed beside them.
  * - `out` — the account-wide limit is spent (`isBlocked`), or a prepaid
  *   balance with nothing else to run on is at zero.
  * - `overdrawn` — a prepaid balance below zero. Said as a debt, never as a
@@ -671,6 +674,19 @@ export const laneRunsOutAt = (lane: UsageLane, now: number): number | null => {
   return now + Math.max(0, (crossesAt - elapsed) * windowMs)
 }
 
+/** Whether a report carries figures of its own: a measured window, or a prepaid balance. */
+export const hasReading = (report: UsageReport): boolean =>
+  report.lanes.some((lane) => lane.placeholder !== true && isLaneKnown(lane)) ||
+  (report.credits !== null &&
+    (report.credits.unlimited === true || (typeof report.credits.remaining === 'number' && Number.isFinite(report.credits.remaining))))
+
+/**
+ * A refresh failed and the last good figures stand: the report carries an error and figures of its own, still dated
+ * (`fetchedAt`) when they were read. The usage service keeps them rather than blanking the account (#2094), and a
+ * surface draws them as a stale reading that could not be refreshed, never as unknown.
+ */
+export const keptReading = (report: UsageReport): boolean => report.error !== null && hasReading(report)
+
 export const usageStandingOf = (report: UsageReport, now: number): UsageStanding => {
   const lane = bindingLane(report.lanes)
   const left = lane ? remainingOf(lane) : null
@@ -681,8 +697,9 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
     report.lanes.find((each) => each.scope && each.placeholder !== true && remainingOf(each) === 0)
   const base = { lane, left: left === null ? null : Math.round(left), scopedOut: scopedOut ?? null }
 
-  // A failed read says nothing current, so no model is called out from it either.
-  if (report.error) return { ...base, scopedOut: null, status: 'unknown', runsOutAt: null, backAt: null }
+  // A failed read with nothing earlier to keep says nothing at all. One that kept its last good figures is judged on
+  // them below, as of when they were read.
+  if (report.error && !hasReading(report)) return { ...base, scopedOut: null, status: 'unknown', runsOutAt: null, backAt: null }
 
   // A prepaid balance with no measured plan lane beside it is the account's
   // whole allowance: below zero is a debt, at zero there is nothing to run on.
@@ -728,9 +745,10 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
   // Ready. A scoped one counts only as the headline.
   const wide = report.lanes.filter((each) => each.placeholder !== true && (!each.scope || each === lane))
 
-  // Short is the lane that runs dry first — whichever window would stop the account soonest.
+  // Short is the lane that runs dry first — whichever window would stop the account soonest. A kept reading has no
+  // current rate: its figures were read before the refresh failed, so nothing is forecast from them.
   let short: { lane: UsageLane; at: number } | null = null
-  for (const each of wide) {
+  for (const each of report.error ? [] : wide) {
     const at = laneRunsOutAt(each, now)
     if (at !== null && (short === null || at < short.at)) short = { lane: each, at }
   }

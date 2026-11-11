@@ -2,6 +2,7 @@ import { watch, type FSWatcher } from 'node:fs'
 
 import {
   bindingLane,
+  hasReading,
   type AgentRuntime,
   type AccountActivity,
   type RateLimits,
@@ -276,6 +277,8 @@ export class UsageService {
     const meter = this.#options.meters.get(id) ?? null
     const spend = this.#options.spend?.spendFor(id) ?? null
     const previous = this.#cache.get(id) ?? null
+    // Figures worth keeping through a failed refresh: a window, or a prepaid balance (`hasReading`), not an error alone.
+    const kept = previous !== null && (previous.lanes.length > 0 || hasReading(previous))
 
     let lanes: readonly UsageLane[] = []
     let plan: string | null = null
@@ -346,7 +349,7 @@ export class UsageService {
       // to: the agent's own, or the other sign-in's.
       if ('failure' in read) {
         const needsSignIn = read.needsSignIn === true
-        if (previous && previous.lanes.length > 0) {
+        if (kept) {
           error = { message: read.failure, ...(needsSignIn ? { needsSignIn: true } : {}) }
         } else if (previous?.unverified) {
           unverifiedFailure = read.failure
@@ -401,7 +404,7 @@ export class UsageService {
 
     // One provider being down does not blank a card. The last good reading
     // stands with its own age, and the failure is shown beside it.
-    if (lanes.length === 0 && !unverified && error && previous && (previous.lanes.length > 0 || previous.unverified)) {
+    if (lanes.length === 0 && !credits && !unverified && error && previous && (kept || previous.unverified)) {
       const kept: UsageReport = { ...previous, spend, error }
       return this.#finish(id, kept)
     }

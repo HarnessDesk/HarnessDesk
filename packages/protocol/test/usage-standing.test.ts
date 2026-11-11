@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { laneRunsOutAt, usageStandingOf, type UsageLane, type UsageReport } from '../src/index.js'
+import { keptReading, laneRunsOutAt, usageStandingOf, type UsageLane, type UsageReport } from '../src/index.js'
 
 const NOW = Date.UTC(2026, 10, 1, 12, 0)
 const HOUR = 3_600_000
@@ -37,9 +37,33 @@ test('an account with room, burning slowly, is ready', () => {
   assert.equal(standing.runsOutAt, null)
 })
 
-test('a failed reading is unknown whatever its lanes say', () => {
-  const standing = usageStandingOf(report({ error: { message: 'no answer' } }), NOW)
+test('a failed refresh with no figures of its own is unknown', () => {
+  const standing = usageStandingOf(report({ lanes: [], error: { message: 'no answer' } }), NOW)
   assert.equal(standing.status, 'unknown')
+  assert.equal(keptReading(report({ lanes: [], error: { message: 'no answer' } })), false)
+})
+
+test('a failed refresh keeps the last good figures and their standing, dated when they were read (#2094)', () => {
+  const kept = report({ lanes: [lane({ usedPercent: 38 })], fetchedAt: NOW - 25 * 60_000, error: { message: 'no answer' } })
+  assert.equal(keptReading(kept), true)
+  const standing = usageStandingOf(kept, NOW)
+  assert.equal(standing.status, 'ready')
+  assert.equal(standing.left, 62)
+})
+
+test('a kept reading never forecasts a run-out from figures it could not refresh', () => {
+  // Fresh, this burn is Short; read before the refresh failed, the rate is not known, so it says only what is left.
+  const burning = lane({ usedPercent: 60, resetsAt: NOW + 4 * HOUR })
+  assert.equal(usageStandingOf(report({ lanes: [burning] }), NOW).status, 'short')
+  const standing = usageStandingOf(report({ lanes: [burning], error: { message: 'no answer' } }), NOW)
+  assert.equal(standing.status, 'ready')
+  assert.equal(standing.runsOutAt, null)
+})
+
+test('a kept balance is still a reading: a failed refresh of a prepaid account keeps its amount', () => {
+  const kept = report({ lanes: [], credits: { remaining: 4.5, unit: 'USD', unlimited: false }, error: { message: 'no answer' } })
+  assert.equal(keptReading(kept), true)
+  assert.notEqual(usageStandingOf(kept, NOW).status, 'unknown')
 })
 
 test('a spent account-wide lane is out, and says when it is back', () => {
@@ -107,7 +131,7 @@ test('a spent model is not a spent account', () => {
   assert.equal(standing.scopedOut?.id, 'opus')
 })
 
-test('a failed reading names no spent model from its cached lanes', () => {
+test('a kept reading still names the model it last read as spent', () => {
   const standing = usageStandingOf(
     report({
       lanes: [lane(), lane({ id: 'opus', label: 'Weekly', scope: 'Opus', usedPercent: 100, windowMinutes: 10_080 })],
@@ -115,8 +139,8 @@ test('a failed reading names no spent model from its cached lanes', () => {
     }),
     NOW,
   )
-  assert.equal(standing.status, 'unknown')
-  assert.equal(standing.scopedOut, null)
+  assert.equal(standing.status, 'ready')
+  assert.equal(standing.scopedOut?.id, 'opus')
 })
 
 test('a rate that empties the window before its reset is short, with the time', () => {

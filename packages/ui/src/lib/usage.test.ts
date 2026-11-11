@@ -14,6 +14,7 @@ import {
   formatCountdownShort,
   formatMoney,
   gatedUntil,
+  pacingNote,
   isBlocked,
   pace,
   costClause,
@@ -976,5 +977,49 @@ describe('rightNow', () => {
 
   it('has nothing to choose between with one measured account', () => {
     expect(rightNow([report({ lanes: [lane({ id: 'w', usedPercent: 10 })] })], name, NOON)).toBeNull()
+  })
+})
+
+describe('pacingNote', () => {
+  const name = (): string => 'Agent A'
+  const weekly = (usedPercent: number, resetsAt: number): UsageLane =>
+    lane({ id: 'weekly', label: 'Weekly', usedPercent, windowMinutes: 10_080, resetsAt })
+
+  it('names the account whose window refills soon with most of it unspent, with its reset (Q15)', () => {
+    const line = pacingNote(
+      [
+        report({ account: 'dev@example.com', lanes: [weekly(10, NOON + 6 * DAY)] }),
+        report({ account: 'team@acme.dev', lanes: [weekly(30, NOON + 20 * HOUR)] }),
+      ],
+      name,
+      NOON,
+    )
+    expect(line).toBe(`Use Agent A (team@acme.dev) first — its Weekly has 70% left and resets ${new Date(NOON + 20 * HOUR).toLocaleDateString(undefined, { weekday: 'short' })} 8:00 AM.`)
+  })
+
+  it('says nothing when no allowance is about to be lost', () => {
+    expect(pacingNote(
+      [
+        report({ account: 'dev@example.com', lanes: [weekly(10, NOON + 6 * DAY)] }),
+        report({ account: 'team@acme.dev', lanes: [weekly(30, NOON + 5 * DAY)] }),
+      ],
+      name,
+      NOON,
+    )).toBeNull()
+  })
+
+  it('never decides on a failed refresh, whatever its kept figures say', () => {
+    expect(pacingNote(
+      [
+        report({ account: 'dev@example.com', lanes: [weekly(10, NOON + 6 * DAY)] }),
+        report({ account: 'team@acme.dev', lanes: [weekly(30, NOON + 20 * HOUR)], error: { message: 'HTTP 503' } as UsageReport['error'] }),
+      ],
+      name,
+      NOON,
+    )).toBeNull()
+  })
+
+  it('has no first to name with one account', () => {
+    expect(pacingNote([report({ lanes: [weekly(30, NOON + 20 * HOUR)] })], name, NOON)).toBeNull()
   })
 })

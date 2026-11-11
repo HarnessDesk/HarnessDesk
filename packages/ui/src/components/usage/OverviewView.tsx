@@ -3,7 +3,7 @@ import type { LedgerReport, RuntimeId, RuntimeInfo, UsageReport } from '@harness
 
 import { prefsForUsage } from '../../lib/accounts'
 import type { HeatMetric, HourMetric } from '../../lib/heat'
-import { drawnReport, reportNeedsAttention, rightNow, type RunwaySummary } from '../../lib/usage'
+import { drawnReport, pacingNote, reportNeedsAttention, rightNow, type RunwaySummary } from '../../lib/usage'
 import { Button, PageOptions, Text, Section, DashboardColumns, DashboardAccounts } from '../../design'
 import { UsageActivity, type HeatView } from '../UsageActivity'
 import { Card, PIVOTS, Ranked, Spend, type Pivot, type SilentAgent, type TintOf } from './shared'
@@ -90,8 +90,11 @@ export const OverviewView = ({
   })
   // Which agent to start on, across every agent; scoped to one, there is no
   // choice to make and the page's own headline stands.
+  // An allowance about to be lost outranks "most room": it is the one answer the person cannot get back later, and it
+  // is the account the Lead names too (Q15).
+  const nameFor = (report: UsageReport): string => byId.get(report.runtime)?.presentation.name ?? 'Runtime'
   const startOn = scope === null
-    ? rightNow(reports, (report) => byId.get(report.runtime)?.presentation.name ?? 'Runtime', now)
+    ? pacingNote(reports, nameFor, now) ?? rightNow(reports, nameFor, now)
     : null
   return (
     <>
