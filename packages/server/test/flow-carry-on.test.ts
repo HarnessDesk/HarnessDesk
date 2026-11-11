@@ -195,7 +195,7 @@ test('a replacement a restart cut short is finished from the card’s claim, and
       assert.deepEqual(run.rounds[0]!.seats, ['seat-1', 'seat-2'])
       assert.deepEqual(run.replaced, { 'seat-2': 'seat-1' })
       assert.equal(rig.flows.bindingOf(started.goal, 1)?.session?.runtime, 'alpha-two', 'the run follows the claim to the new Seat')
-      assert.ok(rig.logs.some((one) => one.includes('cut short by a restart')))
+      assert.ok(rig.logs.some((one) => one.includes('cut short was finished')))
     } else {
       assert.deepEqual(run.rounds[0]!.seats, ['seat-1'], 'nothing moved, so the run stays on the Seat it had')
       assert.equal(run.replaced, undefined)
@@ -341,5 +341,55 @@ test('a carried Seat whose run stalled meanwhile is refused at its gate, not let
   assert.throws(() => late.assert(), /no longer handing out work/)
   assert.ok(rig.flows.carriedAdmission(old.runtime, old.sessionId), 'and so does the Seat it replaced')
   assert.equal(rig.flows.carriedAdmission('nobody', 'nothing'), null, 'a conversation no run seated has none')
+})
+
+/* Round 2, P2: a failure after the lane and the card moved keeps the move, rather than throwing its journal away. */
+test('a replacement whose old Seat could not be closed after the card moved is finished, not forgotten', async (t) => {
+  const rig = await goalRig(t)
+  providers(rig)
+  const started = await rig.start(WRITE_THEN_REVIEW('beta'), AGENTS)
+  await rig.flows.flush()
+  const old = rig.sessionOf('seat-1')
+  rig.closeFails = 'The seat moved, but the old one could not be closed: (disk full)'
+  const opened = await rig.flows.replaceSeat(old.runtime, old.sessionId, { runtime: 'alpha-two', mode: 'handoff' })
+  assert.ok(rig.events.includes('replace-unclosed:seat-1->seat-2'))
+  assert.ok(!('refused' in opened), 'the card is already on the replacement: the move is finished from there')
+  assert.equal(String(opened.id), 'seat-2')
+  const run = rig.executions.stored(rig.flows.executionsFor(started.goal)[0]!.id)!
+  assert.equal(run.replacing, undefined, 'the journal is settled by finishing the move')
+  assert.deepEqual(run.replaced, { 'seat-2': 'seat-1' })
+  assert.deepEqual(run.rounds[0]!.seats, ['seat-1', 'seat-2'])
+  assert.equal(rig.flows.bindingOf(started.goal, 1)?.session?.runtime, 'alpha-two', 'the run follows the card')
+
+  // The same failure with nothing moved is still a plain refusal, and leaves nothing journaled.
+  const again = await goalRig(t)
+  providers(again)
+  const second = await again.start(WRITE_THEN_REVIEW('beta'), AGENTS)
+  await again.flows.flush()
+  const seat = again.sessionOf('seat-1')
+  again.refuseReplace = 'This desk is closing.'
+  assert.deepEqual(await again.flows.replaceSeat(seat.runtime, seat.sessionId, { runtime: 'alpha-two', mode: 'handoff' }), { refused: 'This desk is closing.' })
+  assert.equal(again.executions.stored(again.flows.executionsFor(second.goal)[0]!.id)!.replacing, undefined)
+})
+
+test('a replacement cut short after its card moved to a Seat that is gone stalls the run, saying so, after a restart', async (t) => {
+  const rig = await goalRig(t)
+  providers(rig)
+  const started = await rig.start(WRITE_THEN_REVIEW('beta'), AGENTS)
+  await rig.flows.flush()
+  const old = rig.sessionOf('seat-1')
+  // The desk dies at the save that would record the replacement; and the replacement does not survive the restart.
+  rig.files.dieWhen = (stored) => stored.replaced !== undefined
+  await assert.rejects(rig.flows.replaceSeat(old.runtime, old.sessionId, { runtime: 'alpha-two', mode: 'handoff' }))
+  await rig.flows.flush().catch(() => {})
+  const id = rig.flows.executionsFor(started.goal)[0]!.id
+  await rig.restart()
+  rig.seats.set('seat-2', { ...rig.seats.get('seat-2')!, closed: { at: Date.now(), why: 'released' } })
+  await rig.flows.resume()
+  await rig.flows.flush()
+  const run = rig.executions.stored(id)!
+  assert.equal(run.replacing, undefined)
+  assert.equal(run.state, 'stalled')
+  assert.match(run.reason ?? '', /cut short after its work moved to a Seat that is gone/)
 })
 

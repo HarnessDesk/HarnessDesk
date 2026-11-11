@@ -172,6 +172,14 @@ export const TRIGGER_GOAL_ID = /^goal-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
  * turn-ended signal, #1027) can tell this apart from every other reason
  * `release` refuses, none of which lift on their own.
  */
+/** A replacement whose lane and card already passed to `record`, but whose old Seat could not then be closed. */
+export class SeatMovedError extends Error {
+  constructor(readonly record: SeatRecord, cause: unknown) {
+    super(`The seat moved, but the old one could not be closed: ${cause instanceof Error ? cause.message : String(cause)}`)
+    this.name = 'SeatMovedError'
+  }
+}
+
 export class SeatBusyRefusal extends Error {
   constructor() {
     super("Stop this Seat's current turn before releasing it")
@@ -957,7 +965,14 @@ export class GoalPlane {
         await this.port.closeId(record.id, 'released').catch(() => {})
         throw error
       }
-      await this.port.closeId(old.id, 'limit')
+      try {
+        await this.port.closeId(old.id, 'limit')
+      } catch (error) {
+        // The lane and the card already belong to the replacement: it stays open, and the caller is told the move
+        // went through even though the old Seat could not be closed.
+        await this.refresh(old.board).catch(() => {})
+        throw new SeatMovedError(record, error)
+      }
       await this.refresh(old.board)
       return record
     })

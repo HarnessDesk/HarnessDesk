@@ -293,7 +293,8 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   // Carry-on's replacement journal and the Seat lineage it leaves (§9.2).
   const replacing = raw['replacing']
   if (replacing !== undefined && (!object(replacing) || !Object.entries(replacing).every(([key, entry]) => keys.has(key) && object(entry) &&
-    text(entry['from']) && (entry['card'] === null || integer(entry['card']))))) bad('has a Seat replacement it cannot describe')
+    text(entry['from']) && (entry['card'] === null || integer(entry['card'])) &&
+    (entry['lane'] === undefined || entry['lane'] === null || text(entry['lane']))))) bad('has a Seat replacement it cannot describe')
   const replaced = raw['replaced']
   if (replaced !== undefined && (!object(replaced) || !Object.values(replaced).every((from) => text(from)))) bad('has a Seat lineage it cannot describe')
   const compiled = raw['compiled']

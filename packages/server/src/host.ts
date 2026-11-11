@@ -272,7 +272,7 @@ import { Flows, runCheck } from './flows.js'
 import { goalViewForWire } from './goals/wire.js'
 import { dispatchAfter, Serial } from './goals/assignments.js'
 import { goalMembers } from './goals/members.js'
-import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
+import { GoalPlane, SeatMovedError, type GoalPlanePort } from './goals/plane.js'
 import { exportMemory, importMemory, type MemoryBackupPort } from './memory/backup.js'
 import { availablePorts, laneOf, LaneAllocator, LaneStore } from './goals/lanes.js'
 import {
@@ -5651,7 +5651,9 @@ export class Host {
       this.#membershipChanged(record.session.runtime as RuntimeId, record.session.sessionId)
       return record
     } catch (error) {
-      if (opened.record) await this.#retireSeat(opened.record.session.runtime, opened.record.session.sessionId).catch(() => {})
+      // Past the move, the replacement holds the work: it stays, and the run finishes the move from where it went.
+      if (opened.record && !(error instanceof SeatMovedError)) await this.#retireSeat(opened.record.session.runtime, opened.record.session.sessionId).catch(() => {})
+      else if (opened.record) this.#membershipChanged(opened.record.session.runtime as RuntimeId, opened.record.session.sessionId)
       return { refused: error instanceof Error ? error.message : String(error) }
     }
   }

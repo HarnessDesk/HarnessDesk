@@ -110,7 +110,7 @@ export type StoredFlowExecution = FlowExecution & {
    * A carry-on replacement under way (§9.2), by the seating operation it moves: journaled before the port moves the
    * card's claim, so a restart in between finishes it from the claim instead of leaving the run on a closed Seat.
    */
-  replacing?: Readonly<Record<string, { readonly from: string; readonly card: number | null }>>
+  replacing?: Readonly<Record<string, { readonly from: string; readonly card: number | null; readonly lane?: string | null }>>
   /** Each replacement Seat, to the Seat it replaced: work its predecessor was handed counts as handed to it. */
   replaced?: Readonly<Record<string, string>>
 }
@@ -4666,12 +4666,21 @@ export class FlowExecutions {
       const from = String(seat.id)
       // Journaled before the port moves the claim: a restart in between finishes it from the claim (`resume`).
       const journaled = this.#get(id)
-      await this.#put({ ...journaled, replacing: { ...journaled.replacing, [operation.key]: { from, card: operation.card } } })
+      await this.#put({ ...journaled, replacing: { ...journaled.replacing, [operation.key]: { from, card: operation.card, lane: this.#port.laneOf(seat)?.id ?? null } } })
       const opened = await this.#port.replaceSeat!(seat, { ...target, role: round.role, card: operation.card })
         .catch((error: unknown) => ({ refused: error instanceof Error ? error.message : String(error) }))
       if ('refused' in opened) {
-        await this.#put(this.#unjournal(this.#get(id), operation.key))
-        return opened
+        // A failure after the lane or the card already passed to the new Seat is not a refusal the run can walk away
+        // from: the journal stays, and the move is finished from the claim now, or by a restart.
+        if (!this.#ownershipMoved(this.#get(id), seat, this.#get(id).replacing?.[operation.key])) {
+          await this.#put(this.#unjournal(this.#get(id), operation.key))
+          return opened
+        }
+        this.#port.log('a Seat replacement failed after its card or lane moved; finishing it from where they went', { run: id, from, reason: opened.refused })
+        const finished = await this.#reconcileReplacements(id, operation.key)
+        if (!finished) return opened
+        try { this.#team.setRole(this.#get(id).goal, finished.session.runtime, finished.session.sessionId, round.role) } catch { /* logged on the main path */ }
+        return finished
       }
       const to = String(opened.id)
       const run = await this.#put(this.#replaced(this.#get(id), operation.key, from, to))
@@ -4708,23 +4717,48 @@ export class FlowExecutions {
   }
 
   /**
-   * A replacement a restart cut short (`replacing`): finished when a Seat
-   * other than the replaced one now holds the card's claim — the port moved
-   * it — and otherwise let go, the run left on the Seat it had.
+   * A replacement cut short (`replacing`) — by a restart, or by a failure
+   * after the port had already moved something: finished when an open Seat
+   * other than the replaced one now holds the card's claim or the lane, let go
+   * when nothing left the replaced Seat, and otherwise the run is stalled,
+   * saying so, rather than left on a Seat that no longer has its work.
    */
-  async #reconcileReplacements(id: string): Promise<void> {
+  async #reconcileReplacements(id: string, only?: string): Promise<SeatRecord | null> {
+    let finished: SeatRecord | null = null
     for (const [key, entry] of Object.entries(this.#get(id).replacing ?? {})) {
+      if (only !== undefined && key !== only) continue
       const run = this.#get(id)
       const claim = entry.card === null ? null : this.#team.stateFor(run.goal).intents.find((one) => one.id === entry.card)?.claim ?? null
-      const to = claim ? this.#port.seatsOn(run.goal).find((seat) => !seat.closed && String(seat.id) !== entry.from &&
-        seat.session.runtime === claim.runtime && seat.session.sessionId === claim.sessionId) : undefined
-      if (!to) {
+      const to = this.#port.seatsOn(run.goal).find((seat) => !seat.closed && String(seat.id) !== entry.from && (claim
+        ? seat.session.runtime === claim.runtime && seat.session.sessionId === claim.sessionId
+        : typeof entry.lane === 'string' && this.#port.laneOf(seat)?.id === entry.lane))
+      if (to) {
+        await this.#put(this.#replaced(run, key, entry.from, String(to.id)))
+        this.#port.log('a Seat replacement cut short was finished from where its card or lane went', { run: id, from: entry.from, to: String(to.id) })
+        finished = to
+        continue
+      }
+      const old = this.#port.seatOf(entry.from)
+      if (old && !this.#ownershipMoved(run, old, entry)) {
+        // Nothing passed: the run stays on the Seat it had.
         await this.#put(this.#unjournal(run, key))
         continue
       }
-      await this.#put(this.#replaced(run, key, entry.from, String(to.id)))
-      this.#port.log('a Seat replacement cut short by a restart was finished from its card’s claim', { run: id, from: entry.from, to: String(to.id) })
+      // The card or lane passed to a Seat that is gone: neither finished nor rolled back, said as such.
+      await this.#put(this.#unjournal(run, key))
+      if (this.#get(id).state === 'running') {
+        await this.#stall(id, `A Seat replacement for ${entry.card === null ? 'its step' : `card #${entry.card}`} was cut short after its work moved to a Seat that is gone. This run cannot continue; start a new one to pick up the work.`)
+      }
     }
+    return finished
+  }
+
+  /** Whether the card's claim or the Seat's lane has already left `seat`: a replacement past the point of rolling back by itself. */
+  #ownershipMoved(run: StoredFlowExecution, seat: SeatRecord, entry: { readonly card: number | null; readonly lane?: string | null } | undefined): boolean {
+    if (!entry) return false
+    const claim = entry.card === null ? null : this.#team.stateFor(run.goal).intents.find((one) => one.id === entry.card)?.claim ?? null
+    if (claim && (claim.runtime !== seat.session.runtime || claim.sessionId !== seat.session.sessionId)) return true
+    return typeof entry.lane === 'string' && this.#port.laneOf(seat)?.id !== entry.lane
   }
 
   /**
