@@ -149,8 +149,8 @@ it('marks a run an MCP client started with a chip on its title line, and only th
 
 it('says nothing about triggers on the Runs of a Team an MCP client or a person started', async () => {
   const started = [
-    { ...execution, id: 'mcp-run', state: 'running' as const, startedBy: { via: 'mcp' as const, client: 'example-client@1.0.0' } },
-    { ...execution, id: 'hand-run', state: 'settled' as const },
+    { ...execution, id: 'mcp-run', state: 'running' as const, startedAt: Date.now() - 240_000, startedBy: { via: 'mcp' as const, client: 'example-client@1.0.0' } },
+    { ...execution, id: 'hand-run', state: 'settled' as const, startedAt: Date.now() - 172_800_000 },
   ]
   const show = (shown: typeof started | typeof runs) => act(() => root.render(<StoreProvider store={store}><TopBarProvider>
     <PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: execution.goal }, sessionKey: null }}>
@@ -162,7 +162,10 @@ it('says nothing about triggers on the Runs of a Team an MCP client or a person 
   show(started)
   await act(async () => {})
   const summary = container.querySelector('[aria-label="Runs summary"]')!.textContent!
-  expect(summary).toContain('2 Runs')
+  // A Run started by hand or by an MCP client counts like a trigger's.
+  // (Counted by its UTC day, as the page does, so the first four minutes after midnight UTC read 0.)
+  const today = new Date(started[0]!.startedAt!).toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10) ? 1 : 0
+  expect(summary).toBe(`Runs2 Runs · ${today} today (UTC) · Last started 4m ago`)
   expect(summary).not.toMatch(/daily cap|Daily cap/)
   expect(container.textContent).not.toContain('Pausing stops watching')
   const more = container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')

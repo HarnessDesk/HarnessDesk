@@ -13,7 +13,9 @@ export const mcpRunsStore = () => {
   const store = overviewTeamStore('running')
   const run = store.getSnapshot().flowExecutions.get('overview-run')!
   const patch = (values: Partial<AppSnapshot>) => (store as unknown as { patch: (values: Partial<AppSnapshot>) => void }).patch(values)
-  patch({ flowExecutions: new Map([[run.id, { ...run, startedBy: { via: 'mcp', client: 'example-client@1.0.0' } }]]) })
+  // Started four minutes ago, as the trigger Team's run in flight is.
+  patch({ flowExecutions: new Map([[run.id, { ...run, startedAt: Date.now() - 240_000, currentEndedAt: null,
+    startedBy: { via: 'mcp', client: 'example-client@1.0.0' } }]]) })
   return store
 }
 
