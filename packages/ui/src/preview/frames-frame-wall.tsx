@@ -5,7 +5,7 @@ import { installEditorMainFixture } from './editor-main-fixture'
 import { EditorModeSelection, editorModeFixture, installEditorModeFixture, type EditorModeScene } from './frames-editor-mode'
 import { installExplorerFixture } from './editor-explorer-fixture'
 import { PREVIEW_FINDINGS } from './findings-fixture'
-import { dashboardDestinationStore } from './dashboard-destination-fixture'
+import { dashboardDestinationStore, pacedUsage } from './dashboard-destination-fixture'
 import { AccountNamingFrame, agentsDestinationStore } from './agents-destination-fixture'
 import { pluginsDestinationStore } from './plugins-destination-fixture'
 import { reviewPageStore, type ReviewScene } from './review-page-fixture'
@@ -240,7 +240,7 @@ export const FrameWall = () => {
     if (destination === 'agent') { routeQuery.set('frame-wall','agents'); routeQuery.set('frame-detail','agent') }
     if (destination.startsWith('settings') && destination !== 'settings') { routeQuery.set('frame-wall','settings'); routeQuery.set('frame-section',sectionFor(destination)) }
     const initial = framePageRoute(routeQuery, {...ids,agent:'code-reviewer'})
-    const next = destination==='dashboard' && initial?.kind==='dashboard' ? dashboardDestinationStore({...initial,borrowed:query.get('frame-borrowed')==='1',emptyUsage:query.get('frame-empty-usage')==='1',unpricedPaid:query.get('frame-unpriced-paid')==='1'})
+    const next = destination==='dashboard' && initial?.kind==='dashboard' ? dashboardDestinationStore({...initial,borrowed:query.get('frame-borrowed')==='1',emptyUsage:query.get('frame-empty-usage')==='1',unpricedPaid:query.get('frame-unpriced-paid')==='1',paced:query.get('frame-paced')==='1'})
       : destination==='agents'||destination==='agent' ? agentsDestinationStore(routeQuery)
       : destination==='plugins' ? pluginsDestinationStore(routeQuery)
       : destination==='changes-review'||destination==='navigation' && query.get('frame-review')==='1'
@@ -280,6 +280,8 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    // Settings › Runtimes with the Dashboard's kept reading and pacing note (#2094, Q15).
+    if (destination === 'settings-runtimes' && query.get('frame-paced') === '1') Object.assign(snapshot, { usage: pacedUsage(snapshot.usage, Date.now()) })
     if (query.has('readme-names')) Object.assign(snapshot, { runtimes: snapshot.runtimes.map(info => {
       const name = README_RUNTIME_NAMES[info.presentation.name] ?? info.presentation.name
       return { ...info, name, presentation: { ...info.presentation, name } }

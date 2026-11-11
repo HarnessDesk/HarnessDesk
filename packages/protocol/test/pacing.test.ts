@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { pacedOrder, useFirstNote, type UsageLane, type UsageReport } from '../src/index.js'
+import { pacedOrder, pacingAdvice, useFirstNote, type UsageLane, type UsageReport } from '../src/index.js'
 
 const NOW = Date.UTC(2026, 10, 9, 12, 0, 0)
 const H = 3_600_000
@@ -118,4 +118,45 @@ test('a reached limit that is stale, failed or already past its reset is unknown
   assert.deepEqual(order([spent({ fetchedAt: NOW - 3 * H }), fine], ['a', 'b']), ['b', 'a'], 'a stale reading proves nothing, so it ranks as unknown')
   const unknown = order([report('a', [lane({ usedPercent: 100, resetsAt: NOW - H })], { reached: 'session' }), report('c', [lane({ usedPercent: 100, resetsAt: NOW + H })], { reached: 'session' })], ['c', 'a'])
   assert.deepEqual(unknown, ['a', 'c'], 'a spent window whose reset has passed ranks above one still spent')
+})
+
+const weekly = (usedPercent: number, resetsAt: number): UsageLane =>
+  lane({ id: 'weekly', label: 'Weekly', usedPercent, resetsAt, windowMinutes: 10080 })
+const advise = (reports: UsageReport[]) => pacingAdvice(reports.map(one => ({ id: one.runtime, report: one })), NOW)
+
+test('which account first: the one about to reset with most of its week unspent, with its reset time (Q15)', () => {
+  // b has less left than a, but its week refills in 20 hours with 70% unspent: that allowance is lost unless it is used.
+  const advice = advise([
+    report('a', [weekly(10, NOW + 6 * 24 * H)]),
+    report('b', [weekly(30, NOW + 20 * H)]),
+  ])
+  assert.deepEqual(advice, { id: 'b', reason: 'use-first', laneId: 'weekly', laneLabel: 'Weekly', remainingPercent: 70, resetsAt: NOW + 20 * H, readAt: NOW - 60_000 })
+})
+
+test('with nothing about to be lost, the advice is the account with room whose window refills soonest', () => {
+  const advice = advise([
+    report('a', [weekly(40, NOW + 6 * 24 * H)]),
+    report('b', [weekly(40, NOW + 3 * 24 * H)]),
+    report('c', [weekly(95, NOW + 2 * H)]),
+  ])
+  assert.equal(advice?.id, 'b')
+  assert.equal(advice?.reason, 'resets-soonest')
+  assert.equal(advice?.resetsAt, NOW + 3 * 24 * H)
+  assert.equal(advice?.remainingPercent, 60)
+})
+
+test('a stale or failed reading never decides the advice, and with no fresh reading there is none', () => {
+  const kept = report('a', [weekly(10, NOW + 10 * H)], { error: { message: 'x' } as UsageReport['error'] })
+  const stale = report('b', [weekly(10, NOW + 10 * H)], { fetchedAt: NOW - 3 * H })
+  assert.equal(advise([kept, stale]), null)
+  assert.equal(advise([kept, stale, report('c', [weekly(50, NOW + 5 * 24 * H)])])?.id, 'c')
+})
+
+test('of two accounts about to lose allowance, the one that resets first leads', () => {
+  const advice = advise([
+    report('a', [weekly(20, NOW + 30 * H)]),
+    report('b', [weekly(40, NOW + 10 * H)]),
+  ])
+  assert.equal(advice?.id, 'b')
+  assert.equal(advice?.reason, 'use-first')
 })
