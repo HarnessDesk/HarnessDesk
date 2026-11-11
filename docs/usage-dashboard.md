@@ -1443,7 +1443,9 @@ kept for a model-scoped lane: a limit you can step around is not a limit on
 the agent.
 `workingAccount` is that rule, and the menu bar takes it too — before it, both
 surfaces used whichever report had arrived first, so which account they were
-describing depended on a race.
+describing depended on a race. The menu bar speaks for the anchor agent too, the
+one the next Send goes to, rather than the least left across the roster, so a
+plan spent for weeks elsewhere cannot hold it at 0%.
 
 **What a bar is made of.** The agent's mark, a 34px track filled by what is
 *left*, and the figure. The mark identifies the agent without spending a word on

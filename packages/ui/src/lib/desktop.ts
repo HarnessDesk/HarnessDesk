@@ -16,6 +16,10 @@ export interface TrayAgent {
   readonly detail: string
   readonly needsSignIn: boolean
   /**
+   * The agent the next Send goes to — the one whose figure the menu bar shows.
+   */
+  readonly current: boolean
+  /**
    * Whose mark to draw beside the name — a lobe-icons key, the same one
    * `lib/brands.ts` gives every other surface. The shell keeps a rendered
    * image per key, because a menu item's image is a raster and the shell has
@@ -32,8 +36,13 @@ export interface TrayAgent {
 }
 
 export interface TraySummary {
-  /** The tightest figure of the lot — two characters of menu bar, well spent. */
+  /**
+   * The current agent's figure — what it has left, or when it is back if it is
+   * out. Empty when there is no current agent, no reading, or a sign-in to do.
+   */
   readonly title: string
+  /** Whose figure the title is, in the menu's own words. */
+  readonly tooltip: string
   readonly agents: readonly TrayAgent[]
 }
 
