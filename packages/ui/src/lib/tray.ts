@@ -115,7 +115,7 @@ const describeAgent = (info: RuntimeInfo, input: TrayInput, names: ReadonlyMap<s
  * The menu bar speaks for one agent: the one the next Send goes to, which is
  * the header strip's anchor. It used to carry the least left across the whole
  * roster, which pinned it to an agent you were not using — one plan spent for
- * three weeks read 0% for three weeks. An agent that is out says when it is
+ * weeks read 0% for weeks. An agent that is out says when it is
  * back rather than 0%, since that is the one fact a spent plan leaves you to
  * act on; no reading, or a sign-in still to do, leaves the mark on its own.
  */

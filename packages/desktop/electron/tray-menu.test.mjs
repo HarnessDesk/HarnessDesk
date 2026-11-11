@@ -43,7 +43,10 @@ test('the current agent’s row is checked, so it shows whose figure the menu ba
   assert.equal(current.icon, 'agent:now')
   assert.equal(other.type, undefined)
   assert.equal(other.checked, undefined)
-  current.click()
+  // Electron flips a checkbox's state before calling click; the check must survive it.
+  current.checked = false
+  current.click(current)
+  assert.equal(current.checked, true)
   assert.deepEqual(calls, [['openUsage', 'now']])
 })
 

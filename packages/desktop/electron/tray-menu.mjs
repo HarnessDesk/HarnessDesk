@@ -16,10 +16,15 @@ export const trayMenuTemplate = (summary, { actions, iconFor, agentIcon }) => {
   const agents = summary.agents
   const unreported = agents.filter(quiet).length
   // The check marks whose figure the menu bar shows: the agent the next Send goes to.
+  // macOS toggles a checkbox on click, and the menu is only rebuilt when the
+  // next summary arrives, so a click puts the check back where it was.
   const usage = agents.filter(agent => !quiet(agent)).map(agent => withIcon({
     ...(agent.current === true ? { type: 'checkbox', checked: true } : {}),
     label: agent.needsSignIn ? `${agent.name} — Sign in…` : `${agent.name} — ${agent.detail}`,
-    click: () => agent.needsSignIn ? actions.signIn(agent.id) : actions.openUsage(agent.id),
+    click: (item) => {
+      if (agent.current === true && item) item.checked = true
+      return agent.needsSignIn ? actions.signIn(agent.id) : actions.openUsage(agent.id)
+    },
   }, agentIcon(agent)))
   if (unreported) usage.push({ label: `No usage reported for ${unreported} runtime${unreported === 1 ? '' : 's'}`, enabled: false })
   if (usage.length === 0) usage.push({ label: 'No usage reported yet', enabled: false })
