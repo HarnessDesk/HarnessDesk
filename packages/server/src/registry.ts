@@ -60,6 +60,11 @@ export interface SessionRecord {
   readonly runtime: RuntimeId
   /** Present only while the session is attached to a live runtime handle. */
   live: AgentSession | null
+  /**
+   * How many handles have been attached to this record, ever. An opener that saw it at n before its own await and
+   * n + 1 after knows the one attachment between was its own; more means somebody attached alongside.
+   */
+  readonly liveAttaches: number
   /** Picks held across a host-initiated quiet release, until reopen succeeds. */
   restedOptions?: Readonly<Record<string, OptionValue>>
   /**
@@ -328,6 +333,7 @@ export class SessionRegistry {
     let bodyRevision = 0
     let bodyAuthorityEpoch = 0
     let heldLive = live
+    let liveAttaches = live ? 1 : 0
     let heldDetached = false
     let heldCacheClosed = false
     let heldQueue = emptyQueue()
@@ -346,7 +352,8 @@ export class SessionRegistry {
       set cacheClosed(next: boolean) { if (heldCacheClosed !== next) { heldCacheClosed = next; bodyRevision++; registry.#bodyChanged?.(record) } },
       runtime: session.runtime,
       get live() { return heldLive },
-      set live(next: AgentSession | null) { if (heldLive !== next || (next && heldCacheClosed)) { heldLive = next; if (next) heldCacheClosed = false; bodyRevision++; registry.#bodyChanged?.(record) } },
+      set live(next: AgentSession | null) { if (heldLive !== next || (next && heldCacheClosed)) { if (next && heldLive !== next) liveAttaches++; heldLive = next; if (next) heldCacheClosed = false; bodyRevision++; registry.#bodyChanged?.(record) } },
+      get liveAttaches() { return liveAttaches },
       get detached() { return heldDetached },
       set detached(next: boolean) { if (heldDetached !== next) { heldDetached = next; bodyRevision++; registry.#bodyChanged?.(record) } },
       reopenRefusals: 0,

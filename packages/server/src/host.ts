@@ -5871,8 +5871,13 @@ export class Host {
    * person's.
    */
   /** Identities for live handles, so carry-on can tell the handle it opened from one somebody else attached. */
-  readonly #carryOnHandles = new WeakMap<object, number>()
+  readonly #carryOnHandles = new WeakMap<object, string>()
   #carryOnHandleCount = 0
+  #carryOnHandle(live: object): string {
+    let handle = this.#carryOnHandles.get(live)
+    if (handle === undefined) { handle = `h${++this.#carryOnHandleCount}`; this.#carryOnHandles.set(live, handle) }
+    return handle
+  }
 
   #buildCarryOn(): CarryOnService {
     const preferences = () => this.#state.state.preferences
@@ -5949,34 +5954,54 @@ export class Host {
         const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
         return !!record && (record.running.size > 0 || this.#queueBusy(record))
       },
-      close: async (runtime, sessionId) => { await this.call('session/close', key(runtime, sessionId)) },
+      close: async (runtime, sessionId, handle) => {
+        if (handle !== undefined) {
+          // Only the handle carry-on attached: a later one, or none, is not carry-on's to close.
+          const live = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live
+          if (!live || this.#carryOnHandle(live) !== handle) return
+        }
+        await this.call('session/close', key(runtime, sessionId))
+      },
       resume: async (runtime, sessionId, model) => {
+        const at = key(runtime, sessionId)
+        const before = this.registry.get(at.runtime, at.sessionId)
         // Already open there: somebody else's handle, which carry-on must never close.
-        if (this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live) return false
-        await this.call('session/resume', { ...key(runtime, sessionId), ...(model ? { options: { model } } : {}) })
-        return true
+        if (before?.live) return null
+        const attaches = before?.liveAttaches ?? 0
+        await this.call('session/resume', { ...at, ...(model ? { options: { model } } : {}) })
+        // Evidence of ownership: exactly one attachment since the look before the await, and it is the one live now.
+        // Two mean another opener attached alongside, and then neither handle is provably carry-on's.
+        const after = this.registry.get(at.runtime, at.sessionId)
+        if (!after?.live || (before !== undefined && after !== before) || after.liveAttaches !== attaches + 1) return null
+        return this.#carryOnHandle(after.live)
       },
       footprint: (runtime, sessionId) => {
         const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
         if (!record?.live) return null
         // The handle itself, the turns it holds and what runs: a reattach, a turn or a queued send all change it.
-        let handle = this.#carryOnHandles.get(record.live)
-        if (handle === undefined) { handle = ++this.#carryOnHandleCount; this.#carryOnHandles.set(record.live, handle) }
-        return `${handle}:${record.session.turns.length}:${record.running.size}:${this.#queueBusy(record) ? 1 : 0}`
+        return `${this.#carryOnHandle(record.live)}:${record.session.turns.length}:${record.running.size}:${this.#queueBusy(record) ? 1 : 0}`
       },
       // A packet is the host's own words: it goes in as desk context, so the transcript never
         // shows it as something the person typed.
-        send: async (runtime, sessionId, text, kind) => {
-          await sendTurn(this.#context, { ...key(runtime, sessionId), input: [kind === 'packet' ? deskContextContent(text) : { type: 'text', text }] })
+        // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
+        // last await: a person who writes while the host is resolving the handle wins there too.
+        send: async (runtime, sessionId, text, kind, stillOurs) => {
+          const admission = Object.assign(async () => {}, {
+            assertDispatch: () => { if (!stillOurs()) throw new Error('The person’s message went first.') },
+          })
+          await sendTurn(this.#context, { ...key(runtime, sessionId), input: [kind === 'packet' ? deskContextContent(text) : { type: 'text', text }] }, admission)
         },
       create: async (runtime, from, model) => {
         const source = key(from.runtime, from.sessionId)
         // The new conversation starts in the stuck one's folder, worktree included, so its uncommitted work is there.
         const cwd = this.registry.get(source.runtime, source.sessionId)?.session.cwd ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.cwd
         const session = await this.call('session/create', { runtime: runtimeId(runtime), options: { ...(cwd ? { cwd } : {}), ...(model ? { model } : {}) } })
+        // The handle the creation attached, taken before any further await lets another opener in.
+        const live = this.registry.get(runtimeId(runtime), makeSessionId(String(session.id)))?.live
+        const handle = live ? this.#carryOnHandle(live) : null
         const title = this.registry.get(source.runtime, source.sessionId)?.session.title ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.title
         if (title) await this.call('session/setTitle', { runtime: runtimeId(runtime), sessionId: session.id, title }).catch(() => undefined)
-        return String(session.id)
+        return { sessionId: String(session.id), handle }
       },
       packet: async (from, meta) => {
         const at = key(from.runtime, from.sessionId)

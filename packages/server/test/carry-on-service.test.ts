@@ -72,13 +72,13 @@ const rig = async (t: TestContext, options: {
     busy: () => false,
     footprint: () => 'quiet',
     close: async (runtime, id) => { state.calls.push(`close ${runtime} ${id}`) },
-    resume: async (runtime, id) => { state.calls.push(`resume ${runtime} ${id}`) },
+    resume: async (runtime, id) => { state.calls.push(`resume ${runtime} ${id}`); return `handle ${runtime} ${id}` },
     send: async (runtime, id, text) => {
       // Claim before send: whatever is being sent is already on disk.
       const disk = JSON.parse(await readFile(file, 'utf8')) as { records: { state: string }[] }
       state.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)} [${disk.records.map(record => record.state).join(',')}]`)
     },
-    create: async runtime => { created += 1; state.calls.push(`create ${runtime}`); return `new-${created}` },
+    create: async runtime => { created += 1; state.calls.push(`create ${runtime}`); return { sessionId: `new-${created}`, handle: `handle ${runtime} new-${created}` } },
     packet: async () => 'packet',
     record: (runtime, id, item) => { state.marks.push({ at: `${runtime} ${id}`, item }); return true },
     publish: (key, incident) => { state.published.push({ key: `${key.runtime} ${key.sessionId}`, incident }) },
@@ -304,7 +304,7 @@ test('a person’s message during the reset’s resume stops the retry before it
   const r = await rig(t, { choice: 'wait', resetsAt: 1_000_000_000 + HOUR })
   const resumed = deferred()
   let resuming = false
-  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise } })
+  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return `handle ${runtime} ${id}` } })
   t.after(() => service.close())
   await service.ended('codex', 's1', LIMIT)
   r.clock = 1_000_000_000 + HOUR + 1_250
@@ -372,7 +372,7 @@ test('a person who starts using the sibling while carry-on reopens it keeps it: 
   const r = await rig(t)
   const resumed = deferred()
   let resuming = false
-  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise } })
+  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return `handle ${runtime} ${id}` } })
   t.after(() => service.close())
   const ended = service.ended('codex', 's1', LIMIT)
   await until(() => resuming, 'the sibling’s reopen')
@@ -392,7 +392,7 @@ test('a sibling nobody touched is still let go when the person’s message wins'
   const r = await rig(t)
   const resumed = deferred()
   let resuming = false
-  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise } })
+  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return `handle ${runtime} ${id}` } })
   t.after(() => service.close())
   const ended = service.ended('codex', 's1', LIMIT)
   await until(() => resuming, 'the sibling’s reopen')
@@ -407,7 +407,7 @@ test('a new conversation the person has started using while it was created is ne
   const r = await rig(t, { available: ['codex', 'claude'] })
   const made = deferred<string>()
   let creating = false
-  const service = r.reopen({ create: async runtime => { r.calls.push(`create ${runtime}`); creating = true; return made.promise } })
+  const service = r.reopen({ create: async runtime => { r.calls.push(`create ${runtime}`); creating = true; const sessionId = await made.promise; return { sessionId, handle: `handle ${runtime} ${sessionId}` } } })
   t.after(() => service.close())
   const ended = service.ended('codex', 's1', LIMIT)
   await until(() => creating, 'the new conversation')
@@ -469,4 +469,103 @@ test('after a restart left a switch unconfirmed, its target is off the card and 
   await assert.rejects(after.service.decide({ incidentId: view!.incidentId, choice: 'switch', target: 'codex-2' as never, always: false }),
     (error: Error & { wireCode?: string }) => error.wireCode === 'carryOnStale')
   assert.deepEqual(after.calls, [])
+})
+
+// ------------------------------------------------------------ review round 3
+
+test('a cancel never closes a sibling handle carry-on cannot prove it attached', async t => {
+  const r = await rig(t)
+  const resumed = deferred()
+  let resuming = false
+  // Another opener attached alongside carry-on's resume: the host hands back no handle of carry-on's own.
+  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return null } })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => resuming, 'the sibling’s reopen')
+  const person = service.personSent('codex', 's1')
+  resumed.resolve()
+  await ended; await person
+  assert.ok(!r.calls.some(call => call.startsWith('close codex-2')), `nothing of the sibling’s is closed: ${r.calls.join(' | ')}`)
+})
+
+test('the cancel closes only the handle carry-on attached', async t => {
+  const r = await rig(t)
+  const closed: string[] = []
+  const resumed = deferred()
+  let resuming = false
+  const service = r.reopen({
+    resume: async (runtime, id) => { resuming = true; await resumed.promise; return `handle ${runtime} ${id}` },
+    close: async (runtime, id, handle) => { closed.push(`${runtime} ${id} ${handle ?? 'any'}`) },
+  })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => resuming, 'the sibling’s reopen')
+  const person = service.personSent('codex', 's1')
+  resumed.resolve()
+  await ended; await person
+  assert.deepEqual(closed, ['codex s1 any', 'codex-2 s1 handle codex-2 s1'])
+})
+
+/** A send port that dispatches the way the host does: an await, then the person writes, then the effect. */
+const dispatching = (r: Rig, service: () => CarryOnService, source = { runtime: 'codex', sessionId: 's1' }) =>
+  async (runtime: string, id: string, text: string, _kind: string, stillOurs?: () => boolean) => {
+    await new Promise(resolve => setTimeout(resolve, 1))
+    void service().personSent(source.runtime, source.sessionId)
+    // The host's admission, at its effect boundary.
+    if (stillOurs && !stillOurs()) throw new Error('The person’s message went first.')
+    r.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)}`)
+  }
+
+test('a person who writes inside the host’s dispatch of the same-thread continue wins', async t => {
+  const r = await rig(t)
+  let service!: CarryOnService
+  service = r.reopen({ send: dispatching(r, () => service) })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  await service.idle()
+  assert.deepEqual(sends(r), [], 'the continue never left')
+  assert.notEqual(r.published.at(-1)?.incident?.state, 'asked', 'and the person is not asked about a failure')
+})
+
+test('a person who writes inside the host’s dispatch of the handoff packet wins', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let service!: CarryOnService
+  service = r.reopen({ send: dispatching(r, () => service) })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  await service.idle()
+  assert.deepEqual(sends(r), [], 'the packet never left')
+  assert.notEqual(r.published.at(-1)?.incident?.state, 'asked')
+})
+
+test('a person who writes inside the host’s dispatch of the reset retry wins', async t => {
+  const r = await rig(t, { choice: 'wait', resetsAt: 1_000_000_000 + HOUR })
+  let service!: CarryOnService
+  service = r.reopen({ send: dispatching(r, () => service) })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  r.clock = 1_000_000_000 + HOUR + 1_250
+  r.timers.find(timer => !timer.cancelled)!.run()
+  await until(() => r.calls.includes('resume codex s1'), 'the retry at the reset')
+  await service.idle()
+  assert.deepEqual(sends(r), [], 'the retry never left')
+  assert.notEqual(r.published.at(-1)?.incident?.state, 'asked')
+})
+
+test('a destination left open for the person is recorded in the conversation, with its link, to outlive a reconnect', async t => {
+  const r = await rig(t)
+  const resumed = deferred()
+  let resuming = false
+  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return `handle ${runtime} ${id}` } })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => resuming, 'the sibling’s reopen')
+  const people = [service.personSent('codex', 's1'), service.personSent('codex-2', 's1')]
+  resumed.resolve()
+  await ended; await Promise.all(people)
+  const stopped = r.marks.find(mark => mark.item.phase === 'stopped')
+  assert.ok(stopped, `a stopped marker: ${r.marks.map(mark => mark.item.phase).join(', ')}`)
+  assert.equal(stopped.at, 'codex s1', 'in the conversation the person is in')
+  assert.deepEqual(stopped.item.link, { runtime: 'codex-2', sessionId: 's1' })
+  assert.match(stopped.item.note ?? '', /also open on Codex · personal/)
 })

@@ -190,3 +190,70 @@ test('a malformed answer never reaches the host', async t => {
   assert.ok(bad, 'an unknown choice is refused')
   assert.notEqual(bad.code, 'carryOnStale', 'by the validator, before the service sees it')
 })
+
+// ------------------------------------------------------------ review round 3
+
+/** A conversation on the primary that has started its first turn; the caller fails it. */
+const started = async (r: Rig, text = 'Fix the failing build on main.'): Promise<Session> => {
+  const session = (await r.client.call('session/create', { runtime: PRIMARY, options: { cwd: '/w' } })) as Session
+  await r.client.call('turn/send', { runtime: PRIMARY, sessionId: session.id, input: [{ type: 'text', text }] })
+  await r.client.until(() => r.sent.some(one => one.session === String(session.id)), 5_000, 'the first turn to start')
+  return session
+}
+
+const person = (r: Rig, session: Session) =>
+  void r.host.call('turn/send', { runtime: PRIMARY, sessionId: session.id, input: [{ type: 'text', text: 'I will take it from here.' }] }).catch(() => {})
+
+test('a person who writes while the host dispatches the handoff packet wins: the packet never reaches the agent', async t => {
+  const r = await rig(t, { sibling: false })
+  await prefer(r, 'switch')
+  const session = await started(r)
+  // The moment the packet's dispatch looks the new conversation up — after carry-on's own last check — the person writes.
+  const get = r.host.registry.get.bind(r.host.registry)
+  let fired = false
+  r.host.registry.get = ((runtime, id) => {
+    if (!fired && String(runtime) === OTHER) {
+      const left = get(PRIMARY, session.id)?.session.turns.some(turn => turn.items.some(item => item.type === 'carryOn' && item.phase === 'left'))
+      if (left) { fired = true; person(r, session) }
+    }
+    return get(runtime, id)
+  }) as typeof r.host.registry.get
+  r.primary.sessions.get(session.id)!.fail('You have hit your usage limit.', 'credits')
+
+  await r.client.until(() => fired && (changes(r).at(-1) === null || changes(r).some(one => one?.state === 'moved')), 10_000, 'carry-on to settle')
+  assert.deepEqual(r.sent.filter(one => one.runtime === OTHER), [], 'no packet behind the person’s message')
+  assert.equal(changes(r).at(-1), null, 'carry-on stood down')
+})
+
+test('a cancel never closes the sibling when another opener attached alongside carry-on’s reopen', async t => {
+  const r = await rig(t)
+  await prefer(r, 'switch')
+  const own = <T extends { runtime: unknown }>(value: T): T => ({ ...value, runtime: SIBLING })
+  const read = r.sibling!.readSession.bind(r.sibling!)
+  r.sibling!.readSession = async id => own(await read(id))
+  const resume = r.sibling!.resumeSession.bind(r.sibling!)
+  let session!: Session
+  let calls = 0
+  r.sibling!.resumeSession = async (id, options) => {
+    calls += 1
+    const first = calls === 1
+    const handle = await resume(id, options) as FakeSession
+    const snapshot = handle.snapshot.bind(handle)
+    Object.defineProperty(handle, 'runtime', { get: () => SIBLING, configurable: true })
+    handle.snapshot = () => own(snapshot())
+    if (first) {
+      // While carry-on's reopen is in flight: the person writes, and another window opens the same thread there.
+      person(r, session)
+      // A second opener gets a handle of its own (the fixture would otherwise hand back the same one).
+      r.sibling!.sessions.delete(id)
+      await r.host.call('session/resume', { runtime: SIBLING, sessionId: id })
+    }
+    return handle
+  }
+  session = await started(r)
+  r.primary.sessions.get(session.id)!.fail('You have hit your usage limit.', 'credits')
+
+  await r.client.until(() => calls >= 2 && changes(r).at(-1) === null, 10_000, 'carry-on to stand down')
+  assert.ok(r.host.registry.get(SIBLING, session.id)?.live, 'the other opener’s handle stays open')
+  assert.deepEqual(r.sent.filter(one => one.runtime === SIBLING), [])
+})
