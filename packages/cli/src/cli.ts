@@ -400,7 +400,7 @@ export function errorExit(error: unknown): number {
   if (error.code === 'ambiguous') return 2
   if (error.code === 'noDesk') return 3
   if (['incompatible', 'deskTooOld'].includes(error.code)) return 6
-  if (['unsafeDirectory', 'unsafeSocket', 'unsafePointer', 'tierNotGranted', 'notOnClientSurface', 'helloFirst', 'badRequest', 'refused', 'alreadyAnswered', 'cardMissing', 'clientDoorOnly'].includes(error.code)) return 4
+  if (['unsafeDirectory', 'unsafeSocket', 'unsafePointer', 'tierNotGranted', 'notOnClientSurface', 'helloFirst', 'badRequest', 'refused', 'alreadyAnswered', 'cardMissing', 'clientDoorOnly', 'mcpStartsOff', 'mcpDailyCap', 'mcpUnattended', 'mcpUnsavedFlow'].includes(error.code)) return 4
   return 1
 }
 
@@ -457,13 +457,18 @@ const output = (io: CommandIo, args: Arguments, value: object, human: () => void
 const teamLine = (io: CommandIo, team: GoalView) => line(io, [team.goal.id, team.activity ?? team.goal.state, team.goal.sentence])
 
 async function open(args: Arguments, io: CommandIo, desk?: DeskPointer, subscribe?: HostParams<'client/subscribe'>, onTransport?: (transport: ClientTransport) => void): Promise<Client> {
+  // The command line keeps the desk it found for the whole invocation. An MCP
+  // call finds it again on every reconnect: a desk restarted under a waiting
+  // call has a new socket, and the old pointer would only ever say noDesk.
   const pointer = desk ?? await resolveDesk({ home: args.home })
+  const refind = io.surface === 'mcp' && !desk
   return connect({
     rawNotifications: true,
-    client: { name: 'harnessdesk', version: '0.1.0' },
+    client: io.peer ?? { name: 'harnessdesk', version: '0.1.0' },
+    ...(io.surface ? { surface: io.surface } : {}),
     subscribe,
     transport: async () => {
-      const transport = await localTransport(pointer)
+      const transport = await localTransport(refind ? await resolveDesk({ home: args.home }) : pointer)
       onTransport?.(transport)
       if (!args.traceWire) return transport
       const trace = (direction: string, message: unknown) => io.err(encodeJson({ direction, message }) + '\n')
@@ -626,6 +631,8 @@ async function watch(args: Arguments, io: CommandIo): Promise<number> {
 export async function runCommand(argv: readonly string[], io: CommandIo): Promise<number> {
   try {
     const args = parseArgs(argv)
+    // An MCP server's standard input is its client's channel, not a file.
+    if (io.surface === 'mcp' && (args.briefFile === '-' || args.contextFile === '-')) usage('stdin is the MCP channel; give a file path')
     return await COMMANDS.find(command => command.name === args.command)!.execute(args, io)
   } catch (error) {
     io.err(errorText(error) + '\n')
@@ -1014,10 +1021,12 @@ async function waitRun(args: Arguments, io: CommandIo): Promise<number> {
   const terminate = () => { code ??= 143; reason ??= 'interrupted'; cancel() }
   const timeout = args.timeout === undefined ? undefined : setTimeout(() => { code ??= 8; reason ??= 'timeout'; cancel() }, Number(args.timeout) * 1000)
   const release = onInterrupt(io, interrupt, terminate)
+  const begun = Date.now()
   const decide = () => {
     if (code !== undefined || !client) return
     const snapshot = client.snapshot(), run = snapshot.runs.find(run => run.id === args.target)
     if (!run) return
+    io.onProgress?.(run.state, Date.now() - begun)
     if (run.state !== 'running') {
       code = run.state === 'settled' ? 0 : 7
       reason = run.reason
