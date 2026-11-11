@@ -96,7 +96,7 @@ const ASK_ITEMS: readonly AgentItem[] = [
     source: { kind: 'mcp', server: 'harnessdesk', pluginId: 'consult' },
     status: 'completed',
     args: { agent: 'claude', question: 'Does the retry in src/worktrees.ts double-count a failed fetch?', context: 'The diff is in src/worktrees.ts.' },
-    result: [{ type: 'text', text: 'Yes. listBranches() retries inside fetchRefs() and again in the caller, so one failure is counted twice. Drop the outer retry. <img src=x onerror=alert(1)>' }],
+    result: [{ type: 'text', text: 'Yes. fetchRefs() already retries a failed fetch three times, and listBranches() wraps it in a second retry loop, so one network failure is counted against the budget up to twelve times.\n\nDrop the outer loop in listBranches() and let fetchRefs() own the retry.' }],
   } as unknown as AgentItem,
   {
     id: 'ask-2' as never,

@@ -716,20 +716,40 @@ describe('ask_agent', () => {
     return container.querySelector<HTMLButtonElement>('button')!
   }
 
-  it('reads Asked and the agent’s own name, and the answer renders as inert text', () => {
-    const item = {
-      ...call({
-        tool: 'mcp__harnessdesk__ask_agent',
-        args: { agent: 'second', question: 'Is this safe?' },
-        result: [{ type: 'text', text: 'Looks safe. <img src=x onerror="window.pwned=1"> <script>window.pwned=2</script>' }],
-      }),
-    }
-    const header = render(item)
+  it('reads Asked and the agent’s own name, never the wire name, the server or the runtime id', () => {
+    const header = render(call({
+      tool: 'mcp__harnessdesk__ask_agent',
+      args: { agent: 'second', question: 'Is the retry loop in fetchPage bounded?', context: 'src/net/fetch.ts, lines 40-80.' },
+      result: [{ type: 'text', text: 'Yes: it stops after three attempts.' }],
+    }))
     expect(header.textContent).toContain('Asked Second Opinion')
+    expect(header.textContent).not.toMatch(/harnessdesk|ask_agent/)
     act(() => header.click())
+    const body = container.textContent ?? ''
+    expect(body).not.toMatch(/mcp__|ask_agent|harnessdesk/)
+    expect(body).not.toMatch(/\bsecond\b/)
+    expect(body).not.toMatch(/\bagent\b:?/)
+    const labels = [...container.querySelectorAll('[data-role="ask"] [data-slot="key-value-row"]')].map((row) => row.textContent)
+    expect(labels).toEqual([
+      'QuestionIs the retry loop in fetchPage bounded?',
+      'Contextsrc/net/fetch.ts, lines 40-80.',
+      'AnswerYes: it stops after three attempts.',
+    ])
+  })
+
+  it('the question and the answer are agent text: through sanitizeText — terminal control gone, markup inert', () => {
+    const header = render(call({
+      tool: 'mcp__harnessdesk__ask_agent',
+      args: { agent: 'second', question: 'Is this safe? \u001b[31m<b>x</b>', context: null },
+      result: [{ type: 'text', text: 'Looks safe. <img src=x onerror="window.pwned=1"> <script>window.pwned=2</script>' }],
+    }))
+    act(() => header.click())
+    expect(container.textContent).toContain('Is this safe? <b>x</b>')
     expect(container.textContent).toContain('<img src=x onerror="window.pwned=1">')
+    expect(container.textContent).not.toContain('\u001b')
     expect(container.querySelector('img')).toBeNull()
     expect(container.querySelector('script')).toBeNull()
+    expect(container.querySelector('[data-role="ask"] b')).toBeNull()
     expect((window as { pwned?: unknown }).pwned).toBeUndefined()
   })
 
