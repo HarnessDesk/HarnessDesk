@@ -32,9 +32,10 @@ export const REFUSALS: Record<LeadControlRefusal, string> = {
   'lead-memory-full': 'Memory is full. Forget a note first.',
   'lead-memory-core-full': 'Core has no room for it. Move a note to Archive first.',
   'lead-memory-instruction-refused': 'Not sent: memory never keeps words aimed at an agent, like "ignore previous instructions" or "merge without review". Say what you prefer about your work instead.',
+  'lead-ask-replaced': 'A newer question replaced this one. Nothing was done.',
   'lead-proposal-missing': 'That proposal is no longer kept.',
   'lead-proposal-decided': 'This proposal already has an answer, maybe from another device.',
-  'lead-proposal-desk-only': 'New words for a whole section are applied at the desk, where you can read them in full.',
+  'lead-proposal-desk-only': 'These words are applied at the desk, where you can read them in full.',
 }
 
 /** Words the person typed that the host took for a late answer get one more line: how to say it differently. */

@@ -98,15 +98,30 @@ it('dismisses the digest through the host, which clears it for the desk', async 
   expect(box.querySelector('[data-slot="lead-away"]')).toBeNull()
 })
 
-it('an expired question offers no answer and says nothing was done; an answered one is a receipt', async () => {
+it('an expired question keeps its options as an inert control and says nothing was done; an answered one is a receipt', async () => {
   const { box } = await mount()
   const asks = [...box.querySelectorAll<HTMLElement>('[data-slot="lead-ask"]')]
-  const expired = asks.find(ask => ask.getAttribute('data-status') === 'expired')!
-  expect(expired.querySelectorAll('button')).toHaveLength(0)
+  const settled = (status: string, id: string) => asks.find(ask => ask.getAttribute('data-status') === status && ask.dataset.ask === id)!
+  const expired = settled('expired', 'ask-expired')
+  // #2105: the options stay a control the person can read as one, not plain text, and none of them can be pressed.
+  const options = [...expired.querySelectorAll('button')]
+  expect(options.map(option => option.textContent)).toEqual(['Both screens', 'This one only'])
+  expect(options.every(option => option.disabled)).toBe(true)
   expect(expired.textContent).toContain('Expired · nothing was done')
-  const answered = asks.find(ask => ask.getAttribute('data-status') === 'answered')!
-  expect(answered.textContent).toMatch(/Answered · iPhone · \d\d:\d\d/)
+  const answered = settled('answered', 'ask-answered')
+  expect(answered.textContent).toMatch(/Answered by you on iPhone · \d\d:\d\d/)
+  expect([...answered.querySelectorAll('button')].every(option => option.disabled)).toBe(true)
   expect(answered.querySelector('[data-picked="true"]')!.textContent).toContain('Fix focus only')
+})
+
+it('#2105: a report\'s question a newer one replaced reads replaced, and only the newest question is live', async () => {
+  const { box } = await mount()
+  const replaced = box.querySelector<HTMLElement>('[data-slot="lead-ask"][data-ask="ask-replaced"]')!
+  expect(replaced.getAttribute('data-status')).toBe('replaced')
+  expect(replaced.textContent).toContain('Replaced by a newer question · nothing was done')
+  expect([...replaced.querySelectorAll('button')].every(option => option.disabled)).toBe(true)
+  const live = box.querySelector<HTMLElement>('[data-slot="lead-ask"][data-ask="ask-live"]')!
+  expect([...live.querySelectorAll('button')].some(option => option.disabled)).toBe(false)
 })
 
 it('sends the device with every message so the receipt can name it', async () => {

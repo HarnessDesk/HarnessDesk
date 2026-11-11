@@ -117,6 +117,11 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
     { version: 1, id: 'ask-answered', revision: 1, role: 'assistant', text: 'I recommend keeping this change small.', ask: { question: 'How much should this change cover?', options: [{ id: 'focus', label: 'Fix focus only' }, { id: 'all', label: 'Include the whole form' }], recommended: 'focus', expiresInMinutes: 60 } },
     { version: 1, id: 'answer-1', revision: 2, role: 'user', text: 'Fix focus only' },
     { version: 1, id: 'ask-expired', revision: 3, role: 'assistant', text: 'The rename touches two screens.', ask: { question: 'Rename the column on both screens?', options: [{ id: 'both', label: 'Both screens' }, { id: 'one', label: 'This one only' }], recommended: 'both', expiresInMinutes: 30 } },
+    // A report from an automatic wake asks too; the Lead asked again before anyone answered it, so it was replaced.
+    { version: 1, id: 'ask-replaced', revision: 4, role: 'assistant', text: 'The upload test chat ended before its report.\nI read only part of it.\nLet it read the reason and write a report?',
+      proactive: { finding: 'The upload test chat ended before its report.', caveat: 'I read only part of it.', ask: 'Let it read the reason and write a report?',
+        options: [{ id: 'read', label: 'Read the reason' }, { id: 'later', label: 'Not now' }], recommended: 'read' } },
+    { version: 1, id: 'ask-live', revision: 5, role: 'assistant', text: 'The reason is in the run record.', ask: { question: 'Restart the run, or only explain why it stopped?', options: [{ id: 'restart', label: 'Restart it' }, { id: 'explain', label: 'Only explain' }], recommended: 'explain' } },
   ]
   if (scene === 'runtime-unavailable') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, unavailable: 'runtime', unavailableReason: "this app's runtime (Node 24.19.0) rejected the Lead flags (exit 9)" } } }
   if (scene === 'first-name') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, nameChosen: false } } }
@@ -240,4 +245,5 @@ export const leadPresenceFixture = (now = Date.now()): LeadPresenceView => ({ ve
     { kind: 'stopped', id: 'work-6', title: 'Retry the flaky upload test', fact: 'Stopped: the person stopped its chat', ref: { kind: 'chat', id: 'fixture:upload-retry' }, at: now - 5_400_000, stoppedBy: 'person' },
     { kind: 'stopped', id: 'work-5', title: 'Ship the changelog after the rename', fact: 'Waits for the column rename', ref: { kind: 'work', id: 'work-5' }, at: now - 3_600_000 },
     { kind: 'done', id: 'work-1', title: 'Update the onboarding copy', fact: 'Pull request merged', ref: { kind: 'pr', id: 'acme/widgets#42' }, at: now - 7_200_000 }] },
-  asks: [{ id: 'ask-answered', status: 'answered', answer: { option: 'Fix focus only', by: 'iPhone', at: now - 3_600_000 } }, { id: 'ask-expired', status: 'expired', expiresAt: now - 600_000 }] })
+  asks: [{ id: 'ask-answered', status: 'answered', answer: { option: 'Fix focus only', by: 'iPhone', at: now - 3_600_000 } }, { id: 'ask-expired', status: 'expired', expiresAt: now - 600_000 },
+    { id: 'ask-replaced', status: 'expired', replacedBy: 'ask-live' }, { id: 'ask-live', status: 'open' }] })

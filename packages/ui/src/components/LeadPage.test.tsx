@@ -201,6 +201,11 @@ it.each(['lead-ask-answered', 'lead-ask-expired'])('typed words refused by %s te
   expect(text).not.toMatch(/another device/)
   expect(text).toMatch(code === 'lead-ask-answered' ? /^This question was already answered\. Nothing was done\./ : /^This question expired\. Nothing was done\./)
 })
+it('#2105: a tap on a question a newer one replaced says so, not that it expired', async () => {
+  const { store, box } = await mount(); vi.spyOn(store.lead, 'send').mockRejectedValue({ code: 'lead-ask-replaced' })
+  await input(box.querySelector('textarea')!, 'Start it'); await act(async () => button('Send').click())
+  expect(box.querySelector('[role="alert"]')?.textContent).toBe('A newer question replaced this one. Nothing was done.')
+})
 it('unchanged settings groups cannot be saved', async () => {
   await mount(); await act(async () => button('Settings').click())
   expect(button('Save permissions').disabled).toBe(true); expect(button('Save allowances').disabled).toBe(true)
@@ -850,7 +855,7 @@ it('renders the latest proactive ask as buttons, recommends the primary pick and
   await act(async () => finish())
   expect(box.textContent).toContain('Start this work?')
 })
-it('keeps answered ordinary asks as quiet records with the picked label marked and only the latest ask live', async () => {
+it('keeps answered ordinary asks as inert records with the picked label marked and only the latest ask live', async () => {
   const base = leadProjection()
   const messages = [
     { version: 1 as const, id: 'old', revision: 1, role: 'assistant' as const, text: 'A choice.', ask: askFixture },
@@ -860,7 +865,7 @@ it('keeps answered ordinary asks as quiet records with the picked label marked a
   const { box, update } = await mount({ ...base, thread: { ...base.thread, messages } })
   const records = box.querySelectorAll('[data-slot="lead-ask-options"]')
   expect(records).toHaveLength(2)
-  expect(records[0]!.querySelector('button')).toBeNull()
+  expect([...records[0]!.querySelectorAll('button')].map(option => option.disabled)).toEqual([true, true])
   expect(records[0]!.querySelector('[data-picked="true"]')?.textContent).toContain('Not now')
   expect(records[1]!.querySelectorAll('button')).toHaveLength(2)
   await update({ requestInFlight: true })

@@ -47,3 +47,33 @@ describe('useInboxWaiting', () => {
     expect(seen.every(count => count === 0)).toBe(true)
   })
 })
+
+describe('useLeadInbox after an answer', () => {
+  it('#2105: reads the inbox again when what became of a question changes, so an answered question leaves the bell at once', async () => {
+    const { act } = await import('react')
+    const { createRoot } = await import('react-dom/client')
+    const { StoreProvider } = await import('../state/context')
+    const { emptySnapshot } = await import('../state/store')
+    const { useLeadInbox } = await import('./use-inbox-waiting')
+    vi.useFakeTimers()
+    const snapshot = { ...emptySnapshot(), status: 'open' }
+    const listeners = new Set<() => void>()
+    let lead = { revision: 4, stage: 'idle', personActions: [], away: { version: 1, digest: null, brief: { enabled: false, at: '07:30' }, asks: [{ id: 'm4', status: 'open' }] } }
+    const reads: string[] = []
+    const store = { subscribe: () => () => {}, getSnapshot: () => snapshot,
+      lead: { subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, get state() { return lead } },
+      transport: { request: async (method: string) => { reads.push(method); return { version: 1, needsYou: 0, items: [] } } } } as never
+    const Probe = () => { useLeadInbox(); return null }
+    const host = document.createElement('div'), root = createRoot(host)
+    act(() => root.render(<StoreProvider store={store}><Probe /></StoreProvider>))
+    await act(async () => { vi.advanceTimersByTime(500) })
+    const before = reads.length
+    // The phone answered: the thread's revision has not moved yet, but the desk's record of the question has.
+    lead = { ...lead, away: { ...lead.away, asks: [{ id: 'm4', status: 'answered' }] } }
+    act(() => { for (const listener of listeners) listener() })
+    await act(async () => { vi.advanceTimersByTime(500) })
+    act(() => root.unmount())
+    vi.useRealTimers()
+    expect(reads.length).toBe(before + 1)
+  })
+})

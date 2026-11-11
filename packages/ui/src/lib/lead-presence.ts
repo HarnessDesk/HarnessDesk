@@ -1,4 +1,4 @@
-import { isWaitingOnYou, leadPersonNeeds, leadWaitUnsent } from '@harnessdesk/protocol'
+import { isWaitingOnYou, leadNeedsYou, leadPersonNeeds, leadWaitUnsent } from '@harnessdesk/protocol'
 import type { LeadPresence as LeadChecks, LeadRunReading } from '@harnessdesk/protocol'
 import type { LeadState } from '../state/lead'
 import type { LeadMood } from './lead-faces'
@@ -21,10 +21,13 @@ export interface LeadPresence {
 const needWord = (count: number) => `${count} need${count === 1 ? 's' : ''} you`
 const ENDED = new Set(['stopped', 'accepted', 'declined'])
 
-/** Read from the projection alone; it grants nothing. */
-export const leadPresence = (state: LeadState): LeadPresence => ({ quiet: false, ...reading(state) })
+/**
+ * Read from the projection, and from the desk's inbox for whether a question the Lead asked is open (`openAsk`): the
+ * desk holds that, not the thread. It grants nothing.
+ */
+export const leadPresence = (state: LeadState, openAsk = false): LeadPresence => ({ quiet: false, ...reading(state, openAsk) })
 const AT_REST = { mood: 'neutral', word: 'Ready', needs: 0, goalActive: false, quiet: true } as const
-const reading = (state: LeadState): Omit<LeadPresence, 'quiet'> & { readonly quiet?: boolean } => {
+const reading = (state: LeadState, openAsk: boolean): Omit<LeadPresence, 'quiet'> & { readonly quiet?: boolean } => {
   const thread = state.thread
   if (state.settings?.unavailable) return { mood: 'sleeping', word: 'Unavailable', needs: 0, goalActive: false }
   if (state.error) return { mood: 'sleeping', word: 'Desk offline', needs: 0, goalActive: false }
@@ -34,10 +37,12 @@ const reading = (state: LeadState): Omit<LeadPresence, 'quiet'> & { readonly qui
   const started = thread.state !== 'draft' || thread.messages.some(message => message.role === 'user')
   const reviewed = !!thread.contract || !!thread.pr || thread.cards.some(card => card.type === 'plan')
   const goalActive = reviewed && started && !ENDED.has(thread.state)
-  const needs = leadPersonNeeds({ personActions: state.personActions, wayOut: state.wayOut, waitReason: state.waitReason, thread })
+  const lead = { personActions: state.personActions, wayOut: state.wayOut, waitReason: state.waitReason, thread }
+  const needs = leadPersonNeeds(lead)
   const waiting = state.stage === undefined ? needs > 0 || thread.state === 'waiting-for-user' || state.waitReason === 'lead-result-awaiting-person' : isWaitingOnYou(state.stage)
   if (waiting && (state.stage === 'you-review' || state.waitReason === 'lead-result-awaiting-person')) return { mood: 'done', word: 'Done · ready to accept', needs: 1, goalActive }
-  if (waiting) return { mood: 'alert', word: needWord(Math.max(needs, 1)), needs: Math.max(needs, 1), goalActive }
+  // An open question waits on the person whatever the stage says; the count is the desk's rule, the inbox's own sum.
+  if (waiting || openAsk) { const count = leadNeedsYou({ ...lead, openAsk }, waiting); return { mood: 'alert', word: needWord(count), needs: count, goalActive } }
   // The desk refused the last request before sending it: not a wait on the person, and not work going on either.
   if (leadWaitUnsent(state.waitReason)) return { mood: 'alert', word: 'Not sent', needs: 0, goalActive }
   if (thread.state === 'stopped') return { mood: 'sleeping', word: 'Paused', needs: 0, goalActive: false }
