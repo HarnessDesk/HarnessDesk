@@ -652,6 +652,7 @@ export const SectionHead = ({
   sticky,
   level = 'heading',
   ink,
+  id,
   className,
 }: {
   name: ReactNode
@@ -662,13 +663,15 @@ export const SectionHead = ({
   level?: 'label' | 'heading'
   /** A label's ink: `muted` for a quiet band of rows under a label of its own (a group inside a card). */
   ink?: 'muted'
+  /** The name's id, for a region named by its head (`aria-labelledby`). */
+  id?: string
   className?: string
 }) => {
   /* In a dialog a section is a group of the form, and its head is that
      group's legend: the label's size and weight, attached to the group it
      names instead of floating page furniture's 20px above and 8px over it. */
   const inSection = useInPageSection()
-  if (useDialogForm()) return <FieldsetLegend name={name} description={description} action={action} className={className} />
+  if (useDialogForm()) return <FieldsetLegend id={id} name={name} description={description} action={action} className={className} />
   return (
   <div className={cx(styles.sectionHead, className)} data-section-head="" {...(sticky ? { 'data-sticky': '' } : {})}>
     <div className={styles.sectionHeadContent}>
@@ -677,9 +680,9 @@ export const SectionHead = ({
           /* The heading and its inline text share the section role, so the
              column sizes the name at the same type it paints. The heading
              owns truncation and the slot used to measure section names. */
-          createElement(inSection ? 'h3' : 'h2', { className: cx(styles.sectionName, TEXT_ROLE.section), 'data-slot': 'section-name', 'data-level': level }, <Text role="section">{name}</Text>)
+          createElement(inSection ? 'h3' : 'h2', { id, className: cx(styles.sectionName, TEXT_ROLE.section), 'data-slot': 'section-name', 'data-level': level }, <Text role="section">{name}</Text>)
         ) : (
-          <GroupLabel as={inSection ? 'h3' : 'h2'} {...(ink ? { ink } : {})} className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
+          <GroupLabel as={inSection ? 'h3' : 'h2'} id={id} {...(ink ? { ink } : {})} className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
         )}
         {description != null && (
           <span className={styles.sectionDescription} data-slot="section-description">{description}</span>

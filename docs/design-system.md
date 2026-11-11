@@ -2944,14 +2944,16 @@ The rest of a card behind one quiet line: "All facts", "Show all".
 
 A group of a card's rows under its own label: "Needs you · 1", "Rules".
 The label stands on the card's row edge; the rows under it bring their own
-edge, so the group adds none. `label` names the region; `heading` is the
-visible label when it carries more than the name (a count).
+edge, so the group adds none. The region is named by its visible label
+(`aria-labelledby`), so a reader hears it once: `heading` when it carries
+more than `label` (a count), `label` otherwise.
 
 The label is a quiet band, in muted ink: the card's own title keeps the
 secondary ink above it and the rows' names the foreground below, so it reads
 as a label of its rows rather than one more row. It sits nearer the rows it
 names (4px) than the group before it (12px more above every group after the
-first).
+first). Only the group's own label takes that 4px; a head inside its rows
+keeps its own rhythm.
 
 ### `ToolProse`
 

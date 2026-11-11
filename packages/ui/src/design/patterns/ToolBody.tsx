@@ -79,20 +79,24 @@ export const ToolFold = ({ label, children }: { label: string; children: ReactNo
 /**
  * A group of a card's rows under its own label: "Needs you · 1", "Rules".
  * The label stands on the card's row edge; the rows under it bring their own
- * edge, so the group adds none. `label` names the region; `heading` is the
- * visible label when it carries more than the name (a count).
+ * edge, so the group adds none. The region is named by its visible label
+ * (`aria-labelledby`), so a reader hears it once: `heading` when it carries
+ * more than `label` (a count), `label` otherwise.
  *
  * The label is a quiet band, in muted ink: the card's own title keeps the
  * secondary ink above it and the rows' names the foreground below, so it reads
  * as a label of its rows rather than one more row. It sits nearer the rows it
  * names (4px) than the group before it (12px more above every group after the
- * first).
+ * first). Only the group's own label takes that 4px; a head inside its rows
+ * keeps its own rhythm.
  */
-export const ToolGroup = ({ label, heading, children, ...props }: { label: string; heading?: ReactNode; children: ReactNode } & Omit<HTMLAttributes<HTMLElement>, 'className' | 'style' | 'aria-label'>) =>
-  <section {...props} data-slot="tool-group" aria-label={label} className="[[data-slot=tool-group]+&]:mt-(--hd-space-3) [&_[data-section-head]]:mb-(--hd-space-1)">
-    <SectionBody spacing="inline"><SectionHead level="label" ink="muted" name={heading ?? label} /></SectionBody>
+export const ToolGroup = ({ label, heading, children, ...props }: { label: string; heading?: ReactNode; children: ReactNode } & Omit<HTMLAttributes<HTMLElement>, 'className' | 'style' | 'aria-label' | 'aria-labelledby'>) => {
+  const headId = useId()
+  return <section {...props} data-slot="tool-group" aria-labelledby={headId} className="[[data-slot=tool-group]+&]:mt-(--hd-space-3) [&>[data-tool-group-head]>[data-section-head]]:mb-(--hd-space-1)">
+    <SectionBody spacing="inline" data-tool-group-head=""><SectionHead id={headId} level="label" ink="muted" name={heading ?? label} /></SectionBody>
     {children}
   </section>
+}
 
 /** Prose and a missing-fact note stand on the card's row edge; a note takes second-line type. */
 export const ToolProse = ({ children, variant = 'prose' }: { children: ReactNode; variant?: 'prose' | 'note' }) => <SectionBody data-slot="tool-prose" spacing={variant === 'note' ? 'inline' : 'tool-prose'}><Text role={variant === 'note' ? 'meta' : 'prose'} ink="secondary">{children}</Text></SectionBody>

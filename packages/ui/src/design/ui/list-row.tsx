@@ -351,6 +351,10 @@ const ListRow = ({
  * its words: the trail's 28px control sits inside the row's padding instead
  * of setting a one-line row's height, so a one-line row and a two-line row
  * leave the same 8px.
+ *
+ * It is meant for `sm` rows, which are the only rows it re-pads. A default
+ * row in a panel list keeps its own table-edge padding and height and only
+ * loses the rule between rows, as every list in a card does.
  */
 const ListRows = ({
   className,
