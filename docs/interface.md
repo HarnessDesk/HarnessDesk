@@ -536,8 +536,12 @@ Open Folder, Usage, Settings and Quit. Native rows use standard brand glyphs
 with one narrow icon column; usage readings stay in the labels, rather than
 a wide raster that reserves empty meter space. Its Usage submenu retains reporting
 accounts and sign-in or unavailable states; neutral runtimes without a reading
-share one note. **View › Show Menu Bar Icon** restores a hidden item and remembers
-that choice for this desk. Other worker desks keep their own visibility defaults.
+share one note. The item's figure is the current agent's, the one the next Send
+goes to: what it has left, or when it is back once it is out. The tooltip names
+that agent and Usage checks its row; with no current agent, or no reading for
+it, the item shows the mark alone. **View › Show Menu Bar Icon** restores a
+hidden item and remembers that choice for this desk. Other worker desks keep
+their own visibility defaults.
 
 Dashboard's Overview names the ledger total **Usage cost**; its title explains
 whether that cost was metered or priced at public rates. The pressed chart
