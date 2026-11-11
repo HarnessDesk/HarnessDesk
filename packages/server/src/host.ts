@@ -4832,8 +4832,11 @@ export class Host {
       if (params.attended === false) {
         throw Object.assign(new Error('An MCP client starts attended work only, so a ceiling a seat cannot hold asks you. Start unattended work in the app.'), { wireCode: 'mcpUnattended' })
       }
-      // A front-door Goal is the window's to reuse; the command line never sends one.
-      if (params.goal !== undefined) throw Object.assign(new Error('An MCP client cannot start work on an existing Team.'), { wireCode: 'refused' })
+      // A front-door Goal is the window's to reuse, and Run again continues an
+      // earlier Run in its Team and checkout: both are work on an existing Team.
+      if (params.goal !== undefined || (params.continues !== undefined && params.continues !== null)) {
+        throw Object.assign(new Error('An MCP client cannot start work on an existing Team.'), { wireCode: 'refused' })
+      }
       if (!await this.#savedFlowSource(params.root, params.source)) {
         throw Object.assign(new Error('Start a Flow saved in this project; an MCP client cannot start an edited copy.'), { wireCode: 'mcpUnsavedFlow' })
       }
