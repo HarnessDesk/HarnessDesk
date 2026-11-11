@@ -160,7 +160,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
           onActivity: busy => { if (!closed) send({ type: 'activity', busy }) },
           onPresence: ({ wakes, readings }) => { if (!closed) send({ type: 'presence', presence: { ...wakes, readings } }) },
           clock: { now: Date.now, schedule: callback => { const timer = setTimeout(callback, 50); return () => clearTimeout(timer) } },
-          nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', [request.requestId, request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header
+          nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', request.withheld?.length ? [request.requestId, request.body, request.withheld] : [request.requestId, request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header
             countInput: async body => new TextEncoder().encode(body).length + 1024,
             wait: (ms, signal) => new Promise((resolve, reject) => {
               if (signal.aborted) { reject(denied()); return }

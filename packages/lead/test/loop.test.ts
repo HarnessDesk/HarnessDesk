@@ -2366,7 +2366,7 @@ test('a stuck-chat observation wakes once with candidates and uses the existing 
 })
 
 test('a request the desk refused before sending waits as unsent, costs nothing, records a failed wake, and the next one goes', async () => {
-  for (const [wireCode, reason] of [['lead-provider-refused', 'lead-request-unsent'], ['lead-provider-withheld', 'lead-request-withheld']] as const) {
+  for (const [wireCode, reason] of [['lead-provider-refused', 'lead-request-unsent'], ['lead-provider-withheld', 'lead-request-held']] as const) {
     const s = await fixture([async () => { throw Object.assign(new Error(wireCode), { wireCode }) }, message()])
     const loop = exported('createLeadLoop')(s.options)
     try {
@@ -2387,6 +2387,22 @@ test('a request the desk refused before sending waits as unsent, costs nothing, 
       assert.equal(s.journal.state.managementReason, null)
     } finally { await loop.close() }
   }
+})
+
+test('a second refusal before sending in a row says so, and one that completes in between starts over', async () => {
+  const refused = async () => { throw Object.assign(new Error('lead-provider-refused'), { wireCode: 'lead-provider-refused' }) }
+  const s = await fixture([refused, refused, message(), refused])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    const reasons: (string | null)[] = []
+    for (let i = 0; i < 4; i++) {
+      await loop.request({ ...input, wakeSource: 'person' })
+      reasons.push(s.journal.state.managementReason)
+      if (s.journal.state.phase === 'waiting-for-user') await s.journal.resume()
+    }
+    assert.deepEqual(reasons, ['lead-request-unsent', 'lead-request-unsent-again', null, 'lead-request-unsent'])
+    assert.equal(s.fake.requests.length, 4)
+  } finally { await loop.close() }
 })
 
 test('a wake whose request was sent and lost is recorded as failed, not as silence', async () => {

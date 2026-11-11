@@ -88,14 +88,20 @@ it.each([null, 'resume', 'decide-plan'] as const)('shows Resume only for wayOut=
   if (wayOut === 'decide-plan') { expect(button('Review plan')).toBeUndefined(); await focusDecision('plan'); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('plan') }
 })
 it.each([
-  ['lead-request-unsent', "The desk did not send Dex's last request, so nothing was spent."],
-  ['lead-request-withheld', "Dex's instructions, memory or rules look like they hold a password, key or token"],
-] as const)('says %s was not sent, without Resume or a promise that sending again continues', async (waitReason, words) => {
+  ['lead-request-unsent', "The desk did not send Dex's last request, so nothing was spent. Sending a message tries again.", false],
+  ['lead-request-unsent-again', "The desk again did not send Dex's request, so nothing was spent. The desk log names the check that stopped it.", true],
+  ['lead-request-held', "The desk held back Dex's last request because part of the conversation looked like a password, key or token", false],
+  ['lead-request-withheld', "Dex's instructions, memory or rules look like they hold a password, key or token", false],
+] as const)('says %s was not sent, and what to do, without Resume', async (waitReason, words, log) => {
   const base = leadProjection(), { box } = await mount({ ...base, wayOut: null, waitReason, thread: { ...base.thread, state: 'waiting-for-user' } })
   expect(box.textContent).toContain(words)
   expect(button('Resume')).toBeUndefined()
   expect(box.textContent).not.toContain('also continues')
   expect(box.textContent).not.toContain('{label}')
+  // The desk log is named only once the same kind of refusal has come back.
+  expect(box.textContent?.includes('desk log')).toBe(log)
+  // Only the instructions refusal blames the instructions, memory or rules.
+  expect(box.textContent?.includes('memory or rules')).toBe(waitReason === 'lead-request-withheld')
 })
 it('offers the rail toggle only where a shell draws the rail', async () => {
   expect((await mount()).box.querySelector('[aria-label="Toggle rail"]')).toBeNull()

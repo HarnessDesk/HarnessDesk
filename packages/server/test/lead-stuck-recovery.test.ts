@@ -104,7 +104,9 @@ await stop(made)
   const storage = await openJournal(), journal = await createLeadJournal(storage)
   out.uncertain = journal.state.budget.requests.filter(request => request.uncertain).length
   out.open = journal.state.budget.requests.length
-  out.lastWake = journal.state.wakes.at(-1)?.decision ?? null
+  const wakes = journal.state.wakes, stuckAt = wakes.findIndex(wake => wake.id === 'stuck-wake')
+  out.stuckWake = wakes[stuckAt]?.decision ?? null
+  out.wakesAfter = wakes.slice(stuckAt + 1).map(wake => wake.decision)
   await storage.close()
 }
 process.stdout.write(JSON.stringify(out) + '\\n')
@@ -151,5 +153,10 @@ test('a desk stuck on a request that carried a clipped chat read recovers after 
   assert.notEqual(result.stage, 'you-blocked')
   assert.equal(result.afterFailure, null)
   assert.equal(result.uncertain, 0); assert.equal(result.open, 0)
+  // The ledger keeps the stuck wake as it was recorded; after the restart the person's message ran as a wake the Lead
+  // answered, and no wake after it failed. A desk observation may also wake the Lead and stay silent, so order is not fixed.
+  assert.equal(result.stuckWake, 'silent')
+  assert.ok(result.wakesAfter.includes('spoke'), JSON.stringify(result.wakesAfter))
+  assert.ok(!result.wakesAfter.includes('failed'), JSON.stringify(result.wakesAfter))
   assert.equal(JSON.stringify(result).includes(KEY), false)
 })

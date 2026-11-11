@@ -1,5 +1,5 @@
 import { LEAD_LIMITS, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type LeadControlRefusal, type LeadPresence } from '@harnessdesk/protocol'
-import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
+import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse, LeadWithheldPiece } from '@harnessdesk/lead'
 import { LEAD_MESSAGES_DEFAULTS, leadRememberLines, parseLeadMessagesBody } from '@harnessdesk/lead'
 import { LeadSupervisor, chooseLeadRuntime, hostLeadRuntime, type LeadRuntime, type LeadRuntimeProber, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
 import type { CredentialBroker } from '../credentials.js'
@@ -15,6 +15,8 @@ const publicRefusal = (wireCode: LeadControlRefusal) => Object.assign(new Error(
  * reply allowance, or credential-shaped text. A code only — the host log never carries the body. */
 export type LeadRequestGuard = 'shape' | 'size' | 'model' | 'max-tokens' | 'credential'
 export interface LeadRequestRefusal { readonly requestId: string; readonly guard: LeadRequestGuard; readonly bodyBytes: number; readonly reservedTokens: number | null }
+/** A request the child built with parts withheld: where and how many, by kind. Like a refusal, it never carries content. */
+export interface LeadRequestWithheld { readonly requestId: string; readonly bodyBytes: number; readonly reservedTokens: number; readonly withheld: readonly LeadWithheldPiece[] }
 const refusedBy = (guard: LeadRequestGuard) => Object.assign(new Error('lead-provider-refused'), { leadRequestGuard: guard })
 
 export interface LeadProcess {
@@ -34,6 +36,7 @@ export interface LeadServiceOptions {
   readonly onRuntimeUnavailable?: (reason: string) => void
   /** Told once for each request refused before it was sent: which check, the request id and the sizes, never content. */
   readonly onRequestRefused?: (refusal: LeadRequestRefusal) => void
+  readonly onRequestWithheld?: (report: LeadRequestWithheld) => void
   readonly journal: LeadJournal
   readonly project: LeadProject
   readonly broker: Pick<CredentialBroker, 'leadStatus' | 'resolveLead' | 'storeLead' | 'deleteLead'>
@@ -177,7 +180,7 @@ export class LeadService {
         if (event.type === 'reserve') this.#reservedHere.add(event.requestId)
         else if (event.type === 'settle' || event.type === 'write-off') this.#reservedHere.delete(event.requestId)
       },
-      providerSend: async (requestId, body, signal) => {
+      providerSend: async (requestId, body, signal, withheld) => {
         let admitted = false, reservedTokens: number | null = null
         const bodyBytes = Buffer.byteLength(body)
         try {
@@ -193,6 +196,8 @@ export class LeadService {
           if (!request || request.uncertain || this.#providerUsage.get(requestId) === null || this.#providerFinalized.has(requestId) || budget?.settled.some(item => item.id === requestId)) throw new Error('lead-provider-failed')
           const reservation = request.reservation
           reservedTokens = reservation.inputTokens
+          // Reported once, for a request this host reserved: the child sends its counts with the first send only.
+          if (withheld?.length && this.#reservedHere.has(requestId)) options.onRequestWithheld?.({ requestId, bodyBytes, reservedTokens, withheld: withheld.map(({ turn, kind, count }) => ({ turn, kind, count })) })
           if (payload.model !== (options.model ?? LEAD_MESSAGES_DEFAULTS.model)) throw refusedBy('model')
           if (payload.max_tokens > reservation.maxOutputTokens) throw refusedBy('max-tokens')
           if (Buffer.byteLength(body) + 1024 > reservation.inputTokens) throw refusedBy('size')

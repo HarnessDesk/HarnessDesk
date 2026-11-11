@@ -28,6 +28,23 @@ test('a clipped header line whose value is only the clip marker is not a credent
   assert.equal(lead.leadMessagesContainSecret({ messages: conversation(chatRead('  authorization: Bearer abc123def')) }, 'synthetic-provider-key'), true)
 })
 
+// Values without an ASCII letter or digit are still credentials; only a value that is wholly a placeholder is not.
+const nonAscii = ['password=пароль', 'password=密码密码', 'password=!@#$%^&*()', 'x-api-key: €€€€', 'secret=////']
+const placeholders = ['  authorization: … keys}', 'password=***', 'token=...', 'Authorization: Bearer [redacted]', 'secret=<redacted>', 'password=•••']
+
+test('a credential value in any script is caught by the request check, and a placeholder value is not', () => {
+  for (const text of nonAscii) {
+    assert.equal(lead.leadDataContainsCredential(text), true, text)
+    assert.equal(lead.leadMessagesContainSecret({ messages: conversation(chatRead(`  ${text}`)) }, 'synthetic-provider-key'), true, text)
+  }
+  for (const text of placeholders) {
+    assert.equal(lead.leadDataContainsCredential(text), false, text)
+    assert.equal(lead.leadMessagesContainSecret({ messages: conversation(chatRead(text)) }, 'synthetic-provider-key'), false, text)
+  }
+  // A placeholder is the whole value: anything after it in the same value is a value.
+  for (const text of ['password=***abc', 'authorization: …abc', 'secret=[redacted]x']) assert.equal(lead.leadDataContainsCredential(text), true, text)
+})
+
 test('withholding replaces only the pieces the host would refuse, so the rest of the conversation still goes', () => {
   const turns = [...conversation(chatRead(`  token: ${github}`)),
     { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'The loader chat stopped while printing its config.' }] },
@@ -58,4 +75,26 @@ test('withholding keeps the flow preview token the host already lets through, an
   assert.deepEqual(withheld.slice(0, 3), turns.slice(0, 3))
   assert.deepEqual(withheld[3]!.content, [turns[3]!.content[0], { type: 'tool_use', id: 'chat-1', name: 'chat_start', input: {} }])
   assert.equal(lead.leadMessagesContainSecret({ messages: withheld }, 'synthetic-provider-key'), false)
+})
+
+test('withholding counts what it put aside, and drops screened reasoning only where the provider does not need it', () => {
+  const thinking = (text: string) => ({ type: 'thinking' as const, thinking: text, signature: 'synthetic-signature' })
+  const turns: MessagesTurn[] = [
+    { role: 'user', content: [{ type: 'text', text: 'Push the branch' }] },
+    // An earlier assistant turn: its reasoning is not needed again, so a screened block is dropped.
+    { role: 'assistant', content: [thinking('I will use password=hunter2'), { type: 'text', text: 'Pushed.' }] },
+    { role: 'user', content: [{ type: 'text', text: 'And the tag?' }] },
+    { role: 'assistant', content: [thinking('maybe secret=xyz again')] },
+    { role: 'user', content: [{ type: 'text', text: 'Read the loader chat' }] },
+    // The latest assistant turn is mid tool loop: its reasoning is kept as it was, and the host decides.
+    { role: 'assistant', content: [thinking('the token=abc123 is in the config'), { type: 'tool_use', id: 'read-1', name: 'chat_read', input: { id: 'chat-1' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read-1', content: 'ok', is_error: false }] },
+  ]
+  const { messages, withheld } = lead.leadWithholdCredentialsReport(turns)
+  assert.deepEqual(messages[1]!.content, [{ type: 'text', text: 'Pushed.' }])
+  assert.deepEqual(messages[3]!.content, [{ type: 'text', text: lead.LEAD_WITHHELD_TEXT }], 'a turn is never left empty')
+  assert.deepEqual(messages[5], turns[5])
+  assert.deepEqual(withheld, [{ turn: 1, kind: 'thinking', count: 1 }, { turn: 3, kind: 'thinking', count: 1 }])
+  assert.ok(!JSON.stringify(withheld).includes('hunter2'))
+  assert.deepEqual(lead.leadWithholdCredentials(turns), messages)
 })

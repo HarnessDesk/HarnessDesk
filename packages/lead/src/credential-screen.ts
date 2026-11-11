@@ -70,24 +70,46 @@ export const leadMessagesContainSecret = (body: { readonly messages: readonly Me
 /** What the model reads in place of a piece of the conversation the desk will not send. */
 export const LEAD_WITHHELD_TEXT = 'Withheld by the desk: this part looked like a password, key or token, so it is not sent. Ask the person if you need what it said.'
 
+/** What was withheld from one turn: the kind of block and how many, never what they said. */
+export interface LeadWithheldPiece {
+  readonly turn: number
+  readonly kind: 'text' | 'tool_result' | 'tool_use' | 'thinking'
+  readonly count: number
+}
+
 /**
  * The conversation with every piece the host's check would refuse put aside, block by block, so one credential-shaped
  * line in a chat read or a person's message costs that piece and not every request after it. A text or a tool result
  * keeps its place and says it was withheld; a tool call keeps its id and name and loses its arguments. Reasoning is
- * signed and kept as it is. Turns with nothing to withhold are returned as they were.
+ * signed and cannot be edited: a reasoning block that screens is dropped from an earlier assistant turn, which does not
+ * need it, and kept in the latest one, whose tool loop does (the host then refuses the request by name). A turn left
+ * with nothing says it was withheld. Turns with nothing to withhold are returned as they were. `withheld` counts what
+ * was put aside, by turn and kind, and carries no content.
  */
-export const leadWithholdCredentials = (messages: readonly MessagesTurn[], key?: string): MessagesTurn[] => {
+export const leadWithholdCredentialsReport = (messages: readonly MessagesTurn[], key?: string): { readonly messages: MessagesTurn[]; readonly withheld: LeadWithheldPiece[] } => {
   const screened = screenedBlocks(messages)
-  return messages.map((turn, index) => {
+  const lastAssistant = messages.findLastIndex(turn => turn.role === 'assistant')
+  const withheld: LeadWithheldPiece[] = []
+  const result = messages.map((turn, index) => {
     const blocks = screened[index]!
     if (!blocks.some(({ view, refused }) => refused || leadContainsSecret(view, key))) return turn
-    return { ...turn, content: turn.content.map((block, position) => {
+    const counts = new Map<LeadWithheldPiece['kind'], number>()
+    const count = (kind: LeadWithheldPiece['kind']) => counts.set(kind, (counts.get(kind) ?? 0) + 1)
+    const content = turn.content.flatMap((block, position) => {
       const { view, refused } = blocks[position]!
-      if (!refused && !leadContainsSecret(view, key)) return block
-      if (block.type === 'text') return { type: 'text' as const, text: LEAD_WITHHELD_TEXT }
-      if (block.type === 'tool_result') return { ...block, content: LEAD_WITHHELD_TEXT }
-      if (block.type === 'tool_use') return { ...block, input: {} }
-      return block
-    }) } as MessagesTurn
+      if (!refused && !leadContainsSecret(view, key)) return [block]
+      if (block.type === 'text') { count('text'); return [{ type: 'text' as const, text: LEAD_WITHHELD_TEXT }] }
+      if (block.type === 'tool_result') { count('tool_result'); return [{ ...block, content: LEAD_WITHHELD_TEXT }] }
+      if (block.type === 'tool_use') { count('tool_use'); return [{ ...block, input: {} }] }
+      if (index === lastAssistant) return [block]
+      count('thinking'); return []
+    })
+    for (const [kind, total] of counts) withheld.push({ turn: index, kind, count: total })
+    if (!counts.size) return turn
+    return { ...turn, content: content.length ? content : [{ type: 'text' as const, text: LEAD_WITHHELD_TEXT }] } as MessagesTurn
   })
+  return { messages: result, withheld }
 }
+
+export const leadWithholdCredentials = (messages: readonly MessagesTurn[], key?: string): MessagesTurn[] =>
+  leadWithholdCredentialsReport(messages, key).messages

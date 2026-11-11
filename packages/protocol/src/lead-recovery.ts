@@ -3,12 +3,12 @@
 export const LEAD_SETUP_WAITS = [
   'lead-chat-effect-uncertain', 'lead-plan-unseatable', 'lead-plan-not-independent', 'lead-plan-refused',
   'lead-card-too-large', 'lead-start-binding-failed', 'lead-result-revisions-exhausted',
-  ...['lead-request-unsent', 'lead-request-withheld'] as const,
+  ...['lead-request-unsent', 'lead-request-unsent-again', 'lead-request-withheld', 'lead-request-held'] as const,
 ] as const
 
 /** The desk refused the request before it was sent, so nothing was spent and no reply is owed. A surface says the
  * request was not sent, and why, rather than that the Lead is waiting on the person. */
-export const LEAD_UNSENT_WAITS = ['lead-request-unsent', 'lead-request-withheld'] as const
+export const LEAD_UNSENT_WAITS = ['lead-request-unsent', 'lead-request-unsent-again', 'lead-request-withheld', 'lead-request-held'] as const
 export const leadWaitUnsent = (reason: string | null | undefined): boolean =>
   (LEAD_UNSENT_WAITS as readonly (string | null | undefined)[]).includes(reason)
 
@@ -24,7 +24,9 @@ export const LEAD_REQUEST_FAILURE_TEXT = {
   'lead-request-max-tokens': 'The request reached its response limit.',
   'lead-request-invalid-response': 'The provider returned an unreadable response.',
   'lead-request-uncertain': 'The request was interrupted. Sending a message also continues.',
-  'lead-request-unsent': "The desk did not send {label}'s last request, so nothing was spent. The desk log names the check that stopped it.",
+  'lead-request-unsent': "The desk did not send {label}'s last request, so nothing was spent. Sending a message tries again.",
+  'lead-request-unsent-again': "The desk again did not send {label}'s request, so nothing was spent. The desk log names the check that stopped it. Sending a message tries again.",
+  'lead-request-held': "The desk held back {label}'s last request because part of the conversation looked like a password, key or token, so nothing was spent. Sending a message tries again.",
   'lead-request-withheld': "{label}'s instructions, memory or rules look like they hold a password, key or token, so the desk did not send its request and nothing was spent. Remove it from {label}'s memory or rules, then send a message.",
 } as const
 export type LeadRequestFailureReason = keyof typeof LEAD_REQUEST_FAILURE_TEXT

@@ -5,7 +5,7 @@ import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
 import type { LeadPermissionCall } from './permissions.js'
 import { LEAD_CONTEXT } from './context.js'
 import { LEAD_CHECKPOINT_OPEN } from './compaction.js'
-import { leadContainsSecret, leadWithholdCredentials } from './credential-screen.js'
+import { leadContainsSecret, leadWithholdCredentialsReport, type LeadWithheldPiece } from './credential-screen.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
   MessagesRedactedThinking, MessagesText, MessagesThinking, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
 
@@ -362,7 +362,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
   }
   return { async request(input, signal): Promise<LeadMessagesResult> {
     if (signal.aborted) return { status: 'cancelled' }
-    let requestId: string, body: string, messages: MessagesTurn[], maxTokens: number, compaction = false, withheld = false
+    let requestId: string, body: string, messages: MessagesTurn[], maxTokens: number, compaction = false, withheld = false, pieces: LeadWithheldPiece[] = []
     try {
       const captured = JSON.parse(safeJson(input)) as unknown
       const source = object(captured, ['messages', 'system', 'maxTokens', 'proactive', 'conversation', 'wakeSource', 'stable', 'compaction'])
@@ -371,7 +371,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       compaction = source.compaction === true
       // What the host would refuse to send is put aside here, before the body is built, sized and reserved: the body the
       // host checks is then exactly the one counted, and one credential-shaped line never refuses every request after it.
-      messages = leadWithholdCredentials(history(source.messages))
+      ;({ messages, withheld: pieces } = leadWithholdCredentialsReport(history(source.messages)))
       const stable = source.stable === undefined ? undefined : object(source.stable, ['turns', 'blocks'])
       const mark = stable && { turns: integer(stable.turns, LIMIT.turns), blocks: integer(stable.blocks, LIMIT.blocks) }
       maxTokens = integer(source.maxTokens, LIMIT.maxTokens)
@@ -406,7 +406,8 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       try {
         const reply = object(await cancellable(() => transport.send({ requestId, origin: 'https://api.anthropic.com', path: '/v1/messages', method: 'POST',
           headers: Object.freeze({ 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': apiKey }),
-          body, maxResponseBytes: LIMIT.bytes, signal }), signal).catch(async (error: unknown) => {
+          // What was withheld goes with the first send only, as counts, so the host reports it once per request.
+          body, maxResponseBytes: LIMIT.bytes, signal, ...(retry === 0 && pieces.length ? { withheld: pieces } : {}) }), signal).catch(async (error: unknown) => {
           // The host refused this body before it reached the provider, by name: nothing was sent, so nothing was spent.
           const code = (error as { wireCode?: unknown })?.wireCode
           if (code !== 'lead-provider-refused' && code !== 'lead-provider-withheld') throw error
@@ -422,7 +423,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       } catch {
         if (refusedBeforeSending === null || signal.aborted) return uncertain()
         try { await zero() } catch { return uncertain() }
-        return { status: 'failed', reason: refusedBeforeSending === 'lead-provider-withheld' ? 'lead-messages-withheld' : 'lead-messages-unsent' }
+        return { status: 'failed', reason: refusedBeforeSending === 'lead-provider-withheld' ? 'lead-messages-held' : 'lead-messages-unsent' }
       }
       if ((response.status === 429 || response.status === 529) && response.processing === 'not-started') {
         const delay = retryDelay(response.retryAfter, now())

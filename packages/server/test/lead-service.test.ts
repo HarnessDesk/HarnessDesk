@@ -308,7 +308,7 @@ const providerUntil = async (predicate: () => boolean) => {
   assert.ok(predicate(), 'provider boundary did not answer')
 }
 /** Real service, supervisor and journal; only the child pipes, broker and provider are synthetic. */
-const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: { onRequestRefused?: (refusal: any) => void; resolveLead?: () => Promise<string>; holdExit?: boolean; journal?: Awaited<ReturnType<typeof createLeadJournal>>; recover?: () => Promise<void>; shutdownMs?: number; probeRuntime?: () => Promise<{ supported: true }>; prices?: Record<string, typeof providerPrice> } = {}) => {
+const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: { onRequestRefused?: (refusal: any) => void; onRequestWithheld?: (report: any) => void; resolveLead?: () => Promise<string>; holdExit?: boolean; journal?: Awaited<ReturnType<typeof createLeadJournal>>; recover?: () => Promise<void>; shutdownMs?: number; probeRuntime?: () => Promise<{ supported: true }>; prices?: Record<string, typeof providerPrice> } = {}) => {
   const home = await mkdtemp('/tmp/hd-provider-')
   t.after(() => rm(home, { recursive: true, force: true }))
   const journal = hooks.journal ?? await createLeadJournal({ read: async () => [], append: async () => {} })
@@ -347,6 +347,7 @@ const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: 
   const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, model: 'synthetic-model', prices: hooks.prices ?? { 'synthetic-model': providerPrice },
     ...(hooks.probeRuntime ? { probeRuntime: hooks.probeRuntime } : {}),
     ...(hooks.onRequestRefused ? { onRequestRefused: hooks.onRequestRefused } : {}),
+    ...(hooks.onRequestWithheld ? { onRequestWithheld: hooks.onRequestWithheld } : {}),
     messagesTransport: { send }, broker: { leadStatus: async () => ({ configured: true, protection: 'synthetic' }),
       resolveLead: hooks.resolveLead ?? (async () => key), storeLead: async () => {}, deleteLead: async () => {} },
     resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('unused') },
@@ -1223,7 +1224,7 @@ const stuckHistory = [{ role: 'user', content: [{ type: 'text', text: 'What happ
 const childMessages = (s: Awaited<ReturnType<typeof providerRig>>, sent: (body: string) => void, countInput = async (body: string) => new TextEncoder().encode(body).length + 1024) =>
   createLeadMessages({ apiKey: 'host-owned-provider-key', model: 'synthetic-model', prices: { 'synthetic-model': providerPrice }, // hd-secrets-ok: public child marker, never a credential
     journal: { ...s.journal, updateBudget: (event: any) => s.journalRpc('updateBudget', [event]) } as any, now: () => 100, nextId: () => `child-${Math.random().toString(36).slice(2)}`,
-    countInput, wait: async () => {}, transport: { send: request => { sent(request.body); return s.rpc((request as any).requestId, request.body) } },
+    countInput, wait: async () => {}, transport: { send: request => { sent(request.body); return s.journalRpc('provider-send', request.withheld ? [request.requestId, request.body, request.withheld] : [request.requestId, request.body]) } },
     resolveTool: async () => { throw new Error('unused') }, dispatch: async () => { throw new Error('unused') } })
 const reply = { status: 200, body: JSON.stringify({ id: 'synthetic', type: 'message', role: 'assistant', model: 'synthetic-model',
   content: [{ type: 'text', text: 'The loader chat was stopped while it printed its config.' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 2 } }) }
@@ -1273,4 +1274,37 @@ test('credential-shaped text the child did not withhold is refused by name, with
   assert.equal(calls, 0)
   assert.deepEqual(refusals.map(refusal => refusal.guard), ['credential'])
   assert.ok(!JSON.stringify(refusals).includes('hunter2') && !JSON.stringify(refusals).includes(key))
+})
+
+test('a request sent with parts withheld is reported once, by counts and sizes, never by content', async t => {
+  const github = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
+  const reports: any[] = [], refusals: any[] = []
+  let delivered = ''
+  const s = await providerRig(t, async request => { delivered = request.body; return reply }, { onRequestWithheld: report => reports.push(report), onRequestRefused: refusal => refusals.push(refusal) })
+  const history = [...stuckHistory, { role: 'assistant', content: [{ type: 'text', text: 'Read it.' }] },
+    { role: 'user', content: [{ type: 'text', text: `Push with ${github}` }, { type: 'text', text: 'password=пароль' }] }]
+  const result = await childMessages(s, () => {}).request({ messages: history as any, maxTokens: 32 }, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.deepEqual(refusals, [])
+  assert.equal(reports.length, 1)
+  assert.deepEqual(Object.keys(reports[0]).sort(), ['bodyBytes', 'requestId', 'reservedTokens', 'withheld'])
+  assert.deepEqual(reports[0].withheld, [{ turn: 4, kind: 'text', count: 2 }])
+  assert.equal(reports[0].bodyBytes, Buffer.byteLength(delivered))
+  for (const text of [github, 'пароль', 'Push with', 'loader']) assert.ok(!JSON.stringify(reports).includes(text), text)
+  assert.ok(!delivered.includes(github) && !delivered.includes('пароль'))
+  // Counts are all the child can say: anything else is a protocol error, not a log line.
+  await childReserve(s, 'forged')
+  const replied = s.replies.length
+  void s.journalRpc('provider-send', ['forged', providerBody(), [{ turn: 0, kind: 'text', count: 1, text: 'hunter2' }]]).catch(() => {})
+  await providerUntil(() => s.replies.length > replied || s.killed())
+  assert.equal(reports.length, 1)
+})
+
+test('the host refusing the conversation by its credential check is held, not blamed on the instructions', async t => {
+  const s = await providerRig(t, async () => reply, { resolveLead: async () => 'synthetic-real-key-in-history' }) // hd-secrets-ok: a stand-in
+  // Only the host knows the real key, so only the host can find it in the conversation.
+  const history = [{ role: 'user', content: [{ type: 'text', text: 'The key is synthetic-real-key-in-history' }] }] // hd-secrets-ok: a stand-in
+  const result = await childMessages(s, () => {}).request({ messages: history as any, maxTokens: 32 }, new AbortController().signal)
+  assert.deepEqual(result, { status: 'failed', reason: 'lead-messages-held' })
+  assert.equal(s.journal.state.budget?.requests.length, 0)
 })

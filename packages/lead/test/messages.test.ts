@@ -650,6 +650,23 @@ test('a credential-shaped piece of the history is withheld from the body and the
   assert.equal(sent.messages[0].content[0].text, 'Read the loader chat')
 })
 
+test('what was withheld goes to the host as counts, with the first send only', async () => {
+  const github = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
+  const s = await setup([{ status: 429, processing: 'not-started', retryAfter: '0', body: '' }, message()])
+  const messages = [{ role: 'user', content: [{ type: 'text', text: `Use ${github}` }, { type: 'text', text: 'and password=hunter2' }] },
+    { role: 'assistant', content: [tool('read-1', 'chat_read', { id: 'chat-1' })] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read-1', content: JSON.stringify({ output: [`  token: ${github}`] }), is_error: false }] }]
+  assert.equal((await s.client.request({ ...input, messages }, new AbortController().signal)).status, 'completed')
+  assert.equal(s.fake.requests.length, 2)
+  assert.deepEqual(s.fake.requests[0].withheld, [{ turn: 0, kind: 'text', count: 2 }, { turn: 2, kind: 'tool_result', count: 1 }])
+  assert.equal(s.fake.requests[1].withheld, undefined, 'a retry of the same request does not report it again')
+  assert.ok(!JSON.stringify(s.fake.requests[0].withheld).includes('hunter2'))
+  // Nothing withheld, nothing reported.
+  const clean = await setup([message()])
+  await clean.client.request(input, new AbortController().signal)
+  assert.equal(clean.fake.requests[0].withheld, undefined)
+})
+
 test('instructions that look like they hold a credential are not sent, reserve nothing, and say so', async () => {
   const s = await setup([])
   const result = await s.client.request({ ...input, system: 'Deploy with password=hunter2 when asked.' }, new AbortController().signal)
@@ -659,7 +676,8 @@ test('instructions that look like they hold a credential are not sent, reserve n
 })
 
 test('a request the host refuses before sending settles at zero instead of being written off as uncertain', async () => {
-  for (const [wireCode, reason] of [['lead-provider-refused', 'lead-messages-unsent'], ['lead-provider-withheld', 'lead-messages-withheld']] as const) {
+  // The host's credential check refused the conversation, not the instructions: that has its own reason.
+  for (const [wireCode, reason] of [['lead-provider-refused', 'lead-messages-unsent'], ['lead-provider-withheld', 'lead-messages-held']] as const) {
     const s = await setup([async () => { throw Object.assign(new Error(wireCode), { wireCode }) }])
     const result = await s.client.request(input, new AbortController().signal)
     assert.deepEqual(result, { status: 'failed', reason })
