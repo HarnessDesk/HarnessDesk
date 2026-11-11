@@ -71,7 +71,7 @@ const PLAN = 'The person approved your plan. Approved contract: {"steps":[{"id":
 
 /** One Lead, the way the host runs it: a loop with the desk's context port, and the host's request built from the store. */
 const harness = async (t: any, settings: { readonly window: number; readonly failCheckpoints?: boolean; readonly ledgerIds?: readonly string[]; readonly records?: lead.LeadJournalRecord[]; readonly home?: string;
-  readonly plan?: boolean; readonly screen?: (text: string) => Promise<void>; readonly contract?: boolean; readonly readOnWake?: boolean }) => {
+  readonly plan?: boolean; readonly screen?: (text: string) => Promise<void>; readonly contract?: boolean; readonly readOnWake?: boolean; readonly deskNow?: () => Promise<string | null> }) => {
   const home = settings.home ?? await directory(t)
   const { journal, records } = await journalOver(settings.records)
   if (settings.contract) {
@@ -81,7 +81,7 @@ const harness = async (t: any, settings: { readonly window: number; readonly fai
   let id = 0
   const run = ++harnesses
   const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000 + id, nextId: () => `checkpoint-${run}-${++id}`, window: settings.window })
-  await store.connect({ ...(settings.ledgerIds ? { ledgerIds: async () => settings.ledgerIds! } : {}), ...(settings.screen ? { screen: settings.screen } : {}) })
+  await store.connect({ ...(settings.ledgerIds ? { ledgerIds: async () => settings.ledgerIds! } : {}), ...(settings.screen ? { screen: settings.screen } : {}), ...(settings.deskNow ? { deskNow: settings.deskNow } : {}) })
   const provider = cachingProvider(body => {
     const last = body.messages.at(-1).content.map((block: any) => block.text ?? '').join('\n')
     if (last.includes(INSTRUCTION)) return { content: [text(settings.failCheckpoints ? 'Here is a short summary without headings.' : checkpointAnswer(body))] }
@@ -98,7 +98,7 @@ const harness = async (t: any, settings: { readonly window: number; readonly fai
   const key = ['synthetic', 'context', 'fixture'].join('-')
   const emit = (event: any) => { const value = { v: 1, at: '2026-11-10T12:00:00Z', ...event }; if (ended) { const resolve = ended; ended = null; resolve({ done: false, value }) } else events.push(value) }
   const scheduled: (() => void)[] = []
-  const loop = lead.createLeadLoop({ journal, desk: desk as any, project, clock: { now: () => 100, schedule: callback => { scheduled.push(callback); return () => { const at = scheduled.indexOf(callback); if (at >= 0) scheduled.splice(at, 1) } } }, nextId: () => `loop-${run}-${++id}`,
+  const loop = lead.createLeadLoop({ journal, desk: desk as any, project, timeZone: 'UTC', clock: { now: () => 100, schedule: callback => { scheduled.push(callback); return () => { const at = scheduled.indexOf(callback); if (at >= 0) scheduled.splice(at, 1) } } }, nextId: () => `loop-${run}-${++id}`,
     messages: { apiKey: key, model: MODEL, prices: { [MODEL]: PRICE }, transport: provider as any, countInput: async body => Buffer.byteLength(body) + 1024, wait: async () => {} },
     freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('no evidence in this test') },
     resolveTool: async () => ({ project, runId: null, start: null, context: { desk: journal.state.policy!, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } }) as any,
@@ -648,4 +648,115 @@ test('in a long run of desk wakes with no person message, a checkpoint that took
   assert.equal(last.split('Approved contract: ').length - 1, 1, 'it carries the approved plan, once')
   for (const fact of ['step-sign-in-2', 'fixture/writer', 'auth-redirect']) assert.ok(last.includes(fact), `with ${fact}`)
   assert.equal(JSON.stringify(lead1.store.turns).split('Approved contract: ').length - 1, 1, 'and stores it once')
+})
+
+test('quiet desk wakes that read nothing are not kept: a desk busy for hours does not fill the conversation and summarise it', async t => {
+  const lead1 = await harness(t, { window: 200_000 })
+  await lead1.say('Hello there.')
+  const before = { turns: lead1.store.turns.length, bytes: lead.leadContextBytes(lead1.store.turns) }
+  const record = lead1.store.record.bind(lead1.store)
+  let measuredOnly = 0
+  lead1.store.record = async input => { if (!input.turns.length && !input.extend.length && input.usage) measuredOnly++; return record(input) }
+  for (let n = 0; n < 40; n++) await lead1.deskChange()
+  assert.equal(measuredOnly, 40, 'each quiet wake still reports what its request measured, so the store\'s readings stay true')
+  assert.equal(lead1.journal.state.wakes.filter(wake => wake.source === 'desk-change' && wake.modelTurn).length, 40, 'each change still woke the model')
+  assert.deepEqual({ turns: lead1.store.turns.length, bytes: lead.leadContextBytes(lead1.store.turns) }, before,
+    'a wake that ended quiet, with no tool and nothing said, left no turns behind')
+  assert.equal(lead1.store.due(), null)
+  // A wake that read the desk is kept: what it learned is the conversation's.
+  const reader = await harness(t, { window: 200_000, readOnWake: true })
+  await reader.say('Hello there.')
+  const kept = reader.store.turns.length
+  await reader.deskChange()
+  assert.ok(reader.store.turns.length > kept, 'a wake with tool calls is stored')
+})
+
+test('every request carries the desk clock, the date and the time in the person\'s zone, after the cache mark, and the store keeps only a stub', async t => {
+  const lead1 = await harness(t, { window: 200_000 })
+  await lead1.say('When did you last summarise?')
+  const request = lead1.provider.requests.at(-1)!.body
+  const last = request.messages.at(-1)
+  const clock = last.content.findLast((block: any) => block.type === 'text' && block.text.startsWith('Desk clock: '))
+  assert.ok(clock, 'the request closes with the clock')
+  assert.match(clock.text, /^Desk clock: Thursday 1 January 1970, 00:00 \(UTC/)
+  const blocks = request.messages.flatMap((turn: any) => turn.content)
+  assert.ok(blocks.indexOf(clock) > blocks.findLastIndex((block: any) => block.cache_control), 'after the last cache mark: the cached prefix is not broken')
+  assert.equal(JSON.stringify(lead1.store.turns).includes('Desk clock: Thursday'), false, 'never kept verbatim')
+  await lead1.deskChange()
+  const wake = lead1.provider.requests.at(-1)!.body
+  assert.ok(JSON.stringify(wake.messages.at(-1)).includes('Desk clock: '), 'a desk wake carries it too')
+})
+
+test('a checkpoint is written against the desk as it stands now, so it never keeps a stale fact about the ledger', async t => {
+  const lead1 = await harness(t, { window: 20_000, deskNow: async () => '<work-ledger>\n- work-3 [working] "Fix the export"\n</work-ledger>' })
+  let n = 0
+  while (!lead1.records.some(record => record.type === 'context-compaction-applied')) await lead1.say(`Message ${++n}.${filler(n)}`)
+  const asked = lead1.provider.requests.find(request => JSON.stringify(request.body.messages.at(-1)).includes(INSTRUCTION))!.body
+  const instruction = asked.messages.at(-1).content.map((block: any) => block.text ?? '').join('\n')
+  assert.match(instruction, /The desk as it stands now/)
+  assert.match(instruction, /work-3 \[working\] "Fix the export"/)
+  assert.match(instruction, /wins over/, 'and it says the present wins over what the conversation said earlier')
+})
+
+test('a reminder said while the thread waits on the person reaches the stored conversation with its line, so it is not said again', async t => {
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const lead1 = await harness(t, { window: 200_000 })
+  await lead1.say('Tidy the release notes.')
+  await lead1.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  const controls = new LeadControls({ journal: lead1.journal, project: { id: 'demo', path: '/workspace/demo' }, model: 'fixture-model', now: () => 100, nextId: () => 'card',
+    push() {}, decidePerson: async () => {}, decideResult: async () => {}, context: lead1.store,
+    service: { async status() { return { configured: true, protection: 'synthetic cipher' } }, async setKey() {}, async deleteKey() {}, async assertPublic() {},
+      async send() { throw new Error('no model request while the thread waits') } } as any })
+  t.after(() => controls.close())
+  assert.equal(await controls.remind('wake-person', 'Reminder remind-2, which you set for the person, is due now. Remind the person now, in one short message.',
+    { reminder: 'remind-2', text: 'send the notes', person: true }), true)
+  const next = await lead1.store.request()
+  const turns = next.messages.map(turn => ({ role: turn.role, text: (Array.isArray(turn.content) ? turn.content : []).map((part: any) => part.text ?? '').join('\n') }))
+  const wake = turns.findIndex(turn => turn.text.includes('Remind the person now'))
+  assert.ok(wake >= 0, 'the wake goes with the next request')
+  assert.equal(turns[wake + 1]?.role, 'assistant', 'answered')
+  assert.match(turns[wake + 1]!.text, /You asked me to remind you: send the notes\./, 'by the line the person read')
+})
+
+test('a reminder line before the person\'s next words survives a step that could not be stored: the next request carries it once', async t => {
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const lead1 = await harness(t, { window: 200_000 })
+  await lead1.say('Tidy the release notes.')
+  await lead1.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  const controls = new LeadControls({ journal: lead1.journal, project: { id: 'demo', path: '/workspace/demo' }, model: 'fixture-model', now: () => 100, nextId: () => 'card',
+    push() {}, decidePerson: async () => {}, decideResult: async () => {}, context: lead1.store,
+    service: { async status() { return { configured: true, protection: 'synthetic cipher' } }, async setKey() {}, async deleteKey() {}, async assertPublic() {},
+      async send() { throw new Error('no model request while the thread waits') } } as any })
+  t.after(() => controls.close())
+  assert.equal(await controls.remind('wake-person', 'Reminder remind-2, which you set for the person, is due now. Remind the person now, in one short message.',
+    { reminder: 'remind-2', text: 'send the notes', person: true }), true)
+  // The person answers, which resumes the thread; the Lead replies, but its step is lost, so the store settles from the journal.
+  await lead1.journal.resume(undefined, true)
+  const record = lead1.store.record.bind(lead1.store)
+  let failing = true
+  lead1.store.record = async input => { if (failing) { failing = false; throw new Error('lead-ipc-closed') } return record(input) }
+  await lead1.say('Thanks, sending them now.')
+  const line = /You asked me to remind you: send the notes\./g
+  assert.equal((JSON.stringify(lead1.store.turns).match(line) ?? []).length, 1, 'the line is stored with the words it sat between')
+  const next = await lead1.store.request()
+  assert.deepEqual(next.persons, [], 'nothing is sent again as new')
+  assert.equal((JSON.stringify(next.messages).match(line) ?? []).length, 1, 'and the next request carries it once')
+  assert.equal(lead.parseLeadContextTurns(lead1.store.turns).turns.length, lead1.store.turns.length, 'no two turns of one role in a row')
+})
+
+test('a reminder wake past the soft line writes the reminder first and summarises after; past the hard line it summarises first and still writes it', async () => {
+  for (const due of ['soft', 'hard'] as const) {
+    const s = await controlsRig([{ status: 'completed', text: 'Time to check the release notes.' }])
+    s.setDue(due)
+    assert.equal(await s.controls.remind('work-reminder-remind-1-1', 'Reminder remind-1, which you set for the person, is due now.', { reminder: 'remind-1', text: 'check the release notes', person: true }), true)
+    await s.controls.idle()
+    const reply = s.journal.state.messages.at(-1)
+    assert.equal(reply?.role, 'assistant', `${due}: the turn ends with the reminder said`)
+    assert.equal(reply?.text, 'Time to check the release notes.')
+    assert.deepEqual(s.compactions, due === 'hard' ? ['hard'] : [], 'a soft summary never runs inside the turn')
+    for (const check of s.checks.splice(0)) check()
+    await s.controls.idle()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(s.compactions, due === 'hard' ? ['hard'] : ['soft'], 'it runs once the Lead is idle')
+  }
 })

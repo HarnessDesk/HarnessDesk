@@ -25,7 +25,7 @@ import { LeadChatWatches } from './lead/chat-watches.js'
 import { leadChatCandidates, readLeadChatLimits } from './lead/chat-candidates.js'
 import type { RateLimits, WrapChoices } from '@harnessdesk/protocol'
 import { LeadChats, LeadChatBusyError } from './lead/chats.js'
-import { LeadWorkLedger, wakeForLeadWork } from './lead/work.js'
+import { LeadReminderTimer, LeadWorkLedger, settleLeadReminders, wakeForLeadWork } from './lead/work.js'
 import { LeadAutonomyStore } from './lead/autonomy.js'
 import { LeadSlots } from './lead/slots.js'
 import { LeadPresenceStore, leadTurnContext, leadWaitingDecisions } from './lead/presence.js'
@@ -179,8 +179,8 @@ import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
-import { initialLeadMemoryCore, leadMemoryStatus } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadClockLine, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
+import { initialLeadMemoryCore, leadMemoryStatus, leadSettingsStatus } from '@harnessdesk/lead'
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
@@ -4003,6 +4003,8 @@ export class Host {
         throw error
       }
     }
+    // One timer for the soonest reminder, armed once the minute tick exists below; every ledger change re-arms it.
+    let reminderTimer: LeadReminderTimer | null = null
     // The work ledger: one record per piece of work, its stages read from the same desk state the phone shows.
     const work = new LeadWorkLedger({ file: join(this.#state.directory, 'lead', 'work.json'), now: () => Date.now(),
       project: () => folderName(project.path),
@@ -4019,7 +4021,7 @@ export class Host {
       replies: () => journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0),
       asked: () => journal.state.messages.reduce((mark, message) => message.role === 'user' && (message.source === undefined || message.source === 'person') ? Math.max(mark, message.revision) : mark, 0),
       noted: text => this.#logger.warn(text),
-      publish: board => this.#push({ method: 'lead/work/changed', params: board }),
+      publish: board => { this.#push({ method: 'lead/work/changed', params: board }); void reminderTimer?.arm() },
     })
     this.#leadWork = work
     this.onDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
@@ -4039,7 +4041,9 @@ export class Host {
     const autonomy = new LeadAutonomyStore({ file: join(this.#state.directory, 'lead', 'autonomy.json'), now: () => Date.now(), journal,
       goal: () => { const budget = journal.state.budget; return budget ? { id: budget.logicalGoalId, open: !['accepted', 'declined', 'stopped'].includes(journal.state.phase) } : null },
       report: text => journal.appendReply(text),
-      changed: () => this.#push({ method: 'lead/presence/changed', params: {} }) })
+      changed: () => { this.#push({ method: 'lead/presence/changed', params: {} }); this.#push({ method: 'lead/autonomy/changed', params: {} }) },
+      // Where a proposal card sits (under the Lead's next reply), and whether the person has written since a No.
+      seq: () => journal.state.seq, personSeq: () => this.#leadPersonSeq() })
     this.#leadAutonomy = autonomy
     void autonomy.attach().catch(() => { this.#logger.warn('The Lead autonomy settings could not be read') })
     this.onDispose(() => { if (this.#leadAutonomy === autonomy) this.#leadAutonomy = null })
@@ -4470,6 +4474,9 @@ export class Host {
     if (leadContext) void leadContext.connect({
       ledgerIds: async () => (await work.board()).items.filter(card => card.group !== 'done').map(card => card.id),
       screen: async text => { await this.#leadService!.assertPublic(text) },
+      // The desk as it stands when the checkpoint is written, so a summary never keeps a fact the ledger has moved past.
+      deskNow: async () => [leadClockLine(Date.now()),
+        leadWorkCards(await work.board(), Date.now()) ?? '<work-ledger>\nNo open work, no reminders and nothing stopped in the last day.\n</work-ledger>'].join('\n'),
     }).catch(() => {})
     this.#leadControls = new LeadControls({ journal,
       readWorkContext: async turn => {
@@ -4576,19 +4583,38 @@ export class Host {
       if (!settled.tasks.some(task => task.runs?.some(run => run.logicalGoalId === budget.logicalGoalId)) && lastSettled === signature) lastSettled = null
     }
     this.onDispose(journal.onChange(() => { void settleRepeat().catch(() => {}) }))
-    // A reminder the Lead set on a work item goes through the same minute timer and the same doors as a scheduled run:
-    // a closed thread opens through the automatic-goal path, an open conversation takes a schedule-sourced wake.
-    const remindWork = () => wakeForLeadWork(work, {
+    // A reminder wakes the Lead as a desk wake, never as the person's message: a closed thread opens a goal first, as a
+    // scheduled run does, and an open conversation takes the wake as a turn. One pass at a time, from the minute tick or
+    // the reminder's own timer.
+    const wakeOf = (due: { readonly id: string; readonly note: string; readonly for: 'person' | 'lead' }) => ({ reminder: due.id, text: due.note, person: due.for === 'person' })
+    let reminding: Promise<unknown> = Promise.resolve()
+    const remindWork = () => (reminding = reminding.catch(() => {}).then(() => wakeForLeadWork(work, {
       quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
       canBegin: () => canBeginLeadGoal(journal.state),
-      offer: async (key, text, id) => (await automatic.offer({ key, text, origin: { source: 'schedule', event: 'work-reminder', subject: id, url: null } })).delivered,
-      remind: (key, text) => this.#leadControls!.remind(key, text),
+      offer: (key, text, _id, due) => this.#leadControls!.remind(key, text, wakeOf(due), true),
+      remind: (key, text, due) => this.#leadControls!.remind(key, text, wakeOf(due)),
       gate: () => autonomy.gate('repeat'),
-    })
+    })))
+    // A person's reminder counts as said only once the Lead's message is written; a silent wake is tried once more,
+    // then marked missed. Checked as the journal moves and on the minute tick, one pass at a time.
+    let settling: Promise<void> | null = null, settleAgain = false
+    const settleWork = (): Promise<void> => {
+      if (settling) { settleAgain = true; return settling }
+      settling = settleLeadReminders(work, {
+        outcome: key => this.#leadControls?.wakeOutcome(key) ?? 'pending',
+        retry: (key, text, due) => this.#leadControls ? this.#leadControls.remind(key, text, wakeOf(due)) : Promise.resolve(false),
+      }).catch(() => { this.#logger.warn('A Lead reminder\'s delivery could not be settled') }).finally(() => {
+        settling = null
+        if (settleAgain && !this.#disposed) { settleAgain = false; void settleWork() }
+      })
+      return settling
+    }
+    this.onDispose(journal.onChange(() => { void settleWork() }))
     // The minute timer's whole body, so a test can fire the same tick the timer does.
     const tick = (): Promise<unknown> => {
       const done = settleRepeat().then(() => repeats.tick()).catch(() => { this.#logger.warn('A scheduled Lead task could not start') })
         .then(() => remindWork()).catch(() => { this.#logger.warn('A Lead work reminder could not wake the Lead') })
+        .then(() => settleWork())
         .then(() => autonomy.checkDeadline()).catch(() => { this.#logger.warn('A Lead goal deadline could not be checked') })
         .then(() => presence.tick()).catch(() => { this.#logger.warn('The Lead morning brief could not be made') })
       pokeWork()
@@ -4598,6 +4624,12 @@ export class Host {
     const timer = setInterval(() => { void tick() }, 60_000)
     timer.unref?.()
     this.onDispose(() => clearInterval(timer))
+    const due = new LeadReminderTimer({ next: () => work.nextDue(), now: () => Date.now(),
+      fire: () => { void remindWork().catch(() => { this.#logger.warn('A Lead work reminder could not wake the Lead') }).then(() => due.arm()) },
+      setTimer: (run, ms) => { const one = setTimeout(run, ms); one.unref?.(); return () => clearTimeout(one) } })
+    reminderTimer = due
+    void due.arm()
+    this.onDispose(() => { due.close(); if (reminderTimer === due) reminderTimer = null })
     return this.#leadService
   }
 
@@ -4650,7 +4682,11 @@ export class Host {
   async #leadMemoryContext(): Promise<string | null> {
     const journal = this.#leadJournal
     if (!journal) return null
-    return leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
+    const memory = leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
+    // Its own settings and what became of its proposals to change them ride the same note: a settings file that cannot
+    // be read leaves them out rather than the memory status.
+    const settings = this.#leadAutonomy ? await this.#leadAutonomy.view().then(leadSettingsStatus, () => null) : null
+    return settings ? `${memory}\n${settings}` : memory
   }
   /** The status a desk wake carries: null when the memory store cannot be read, or takes longer than
    * `LEAD_WAKE_MEMORY_STATUS_MS` to open, so a corrupt file or a slow first open never stalls or stops a wake. */
@@ -5995,7 +6031,8 @@ export class Host {
       leadChats: { list: params => this.leadChats.list(params), read: params => this.leadChats.read(params),
         start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
       leadAutonomy: { view: () => this.leadAutonomy.view(), set: set => this.leadAutonomy.set(set), rules: () => this.leadAutonomy.rules(),
-        updateRules: update => this.leadAutonomy.updateRules(update), setDeadline: set => this.leadAutonomy.setDeadline(set) },
+        updateRules: update => this.leadAutonomy.updateRules(update), setDeadline: set => this.leadAutonomy.setDeadline(set),
+        proposeMode: params => this.leadAutonomy.proposeMode(params), proposeRules: params => this.leadAutonomy.proposeRules(params), decide: params => this.leadAutonomy.decide(params) },
       leadPresence: { read: (device, options) => this.leadPresence.read(device, options), dismiss: (device, digest) => this.leadPresence.dismiss(device, digest),
         brief: () => this.leadPresence.brief(), updateBrief: update => this.leadPresence.updateBrief(update) },
       leadWork: { board: state => this.leadWork.board(state), read: params => this.leadWork.read(params),

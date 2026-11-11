@@ -510,8 +510,10 @@ test('a kept note answers exists with its entry, and the status says it is kept'
   // Kept in the person's own words, it says so.
   const other = await store.propose({ text: 'Stay quiet about desk changes at night.', kind: 'preference' }, 7, 6)
   const edited = (await store.change({ action: 'keep', id: other.id!, text: 'Stay quiet about desk changes after 22:00.' }, 8)).core.find(one => one.text.includes('22:00'))!
-  assert.deepEqual(store.status().proposals[0], { id: other.id, state: 'edited', text: 'Stay quiet about desk changes after 22:00.', entry: edited.id, at: store.status().proposals[0]!.at },
-    'the words the note says now, never the words the person replaced')
+  assert.deepEqual(store.status().proposals[0], { id: other.id, state: 'edited', text: 'Stay quiet about desk changes after 22:00.', entry: edited.id, at: store.status().proposals[0]!.at,
+    history: store.status().proposals[0]!.history }, 'the words the note says now, never the words the person replaced')
+  // What happened to it is what the store recorded: proposed, then kept in the person's words (#2107).
+  assert.deepEqual(store.status().proposals[0]!.history?.map(event => event.what), ['proposed', 'edited'])
   // Edited again in Settings, the status follows the entry.
   await store.change({ action: 'edit', id: entry.id, text: 'Report in Chinese, short.' })
   assert.deepEqual(store.status().proposals.map(item => [item.id, item.state, item.text]), [[other.id, 'edited', 'Stay quiet about desk changes after 22:00.'], [offered.id, 'edited', 'Report in Chinese, short.']])
@@ -610,3 +612,16 @@ test('words that only look negative are words: a note with no-op, without, 不�
   // 无法 is "cannot": it negates, the way the English word does.
   assert.equal(leadMemoryNear('本地开发环境可以连接预发数据库', '本地开发环境无法连接预发数据库'), false)
 })
+
+test('a reminder wake is never indexed as the person\'s words in the searchable conversation', async () => {
+  const dir = join(await home(), 'lead')
+  const corpus = await LeadConversationCorpus.open(dir)
+  await corpus.add([
+    { version: 1, id: 'w-1', revision: 1, role: 'user', text: 'Reminder remind-1, which you set for the person, is due now: "renew the staging certificate".', source: 'schedule',
+      wake: { kind: 'reminder', reminder: 'remind-1', text: 'renew the staging certificate' } },
+    { version: 1, id: 'a-1', revision: 2, role: 'assistant', text: 'Time to renew the staging certificate.' },
+    { version: 1, id: 'p-1', revision: 3, role: 'user', text: 'Done, thanks.' }])
+  const docs = corpus.docs()
+  assert.deepEqual(docs.map(doc => [doc.id, doc.by]), [['a-1', 'assistant'], ['p-1', 'person']], 'the wake is not the person\'s; the Lead\'s reply about it is kept')
+})
+

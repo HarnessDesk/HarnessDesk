@@ -38,6 +38,24 @@ const WorkActions = ({ card, onClose }: { readonly card: LeadWorkCard; readonly 
   </Popover>
 }
 
+/** How often its attempts were stopped, on hover: "Stopped 2 times, by you each time". Nothing for a single stop. */
+const stopsTitle = (card: LeadWorkCard): string | undefined => {
+  const stops = card.stops ?? []
+  if (stops.length < 2) return card.stoppedBy === 'lead' ? 'The Lead stopped its chat' : undefined
+  const mine = stops.filter(stop => stop.by === 'person').length
+  return `Stopped ${stops.length} times${mine === stops.length ? ', by you each time' : mine ? `, ${mine} by you` : ''}`
+}
+
+/** A reminder's line: when it is due, or what became of it. A fired reminder for the person is Said once the Lead's
+ * message was written, Missed when it never was, and not said yet while the Lead is still writing it. */
+const reminderLine = (entry: LeadReminder): string => {
+  if (entry.state !== 'fired') return `Due ${formatLeadRunTime(new Date(entry.dueAt))}`
+  if (entry.delivery === 'said') return `Said ${formatLeadRunTime(new Date(entry.deliveredAt ?? entry.firedAt ?? entry.dueAt))}`
+  if (entry.delivery === 'missed') return `Missed ${formatLeadRunTime(new Date(entry.deliveredAt ?? entry.firedAt ?? entry.dueAt))}`
+  const fired = `Fired ${formatLeadRunTime(new Date(entry.firedAt ?? entry.dueAt))}`
+  return entry.for === 'person' ? `${fired}, not said yet` : fired
+}
+
 /** Reminders the person can see: every one still set, and the ones that fired in the last day. A cancelled one is gone. */
 export const leadVisibleReminders = (board: LeadWorkBoard | null | undefined): readonly LeadReminder[] =>
   (board?.reminders ?? []).filter(entry => entry.state === 'set' || entry.state === 'fired')
@@ -69,14 +87,16 @@ export const LeadWork = () => {
         title={<span title={card.fact ? sanitizeText(card.fact) : undefined}>{sanitizeText(card.title)}</span>} wrapTitle
         // A reason someone waits is a fact that varies, so it earns the line; everything else stays on hover.
         subtitle={group === 'needs-you' && card.blocker ? sanitizeText(card.blocker) : undefined} wrapSubtitle
-        // A chat the person stopped is not finished: its state is a word on the label's line, not a second line.
-        trail={<>{card.outcome === 'dropped' ? <Chip tone="neutral">Dropped</Chip> : card.stage === 'stopped' && <Chip tone="neutral">Stopped</Chip>}<WorkActions card={card} onClose={outcome => { void close(card, outcome) }} /></>} />)}</ListRows>
+        // A chat the person stopped is not finished: its state is a word on the label's line, not a second line. Who
+        // stopped it is the host's record, said in the reader's words, as the digest and the phone say it.
+        trail={<>{card.outcome === 'dropped' ? <Chip tone="neutral">Dropped</Chip> : card.stage === 'stopped' && <Chip tone="neutral" title={stopsTitle(card)}>{card.stoppedBy === 'person' ? 'You stopped it' : 'Stopped'}</Chip>}<WorkActions card={card} onClose={outcome => { void close(card, outcome) }} /></>} />)}</ListRows>
     </ToolGroup>)}
     {reminders.length > 0 && <ToolGroup label="Reminders" heading={`Reminders · ${reminders.length}`} data-work-group="reminders">
       <ListRows surface="panel">{reminders.map(entry => <ListRow key={entry.id} size="sm" data-work-reminder={entry.id}
         title={sanitizeText(entry.text)} wrapTitle
-        // When it is due, or when it fired, is the fact that varies, so it earns the line; it says Fired once, here.
-        subtitle={entry.state === 'fired' ? `Fired ${formatLeadRunTime(new Date(entry.firedAt ?? entry.dueAt))}` : `Due ${formatLeadRunTime(new Date(entry.dueAt))}`}
+        // When it is due, or what became of it, is the fact that varies, so it earns the line. A person's reminder says
+        // Said only once the Lead's message was written; one the Lead never wrote says Missed, never Fired as if said.
+        subtitle={reminderLine(entry)}
         // The Lead's own check-back is a kind, so it is a word on the label's line: quiet hours and autonomy hold it.
         trail={entry.state === 'set' && <>{entry.for === 'lead' && <Chip tone="neutral" title="The Lead's own check-back: quiet hours and your autonomy settings hold it">Check-back</Chip>}
           <Button variant="ghost" size="icon-sm" aria-label={`Cancel reminder: ${sanitizeText(entry.text)}`} title="Cancel reminder" onClick={() => { void cancel(entry) }}><CrossIcon size={16} /></Button></>} />)}</ListRows>

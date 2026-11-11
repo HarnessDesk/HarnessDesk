@@ -3,14 +3,14 @@ import { readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import {
-  parseClientMessage, wireCodeOf, type HarnessDeskAccountStatus, type HostMethodName, type HostParams, type PhoneLinkState,
+  parseClientMessage, wireCodeOf, type HarnessDeskAccountStatus, type HostMethodName, type HostParams, type HostResult, type LeadAutonomyView, type PhoneLinkState,
   type PhonePairing, type PhoneRelayState, type PhoneTier, type WireNotification,
 } from '@harnessdesk/protocol'
 import { PhoneCallError, PhoneLinkService, RelayLink, type AccountOffer, type Device, type PhonePolicy } from '@harnessdesk/phone-link'
 import type { PhoneInvite, RelayAccess } from './harnessdesk-account.js'
 import type { Host } from './host.js'
 import type { Logger } from './log.js'
-import { WorkspaceFeed } from './phone-work.js'
+import { phoneAutonomy, WorkspaceFeed } from './phone-work.js'
 
 /** What the wire methods under `phone/` reach: the window decides, the service obeys. */
 export interface PhoneLinkControl {
@@ -91,6 +91,9 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/memory/change': 'answer',
     // A reminder listed on the work board: the phone cancels one, as the window does. Setting one is the Lead's.
     'lead/reminder/cancel': 'run',
+    // Apply or No on the Lead's own proposal card: it applies exactly the change the card shows, as the window's does.
+    // Writing rules or modes freely stays on the desk.
+    'lead/settings/decide': 'answer',
   },
   topics: { lead: 'read', workspace: 'read', notices: 'read', presence: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.
@@ -135,14 +138,35 @@ const WORKSPACE_EVENTS = new Set([
   'session/started', 'session/status', 'session/title', 'session/closed', 'turn/started', 'turn/completed',
   'approval/requested', 'approval/resolved',
 ])
-const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed', 'lead/memory/changed'])
+const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed', 'lead/memory/changed', 'lead/autonomy/changed'])
 
-/** The methods whose receipts and marks name the device that made them. */
-const PHONE_DEVICE_METHODS = new Set(['lead/presence/read', 'lead/presence/dismiss', 'lead/thread/send'])
+/**
+ * The methods whose receipts and marks name the device that made them, and the one that lets a phone do less:
+ * `lead/settings/decide` refuses a phone's Apply of a section's whole new words, which are read in full at the desk.
+ */
+const PHONE_DEVICE_METHODS = new Set(['lead/presence/read', 'lead/presence/dismiss', 'lead/thread/send', 'lead/settings/decide'])
 const phoneDeviceRef = (device: Device) => ({
   id: `phone:${device.id.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 48)}`,
   label: device.name.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').trim().slice(0, 40) || 'Phone',
 })
+
+/** Every host method whose answer is the autonomy view, the Lead's proposal words in it. */
+type AutonomyViewMethod = { [M in HostMethodName]: HostResult<M> extends LeadAutonomyView ? M : never }[HostMethodName]
+/**
+ * What a phone receives in place of a method's own answer. The autonomy view carries the Lead's proposal words, so
+ * every answer that holds one reaches a phone as `phoneAutonomy` makes it (scrubbed, `deskOnly` where the phone answers
+ * No only), the same as the workspace snapshot's copy. The record is keyed by every such method, phone-reachable or
+ * not, so a new one cannot reach the phone raw by being left out: the compiler asks for it here.
+ */
+const PHONE_RESULTS: Record<AutonomyViewMethod, (result: LeadAutonomyView) => LeadAutonomyView> = {
+  'lead/autonomy/read': phoneAutonomy,
+  'lead/autonomy/set': phoneAutonomy,
+  'lead/deadline/set': phoneAutonomy,
+  'lead/settings/decide': phoneAutonomy,
+}
+/** A host answer as the phone may have it. */
+export const phoneResult = (method: string, result: unknown): unknown =>
+  Object.hasOwn(PHONE_RESULTS, method) && result && typeof result === 'object' ? PHONE_RESULTS[method as AutonomyViewMethod](result as LeadAutonomyView) : result
 
 /** The memory changes a phone may make: answer a proposal, or forget one entry. */
 const PHONE_MEMORY_ACTIONS = new Set(['keep', 'dismiss', 'forget'])
@@ -169,7 +193,7 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     try { parsed = parseClientMessage({ id: 0, method, params: params ?? {} }) } catch (error) {
       throw new PhoneCallError('badRequest', error instanceof Error ? error.message : String(error))
     }
-    try { return await host.call(parsed.method as HostMethodName, parsed.params as never) } catch (error) {
+    try { return phoneResult(method, await host.call(parsed.method as HostMethodName, parsed.params as never)) } catch (error) {
       log.info('phone request failed', { device: device.id, method, code: wireCodeOf(error) })
       throw new PhoneCallError(wireCodeOf(error) ?? 'methodFailed', error instanceof Error ? error.message : String(error))
     }

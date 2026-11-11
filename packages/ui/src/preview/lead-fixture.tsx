@@ -1,4 +1,4 @@
-import { leadStage, leadWorkGroup, type LeadPresenceView, NO_CAPABILITIES, type LeadWorkBoard, type LeadWorkCard, type LeadWorkStage, runtimeId, type LeadAcceptanceContract, type LeadStageFacts, type LeadCard, type LeadContextFacts, type LeadMemory, type LeadMemoryView, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
+import { leadStage, leadWorkGroup, type LeadPresenceView, NO_CAPABILITIES, type LeadWorkBoard, type LeadWorkCard, type LeadWorkStage, runtimeId, type LeadAcceptanceContract, type LeadStageFacts, type LeadCard, type LeadContextFacts, type LeadMemory, type LeadMemoryView, type LeadSettingsProposal, LEAD_RULE_DEFAULTS, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
 
 /** Synthetic data only. No desktop, key store, transport connection or provider. */
 export const leadRuntime: RuntimeInfo = { id: runtimeId('fixture'), name: 'Fixture', capabilities: NO_CAPABILITIES, presentation: { name: 'Demo runtime' } }
@@ -58,7 +58,7 @@ export const leadMemoryView: LeadMemoryView = { version: 1, revision: 7, auto: f
   history: [
     { version: 7, at: Date.parse('2026-11-09T03:00:00Z'), by: 'tidy', added: 1, removed: 2, changed: 1, tidy: { merged: 2, replaced: 0, archived: 1 }, undoable: true },
     { version: 6, at: Date.parse('2026-11-08T17:20:00Z'), by: 'person', added: 1, removed: 0, changed: 0, undoable: true }] }
-export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'settings-autonomy', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence', 'context-checkpoint', 'memory-proposal', 'settings-memory', 'working-step', 'memory-proposal-again'] as const
+export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'settings-autonomy', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence', 'context-checkpoint', 'memory-proposal', 'settings-memory', 'working-step', 'memory-proposal-again', 'autonomy-proposal', 'autonomy-proposal-words'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -67,7 +67,10 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   if (['pending-plan', 'consent-expired', 'stale-card-replacement', 'narrow', 'app-shell'].includes(scene)) { thread.cards = [{ ...leadPlan, revision: scene === 'consent-expired' || scene === 'stale-card-replacement' ? 2 : 1 }]; thread.state = 'awaiting-plan'; thread.cardPositions = { plan: 2 } }
   // A reply that names work: the work item and its chat become links, a Team this desk does not have does not.
   if (scene === 'work-ledger') thread.messages = [...thread.messages, { version: 1, id: 'work-reply', revision: 2, role: 'assistant', text: 'The keyboard work is running in its chat, and the retry list is waiting for review.',
-    refs: [{ kind: 'work', id: 'work-3' }, { kind: 'work', id: 'work-2' }, { kind: 'team', id: 'room-gone', title: 'Not on this desk' }] }]
+    refs: [{ kind: 'work', id: 'work-3' }, { kind: 'work', id: 'work-2' }, { kind: 'team', id: 'room-gone', title: 'Not on this desk' }] },
+    // A reminder the person asked for: its wake is the desk's line, and the Lead's turn after it says the reminder.
+    { version: 1, id: 'remind-wake', revision: 3, role: 'system', text: 'Reminder: Check the review on the retry list', wake: { kind: 'reminder', reminder: 'remind-1', text: 'Check the review on the retry list' } },
+    { version: 1, id: 'remind-reply', revision: 4, role: 'assistant', text: 'You asked me to remind you now: check the review on the retry list. It is waiting for you.', refs: [{ kind: 'work', id: 'work-2' }] }]
   if (scene === 'repeating-plan') { thread.cards = [leadRepeatingPlan]; thread.state = 'awaiting-plan'; thread.cardPositions = { 'repeat-plan': 2 } }
   if (scene === 'second-look') { thread.cards = [leadSecondLook]; thread.contract = leadContract; thread.state = 'running' }
   if (scene === 'allowance-warning') { thread.cards = [leadAllowanceWarning]; thread.contract = leadContract; thread.state = 'running'; thread.budget = { ...leadBudget, leadUsdMicros: 1000000, workerUsdMicros: 3000000 } }
@@ -175,8 +178,30 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
     { version: 1, id: 'again-reply', revision: 2, role: 'assistant', text: 'Understood. I offered it as a note to keep; it waits for your Keep.' },
     { version: 1, id: 'again-repeat', revision: 3, role: 'user', text: 'Remember: conclusion first in every report.' },
     { version: 1, id: 'again-repeat-reply', revision: 4, role: 'assistant', text: 'That note is not kept yet: it still waits for your Keep, below.' }]
+  // The person asked for a setting, not a note: the Lead proposed the mode and the rule line, and both wait for Apply.
+  if (scene === 'autonomy-proposal') thread.messages = [
+    { version: 1, id: 'settings-ask', revision: 1, role: 'user', text: 'From now on, do not tell me when the desk changes; just note it. And lead every report with the conclusion.' },
+    { version: 1, id: 'settings-reply', revision: 2, role: 'assistant', text: 'Those are settings, not notes, so I proposed both below. Nothing changes until you press Apply.' }]
+  // The person asked for new words for a whole section: the Lead proposed them, and the card shows what changes.
+  if (scene === 'autonomy-proposal-words') thread.messages = [
+    { version: 1, id: 'words-ask', revision: 1, role: 'user', text: 'Rewrite what counts as done: a green check run and my own review, nothing less.' },
+    { version: 1, id: 'words-reply', revision: 2, role: 'assistant', text: 'I proposed new words for that section below. Nothing changes until you press Apply.' }]
   return leadProjection({ ...projection, thread, stage: undefined, stageReason: undefined })
 }
+
+/** The `autonomy-proposal-words` scene: a whole section's new words, which the card shows as what changes. */
+export const leadSettingsWordsProposal: LeadSettingsProposal = { id: 's3', state: 'pending', proposedAt: Date.parse('2026-11-10T17:00:00Z'), afterSeq: 1,
+  change: { kind: 'rules', section: 'done', fromVersion: 0, fromDefault: LEAD_RULE_DEFAULTS.done.version,
+    text: 'Done means every check run is green and the person reviewed it.\nA worker saying it finished is not evidence.' },
+  history: [{ what: 'proposed', at: Date.parse('2026-11-10T17:00:00Z') }] }
+
+/** The Lead's two settings proposals in the `autonomy-proposal` scene: a mode toward Observe, asked again, and one line for a rule section. */
+export const leadSettingsProposals: readonly LeadSettingsProposal[] = [
+  { id: 's1', change: { kind: 'autonomy', autonomy: 'desk-change', from: 'act', to: 'observe' }, state: 'pending', proposedAt: Date.parse('2026-11-10T17:00:00Z'), afterSeq: 1,
+    askedAgainAt: Date.parse('2026-11-10T17:04:00Z'), history: [{ what: 'proposed', at: Date.parse('2026-11-10T17:00:00Z') }, { what: 'asked-again', at: Date.parse('2026-11-10T17:04:00Z') }] },
+  { id: 's2', change: { kind: 'rules', section: 'talk', fromVersion: 0, text: `${LEAD_RULE_DEFAULTS.talk.text}\nLead every report with the conclusion.`, add: 'Lead every report with the conclusion.' }, state: 'pending',
+    proposedAt: Date.parse('2026-11-10T17:00:00Z'), afterSeq: 1, history: [{ what: 'proposed', at: Date.parse('2026-11-10T17:00:00Z') }] },
+]
 
 /** The same proposal, offered again while it waited: one chip, moved under the newer reply. */
 export const leadMemoryAgainView: LeadMemoryView = { ...leadMemoryView, revision: 9,
@@ -184,7 +209,7 @@ export const leadMemoryAgainView: LeadMemoryView = { ...leadMemoryView, revision
 
 /** What `lead/context/read` answers in the frames: a conversation summarised once, mostly read from the cache. */
 export const leadContextFacts: LeadContextFacts = { version: 1, windowTokens: 200_000, usedTokens: 46_000, cacheHitRate: 0.91, compacting: false, checkpoints: [
-  { id: 'checkpoint-demo', at: 1_767_225_600_000, fallback: false, beforeTokens: 170_000, afterTokens: 30_000,
+  { id: 'checkpoint-demo', at: Date.now() - 8 * 60 * 60_000, fallback: false, beforeTokens: 170_000, afterTokens: 30_000,
     person: { messages: [{ id: 'goal', text: 'Keep the docs short' }], leftOut: [] },
     text: '## Decisions made and why\nNone.\n\n## Work and where each piece stands\nThe sign-in page passes its checks.\n\n## Waiting on the person\nNone.\n\n## Facts learned\nEach doc is under a page.\n\n## Open questions / next step\nNone.' }] }
 
@@ -203,14 +228,15 @@ export const leadWorkFixture: LeadWorkBoard = { version: 1, more: 0, items: [
   workCard(3, 'Make the empty state keyboard accessible', 'working', { links: { chats: ['fixture:chat-3'], teams: ['demo-team'], prs: [], issues: [] }, fact: 'A chat is working' }),
   workCard(5, 'Ship the changelog after the rename', 'blocked', { after: 'work-4', note: 'Waits for the column rename' }),
   workCard(2, 'Fix the retry status list', 'in-review', { links: { chats: ['fixture:chat-2'], teams: [], prs: ['acme/widgets#42'], issues: [] }, fact: 'Pull request acme/widgets#42 is open' }),
-  workCard(6, 'Draft the release notes', 'stopped', { fact: 'Stopped: its chat was stopped' }),
+  workCard(6, 'Draft the release notes', 'stopped', { fact: 'Stopped: the person stopped its chat', stoppedBy: 'person',
+    stops: [{ at: Date.now() - 2 * 3_600_000, by: 'person' }, { at: Date.now() - 600_000, by: 'person' }] }),
   workCard(1, 'Update the onboarding copy', 'done', { closedAt: Date.now() - 600_000, outcome: 'done' }),
 ],
 // A reminder the person asked for, still set, and one that fired: the rail and Scheduled tasks list them with their times.
 reminders: [
   { id: 'remind-2', text: 'Send the changelog to the team', for: 'person', item: 'work-5', dueAt: Date.now() + 90 * 60_000, createdAt: Date.now() - 600_000, state: 'set' },
   { id: 'remind-3', text: 'Check on Fix the retry status list', for: 'lead', item: 'work-2', dueAt: Date.now() + 3 * 60 * 60_000, createdAt: Date.now() - 300_000, state: 'set', kind: 'check-back' },
-  { id: 'remind-1', text: 'Check the review on the retry list', for: 'person', item: 'work-2', dueAt: Date.now() - 20 * 60_000, createdAt: Date.now() - 3_600_000, state: 'fired', firedAt: Date.now() - 20 * 60_000 },
+  { id: 'remind-1', text: 'Check the review on the retry list', for: 'person', item: 'work-2', dueAt: Date.now() - 20 * 60_000, createdAt: Date.now() - 3_600_000, state: 'fired', firedAt: Date.now() - 20 * 60_000, delivery: 'said', deliveredAt: Date.now() - 19 * 60_000 },
 ] }
 
 /** What the host tells a window that has been away: one digest, and what became of the questions in the thread. */

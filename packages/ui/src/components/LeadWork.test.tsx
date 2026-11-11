@@ -54,13 +54,14 @@ it('Done closes the item through the host and it moves to Done; nothing else on 
   expect(items(box, 'done')).toEqual(['work-4', 'work-6', 'work-1'])
 })
 
-it('a working item’s menu stops its chat with the same stop the chat sends, and a stopped item says Stopped', async () => {
+it('a working item’s menu stops its chat with the same stop the chat sends, and an item the person stopped says so', async () => {
   const { box, store } = await mount('work-ledger')
   const calls: { method: string; params: unknown }[] = []
   const request = store.transport.request.bind(store.transport)
   store.transport.request = (async (method: string, params: unknown) => { calls.push({ method, params }); return request(method as never, params as never) }) as typeof store.transport.request
-  expect(box.querySelector('[data-work-item="work-6"]')!.textContent).toContain('Stopped')
-  expect(box.querySelector('[data-work-item="work-1"]')!.textContent).not.toContain('Stopped')
+  // #2108: the person stopped it (from this menu or the phone), so the card says "You stopped it", never only "Stopped".
+  expect(box.querySelector('[data-work-item="work-6"]')!.textContent).toContain('You stopped it')
+  expect(box.querySelector('[data-work-item="work-1"]')!.textContent).not.toContain('stopped')
   await act(async () => { box.querySelector<HTMLButtonElement>('[aria-label="Actions for Rename the status column"]')!.click() })
   expect([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].some(item => item.textContent?.startsWith('Stop'))).toBe(false)
   await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
@@ -70,6 +71,19 @@ it('a working item’s menu stops its chat with the same stop the chat sends, an
   await act(async () => { stop.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
   expect(calls.map(call => call.method)).toEqual(['turn/interrupt'])
   expect(calls[0]!.params).toMatchObject({ runtime: 'fixture', sessionId: 'chat-3' })
+})
+
+it('a reminder whose message was never written says Missed, and one still being said does not claim it was', async () => {
+  const { box, store } = await mount('work-ledger')
+  const fired = leadWorkFixture.reminders!.find(entry => entry.id === 'remind-1')!
+  const { delivery: _said, deliveredAt: _at, ...waking } = fired
+  await act(async () => { store.lead.changed({ method: 'lead/work/changed', params: { ...leadWorkFixture, reminders: [
+    { ...fired, delivery: 'missed', deliveredAt: fired.firedAt! + 60_000 }, { ...waking, id: 'remind-4' }] } }) })
+  const missed = box.querySelector<HTMLElement>('[data-work-reminder="remind-1"]')!, pending = box.querySelector<HTMLElement>('[data-work-reminder="remind-4"]')!
+  expect(missed.textContent).toContain('Missed ')
+  expect(missed.textContent).not.toMatch(/Said|Fired/)
+  expect(pending.textContent).toContain('not said yet')
+  expect(pending.textContent).not.toContain('Said ')
 })
 
 it('a live board from the host replaces the card, and no tracked work draws no card', async () => {
@@ -94,8 +108,9 @@ it('lists each reminder with when it is due or fired, and Cancel removes one thr
   expect(checkBack.textContent).toContain('Check on Fix the retry status list')
   expect(checkBack.textContent).toContain('Check-back')
   expect(checkBack.textContent).not.toContain('work-2')
-  // A fired reminder says Fired once, with its time, and has nothing left to cancel.
-  expect(fired.textContent?.match(/Fired/g)).toHaveLength(1)
+  // A person's reminder the Lead told them about says Said once, with its time, never Fired, and has nothing left to cancel.
+  expect(fired.textContent?.match(/Said /g)).toHaveLength(1)
+  expect(fired.textContent).not.toContain('Fired')
   expect(fired.querySelector('button')).toBeNull()
   const calls: { method: string; params: unknown }[] = []
   const request = store.transport.request.bind(store.transport)

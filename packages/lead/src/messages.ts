@@ -196,6 +196,9 @@ const withCacheMarks = (messages: readonly MessagesTurn[], stable: { readonly tu
     marks.has(`${index}:${position}`) ? { ...block, cache_control: CACHE_MARK } : block) }))
 }
 const systemBlocks = (system: string) => [{ type: 'text' as const, text: system, cache_control: CACHE_MARK }]
+/** How a desk wake (a reminder that came due) opens in the model's history, and the reference line that follows it. */
+export const LEAD_WAKE_OPEN = 'Desk wake, not a message from the person: '
+export const LEAD_WAKE_REFERENCE = 'Desk reference for the preceding desk wake: '
 /** The most turns of the person's readable conversation one request carries. The request admits LIMIT.turns - 2;
  * the rest is room for the host's own closing turns and for a tool loop's continuations within the request. */
 export const LEAD_HISTORY_TURNS = 128
@@ -207,12 +210,17 @@ export const LEAD_HISTORY_BYTES = LIMIT.bytes / 2
  * holds, in turns or in bytes, are both ordinary, and either one, sent as it stands, is refused before every request
  * that follows.
  */
-export const leadHistory = (messages: readonly { readonly id?: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly proactive?: LeadProactive }[]): MessagesTurn[] => {
+export const leadHistory = (messages: readonly { readonly id?: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly proactive?: LeadProactive; readonly wake?: { readonly kind: string } }[]): MessagesTurn[] => {
   const spoken = messages.filter(message => message.role === 'user' || message.role === 'assistant')
   const turns: MessagesTurn[] = spoken.slice(-LEAD_HISTORY_TURNS).map(message => {
     const ask = message.ask ?? (message.proactive?.options && message.proactive.recommended ? {
       question: message.proactive.ask, options: message.proactive.options, recommended: message.proactive.recommended,
     } : undefined)
+    // A wake is the desk's turn, never the person's words: it says so, and its reference is not a person message's.
+    if (message.role === 'user' && message.wake) return { role: 'user' as const, content: [
+      { type: 'text' as const, text: `${LEAD_WAKE_OPEN}${message.text}` },
+      ...(message.id ? [{ type: 'text' as const, text: `${LEAD_WAKE_REFERENCE}${message.id}` }] : []),
+    ] }
     return { role: message.role as 'user' | 'assistant', content: [
       ...(ask && !message.text.trim() ? [] : [{ type: 'text' as const, text: message.text }]),
       ...(message.role === 'user' && message.id ? [{ type: 'text' as const, text: `Desk reference for the preceding person message: ${message.id}` }] : []),
