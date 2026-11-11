@@ -394,3 +394,13 @@ test('a stop marker the agent replays into the person\'s seat does not push the 
   // A message that is only the marker is left as it came; the agent's own replay marks it a notice.
   assert.deepEqual(splitContextContent([{ type: 'text', text: '[Request interrupted by user]' }]), { injections: [], text: '[Request interrupted by user]' })
 })
+
+test('a stop marker stored on the line before the Lead\'s envelope, in the same part, does not hide it (#2090)', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Fix the stalled task.')
+  const split = splitContextContent([{ type: 'text', text: `[Request interrupted by user]\n${envelope}` }])
+  assert.deepEqual(split.injections.map(block => block.label), [leadMessageSource('Dex')])
+  assert.equal(split.text, '')
+  // Only an envelope right after the marker is peeled; a marker before the person's own words stays theirs.
+  const typed = splitContextContent([{ type: 'text', text: '[Request interrupted by user]\nkeep going' }])
+  assert.deepEqual(typed, { injections: [], text: '[Request interrupted by user]\nkeep going' })
+})

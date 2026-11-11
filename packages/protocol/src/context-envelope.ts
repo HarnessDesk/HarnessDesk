@@ -319,13 +319,22 @@ import type { CeilingLevel } from './evidence.js'
  * envelope off the start of the message and left it as text (#2090).
  */
 const STOP_MARKER = /^\[Request interrupted (?:by user|for tool use)[^\]\n]*\]$/
+/** The same marker stored as the first line of the part that carries the envelope. */
+const STOP_LINE = /^\[Request interrupted (?:by user|for tool use)[^\]\n]*\]\n+/
+/** A part whose first line is a stop marker and whose rest opens with desk context loses the marker; any other part is kept whole. */
+const unstopped = (text: string): string => {
+  const line = STOP_LINE.exec(text)
+  if (!line) return text
+  const rest = text.slice(line[0].length)
+  return splitContext(rest).injections.length > 0 ? rest : text
+}
 
 /** Read a message's parts through the same parser, retaining text-only history's old layout. */
 export const splitContextContent = (content: readonly UserContent[]): SplitText => {
   const parts = content.filter(part => part.type === 'text')
   if (!parts.some(part => part.deskContext !== undefined)) {
     const said = parts.filter(part => !STOP_MARKER.test(part.text.trim()))
-    return splitContext((said.length ? said : parts).map(part => part.text).join('\n'))
+    return splitContext((said.length ? said : parts).map(part => unstopped(part.text)).join('\n'))
   }
   const splits = parts.map(part => splitContext(part.text, part.deskContext ?? { prefixLength: 0 }))
   return { injections: splits.flatMap(split => split.injections), text: splits.map(split => split.text).filter(Boolean).join('\n') }

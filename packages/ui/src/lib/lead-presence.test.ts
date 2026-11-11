@@ -96,11 +96,9 @@ it('says a request was not sent instead of that the person is needed or that wor
   }
 })
 
-it('names the step the host published while a request is in flight, so the bar and the live line agree (Q16)', () => {
+it('keeps one presence word while a request is in flight, and leaves the step to the live line (Q16)', () => {
   const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
   state.changed({ method: 'lead/changed', params: leadProjection({ requestInFlight: true, activity: { since: 1, method: null, step: 'Starting a chat' } }) })
-  expect(leadPresence(state.state)).toMatchObject({ mood: 'working', word: 'Starting a chat' })
-  // A desk from before steps were published sends none: the bar keeps its word.
-  state.changed({ method: 'lead/changed', params: leadProjection({ revision: 12, requestInFlight: true, activity: { since: 1, method: null } }) })
+  // The bar draws its word before the name; a step there would read "Starting a chat Dex".
   expect(leadPresence(state.state)).toMatchObject({ mood: 'working', word: 'Thinking' })
 })

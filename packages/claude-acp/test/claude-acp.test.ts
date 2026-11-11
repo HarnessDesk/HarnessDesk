@@ -8,6 +8,7 @@ import { scratch } from './scratch.js'
 
 import { ClaudeAcpAgent } from '@agentclientprotocol/claude-agent-acp'
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk'
+import type { SessionNotification } from '@agentclientprotocol/sdk'
 import { HarnessDeskClaudeAgent, captureToolCall, captureStillHolds, recordToolCalls, recordedToolCallFor, type RecordedToolCall, type ToolCallStore } from '../src/bridge.js'
 
 import { AcpRuntime, type AcpAgentConfig } from '@harnessdesk/adapter-acp'
@@ -1614,6 +1615,111 @@ test('the source extension crosses the real bridge with metadata only', async t 
   assert.deepEqual(await runtime.sourceOf('source-test' as AgentSession['id']), { path, mtimeMs: facts.mtimeMs, size: facts.size })
   await rm(path)
   assert.equal(await runtime.sourceOf('source-test' as AgentSession['id']), null)
+})
+
+const chained = (n: number): Record<string, unknown> => ({
+  uuid: `00000000-0000-4000-8000-0000000000${String(n).padStart(2, '0')}`,
+  parentUuid: n === 1 ? null : `00000000-0000-4000-8000-0000000000${String(n - 1).padStart(2, '0')}`,
+  timestamp: new Date(1_800_000_000_000 + n * 1000).toISOString(),
+  userType: 'external',
+  version: '2.1.0',
+})
+const editTurn = (link: (n: number) => Record<string, unknown>): Record<string, unknown>[] => [
+  { ...said('Fix the bug'), ...link(1) },
+  { type: 'assistant', ...link(2), message: { id: 'msg_1', role: 'assistant', model: 'claude-x', content: [
+    { type: 'thinking', thinking: 'The off-by-one is in the loop.', signature: 'sig' },
+    { type: 'tool_use', id: 'toolu_edit1', name: 'Edit', input: { file_path: join(WORKDIR, 'a.ts'), old_string: 'i <= n', new_string: 'i < n' } },
+  ] } },
+  { type: 'user', ...link(3), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_edit1', content: 'The file has been updated.' }] } },
+  { type: 'assistant', ...link(4), message: { id: 'msg_2', role: 'assistant', model: 'claude-x', content: [{ type: 'text', text: 'Fixed.' }] } },
+]
+const reopened = async (config: string, id: string): Promise<AgentItem[]> => {
+  const runtime = make({ CLAUDE_CONFIG_DIR: config })
+  await runtime.start()
+  try {
+    const session = await runtime.resumeSession(id as AgentSession['id'])
+    return (await runtime.readSession(session.id)).turns.flatMap((turn) => turn.items)
+  } finally {
+    await runtime.dispose()
+  }
+}
+
+test('a reopened conversation keeps its thoughts and its edits, once', async () => {
+  const config = scratch('claude-config-')
+  const id = '3f2b0c1a-4d5e-4f60-8a71-9b2c3d4e5f97'
+  storedSession(config, id, WORKDIR, editTurn(chained))
+  const items = await reopened(config, id)
+  assert.deepEqual(items.map((item) => item.type), ['userMessage', 'reasoning', 'fileChange', 'assistantMessage'])
+  const thought = items[1]!
+  assert.ok(thought.type === 'reasoning' && thought.content.join('').includes('The off-by-one is in the loop.'))
+  const edit = items[2]!
+  assert.ok(edit.type === 'fileChange')
+  assert.equal(edit.changes[0]!.path, join(WORKDIR, 'a.ts'))
+  assert.match(edit.changes[0]!.diff, /-i <= n\n\+i < n/)
+  assert.equal(textIn(items[0]!), 'Fix the bug')
+  assert.equal(textIn(items[3]!), 'Fixed.')
+})
+
+test('a reopened conversation keeps a stop as a notice when the adapter underneath replays it', async () => {
+  const config = scratch('claude-config-')
+  const id = '3f2b0c1a-4d5e-4f60-8a71-9b2c3d4e5f94'
+  storedSession(config, id, WORKDIR, [
+    { ...said('Build a game'), ...chained(1) },
+    { ...said('Caveat: the hook said the tests are slow.'), isMeta: true, ...chained(2) },
+    { ...answered('Working on it'), ...chained(3), message: { id: 'msg_1', role: 'assistant', model: 'claude-x', content: [{ type: 'text', text: 'Working on it' }] } },
+    { ...said('[Request interrupted by user]'), ...chained(4) },
+  ])
+  const items = await reopened(config, id)
+  // The adapter underneath leaves entries Claude Code added out of its replay; the stop it sends is read as a notice.
+  assert.deepEqual(items.map((item) => `${item.type}: ${textIn(item)}`), ['userMessage: Build a game', 'assistantMessage: Working on it', 'notice: Interrupted'])
+})
+
+test('a stored conversation the adapter underneath cannot replay is replayed by the bridge, once, past a sidecar folder', async () => {
+  const config = scratch('claude-config-')
+  const id = '3f2b0c1a-4d5e-4f60-8a71-9b2c3d4e5f96'
+  // No parent chain: the adapter underneath replays nothing, so the bridge's own replay is the history.
+  storedSession(config, id, WORKDIR, editTurn(() => ({})))
+  // A folder of the same id in a project that sorts first is not the transcript.
+  mkdirSync(join(config, 'projects', '-0-sidecar', id, 'subagents'), { recursive: true })
+  const items = await reopened(config, id)
+  assert.deepEqual(items.map((item) => item.type === 'userMessage' || item.type === 'assistantMessage' ? `${item.type}: ${textIn(item)}` : item.type),
+    ['userMessage: Fix the bug', 'toolCall', 'assistantMessage: Fixed.'])
+})
+
+test('a load passes the adapter\'s replay and anything live as they came, and re-reads only the person\'s side (#2090)', async (t) => {
+  const sent: SessionNotification[] = []
+  const client = { sessionUpdate: async (params: SessionNotification) => { sent.push(params) }, requestPermission: async () => ({}) }
+  const envelope = wrapContext('Lead message from Dex', 'Fix the stalled task.')
+  t.mock.method(ClaudeAcpAgent.prototype, 'loadSession', async function (this: ClaudeAcpAgent, params: { sessionId: string }) {
+    const say = (update: SessionNotification['update']) => this.client.sessionUpdate({ sessionId: params.sessionId, update })
+    await say({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'Build a game' } })
+    await say({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Start with the board.' } })
+    await say({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: '[Request interrupted by user]' } })
+    await say({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: envelope } })
+    // A turn still running while the load returns: live, not history.
+    await say({ sessionUpdate: 'tool_call', toolCallId: 'live-1', title: 'Read a.ts', kind: 'read', status: 'in_progress' })
+    await say({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Still reading.' } })
+    return { sessionId: params.sessionId, configOptions: [] }
+  })
+  // The bridge finds no stored file of its own here; the adapter's replay must stand.
+  const config = scratch('claude-config-')
+  const before = process.env['CLAUDE_CONFIG_DIR']
+  process.env['CLAUDE_CONFIG_DIR'] = config
+  t.after(() => { if (before === undefined) delete process.env['CLAUDE_CONFIG_DIR']; else process.env['CLAUDE_CONFIG_DIR'] = before })
+  const agent = new HarnessDeskClaudeAgent(client as never, { stateDir: scratch('claude-load-state-'), log: () => {} })
+  await agent.loadSession({ sessionId: '3f2b0c1a-4d5e-4f60-8a71-9b2c3d4e5f95', cwd: WORKDIR, mcpServers: [] })
+  const history = sent.filter((note) => ['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call'].includes(note.update.sessionUpdate))
+  assert.deepEqual(history.map((note) => {
+    const update = note.update as { sessionUpdate: string; content?: { text?: string }; title?: string; _meta?: { harnessdesk?: { notice?: boolean } } }
+    return `${update.sessionUpdate}${update._meta?.harnessdesk?.notice ? ' (notice)' : ''}: ${update.content?.text ?? update.title}`
+  }), [
+    'user_message_chunk: Build a game',
+    'agent_thought_chunk: Start with the board.',
+    'user_message_chunk (notice): Interrupted',
+    `user_message_chunk: ${envelope}`,
+    'tool_call: Read a.ts',
+    'agent_message_chunk: Still reading.',
+  ])
 })
 
 test('a reopened conversation interrupted before a Lead message reads once, with the Lead message whole (#2090)', async () => {
