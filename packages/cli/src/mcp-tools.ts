@@ -3,9 +3,11 @@
  *
  * `harnessdesk mcp` serves the same commands the command line runs, one tool
  * per command, generated here from `COMMANDS` so that the two can never say
- * different things. A tool call becomes a command line (`toArgv`) and the
- * command line's own parser is the one validator; the schema is a
- * description for the model, not a second gate.
+ * different things. A tool call becomes a command line (`toArgv`), which
+ * holds every argument to its schema's type and bounds first: a client need
+ * not validate what it sends, so a wait given as the string "7200" is refused
+ * here rather than read as a number past the cap. The command line's own
+ * parser then validates the line as it would a person's.
  *
  * What a tool leaves out is decided here, once:
  * - the flags every command takes (`--home`, `--json`, `--trace-wire`): the
@@ -106,17 +108,31 @@ function propertyOf(command: CommandLike, slot: Slot): Record<string, unknown> {
   }
   if (slot.switch) return { type: 'boolean', ...description }
   if (LISTS.has(slot.key)) return { type: 'array', items: { type: 'string', pattern: '^[^=]+=.+$' }, maxItems: 32, ...description }
-  if (slot.key === 'timeout') return { type: 'number', minimum: 0, maximum: MCP_RUN_WAIT_MAX, description: `${described ?? ''} From an MCP client: ${MCP_RUN_WAIT_DEFAULT} seconds when left out, and at most ${MCP_RUN_WAIT_MAX}.`.trim() }
+  if (slot.key === 'timeout') return { type: 'integer', minimum: 1, maximum: MCP_RUN_WAIT_MAX, description: `${described ?? ''} From an MCP client: ${MCP_RUN_WAIT_DEFAULT} seconds when left out, and at most ${MCP_RUN_WAIT_MAX}.`.trim() }
   if (slot.key === 'kind') return { type: 'string', enum: ['skill', 'mcp'], ...description }
   if (FILES.has(slot.key)) return { type: 'string', minLength: 1, not: { const: '-' }, ...description }
   return { type: 'string', minLength: 1, maxLength: 4096, ...description }
 }
 
-/** A scalar a model sent, as the command line would have been given it; anything else is left out. */
-function scalar(value: unknown): string | undefined {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-  return undefined
+/**
+ * One argument, held to its property's schema before it becomes command-line
+ * text: the type, an enum, and a number's bounds. A client is not obliged to
+ * check what it sends, so this is the gate, not the schema.
+ */
+function textOf(key: string, schema: Record<string, unknown>, value: unknown): string {
+  if (schema['type'] === 'integer') {
+    const minimum = schema['minimum'] as number, maximum = schema['maximum'] as number
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < minimum || value > maximum) {
+      throw new ToolInputError(key === 'timeout'
+        ? `timeout is a whole number of seconds from ${minimum} to ${maximum}; call run_wait again to keep waiting`
+        : `${key} is a whole number from ${minimum} to ${maximum}`)
+    }
+    return String(value)
+  }
+  if (typeof value !== 'string') throw new ToolInputError(`${key} is a string`)
+  const allowed = schema['enum'] as readonly string[] | undefined
+  if (allowed && !allowed.includes(value)) throw new ToolInputError(`${key} is one of ${allowed.join(', ')}`)
+  return value
 }
 
 function toolOf(command: CommandLike): McpTool {
@@ -136,8 +152,9 @@ function toolOf(command: CommandLike): McpTool {
     `Returns: ${command.json}`,
     `Tier: ${command.tier}.${starts ? ' Starting work must be allowed in HarnessDesk Settings › Permissions › MCP clients; refused otherwise.' : ''}`,
   ].join('\n\n')
+  const name = command.name.replace(/ /g, '_')
   return {
-    name: command.name.replace(/ /g, '_'),
+    name,
     title: command.usage,
     description,
     tier: command.tier,
@@ -145,18 +162,28 @@ function toolOf(command: CommandLike): McpTool {
     inputSchema: { type: 'object', properties, required, additionalProperties: false },
     toArgv: input => {
       const argv = command.name.split(' ')
+      for (const key of Object.keys(input)) if (!Object.hasOwn(properties, key)) throw new ToolInputError(`${name} takes no ${key}`)
       for (const slot of positional) {
-        const value = scalar(input[slot.key])
-        if (value === undefined) continue
+        const raw = input[slot.key]
+        if (raw === undefined || raw === null) continue
+        const value = textOf(slot.key, properties[slot.key]!, raw)
         if (value.startsWith('-')) throw new ToolInputError(`${slot.key} cannot start with -`)
         argv.push(value)
       }
       for (const slot of flags) {
         const value = input[slot.key]
         if (value === undefined || value === null) continue
-        if (slot.switch) { if (value === true) argv.push(slot.spelling!); continue }
-        const values = LISTS.has(slot.key) && Array.isArray(value) ? value.map(scalar) : [scalar(value)]
-        for (const one of values) if (one !== undefined) argv.push(slot.spelling!, one)
+        if (slot.switch) {
+          if (typeof value !== 'boolean') throw new ToolInputError(`${slot.key} is true or false`)
+          if (value) argv.push(slot.spelling!)
+          continue
+        }
+        if (LISTS.has(slot.key)) {
+          if (!Array.isArray(value) || value.length > 32) throw new ToolInputError(`${slot.key} is a list of at most 32 strings`)
+          for (const one of value) argv.push(slot.spelling!, textOf(slot.key, { type: 'string' }, one))
+          continue
+        }
+        argv.push(slot.spelling!, textOf(slot.key, properties[slot.key]!, value))
       }
       if (confirms) argv.push('--yes')
       return argv

@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 import type { FlowExecution, GoalView, McpStartsView } from '@harnessdesk/protocol'
 import { cleanEnv, initialize, LOADED_MACHINE_MS, mcpServer } from './mcp-server.js'
 import { MCP_EXCLUDED, toolsOf } from '../src/mcp-tools.js'
+import { MCP_VERSIONS } from '../src/mcp.js'
 import { COMMANDS } from '../src/cli.js'
 const { openClientDoor } = await import(new URL('../../../server/dist/src/client-door.js', import.meta.url).href) as typeof import('../../server/src/client-door.js')
 const { silent, start, stop } = await import(new URL('../../../server/dist/test/fixtures/harness.js', import.meta.url).href) as typeof import('../../server/test/fixtures/harness.js')
@@ -162,9 +163,26 @@ test('initialize, tools, reads, the start gate with its daily number and refund,
     assert.ok(channel.includes(`answered from an MCP client (${CLIENT})`), channel)
   })
 
+  await t.test('a version this server does not speak is answered with the latest one it does, never echoed', async () => {
+    for (const requested of ['2999-01-01', '2025-06-19', 'latest', '']) {
+      const other = mcpServer(t, env)
+      assert.equal((await initialize(other, requested)).result.protocolVersion, MCP_VERSIONS[0], requested)
+      // The results follow the version agreed, not the string the client sent.
+      const status = await other.tool('status')
+      assert.equal(status.isError, undefined, text(status))
+      assert.ok(status.structuredContent, `structured content for ${requested}, answered as ${MCP_VERSIONS[0]}`)
+    }
+    const latest = mcpServer(t, env)
+    assert.equal((await initialize(latest, '2025-11-25')).result.protocolVersion, '2025-11-25')
+    // 2025-03-26 is spoken, and predates structured content: a string comparison would get it right too, but 2999 would not.
+    const march = mcpServer(t, env)
+    assert.equal((await initialize(march, '2025-03-26')).result.protocolVersion, '2025-03-26')
+    assert.equal((await march.tool('status')).structuredContent, undefined)
+  })
+
   await t.test('an older protocol gets its text without structured content', async () => {
     const older = mcpServer(t, env)
-    assert.equal((await initialize(older, '2024-11-05')).result.protocolVersion, '2024-11-05')
+    assert.equal((await initialize(older, '2024-11-05')).result.protocolVersion, '2024-11-05', 'a version this server speaks is the one agreed')
     const status = await older.tool('status')
     assert.equal(status.isError, undefined, text(status))
     assert.equal(status.structuredContent, undefined)
@@ -188,7 +206,11 @@ test('initialize, tools, reads, the start gate with its daily number and refund,
     assert.match(text(flag), /^exit 2: Usage: /)
     const long = await server.tool('run_wait', { run: run.id, timeout: 3601 })
     assert.equal(long.isError, true)
-    assert.match(text(long), /^exit 2: Usage: run_wait waits at most 3600 seconds/)
+    assert.match(text(long), /^exit 2: Usage: timeout is a whole number of seconds from 1 to 3600/)
+    // The number a client sends as a string is held to the same cap, not read past it.
+    const spelled = await server.tool('run_wait', { run: run.id, timeout: '7200' })
+    assert.equal(spelled.isError, true)
+    assert.match(text(spelled), /^exit 2: Usage: timeout is a whole number of seconds from 1 to 3600/)
   })
 })
 
@@ -230,12 +252,46 @@ test('run_wait reports progress, can be cancelled, and ends on its timeout as an
   assert.ok(!server.messages.some(message => message.id === id), 'a cancelled call gets no answer')
   assert.deepEqual((await server.request('ping')).result, {}, 'the server still answers after a cancel')
 
-  const timedOut = await server.tool('run_wait', { run: run.id, timeout: 0.2 })
+  const timedOut = await server.tool('run_wait', { run: run.id, timeout: 1 })
   assert.equal(timedOut.isError, undefined, text(timedOut))
   assert.equal(timedOut.structuredContent.exit, 8)
   assert.equal(timedOut.structuredContent.ended, 'timeout')
   assert.equal(timedOut.structuredContent.state, 'running')
   assert.equal((await d.host.call('flow/execution', { run: run.id }) as FlowExecution).state, 'running', 'waiting changes nothing')
+})
+
+test('a run_wait outlives a graceful desk restart: it reconnects to the desk found again and keeps waiting to its deadline', { timeout: REAL_HOST_TEST_MS }, async t => {
+  const directory = await mkdtemp('/tmp/hd-mcp-'); await chmod(directory, 0o700)
+  const d = await flowRig.desk(t)
+  const doors: { close(): Promise<void> }[] = []
+  const openDoor = async () => {
+    const door = await openClientDoor({ host: d.host, logger: silent, home: d.stateDir, directory, hostVersion: '9.9.9' })
+    assert.ok(door); doors.push(door)
+    return door
+  }
+  t.after(async () => { for (const door of doors) await door.close(); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) })
+  const first = await openDoor()
+  const run = await flowRig.start(d, await flowRig.shipped(d, 'investigation'), { question: 'Where does the time go?' })
+  await flowRig.claimed(d, run.goal, 'research', 1)
+  const server = mcpServer(t, { HARNESSDESK_CLIENT_DIR: directory, HARNESSDESK_HOME: d.stateDir })
+  await initialize(server)
+
+  const id = server.nextId()
+  server.send({ id, method: 'tools/call', params: { name: 'run_wait', arguments: { run: run.id, timeout: 20 }, _meta: { progressToken: 'restart-1' } } })
+  await server.waitFor(message => message.method === 'notifications/progress' && message.params?.progressToken === 'restart-1', 'progress before the restart')
+  // The desk closes the way a quit does: it tells every client it is closing, then goes.
+  await first.close()
+  await new Promise(resolve => setTimeout(resolve, 1_500))
+  assert.ok(!server.messages.some(message => message.id === id), 'the wait is not answered while the desk is away')
+  const reopenedAt = Date.now()
+  await openDoor()
+  await clientAudit(d.stateDir, entry => entry['method'] === 'client/subscribe' && Number(entry['at']) >= reopenedAt)
+  const answer = await server.waitFor(message => message.id === id, 'the wait\'s answer')
+  const result = answer.result
+  assert.equal(result.isError, undefined, text(result))
+  assert.equal(result.structuredContent.exit, 8, text(result))
+  assert.equal(result.structuredContent.ended, 'timeout')
+  assert.equal(result.structuredContent.state, 'running', 'the wait read the run again from the desk it reconnected to')
 })
 
 test('the same handshake and refusal rule as the desk\'s own tools server', async t => {

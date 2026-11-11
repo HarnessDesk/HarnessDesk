@@ -17,14 +17,24 @@
  * process's own streams, with no Node import.
  */
 import { COMMANDS, errorText, runCommand, type CommandIo } from './cli.js'
-import { MCP_RUN_WAIT_DEFAULT, MCP_RUN_WAIT_MAX, ToolInputError, toolsOf, type McpTool } from './mcp-tools.js'
+import { MCP_RUN_WAIT_DEFAULT, ToolInputError, toolsOf, type McpTool } from './mcp-tools.js'
 
 /** How often a long `run_wait` reports progress when the client asked for it. */
 export const MCP_PROGRESS_EVERY_MS = 15_000
 /** What a peer that does not say who it is is called. */
 const UNNAMED = { name: 'mcp-client', version: '0' } as const
-/** The version that first carries `structuredContent`. Dates compare as strings. */
-const STRUCTURED_SINCE = '2025-06-18'
+/**
+ * The MCP versions this server speaks, latest first. A client asking for one
+ * of them gets it; a client asking for any other gets the latest, and decides
+ * for itself whether it can go on (the protocol's own negotiation).
+ */
+export const MCP_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'] as const
+type McpVersion = typeof MCP_VERSIONS[number]
+/** The negotiated versions whose tool results carry `structuredContent` beside the text. */
+const STRUCTURED: ReadonlySet<McpVersion> = new Set(['2025-11-25', '2025-06-18'])
+/** The version agreed for a client's request: its own when this server speaks it, otherwise the latest. */
+export const negotiate = (requested: unknown): McpVersion =>
+  MCP_VERSIONS.find(one => one === requested) ?? MCP_VERSIONS[0]
 /** How `run wait` ended, by its exit code. These are answers, not failures. */
 const WAIT_ENDINGS: Readonly<Record<number, string>> = { 0: 'settled', 5: 'needsPerson', 7: 'stoppedOrStalled', 8: 'timeout' }
 
@@ -55,7 +65,8 @@ export async function serveMcp(argv: readonly string[]): Promise<number> {
   const inFlight = new Map<string, { controller: AbortController; done: Promise<void> }>()
   const trace = process.env['HARNESSDESK_MCP_TRACE'] === '1'
   let peer: { name: string; version: string } = { ...UNNAMED }
-  let version = '2024-11-05'
+  // Until a client says otherwise, the oldest: the plainest results.
+  let version: McpVersion = MCP_VERSIONS[MCP_VERSIONS.length - 1]!
   let closing = false
 
   const send = (message: object) => { process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`) }
@@ -74,13 +85,8 @@ export async function serveMcp(argv: readonly string[]): Promise<number> {
       throw error
     }
     const waits = tool.command === 'run wait'
-    if (waits) {
-      const timeout = input['timeout']
-      if (typeof timeout === 'number' && timeout > MCP_RUN_WAIT_MAX) {
-        return { content: [{ type: 'text', text: `exit 2: Usage: run_wait waits at most ${MCP_RUN_WAIT_MAX} seconds from an MCP client; call it again to keep waiting` }], isError: true }
-      }
-      if (!argv.includes('--timeout')) argv.push('--timeout', String(MCP_RUN_WAIT_DEFAULT))
-    }
+    // `toArgv` has held a given timeout to a whole number from 1 to MCP_RUN_WAIT_MAX; a wait with none still ends.
+    if (waits && !argv.includes('--timeout')) argv.push('--timeout', String(MCP_RUN_WAIT_DEFAULT))
     if (!argv.includes('--text')) argv.push('--json')
     if (options.home !== undefined) argv.push('--home', options.home)
     if (trace) argv.push('--trace-wire')
@@ -129,14 +135,14 @@ export async function serveMcp(argv: readonly string[]): Promise<number> {
   }
 
   const structured = (text: string, value: Record<string, unknown>): Content =>
-    version >= STRUCTURED_SINCE ? { content: [{ type: 'text', text }], structuredContent: value } : { content: [{ type: 'text', text }] }
+    STRUCTURED.has(version) ? { content: [{ type: 'text', text }], structuredContent: value } : { content: [{ type: 'text', text }] }
 
   const handle = async (message: Message): Promise<void> => {
     const { id, method } = message
     const params = message.params && typeof message.params === 'object' ? message.params : {}
     switch (method) {
       case 'initialize': {
-        if (typeof params['protocolVersion'] === 'string') version = params['protocolVersion']
+        version = negotiate(params['protocolVersion'])
         const info = params['clientInfo'] && typeof params['clientInfo'] === 'object' ? params['clientInfo'] as Record<string, unknown> : {}
         peer = { name: stated(info['name'], UNNAMED.name), version: stated(info['version'], UNNAMED.version) }
         respond(id, { protocolVersion: version, capabilities: { tools: {} }, serverInfo: { name: 'harnessdesk', version: '0.1.0' } })

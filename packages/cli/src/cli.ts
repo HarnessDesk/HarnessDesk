@@ -456,7 +456,8 @@ const jsonLine = (io: CommandIo, value: unknown) => io.out(encodeJson(value) + '
 const output = (io: CommandIo, args: Arguments, value: object, human: () => void) => { if (args.json) jsonLine(io, value); else human() }
 const teamLine = (io: CommandIo, team: GoalView) => line(io, [team.goal.id, team.activity ?? team.goal.state, team.goal.sentence])
 
-async function open(args: Arguments, io: CommandIo, desk?: DeskPointer, subscribe?: HostParams<'client/subscribe'>, onTransport?: (transport: ClientTransport) => void): Promise<Client> {
+async function open(args: Arguments, io: CommandIo, desk?: DeskPointer, subscribe?: HostParams<'client/subscribe'>, onTransport?: (transport: ClientTransport) => void,
+  policy: { outliveRestart?: boolean } = {}): Promise<Client> {
   // The command line keeps the desk it found for the whole invocation. An MCP
   // call finds it again on every reconnect: a desk restarted under a waiting
   // call has a new socket, and the old pointer would only ever say noDesk.
@@ -466,6 +467,9 @@ async function open(args: Arguments, io: CommandIo, desk?: DeskPointer, subscrib
     rawNotifications: true,
     client: io.peer ?? { name: 'harnessdesk', version: '0.1.0' },
     ...(io.surface ? { surface: io.surface } : {}),
+    // A wait an MCP client holds outlives a graceful desk restart: it keeps
+    // reconnecting, to the desk found again, until its own deadline.
+    ...(refind && policy.outliveRestart ? { reconnectOnShutdown: true } : {}),
     subscribe,
     transport: async () => {
       const transport = await localTransport(refind ? await resolveDesk({ home: args.home }) : pointer)
@@ -1049,7 +1053,7 @@ async function waitRun(args: Arguments, io: CommandIo): Promise<number> {
     client = await open(args, io, undefined, { topics: ['runs', 'cards', 'teams', 'waiting'], scope: { run: args.target! } }, transport => {
       pendingTransport = transport
       if (code !== undefined) transport.close()
-    })
+    }, { outliveRestart: true })
     // Both queues are independent; discarded raw messages must still drain.
     raw = (async () => { for await (const _ of client!.notifications()) {} })().catch(error => { rawFailure = error })
     if (code !== undefined) client.close()

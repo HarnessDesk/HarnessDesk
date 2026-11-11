@@ -59,6 +59,13 @@ export interface ConnectOptions {
   readonly subscribe?: HostParams<'client/subscribe'>
   /** Retain raw wire notifications for a consumer; off by default. */
   readonly rawNotifications?: boolean
+  /**
+   * When the desk says it is closing (`host/shutdown`), treat it as a lost
+   * connection and keep reconnecting, rather than ending. For a long wait that
+   * should outlive a graceful desk restart; the caller's own deadline ends it
+   * if the desk never comes back. Off by default: a desk closing ends the client.
+   */
+  readonly reconnectOnShutdown?: boolean
 }
 
 /** Unbounded ordered queues deliberately isolate transport progress from consumers. */
@@ -533,7 +540,11 @@ export async function connect(options: ConnectOptions): Promise<Client> {
       if (ended || generation !== mine || transport !== current) return
       if ('method' in message) {
         if (options.rawNotifications) notifications.push(message)
-        if (message.method === 'host/shutdown') { finish('desk-closed'); return }
+        if (message.method === 'host/shutdown') {
+          if (options.reconnectOnShutdown) lose(current)
+          else finish('desk-closed')
+          return
+        }
         accept(message)
         if (baselineRemaining !== null && baselineRemaining > 0) baselineRemaining--
         checkSync()

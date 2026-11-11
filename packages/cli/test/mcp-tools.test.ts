@@ -57,13 +57,38 @@ test('every tool call becomes a command line the parser accepts, naming the same
   }
   // Every optional property too, at once, where the parser allows them together.
   const start = tools.find(tool => tool.name === 'flow_start')!
-  const argv = start.toArgv({ flow: 'review', project: '/work/repo', title: 'Fix it', briefFile: '/work/brief.md', input: ['a=1', 'b=2'], seat: ['coder=fake'], unattended: true, yes: false, extra: 'ignored' })
+  const argv = start.toArgv({ flow: 'review', project: '/work/repo', title: 'Fix it', briefFile: '/work/brief.md', input: ['a=1', 'b=2'], seat: ['coder=fake'] })
   assert.deepEqual(argv, ['flow', 'start', 'review', '--project', '/work/repo', '--title', 'Fix it', '--brief-file', '/work/brief.md', '--input', 'a=1', '--input', 'b=2', '--seat', 'coder=fake', '--yes'])
   const parsed = parseArgs([...argv, '--json'])
   assert.equal(parsed.unattended, undefined, 'unattended is never passed')
-  assert.deepEqual(tools.find(tool => tool.name === 'run_wait')!.toArgv({ run: 'r1', timeout: 2.5 }), ['run', 'wait', 'r1', '--timeout', '2.5'])
-  assert.deepEqual(tools.find(tool => tool.name === 'card_answer')!.toArgv({ team: 't', card: 3, outcome: 'approved' }), ['card', 'answer', 't', '3', 'approved'])
-  assert.deepEqual(tools.find(tool => tool.name === 'runs')!.toArgv({ all: 'yes' }), ['runs'], 'a switch is passed only for true')
+  assert.deepEqual(tools.find(tool => tool.name === 'run_wait')!.toArgv({ run: 'r1', timeout: 3600 }), ['run', 'wait', 'r1', '--timeout', '3600'])
+  assert.deepEqual(tools.find(tool => tool.name === 'card_answer')!.toArgv({ team: 't', card: '3', outcome: 'approved' }), ['card', 'answer', 't', '3', 'approved'])
+  assert.deepEqual(tools.find(tool => tool.name === 'runs')!.toArgv({ all: false }), ['runs'], 'a switch is passed only for true')
+  assert.deepEqual(tools.find(tool => tool.name === 'runs')!.toArgv({ all: true }), ['runs', '--all'])
+})
+
+test('every argument is held to its schema before it becomes a command line, whatever the client sent', () => {
+  const tool = (name: string) => tools.find(one => one.name === name)!
+  const wait = tool('run_wait')
+  assert.deepEqual(wait.inputSchema.properties['timeout'], { ...wait.inputSchema.properties['timeout'], type: 'integer', minimum: 1, maximum: MCP_RUN_WAIT_MAX })
+  // A number sent as a string never slips past the cap, nor does any other spelling of one.
+  for (const timeout of ['7200', '60', 7200, 3601, 0, -1, 1.5, Number.NaN, Infinity, true, [60], { seconds: 60 }]) {
+    assert.throws(() => wait.toArgv({ run: 'r1', timeout }), ToolInputError, `timeout ${JSON.stringify(timeout)}`)
+  }
+  assert.throws(() => wait.toArgv({ run: 'r1', timeout: '7200' }), /whole number of seconds from 1 to 3600/)
+  for (const timeout of [1, 600, 3600]) assert.deepEqual(wait.toArgv({ run: 'r1', timeout }), ['run', 'wait', 'r1', '--timeout', String(timeout)])
+  // No other tool takes a number: every other value is a string, a switch or a list of strings, and is held to that.
+  const numeric = tools.flatMap(one => Object.entries(one.inputSchema.properties).filter(([, schema]) => schema['type'] === 'number' || schema['type'] === 'integer').map(([key]) => `${one.name}.${key}`))
+  assert.deepEqual(numeric, ['run_wait.timeout'])
+  assert.throws(() => wait.toArgv({ run: 42 }), ToolInputError, 'a positional is a string')
+  assert.throws(() => tool('card_answer').toArgv({ team: 't', card: 3, outcome: 'approved' }), ToolInputError, 'a card is its number as a string')
+  assert.throws(() => tool('runs').toArgv({ all: 'yes' }), ToolInputError, 'a switch is a boolean')
+  assert.throws(() => tool('flow_start').toArgv({ flow: 'review', input: 'a=1' }), ToolInputError, 'a list is a list')
+  assert.throws(() => tool('flow_start').toArgv({ flow: 'review', input: [1] }), ToolInputError, 'a list holds strings')
+  assert.throws(() => tool('flow_start').toArgv({ flow: 'review', input: Array.from({ length: 33 }, (_, n) => `k${n}=v`) }), ToolInputError)
+  assert.throws(() => tool('library_list').toArgv({ kind: 'plugin' }), ToolInputError, 'an enum is held to its values')
+  assert.throws(() => tool('flow_start').toArgv({ flow: 'review', unattended: true }), /flow_start takes no unattended/)
+  assert.throws(() => tool('flow_start').toArgv({ flow: 'review', yes: false }), ToolInputError)
 })
 
 test('a value given by position cannot be read as a flag', () => {
