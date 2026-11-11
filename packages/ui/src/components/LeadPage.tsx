@@ -208,7 +208,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const replyArrived = !!firstReply && (!sending || lastUser?.id !== sendBaseline.current)
   const working = !state.error && requestPending && state.wayOut !== 'decide-plan' &&
     !replyArrived && <LeadMessage key={firstReply ? 'pending' : replyKey} role="assistant" name={label} lead={name} face
-      text="" working={<LeadWorking label={leadActivityLabel(state.activity?.method)} since={state.activity?.since} stopping={stopping} onStop={() => { if (goalActive) setConfirmStop(true); else void stop() }} />} />
+      text="" working={<LeadWorking label={state.activity?.step ?? leadActivityLabel(state.activity?.method)} since={state.activity?.since} stopping={stopping} onStop={() => { if (goalActive) setConfirmStop(true); else void stop() }} />} />
   const openingJobs = !state.error && state.thread && !state.thread.messages.length && !state.thread.olderMessages && !state.thread.cards.length ? leadOpeningJobs(snapshot, state.thread.project?.path ?? null, pr) : []
   const entries = [...(state.thread?.messages ?? []).map(message => ({ revision: message.revision, kind: 'message' as const, message })),
     ...cards.map(card => ({ revision: state.thread?.cardPositions?.[card.id] ?? card.revision, kind: 'card' as const, card })),

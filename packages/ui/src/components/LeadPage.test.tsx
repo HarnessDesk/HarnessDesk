@@ -946,3 +946,22 @@ it('a draft cleared after a refused send stays cleared when the page is left and
   await input(box.querySelector('textarea')!, 'What happened while I was away?')
   expect(box.querySelector('textarea')!.value).toBe('What happened while I was away?')
 })
+it('names the step the host publishes on the live line, not only Thinking, and never a method name (Q16)', async () => {
+  const base = leadProjection(), { box, request, update } = await mount(base)
+  request.mockImplementation(async method => method === 'lead/thread/send' ? new Promise<never>(() => {}) : base as never)
+  await input(box.querySelector('textarea')!, 'What is on this desk?')
+  await act(async () => button('Send').click())
+  const working = () => box.querySelector('[data-slot="lead-working"]')!
+  const thread = { ...base.thread, messages: [goalMessage] }
+  await update({ requestInFlight: true, thread, activity: { since: Date.now() - 4000, method: null, step: 'Thinking' } } as any)
+  expect(working().textContent).toContain('Thinking')
+  // Between two desk calls nothing is in flight; the host still names the step the Lead is on.
+  await update({ requestInFlight: true, thread, activity: { since: Date.now() - 5000, method: null, step: 'Reading your work' } } as any)
+  expect(working().textContent).toContain('Reading your work')
+  expect(working().textContent).not.toContain('Thinking')
+  await update({ requestInFlight: true, thread, activity: { since: Date.now() - 6000, method: 'lead/chat/start', step: 'Starting a chat' } } as any)
+  expect(working().textContent).toContain('Starting a chat')
+  expect(working().textContent).not.toContain('lead/chat/start')
+  await update({ requestInFlight: true, thread, activity: { since: Date.now() - 7000, method: null, step: 'Writing the reply' } } as any)
+  expect(working().textContent).toContain('Writing the reply')
+})
