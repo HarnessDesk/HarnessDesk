@@ -105,7 +105,9 @@ import { WindowControls } from './WindowControls'
 import {
   SeatList,
   ToolBody,
+  ToolBodyControls,
   ToolSection,
+  ToolProse,
   PanelFilter,
   type SeatListRow,
   type TopBarTab,
@@ -121,7 +123,6 @@ import {
   Menu,
   MenuItem,
   MenuToggle,
-  Note,
   PaneColumn, PaneTabsRow,
   PaneSurface,
   Popover,
@@ -1152,8 +1153,8 @@ export const TeamRoomPane = ({
     <ToolSection label="Seats" fold defaultOpen={seatRows.length > 0} value={seatRows.length} action={<Button variant="ghost" size="icon-sm" aria-label="Seat an Agent in this Team"
       disabled={record || !goal} title={record ? RECORD_REASON : !goal ? 'This compatibility room is read-only' : undefined}
       onClick={() => setAdding(true)}><PlusIcon /></Button>}>
-      {roster.length > 4 && <PanelFilter value={filter} onChange={setFilter} placeholder="Filter Seats" />}
-      {idleShared && <Note>None of these agents has used the board yet.</Note>}
+      {roster.length > 4 && <ToolBodyControls><PanelFilter value={filter} onChange={setFilter} placeholder="Filter Seats" /></ToolBodyControls>}
+      {idleShared && <ToolProse variant="note">None of these agents has used the board yet.</ToolProse>}
       {seatRows.length > 0 && filteredSeats.length === 0 && <EmptyState variant="inline" title={`No agent here matches “${filter.trim()}”.`} />}
       <SeatList rows={filteredSeats} />
     </ToolSection>

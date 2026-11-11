@@ -339,17 +339,26 @@ const ListRow = ({
  * rounded, selectable rows is the one list where dividers are wrong: the
  * selected row is a filled shape, and a rule cutting across the shape above
  * and below it makes the selection look like a rendering error.
+ *
+ * `surface="panel"` is a list inside a right-panel card (`ToolSection`): its
+ * rows stand on the card's row edge, the 12px its label, its facts and its
+ * prose keep. A default row already does; a `sm` row keeps the navigation
+ * column's 8px everywhere else, and in a card that left its words 4px short
+ * of the label above them.
  */
 const ListRows = ({
   className,
   size = 'default',
+  surface = 'default',
   ...props
-}: React.ComponentProps<'div'> & { size?: 'sm' | 'default' }) => (
+}: React.ComponentProps<'div'> & { size?: 'sm' | 'default'; surface?: 'default' | 'panel' }) => (
   <div
     data-slot="list-rows"
+    {...(surface === 'panel' ? { 'data-surface': 'panel' } : {})}
     className={cn(
       'flex flex-col',
       size === 'sm' ? 'gap-0.5' : 'divide-y divide-(--hd-card-divider,var(--hd-border))',
+      surface === 'panel' && '[&>[data-slot=list-row][data-size=sm]]:px-(--hd-inset-row)',
       className,
     )}
     {...props}

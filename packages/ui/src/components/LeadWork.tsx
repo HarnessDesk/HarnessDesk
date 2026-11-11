@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { LEAD_WORK_GROUPS, LEAD_WORK_GROUP_LABELS, runtimeId, sessionId, sessionKey, type LeadWorkBoard, type LeadWorkCard, type LeadWorkGroup, type LeadWorkOutcome } from '@harnessdesk/protocol'
-import { Chip, ListRow, ListRows, Menu, MenuItem, MenuNote, MenuSeparator, Popover, SectionHead, Text, ToolSection } from '../design'
+import { Chip, ListRow, ListRows, Menu, MenuItem, MenuNote, MenuSeparator, Popover, ToolGroup, ToolProse, ToolSection } from '../design'
 import { useStore } from '../state/context'
 import { openExternal } from '../lib/desktop'
 import { sanitizeText } from '../lib/sanitize'
@@ -54,16 +54,15 @@ export const LeadWork = () => {
     try { await store.lead.closeWork(card.id, outcome) } catch (failure) { setError(leadRefusalText(failure)) }
   }
   return <ToolSection label="Work" fold value={open || undefined}>
-    {groups.map(({ group, label, items }) => <section key={group} aria-label={label} data-work-group={group}>
-      <SectionHead level="label" name={`${label} · ${items.length}`} />
-      <ListRows>{items.map(card => <ListRow key={card.id} size="sm" data-work-item={card.id}
+    {groups.map(({ group, label, items }) => <ToolGroup key={group} label={label} heading={`${label} · ${items.length}`} data-work-group={group}>
+      <ListRows surface="panel">{items.map(card => <ListRow key={card.id} size="sm" data-work-item={card.id}
         title={<span title={card.fact ? sanitizeText(card.fact) : undefined}>{sanitizeText(card.title)}</span>} wrapTitle
         // A reason someone waits is a fact that varies, so it earns the line; everything else stays on hover.
         subtitle={group === 'needs-you' && card.blocker ? sanitizeText(card.blocker) : undefined} wrapSubtitle
         // A chat the person stopped is not finished: its state is a word on the label's line, not a second line.
         trail={<>{card.outcome === 'dropped' ? <Chip tone="neutral">Dropped</Chip> : card.stage === 'stopped' && <Chip tone="neutral">Stopped</Chip>}<WorkActions card={card} onClose={outcome => { void close(card, outcome) }} /></>} />)}</ListRows>
-    </section>)}
-    {board.more > 0 && <Text role="muted">{board.more} older closed {board.more === 1 ? 'item' : 'items'} not shown</Text>}
-    {error && <Text role="muted">{error}</Text>}
+    </ToolGroup>)}
+    {board.more > 0 && <ToolProse variant="note">{board.more} older closed {board.more === 1 ? 'item' : 'items'} not shown</ToolProse>}
+    {error && <ToolProse variant="note">{error}</ToolProse>}
   </ToolSection>
 }

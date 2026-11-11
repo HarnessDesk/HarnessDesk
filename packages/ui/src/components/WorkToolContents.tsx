@@ -32,7 +32,7 @@ const TeamChanges = ({ room }: { room: string }) => {
   return <ToolBody><ToolSection label="Changes">
     {!key ? <ToolProse>The Team branch and base are not recorded yet.</ToolProse>
       : shown?.problem ? <ToolProse>{shown.problem}</ToolProse>
-      : shown?.diff == null ? <Text role="meta">Reading the branch diff…</Text>
+      : shown?.diff == null ? <ToolProse variant="note">Reading the branch diff…</ToolProse>
       : <><SummaryList surface="panel"><SummaryItem label="Branch" kind="path">{sanitizeText(branch ?? '')}</SummaryItem>
           <SummaryItem label="From" kind="path">{sanitizeText(from ?? '')}</SummaryItem>
           <SummaryItem label="To" kind="path">{sanitizeText(to ?? '')}</SummaryItem></SummaryList>

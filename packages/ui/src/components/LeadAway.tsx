@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { LEAD_DIGEST_ITEM_LABELS, type LeadAskState, type LeadDigest } from '@harnessdesk/protocol'
-import { Banner, Button, ListRow, ListRows, SectionHead, Text, ToolSection } from '../design'
+import { Banner, Button, ListRow, ListRows, SectionHead, Text, ToolBodyControls, ToolSection } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { useStore } from '../state/context'
 import type { LeadState } from '../state/lead'
@@ -42,7 +42,7 @@ export const useLeadAsks = (asks: readonly LeadAskState[]): readonly LeadAskStat
 /** The rail's way back to the digest: what changed in the last day, on demand and for this window only. */
 export const LeadRecap = () => {
   const store = useStore()
-  return <ToolSection label="Recap"><Button variant="outline" onClick={() => { void store.lead.readAway({ active: true, recap: true }).catch(() => {}) }}>What happened?</Button></ToolSection>
+  return <ToolSection label="Recap"><ToolBodyControls><Button variant="outline" onClick={() => { void store.lead.readAway({ active: true, recap: true }).catch(() => {}) }}>What happened?</Button></ToolBodyControls></ToolSection>
 }
 
 /**

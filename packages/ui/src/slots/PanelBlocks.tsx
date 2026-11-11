@@ -12,6 +12,7 @@ import {
   PatchHeader,
   PopoverGroupLabel,
   Section,
+  SectionBody,
   Separator,
   Table,
   TableBody,
@@ -73,8 +74,11 @@ const useRunner = (): ((action: UiAction | undefined) => void) => {
 
 const FlatBlock = ({ children, ...props }: ComponentProps<typeof Card>) => {
   const inTool = useMount()?.area === 'right'
-  return inTool ? <div className="min-w-0">{children}</div> : <Card {...props}>{children}</Card>
+  return inTool ? <RowEdge>{children}</RowEdge> : <Card {...props}>{children}</Card>
 }
+
+/** In a rail card a block with no edge of its own stands on the card's row edge, as the card's rows do. */
+const RowEdge = ({ children }: { children: ReactNode }) => useMount()?.area === 'right' ? <SectionBody spacing="inline" className="min-w-0">{children}</SectionBody> : <>{children}</>
 
 const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => {
   const theme = useTheme()
@@ -241,7 +245,7 @@ export const Block = ({ block }: { block: UiBlock }) => {
       )
     case 'keyValue':
       return (
-        <KeyValue variant="panel" className={styles.keyValue}>
+        <KeyValue variant="panel" inset={inTool ? 'row' : undefined} className={styles.keyValue}>
           {block.entries.map((entry, index) => (
             <KeyValueRow key={index} variant="panel" label={entry.label}>{entry.value}</KeyValueRow>
           ))}
@@ -249,7 +253,7 @@ export const Block = ({ block }: { block: UiBlock }) => {
       )
     case 'list':
       return (
-        <ul className={styles.list}>
+        <RowEdge><ul className={styles.list}>
           {block.items.map((item, index) => (
             <li key={index} className={styles.listItem}>
               <TextMark>
@@ -267,28 +271,28 @@ export const Block = ({ block }: { block: UiBlock }) => {
               </Text>
             </li>
           ))}
-        </ul>
+        </ul></RowEdge>
       )
     case 'actions':
       return (
-        <div className={styles.actions}>
+        <RowEdge><div className={styles.actions}>
           {block.actions.map((action, index) => (
 <Button
               key={index}
               type="button"
-              variant="ghost" size="icon-sm"
+              variant="ghost" size="sm"
               onClick={() => run(action)}
             >
               {action.label}
             </Button>
           ))}
-        </div>
+        </div></RowEdge>
       )
     case 'code':
       return <CodeBlock block={block} />
     case 'document':
       return (
-        <div className={styles.document}>
+        <RowEdge><div className={styles.document}>
           {block.title && <Text as="div" role="row" className="mb-1">{block.title}</Text>}
           {block.sections.map((section, index) => (
             <div key={index}>
@@ -300,13 +304,13 @@ export const Block = ({ block }: { block: UiBlock }) => {
               />
             </div>
           ))}
-        </div>
+        </div></RowEdge>
       )
     case 'table':
       return (
         // Wide tables scroll inside the panel; the panel itself never grows a
         // horizontal scrollbar, because the sidebar it sits in cannot.
-        <Table variant="panel" density="compact" containerClassName={styles.tableScroll}>
+        <RowEdge><Table variant="panel" density="compact" containerClassName={styles.tableScroll}>
             {block.caption && <TableCaption variant="panel">{block.caption}</TableCaption>}
             <TableHeader>
               <TableRow variant="panel">
@@ -341,15 +345,15 @@ export const Block = ({ block }: { block: UiBlock }) => {
                 </TableRow>
               ))}
             </TableBody>
-        </Table>
+        </Table></RowEdge>
       )
     case 'tree':
       return (
-        <ul className={styles.tree}>
+        <RowEdge><ul className={styles.tree}>
           {block.nodes.map((node, index) => (
             <TreeNode key={index} node={node} />
           ))}
-        </ul>
+        </ul></RowEdge>
       )
     case 'diff':
       return (

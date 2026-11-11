@@ -2925,17 +2925,39 @@ The header is the card's label, a disclosure when it folds, and its `value`
 every card's state without opening one. A card's rows keep their own 12px
 edge, which is the card's side padding; the card adds the top and bottom.
 
+So everything in a card stands on that row edge through a part that knows
+it: rows (`Row`, `ListRows surface="panel"`, `SummaryList surface="panel"`,
+`Checklist surface="panel"`), a group's label (`ToolGroup`), a sentence or a
+note (`ToolProse`), buttons (`ToolBodyControls`). A bare `Button`, `Text` or
+`SectionHead` has no edge of its own and lands on the card's border;
+`e2e/ui-system/tool-section-inset.spec.ts` measures every card it reaches.
+
 ### `ToolFold`
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
 The rest of a card behind one quiet line: "All facts", "Show all".
 
+### `ToolGroup`
+
+`packages/ui/src/design/patterns/ToolBody.tsx`
+
+A group of a card's rows under its own label: "Needs you · 1", "Rules".
+The label stands on the card's row edge; the rows under it bring their own
+edge, so the group adds none. `label` names the region; `heading` is the
+visible label when it carries more than the name (a count).
+
 ### `ToolProse`
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
 Prose and a missing-fact note stand on the card's row edge; a note takes second-line type.
+
+### `ToolBodyControls`
+
+`packages/ui/src/design/patterns/ToolBody.tsx`
+
+A card's buttons, on the card's row edge: "What happened?", "Review update…". Never a bare `Button` in a card.
 
 ### `TopBarToolButton`
 

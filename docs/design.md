@@ -183,6 +183,7 @@ bottom hairline is additional to its content inset.
 | Activity lines above a composer | row · 12px | `--hd-inset-row` | Each filled line in `ComposerTail` owns all four sides, overriding the unframed live line's smaller rhythm. Faces are content too. |
 | Board column around its cards, inspector group band, tool-pane content aligned with its bar | dense · 8px | `--hd-inset-dense` | The filled inspector band keeps symmetric vertical air and the rows' 12px inline edge; a non-bleeding tool body shares its header's leading edge. |
 | Compact panel section | row · 12px | `--hd-inset-row` | The section owns all four sides. |
+| Right-panel card (`ToolSection`) content | row · 12px | `--hd-inset-row` | The card's body has no inline padding; every child brings the row edge its label stands on. Rows, panel facts and `ToolProse` already do; a group's label is a `ToolGroup`, a muted line `ToolProse variant="note"`, buttons and fields `ToolBodyControls`, small list rows `ListRows surface="panel"`. A bare `Button`, `Text` or `SectionHead` lands on the border (`tool-section-inset.spec.ts`). |
 | Modal question or sheet | dialog · 24px | `--hd-inset-dialog` | Header, body and footer; a bare primitive dialog owns the outer inset instead. A flush list body delegates to its rows. A subhead is a bar, keeping the same inline edge. |
 | Pane's reading column | reading · 24px | `PaneColumn inset="reading"` | The pane owns the gutter before the reading measure; scrollbar reservation is additional layout space. A floating composer's bottom reserve is clearance, not a surface inset. |
 | Bar and navigation rail | bar · 8px | `--hd-bar-pad`, `--hd-rail-inset` | The bar owns the control-box edge; `--hd-bar-ink` includes the control's own inset for labels. Native window controls may add clearance. |
@@ -235,7 +236,7 @@ by its line box, because a text Range includes unused font-em space outside it.
 
 ## Named text roles
 
-A head naming a band of a page’s body uses the 16px semibold `section` role; field groups, Settings forms, dialog groups and right-rail card labels stay small (`SectionHead level="label"`).
+A head naming a band of a page’s body uses the 16px semibold `section` role; field groups, Settings forms, dialog groups and right-rail card labels stay small (`SectionHead level="label"`; inside a rail card, `ToolGroup`, which puts that label on the card's row edge).
 
 A size and a weight together name a *role*. A role describes what the words
 are doing; screens do not invent a new spelling for the same job:
