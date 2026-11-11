@@ -11248,6 +11248,7 @@ export class Host {
       window: await this.#leadWindow().then(window => window.readThread()).catch(() => null),
       desk: await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
       kept: this.#currentNotices(), now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id),
+      ask: this.#leadPresence?.unansweredAsk() ?? null,
     })
   }
 

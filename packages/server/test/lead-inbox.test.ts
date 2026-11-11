@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { LEAD_UNSENT_WAITS, leadPersonNeeds, leadStage, type LeadDeskSummary, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { isWaitingOnYou, LEAD_UNSENT_WAITS, leadNeedsYou, leadPersonNeeds, leadStage, type LeadDeskSummary, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 import { leadInbox } from '../src/lead/inbox.js'
 
@@ -24,13 +24,20 @@ test('the bell and the phone list one inbox: the Lead waiting, the Team that nee
   assert.equal(inbox.items[0]!.detail, 'lead-request-interrupted', 'the Lead line carries the host slug, never model text')
 })
 
-test('an open question from the Lead is the Lead\'s line, under its own name, and an answered one is gone', () => {
-  const ask = { version: 1, id: 'm4', revision: 4, role: 'assistant', text: 'Which first?', ask: { question: 'Fix the Team or the game first?', options: [{ id: 'team', label: 'Team' }, { id: 'game', label: 'Game' }], recommended: 'team' } }
-  const open = leadInbox({ window: window({ stage: 'you-answer', settings: { name: 'lex' }, thread: { messages: [ask] } } as never), desk: null, kept: [], now: NOW })
-  assert.deepEqual(open.items.map(item => [item.id, item.title, item.target]), [['ask:m4', 'Fix the Team or the game first?', 'm4']])
-  const answered = leadInbox({ window: window({ stage: 'working', thread: { messages: [ask, { version: 1, id: 'm5', revision: 5, role: 'user', text: 'Team' }] } } as never), desk: null, kept: [], now: NOW })
-  assert.deepEqual(answered.items, [])
-  assert.equal(answered.needsYou, 0)
+test('an open question from the Lead is an inbox row of its own, whatever the Lead\'s stage, and leaves once it is not open', () => {
+  // #2105: an ask does not move the Lead into a waiting stage, so a row gated on the stage never showed it.
+  const open = { id: 'm4', question: 'Fix the Team or the game first?' }
+  const idle = leadInbox({ window: window({ stage: 'idle', settings: { name: 'lex' } } as never), desk: desk([team]), kept: [], now: NOW, ask: open })
+  assert.deepEqual(idle.items.map(item => [item.id, item.kind, item.title, item.target]), [['ask:m4', 'ask', 'Fix the Team or the game first?', 'm4'], ['team:goal-game', 'team', 'build a game', 'goal-game']])
+  assert.equal(idle.needsYou, 2, 'the question counts once, beside the Team')
+  // The desk says it is no longer open (answered, expired, replaced or talked past): the row is gone and the count drops.
+  const settled = leadInbox({ window: window({ stage: 'working' }), desk: desk([team]), kept: [], now: NOW, ask: null })
+  assert.deepEqual(settled.items.map(item => item.id), ['team:goal-game'])
+  assert.equal(settled.needsYou, 1)
+  // A Lead that also waits on the person keeps its own row: the question does not hide what else it waits on.
+  const both = leadInbox({ window: window({ stage: 'you-blocked', stageReason: 'lead-request-interrupted' }), desk: null, kept: [], now: NOW, ask: open })
+  assert.deepEqual(both.items.map(item => item.id), ['ask:m4', 'lead'])
+  assert.equal(both.needsYou, 2)
 })
 
 test('a notice about work already listed is not listed twice, and the count includes needs-you work past the list', () => {
@@ -56,8 +63,7 @@ test('the Lead\'s row counts each approval it waits on, by the rule its own word
 })
 
 test('an open question is dated by when the desk first saw it, not by the read', () => {
-  const ask = { version: 1, id: 'm4', revision: 4, role: 'assistant', text: 'Which first?', ask: { question: 'Which first?', options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] } }
-  const inbox = leadInbox({ window: window({ stage: 'you-answer', thread: { messages: [ask] } } as never), desk: null, kept: [], now: NOW, askSeenAt: id => id === 'm4' ? NOW - 600_000 : undefined })
+  const inbox = leadInbox({ window: window({ stage: 'idle' }), desk: null, kept: [], now: NOW, ask: { id: 'm4', question: 'Which first?' }, askSeenAt: id => id === 'm4' ? NOW - 600_000 : undefined })
   assert.equal(inbox.items[0]!.at, NOW - 600_000)
 })
 
@@ -88,3 +94,26 @@ test('a request the desk did not send is not a wait on the person: no Lead row a
     assert.equal(inbox.needsYou, 1, waitReason)
   }
 })
+
+test('with an open question the inbox and the Lead\'s word say one number: the inbox\'s Lead rows add up to leadNeedsYou', () => {
+  // #2105 review: the question's row counted one more than the rule the Lead's word used. One fixture, both numbers.
+  const open = { id: 'm4', question: 'Fix the Team or the game first?' }
+  const cases: [string, LeadWindowProjection][] = [
+    ['idle', window({ stage: 'idle' })],
+    ['waiting, nothing else counted', window({ stage: 'you-blocked' })],
+    ['waiting on three approvals', window({ stage: 'you-answer', personActions: [{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }] } as never)],
+    ['waiting on a plan', window({ stage: 'you-blocked', wayOut: 'decide-plan' } as never)],
+  ]
+  for (const [name, lead] of cases) {
+    const waiting = lead.stage !== undefined && isWaitingOnYou(lead.stage)
+    const inbox = leadInbox({ window: lead, desk: null, kept: [], now: NOW, ask: open })
+    const word = leadNeedsYou({ ...lead, openAsk: true }, waiting)
+    assert.equal(inbox.needsYou, word, name)
+    assert.equal(inbox.needsYou, inbox.items.reduce((sum, item) => sum + (item.needsYou ? item.count ?? 1 : 0), 0), `${name}: the rows add up`)
+    // Without the question each drops by exactly one, and the two still agree.
+    assert.equal(leadInbox({ window: lead, desk: null, kept: [], now: NOW, ask: null }).needsYou, leadNeedsYou(lead, waiting), `${name}, answered`)
+    assert.equal(word - leadNeedsYou(lead, waiting), 1, `${name}: the question is one`)
+  }
+  assert.equal(leadPersonNeeds({ openAsk: true }), 1, 'the shared rule counts the open question')
+})
+
