@@ -3,7 +3,7 @@ import type { LeadWakeRecord } from '@harnessdesk/protocol'
 import { Button, Row, Rows, Text } from '../design'
 import { leadDollars } from './LeadCards'
 
-const decision = { silent: 'stayed silent', spoke: 'spoke', asked: 'asked' }
+const decision = { silent: 'stayed silent', spoke: 'spoke', asked: 'asked', failed: 'request failed' }
 const source = { schedule: 'schedule', 'desk-change': 'desk change', person: 'person', trigger: 'trigger' }
 const relative = (at: number, now: number) => { const minutes = Math.max(0, Math.floor((now - at) / 60_000)); return minutes < 1 ? 'now' : minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago` }
 

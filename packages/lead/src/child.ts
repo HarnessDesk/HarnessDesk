@@ -161,7 +161,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
           onActivity: busy => { if (!closed) send({ type: 'activity', busy }) },
           onPresence: ({ wakes, readings }) => { if (!closed) send({ type: 'presence', presence: { ...wakes, readings } }) },
           clock: { now: Date.now, schedule: callback => { const timer = setTimeout(callback, 50); return () => clearTimeout(timer) } },
-          nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', [request.requestId, request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header
+          nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', request.withheld?.length ? [request.requestId, request.body, request.withheld] : [request.requestId, request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header
             countInput: async body => new TextEncoder().encode(body).length + 1024,
             wait: (ms, signal) => new Promise((resolve, reject) => {
               if (signal.aborted) { reject(denied()); return }
@@ -199,7 +199,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         if (!entry) throw denied()
         pending.delete(message.id as number); sync(message.state)
         if (message.ok) entry.resolve(message.value)
-        else entry.reject(['lead-card-too-large', 'lead-card-stale', 'lead-plan-unseatable', 'lead-plan-not-independent', 'lead-budget-admission'].includes(message.value as string)
+        else entry.reject(['lead-card-too-large', 'lead-card-stale', 'lead-plan-unseatable', 'lead-plan-not-independent', 'lead-budget-admission', 'lead-provider-refused', 'lead-provider-withheld'].includes(message.value as string)
           ? Object.assign(new Error(String(message.value)), { wireCode: message.value }) : denied())
         return
       }

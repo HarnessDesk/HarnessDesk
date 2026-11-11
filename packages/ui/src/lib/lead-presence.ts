@@ -1,4 +1,4 @@
-import { isWaitingOnYou, leadPersonNeeds } from '@harnessdesk/protocol'
+import { isWaitingOnYou, leadPersonNeeds, leadWaitUnsent } from '@harnessdesk/protocol'
 import type { LeadPresence as LeadChecks, LeadRunReading } from '@harnessdesk/protocol'
 import type { LeadState } from '../state/lead'
 import type { LeadMood } from './lead-faces'
@@ -38,6 +38,8 @@ const reading = (state: LeadState): Omit<LeadPresence, 'quiet'> & { readonly qui
   const waiting = state.stage === undefined ? needs > 0 || thread.state === 'waiting-for-user' || state.waitReason === 'lead-result-awaiting-person' : isWaitingOnYou(state.stage)
   if (waiting && (state.stage === 'you-review' || state.waitReason === 'lead-result-awaiting-person')) return { mood: 'done', word: 'Done · ready to accept', needs: 1, goalActive }
   if (waiting) return { mood: 'alert', word: needWord(Math.max(needs, 1)), needs: Math.max(needs, 1), goalActive }
+  // The desk refused the last request before sending it: not a wait on the person, and not work going on either.
+  if (leadWaitUnsent(state.waitReason)) return { mood: 'alert', word: 'Not sent', needs: 0, goalActive }
   if (thread.state === 'stopped') return { mood: 'sleeping', word: 'Paused', needs: 0, goalActive: false }
   if (thread.state === 'accepted') return { mood: 'done', word: 'Done', needs: 0, goalActive: false }
   if (thread.state === 'following') return { mood: 'neutral', word: 'Following', needs: 0, goalActive }
@@ -55,8 +57,8 @@ export const withDeskNeeds = (presence: LeadPresence, needs: number | null | und
   if (needs === null || needs === undefined || needs <= 0 || needs < presence.needs) return presence
   if (presence.mood === 'sleeping' && presence.word !== 'Paused') return presence
   if (needs === presence.needs && presence.word === 'Done · ready to accept') return presence
-  // A paused Lead stays paused: the desk's count goes beside the word, and the face stays asleep.
-  if (presence.word === 'Paused') return { ...presence, word: `Paused · ${needWord(needs)}`, needs, quiet: false }
+  // A paused Lead stays paused, and a request the desk did not send still says so: the desk's count goes beside the word.
+  if (presence.word === 'Paused' || presence.word === 'Not sent') return { ...presence, word: `${presence.word} · ${needWord(needs)}`, needs, quiet: false }
   return { ...presence, mood: presence.needs > 0 || presence.mood === 'done' ? 'alert' : presence.mood, word: needWord(needs), needs, quiet: false }
 }
 

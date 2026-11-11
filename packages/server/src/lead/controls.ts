@@ -1,5 +1,5 @@
 import { leadThreadStage } from './projection.js'
-import { boundLeadApprovalHistory, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
+import { boundLeadApprovalHistory, leadDisplayName, leadRequestFailure, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
 import {
   parseLeadApprovalRevoke, parseLeadMessage, parseLeadAsk, parseLeadProactiveOutput, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
@@ -211,7 +211,8 @@ export class LeadControls {
     else this.#replySince ??= this.options.now()
     const activity = requestInFlight ? { since: this.#replySince!, method: this.options.readActiveTool?.() ?? null } : null
     const { stage, reason: stageReason } = leadThreadStage(state, thread, personActions, waitReason as LeadWindowProjection['waitReason'], requestInFlight, this.options.readChatEffectQueued?.() ?? false)
-    const result = parseLeadWindowProjection({ stage, stageReason, version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
+    const failure = leadRequestFailure(waitReason, leadDisplayName(settings.name))
+    const result = parseLeadWindowProjection({ stage, stageReason, version: 1, revision: state.seq, thread, settings, wayOut, waitReason, ...(failure && { failure }),
       planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight, ...(activity && { activity }), personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result

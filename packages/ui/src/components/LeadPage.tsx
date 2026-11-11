@@ -1,7 +1,7 @@
 import { leadActivityLabel } from './lead-permission-labels'
 import { PullRequestRecord } from './GitRecord'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { leadWaitNeedsChange, type LeadMemoryCandidate, type LeadMessageRef, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_REQUEST_FAILURE_TEXT, leadWaitNeedsChange, leadWaitUnsent, type LeadMemoryCandidate, type LeadMessageRef, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, InlineParts, LeadSlot, LeadWorking, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, LeadGreeting, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
 import { openExternal } from '../lib/desktop'
 import { leadWakeLine } from '../lib/lead-presence'
@@ -31,6 +31,7 @@ import { LeadMemoryProposals, leadMemoryPlacement } from './LeadMemory'
 import { LeadRefs } from './LeadRefs'
 
 const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
+  ...LEAD_REQUEST_FAILURE_TEXT,
   'lead-predecessor-unavailable': "The previous step's result wasn't accepted, so the next step can't start. Message {label} to change the plan, or stop this goal.",
   'lead-predecessor-unverifiable': "HarnessDesk can't confirm what the previous step produced, so the next step won't start. Message {label} to change the plan, or stop this goal.",
   'lead-renewal-blocked': 'The plan could not be renewed because the pending request limit was reached.',
@@ -62,14 +63,8 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-worker-audit-failed': 'A worker approval may have run. Inspect its changes and revoke the uncertain saved rule before resuming. Restart first if saving failed.',
   'lead-budget-unknown': "HarnessDesk can't confirm what the workers have spent, so {label} won't make another request. Sending a message tries again.",
   'lead-run-not-started': 'The plan is approved, but no work has started. Sending a message also continues.',
-  'lead-request-failed': 'The request was interrupted. Sending a message also continues.',
-  'lead-request-uncertain': 'The request was interrupted. Sending a message also continues.',
   'lead-send-deadline': 'The request timed out. Sending a message also continues.',
   'lead-child-exited': '{label} stopped unexpectedly. Sending a message also continues.',
-  'lead-request-rate-limited': 'The provider asked {label} to wait.',
-  'lead-request-max-tokens': 'The request reached its response limit.',
-  'lead-request-refused': '{label} could not send its request, so nothing was spent. Sending a message tries again.',
-  'lead-request-invalid-response': 'The provider returned an unreadable response.',
   'lead-request-cancelled': 'The request was cancelled.',
 }
 // Why a goal ended, when no stopped card says it already. A person's own Stop needs no reason.
@@ -120,7 +115,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
   const terminalWait = state.waitReason === 'lead-predecessor-unavailable' || state.waitReason === 'lead-predecessor-unverifiable'
   const auditWait = state.waitReason === 'lead-worker-audit-failed' && !state.savedApprovals?.some(rule => rule.uncertain)
-    ? 'A worker approval may have run. Resume after reviewing the changes. Restart first if saving failed.' : state.waitReason ? WAITS[state.waitReason].replaceAll('{label}', label) : undefined
+    ? 'A worker approval may have run. Resume after reviewing the changes. Restart first if saving failed.' : WAITS[state.waitReason!]?.replace(/\{label\}/g, label)
   const setupWait = leadWaitNeedsChange(state.waitReason) || state.waitReason === 'lead-worker-audit-failed' && state.wayOut !== 'resume'
   const canStop = !!state.thread && !['stopped', 'accepted', 'declined'].includes(state.thread.state) &&
     (!!state.thread.contract || !!state.thread.pr || state.requestInFlight || terminalWait)
@@ -303,7 +298,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
       <ConversationComposerFrame before={<ComposerNoticeStack>
           {unavailable && <Banner>{REFUSALS['lead-runtime-unsupported']}{state.settings?.unavailableReason ? <Text as="span" role="muted">{` ${state.settings.unavailableReason.charAt(0).toUpperCase()}${state.settings.unavailableReason.slice(1)}.`}</Text> : null}</Banner>}
           <LeadAway active={active} state={state} label={label} />
-          {goalActive && <LeadSlot slot="lead-run-strip"><Banner mark={<LeadAvatar name={name} size="turn" />} actions={stopAction}>{phase === 'following' ? `Following #${pr?.number ?? ''}` : repairActive ? `Repairing ${handback.kind === 'checks' ? 'checks' : 'review comments'} · round ${handback.round}` : phase === 'running' ? `${label} is running 1 goal` : phase === 'awaiting-plan' ? 'A plan is waiting for you' : phase === 'waiting-for-user' ? `${label} is waiting for you` : `${label} is planning`}{state.progress?.since !== undefined ? ` · ${leadElapsed(now - state.progress.since)}` : ''}{phase === 'running' && leadWakeLine(state.presence) ? <Text as="span" role="muted">{` · ${leadWakeLine(state.presence)}`}</Text> : null}</Banner></LeadSlot>}
+          {goalActive && <LeadSlot slot="lead-run-strip"><Banner mark={<LeadAvatar name={name} size="turn" />} actions={stopAction}>{phase === 'following' ? `Following #${pr?.number ?? ''}` : repairActive ? `Repairing ${handback.kind === 'checks' ? 'checks' : 'review comments'} · round ${handback.round}` : phase === 'running' ? `${label} is running 1 goal` : phase === 'awaiting-plan' ? 'A plan is waiting for you' : phase === 'waiting-for-user' ? leadWaitUnsent(state.waitReason) ? `${label}'s last request was not sent` : `${label} is waiting for you` : `${label} is planning`}{state.progress?.since !== undefined ? ` · ${leadElapsed(now - state.progress.since)}` : ''}{phase === 'running' && leadWakeLine(state.presence) ? <Text as="span" role="muted">{` · ${leadWakeLine(state.presence)}`}</Text> : null}</Banner></LeadSlot>}
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
           {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replaceAll('{label}', label)}</Banner>}
           {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason].replaceAll('{label}', label)}</Banner>}

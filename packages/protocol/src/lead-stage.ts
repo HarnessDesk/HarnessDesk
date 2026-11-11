@@ -34,7 +34,9 @@ export const LEAD_WAIT_STAGES = {
   'lead-request-failed': 'you-blocked', 'lead-request-max-tokens': 'you-blocked', 'lead-request-invalid-response': 'you-blocked', 'lead-request-cancelled': 'you-blocked', 'lead-request-uncertain': 'you-blocked',
   'lead-worker-audit-failed': 'you-blocked', 'lead-chat-effect-uncertain': 'you-blocked', 'lead-run-not-started': 'you-blocked', 'lead-budget-unknown': 'you-blocked',
   'lead-plan-unseatable': 'you-blocked', 'lead-plan-not-independent': 'you-blocked',
-} as const satisfies Record<typeof LEAD_MANAGEMENT_REASONS[number], 'you-answer' | 'you-blocked'>
+  // The desk did not send the request: nothing waits on the person's answer, and the person is told why instead.
+  'lead-request-unsent': 'idle', 'lead-request-unsent-again': 'idle', 'lead-request-withheld': 'idle', 'lead-request-held': 'idle', 'lead-request-held-again': 'idle',
+} as const satisfies Record<typeof LEAD_MANAGEMENT_REASONS[number], 'you-answer' | 'you-blocked' | 'idle'>
 
 type Row = { readonly kind: LeadStageFacts['kind']; readonly when: (facts: LeadStageFacts) => boolean; readonly stage: LeadStage; readonly reason: string }
 export const LEAD_STAGE_TABLE: readonly Row[] = [

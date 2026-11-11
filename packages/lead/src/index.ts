@@ -33,6 +33,7 @@ export { leadInstructions, leadContinuation, leadApprovedPlan, leadPlanMoment, l
 export type { LeadSeatChoices, LeadInstructionFacts, LeadContinuationFacts } from './instructions.js'
 
 export { leadDataContainsCredential } from './journal-security.js'
+export { leadContainsSecret, leadMessagesContainSecret, leadWithholdCredentials, leadWithholdCredentialsReport, LEAD_WITHHELD_TEXT, type LeadWithheldPiece } from './credential-screen.js'
 export { leadWorkCards } from './work.js'
 export { LEAD_CONTEXT, LEAD_CONTEXT_WINDOWS, LEAD_DESK_STUB_PREFIX, leadContextWindow, leadContextBytes, leadEstimatedTokens, leadContextPressure, leadNextSoftShare,
   leadDeskStub, leadContextMarkOf, leadStubVolatile, leadContextRecord, leadWithoutReasoning, leadPruneContext, leadContextBoundary, leadContextSplit, leadCloseOpenLoop, leadPairedTurns, leadMergedTurns, leadAppendUser, leadWithPlan, LEAD_EPOCH_ADDENDA, leadEpochAddendum, leadClip } from './context.js'

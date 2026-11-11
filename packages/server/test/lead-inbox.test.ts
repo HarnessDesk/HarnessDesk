@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { leadPersonNeeds, type LeadDeskSummary, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_UNSENT_WAITS, leadPersonNeeds, leadStage, type LeadDeskSummary, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 import { leadInbox } from '../src/lead/inbox.js'
 
@@ -76,4 +76,15 @@ test('every title and body is scrubbed on the desk, the work titles and the Lead
   const text = JSON.stringify(inbox)
   assert.ok(!text.includes('/Users/'), text)
   assert.ok(!text.includes('jane@example.com'), text)
+})
+
+test('a request the desk did not send is not a wait on the person: no Lead row and nothing counted, while work that needs the person still is', () => {
+  for (const waitReason of LEAD_UNSENT_WAITS) {
+    // The stage as the host derives it, from a thread left waiting for the person's next message.
+    const { stage, reason } = leadStage({ kind: 'lead', state: 'waiting-for-user', pendingPersonCard: null, resultReady: false, workerApproval: false, checkToRun: false, waitReason, requestInFlight: false, chatEffectQueued: false })
+    assert.equal(stage, 'idle', waitReason)
+    const inbox = leadInbox({ window: window({ stage, stageReason: reason, waitReason, failure: { reason: waitReason, detail: 'not sent' }, thread: { state: 'waiting-for-user', messages: [] } } as never), desk: desk([team]), kept: [], now: NOW })
+    assert.deepEqual(inbox.items.map(item => item.kind), ['team'], waitReason)
+    assert.equal(inbox.needsYou, 1, waitReason)
+  }
 })

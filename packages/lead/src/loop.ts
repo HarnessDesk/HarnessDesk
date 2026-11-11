@@ -199,6 +199,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let hostOverflow = false
   /** A desk wake the provider refused as too long, compacted and owed once more. */
   let wakeOverflow = false
+  // How the last request ended when the desk refused it before sending: the same refusal twice in a row says so and
+  // points the person at the desk log. Any other outcome starts over.
+  let notSentLast: string | null = null
   /** Sums a step's requests (a person-owed retry is a second one) for the wake ledger. */
   const addUsage = (a: MessagesUsage | undefined, b: MessagesUsage | undefined): MessagesUsage | undefined => !a ? b : !b ? a : {
     inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens,
@@ -455,13 +458,18 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     }
     if (overflowWake) wakeOverflow = false
     else if (input.epoch !== undefined) hostOverflow = false
+    const again = result.reason !== undefined && notSentLast === result.reason
+    notSentLast = result.reason === 'lead-messages-unsent' || result.reason === 'lead-messages-held' ? result.reason : null
     if (!['completed'].includes(result.status)) {
       if (result.reason === 'lead-messages-capacity') {
         await waitForUser('lead-request-failed')
         return result
       }
       await writeOffUncertain()
-      await waitForUser(`lead-request-${result.status}`)
+      // Not sent at all: settled at zero, and the person is told why rather than to send it again as it was.
+      await waitForUser(result.reason === 'lead-messages-withheld' ? 'lead-request-withheld'
+        : result.reason === 'lead-messages-held' ? again ? 'lead-request-held-again' : 'lead-request-held'
+        : result.reason === 'lead-messages-unsent' ? again ? 'lead-request-unsent-again' : 'lead-request-unsent' : `lead-request-${result.status}`)
       return result
     }
     try { await tools.settleStarts() }
@@ -538,7 +546,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const asked = said.some(message => !!message.proactive || !!message.ask || /\?/.test(message.text)) || state.cards.some(card => (state.cardPositions[card.id] ?? 0) > before.seq)
       const known = !!result?.usage && !state.budget?.requests.some(request => request.uncertain)
       const used = result ? stepUsage as MessagesUsage | undefined : undefined
-      await journal.recordWake({ ...wake, modelTurn: !!result && !['refused', 'cancelled'].includes(result.status), decision: asked ? 'asked' : said.length ? 'spoke' : 'silent',
+      // A wake whose request did not complete failed; it did not choose silence. One the desk never sent had no model turn.
+      const failed = !!result && !['completed', 'cancelled'].includes(result.status)
+      const unsent = result?.reason === 'lead-messages-unsent' || result?.reason === 'lead-messages-withheld' || result?.reason === 'lead-messages-held'
+      await journal.recordWake({ ...wake, modelTurn: !!result && !unsent && !['refused', 'cancelled'].includes(result.status), decision: asked ? 'asked' : said.length ? 'spoke' : failed ? 'failed' : 'silent',
         usdMicros: known ? Math.max(0, (state.budget?.leadUsdMicros ?? 0) - (before.budget?.leadUsdMicros ?? 0)) : null,
         ...(used ? { tokens: { input: used.inputTokens, output: used.outputTokens, cacheRead: used.cacheReadTokens, cacheWrite: used.cacheWriteTokens } } : {}) })
     }

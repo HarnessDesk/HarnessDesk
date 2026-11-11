@@ -54,7 +54,7 @@ export const parseLeadIpc = (value: unknown): LeadIpcMessage => {
   if ('id' in object) ipcId(object.id)
   if (type === 'activity' && typeof object.busy !== 'boolean') fail()
   if (type === 'rpc') {
-    if (!LEAD_RPC_OPERATIONS.includes(object.operation as LeadRpcOperation) || !Array.isArray(object.args) || object.args.length > (object.operation === 'appendReply' ? 4 : 2)) fail()
+    if (!LEAD_RPC_OPERATIONS.includes(object.operation as LeadRpcOperation) || !Array.isArray(object.args) || object.args.length > (object.operation === 'appendReply' ? 4 : object.operation === 'provider-send' ? 3 : 2)) fail()
   }
   if (['reply', 'dispatch-result', 'read-result'].includes(type) && typeof object.ok !== 'boolean') fail()
   if (type === 'dispatch') { ipcId(object.rpcId); ipcText(object.correlationId, 256) }

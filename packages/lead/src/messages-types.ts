@@ -57,6 +57,8 @@ export interface MessagesHttpRequest {
   readonly body: string
   readonly maxResponseBytes: number
   readonly signal: AbortSignal
+  /** Counts of what the child withheld from this body, on its first send only; never content. */
+  readonly withheld?: readonly import('./credential-screen.js').LeadWithheldPiece[]
 }
 export interface MessagesHttpResponse {
   readonly status: number

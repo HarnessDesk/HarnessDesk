@@ -575,6 +575,36 @@ test('header masking preserves prose after one optional scheme and credential to
   }
 })
 
+test('the journal masks a credential value in any script, and keeps a value that is only a placeholder', async () => {
+  // A value without an ASCII letter or digit is still a value: only a whole placeholder is exempt.
+  for (const [text, expected] of [
+    ['password=пароль', 'password=[redacted]'], ['password=密码密码', 'password=[redacted]'], ['password=!@#$%^&*()', 'password=[redacted]'],
+    ['x-api-key: €€€€', 'x-api-key: [redacted]'], ['secret=////', 'secret=[redacted]'], ['password=***abc', 'password=[redacted]'],
+    ['authorization: … keys}', 'authorization: … keys}'], ['password=***', 'password=***'], ['token=... then', 'token=... then'],
+    ['Authorization: Bearer [redacted]', 'Authorization: Bearer [redacted]'], ['secret=<redacted>', 'secret=<redacted>'], ['password=•••', 'password=•••'],
+  ] as const) {
+    const journal = await open(memory(), { digestContract: () => 'b'.repeat(64) })
+    await journal.setPolicy(policy)
+    const offered = await journal.offerCard({ ...plan, contract: { ...contract, goal: `Fix ${text}` } })
+    assert.equal(offered.contract.goal, `Fix ${expected}`, text)
+  }
+})
+
+test('the journal masks a value glued to a placeholder, and keeps placeholders in every encoding', async () => {
+  const masked = [
+    ['password=..."abc', 'password=[redacted]'], ['password=***\\"hunter2', 'password=[redacted]'], ['password=…"hunter2', 'password=[redacted]'],
+    ['Authorization: Bearer …\\realtoken', 'Authorization: [redacted]'], ['password=…Abc', 'password=[redacted]'], ['password=[redacted]"x', 'password=[redacted]'],
+  ] as const
+  const kept = ['  authorization: … keys}', 'authorization: …', 'password=***', 'token=...']
+    .flatMap(text => [text, JSON.stringify([text]), JSON.stringify(JSON.stringify({ output: [text, 'next'] }))])
+  for (const [text, expected] of [...masked, ...kept.map(text => [text, text] as const)]) {
+    const journal = await open(memory(), { digestContract: () => 'b'.repeat(64) })
+    await journal.setPolicy(policy)
+    const offered = await journal.offerCard({ ...plan, contract: { ...contract, goal: `Fix ${text}` } })
+    assert.equal(offered.contract.goal, `Fix ${expected}`, text)
+  }
+})
+
 test('loading validates historical prose without running current write masks', async () => {
   const history = [
     { version: 1, seq: 1, type: 'policy', policy },

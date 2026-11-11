@@ -4294,6 +4294,8 @@ export class Host {
         const warned = { ...settings, onWarning: (code: string) => this.#logger.warn('Lead reply was not shown whole', { code }) }
         return serviceOptions.createSupervisor ? serviceOptions.createSupervisor(warned) : new LeadSupervisor(warned)
       },
+      onRequestRefused: refusal => this.#logger.warn('Lead request refused before sending', { ...refusal }),
+      onRequestWithheld: report => this.#logger.warn('Lead request sent with parts withheld', { ...report }),
       onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
       // A `Remember:` line in a reply is read as the same proposal memory_propose makes: scanned, then to the inbox.
       onRemember: lines => {
