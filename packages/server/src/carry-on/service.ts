@@ -121,8 +121,8 @@ export interface CarryOnPorts {
    */
   readonly footprint: (runtime: string, sessionId: string) => string | null
   /**
-   * On the host's path, never counted as the person's message. A `packet` is the desk's own context and goes as
-   * such; `continue` is the one plain line that asks the agent to go on.
+   * On the host's path, never counted as the person's message. Both kinds go as the desk's own context: a `packet`
+   * is already enveloped, and `continue` is the one line that asks the agent to go on, wrapped by the host.
    */
   readonly send: (runtime: string, sessionId: string, text: string, kind: 'continue' | 'packet', stillOurs: () => boolean,
     /** Called once the host has admitted the send at its effect boundary, right before it leaves. */
@@ -155,7 +155,7 @@ interface Opened {
   readonly footprint: string | null
 }
 
-const PERSON_FIRST = 'The person’s message went first.'
+const PERSON_FIRST = 'You sent a message first.'
 
 /** How a turn ended, as far as carry-on cares. */
 export interface EndedTurn {
@@ -475,7 +475,7 @@ export class CarryOnService {
         catch { this.ports.problem?.('The carry-on rule could not be saved.') }
       }
       this.#cancelTimer(carryOnKey(record.runtime, record.sessionId))
-      const action: CarryOnAction = decision.choice === 'stop' ? { kind: 'stop', phase: 'stopped', note: 'stopped at the person’s answer' }
+      const action: CarryOnAction = decision.choice === 'stop' ? { kind: 'stop', phase: 'stopped', note: 'stopped at your answer' }
         : decide(this.#input(record, decision.choice, record.alwaysScope, otherAgents, decision.target), this.#now())
       // An answer settles an uncertain send: from here the incident is an ordinary one again.
       const { uncertain: _uncertain, ...answered } = record

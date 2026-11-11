@@ -252,6 +252,7 @@ import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
 import { CarryOnService } from './carry-on/service.js'
 import { carryOnPacket } from './carry-on/handoff.js'
+import { CONTINUE_SOURCE } from './carry-on/decide.js'
 import {
   bindingLane as usageBindingLane,
   carryOnFor,
@@ -6026,17 +6027,17 @@ export class Host {
         // The lease, the turns it holds and what runs: a reattach, another open, a turn or a queued send all change it.
         return `${this.#carryOnLease(at.runtime, at.sessionId, record.live)}:${record.session.turns.length}:${record.running.size}:${this.#queueBusy(record) ? 1 : 0}`
       },
-      // A packet is the host's own words: it goes in as desk context, so the transcript never
-        // shows it as something the person typed.
+      // A packet and the continue are the host's own words: both go in as desk context, so the transcript never
+        // shows them as something the person typed. The packet is already enveloped; the continue is wrapped here.
         // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
         // last await: a person who writes while the host is resolving the handle wins there too.
         send: async (runtime, sessionId, text, kind, stillOurs, admitted) => {
           const admission = Object.assign(async () => {}, {
-            assertDispatch: () => { if (!stillOurs()) throw new Error('The person’s message went first.') },
+            assertDispatch: () => { if (!stillOurs()) throw new Error('You sent a message first.') },
             // Past the boundary: carry-on's marker goes in now, never for a send the person overtook.
             ...(admitted ? { dispatchStarted: admitted } : {}),
           })
-          await sendTurn(this.#context, { ...key(runtime, sessionId), input: [kind === 'packet' ? deskContextContent(text) : { type: 'text', text }] }, admission)
+          await sendTurn(this.#context, { ...key(runtime, sessionId), input: [deskContextContent(kind === 'packet' ? text : wrapContext(CONTINUE_SOURCE, text))] }, admission)
         },
       create: async (runtime, from, model) => {
         const source = key(from.runtime, from.sessionId)

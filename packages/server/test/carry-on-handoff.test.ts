@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import { deskContextContent, HANDOFF_PREFIX, itemId, splitContext, wrapContext, type AgentItem, type Turn } from '@harnessdesk/protocol'
 
-import { CONTINUE_TEXT } from '../src/carry-on/decide.js'
+import { CONTINUE_SOURCE, CONTINUE_TEXT } from '../src/carry-on/decide.js'
 
 import { carryOnPacket } from '../src/carry-on/handoff.js'
 import { MOVE_TEXT_CHARS } from '../src/lead/chats.js'
@@ -67,6 +67,14 @@ test('carrying on a conversation that was itself handed off keeps the original r
   assert.match(body, /The request:\n> Fix the failing build on main\./)
   assert.match(body, /Originally handed off from Codex — “Fix the build”/)
   assert.doesNotMatch(body, /The last message, whose turn did not finish:\n> Continue from where you stopped/, 'the host’s own words are not the person’s')
+})
+
+test('the host’s continue, sent as desk context, is not the person’s last message either', () => {
+  const continued = { id: itemId(`u${next++}`), type: 'userMessage', content: [deskContextContent(wrapContext(CONTINUE_SOURCE, CONTINUE_TEXT))] } as AgentItem
+  const body = splitContext(carryOnPacket([turn(user('Fix the failing build on main.'), agent('Looking.')), turn(continued)], META)).injections[0]!.text
+  assert.match(body, /The request:\n> Fix the failing build on main\./)
+  assert.doesNotMatch(body, /Continue from where you stopped/, 'the host’s own words are not the person’s')
+  assert.doesNotMatch(body, /Originally handed off/, 'and its label is not a hand-off’s lineage')
 })
 
 test('carrying on a conversation the person handed off by hand keeps that hand-off’s goal, not its “take it from here”', () => {
