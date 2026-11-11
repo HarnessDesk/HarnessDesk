@@ -5654,7 +5654,11 @@ export class Host {
   async #reopenSeatOn(seat: SeatRecord, cwd: string, target: SeatReplacement, level: CeilingLevel): Promise<SeatRecord> {
     const from = { runtime: runtimeId(seat.session.runtime), sessionId: makeSessionId(seat.session.sessionId) }
     // What an Agent's attachments were approved for is one runtime's load set: it does not carry to another account.
-    if (this.registry.attachmentSeatOf(from.runtime, from.sessionId) !== null) throw new Error('Its attachments do not carry over to another account.')
+    // Read from the declarations the Seat actually froze, never from the record every Agent Seat writes: one that
+    // declared nothing moves on the same thread. A filter lost, or an Agent that declares (or cannot be read), refuses.
+    if (await this.#attachments.filters(seat.id) || await this.#attachments.lostFilter(seat.id) || (await this.#agentDeclaresAttachments(seat)) !== false) {
+      throw new Error('Its attachments do not carry over to another account.')
+    }
     await this.call('session/close', from).catch(() => undefined)
     await this.call('session/resume', { runtime: runtimeId(target.runtime), sessionId: from.sessionId, ...(target.model ? { options: { model: target.model } } : {}) })
     const held = await this.#holdSeat(target.runtime, seat.session.sessionId, level)
