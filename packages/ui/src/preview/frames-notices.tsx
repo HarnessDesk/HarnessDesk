@@ -7,6 +7,7 @@ import { StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { Notices } from '../components/Notices'
 import { NotificationsSection } from '../components/SettingsYou'
+import { CarryOnSection } from '../components/SettingsCarryOn'
 import { PaneColumn, Toaster } from '../design'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
@@ -22,7 +23,8 @@ const compacted: AgentEvent = { type: 'notice', level: 'info', sessionId: 's1', 
 export const NoticesFrame = () => {
   useTheme()
   const scene = new URLSearchParams(window.location.search).get('notices') ?? 'startup'
-  const conversationScene = scene.startsWith('conversation-')
+  const carryOnScene = scene.startsWith('carry-on')
+  const conversationScene = scene.startsWith('conversation-') || carryOnScene
   const store = useMemo(() => {
     const own = new AppStore('ws://localhost:0/')
     const base = fixture.getSnapshot()
@@ -68,6 +70,20 @@ export const NoticesFrame = () => {
     void store.loadPreferences().then(() => {
       const workbench = { ...emptyWorkbench(), main: { root: { kind: 'pane' as const, id: 'notice-conversation', view: { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY } }, focused: 'notice-conversation', expanded: null } }
       Object.assign(store.getSnapshot(), { workbench, layout: workbench.main, activeSessionKey: PREVIEW_SESSION_KEY })
+      if (carryOnScene && scene !== 'carry-on-settings') {
+        // A conversation that reached its limit and asks; placeholder accounts only.
+        const reset = scene === 'carry-on-noreset' ? {} : { resetsAt: Date.now() + 2 * 3_600_000 }
+        handlers.onNotification({ method: 'carryOn/changed', params: { key: { runtime: 'codex', sessionId: 's1' }, incident: {
+          incidentId: 'preview-carry-on', runtime: 'codex', sessionId: 's1', owner: 'chat', state: 'asked', cause: 'credits',
+          from: { name: 'Alpha', account: 'work' }, ...reset, openedAt: Date.now(),
+          choices: { target: { runtime: 'codex-2', name: 'Alpha', account: 'personal', mode: 'sameThread', tier: 0 }, wait: scene !== 'carry-on-noreset' },
+          others: [
+            { runtime: 'claude', name: 'Beta', mode: 'handoff', tier: 2, state: 'nearlyOut' },
+            { runtime: 'cursor', name: 'Gamma', mode: 'handoff', tier: 1, state: 'signedOut' },
+          ],
+          alwaysScope: scene === 'carry-on-noreset' ? 'agent' : 'desk',
+        } } })
+      }
       if (!conversationScene) {
         handlers.onEvent('codex', config)
         handlers.onEvent('codex', config)
@@ -82,7 +98,8 @@ export const NoticesFrame = () => {
   return <StoreProvider store={store}>
     <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
       <div data-frame-id={`notices-${scene}`} className="h-screen bg-background">
-        {scene === 'settings' ? <div className="min-h-full overflow-y-auto"><PaneColumn inset="reading"><NotificationsSection /></PaneColumn></div> : <TopBarProvider><ShellHostsProvider><Workbench sidebar={<Sidebar onOpenSettings={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>}
+        {scene === 'settings' ? <div className="min-h-full overflow-y-auto"><PaneColumn inset="reading"><NotificationsSection /></PaneColumn></div>
+          : scene === 'carry-on-settings' ? <div className="min-h-full overflow-y-auto"><PaneColumn inset="reading"><CarryOnSection /></PaneColumn></div> : <TopBarProvider><ShellHostsProvider><Workbench sidebar={<Sidebar onOpenSettings={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>}
         <Notices />
         <Toaster />
       </div>

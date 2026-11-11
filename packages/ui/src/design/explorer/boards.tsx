@@ -33,6 +33,7 @@ import {
   QrCode,
   ComposerNoticeStack,
   ComposerTail,
+  DecisionNotice,
   InboxPanel,
   InboxList,
   NoticeCard,
@@ -934,6 +935,31 @@ const LegacyNoticeHosts = () => {
             <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
             <ComposerNotice message={{ id: 'plain', title: 'Reconnecting to the host…' }} />
           </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="decision: three answers, the recommended one first, and the box that makes it the rule">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNoticeStack>
+            <DecisionNotice
+              message="Alpha · work reached its usage limit."
+              detail="Resets at 4:30 PM"
+              choices={[{ id: 'switch', label: 'Switch to Alpha · personal', primary: true }, { id: 'wait', label: 'Wait until reset' }, { id: 'stop', label: 'Stop' }]}
+              always={{ label: 'Always do this' }}
+              alternatives={{ label: 'Other account…', items: [{ id: 'beta', name: 'Beta', chip: 'Nearly out' }, { id: 'gateway', name: 'Alpha · gateway', chip: 'API key' }], onPick: () => {} }}
+              onChoose={() => {}}
+            />
+          </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="decision: an answer that cannot be taken says why on hover; the fact is the detail">
+        <div style={{ width: 'calc(var(--hd-space-16) * 5)' }}>
+          <DecisionNotice
+            message="Alpha reached its usage limit."
+            detail="No reset time known"
+            choices={[{ id: 'switch', label: 'Continue in Beta', primary: true }, { id: 'wait', label: 'Wait until reset', disabled: true, hint: 'No reset time' }, { id: 'stop', label: 'Stop' }]}
+            always={{ label: 'Always do this for Alpha' }}
+            onChoose={() => {}}
+          />
         </div>
       </Case>
       <Case label="composer tail: the live line and a state notice are one strip">

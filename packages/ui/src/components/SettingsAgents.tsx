@@ -56,7 +56,7 @@ import { useFirstNote } from '@harnessdesk/protocol'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
 import { Card as UsageCard } from './usage/shared'
-import { firstInPool, inPoolOrder, isPaced, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, whenOutOf, type WhenOut } from '../lib/account-pool'
+import { firstInPool, inPoolOrder, isPaced, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, type WhenOut } from '../lib/account-pool'
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { copyReason, describeCopy, describeFallback, installSummary, standingChip, pinHolds } from '../lib/installs'
 import { useSnapshot, useStore } from '../state/context'
@@ -359,6 +359,9 @@ export const PlanSection = ({
     />
   )
 }
+
+/** The select's value for an agent that sets no rule of its own and follows the desk's. */
+const FOLLOW_DESK = 'desk'
 
 /** The account's own colour, as five circles wearing the agent's mark. */
 const RingPicker = ({
@@ -981,8 +984,11 @@ const AgentAccounts = ({
         )}
       </Rows>
 
-      {/* The queue's rule, beside the queue. Only new sessions move: a
-          conversation's thread lives in the account it started on. */}
+      {/* The queue's rule, beside the queue. "When an account runs out" is
+          this agent's answer to the desk's usage-limit rule (Settings ›
+          Approvals) and reaches a running conversation too; its first option
+          follows the desk. The order is the one sentence true of the whole
+          group, so it is said once, under it, rather than on a row. */}
       {ordered && (
         <Rows>
           <Row
@@ -1000,19 +1006,20 @@ const AgentAccounts = ({
           />
           <Row
             title="When an account runs out"
-            desc="New sessions follow the order above. A conversation already running stays on its account."
             control={
               <NativeSelect
                 aria-label="When an account runs out"
-                value={whenOutOf(pool)}
-                onChange={(event) => store.setAccountPool(agent, { whenOut: event.target.value as WhenOut })}
+                value={pool?.whenOut ?? FOLLOW_DESK}
+                onChange={(event) => store.setAccountPool(agent, { whenOut: event.target.value === FOLLOW_DESK ? undefined : event.target.value as WhenOut })}
               >
+                <option value={FOLLOW_DESK}>Follow the desk setting</option>
                 {WHEN_OUT.map((rule) => <option key={rule} value={rule}>{WHEN_OUT_LABEL[rule]}</option>)}
               </NativeSelect>
             }
           />
         </Rows>
       )}
+      {ordered && <Note ink="muted">New sessions follow the order above.</Note>}
 
       {destinationActive && namingAccount && <AccountNameDialog info={info} adding={adding}
         onAdd={addAccount} onClose={() => setNamingAccount(false)} />}

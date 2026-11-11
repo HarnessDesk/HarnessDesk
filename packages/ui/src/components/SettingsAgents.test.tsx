@@ -1590,12 +1590,19 @@ it('an agent with two accounts keeps them in an order, with a rule for running o
   expect(setAccountPool).toHaveBeenCalledWith('alpha', { order: ['alpha', 'alpha#2'] })
 
   const rule = container.querySelector<HTMLSelectElement>('select[aria-label="When an account runs out"]')!
-  expect(rule.value).toBe('ask')
+  // An agent with no rule of its own follows the desk's (Settings › Approvals).
+  expect(rule.value).toBe('desk')
+  expect([...rule.options].map((option) => option.textContent)).toEqual(['Follow the desk setting', 'Use the next account', 'Ask me', 'Wait until it resets', 'Stop'])
   await act(async () => {
     rule.value = 'next'
     rule.dispatchEvent(new Event('change', { bubbles: true }))
   })
   expect(setAccountPool).toHaveBeenLastCalledWith('alpha', { whenOut: 'next' })
+  await act(async () => {
+    rule.value = 'desk'
+    rule.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(setAccountPool).toHaveBeenLastCalledWith('alpha', { whenOut: undefined })
 })
 
 it('prefers the account that resets soonest, hides the hand moves, and says which to use first', async () => {

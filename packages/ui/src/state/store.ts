@@ -21,6 +21,13 @@ import { transcriptFingerprint, transcriptSessionFingerprint } from './transcrip
 import { teamsInput } from '../lib/teams-snapshot'
 import { roomFoldersGone } from '../lib/room-folders'
 import {
+  CARRY_ON_PREFERENCE,
+  carryOnPolicyOf,
+  whenOutForChoice,
+  type CarryOnDecision,
+  type CarryOnIncidentView,
+  type CarryOnKey,
+  type CarryOnPolicy,
   DEFAULT_QUESTION_WAIT,
   QUESTION_WAIT_PREFERENCE,
   questionWaitOf,
@@ -171,6 +178,7 @@ import {
 import { staleDefaults, type StaleDefault } from '../lib/composer-slots'
 import { accountKey, accountName, agentKeyOf, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
 import { canTakeTurn, inPoolOrder, nextInPool, readAccountPools, runtimeOut, whenOutOf, type AccountPool } from '../lib/account-pool'
+import { carryOnInboxTitle } from '../lib/carry-on'
 import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
@@ -585,6 +593,105 @@ export class AppStore {
 
   async setQuestionWait(value: QuestionWait): Promise<boolean> {
     return this.#writePreference({ [QUESTION_WAIT_PREFERENCE]: value }, 'How long a question waits when nobody is here')
+  }
+
+  /**
+   * The desk's carry-on rule, read again from the host: an "Always do this"
+   * answered in another window writes it there, and this window hears no
+   * push for a preference, so Settings asks when it is shown.
+   */
+  async loadCarryOnPolicy(): Promise<CarryOnPolicy> {
+    try {
+      const carryOnPolicy = carryOnPolicyOf(await this.transport.request('app/state/get', {}))
+      this.#patch({ carryOnPolicy })
+      return carryOnPolicy
+    } catch {
+      return this.#snapshot.carryOnPolicy
+    }
+  }
+
+  /** Writes the whole rule, as the validator takes it; a write that did not land puts the old one back. */
+  async setCarryOnPolicy(carryOnPolicy: CarryOnPolicy): Promise<boolean> {
+    const before = this.#snapshot.carryOnPolicy
+    this.#patch({ carryOnPolicy })
+    const kept = await this.#writePreference({ [CARRY_ON_PREFERENCE]: carryOnPolicy }, 'What happens when a usage limit is reached')
+    if (!kept && this.#snapshot.carryOnPolicy === carryOnPolicy) this.#patch({ carryOnPolicy: before })
+    if (kept) this.#followPool(this.#snapshot.usage)
+    return kept
+  }
+
+  /**
+   * Every live carry-on incident, whole. Asked on each connect, so a card a
+   * reload or a dropped link took away comes back. A host that cannot answer
+   * yet leaves what this window holds: an empty list would say nothing is
+   * stuck, which it does not know.
+   */
+  async loadCarryOn(): Promise<void> {
+    try {
+      const answer = await this.transport.request('carryOn/list', {})
+      if (!answer || !Array.isArray(answer.incidents)) return
+      this.#patch({ carryOnIncidents: new Map(answer.incidents.map(incident => [sessionKey(incident.runtime, incident.sessionId), incident])) })
+    } catch {
+      // Carry-on is the host's; a host without it has nothing live to show.
+    }
+  }
+
+  /**
+   * The person's answer to an asked incident. The answer the host gives back
+   * replaces the card at once rather than waiting for the push; "Always do
+   * this" is written by the host, and mirrored here, at the level the
+   * incident named, so Settings and the next write from this window agree
+   * with it. A refusal (a stale target, a host without the service) is
+   * thrown for the card to say beside its buttons.
+   */
+  async decideCarryOn(decision: CarryOnDecision): Promise<CarryOnIncidentView> {
+    const before = [...this.#snapshot.carryOnIncidents.values()].find(entry => entry.incidentId === decision.incidentId)
+    const { incident } = await this.transport.request('carryOn/decide', decision)
+    this.#carryOnChanged(incident, { runtime: incident.runtime, sessionId: incident.sessionId })
+    if (decision.always) {
+      const scope = before?.alwaysScope ?? incident.alwaysScope
+      if (scope === 'desk') this.#patch({ carryOnPolicy: { ...this.#snapshot.carryOnPolicy, onLimit: decision.choice } })
+      else {
+        const agent = agentKeyOf(incident.runtime, this.#snapshot.runtimes)
+        this.#patch({ accountPools: { ...this.#snapshot.accountPools, [agent]: { ...this.#snapshot.accountPools[agent], whenOut: whenOutForChoice(decision.choice) } } })
+      }
+    }
+    return incident
+  }
+
+  /**
+   * One incident's new state, from the push or from an answer. The card
+   * reads the map; the inbox keeps one copy of each state worth reading
+   * later — of an ordinary chat only, since a seat's question is its Team's
+   * notice and a Lead chat's is the Lead's inbox.
+   */
+  #carryOnChanged(incident: CarryOnIncidentView | null, key: CarryOnKey): void {
+    const at = sessionKey(key.runtime, key.sessionId)
+    const previous = this.#snapshot.carryOnIncidents.get(at)
+    const carryOnIncidents = new Map(this.#snapshot.carryOnIncidents)
+    if (incident) carryOnIncidents.set(at, incident)
+    else carryOnIncidents.delete(at)
+    this.#patch({ carryOnIncidents })
+    // An answered question is no longer waiting on anybody.
+    if (previous?.state === 'asked' && incident?.state !== 'asked') {
+      const asked = `carry-on:${previous.incidentId}:asked`
+      if (this.#snapshot.inbox.some(entry => entry.id === asked && !entry.read)) this.markInboxRead(asked)
+    }
+    if (!incident || incident.owner !== 'chat' || previous?.state === incident.state) return
+    const title = carryOnInboxTitle(incident)
+    const id = `carry-on:${incident.incidentId}:${incident.state}`
+    if (!title || surfaceFor(this.#snapshot.noticePolicy, 'usage:carry-on') === null) return
+    // Kept once: keeping again would mark a read copy unread.
+    if (this.#snapshot.inbox.some(entry => entry.id === id)) return
+    this.keep({
+      id,
+      kind: 'usage:carry-on',
+      tone: incident.state === 'asked' || incident.state === 'stopped' ? 'warning' : 'info',
+      title,
+      ...(incident.note ? { body: incident.note } : {}),
+      at: Date.now(),
+      from: { runtime: incident.runtime, sessionId: incident.sessionId, name: incident.from.name },
+    })
   }
 
   /** Whether this desk lets local clients answer on the person's behalf. */
@@ -1746,6 +1853,7 @@ export class AppStore {
         if (notification.method === 'usage/scanProgress') {
           this.#patch({ scan: notification.params.progress })
         }
+        if (notification.method === 'carryOn/changed') this.#carryOnChanged(notification.params.incident, notification.params.key)
         if (notification.method === 'session/worktreeKept') this.resultNotice('info', notification.params.message)
         if (notification.method === 'person/notice') {
           this.#personNotice(notification.params.notice)
@@ -1867,6 +1975,7 @@ export class AppStore {
             void this.transport.request('app/state/get', {}).then(preferences => this.#applyChatsPreferences(preferences, generation)).catch(() => {})
           }
           if (previous !== 'open') void this.loadCaptureHealth().catch(() => {})
+          if (previous !== 'open') void this.loadCarryOn()
           if (previous === 'reconnecting' && this.#harnessDeskAccountRequested) void this.loadHarnessDeskAccount()
         }
       },
@@ -8499,6 +8608,7 @@ export class AppStore {
       this.#patch({
         accountPrefs,
         accountPools: readAccountPools(preferences['accountPools']),
+        carryOnPolicy: carryOnPolicyOf(preferences),
         hideAccountAddresses: preferences['hideAccountAddresses'] === true,
         profile,
         customPresets: readCustomPresets(preferences['customPresets']),
@@ -9247,7 +9357,7 @@ export class AppStore {
     const runtimes = this.#snapshot.runtimes
     const agent = agentKeyOf(active, runtimes)
     const pool = this.#snapshot.accountPools[agent]
-    if (whenOutOf(pool) !== 'next') return
+    if (whenOutOf(pool, this.#snapshot.carryOnPolicy) !== 'next') return
     const siblings = inPoolOrder(runtimes.filter((entry) => agentKeyOf(entry.id, runtimes) === agent), pool, { reports, now: Date.now() })
     const usable = (runtime: RuntimeId): boolean => {
       const entry = siblings.find((sibling) => sibling.id === runtime)

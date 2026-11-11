@@ -1201,6 +1201,7 @@ export const RowButton = ({
 export const RowChoice = ({
   title,
   desc,
+  tooltip,
   truncateDesc = false,
   selected,
   tabStop,
@@ -1209,6 +1210,8 @@ export const RowChoice = ({
 }: {
   title: ReactNode
   desc?: ReactNode
+  /** The paraphrase a row does not earn on screen, on hover: the same string as `title` (rule 9). */
+  tooltip?: string
   /** The description is a name or a path, which gives way at its end on one line. A sentence never does: by default it wraps and arrives whole. */
   truncateDesc?: boolean
   selected: boolean
@@ -1229,6 +1232,7 @@ export const RowChoice = ({
     aria-checked={selected}
     tabIndex={selected || tabStop ? 0 : -1}
     disabled={disabled}
+    title={tooltip}
     className={cx(styles.row, styles.rowButton, styles.rowChoice)}
     onClick={onClick}
     onKeyDown={stepRadio}
