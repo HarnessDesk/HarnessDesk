@@ -288,7 +288,7 @@ export const FrameWall = () => {
     if (silentName && (destination === 'dashboard' || destination === 'settings-runtimes')) {
       const silent = new Set(snapshot.runtimes.filter(info => info.presentation.name === silentName).map(info => info.id))
       const heard = <T extends { readonly runtime: string }>(reports: readonly T[]) => reports.filter(report => !silent.has(report.runtime as never))
-      Object.assign(snapshot, { usage: heard(snapshot.usage), usageAsked: true })
+      Object.assign(snapshot, { usage: heard(snapshot.usage), usageAsked: snapshot.runtimes.map((entry) => entry.id) })
       const request = next.transport.request.bind(next.transport)
       next.transport.request = (async (method: string, params: unknown) => {
         const result = await request(method as never, params as never)

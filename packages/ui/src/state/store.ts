@@ -637,7 +637,7 @@ export class AppStore {
   }
 
   // A window that has not had a usage answer yet says so, so no agent is called Not reporting before it was asked.
-  #snapshot: AppSnapshot = { ...emptySnapshot(), usageAsked: false }
+  #snapshot: AppSnapshot = { ...emptySnapshot(), usageAsked: [] }
   #accountOwners = new Map<RuntimeId, number>()
   #teamFrameSerial = 0
   /**
@@ -1602,6 +1602,9 @@ export class AppStore {
           this.#historyRemovedRuntimes.delete(info.id)
           if (!this.#snapshot.runtimes.some((entry) => entry.id === info.id)) {
             this.#patch({ runtimes: [...this.#snapshot.runtimes, info] })
+            // Its usage is read now, so it gets its reading or its Not reporting card without waiting for a refresh;
+            // until that read is back it is not in `usageAsked`, and nothing calls it silent (#2111 review round 4).
+            if (!(this.#snapshot.usageAsked ?? []).includes(info.id)) void this.loadUsage()
           }
           void this.loadAccounts()
           // A runtime just added may be exactly what an Agent's `prefer` names.
@@ -3152,13 +3155,16 @@ export class AppStore {
    */
   async loadUsage(): Promise<void> {
     const events = new Map(this.#usageEvents)
+    const asking = this.#snapshot.runtimes.map((entry) => entry.id)
     try {
       const reports = await this.transport.request('usage/reports', {})
       const unchanged = (runtime: RuntimeId): boolean => this.#usageEvents.get(runtime) === events.get(runtime)
-      this.#patch({ usageAsked: true, usage: [
+      this.#patch({ usageAsked: this.#askedAlso(asking, reports), usage: [
         ...this.#snapshot.usage.filter((report) => !unchanged(report.runtime)),
         ...reports.filter((report) => unchanged(report.runtime)),
       ] })
+      // A reading that arrives here, and not as a push, can retire a notice as well as one a refresh brings.
+      this.#retireSupersededUsage(this.#snapshot.usage)
       // A host with a fresh reading cached answers here and sends no update,
       // so a spent account found at connect is the pool's to move too.
       this.#followPool(this.#snapshot.usage)
@@ -3196,6 +3202,25 @@ export class AppStore {
    * an already-spent account is silent. Being *out* is a condition rather than
    * an event and belongs to the banner, not here.
    */
+  /**
+   * `usageAsked` with the agents one answered read covered added: the host answers only once every agent's read has
+   * settled, so each agent the window knew when it asked was asked, and so was each agent the answer names.
+   */
+  #askedAlso(asking: readonly RuntimeId[], reports: readonly UsageReport[]): readonly RuntimeId[] {
+    const asked = new Set(this.#snapshot.usageAsked ?? [])
+    for (const id of [...asking, ...reports.map((report) => report.runtime)]) asked.add(id)
+    return [...asked]
+  }
+
+  /* A notice whose figures a newer read no longer bears out leaves: a window back under its line, or one in a cycle
+     the notice did not see, said something that is no longer so (#2111). The host's phone and Lead projection drop
+     the same notices by the same rule, so this only keeps the saved inbox from carrying them. */
+  #retireSupersededUsage(after: readonly UsageReport[]): void {
+    const names = new Map(this.#snapshot.runtimes.map((entry) => [entry.id, entry.presentation.name] as const))
+    const superseded = supersededUsageNotices(this.#snapshot.inbox, after, Date.now(), names)
+    if (superseded.size > 0) this.#setInbox(this.#snapshot.inbox.filter(entry => !superseded.has(entry.id)))
+  }
+
   #announceUsage(before: readonly UsageReport[], after: readonly UsageReport[]): void {
     const nameFor = (runtime: RuntimeId, account: string | null): string =>
       toastName(
@@ -3207,12 +3232,8 @@ export class AppStore {
         this.#snapshot.hideAccountAddresses,
       )
     const now = Date.now()
-    /* A notice whose figures a newer read no longer bears out leaves first: a window back under its line, or one in
-       a cycle the notice did not see, said something that is no longer so (#2111). The host's phone and Lead
-       projection drop the same notices by the same rule, so this only keeps the saved inbox from carrying them. */
-    const names = new Map(this.#snapshot.runtimes.map((entry) => [entry.id, entry.presentation.name] as const))
-    const superseded = supersededUsageNotices(this.#snapshot.inbox, after, now, names)
-    if (superseded.size > 0) this.#setInbox(this.#snapshot.inbox.filter(entry => !superseded.has(entry.id)))
+    // A notice a newer read no longer bears out leaves before any new crossing is said.
+    this.#retireSupersededUsage(after)
     for (const alert of crossings(before, after, nameFor, this.#snapshot.runtimes, now)) {
       this.#keepInfo({ type: 'notice', class: 'info', kind: USAGE_CROSSING_KIND, level: 'warning', message: alert.message, contentKey: alert.contentKey })
     }
@@ -3221,6 +3242,7 @@ export class AppStore {
   /** Asks the sources again — one agent, or all of them. */
   async refreshUsage(runtime?: RuntimeId): Promise<void> {
     const events = new Map(this.#usageEvents)
+    const asking = runtime ? [runtime] : this.#snapshot.runtimes.map((entry) => entry.id)
     try {
       const reply = await this.transport.request(
         'usage/refresh',
@@ -3239,9 +3261,9 @@ export class AppStore {
       const before = this.#snapshot.usage
       const kept = before.filter((entry) => !touched.has(keyOf(entry)))
       const usage = [...kept, ...reports]
-      // A refresh of every agent is every agent asked, as a first read is: without it, a start whose first
+      // The agents this refresh covered are asked, as a first read's are: without it, a start whose first
       // `usage/reports` failed would hide each silent agent's card for as long as the window is open.
-      this.#patch(runtime ? { usage } : { usage, usageAsked: true })
+      this.#patch({ usage, usageAsked: this.#askedAlso(asking, reply) })
       this.#announceUsage(before, usage)
       this.#followPool(usage)
     } catch {

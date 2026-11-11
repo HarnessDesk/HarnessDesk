@@ -46,7 +46,7 @@ import {
   registrySentence,
 } from '../lib/acp-registry'
 import { describeLimits, formatReset } from '../lib/limits'
-import { formatResetCountdown, pacingNote } from '../lib/usage'
+import { formatResetCountdown, pacingNote, usageAskedOf } from '../lib/usage'
 import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
 import { shortPath } from '../lib/paths'
@@ -2024,7 +2024,7 @@ const AgentUsage = ({ siblings }: { siblings: readonly RuntimeInfo[] }) => {
   const now = Date.now()
   // The Dashboard's own list, narrowed to this runtime's accounts: the same accounts, the same readings, and "not
   // reporting" for one nothing has read. An account whose usage the person stopped tracking is left out on both.
-  const reports = trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now, () => snapshot.usageAsked !== false).filter((report) => ids.has(report.runtime))
+  const reports = trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now, usageAskedOf(snapshot.usageAsked)).filter((report) => ids.has(report.runtime))
   if (reports.length === 0) return null
   return (
     <>

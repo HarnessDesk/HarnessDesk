@@ -5,7 +5,7 @@ import type { MainPageInput } from '../app/main-page-entries'
 import type { InsightReport, LedgerReport, RuntimeId, UsageReport } from '@harnessdesk/protocol'
 import { trackedUsage } from '@harnessdesk/protocol'
 
-import { byUrgency, costClause, runway } from '../lib/usage'
+import { byUrgency, costClause, runway, usageAskedOf } from '../lib/usage'
 import { dashboardReadLabel } from '../lib/dashboard-read'
 import { useSnapshot, useStore } from '../state/context'
 import { Page, PageOptions, PageExplanation } from '../design'
@@ -190,7 +190,7 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
 
   // Every registered agent gets a card, whether or not it reported anything.
   const everyReport = useMemo(
-    () => byUrgency([...trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now, () => snapshot.usageAsked !== false)], now),
+    () => byUrgency([...trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now, usageAskedOf(snapshot.usageAsked))], now),
     [snapshot.runtimes, snapshot.usage, snapshot.usageOff, snapshot.usageAsked, now],
   )
 

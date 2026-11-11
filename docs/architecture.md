@@ -1075,8 +1075,9 @@ allowance is about to be lost (`use-first`), and the Dashboard's What is left li
 sentence (`pacingNote`). Every usage surface lists the accounts `trackedUsage`
 (`packages/protocol/src/usage-projection.ts`) gives: each reading of an agent on the desk the person tracks (not in
 `usageOff`), and one stand-in per tracked agent the desk has asked and nothing has read (`isSilentUsage`, the
-`notReporting` flag on `UsageReport`; the host's `UsageService.asked` and the window's `usageAsked` keep a fresh start
-from calling every agent silent), which every surface words Not
+`notReporting` flag on `UsageReport`; the host's `UsageService.asked` and the window's per-agent `usageAsked` keep a
+fresh start, or an agent added since the last read, from being called silent: the window counts an agent asked once a
+`usage/reports` or `usage/refresh` covering it has answered, since the host answers only after every read settled), which every surface words Not
 reporting, while a reading whose standing is `unknown` stays Unknown, and the phone and the Lead mark `notReporting` with no figures and no read time. The Dashboard and Settings ›
 Runtimes apply it to the window's readings, and the host to its cached ones for `lead/usage/summary` and the phone's
 usage (`#trackedUsage` in `host.ts`), so all four list the same accounts. `pacing.said` is the sentence the Lead

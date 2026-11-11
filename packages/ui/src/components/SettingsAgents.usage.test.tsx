@@ -247,7 +247,17 @@ describe('the Runtimes page lists the accounts the Dashboard lists', () => {
   })
 
   it('calls no agent not reporting before the host has answered a usage read (#2111 review)', async () => {
-    await mount([], null, { usageAsked: false })
+    await mount([], null, { usageAsked: [] })
     expect(container.textContent?.toLowerCase()).not.toContain('not reporting')
+  })
+
+  it("waits for this agent's own read, not any read, before calling it not reporting (#2111 review round 4)", async () => {
+    // Another agent's read finished; this one was added since and has not been read yet.
+    await mount([], null, { usageAsked: [runtimeId('codex')] })
+    expect(container.textContent?.toLowerCase()).not.toContain('not reporting')
+    act(() => root.unmount())
+    root = createRoot(container)
+    await mount([], null, { usageAsked: [CLAUDE] })
+    expect(container.textContent).toContain('Not reporting')
   })
 })
