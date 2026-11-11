@@ -42,7 +42,7 @@ test('no tool offers a flag the server decides, or one that would raise a ceilin
     }
     assert.match(tool.description, /\n\nReturns: [\s\S]+\n\nTier: (read|run|answer)\./)
   }
-  assert.match(tools.find(tool => tool.name === 'flow_start')!.description, /Settings › Local clients/)
+  assert.match(tools.find(tool => tool.name === 'flow_start')!.description, /Settings › Permissions › MCP clients/)
   assert.equal(tools.find(tool => tool.name === 'run_wait')!.inputSchema.properties['timeout']!['maximum'], MCP_RUN_WAIT_MAX)
   assert.deepEqual(tools.find(tool => tool.name === 'flow_start')!.inputSchema.properties['briefFile']!['not'], { const: '-' })
 })

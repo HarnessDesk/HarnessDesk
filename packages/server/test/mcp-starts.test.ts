@@ -36,7 +36,7 @@ test('starting work from MCP is off until the person turns it on, and the defaul
   assert.equal(view.day, '2026-11-11')
   const refused = await starts.admit()
   assert.deepEqual(refused.ok ? null : refused.code, 'mcpStartsOff')
-  assert.match(refused.ok ? '' : refused.detail, /Settings › Local clients/)
+  assert.match(refused.ok ? '' : refused.detail, /Settings › Permissions › MCP clients/)
   assert.equal((await starts.view()).started, 0, 'a refusal counts nothing')
 })
 

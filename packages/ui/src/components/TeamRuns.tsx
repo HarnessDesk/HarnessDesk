@@ -3,7 +3,7 @@ import type { FindingRunView, FlowExecution, TriggerGoalStatus, TriggerPreferenc
 import { ActionError, Button, Chip, EmptyState, Menu, MenuLabel, MenuToggle, SummaryItem, SummaryList, PanelFilter, PanelFooter, PaneColumn, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
 import { elapsedSince } from '../lib/clock'
 import { formatMeterUsd, originSubject, triggerGroupingWords } from '../lib/intake'
-import { sanitizeHtml } from '../lib/sanitize'
+import { sanitizeHtml, sanitizeText } from '../lib/sanitize'
 import { formatAge } from '../lib/usage'
 import type { FindingsListState } from '../lib/findings'
 import { usePane, useSnapshot, useStore } from '../state/context'
@@ -198,7 +198,11 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
           <TableCell className="max-w-0"><div className="min-w-0">
             <Button variant="row" size="content-min" bordered={false} hoverFill={false} stretched className="block min-w-0 max-w-full"
               aria-label={`Open Run ${runs.findIndex(one => one.id === run.id) + 1}: ${title(run)}`} onClick={() => onOpen(run.id)}>
-              <Text role="subject" as="span" className="block" truncate title={title(run)}>{title(run)}</Text>
+              <Text role="subject" as="span" className="block" truncate title={title(run)}>
+                {/* Who started it is a state that fits in a word: a chip at the head of the title's own line, kept whole as the title gives way. */}
+                {run.startedBy?.via === 'mcp' && <><Chip tone="neutral" title={`Started by ${sanitizeText(run.startedBy.client)} through an MCP client`}>MCP</Chip>{' '}</>}
+                {title(run)}
+              </Text>
             </Button>
             <Text role="meta" as="div" className="whitespace-normal [overflow-wrap:anywhere]">{detail(run)}</Text>
             <Text role="meta" as="div" className="@[740px]/runs:hidden whitespace-normal">

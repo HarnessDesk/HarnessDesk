@@ -89,7 +89,7 @@ export class McpStarts {
   admit(now = this.#clock.now()): Promise<McpAdmission> {
     return this.#transact<McpAdmission>(state => {
       if (!state.mayStart && !this.#environment()) {
-        return { next: null, value: { ok: false, code: 'mcpStartsOff', detail: 'Starting work from MCP clients is off. Turn on "Let MCP clients start work" in Settings › Local clients.' } }
+        return { next: null, value: { ok: false, code: 'mcpStartsOff', detail: 'Starting work from MCP clients is off. Turn on "Let MCP clients start work" in Settings › Permissions › MCP clients.' } }
       }
       if (state.started >= state.dailyStarts) {
         return { next: null, value: { ok: false, code: 'mcpDailyCap', detail: `Today's ${state.dailyStarts} starts from MCP clients are used. They reset at midnight.` } }

@@ -7,6 +7,7 @@ import { WorkViewControlsOutlet, TopBarOutlet, TopBarProvider } from '../panels/
 import { runFixture } from '../preview/run-view-fixture'
 import { triggerPreferences } from '../preview/intake-fixture'
 import { TeamRuns, type useTeamTrigger } from './TeamRuns'
+import { sanitizeText } from '../lib/sanitize'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -127,4 +128,19 @@ it('releases visible reads when hidden and never registers hidden Runs actions',
   expect(visibility).toHaveBeenCalledWith('first-run', false)
   expect(container.querySelector('[data-slot="page-options"] button[title="View"]')).toBeNull()
   expect(container.querySelector('[data-topbar="more"] button')).toBeNull()
+})
+
+it('marks a run an MCP client started with a chip on its title line, and only that run', async () => {
+  const mcp = { ...execution, id: 'mcp-run', state: 'running' as const, startedBy: { via: 'mcp' as const, client: 'example-client@1.0.0\u001b[31m' } }
+  const cli = { ...execution, id: 'cli-run', state: 'running' as const, startedBy: { via: 'cli' as const, client: 'harnessdesk@0.1.0' } }
+  act(() => root.render(<StoreProvider store={store}><TopBarProvider>
+    <PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: execution.goal }, sessionKey: null }}>
+      <TeamRuns runs={[mcp, cli, runs[1]!]} findings={new Map()} ledger={undefined} origin={null} trigger={trigger()} problem={null}
+        onOpen={() => {}} onEdit={edit} onRunVisibility={visibility} active />
+    </PaneProvider>
+  </TopBarProvider></StoreProvider>))
+  await act(async () => {})
+  const chips = [...container.querySelectorAll('tr[data-run]')].map(row => [row.getAttribute('data-run'), [...row.querySelectorAll('[data-slot="chip"]')].filter(chip => chip.textContent === 'MCP').map(chip => chip.closest('[title^="Started by"]')?.getAttribute('title') ?? chip.getAttribute('title'))])
+  expect(Object.fromEntries(chips)).toEqual({ 'mcp-run': [`Started by ${sanitizeText(mcp.startedBy.client)} through an MCP client`], 'cli-run': [], 'second-run': [] })
+  expect(JSON.stringify(chips)).not.toContain('\\u001b')
 })

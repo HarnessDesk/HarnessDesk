@@ -5,8 +5,11 @@ import type { AppSnapshot } from '../state/snapshot'
 import { isBlocking, isOpen, PREVIEW_FINDINGS } from './findings-fixture'
 import { emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 
-/** Repeat starts of one pull request's Team, with no live account or host. */
-export const triggerRunsStore = () => {
+/**
+ * Repeat starts of one pull request's Team, with no live account or host.
+ * With `mcp`, the run in flight was started by an MCP client, placeholder-named.
+ */
+export const triggerRunsStore = ({ mcp = false }: { readonly mcp?: boolean } = {}) => {
   const store = overviewTeamStore('running')
   const snapshot = store.getSnapshot()
   const goal = snapshot.goals.get('overview-team')!
@@ -21,6 +24,7 @@ export const triggerRunsStore = () => {
     target: { kind: 'pull-request', label: 'Retry checkout after a payment timeout', pr: 7, head: 'a1b2c3d4e5f6', base: null, dirty: false },
     intake: { key: `firing-${n}`, trigger: 'review-pr', closureDigest: 'demo', dispatchHeld: false, again: null },
     document: { ...document, flow: { ...document.flow, name: 'Review checkout changes' } },
+    ...(mcp && state === 'running' ? { startedBy: { via: 'mcp' as const, client: 'example-client@1.0.0' } } : {}),
   }))
   const finding: FindingRunView = { run: base.id, goal: base.goal, round: 2, finished: 2, total: 3,
     embargoed: false, open: 0, blocking: 0, reason: null, ceilingStop: false, stamp: 'demo', publication: 'local',

@@ -134,7 +134,7 @@ function toolOf(command: CommandLike): McpTool {
   const description = [
     command.description,
     `Returns: ${command.json}`,
-    `Tier: ${command.tier}.${starts ? ' Starting work must be allowed in HarnessDesk Settings › Local clients; refused otherwise.' : ''}`,
+    `Tier: ${command.tier}.${starts ? ' Starting work must be allowed in HarnessDesk Settings › Permissions › MCP clients; refused otherwise.' : ''}`,
   ].join('\n\n')
   return {
     name: command.name.replace(/ /g, '_'),

@@ -27,8 +27,8 @@ export const TeamFrame = () => {
   const store = useMemo(() => {
   const scene = new URLSearchParams(location.search).get('team-frame')
   const emptyFindings = scene === 'empty-findings'
-  const own = scene === 'trigger-runs' ? triggerRunsStore() : overviewTeamStore(scene === 'ready' ? 'done' : scene === 'running' || scene === 'member-chat' || scene === 'board' || emptyFindings ? 'running' : scene === 'no-run' ? 'no-run' : 'needs-you')
-  const main = {root:{kind:'pane' as const,id:'frame-team',view:{kind:'room' as const,room:'overview-team',...(scene === 'board' ? {framePage:'board' as const} : emptyFindings ? {framePage:'findings' as const} : {})}},focused:'frame-team',expanded:null}
+  const own = scene === 'trigger-runs' || scene === 'mcp-runs' ? triggerRunsStore({ mcp: scene === 'mcp-runs' }) : overviewTeamStore(scene === 'ready' ? 'done' : scene === 'running' || scene === 'member-chat' || scene === 'board' || emptyFindings ? 'running' : scene === 'no-run' ? 'no-run' : 'needs-you')
+  const main = {root:{kind:'pane' as const,id:'frame-team',view:{kind:'room' as const,room:'overview-team',...(scene === 'board' ? {framePage:'board' as const} : scene === 'mcp-runs' ? {framePage:'runs' as const} : emptyFindings ? {framePage:'findings' as const} : {})}},focused:'frame-team',expanded:null}
   const snapshot = own.getSnapshot()
   if (scene === 'member-chat') {
    const sessions = new Map(snapshot.sessions)

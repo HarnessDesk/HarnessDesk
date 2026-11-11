@@ -5823,7 +5823,7 @@ A sitting saw every question the Lead asked "expire" within a minute: the phone 
 
 ## An MCP client starts work only when you let it — 2026-11-11
 
-`harnessdesk mcp` serves the command table to any MCP client, so an agent can read the desk, wait on a run and read cards. Starting work spends, and the person deciding to let an agent spend is not the agent. A client that says hello with `surface: 'mcp'` may start a flow only when Let MCP clients start work is on in Settings › Local clients, and then up to a number of starts a day (5 unless changed, from 1 to 50).
+`harnessdesk mcp` serves the command table to any MCP client, so an agent can read the desk, wait on a run and read cards. Starting work spends, and the person deciding to let an agent spend is not the agent. A client that says hello with `surface: 'mcp'` may start a flow only when Let MCP clients start work is on in Settings › Permissions › MCP clients, and then up to a number of starts a day (5 unless changed, from 1 to 50).
 
 - **Consent, not security.** The surface is stated by the client, so the switch is a person's consent for well-behaved clients, not a lock: the socket's file permissions stay the authority, as they are for the command line. Rejected: treating the stated surface as an identity (anything that can open the socket can say it is the command line).
 - **A count, not money.** Money is known only after the fact, and a subscription seat has no price, so a cap in dollars could not be held at the moment of the start. The count is held there.
