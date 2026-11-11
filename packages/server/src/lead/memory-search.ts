@@ -93,7 +93,8 @@ export class LeadConversationCorpus {
   /** Adds the messages it has not seen, each at the time `timeOf` gives (when the desk first saw it), else now.
    * Called with the journal's thread at open and whenever it changes. */
   add(messages: readonly LeadMessage[], timeOf: (id: string) => number | undefined = () => undefined): Promise<void> {
-    const fresh = messages.filter(message => (message.role === 'user' || message.role === 'assistant') && message.text.trim() && !this.#known.has(message.id))
+    // A desk wake (a reminder) is a user turn the person never wrote: it is never indexed as theirs.
+    const fresh = messages.filter(message => (message.role === 'user' && !message.wake || message.role === 'assistant') && message.text.trim() && !this.#known.has(message.id))
     if (!fresh.length) return this.#tail as Promise<void>
     const now = this.now(), lines = fresh.map((message): CorpusLine => ({ id: message.id, text: message.text.slice(0, TEXT), at: timeOf(message.id) ?? now, by: message.role === 'user' ? 'person' : 'assistant' }))
     for (const line of lines) { this.#known.add(line.id); this.#lines.push(line) }
