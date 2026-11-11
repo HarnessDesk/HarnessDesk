@@ -72,14 +72,16 @@ const rig = async (t: TestContext, options: {
     modelOf: () => undefined,
     titleOf: () => 'Fix the build',
     busy: () => false,
+    footprint: () => 'quiet',
     close: async (runtime, id) => { state.calls.push(`close ${runtime} ${id}`) },
-    resume: async (runtime, id) => { state.calls.push(`resume ${runtime} ${id}`) },
-    send: async (runtime, id, text) => {
+    resume: async (runtime, id) => { state.calls.push(`resume ${runtime} ${id}`); return `handle ${runtime} ${id}` },
+    send: async (runtime, id, text, _kind, _stillOurs, admitted) => {
+      admitted?.()
       // Claim before send: whatever is being sent is already on disk.
       const disk = JSON.parse(await readFile(file, 'utf8')) as { records: { state: string }[] }
       state.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)} [${disk.records.map(record => record.state).join(',')}]`)
     },
-    create: async runtime => { created += 1; state.calls.push(`create ${runtime}`); return `new-${created}` },
+    create: async runtime => { created += 1; state.calls.push(`create ${runtime}`); return { sessionId: `new-${created}`, handle: `handle ${runtime} new-${created}` } },
     packet: async (_from, meta) => { options.packets?.push({ ...(meta.blind ? { blind: meta.blind } : {}) }); return 'packet' },
     record: (runtime, id, item) => { state.marks.push({ at: `${runtime} ${id}`, item }); return true },
     publish: (key, incident) => { state.published.push({ key: `${key.runtime} ${key.sessionId}`, incident }) },
@@ -306,7 +308,7 @@ test('a person’s message during the reset’s resume stops the retry before it
   const r = await rig(t, { choice: 'wait', resetsAt: 1_000_000_000 + HOUR })
   const resumed = deferred()
   let resuming = false
-  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise } })
+  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return `handle ${runtime} ${id}` } })
   t.after(() => service.close())
   await service.ended('codex', 's1', LIMIT)
   r.clock = 1_000_000_000 + HOUR + 1_250
@@ -366,6 +368,334 @@ test('an account that ran out after the card offered it is refused as stale, bef
     (error: Error & { wireCode?: string }) => error.wireCode === 'carryOnStale')
   assert.deepEqual(r.rules, [], 'no rule written')
   assert.deepEqual(r.calls, [], 'nothing moved')
+})
+
+// ------------------------------------------------------------ review round 2
+
+test('a person who starts using the sibling while carry-on reopens it keeps it: the cancel never closes their work', async t => {
+  const r = await rig(t)
+  const resumed = deferred()
+  let resuming = false
+  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return `handle ${runtime} ${id}` } })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => resuming, 'the sibling’s reopen')
+  // The person writes, and goes on in the conversation the sibling now holds.
+  // Not awaited here: the person's message queues behind the incident's step, as on the desk.
+  const people = [service.personSent('codex', 's1'), service.personSent('codex-2', 's1')]
+  resumed.resolve()
+  await ended; await Promise.all(people)
+  assert.ok(!r.calls.includes('close codex-2 s1'), `the sibling is not closed under the person: ${r.calls.join(' | ')}`)
+  assert.deepEqual(sends(r), [])
+  const incident = r.published.at(-1)?.incident
+  assert.equal(incident?.state, 'stopped')
+  assert.match(incident?.note ?? '', /also open on Codex · personal/)
+})
+
+test('a sibling nobody touched is still let go when the person’s message wins', async t => {
+  const r = await rig(t)
+  const resumed = deferred()
+  let resuming = false
+  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return `handle ${runtime} ${id}` } })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => resuming, 'the sibling’s reopen')
+  const person = service.personSent('codex', 's1')
+  resumed.resolve()
+  await ended; await person
+  assert.ok(r.calls.includes('close codex-2 s1'))
+  assert.deepEqual(sends(r), [])
+})
+
+test('a new conversation the person has started using while it was created is never closed by the cancel', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  const made = deferred<string>()
+  let creating = false
+  const service = r.reopen({ create: async runtime => { r.calls.push(`create ${runtime}`); creating = true; const sessionId = await made.promise; return { sessionId, handle: `handle ${runtime} ${sessionId}` } } })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => creating, 'the new conversation')
+  const people = [service.personSent('codex', 's1'), service.personSent('claude', 'new-1')]
+  made.resolve('new-1')
+  await ended; await Promise.all(people)
+  assert.ok(!r.calls.includes('close claude new-1'), `the person’s new conversation stays: ${r.calls.join(' | ')}`)
+  assert.deepEqual(sends(r), [])
+  const incident = r.published.at(-1)?.incident
+  assert.equal(incident?.state, 'stopped')
+  assert.equal(String(incident?.link?.sessionId), 'new-1')
+})
+
+test('a person’s message while the handoff link is being saved stops the packet', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let service!: CarryOnService
+  service = r.reopen({
+    publish: (key, incident) => {
+      r.published.push({ key: `${key.runtime} ${key.sessionId}`, incident })
+      if (incident?.link) void service.personSent('codex', 's1')
+    },
+  })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  assert.deepEqual(sends(r), [], `no packet behind the person’s message: ${r.calls.join(' | ')}`)
+})
+
+test('a person’s message during the first sending claim stops the move before the source is closed', async t => {
+  const r = await rig(t)
+  let service!: CarryOnService
+  service = r.reopen({
+    publish: (key, incident) => {
+      r.published.push({ key: `${key.runtime} ${key.sessionId}`, incident })
+      if (incident?.state === 'sending') void service.personSent('codex', 's1')
+    },
+  })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  assert.deepEqual(r.calls, [], 'the source stays open, nothing reopened, nothing sent')
+})
+
+test('after a restart left a switch unconfirmed, its target is off the card and the note says where it went', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-carry-on-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const r = await rig(t, { dir })
+  const hung = r.reopen({ send: () => new Promise(() => {}) })
+  void hung.ended('codex', 's1', LIMIT)
+  await until(() => r.calls.includes('resume codex-2 s1'), 'the switch to reach its send')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  hung.close()
+
+  const after = await rig(t, { dir, available: ['codex', 'codex-2'] })
+  await after.service.restore()
+  const [view] = after.service.list()
+  assert.equal(view?.state, 'asked')
+  const offered = [view?.choices.target, ...(view?.others ?? [])].filter(Boolean).map(target => String(target!.runtime))
+  assert.ok(!offered.includes('codex-2'), `the account it was going to is not offered again: ${offered.join(', ')}`)
+  assert.match(view?.note ?? '', /may already have been sent to Codex · personal/)
+  await assert.rejects(after.service.decide({ incidentId: view!.incidentId, choice: 'switch', target: 'codex-2' as never, always: false }),
+    (error: Error & { wireCode?: string }) => error.wireCode === 'carryOnStale')
+  assert.deepEqual(after.calls, [])
+})
+
+// ------------------------------------------------------------ review round 3
+
+test('a cancel never closes a sibling handle carry-on cannot prove it attached', async t => {
+  const r = await rig(t)
+  const resumed = deferred()
+  let resuming = false
+  // Another opener attached alongside carry-on's resume: the host hands back no handle of carry-on's own.
+  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return null } })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => resuming, 'the sibling’s reopen')
+  const person = service.personSent('codex', 's1')
+  resumed.resolve()
+  await ended; await person
+  assert.ok(!r.calls.some(call => call.startsWith('close codex-2')), `nothing of the sibling’s is closed: ${r.calls.join(' | ')}`)
+})
+
+test('the cancel closes only the handle carry-on attached', async t => {
+  const r = await rig(t)
+  const closed: string[] = []
+  const resumed = deferred()
+  let resuming = false
+  const service = r.reopen({
+    resume: async (runtime, id) => { resuming = true; await resumed.promise; return `handle ${runtime} ${id}` },
+    close: async (runtime, id, handle) => { closed.push(`${runtime} ${id} ${handle ?? 'any'}`) },
+  })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => resuming, 'the sibling’s reopen')
+  const person = service.personSent('codex', 's1')
+  resumed.resolve()
+  await ended; await person
+  assert.deepEqual(closed, ['codex s1 any', 'codex-2 s1 handle codex-2 s1'])
+})
+
+/** A send port that dispatches the way the host does: an await, then the person writes, then the effect. */
+const dispatching = (r: Rig, service: () => CarryOnService, source = { runtime: 'codex', sessionId: 's1' }) =>
+  async (runtime: string, id: string, text: string, _kind: string, stillOurs?: () => boolean, admitted?: () => void) => {
+    await new Promise(resolve => setTimeout(resolve, 1))
+    void service().personSent(source.runtime, source.sessionId)
+    // The host's admission, at its effect boundary.
+    if (stillOurs && !stillOurs()) throw new Error('The person’s message went first.')
+    admitted?.()
+    r.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)}`)
+  }
+
+test('a person who writes inside the host’s dispatch of the same-thread continue wins', async t => {
+  const r = await rig(t)
+  let service!: CarryOnService
+  service = r.reopen({ send: dispatching(r, () => service) })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  await service.idle()
+  assert.deepEqual(sends(r), [], 'the continue never left')
+  assert.notEqual(r.published.at(-1)?.incident?.state, 'asked', 'and the person is not asked about a failure')
+})
+
+test('a person who writes inside the host’s dispatch of the handoff packet wins', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let service!: CarryOnService
+  service = r.reopen({ send: dispatching(r, () => service) })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  await service.idle()
+  assert.deepEqual(sends(r), [], 'the packet never left')
+  assert.notEqual(r.published.at(-1)?.incident?.state, 'asked')
+})
+
+test('a person who writes inside the host’s dispatch of the reset retry wins', async t => {
+  const r = await rig(t, { choice: 'wait', resetsAt: 1_000_000_000 + HOUR })
+  let service!: CarryOnService
+  service = r.reopen({ send: dispatching(r, () => service) })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  r.clock = 1_000_000_000 + HOUR + 1_250
+  r.timers.find(timer => !timer.cancelled)!.run()
+  await until(() => r.calls.includes('resume codex s1'), 'the retry at the reset')
+  await service.idle()
+  assert.deepEqual(sends(r), [], 'the retry never left')
+  assert.notEqual(r.published.at(-1)?.incident?.state, 'asked')
+})
+
+test('a destination left open for the person is recorded in the conversation, with its link, to outlive a reconnect', async t => {
+  const r = await rig(t)
+  const resumed = deferred()
+  let resuming = false
+  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return `handle ${runtime} ${id}` } })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => resuming, 'the sibling’s reopen')
+  const people = [service.personSent('codex', 's1'), service.personSent('codex-2', 's1')]
+  resumed.resolve()
+  await ended; await Promise.all(people)
+  const stopped = r.marks.find(mark => mark.item.phase === 'stopped')
+  assert.ok(stopped, `a stopped marker: ${r.marks.map(mark => mark.item.phase).join(', ')}`)
+  assert.equal(stopped.at, 'codex s1', 'in the conversation the person is in')
+  assert.deepEqual(stopped.item.link, { runtime: 'codex-2', sessionId: 's1' })
+  assert.match(stopped.item.note ?? '', /also open on Codex · personal/)
+})
+
+// ------------------------------------------------------------ the transcript stays true when the person wins
+
+const phases = (r: Rig) => r.marks.map(mark => `${mark.at} ${mark.item.phase}`)
+
+test('a same-thread continue the person overtook in dispatch leaves no “switched” marker', async t => {
+  const r = await rig(t)
+  let service!: CarryOnService
+  service = r.reopen({ send: dispatching(r, () => service) })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  await service.idle()
+  assert.deepEqual(sends(r), [])
+  assert.ok(!r.marks.some(mark => mark.item.phase === 'switched'), `the thread never says it moved: ${phases(r).join(', ')}`)
+})
+
+test('a handoff packet the person overtook in dispatch leaves no “left” marker', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let service!: CarryOnService
+  service = r.reopen({ send: dispatching(r, () => service) })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  await service.idle()
+  assert.deepEqual(sends(r), [])
+  assert.ok(!r.marks.some(mark => mark.item.phase === 'left' || mark.item.phase === 'arrived'), `the conversation never says it left: ${phases(r).join(', ')}`)
+})
+
+test('a reset retry the person overtook in dispatch leaves no “resumed” marker', async t => {
+  const r = await rig(t, { choice: 'wait', resetsAt: 1_000_000_000 + HOUR })
+  let service!: CarryOnService
+  service = r.reopen({ send: dispatching(r, () => service) })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  r.clock = 1_000_000_000 + HOUR + 1_250
+  r.timers.find(timer => !timer.cancelled)!.run()
+  await until(() => r.calls.includes('resume codex s1'), 'the retry at the reset')
+  await service.idle()
+  assert.deepEqual(sends(r), [])
+  assert.ok(!r.marks.some(mark => mark.item.phase === 'resumed'), `the conversation never says it resumed: ${phases(r).join(', ')}`)
+})
+
+test('an admitted switch still writes its marker before the continue goes', async t => {
+  const r = await rig(t)
+  const order: string[] = []
+  const service = r.reopen({
+    record: (runtime, id, item) => { order.push(`mark ${item.phase}`); r.marks.push({ at: `${runtime} ${id}`, item }); return true },
+    send: async (runtime, id, _text, _kind, _stillOurs, admitted) => { admitted?.(); order.push(`send ${runtime} ${id}`) },
+  })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  assert.deepEqual(order, ['mark switched', 'send codex-2 s1'])
+})
+
+// ------------------------------------------------------------ markers the conversation cannot take yet
+
+test('a stopped marker the released source cannot take is kept, listed across a reconnect, and written when it reopens', async t => {
+  const r = await rig(t)
+  const resumed = deferred()
+  let resuming = false
+  // The same-thread close let the source's body go; the person's reopen of it is still on its way.
+  let released = true
+  const record: CarryOnPorts['record'] = (runtime, id, item) => {
+    if (released && runtime === 'codex' && id === 's1') return false
+    r.marks.push({ at: `${runtime} ${id}`, item })
+    return true
+  }
+  const service = r.reopen({ record, resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise; return `handle ${runtime} ${id}` } })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => resuming, 'the sibling’s reopen')
+  const people = [service.personSent('codex', 's1'), service.personSent('codex-2', 's1')]
+  resumed.resolve()
+  await ended; await Promise.all(people)
+  assert.ok(!r.marks.some(mark => mark.item.phase === 'stopped'), 'nothing could be written yet')
+
+  // A window reconnecting — here, after a restart — still finds the note and the link.
+  const again = r.reopen({ record })
+  t.after(() => again.close())
+  await again.restore()
+  const [listed] = again.list()
+  assert.equal(listed?.state, 'stopped', 'the incident is listed while its marker waits')
+  assert.deepEqual(listed?.link, { runtime: 'codex-2', sessionId: 's1' })
+  assert.match(listed?.note ?? '', /also open on Codex · personal/)
+
+  // The person's reopen brings the body back: the marker goes in, and the incident is no longer listed.
+  released = false
+  await again.reachable('codex', 's1')
+  const stopped = r.marks.find(mark => mark.item.phase === 'stopped')
+  assert.ok(stopped, 'the stopped marker is written')
+  assert.equal(stopped.at, 'codex s1')
+  assert.deepEqual(stopped.item.link, { runtime: 'codex-2', sessionId: 's1' })
+  assert.equal((await disk(r.file)).records[0]!['unwritten'], undefined, 'nothing waits any more')
+  assert.deepEqual(again.list(), [])
+})
+
+test('an admitted handoff whose markers could not be written yet settles moved and writes both once the turns are there', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  // The old conversation's body was let go, and the new one's turn has not started when the packet is accepted.
+  const ready = new Set<string>()
+  const service = r.reopen({
+    record: (runtime, id, item) => {
+      if (!ready.has(`${runtime} ${id}`)) return false
+      r.marks.push({ at: `${runtime} ${id}`, item })
+      return true
+    },
+  })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  assert.equal(r.published.at(-1)?.incident?.state, 'moved')
+  assert.deepEqual(phases(r), [], 'none could be written at the move')
+  const kept = (await disk(r.file)).records[0]!['unwritten'] as { phase: string }[]
+  assert.deepEqual(kept.map(one => one.phase), ['left', 'arrived'], 'both are kept, not counted as written')
+
+  // The new conversation's turn starts: its marker goes in. Then the old one reopens.
+  ready.add('claude new-1')
+  await service.reachable('claude', 'new-1')
+  ready.add('codex s1')
+  await service.reachable('codex', 's1')
+  assert.deepEqual(phases(r), ['claude new-1 arrived', 'codex s1 left'])
+  const left = r.marks.find(mark => mark.item.phase === 'left')!
+  assert.deepEqual(left.item.link, { runtime: 'claude', sessionId: 'new-1' })
+  assert.equal((await disk(r.file)).records[0]!['unwritten'], undefined)
 })
 
 // ------------------------------------------------------------ seats (piece D)

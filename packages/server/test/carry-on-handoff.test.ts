@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { deskContextContent, HANDOFF_PREFIX, itemId, splitContext, type AgentItem, type Turn } from '@harnessdesk/protocol'
+import { deskContextContent, HANDOFF_PREFIX, itemId, splitContext, wrapContext, type AgentItem, type Turn } from '@harnessdesk/protocol'
 
 import { CONTINUE_TEXT } from '../src/carry-on/decide.js'
 
@@ -67,4 +67,15 @@ test('carrying on a conversation that was itself handed off keeps the original r
   assert.match(body, /The request:\n> Fix the failing build on main\./)
   assert.match(body, /Originally handed off from Codex — “Fix the build”/)
   assert.doesNotMatch(body, /The last message, whose turn did not finish:\n> Continue from where you stopped/, 'the host’s own words are not the person’s')
+})
+
+test('carrying on a conversation the person handed off by hand keeps that hand-off’s goal, not its “take it from here”', () => {
+  // The composer's own packet (`buildHandoff`): a lineage label, a `## Goal` section, and the person's instruction after it.
+  const manual = wrapContext(`${HANDOFF_PREFIX}Claude Code — “Migrate webhooks”`,
+    '## Goal\nMove the webhook handlers to the queue.\nKeep the retries.\n\n## Where it stands\nAsked: Move the webhook handlers to the queue.\n\n## Ground truth\nWorking folder: `/w`')
+  const handedOff = { id: itemId(`u${next++}`), type: 'userMessage', content: [deskContextContent(manual), { type: 'text', text: 'Take it from here.' }] } as AgentItem
+  const packet = carryOnPacket([turn(handedOff, agent('On it.'))], META)
+  const body = splitContext(packet).injections[0]!.text
+  assert.match(body, /The request:\n> Move the webhook handlers to the queue\.\n> Keep the retries\.\n\n/)
+  assert.match(body, /Originally handed off from Claude Code — “Migrate webhooks”/)
 })

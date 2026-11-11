@@ -25,7 +25,7 @@ import { LeadChatWatches } from './lead/chat-watches.js'
 import { leadChatCandidates, readLeadChatLimits } from './lead/chat-candidates.js'
 import type { RateLimits, WrapChoices } from '@harnessdesk/protocol'
 import { LeadChats, LeadChatBusyError } from './lead/chats.js'
-import { LeadWorkLedger, wakeForLeadWork } from './lead/work.js'
+import { LeadReminderTimer, LeadWorkLedger, settleLeadReminders, wakeForLeadWork } from './lead/work.js'
 import { LeadAutonomyStore } from './lead/autonomy.js'
 import { LeadSlots } from './lead/slots.js'
 import { LeadPresenceStore, leadTurnContext, leadWaitingDecisions } from './lead/presence.js'
@@ -180,7 +180,7 @@ import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadClockLine, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
 import { initialLeadMemoryCore, leadMemoryStatus } from '@harnessdesk/lead'
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
@@ -4012,6 +4012,8 @@ export class Host {
         throw error
       }
     }
+    // One timer for the soonest reminder, armed once the minute tick exists below; every ledger change re-arms it.
+    let reminderTimer: LeadReminderTimer | null = null
     // The work ledger: one record per piece of work, its stages read from the same desk state the phone shows.
     const work = new LeadWorkLedger({ file: join(this.#state.directory, 'lead', 'work.json'), now: () => Date.now(),
       project: () => folderName(project.path),
@@ -4028,7 +4030,7 @@ export class Host {
       replies: () => journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0),
       asked: () => journal.state.messages.reduce((mark, message) => message.role === 'user' && (message.source === undefined || message.source === 'person') ? Math.max(mark, message.revision) : mark, 0),
       noted: text => this.#logger.warn(text),
-      publish: board => this.#push({ method: 'lead/work/changed', params: board }),
+      publish: board => { this.#push({ method: 'lead/work/changed', params: board }); void reminderTimer?.arm() },
     })
     this.#leadWork = work
     this.onDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
@@ -4479,6 +4481,9 @@ export class Host {
     if (leadContext) void leadContext.connect({
       ledgerIds: async () => (await work.board()).items.filter(card => card.group !== 'done').map(card => card.id),
       screen: async text => { await this.#leadService!.assertPublic(text) },
+      // The desk as it stands when the checkpoint is written, so a summary never keeps a fact the ledger has moved past.
+      deskNow: async () => [leadClockLine(Date.now()),
+        leadWorkCards(await work.board(), Date.now()) ?? '<work-ledger>\nNo open work, no reminders and nothing stopped in the last day.\n</work-ledger>'].join('\n'),
     }).catch(() => {})
     this.#leadControls = new LeadControls({ journal,
       readWorkContext: async turn => {
@@ -4585,19 +4590,38 @@ export class Host {
       if (!settled.tasks.some(task => task.runs?.some(run => run.logicalGoalId === budget.logicalGoalId)) && lastSettled === signature) lastSettled = null
     }
     this.onDispose(journal.onChange(() => { void settleRepeat().catch(() => {}) }))
-    // A reminder the Lead set on a work item goes through the same minute timer and the same doors as a scheduled run:
-    // a closed thread opens through the automatic-goal path, an open conversation takes a schedule-sourced wake.
-    const remindWork = () => wakeForLeadWork(work, {
+    // A reminder wakes the Lead as a desk wake, never as the person's message: a closed thread opens a goal first, as a
+    // scheduled run does, and an open conversation takes the wake as a turn. One pass at a time, from the minute tick or
+    // the reminder's own timer.
+    const wakeOf = (due: { readonly id: string; readonly note: string; readonly for: 'person' | 'lead' }) => ({ reminder: due.id, text: due.note, person: due.for === 'person' })
+    let reminding: Promise<unknown> = Promise.resolve()
+    const remindWork = () => (reminding = reminding.catch(() => {}).then(() => wakeForLeadWork(work, {
       quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
       canBegin: () => canBeginLeadGoal(journal.state),
-      offer: async (key, text, id) => (await automatic.offer({ key, text, origin: { source: 'schedule', event: 'work-reminder', subject: id, url: null } })).delivered,
-      remind: (key, text) => this.#leadControls!.remind(key, text),
+      offer: (key, text, _id, due) => this.#leadControls!.remind(key, text, wakeOf(due), true),
+      remind: (key, text, due) => this.#leadControls!.remind(key, text, wakeOf(due)),
       gate: () => autonomy.gate('repeat'),
-    })
+    })))
+    // A person's reminder counts as said only once the Lead's message is written; a silent wake is tried once more,
+    // then marked missed. Checked as the journal moves and on the minute tick, one pass at a time.
+    let settling: Promise<void> | null = null, settleAgain = false
+    const settleWork = (): Promise<void> => {
+      if (settling) { settleAgain = true; return settling }
+      settling = settleLeadReminders(work, {
+        outcome: key => this.#leadControls?.wakeOutcome(key) ?? 'pending',
+        retry: (key, text, due) => this.#leadControls ? this.#leadControls.remind(key, text, wakeOf(due)) : Promise.resolve(false),
+      }).catch(() => { this.#logger.warn('A Lead reminder\'s delivery could not be settled') }).finally(() => {
+        settling = null
+        if (settleAgain && !this.#disposed) { settleAgain = false; void settleWork() }
+      })
+      return settling
+    }
+    this.onDispose(journal.onChange(() => { void settleWork() }))
     // The minute timer's whole body, so a test can fire the same tick the timer does.
     const tick = (): Promise<unknown> => {
       const done = settleRepeat().then(() => repeats.tick()).catch(() => { this.#logger.warn('A scheduled Lead task could not start') })
         .then(() => remindWork()).catch(() => { this.#logger.warn('A Lead work reminder could not wake the Lead') })
+        .then(() => settleWork())
         .then(() => autonomy.checkDeadline()).catch(() => { this.#logger.warn('A Lead goal deadline could not be checked') })
         .then(() => presence.tick()).catch(() => { this.#logger.warn('The Lead morning brief could not be made') })
       pokeWork()
@@ -4607,6 +4631,12 @@ export class Host {
     const timer = setInterval(() => { void tick() }, 60_000)
     timer.unref?.()
     this.onDispose(() => clearInterval(timer))
+    const due = new LeadReminderTimer({ next: () => work.nextDue(), now: () => Date.now(),
+      fire: () => { void remindWork().catch(() => { this.#logger.warn('A Lead work reminder could not wake the Lead') }).then(() => due.arm()) },
+      setTimer: (run, ms) => { const one = setTimeout(run, ms); one.unref?.(); return () => clearTimeout(one) } })
+    reminderTimer = due
+    void due.arm()
+    this.onDispose(() => { due.close(); if (reminderTimer === due) reminderTimer = null })
     return this.#leadService
   }
 
@@ -5946,6 +5976,14 @@ export class Host {
    * over this host's own state, so a method module never sees the class —
    * only what it was given — and can be run against a hand-built context.
    */
+  /** A seat's own recovery when its turn ends: its card handed back, and a release waiting on it answered. */
+  #recoverSeat(runtime: RuntimeId, sessionId: string): void {
+    void this.#flows.reArm(runtime, sessionId)
+    // The same turn-ended signal answers a v2 release still waiting on this
+    // Seat, rather than a poll of its own guessing when to ask again (#1027).
+    this.#flows.retryRelease(runtime, sessionId)
+  }
+
   /**
    * The carry-on service, wired to the host. Every name it reads is the
    * runtime's presentation and an account ordinal or the gateway's own name —
@@ -5953,12 +5991,22 @@ export class Host {
    * window uses, its sends on the host's path so they never count as the
    * person's.
    */
-  /** A seat's own recovery when its turn ends: its card handed back, and a release waiting on it answered. */
-  #recoverSeat(runtime: RuntimeId, sessionId: string): void {
-    void this.#flows.reArm(runtime, sessionId)
-    // The same turn-ended signal answers a v2 release still waiting on this
-    // Seat, rather than a poll of its own guessing when to ask again (#1027).
-    this.#flows.retryRelease(runtime, sessionId)
+  /** Identities for live handles, so carry-on can tell the handle it opened from one somebody else attached. */
+  readonly #carryOnHandles = new WeakMap<object, string>()
+  #carryOnHandleCount = 0
+  #carryOnHandle(live: object): string {
+    let handle = this.#carryOnHandles.get(live)
+    if (handle === undefined) { handle = `h${++this.#carryOnHandleCount}`; this.#carryOnHandles.set(live, handle) }
+    return handle
+  }
+
+  /**
+   * Carry-on's lease on a conversation: the handle it holds and how many opens the conversation had then. It stays
+   * carry-on's only while both are unchanged — no other handle, and no other caller opened it since, even one an
+   * adapter handed the very same handle.
+   */
+  #carryOnLease(runtime: RuntimeId, id: SessionId, live: object): string {
+    return `${this.#carryOnHandle(live)}@${this.registry.opens(runtime, id).opened}`
   }
 
   #buildCarryOn(): CarryOnService {
@@ -6036,25 +6084,74 @@ export class Host {
         const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
         return !!record && (record.running.size > 0 || this.#queueBusy(record))
       },
-      close: async (runtime, sessionId) => { await this.call('session/close', key(runtime, sessionId)) },
+      close: async (runtime, sessionId, lease) => {
+        if (lease !== undefined) {
+          // Only on carry-on's own lease: the handle it attached, with no other open since and none under way.
+          const at = key(runtime, sessionId)
+          const live = this.registry.get(at.runtime, at.sessionId)?.live
+          if (!live || this.registry.opens(at.runtime, at.sessionId).pending > 0 || this.#carryOnLease(at.runtime, at.sessionId, live) !== lease) return
+        }
+        await this.call('session/close', key(runtime, sessionId))
+      },
       resume: async (runtime, sessionId, model) => {
-        if (this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live) return
-        await this.call('session/resume', { ...key(runtime, sessionId), ...(model ? { options: { model } } : {}) })
+        const at = key(runtime, sessionId)
+        const before = this.registry.get(at.runtime, at.sessionId)
+        // Already open there, or being opened: somebody else's handle, which carry-on must never close.
+        const opens = this.registry.opens(at.runtime, at.sessionId)
+        if (before?.live || opens.pending > 0) return null
+        const attaches = before?.liveAttaches ?? 0
+        await this.call('session/resume', { ...at, ...(model ? { options: { model } } : {}) })
+        // Evidence of ownership, per call rather than per handle: exactly one open since the look before the await
+        // (carry-on's own), none still under way, and exactly one attachment, the one live now. Anything more means
+        // another opener came alongside — perhaps handed the very same handle — and then it is not carry-on's.
+        const after = this.registry.get(at.runtime, at.sessionId)
+        const now = this.registry.opens(at.runtime, at.sessionId)
+        if (!after?.live || (before !== undefined && after !== before) || after.liveAttaches !== attaches + 1 ||
+          now.opened !== opens.opened + 1 || now.pending > 0) return null
+        return this.#carryOnLease(at.runtime, at.sessionId, after.live)
+      },
+      footprint: (runtime, sessionId) => {
+        const at = key(runtime, sessionId)
+        const record = this.registry.get(at.runtime, at.sessionId)
+        if (!record?.live) return null
+        // The lease, the turns it holds and what runs: a reattach, another open, a turn or a queued send all change it.
+        return `${this.#carryOnLease(at.runtime, at.sessionId, record.live)}:${record.session.turns.length}:${record.running.size}:${this.#queueBusy(record) ? 1 : 0}`
       },
       // A packet is the host's own words: it goes in as desk context, so the transcript never
-        // shows it as something the person typed. It waits its turn: a replacement Seat is still reading its brief.
-        send: async (runtime, sessionId, text, kind) => {
-          if (kind === 'packet') await queueTurn(this.#context, { ...key(runtime, sessionId), input: [deskContextContent(text)] })
-          else await sendTurn(this.#context, { ...key(runtime, sessionId), input: [{ type: 'text', text }] })
+        // shows it as something the person typed.
+        // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
+        // last await: a person who writes while the host is resolving the handle wins there too.
+        send: async (runtime, sessionId, text, kind, stillOurs, admitted) => {
+          const admission = Object.assign(async () => {}, {
+            assertDispatch: () => { if (!stillOurs()) throw new Error('The person’s message went first.') },
+            // Past the boundary: carry-on's marker goes in now, never for a send the person overtook.
+            ...(admitted ? { dispatchStarted: admitted } : {}),
+          })
+          const at = key(runtime, sessionId)
+          const input = [kind === 'packet' ? deskContextContent(text) : { type: 'text' as const, text }]
+          // A packet waits its turn behind whatever the conversation is doing: a replacement Seat is still reading
+          // its brief. Under the same admission, so the person writing first still wins when it is drained.
+          const record = this.registry.get(at.runtime, at.sessionId)
+          if (kind === 'packet' && record && (record.running.size > 0 || this.#queueBusy(record))) await queueTurn(this.#context, { ...at, input }, undefined, admission)
+          else await sendTurn(this.#context, { ...at, input }, admission)
         },
       create: async (runtime, from, model) => {
         const source = key(from.runtime, from.sessionId)
         // The new conversation starts in the stuck one's folder, worktree included, so its uncommitted work is there.
         const cwd = this.registry.get(source.runtime, source.sessionId)?.session.cwd ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.cwd
-        const session = await this.call('session/create', { runtime: runtimeId(runtime), options: { ...(cwd ? { cwd } : {}), ...(model ? { model } : {}) } })
+        // The lease is taken the moment the creation attaches its handle, never from a later read: by the time the
+        // creation returns, another opener may have put a handle of its own there.
+        let handle: string | null = null
+        const session = await createConversation(this.#context, { runtime: runtimeId(runtime), options: { ...(cwd ? { cwd } : {}), ...(model ? { model } : {}) } },
+          undefined, live => {
+            // A brand-new conversation has had no open but this creation, which counts none: the runtime may have
+            // announced it before the create returned, and an opener that reached it then holds the handle too.
+            const opens = this.registry.opens(runtimeId(runtime), live.id)
+            handle = opens.opened === 0 && opens.pending === 0 ? this.#carryOnLease(runtimeId(runtime), live.id, live) : null
+          })
         const title = this.registry.get(source.runtime, source.sessionId)?.session.title ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.title
         if (title) await this.call('session/setTitle', { runtime: runtimeId(runtime), sessionId: session.id, title }).catch(() => undefined)
-        return String(session.id)
+        return { sessionId: String(session.id), handle }
       },
       packet: async (from, meta) => {
         const at = key(from.runtime, from.sessionId)
@@ -8113,26 +8210,31 @@ export class Host {
     await this.#restingSessions.get(key)
     const held = this.registry.get(runtime, id)
     if (held?.live) return held.live
-    // Two calls arriving together — a send and the option write beside it —
-    // must resume once between them, not once each.
-    const already = this.#reattaching.get(key)
-    if (already) {
-      this.#reopenWaiters.set(key, (this.#reopenWaiters.get(key) ?? 0) + 1)
-      try {
-        return await already
-      } finally {
-        const left = (this.#reopenWaiters.get(key) ?? 1) - 1
-        if (left > 0) this.#reopenWaiters.set(key, left)
-        else this.#reopenWaiters.delete(key)
-      }
-    }
-    const attempt = this.#reattach(this.#runtime({ runtime }), id, route)
-    this.#reattaching.set(key, attempt)
+    // Each caller that needs the conversation opened is an open of its own, the one that joins a reopen in flight
+    // too: all of them are handed the one handle.
+    const release = this.registry.opening(runtime, id)
     try {
-      return await attempt
-    } finally {
-      this.#reattaching.delete(key)
-    }
+      // Two calls arriving together — a send and the option write beside it —
+      // must resume once between them, not once each.
+      const already = this.#reattaching.get(key)
+      if (already) {
+        this.#reopenWaiters.set(key, (this.#reopenWaiters.get(key) ?? 0) + 1)
+        try {
+          return await already
+        } finally {
+          const left = (this.#reopenWaiters.get(key) ?? 1) - 1
+          if (left > 0) this.#reopenWaiters.set(key, left)
+          else this.#reopenWaiters.delete(key)
+        }
+      }
+      const attempt = this.#reattach(this.#runtime({ runtime }), id, route)
+      this.#reattaching.set(key, attempt)
+      try {
+        return await attempt
+      } finally {
+        this.#reattaching.delete(key)
+      }
+    } finally { release() }
   }
 
   /** Conversations being re-opened right now, so concurrent callers share one. */
@@ -10544,6 +10646,10 @@ export class Host {
           // Not a limit carry-on takes: the seat's own recovery runs, as it would have at the turn's end.
           if (!took && !this.#disposed && !this.#carryOn.live(at.runtime, at.sessionId)) this.#recoverSeat(runtime, at.sessionId)
         })
+    }
+    // A conversation that can take a transcript marker again gets the ones carry-on had to keep for it.
+    if ((event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'session/started') && !this.#disposed) {
+      void this.#carryOn.reachable(String(runtime), String(event.type === 'session/started' ? event.session.id : event.sessionId)).catch(() => {})
     }
     if (event.type === 'session/closed') {
       this.#team.onSessionClosed(runtime, String(event.sessionId))

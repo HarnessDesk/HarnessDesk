@@ -420,7 +420,8 @@ export class LeadChats {
     const messages = this.ports.state().messages
     for (let index = messages.length - 1; index >= 0; index--) {
       const person = messages[index]!
-      if (person.role !== 'user') continue
+      // A desk wake (a reminder) is a user turn the person never wrote: it is never quoted as theirs.
+      if (person.role !== 'user' || person.wake) continue
       const previous = messages[index - 1]
       const options = previous?.role === 'assistant' ? previous.ask?.options ?? previous.proactive?.options : undefined
       if (options?.some(option => option.label === person.text)) continue
@@ -430,7 +431,7 @@ export class LeadChats {
   }
   #startText(params: HostParams<'lead/chat/start'>): string | { readonly problem: string } {
     const messages = this.ports.state().messages
-    const people = messages.filter(message => message.role === 'user')
+    const people = messages.filter(message => message.role === 'user' && !message.wake)
     const ids = this.#quoteIds(params)
     if (ids.some(id => !people.some(message => message.id === id)))
       return { problem: 'Quote only a person message in the current conversation window.' }

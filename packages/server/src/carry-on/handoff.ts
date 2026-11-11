@@ -50,12 +50,16 @@ const typed = (item: AgentItem): string | null => {
 }
 const ORIGIN = /^Originally handed off from .*$/m
 const REQUEST = /The request:\n((?:>.*(?:\n|$))+)/
+/** The composer's own hand-off (`buildHandoff` in the UI) writes its goal as a Markdown section, unquoted. */
+const GOAL = /(?:^|\n)## Goal\n([\s\S]*?)(?=\n## |$)/
 
 /**
  * A conversation that was itself handed off began with a packet, not with the
  * person's words: the request it carried is the original goal, and where it
- * came from stays attributed. The packet is the host's own envelope, but the
- * request inside it is still quoted text and goes back in quoted.
+ * came from stays attributed. Two packets start one: carry-on's own, whose
+ * request is quoted, and the person's hand-off from the composer, whose goal
+ * is a `## Goal` section. Either way the words after the packet ("take it from
+ * here") are the hop's instruction, not the work.
  */
 const inherited = (turns: readonly Turn[]): { readonly request: string | null; readonly origin: string } | null => {
   for (const turn of turns) for (const item of turn.items) {
@@ -63,7 +67,8 @@ const inherited = (turns: readonly Turn[]): { readonly request: string | null; r
     const block = splitContextContent(item.content).injections.find(entry => isHandoffSource(entry.label))
     if (!block) continue
     const quoted = REQUEST.exec(block.text)?.[1]
-    const request = quoted === undefined ? null : quoted.replace(/\n$/, '').split('\n').map(line => line.replace(/^> ?/, '')).join('\n')
+    const goal = GOAL.exec(block.text)?.[1]?.trim()
+    const request = quoted !== undefined ? quoted.replace(/\n$/, '').split('\n').map(line => line.replace(/^> ?/, '')).join('\n') : goal || null
     const origin = ORIGIN.exec(block.text)?.[0] ?? `Originally handed off from ${block.label.slice(HANDOFF_PREFIX.length)}.`
     return { request, origin }
   }
