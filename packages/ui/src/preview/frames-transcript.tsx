@@ -31,6 +31,7 @@ import { NewWorktree } from '../components/NewWorktree'
 import { PreviewPane } from '../components/PreviewPane'
 import { ProvenanceDialog } from '../components/ProvenanceDialog'
 import { StepGroup } from '../components/StepGroup'
+import { ItemView } from '../components/Items'
 import { MountProvider } from '../panels/mount'
 import { Boundary } from './boundary'
 import { Menu } from '../design'
@@ -80,6 +81,32 @@ const backgroundTasksStore = previewStore({
     ],
   ]) as never,
 })
+
+/**
+ * A seat asking another agent: the row names the asked agent by the desk's own
+ * name for it (`args.agent` read against the runtimes), once finished and once
+ * still waiting. The answer is the other agent's words, so the fixture carries
+ * markup that must arrive as text.
+ */
+const ASK_ITEMS: readonly AgentItem[] = [
+  {
+    id: 'ask-1' as never,
+    type: 'toolCall',
+    tool: 'mcp__harnessdesk__ask_agent',
+    source: { kind: 'mcp', server: 'harnessdesk', pluginId: 'consult' },
+    status: 'completed',
+    args: { agent: 'claude', question: 'Does the retry in src/worktrees.ts double-count a failed fetch?', context: 'The diff is in src/worktrees.ts.' },
+    result: [{ type: 'text', text: 'Yes. listBranches() retries inside fetchRefs() and again in the caller, so one failure is counted twice. Drop the outer retry. <img src=x onerror=alert(1)>' }],
+  } as unknown as AgentItem,
+  {
+    id: 'ask-2' as never,
+    type: 'toolCall',
+    tool: 'mcp__harnessdesk__ask_agent',
+    source: { kind: 'mcp', server: 'harnessdesk', pluginId: 'consult' },
+    status: 'inProgress',
+    args: { agent: 'cursor', question: 'Is the lockfile change safe to keep?' },
+  } as unknown as AgentItem,
+]
 
 /** Two ordinary, templated tool calls — the shape `StepGroup` folds away once a run finishes. */
 const STEP_ITEMS: readonly AgentItem[] = [
@@ -209,6 +236,11 @@ export const TranscriptFrames = () => {
         )}
       </Boundary>
 
+      <Frame id="transcript-ask-agent" title="A seat asking another agent">
+        <div className="max-w-[640px] p-4">
+          {ASK_ITEMS.map((item) => <ItemView key={item.id} item={item} root="/work/storefront" />)}
+        </div>
+      </Frame>
       <Frame id="transcript-folded-steps" title="A folded burst of steps">
         <div className="max-w-[640px] p-4">
           <StepGroup items={STEP_ITEMS} running={false} root="/work/storefront" />

@@ -142,6 +142,11 @@ export type ToolSentenceDetail =
   | { readonly kind: 'command'; readonly command: string }
   | { readonly kind: 'webSearch'; readonly query: string }
   | { readonly kind: 'list'; readonly target?: string }
+  /**
+   * `ask_agent`: the asked agent's display name (`RuntimeInfo.presentation.name`,
+   * never a brand written in code), or null when the desk no longer knows it.
+   */
+  | { readonly kind: 'ask'; readonly agent: string | null; readonly running?: boolean }
 
 /**
  * What a known action did, with the object that makes the sentence useful.
@@ -173,6 +178,8 @@ const detailedSentence = (tool: string, detail: ToolSentenceDetail): string => {
       return `Searched the web for ${detail.query}`
     case 'list':
       return detail.target ? `Listed ${detail.target}` : 'Listed files'
+    case 'ask':
+      return `${detail.running ? 'Asking' : 'Asked'} ${detail.agent ?? 'another agent'}`
   }
 }
 

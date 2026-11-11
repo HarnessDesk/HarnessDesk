@@ -375,6 +375,15 @@ What HarnessDesk owes you here is honesty about *which* agent is about to
 receive something — which is why the composer names the agent and the model
 before you send, and why the audit log records which one ran.
 
+**Asking another agent.** When a Flow lets a seat use `ask_agent`, the
+question, the optional context, and whatever files the asked agent reads in
+the caller's checkout go to that agent's vendor, the same as any conversation
+on that agent. The desk adds no endpoint of its own. The conversation is
+deleted from the agent's history after it answers, where the agent allows
+deletion (`deleteSession`). The answer is kept only in the caller's
+transcript; the audit log records which agent was asked, how the ask ended
+and its sizes in bytes, never the words.
+
 **Retention:** the vendor's, under the vendor's policy. Not ours to state.
 
 ---

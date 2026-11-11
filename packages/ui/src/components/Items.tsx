@@ -1168,8 +1168,14 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   // sentence and the Tasks panel can never disagree about a call that
   // cleared the plan (`{todos: []}`) or wrote it under a different key.
   const plans = planOf(item.args) !== null
+  // `ask_agent` names whom it asked by the desk's own name for that agent,
+  // read from the runtime the call named — never a brand written here.
+  const asked = bareToolName(item.tool) === 'ask_agent'
+    ? snapshot.runtimes.find((runtime) => runtime.id === record?.['agent'])?.presentation.name ?? null
+    : undefined
   const detail: ToolSentenceDetail | undefined = (() => {
     if (plans) return { kind: 'plan' }
+    if (asked !== undefined) return { kind: 'ask', agent: asked, ...(item.status === 'inProgress' ? { running: true } : {}) }
     switch (verb) {
       case 'read':
         return target ? { kind: 'read', target } : undefined

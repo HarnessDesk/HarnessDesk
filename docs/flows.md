@@ -638,6 +638,49 @@ wait: 240
 budget: { rounds: 3, without-progress: 2 }
 ```
 
+### Asking another agent (`ask:`)
+
+An agent role may let its seats ask another agent one question, with the
+`ask_agent` tool. It is a consult, not a delegation:
+
+```yaml
+roles:
+  fixer:
+    kind: agent
+    uses: [implementer]
+    grant: edit
+    independentOf: []
+    ask: { seats: [claude, codex=gpt-5/high], times: 2, timeoutSeconds: 300 }
+```
+
+- `seats` names the agents a seat may ask (one to four), in the seat
+  grammar; a named model and effort are the ones the consult opens with.
+- `times` is how many asks each seat gets per run, 1 to 20. The count is
+  kept on the run, so a restarted desk does not refill it.
+- `timeoutSeconds` is how long one answer may take, 30 to 900, 300 when
+  omitted.
+
+The desk opens the asked agent in a conversation no window, Team or search
+shows, in the caller's checkout, ephemeral where the agent can be, and held at
+the `read` ceiling — read back, never assumed. It sends the question, takes
+the one turn's last message as the answer (control characters stripped, cut
+at 32 KiB with a marker), and deletes the conversation. Any approval the
+asked agent raises is declined by the desk. The asked agent is never offered
+`ask_agent` itself, so asking is one level deep. Its usage counts against the
+caller's run: on a trigger's Goal it is metered as `<seat>/ask/<n>` on that
+Goal's budget, and a Goal at its cap refuses the ask.
+
+Only an agent whose adapter reports a read ceiling can be asked; any other is
+refused by name when asked. Whether each agent's read mode really prevents
+writes is a claim a recorded sitting per agent has to make (rule 7), and that
+sitting is still to come: this section claims nothing beyond the ceiling the
+adapter reports and the desk reads back.
+
+Only a seat whose role says `ask:` is offered the tool. Every other
+conversation — a person's own chat, a seat whose role says nothing about
+asking, the consult itself — is refused at call time even if its list shows
+the tool (a Codex thread keeps the tools it started with).
+
 ### Start from a fetched base
 
 An optional v2 `base` chooses where the Team starts:

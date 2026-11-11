@@ -706,3 +706,37 @@ it.each([
   act(() => header.click())
   expect(container.querySelector('[data-role="wire-name"]')?.textContent).toContain(tool)
 })
+
+describe('ask_agent', () => {
+  // The asked agent's name is the desk's own for that runtime, never a brand in code.
+  const asking = { ...emptySnapshot(), runtimes: [{ id: 'second', presentation: { name: 'Second Opinion' } }] } as unknown as ReturnType<typeof emptySnapshot>
+  const render = (item: AgentItem): HTMLButtonElement => {
+    const store = { subscribe: () => () => {}, getSnapshot: () => asking } as unknown as AppStore
+    act(() => root.render(<StoreProvider store={store}><ItemView item={item} root="/w" /></StoreProvider>))
+    return container.querySelector<HTMLButtonElement>('button')!
+  }
+
+  it('reads Asked and the agent’s own name, and the answer renders as inert text', () => {
+    const item = {
+      ...call({
+        tool: 'mcp__harnessdesk__ask_agent',
+        args: { agent: 'second', question: 'Is this safe?' },
+        result: [{ type: 'text', text: 'Looks safe. <img src=x onerror="window.pwned=1"> <script>window.pwned=2</script>' }],
+      }),
+    }
+    const header = render(item)
+    expect(header.textContent).toContain('Asked Second Opinion')
+    act(() => header.click())
+    expect(container.textContent).toContain('<img src=x onerror="window.pwned=1">')
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('script')).toBeNull()
+    expect((window as { pwned?: unknown }).pwned).toBeUndefined()
+  })
+
+  it('while it runs reads Asking, and an agent the desk no longer knows is “another agent”', () => {
+    const running = { ...call({ tool: 'ask_agent', args: { agent: 'second', question: 'q' } }), status: 'inProgress' } as unknown as AgentItem
+    expect(render(running).textContent).toContain('Asking Second Opinion')
+    const gone = call({ tool: 'ask_agent', args: { agent: 'retired', question: 'q' } })
+    expect(render(gone).textContent).toContain('Asked another agent')
+  })
+})

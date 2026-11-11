@@ -279,8 +279,8 @@ rules:
     const graph = documentGraph(document)
     const node = graph.nodes[0]!
     if (node.data.kind !== 'step' || node.data.role.kind !== 'agent') throw new Error('Expected the writer step')
-    const role = node.data.role
-    expect(() => graphDocument(document, { ...graph, nodes: [{ ...node, data: { ...node.data, role: { ...role, ask: { ...ASK, times: 20 } } } }, ...graph.nodes.slice(1)] })).toThrow(/step/i)
+    const data: typeof node.data = { kind: 'step', view: node.data.view, role: { ...node.data.role, ask: { ...ASK, times: 20 } } }
+    expect(() => graphDocument(document, { ...graph, nodes: [{ ...node, data }, ...graph.nodes.slice(1)] })).toThrow(/step/i)
   })
 })
 

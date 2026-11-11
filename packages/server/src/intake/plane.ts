@@ -1149,6 +1149,55 @@ export class IntakePlane {
   }
 
   /**
+   * Consult conversations a trigger Goal's Seats opened with `ask_agent`, as
+   * Seat-shaped windows keyed `${seat}/ask/${n}`: the one way their usage is
+   * attributed to the Goal — counted against the caller's run — while they
+   * are never Seats anywhere else. Kept until the Goal's next read after they
+   * close, so a sample read late still lands.
+   */
+  readonly #consults = new Map<string, SeatRecord[]>()
+
+  /**
+   * A Seat of a trigger Goal asked another agent: the consult's meter opens
+   * at zero, keyed `${caller}/ask/${n}`, on the caller's Goal. Awaited, so the
+   * meter exists before the consult's one turn starts.
+   */
+  async consulted(caller: SeatRecord, consult: { readonly n: number; readonly runtime: string; readonly sessionId: string; readonly openedAt: number }): Promise<string | null> {
+    const goal = caller.board
+    if (!goal || this.#closed || !this.#hasBudget(goal)) return null
+    const id = `${caller.id}/ask/${consult.n}`
+    const window: SeatRecord = {
+      ...caller, id, session: { runtime: consult.runtime, sessionId: consult.sessionId },
+      openedAt: consult.openedAt, closed: null, restored: null,
+    }
+    this.#consults.set(goal, [...(this.#consults.get(goal) ?? []).filter((one) => one.id !== id), window])
+    await this.#budgets.seated(goal, {
+      seat: id, runtime: consult.runtime, sessionId: consult.sessionId, project: caller.checkout.project,
+      openedAt: consult.openedAt, fresh: true, delegation: 'none',
+    })
+    return id
+  }
+
+  /**
+   * A consult's one turn ended: metered with a usage read made after it,
+   * before its conversation is discarded — a deleted conversation cannot be
+   * read. Its window closes here, and is dropped after this read.
+   */
+  async consultEnded(goal: string, id: string, turn: { readonly started: number; readonly ended: number }): Promise<void> {
+    const windows = this.#consults.get(goal)
+    const window = windows?.find((one) => one.id === id)
+    if (!windows || !window || this.#closed) return
+    this.#consults.set(goal, windows.map((one) => one.id === id ? { ...one, closed: { at: turn.ended, why: 'answered' } } : one))
+    try {
+      await this.#meterGoal(goal, { seat: id, ...turn })
+    } finally {
+      const left = (this.#consults.get(goal) ?? []).filter((one) => one.id !== id)
+      if (left.length > 0) this.#consults.set(goal, left)
+      else this.#consults.delete(goal)
+    }
+  }
+
+  /**
    * A turn started or ended on a trigger Goal's Seat. Its end is recorded in
    * the same save as a usage read made after it, so a finished turn is
    * metered — or, when the read had gaps, unknown — never read as zero.
@@ -1199,7 +1248,8 @@ export class IntakePlane {
     } catch {
       read = { samples: [], complete: false }
     }
-    await this.#budgets.read(goal, read.samples, this.#port.seats().filter((seat) => seat.board === goal), { at, complete: read.complete }, turn)
+    const seats = [...this.#port.seats().filter((seat) => seat.board === goal), ...(this.#consults.get(goal) ?? [])]
+    await this.#budgets.read(goal, read.samples, seats, { at, complete: read.complete }, turn)
   }
 
   /** Every live budget read once: what keeps a Seat inside a turn under a minute stale. */

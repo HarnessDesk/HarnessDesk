@@ -129,12 +129,13 @@ export async function createConversation(ctx: HostContext, params: HostParams<'s
   // gateway address reaches the adapter.
   // `attachments` is the host's own, like `route`: a Seat's approved filter
   // is set by `agent/seat` alone, never by whoever calls this.
-  const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, routeId, ...rest } = params.options as typeof params.options & {
+  const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, withheldTools: _clientWithheld, routeId, ...rest } = params.options as typeof params.options & {
     routeId?: string
   }
   const route = typeof routeId === 'string' ? await ctx.routes.resolve(runtime, routeId) : undefined
   const allocated = rest.cwd === undefined ? await createChatFolder(ctx.state) : null
-  const options: SessionOptions = { ...rest, cwd: rest.cwd ?? allocated!, ...(route ? { route } : {}) }
+  // A person's own chat is not a Flow seat, so it is never offered `ask_agent` (Q5).
+  const options: SessionOptions = { ...rest, cwd: rest.cwd ?? allocated!, ...(route ? { route } : {}), withheldTools: ['ask_agent'] }
   // A lane's checkout is its cwd, which every runtime takes; its variables
   // go only to a runtime that can take them per session (`laneEnvironmentFor`).
   let live: AgentSession
