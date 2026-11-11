@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import {
   CARRY_ON_PHASES,
+  deskContextContent,
   runtimeId,
   sessionKey,
   type AgentItem,
@@ -9,6 +10,7 @@ import {
   type SessionId,
   type SessionKey,
   type Turn,
+  wrapContext,
 } from '@harnessdesk/protocol'
 import { Conversation } from '../components/Conversation'
 import { ItemView } from '../components/Items'
@@ -40,6 +42,13 @@ const at = (minutes: number): number => Date.now() + minutes * 60_000
 const RESET = (() => { const date = new Date(at(150)); date.setMinutes(Math.floor(date.getMinutes() / 15) * 15, 0, 0); return date.getTime() })()
 
 const user = (id: string, text: string): AgentItem => ({ id: id as never, type: 'userMessage', content: [{ type: 'text', text }] })
+/**
+ * The continue as the host sends it: its own line to the agent, enveloped as desk context under the label the host
+ * gives it (`CONTINUE_SOURCE` and `CONTINUE_TEXT` in the server's carry-on rules), so it folds into a context block
+ * and never reads as something the person typed.
+ */
+const carriedOn = (id: string): AgentItem =>
+  ({ id: id as never, type: 'userMessage', content: [deskContextContent(wrapContext('Continued after a usage limit', 'Continue from where you stopped.'))] })
 const answer = (id: string, text: string): AgentItem => ({ id: id as never, type: 'assistantMessage', phase: 'final', text })
 const command = (id: string, line: string, exitCode = 0): AgentItem =>
   ({ id: id as never, type: 'command', command: line, cwd: '/workspace/storefront', origin: 'agent', status: exitCode === 0 ? 'completed' : 'failed', actions: [], output: '', exitCode, durationMs: 4_200 })
@@ -76,7 +85,7 @@ export const carryOnStore = (theme: 'light' | 'dark' = 'light') => {
   sessions.set(CARRY_ON_KEYS.switched, conversation(base, CARRY_ON_KEYS.switched, 'Retry the checkout call', [
     ...switched,
     { id: 'sw-3' as never, status: 'completed', items: [
-      user('sw-3u', 'Continue from where you stopped.'),
+      carriedOn('sw-3u'),
       marker('sw-3m', { phase: 'switched', cause: 'credits', mode: 'sameThread', from: WORK, to: PERSONAL, resetsAt: RESET }),
       command('sw-3c', 'pnpm test checkout --run'),
       answer('sw-3a', 'Added a case where all three attempts return 502: the caller gets the last response and no fourth request is sent.'),
@@ -103,17 +112,17 @@ const PHASE_ITEMS: readonly CarryOnItem[] = CARRY_ON_PHASES.map((phase) => marke
   ...(phase === 'switched' ? { to: { ...PERSONAL, model: 'Model A Mini' }, note: 'Model A is not on this account; using Model A Mini' } : {}),
   ...(phase === 'left' || phase === 'arrived' ? { to: OTHER_AGENT, link: { runtime: phase === 'left' ? CLAUDE : CODEX, sessionId: 'carry-on-other' as SessionId } } : {}),
   // The notes as the host writes them: phrases, which the marker reads as sentences.
-  ...(phase === 'stopped' ? { note: 'stopped at the person’s answer' } : { resetsAt: RESET }),
+  ...(phase === 'stopped' ? { note: 'stopped at your answer' } : { resetsAt: RESET }),
   ...(phase === 'exhausted' ? { note: 'no other account or agent has room' } : {}),
 }))
 
 /* The ways a stop reads: the person's answer, no reset known, and a move that found the conversation in use elsewhere. */
 const STOPPED_ITEMS: readonly CarryOnItem[] = [
-  marker('stopped-answer', { phase: 'stopped', cause: 'credits', from: WORK, resetsAt: RESET, note: 'stopped at the person’s answer' }),
+  marker('stopped-answer', { phase: 'stopped', cause: 'credits', from: WORK, resetsAt: RESET, note: 'stopped at your answer' }),
   marker('stopped-no-reset', { phase: 'stopped', cause: 'credits', from: WORK, note: 'no reset time known' }),
   marker('stopped-open', {
     phase: 'stopped', cause: 'credits', mode: 'sameThread', from: WORK, to: PERSONAL, resetsAt: RESET,
-    note: 'The person’s message went first. The conversation is also open on Alpha · personal, where it was in use.',
+    note: 'You sent a message first. The conversation is also open on Alpha · personal, where it was in use.',
     link: { runtime: CODEX, sessionId: 'carry-on-switch' as SessionId },
   }),
 ]
@@ -136,7 +145,10 @@ const CarryOnPanes = () => {
     <ConversationPane id="carry-on-arrived" title="Carry on — handed to another agent (the new conversation)" sessionKey={CARRY_ON_KEYS.arrived} />
     <Frame id="carry-on-phases" title="Carry on — every phase of the marker">
       <div className="mx-auto grid max-w-[720px] gap-6 p-6">
-        {PHASE_ITEMS.map((item) => <ItemView key={item.id} item={item} />)}
+        {/* A switch is followed by the host's continue, which reads as desk context, never as the person's bubble. */}
+        {PHASE_ITEMS.flatMap((item) => item.phase === 'switched'
+          ? [<ItemView key={item.id} item={item} />, <ItemView key={`${item.id}-continue`} item={carriedOn(`${item.id}-continue`)} />]
+          : [<ItemView key={item.id} item={item} />])}
       </div>
     </Frame>
     <Frame id="carry-on-stopped" title="Carry on — how a stop reads">
