@@ -1,4 +1,5 @@
 import { isRecordConversation, RECORD_REASON } from '../lib/team-record'
+import { PromptLinkMarker } from './PromptLinkMarker'
 import {
   useCallback,
   useContext,
@@ -1117,6 +1118,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
         <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`composer:${mount?.id ?? 'unmounted'}`} />
         <ComposerNotices />
         {session && key && <LeadChatNotice runtime={session.runtime} sessionId={session.id} />}
+        {!key && <PromptLinkMarker text={text} />}
         {storedRecoverable.map(({ key: ownerKey, item }) => (
           <ComposerNotice
             key={`stored-${ownerKey}-${item.id}`}

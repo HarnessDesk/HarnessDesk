@@ -1148,6 +1148,20 @@ stopped would spend money on a guess. The queue lives in the host, so it
 survives a reload and a second window; it does not survive the host, because a
 session that is no longer live could not deliver it anyway.
 
+### Prompt links
+
+`harnessdesk://new?repo=<owner/name, host/owner/name or absolute path>&prompt=<text>`,
+with optional `pr=<number>` and `flow=<flow id>`, brings HarnessDesk forward
+and opens a new chat in that project with the prompt in the composer. It
+never sends. The repository must already be a project on the desk, matched
+by its `origin` remote or by its folder; otherwise a notice says **Open this
+repository first:** and the repository, as text, and nothing opens. A matched
+draft shows **From a link — review before sending.** above the composer,
+with the pull request and Flow as plain words when the link named them; it
+goes at the first edit or on Send. Words already typed in the new-chat
+composer move to its Restore list. The browser build does not read prompt
+links.
+
 ### Cursor model controls
 
 Cursor Agent’s Max mode reflects the flag saved after the turn. **Auto Max**

@@ -176,7 +176,9 @@ import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
 import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
-import { openExternal, setDockIcon } from '../lib/desktop'
+import { openExternal, setDockIcon, type PromptLink } from '../lib/desktop'
+import { handOverToComposer } from '../lib/compose'
+import { matchPromptLinkProject, promptLinkContext, promptLinkRepoText } from '../lib/prompt-link'
 import { openingOfContent, splitContext, wrapContext } from '../lib/context-envelope'
 import {
   readEditorPrefs, editorConversation, updateEditorConversation, openEditorTab, keepEditorTab,
@@ -367,7 +369,7 @@ export type {
   SeatRefusal,
   StoredCredential,
 } from './snapshot'
-import { Drafts, UNSCOPED_RECOVERY_KEY, type NewRecoverableDraft, type RecoverableDraft } from './drafts'
+import { Drafts, NEW_SESSION_DRAFT_KEY, UNSCOPED_RECOVERY_KEY, type NewRecoverableDraft, type RecoverableDraft } from './drafts'
 export type { RecoverableDraft } from './drafts'
 export { emptySnapshot } from './snapshot'
 
@@ -2470,6 +2472,47 @@ export class AppStore {
     for (const listener of this.#libraryViewListeners) listener()
   }
 
+  /**
+   * A prompt link (`harnessdesk://new`): a new chat's draft in the project it
+   * names, with the composer filled and marked as from a link. That is all it
+   * does — it never sends, never starts a run or a Flow, and never touches a
+   * permission or a setting. The person reads the draft and presses Send.
+   *
+   * The project must already be one the desk has: a link cannot make the
+   * desk open, clone or trust a folder. When none matches, a notice says
+   * which repository to open first. A draft already typed in the new-chat
+   * composer is set aside to restore, never overwritten.
+   */
+  async fillFromPromptLink(link: PromptLink): Promise<'filled' | 'unmatched' | 'not-opened'> {
+    const workspaces = await this.transport.request('workspace/recent', {}).catch(() => this.#snapshot.workspaces)
+    const project = matchPromptLinkProject(link.repo, workspaces)
+    if (!project) {
+      this.notice('warning', `Open this repository first: ${promptLinkRepoText(link.repo)}`)
+      return 'unmatched'
+    }
+    const held = this.drafts.live(NEW_SESSION_DRAFT_KEY)
+    if (held && held.text !== link.prompt && (held.text.trim() !== '' || held.attachments.length > 0)) {
+      this.addRecoverableDraft(UNSCOPED_RECOVERY_KEY, {
+        text: held.text,
+        attachments: held.attachments,
+        reason: 'saved',
+        detail: 'Set aside for the draft a link opened. Restore it to the composer you choose.',
+      })
+    }
+    await this.startSessionIn(project.path)
+    if (this.#snapshot.workspace?.path !== project.path) return 'not-opened'
+    // Kept for a composer drawn later, and handed to the one on screen now.
+    this.drafts.setLive(NEW_SESSION_DRAFT_KEY, { text: link.prompt, attachments: [] })
+    this.#patch({ promptLinkDraft: { text: link.prompt, context: promptLinkContext(link) } })
+    await handOverToComposer({ text: link.prompt, replace: true })
+    return 'filled'
+  }
+
+  /** The draft a prompt link filled was edited or sent: it is the person's own now. */
+  endPromptLinkDraft(): void {
+    if (this.#snapshot.promptLinkDraft) this.#patch({ promptLinkDraft: null })
+  }
+
   /** One click on a workspace group's +: that folder, a fresh draft. */
   async startSessionIn(path: string): Promise<void> {
     if (this.#snapshot.workspace?.path !== path) await this.openWorkspace(path)
@@ -4265,7 +4308,7 @@ export class AppStore {
     this.#parkedHandoff = null
     // And it starts in the open folder: a worktree chosen for the last draft
     // is a decision about that one, and "New session" is asked to be empty.
-    this.#patch({ draftHandoff: parked, draftPlace: startsInChats ? { kind: 'chats' } : null, sidebarFloating: false })
+    this.#patch({ draftHandoff: parked, draftPlace: startsInChats ? { kind: 'chats' } : null, promptLinkDraft: null, sidebarFloating: false })
     // Hand the keyboard to the composer, the only thing to do in an empty pane.
     window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: '' }))
   }

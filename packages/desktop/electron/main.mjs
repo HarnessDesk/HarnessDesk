@@ -15,6 +15,7 @@ import { respondToCrash } from './crash-policy.mjs'
 import { attachQuitSignals } from './quit-signals.mjs'
 import { attachAppUpdates, attachAppUpdateBridge } from './app-updates.mjs'
 import { attachAppProtocol, loadMainWindow } from './main-window.mjs'
+import { createPromptLinkInbox } from './prompt-link.mjs'
 import { MENU_LABEL, createCommandLineTool, targetOf } from './cli-install.mjs'
 import { decide, relevant } from './notifications.mjs'
 import { createIntakeNotifier } from './intake-notifications.mjs'
@@ -115,7 +116,11 @@ let extensions = null
 let updateMenuItem = null
 const appUpdateBridge = attachAppUpdateBridge({ ipcMain, currentWindow: () => mainWindow, currentMenu: () => updateMenuItem })
 
-const primaryInstance = attachAppProtocol({ app, currentWindow: () => mainWindow })
+/** A prompt link waits here until the app window's renderer takes it, once. */
+const promptLinks = createPromptLinkInbox({ currentWindow: () => mainWindow })
+const primaryInstance = attachAppProtocol({ app, currentWindow: () => mainWindow, argv: process.argv, promptLinks })
+// Draft text only: the renderer puts it in a new chat's composer, unsent.
+ipcMain.handle('harnessdesk:prompt-link-take', event => promptLinks.take(event.sender))
 
 const pickDirectory = async () => {
   const result = await dialog.showOpenDialog(mainWindow ?? undefined, {

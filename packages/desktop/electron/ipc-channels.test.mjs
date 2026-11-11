@@ -23,6 +23,7 @@ const read = (name) => readFileSync(join(here, name), 'utf8')
 const main = [
   read('main.mjs'),
   read('app-updates.mjs'),
+  read('prompt-link.mjs'),
   read('browser-engine.mjs'),
   read('browser-scopes.mjs').replaceAll('ipc.on(', 'ipcMain.on('),
 ].join('\n')
