@@ -233,6 +233,16 @@ const causeAndReset = (item: CarryOnMarkerInput, time: CarryOnTimeFormat, reset 
     .filter(Boolean)
     .join(' · ')
 
+/**
+ * A note the host recorded, as a sentence: the service writes some as phrases
+ * ("no reset time known"), which open with a capital here. Only the note —
+ * a name keeps the case its presentation gives it.
+ */
+const noteText = (note: string | undefined): string | undefined => {
+  const text = note?.trim()
+  return text ? `${text[0]!.toUpperCase()}${text.slice(1)}` : undefined
+}
+
 const sentence = (...parts: (string | undefined)[]): string | undefined => {
   const shown = parts.map((part) => part?.trim()).filter((part): part is string => !!part)
   return shown.length === 0 ? undefined : shown.map((part) => (/[.!?]$/.test(part) ? part : `${part}.`)).join(' ')
@@ -253,35 +263,38 @@ const EXHAUSTED_NOTE = 'No other account or agent has room'
 export const CARRY_ON_MARKER: Readonly<Record<CarryOnPhase, (item: CarryOnMarkerInput, time: CarryOnTimeFormat) => CarryOnMarkerText>> = {
   switched: (item, time) => ({
     headline: item.to ? `Switched from ${fromText(item)} to ${carryOnSideText(item.to)}` : `Switched from ${fromText(item)}`,
-    ...optional('detail', sentence(causeAndReset(item, time), item.note)),
+    ...optional('detail', sentence(causeAndReset(item, time), noteText(item.note))),
   }),
   left: (item, time) => ({
     headline: item.to ? `Continued in a new conversation with ${carryOnSideText(item.to)}` : 'Continued in a new conversation',
-    ...optional('detail', sentence(causeAndReset(item, time), item.note)),
+    ...optional('detail', sentence(causeAndReset(item, time), noteText(item.note))),
     ...(item.link ? { link: 'Open' } : {}),
   }),
   arrived: (item, time) => ({
     headline: item.to ? `Continued from ${fromText(item)} on ${carryOnSideText(item.to)}` : `Continued from ${fromText(item)}`,
-    ...optional('detail', sentence(causeAndReset(item, time), item.note)),
+    ...optional('detail', sentence(causeAndReset(item, time), noteText(item.note))),
     ...(item.link ? { link: 'Earlier history' } : {}),
   }),
   waiting: (item, time) => ({
     headline: item.resetsAt !== undefined
       ? `Waiting for ${carryOnSideText(item.from)} to reset at ${time(item.resetsAt)}`
       : `Waiting for ${carryOnSideText(item.from)} to reset`,
-    ...optional('detail', sentence(causeAndReset(item, time, false), item.note)),
+    ...optional('detail', sentence(causeAndReset(item, time, false), noteText(item.note))),
   }),
   resumed: (item) => ({
     headline: `Resumed on ${carryOnSideText(item.from)} after its reset`,
-    ...optional('detail', sentence(item.note)),
+    ...optional('detail', sentence(noteText(item.note))),
   }),
+  // A stop can leave the conversation open elsewhere too (the move found it in
+  // use there): the note says where, and the link opens it.
   stopped: (item, time) => ({
     headline: `Stopped on ${carryOnSideText(item.from)}`,
-    ...optional('detail', sentence(causeAndReset(item, time), item.note)),
+    ...optional('detail', sentence(causeAndReset(item, time), noteText(item.note))),
+    ...(item.link ? { link: 'Open' } : {}),
   }),
   exhausted: (item, time) => ({
     headline: `Stopped on ${carryOnSideText(item.from)}`,
-    ...optional('detail', sentence(causeAndReset(item, time), item.note ?? EXHAUSTED_NOTE)),
+    ...optional('detail', sentence(causeAndReset(item, time), noteText(item.note ?? EXHAUSTED_NOTE))),
   }),
 }
 

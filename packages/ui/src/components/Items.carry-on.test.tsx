@@ -106,3 +106,24 @@ it('names come from the record, and markup in them stays literal text', () => {
   expect(container.querySelector('img')).toBeNull()
   expect(headline()).toContain('<img src=x onerror=alert(1)>')
 })
+
+it('a stop that left the conversation open elsewhere says where, and opens it', () => {
+  const there = { runtime: runtimeId('codex'), sessionId: sessionId('chat') }
+  const note = 'The person’s message went first. The conversation is also open on Codex · personal, where it was in use.'
+  render({ ...base, phase: 'stopped', mode: 'sameThread', note, link: there })
+  expect(headline()).toBe('Stopped on Codex · work · Sol')
+  expect(marker()?.textContent).toContain(`Codex · work reached its usage limit · resets ${formatReset(RESET)}. ${note}`)
+  const open = [...container.querySelectorAll('button')].find(button => button.textContent === 'Open')!
+  expect(open.getAttribute('title')).toBe('Open the conversation where it is also open')
+  act(() => open.click())
+  expect(openSession).toHaveBeenLastCalledWith('chat', { runtime: 'codex' })
+  render({ ...base, phase: 'stopped', note, link: there }, true)
+  expect(container.querySelector('button')).toBeNull()
+})
+
+it('a note the host wrote as a phrase reads as a sentence', () => {
+  render({ ...base, phase: 'stopped', to: undefined, note: 'stopped at the person’s answer' })
+  expect(marker()?.textContent).toContain('. Stopped at the person’s answer.')
+  render({ ...base, phase: 'exhausted', to: undefined, note: 'no other account or agent has room' })
+  expect(marker()?.textContent).toContain('. No other account or agent has room.')
+})

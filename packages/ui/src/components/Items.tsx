@@ -1456,7 +1456,9 @@ const CarryOn = ({ item }: { item: CarryOnItem }) => {
             <Button
               variant="link"
               size="inline-link"
-              title={item.phase === 'left' ? 'Open the conversation this one continued in' : 'Open the conversation this one continued from'}
+              title={item.phase === 'arrived' ? 'Open the conversation this one continued from'
+                : item.phase === 'stopped' ? 'Open the conversation where it is also open'
+                  : 'Open the conversation this one continued in'}
               onClick={() => void store.openSession(link.sessionId, { runtime: link.runtime })}
             >
               {text.link}

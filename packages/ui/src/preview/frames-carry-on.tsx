@@ -102,8 +102,21 @@ const PHASE_ITEMS: readonly CarryOnItem[] = CARRY_ON_PHASES.map((phase) => marke
   from: WORK,
   ...(phase === 'switched' ? { to: { ...PERSONAL, model: 'Model A Mini' }, note: 'Model A is not on this account; using Model A Mini' } : {}),
   ...(phase === 'left' || phase === 'arrived' ? { to: OTHER_AGENT, link: { runtime: phase === 'left' ? CLAUDE : CODEX, sessionId: 'carry-on-other' as SessionId } } : {}),
-  ...(phase === 'stopped' ? { note: 'You chose to stop' } : { resetsAt: RESET }),
+  // The notes as the host writes them: phrases, which the marker reads as sentences.
+  ...(phase === 'stopped' ? { note: 'stopped at the person’s answer' } : { resetsAt: RESET }),
+  ...(phase === 'exhausted' ? { note: 'no other account or agent has room' } : {}),
 }))
+
+/* The ways a stop reads: the person's answer, no reset known, and a move that found the conversation in use elsewhere. */
+const STOPPED_ITEMS: readonly CarryOnItem[] = [
+  marker('stopped-answer', { phase: 'stopped', cause: 'credits', from: WORK, resetsAt: RESET, note: 'stopped at the person’s answer' }),
+  marker('stopped-no-reset', { phase: 'stopped', cause: 'credits', from: WORK, note: 'no reset time known' }),
+  marker('stopped-open', {
+    phase: 'stopped', cause: 'credits', mode: 'sameThread', from: WORK, to: PERSONAL, resetsAt: RESET,
+    note: 'The person’s message went first. The conversation is also open on Alpha · personal, where it was in use.',
+    link: { runtime: CODEX, sessionId: 'carry-on-switch' as SessionId },
+  }),
+]
 
 const ConversationPane = ({ id, title, sessionKey: key }: { id: string; title: string; sessionKey: SessionKey }) => (
   <Frame id={id} title={title}>
@@ -124,6 +137,11 @@ const CarryOnPanes = () => {
     <Frame id="carry-on-phases" title="Carry on — every phase of the marker">
       <div className="mx-auto grid max-w-[720px] gap-6 p-6">
         {PHASE_ITEMS.map((item) => <ItemView key={item.id} item={item} />)}
+      </div>
+    </Frame>
+    <Frame id="carry-on-stopped" title="Carry on — how a stop reads">
+      <div className="mx-auto grid max-w-[720px] gap-6 p-6">
+        {STOPPED_ITEMS.map((item) => <ItemView key={item.id} item={item} />)}
       </div>
     </Frame>
   </main>
