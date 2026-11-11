@@ -65,7 +65,7 @@ export interface LeadChatsPorts {
    */
   readonly pacing?: { readonly choose: () => Promise<{ readonly agent: string; readonly label: string } | null> }
   /** The work ledger's duplicate guard: a start joins an open item or makes one, and a duplicate is refused. */
-  readonly ledger?: Pick<LeadWorkLedger, 'claim' | 'started' | 'release'>
+  readonly ledger?: Pick<LeadWorkLedger, 'claim' | 'started' | 'release'> & Partial<Pick<LeadWorkLedger, 'leadStopped'>>
 }
 const refuse = (message: string): never => { throw new Error(message) }
 const MUTATIONS = new Set(['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'])
@@ -484,7 +484,8 @@ export class LeadChats {
         ...(params.ledgerItem !== undefined ? { ledgerItem: params.ledgerItem } : {}), ...(params.moveFrom !== undefined ? { moveFrom: params.moveFrom } : {}) }) : undefined
       if (claim && 'problem' in claim) {
         this.ports.noteDispatchNotStarted(attemptId)
-        return { id: '', problem: claim.problem }
+        // The existing item rides the refusal, so the Lead can name it and offer to continue it.
+        return { id: '', problem: claim.problem, ...(claim.item ? { ledgerItem: claim.item } : {}) }
       }
       try {
         // Claim first, then pace, then create: a refused duplicate never reads usage, and the fallback retry inside
@@ -625,6 +626,8 @@ export class LeadChats {
       // Stop may return early for an idle chat, before PhoneWork calls admission.
       await this.#notHeld(params.id)
       await this.incidents?.stop(params.id)
+      // Before the stop lands, so the ledger never reads the Lead's own stop as the person's.
+      await this.ports.ledger?.leadStopped?.(params.id).catch(() => {})
       return this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id) }, effectStarted, this.#liveScope(call, attemptId, () => params.id))
     })
   }

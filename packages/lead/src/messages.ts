@@ -590,6 +590,9 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
             const result = { ...results[position]!, content: safeJson(executed.value, LIMIT.text), is_error: true }
             const extra = bytes(json(result)) - bytes(json(results[position]))
             if (extra <= available) { results[position] = result; available -= extra }
+            // The host said why nothing started (work that already exists, an open question, no free slot): the
+            // model answers the person with it on the next turn. It is not a refusal that parks the Lead for Resume.
+            transientTools.push(use.id)
           }
           if (executed.outcome === 'succeeded') {
             const result = { ...results[position]!, content: safeJson(executed.value ?? null, LIMIT.text), is_error: false }

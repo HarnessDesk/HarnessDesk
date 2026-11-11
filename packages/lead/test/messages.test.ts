@@ -702,6 +702,17 @@ test('a host-attested chat-start preflight refusal reaches the model with its pl
   assert.match(result.toolResults![0]!.content, /Quote only a person message/)
   assert.equal([...s.journal.state.attempts.values()][0]!.outcome, 'failed')
   assert.equal(s.journal.state.chatEffectsSinceReply.started, 0)
+  assert.deepEqual(result.transientTools, ['delegate'], 'the model answers the person with the reason; the Lead is not parked for Resume')
+})
+
+test('a start refused because the work exists returns the existing item, and the Lead carries on to tell the person', async () => {
+  const s = await setup([message([tool('delegate', 'chat_start', { text: 'Fix the login redirect (second attempt)' })], { stop_reason: 'tool_use' })])
+  const refusal = { id: '', ledgerItem: 'work-1', problem: 'Nothing was started: work work-1 "Fix the login redirect" was tried 10 minutes ago and ended as stopped (Stopped: the person stopped its chat). Name it to the person and ask whether to start another attempt, with options.' }
+  ;(s.options as any).dispatch = async (_call: unknown, id: string) => { s.journal.noteDispatchNotStarted(id); return { value: refusal, identity: null } }
+  const result = await lead.createLeadMessages(s.options as any).request(input as any, new AbortController().signal)
+  assert.deepEqual(JSON.parse(result.toolResults![0]!.content), refusal)
+  assert.deepEqual(result.transientTools, ['delegate'])
+  assert.equal(s.journal.state.chatEffectsSinceReply.started, 0, 'nothing started')
 })
 
 test('rebuilt conversation history retains ordinary and proactive decision context for exact-label answers', () => {

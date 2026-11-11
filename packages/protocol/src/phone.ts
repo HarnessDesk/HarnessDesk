@@ -566,3 +566,12 @@ export interface PhoneTriageList {
   /** The armed mention triggers on this desk, by project then id; empty when none is armed. Absent from an older desk. */
   readonly triggers?: readonly PhoneTriageTrigger[]
 }
+
+/**
+ * The reminders a paired phone shows, as `workspace/read` hands them over in `work.reminders`: each one the Lead set
+ * through the host, with its own id (`remind-N`), its text, whom it is for (`person` or the Lead's own `lead`
+ * check-back), the work item it belongs to, when it is due, and its state. `set` has not fired: show it with its due
+ * time and a Cancel that calls `lead/reminder/cancel` with its id (tier `run`). `fired` has reached its time: show it as
+ * fired with `firedAt`. `cancelled` is listed for a day with its reason and needs no control. Left out when there are none.
+ */
+export type PhoneLeadReminder = import('./lead-work.js').LeadReminder

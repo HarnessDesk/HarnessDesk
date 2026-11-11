@@ -186,8 +186,13 @@ export const leadWorkFixture: LeadWorkBoard = { version: 1, more: 0, items: [
   workCard(3, 'Make the empty state keyboard accessible', 'working', { links: { chats: ['fixture:chat-3'], teams: ['demo-team'], prs: [], issues: [] }, fact: 'A chat is working' }),
   workCard(5, 'Ship the changelog after the rename', 'blocked', { after: 'work-4', note: 'Waits for the column rename' }),
   workCard(2, 'Fix the retry status list', 'in-review', { links: { chats: ['fixture:chat-2'], teams: [], prs: ['acme/widgets#42'], issues: [] }, fact: 'Pull request acme/widgets#42 is open' }),
-  workCard(6, 'Draft the release notes', 'stopped', { fact: 'A chat was stopped' }),
+  workCard(6, 'Draft the release notes', 'stopped', { fact: 'Stopped: the person stopped its chat' }),
   workCard(1, 'Update the onboarding copy', 'done', { closedAt: Date.now() - 600_000, outcome: 'done' }),
+],
+// A reminder the person asked for, still set, and one that fired: the rail and Scheduled tasks list them with their times.
+reminders: [
+  { id: 'remind-2', text: 'Send the changelog to the team', for: 'person', item: 'work-5', dueAt: Date.now() + 90 * 60_000, createdAt: Date.now() - 600_000, state: 'set' },
+  { id: 'remind-1', text: 'Check the review on the retry list', for: 'person', item: 'work-2', dueAt: Date.now() - 20 * 60_000, createdAt: Date.now() - 3_600_000, state: 'fired', firedAt: Date.now() - 20 * 60_000 },
 ] }
 
 /** What the host tells a window that has been away: one digest, and what became of the questions in the thread. */
