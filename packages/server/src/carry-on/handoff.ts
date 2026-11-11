@@ -1,6 +1,7 @@
-import { HANDOFF_PREFIX, splitContextContent, wrapContext, type AgentItem, type Turn } from '@harnessdesk/protocol'
+import { HANDOFF_PREFIX, isHandoffSource, splitContextContent, wrapContext, type AgentItem, type Turn } from '@harnessdesk/protocol'
 
 import { MOVE_TEXT_CHARS } from '../lead/chats.js'
+import { CONTINUE_TEXT } from './decide.js'
 
 /**
  * What another agent is given when a conversation moves to it: the packet.
@@ -35,14 +36,41 @@ export interface PacketMeta {
 const quote = (text: string): string => text.split('\n').map(line => `> ${line}`).join('\n')
 const tail = (text: string, limit: number): string => text.length <= limit ? text : `…${text.slice(text.length - limit)}`
 const lastLines = (text: string, count: number): string => text.split('\n').slice(-count).join('\n')
-const typed = (item: AgentItem): string | null => item.type === 'userMessage' ? splitContextContent(item.content).text : null
+/** What the person typed; the host's own continuation is not theirs. */
+const typed = (item: AgentItem): string | null => {
+  if (item.type !== 'userMessage') return null
+  const text = splitContextContent(item.content).text
+  return text.trim() === CONTINUE_TEXT ? null : text
+}
+const ORIGIN = /^Originally handed off from .*$/m
+const REQUEST = /The request:\n((?:>.*(?:\n|$))+)/
+
+/**
+ * A conversation that was itself handed off began with a packet, not with the
+ * person's words: the request it carried is the original goal, and where it
+ * came from stays attributed. The packet is the host's own envelope, but the
+ * request inside it is still quoted text and goes back in quoted.
+ */
+const inherited = (turns: readonly Turn[]): { readonly request: string | null; readonly origin: string } | null => {
+  for (const turn of turns) for (const item of turn.items) {
+    if (item.type !== 'userMessage') continue
+    const block = splitContextContent(item.content).injections.find(entry => isHandoffSource(entry.label))
+    if (!block) continue
+    const quoted = REQUEST.exec(block.text)?.[1]
+    const request = quoted === undefined ? null : quoted.replace(/\n$/, '').split('\n').map(line => line.replace(/^> ?/, '')).join('\n')
+    const origin = ORIGIN.exec(block.text)?.[0] ?? `Originally handed off from ${block.label.slice(HANDOFF_PREFIX.length)}.`
+    return { request, origin }
+  }
+  return null
+}
 
 interface Section { readonly text: string }
 
 export const carryOnPacket = (turns: readonly Turn[], meta: PacketMeta, cap = MOVE_TEXT_CHARS): string => {
   const said = turns.flatMap(turn => turn.items.flatMap(item => { const text = typed(item); return text !== null && text.trim() ? [text] : [] }))
-  let first = said[0] ?? ''
-  let last = said.length > 1 && said.at(-1) !== first ? said.at(-1)! : null
+  const origin = inherited(turns)
+  let first = origin?.request ?? said[0] ?? ''
+  let last = said.length > (origin ? 0 : 1) && said.at(-1) !== first ? said.at(-1)! : null
   const from = meta.fromAccount ? `${meta.fromName} · ${meta.fromAccount}` : meta.fromName
   const why = `Continued here because ${from} reached its usage limit at ${new Date(meta.at).toISOString()}.`
   const back = `Full history: “${meta.title}” on ${meta.fromName}.`
@@ -66,6 +94,7 @@ export const carryOnPacket = (turns: readonly Turn[], meta: PacketMeta, cap = MO
   const build = (): string => {
     const body = [
       why,
+      ...(origin ? [origin.origin] : []),
       `The request:\n${quote(first)}`,
       ...(last !== null ? [`The last message, whose turn did not finish:\n${quote(last)}`] : []),
       ...(turnSections.length ? [`Recent turns:\n\n${turnSections.map(section => section.text).join('\n\n')}`] : []),

@@ -141,6 +141,11 @@ test('another agent is handed the conversation in one capped packet, with a link
   assert.ok(first.text.length <= MOVE_TEXT_CHARS, `the packet is capped (${first.text.length})`)
   assert.match(first.text, /Fix the failing build on main\./)
   assert.doesNotMatch(first.text, new RegExp(String(session.id)), 'no host pointer reaches the agent')
+  const opened = (await r.client.call('session/read', { runtime: OTHER, sessionId: first.session as never })) as Session
+  const message = opened.turns[0]?.items.find(item => item.type === 'userMessage')
+  const part = message?.type === 'userMessage' ? message.content[0] : undefined
+  assert.ok(part?.type === 'text')
+  assert.equal(part.deskContext?.prefixLength, part.text.length, 'the packet is the desk’s, not words the person typed')
 
   await r.client.until(() => changes(r).some(one => one.state === 'moved'), 5_000, 'the moved incident')
   const moved = changes(r).findLast(one => one.state === 'moved')!

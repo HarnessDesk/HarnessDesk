@@ -5950,7 +5950,11 @@ export class Host {
         if (this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live) return
         await this.call('session/resume', { ...key(runtime, sessionId), ...(model ? { options: { model } } : {}) })
       },
-      send: async (runtime, sessionId, text) => { await sendTurn(this.#context, { ...key(runtime, sessionId), input: [{ type: 'text', text }] }) },
+      // A packet is the host's own words: it goes in as desk context, so the transcript never
+        // shows it as something the person typed.
+        send: async (runtime, sessionId, text, kind) => {
+          await sendTurn(this.#context, { ...key(runtime, sessionId), input: [kind === 'packet' ? deskContextContent(text) : { type: 'text', text }] })
+        },
       create: async (runtime, from, model) => {
         const source = key(from.runtime, from.sessionId)
         // The new conversation starts in the stuck one's folder, worktree included, so its uncommitted work is there.

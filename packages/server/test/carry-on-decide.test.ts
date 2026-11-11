@@ -162,3 +162,11 @@ test('a person’s pick on the card may spend a nearly-out or API-key account, n
   assert.deepEqual(decide(input({ candidates: [nearly], target: 'codex-2' }), NOW), { kind: 'move', target: nearly, mode: 'sameThread' })
   assert.equal(decide(input({ candidates: [sibling({ signedIn: false })], target: 'codex-2' }), NOW).kind, 'stop')
 })
+
+test('a person’s pick that has since run out is not taken', () => {
+  const out = sibling({ tier: 3 })
+  assert.equal(decide(input({ candidates: [out], target: 'codex-2' }), NOW).kind, 'stop')
+  // And the card does not offer it.
+  const asked = decide(input({ choice: 'ask', candidates: [out, other()] }), NOW)
+  assert.ok(asked.kind === 'ask' && !asked.others.some(one => one.runtime === 'codex-2') && asked.target?.runtime !== 'codex-2')
+})

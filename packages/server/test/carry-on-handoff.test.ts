@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { HANDOFF_PREFIX, itemId, splitContext, type AgentItem, type Turn } from '@harnessdesk/protocol'
+import { deskContextContent, HANDOFF_PREFIX, itemId, splitContext, type AgentItem, type Turn } from '@harnessdesk/protocol'
+
+import { CONTINUE_TEXT } from '../src/carry-on/decide.js'
 
 import { carryOnPacket } from '../src/carry-on/handoff.js'
 import { MOVE_TEXT_CHARS } from '../src/lead/chats.js'
@@ -54,4 +56,15 @@ test('a long history is trimmed from the bottom up, and a huge request is cut ra
   assert.ok(huge.length <= MOVE_TEXT_CHARS)
   assert.match(huge, /\[truncated — see the full history\]/)
   assert.match(huge, /Full history:/)
+})
+
+test('carrying on a conversation that was itself handed off keeps the original request and who it came from', () => {
+  const first = carryOnPacket([turn(user('Fix the failing build on main.'), agent('Looking.'))], META)
+  const handedOff = { id: itemId(`u${next++}`), type: 'userMessage', content: [deskContextContent(first)] } as AgentItem
+  const second = carryOnPacket([turn(handedOff, agent('Still on it.')), turn(user(CONTINUE_TEXT))],
+    { fromName: 'Claude Code', title: 'Fix the build', at: Date.UTC(2026, 10, 11, 12) })
+  const body = splitContext(second).injections[0]!.text
+  assert.match(body, /The request:\n> Fix the failing build on main\./)
+  assert.match(body, /Originally handed off from Codex — “Fix the build”/)
+  assert.doesNotMatch(body, /The last message, whose turn did not finish:\n> Continue from where you stopped/, 'the host’s own words are not the person’s')
 })

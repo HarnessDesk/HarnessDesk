@@ -159,7 +159,19 @@ export interface CarryOnRecord {
   /** When the continuing turn was being sent; a restart after it never resends. */
   readonly turnStartedAt?: number
   readonly note?: string
+  /**
+   * Every failed turn this incident has answered, as `carryOnTurnKey`s. Kept with the record wherever it moves, so a
+   * late second completion of a turn on the account it left still finds it answered.
+   */
+  readonly handled?: readonly string[]
+  /** A send a restart could not confirm: it waits for the person's answer, never for a timer, across later restarts too. */
+  readonly uncertain?: true
 }
+
+/** One failed turn of one conversation, as `CarryOnRecord.handled` fences it. */
+export const carryOnTurnKey = (runtime: string, sessionId: string, turnId: string): string => `${runtime}\u0000${sessionId}\u0000${turnId}`
+/** How many answered turns a record remembers: more than the hops it may take. */
+export const HANDLED_LIMIT = 8
 
 const short = (value: unknown, limit = 300): boolean => typeof value === 'string' && value.length > 0 && value.length <= limit
 const optionalShort = (value: unknown, limit = 300): boolean => value === undefined || short(value, limit)
@@ -188,7 +200,10 @@ export const validCarryOnRecord = (value: unknown): value is CarryOnRecord => {
     (v['to'] === undefined || side(v['to'])) && optionalShort(v['toRuntime']) &&
     (v['mode'] === undefined || v['mode'] === 'sameThread' || v['mode'] === 'handoff') &&
     (v['link'] === undefined || pointer(v['link'])) && (v['watch'] === undefined || pointer(v['watch'])) &&
-    (v['turnStartedAt'] === undefined || isTimestamp(v['turnStartedAt'])) && optionalShort(v['note'], 300)
+    (v['turnStartedAt'] === undefined || isTimestamp(v['turnStartedAt'])) && optionalShort(v['note'], 300) &&
+    (v['handled'] === undefined || Array.isArray(v['handled']) && (v['handled'] as unknown[]).length <= HANDLED_LIMIT &&
+      (v['handled'] as unknown[]).every(entry => short(entry, 1000))) &&
+    (v['uncertain'] === undefined || v['uncertain'] === true)
 }
 
 /**
@@ -223,6 +238,14 @@ export class CarryOnIncidents {
   watching(runtime: string, sessionId: string): CarryOnRecord | undefined {
     for (const record of this.#ledger.values()) if (record.watch?.runtime === runtime && record.watch.sessionId === sessionId) return record
     return undefined
+  }
+  /** Whether some incident has already answered this failed turn, wherever that incident lives now. */
+  handled(runtime: string, sessionId: string, turnId: string): boolean {
+    const key = carryOnTurnKey(runtime, sessionId, turnId)
+    for (const record of this.#ledger.values()) {
+      if (record.handled?.includes(key) || record.runtime === runtime && record.sessionId === sessionId && record.turnId === turnId) return true
+    }
+    return false
   }
   all(): readonly CarryOnRecord[] { return [...this.#ledger.values()] }
   /** Only inside `serial`. `replaces` names the key a record moved from, when a same-thread move re-keys it. */

@@ -112,15 +112,16 @@ export const decide = (input: DecideInput, now: number): CarryOnAction => {
       const { same, other } = best(input)
       const target = same ?? other
       const others = ranked(input.candidates.filter(candidate => candidate.runtime !== input.stuck.runtime && candidate !== target &&
-        candidate.resume && !candidate.refused && (input.otherAgents || candidate.agent === input.stuck.agent)))
+        candidate.resume && candidate.tier < 3 && !candidate.refused && (input.otherAgents || candidate.agent === input.stuck.agent)))
       return { kind: 'ask', target, mode: target ? modeOf(target, input.stuck.agent) : null, others, wait: resetKnown, scope: input.from }
     }
     case 'switch': {
       if (input.hops >= CARRY_ON_HOPS) return { kind: 'stop', phase: 'exhausted', note: NO_ROOM }
       if (input.target !== undefined) {
         const picked = input.candidates.find(candidate => candidate.runtime === input.target)
-        // The person chose it on the card: a nearly spent or API-key account is theirs to spend; signed out is not.
-        if (picked && picked.signedIn && picked.resume && !picked.refused && !input.tried.includes(picked.runtime))
+        // The person chose it on the card: a nearly spent or API-key account is theirs to spend; signed out or
+        // run out since the card was drawn is not.
+        if (picked && picked.signedIn && picked.resume && picked.tier < 3 && !picked.refused && !input.tried.includes(picked.runtime))
           return { kind: 'move', target: picked, mode: modeOf(picked, input.stuck.agent) }
         return { kind: 'stop', phase: 'exhausted', note: NO_ROOM }
       }

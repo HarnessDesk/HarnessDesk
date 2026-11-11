@@ -143,8 +143,11 @@ test('a restart while sending asks again and never resends', async t => {
   // The send never comes back: the host went down mid-send.
   const hung = r.reopen({ send: () => new Promise(() => {}) })
   void hung.ended('codex', 's1', LIMIT)
-  await new Promise(resolve => setTimeout(resolve, 50))
-  assert.equal((await disk(r.file)).records[0]!['state'], 'sending')
+  // Polled rather than slept: under load the claim can take longer than any fixed pause.
+  for (let at = Date.now(); (await disk(r.file).catch(() => ({ version: 0, records: [] as Record<string, unknown>[] }))).records[0]?.['state'] !== 'sending';) {
+    assert.ok(Date.now() - at < 10_000, 'the send was never reached')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
   hung.close()
 
   const after = await rig(t, { dir })
@@ -257,4 +260,107 @@ test('a handoff creates the new conversation, links both ways and follows its fi
   assert.equal(records[0]!['runtime'], 'claude')
   assert.equal(records[0]!['state'], 'stopped')
   assert.equal(r.marks.at(-1)?.item.phase, 'exhausted')
+})
+
+// ------------------------------------------------------------ review round 1
+
+const deferred = <T = void>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { promise, resolve } }
+const until = async (check: () => boolean, what: string): Promise<void> => {
+  for (let at = 0; at < 200 && !check(); at += 1) await new Promise(resolve => setTimeout(resolve, 5))
+  assert.ok(check(), what)
+}
+const sends = (r: Rig) => r.calls.filter(call => call.startsWith('send '))
+
+test('a person’s message during the first meter read wins: the old failure opens nothing', async t => {
+  const r = await rig(t)
+  const meter = deferred<{ reached: boolean; blocked: boolean; resetsAt: number | null }>()
+  const service = r.reopen({ meter: () => meter.promise })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await service.personSent('codex', 's1')
+  meter.resolve({ reached: true, blocked: true, resetsAt: null })
+  await ended
+  assert.deepEqual(r.calls, [], 'no close, no resume, no send')
+  assert.equal(service.live('codex', 's1'), false)
+})
+
+test('a person’s message during the model lookup stops the switch before it touches the thread', async t => {
+  const r = await rig(t)
+  const models = deferred<readonly ModelInfo[]>()
+  let asked = false
+  const service = r.reopen({ models: () => { asked = true; return models.promise } })
+  t.after(() => service.close())
+  const ended = service.ended('codex', 's1', LIMIT)
+  await until(() => asked, 'the model lookup')
+  const person = service.personSent('codex', 's1')
+  models.resolve([])
+  await ended; await person
+  assert.deepEqual(r.calls, [], 'the person’s message is the continuation')
+  assert.equal(service.live('codex', 's1'), false)
+})
+
+test('a person’s message during the reset’s resume stops the retry before it sends', async t => {
+  const r = await rig(t, { choice: 'wait', resetsAt: 1_000_000_000 + HOUR })
+  const resumed = deferred()
+  let resuming = false
+  const service = r.reopen({ resume: async (runtime, id) => { r.calls.push(`resume ${runtime} ${id}`); resuming = true; await resumed.promise } })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  r.clock = 1_000_000_000 + HOUR + 1_250
+  r.timers.find(timer => !timer.cancelled)!.run()
+  await until(() => resuming, 'the resume at the reset')
+  const person = service.personSent('codex', 's1')
+  resumed.resolve()
+  await service.idle(); await person
+  assert.deepEqual(sends(r), [], 'no continue behind the person’s message')
+  assert.equal(service.live('codex', 's1'), false)
+})
+
+test('a repeated completion of the failed turn after the thread moved sends no second continuation', async t => {
+  const r = await rig(t)
+  await r.service.ended('codex', 's1', LIMIT)
+  assert.equal(sends(r).length, 1)
+  // The stuck account reports the same failed turn again, after the record moved to its sibling.
+  await r.service.ended('codex', 's1', LIMIT)
+  assert.equal(sends(r).length, 1, 'the first account’s turn is still fenced')
+  const records = (await disk(r.file)).records
+  assert.equal(records.length, 1)
+  assert.equal(records[0]!['hops'], 1)
+})
+
+test('a send left uncertain by a restart waits for an answer, through any later restart, never for the reset', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-carry-on-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const reset = 1_000_000_000 + HOUR
+  const r = await rig(t, { dir, resetsAt: reset })
+  const hung = r.reopen({ send: () => new Promise(() => {}) })
+  void hung.ended('codex', 's1', LIMIT)
+  await until(() => r.calls.includes('resume codex-2 s1'), 'the switch to reach its send')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  hung.close()
+
+  for (let restart = 0; restart < 2; restart += 1) {
+    const after = await rig(t, { dir })
+    await after.service.restore()
+    assert.equal(after.service.list()[0]?.state, 'asked')
+    assert.equal(after.timers.filter(timer => !timer.cancelled).length, 0, `no timer after restart ${restart + 1}`)
+    await after.tick(reset + 2 * HOUR)
+    assert.deepEqual(after.calls, [], 'nothing goes out on its own')
+    after.service.close()
+  }
+})
+
+test('an account that ran out after the card offered it is refused as stale, before any rule is written', async t => {
+  const r = await rig(t, { choice: 'ask' })
+  const ranks: Record<string, { tier: 0 | 1 | 2 | 3; resetsAt: number | null }> = {}
+  const service = r.reopen({ rank: id => ranks[id] ?? { tier: 1, resetsAt: null } })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  const [view] = service.list()
+  assert.equal(view?.choices.target?.runtime, 'codex-2')
+  ranks['codex-2'] = { tier: 3, resetsAt: null }
+  await assert.rejects(service.decide({ incidentId: view!.incidentId, choice: 'switch', target: 'codex-2' as never, always: true }),
+    (error: Error & { wireCode?: string }) => error.wireCode === 'carryOnStale')
+  assert.deepEqual(r.rules, [], 'no rule written')
+  assert.deepEqual(r.calls, [], 'nothing moved')
 })
