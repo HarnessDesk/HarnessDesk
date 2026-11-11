@@ -7,6 +7,7 @@ import type { GoalView, Intent, SessionSummary, WireNotification } from '@harnes
 
 import { CONSULT_CLOSED_REFUSAL, CONSULT_PROMPT } from '../src/consult.js'
 import { executionOf } from '../src/flow-recovery.js'
+import { GoalStore } from '../src/goals/store.js'
 import type { QuestionTimers } from '../src/host.js'
 import type { UsageSample } from '../src/ledger/insight.js'
 import { claimed, desk, E2E, execution, start, TASK, whenChanged, type Desk } from './fixtures/flow-host-evidence.js'
@@ -60,20 +61,28 @@ interface Asking {
   readonly caller: { readonly runtime: string; readonly sessionId: string }
   readonly run: string
   readonly seen: WireNotification[]
+  /** Further runtimes the seat may ask, by id. */
+  readonly others: Record<string, HoldFake>
 }
 
 /** A desk with a running fixer seat that may (or may not) ask `holdfake`, and a window listening to everything. */
-const asking = async (t: TestContext, source = ASKS): Promise<Asking> => {
+const asking = async (t: TestContext, source = ASKS, options: { readonly kept?: number; readonly also?: readonly string[] } = {}): Promise<Asking> => {
   const timers = manualTimers()
-  const d = await desk(t, undefined, { consultTimers: timers })
+  const d = await desk(t, undefined, { consultTimers: timers, ...(options.kept !== undefined ? { consultsRetiredKept: options.kept } : {}) })
   const holds = new HoldFake('holdfake')
   d.host.register(holds)
   await holds.start()
+  const others: Record<string, HoldFake> = {}
+  for (const id of options.also ?? []) {
+    others[id] = new HoldFake(id)
+    d.host.register(others[id])
+    await others[id].start()
+  }
   const run = await start(d, source, TASK)
   const [card] = await claimed(d, run.goal, 'fixer', 1)
   const seen: WireNotification[] = []
   t.after(d.host.addBroadcaster((notification) => { seen.push(notification) }))
-  return { d, holds, timers, caller: { runtime: card!.claim!.runtime, sessionId: card!.claim!.sessionId }, run: run.id, seen }
+  return { d, holds, timers, caller: { runtime: card!.claim!.runtime, sessionId: card!.claim!.sessionId }, run: run.id, seen, others }
 }
 
 const answerWith = (holds: HoldFake, text: string): void => {
@@ -314,6 +323,103 @@ test('a timed-out open lets the runtime’s other conversations through one clea
   await whenChanged(a.d, () => (a.d.host.registry.get('holdfake' as never, late.id) === undefined ? true : null), 'the late consult is discarded')
 })
 
+const admitRead = (a: Asking, runtime: string, sessionId: string) => a.d.host.ceilingGate.admit({
+  startedAt: Date.now(), tool: 'board_read', args: undefined, needs: 'read', scope: { runtime: runtime as never, sessionId: sessionId as never }, quiet: true,
+})
+
+test('round 3: a consult is closed the moment it answers, before its discard: a discard that never settles leaves nothing of it admissible', E2E, async (t) => {
+  const a = await asking(t)
+  answerWith(a.holds, '4')
+  let deleting = false
+  ;(a.holds as { deleteSession: HoldFake['deleteSession'] }).deleteSession = () => { deleting = true; return new Promise(() => {}) }
+  const pending = a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'q', context: null }, a.caller)
+  await whenChanged(a.d, () => (deleting ? true : null), 'the discard is under way, and never ends')
+  const consult = String(a.holds.held[0]!.id)
+  assert.deepEqual(await admitRead(a, 'holdfake', consult), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL }, 'refused while the discard hangs')
+  for (const one of [...a.timers.live.values()].filter((timer) => timer.ms === 10_000)) one.fire()
+  assert.equal((await pending).text, '4', 'the ask still ends at its cleanup bound')
+  assert.deepEqual(await admitRead(a, 'holdfake', consult), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+})
+
+const ASK_TWICE = (seats: string) => FLOW(`\n    ask: { seats: [${seats}], times: 3, timeoutSeconds: 30 }`)
+
+test('round 3: an id a closed consult once had is a new consult when the runtime hands it out again — admitted while it lives, refused once it ends', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake'))
+  answerWith(a.holds, '4')
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  const id = String(a.holds.held[0]!.id)
+  assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+  a.holds.reuseId = id
+  let during: unknown = null
+  a.holds.onSend = (session) => { void admitRead(a, 'holdfake', String(session.id)).then((admission) => { during = admission }) }
+  // The desk's session index keeps a deleted id's events out, so this consult is ended by its deadline, not an answer.
+  const second = a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'two', context: null }, a.caller)
+  await whenChanged(a.d, () => during, 'the second consult was asked, and its read was admitted or refused')
+  ;[...a.timers.live.values()].find((one) => one.ms === 30_000)!.fire()
+  await assert.rejects(second, code('askTimeout'))
+  assert.equal(String(a.holds.held[1]!.id), id, 'the runtime handed the same id out again')
+  assert.deepEqual(during, { admitted: true }, 'the new consult reads, rather than inheriting the old one’s refusal')
+  assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL }, 'and is refused once it, too, has ended')
+})
+
+test('round 3: closed consults retire, and only the oldest beyond the bound is forgotten', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 1 })
+  answerWith(a.holds, '4')
+  for (const question of ['one', 'two', 'three']) await a.d.host.consultPlane.ask({ agent: 'holdfake', question, context: null }, a.caller)
+  const [first, second, third] = a.holds.held.map((one) => String(one.id))
+  // Bound at one: the two older consults are forgotten, the last is still refused.
+  assert.deepEqual(await admitRead(a, 'holdfake', third!), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+  for (const id of [first!, second!]) {
+    const admission = await admitRead(a, 'holdfake', id)
+    assert.equal(!admission.admitted && admission.refusal === CONSULT_CLOSED_REFUSAL, false, id)
+  }
+})
+
+test('round 3: each opening holds only its own runtime’s announcements, and only until its own bound — an overlapping opening never extends it', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake'))
+  let openA!: () => void
+  a.holds.createGate = new Promise<void>((resolve) => { openA = resolve })
+  const first = a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  await whenChanged(a.d, () => (a.holds.createOptions.length === 1 ? true : null), 'opening A')
+  ;[...a.timers.live.values()].find((one) => one.ms === 30_000)!.fire()
+  await assert.rejects(first, code('askTimeout'))
+  const boundA = [...a.timers.live.values()].filter((one) => one.ms === 10_000)
+  assert.equal(boundA.length, 1)
+  a.holds.createGate = null
+  const x = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
+  assert.deepEqual(mentions(a.seen, 'holdfake', String(x.id)), [], 'X waits on opening A')
+  // A second opening on the same runtime starts while A is still within its bound.
+  let openB!: () => void
+  a.holds.createGate = new Promise<void>((resolve) => { openB = resolve })
+  const second = a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'two', context: null }, a.caller)
+  await whenChanged(a.d, () => (a.holds.createOptions.length === 3 ? true : null), 'opening B')
+  a.holds.createGate = null
+  const y = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
+  boundA[0]!.fire()
+  await whenChanged(a.d, () => (mentions(a.seen, 'holdfake', String(x.id)).length > 0 ? true : null), 'X goes out at A’s bound, though B still opens')
+  assert.deepEqual(mentions(a.seen, 'holdfake', String(y.id)), [], 'Y, which started while B was opening, still waits on B')
+  ;[...a.timers.live.values()].find((one) => one.ms === 30_000)!.fire()
+  await assert.rejects(second, code('askTimeout'))
+  for (const one of [...a.timers.live.values()].filter((timer) => timer.ms === 10_000)) one.fire()
+  await whenChanged(a.d, () => (mentions(a.seen, 'holdfake', String(y.id)).length > 0 ? true : null), 'Y goes out at B’s bound')
+  openA()
+  openB()
+})
+
+test('round 3: an opening on another runtime never holds this one’s announcements', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake, holdfake2'), { also: ['holdfake2'] })
+  const other = a.others['holdfake2']!
+  let open!: () => void
+  other.createGate = new Promise<void>((resolve) => { open = resolve })
+  const pending = a.d.host.consultPlane.ask({ agent: 'holdfake2', question: 'q', context: null }, a.caller)
+  await whenChanged(a.d, () => (other.createOptions.length === 1 ? true : null), 'opening on holdfake2')
+  const x = await a.holds.createSession({ cwd: other.createOptions[0]!.cwd })
+  await whenChanged(a.d, () => (mentions(a.seen, 'holdfake', String(x.id)).length > 0 ? true : null), 'holdfake’s conversation goes straight out')
+  ;[...a.timers.live.values()].find((one) => one.ms === 30_000)!.fire()
+  await assert.rejects(pending, code('askTimeout'))
+  open()
+})
+
 test('approvals inside a consult are declined by the desk, never shown, and the ask still answers', E2E, async (t) => {
   const a = await asking(t)
   let decided: unknown = null
@@ -479,10 +585,90 @@ test('a consult’s unknown spend is repaired by a later reading of it, and the 
   assert.match(askMeter(d, goal)?.unknown ?? '', /reported no usage/)
   const lines = await seatLines(d.stateDir)
   const link = lines.find((line) => line.type === 'seat-consult' && line.consult!.closedAt !== null)!.consult!
-  corpus.push(corpusOf('fake', link.sessionId, lines.find((line) => line.type === 'seat')!.record!.checkout.project, 0.05, link.openedAt, link.openedAt))
+  const project = lines.find((line) => line.type === 'seat')!.record!.checkout.project
+  // Both found by one read: one from part-way through the turn, which repairs nothing, and one taken at its end, which does.
+  corpus.push(corpusOf('fake', link.sessionId, project, 0.02, link.openedAt, link.openedAt))
+  corpus.push(corpusOf('fake', link.sessionId, project, 0.05, link.openedAt, link.closedAt!))
   await d.host.intakePlane.tick()
   const meter = askMeter(d, goal)!
   assert.deepEqual({ unknown: meter.unknown, lastMicros: meter.lastMicros }, { unknown: null, lastMicros: 50_000 }, 'reconciled from the reading')
   d.runtime.onSend = (session, text) => { if (text.includes(CONSULT_PROMPT)) setImmediate(() => (session as HoldSession).finish('6')) }
   assert.equal((await d.host.consultPlane.ask({ agent: 'fake', question: 'And 3+3?', context: null }, caller)).text, '6')
+})
+
+test('round 3: a reading from part-way through a consult repairs nothing — the Goal stops for a person — and the final reading still repairs it after the stop', E2E, async (t) => {
+  const corpus: UsageSample[] = []
+  const { d, goal, caller } = await triggerSeat(t, 2, () => corpus)
+  d.runtime.onSend = (session, text) => { if (text.includes(CONSULT_PROMPT)) setImmediate(() => (session as HoldSession).finish('4')) }
+  await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
+  const lines = await seatLines(d.stateDir)
+  const link = lines.find((line) => line.type === 'seat-consult' && line.consult!.closedAt !== null)!.consult!
+  const project = lines.find((line) => line.type === 'seat')!.record!.checkout.project
+  corpus.push(corpusOf('fake', link.sessionId, project, 0.02, link.openedAt, link.openedAt))
+  await d.host.intakePlane.tick()
+  assert.match(askMeter(d, goal)?.unknown ?? '', /reported no usage/, 'an intermediate record repairs nothing')
+  assert.match(d.host.intakePlane.journal.read().budgets[goal]!.stop?.detail ?? '', /Spend is unknown/, 'and the Goal stops for a person')
+  corpus.push(corpusOf('fake', link.sessionId, project, 0.05, link.openedAt, link.closedAt!))
+  await d.host.intakePlane.tick()
+  const meter = askMeter(d, goal)!
+  assert.deepEqual({ unknown: meter.unknown, lastMicros: meter.lastMicros }, { unknown: null, lastMicros: 50_000 }, 'a stopped Goal’s consult is still read, and repaired')
+  // The stop stands: the stopped run's seat no longer asks at all.
+  await assert.rejects(d.host.consultPlane.ask({ agent: 'fake', question: 'And 3+3?', context: null }, caller),
+    (error: unknown) => code('askBudget')(error) || code('askNotAllowed')(error))
+})
+
+/** A trigger Seat that asks once, while the corpus records `before` part-way through the consult and the live conversation reports `live` (or nothing). */
+const askWithCorpus = async (t: TestContext, before: number, live: number | null) => {
+  const corpus: UsageSample[] = []
+  const { d, goal, caller } = await triggerSeat(t, 2, () => corpus)
+  d.runtime.onSend = (session, text) => {
+    if (!text.includes(CONSULT_PROMPT)) return
+    void (async () => {
+      const project = (await seatLines(d.stateDir)).find((line) => line.type === 'seat')!.record!.checkout.project
+      const at = Date.now()
+      corpus.push(corpusOf('fake', String(session.id), project, before, at, at))
+      await d.host.intakePlane.tick()
+      assert.equal(askMeter(d, goal)?.lastMicros, Math.round(before * 1_000_000), 'the corpus reading was counted first')
+      if (live !== null) d.runtime.emit({ type: 'usage/updated', sessionId: session.id, usage: USAGE(live) })
+      setImmediate(() => (session as HoldSession).finish('4'))
+    })()
+  }
+  await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
+  return { d, goal, caller }
+}
+
+test('round 3: a total that reset — 0.30 recorded, then a final 0.12 live — is unknown, and the Goal’s next ask is refused', E2E, async (t) => {
+  const { d, goal, caller } = await askWithCorpus(t, 0.3, 0.12)
+  const meter = askMeter(d, goal)!
+  assert.match(meter.unknown ?? '', /final total below/)
+  await assert.rejects(d.host.consultPlane.ask({ agent: 'fake', question: 'And 3+3?', context: null }, caller),
+    (error: Error) => code('askBudget')(error) && /Spend is unknown/.test(error.message))
+})
+
+test('round 3: no final reading — 0.10 recorded mid-turn, nothing live — is unknown, never a known 0.10, and the next ask is refused', E2E, async (t) => {
+  const { d, goal, caller } = await askWithCorpus(t, 0.1, null)
+  assert.match(askMeter(d, goal)?.unknown ?? '', /reported no usage/)
+  await assert.rejects(d.host.consultPlane.ask({ agent: 'fake', question: 'And 3+3?', context: null }, caller),
+    (error: Error) => code('askBudget')(error) && /Spend is unknown/.test(error.message))
+})
+
+test('round 3: after a restart, a wrapped Goal whose consult’s spend a final reading repairs settles its reservation', E2E, async (t) => {
+  const corpus: UsageSample[] = []
+  const { d, goal, caller } = await triggerSeat(t, 2, () => corpus)
+  d.runtime.onSend = (session, text) => { if (text.includes(CONSULT_PROMPT)) setImmediate(() => (session as HoldSession).finish('4')) }
+  await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
+  assert.match(askMeter(d, goal)?.unknown ?? '', /reported no usage/)
+  // As a desk that restarted finds it: the Goal wrapped on disk, and nothing of that in the intake plane's memory.
+  const standing = GoalStore.prototype.standing
+  GoalStore.prototype.standing = function (id) {
+    const real = standing.call(this, id)
+    return id === goal && real ? { ...real, state: 'wrapped' } : real
+  }
+  t.after(() => { GoalStore.prototype.standing = standing })
+  const lines = await seatLines(d.stateDir)
+  const link = lines.find((line) => line.type === 'seat-consult' && line.consult!.closedAt !== null)!.consult!
+  corpus.push(corpusOf('fake', link.sessionId, lines.find((line) => line.type === 'seat')!.record!.checkout.project, 0.05, link.openedAt, link.closedAt!))
+  await d.host.intakePlane.tick()
+  const budget = d.host.intakePlane.journal.read().budgets[goal]!
+  assert.deepEqual({ unknown: askMeter(d, goal)!.unknown, settled: budget.settled, reservedMicros: budget.reservedMicros }, { unknown: null, settled: true, reservedMicros: 0 })
 })

@@ -70,10 +70,14 @@ export const attributeSample = (sample: UsageSample, seats: readonly SeatWindow[
 
 /**
  * Why a consult's spend is unknown when its conversation closed with no
- * usage read: the one unknown a later reading repairs, since the consult is
- * a single finished turn and a valid total for it is the whole of it.
+ * final reading: the one unknown a later reading repairs, and only a reading
+ * taken at or after its turn ended — the consult is a single finished turn,
+ * and a total read part-way through it is not the whole of it.
  */
 export const CONSULT_USAGE_UNKNOWN = 'The agent this Seat asked reported no usage before its conversation closed, so what it spent is unknown.'
+
+/** Why a consult's spend is unknown when its final total is below what was read of it earlier: a reset, or another epoch. */
+export const CONSULT_TOTAL_WENT_DOWN = 'The agent this Seat asked reported a final total below what was read of it earlier, so what it spent is unknown.'
 
 /** A meter that has read nothing yet, keeping its Seat, session, turns and the last time it was read. */
 const unread = (meter: SessionMeter): SessionMeter => ({
@@ -85,14 +89,19 @@ const unread = (meter: SessionMeter): SessionMeter => ({
  * One sample, folded into one Seat's meter. A sample for another session
  * changes nothing; anything the meter cannot vouch for makes it unknown, and
  * an unknown meter stays unknown — nothing later refunds or repairs it, but
- * for a consult that closed with no usage read (`CONSULT_USAGE_UNKNOWN`),
- * which the first valid reading of it reconciles.
+ * for a consult that closed with no final reading (`CONSULT_USAGE_UNKNOWN`).
+ * That one is repaired only by a reading proven final: one taken at or after
+ * the consult's turn ended. An earlier reading is folded in — so a later
+ * total below it still reads as gone down — but leaves the spend unknown;
+ * a reading the meter cannot vouch for leaves it unknown for good.
  */
 export function meterSample(meter: SessionMeter, sample: UsageSample): SessionMeter {
   if (sample.runtime !== meter.runtime || sample.sessionId !== meter.sessionId) return meter
   if (meter.unknown === CONSULT_USAGE_UNKNOWN) {
-    const reconciled = meterSample(unread(meter), sample)
-    return reconciled.unknown === null ? reconciled : meter
+    const folded = meterSample({ ...meter, unknown: null }, sample)
+    if (folded.unknown !== null) return { ...meter, unknown: folded.unknown }
+    const final = meter.turnEndedAt !== null && (sample.to ?? Number.NEGATIVE_INFINITY) >= meter.turnEndedAt
+    return final ? folded : { ...folded, unknown: CONSULT_USAGE_UNKNOWN }
   }
   if (meter.unknown !== null) return meter
   const unknown = (why: string): SessionMeter => ({ ...meter, unknown: why })
@@ -128,29 +137,32 @@ export function meterSample(meter: SessionMeter, sample: UsageSample): SessionMe
 
 /**
  * A consult's meter closed with its final reading, taken from the live
- * conversation before it was discarded.
+ * conversation before it was discarded. A consult's spend is known only when
+ * its final figure is.
  *
  * - `unsent`: the question never went, so nothing was spent — a meter that
  *   read nothing forgets the turn it was about to start, a known zero.
- * - `null`: no live usage. What a read made after the turn counted stands;
- *   with nothing counted the spend is unknown (`CONSULT_USAGE_UNKNOWN`).
- * - a sample: the final total, reconciled with what the corpus counted
- *   without adding the two — the larger of them stands, as one figure. A
- *   final reading the meter cannot vouch for leaves it unknown: whether an
- *   earlier corpus figure was complete cannot then be told.
+ * - `null`: no final reading. Whatever the corpus counted may have been read
+ *   part-way through the turn, so the spend is unknown
+ *   (`CONSULT_USAGE_UNKNOWN`) until a reading proven final repairs it.
+ * - a sample: the final total, reconciled with what the corpus counted,
+ *   never added to it. A final total at or above the corpus's stands as the
+ *   whole. One below it — a total that went down, a reset — cannot be shown
+ *   to share the corpus's epoch, so the spend is unknown; and so is a final
+ *   reading the meter cannot vouch for.
  */
 export function settleConsult(meter: SessionMeter, final: UsageSample | null | 'unsent'): SessionMeter {
   const counted = meter.scope !== null
   if (final === 'unsent') return !counted && meter.unknown === null ? { ...meter, turnStartedAt: null, turnEndedAt: null } : meter
-  if (final === null) return !counted && meter.unknown === null ? { ...meter, unknown: CONSULT_USAGE_UNKNOWN } : meter
   if (meter.unknown !== null && meter.unknown !== CONSULT_USAGE_UNKNOWN) return meter
+  if (final === null) return { ...meter, unknown: CONSULT_USAGE_UNKNOWN }
   const alone = meterSample(unread(meter), final)
   if (alone.unknown !== null) return { ...meter, unknown: alone.unknown }
-  if (!counted || meter.unknown !== null) return alone
+  if (!counted) return alone
   const corpus = meter.scope === 'call' ? meter.callMicros : (meter.lastMicros ?? 0) - (meter.baselineMicros ?? 0)
   const live = (alone.lastMicros ?? 0) - (alone.baselineMicros ?? 0)
-  const observedAt = Math.max(meter.observedAt ?? 0, alone.observedAt ?? 0)
-  return live >= corpus ? { ...alone, observedAt } : { ...meter, observedAt }
+  if (live < corpus) return { ...meter, unknown: CONSULT_TOTAL_WENT_DOWN }
+  return { ...alone, observedAt: Math.max(meter.observedAt ?? 0, alone.observedAt ?? 0) }
 }
 
 /** A turn the host saw start or end on this Seat's session. */

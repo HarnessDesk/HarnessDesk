@@ -28,6 +28,8 @@ interface Rig {
   held: boolean
   timers: Map<number, () => void>
   finals: unknown[]
+  /** Each `closed` call, as the number of calls made before it. */
+  closes: number[]
 }
 
 const turn = (text: string, status: Turn['status'] = 'completed'): Turn =>
@@ -44,6 +46,7 @@ const rig = (): Rig => {
     held: true,
     timers: new Map(),
     finals: [],
+    closes: [],
   } as unknown as Rig
   let spent = 0
   let timer = 0
@@ -64,6 +67,7 @@ const rig = (): Rig => {
       if (answer.status !== 'inProgress') queueMicrotask(() => resolve(answer))
     }),
     discard: async () => { calls.push('discard'); return null },
+    closed: () => { state.closes.push(calls.length) },
     metered: async (_caller, consult) => { calls.push(`metered:${consult.n}`); return `seat-1/ask/${consult.n}` },
     meteredStart: async (_goal, meter) => { calls.push(`meteredStart:${meter}`) },
     usage: () => null,
@@ -168,6 +172,29 @@ test('the deadline bounds the hold and the meter; cleanup is bounded too: a disc
   assert.ok(r.calls.includes('discard'))
   assert.ok(logged.some((one) => /discard did not finish in time/.test(one)), logged.join(' | '))
   assert.equal(r.timers.size, 0, 'every timer is cleared')
+})
+
+test('a consult is closed the moment the ask ends, before its meter, link or discard: a discard that never settles cannot keep it admissible', async () => {
+  const r = rig()
+  r.seat = { ...r.seat!, trigger: true }
+  let closedBeforeDiscard: boolean | null = null
+  ;(r.port as { discard: ConsultPort['discard'] }).discard = () => {
+    closedBeforeDiscard = r.closes.length > 0
+    r.calls.push('discard')
+    return new Promise<string | null>(() => {})
+  }
+  const asking = r.plane.ask({ agent: 'b', question: 'q', context: null }, scope)
+  let ended = false
+  void asking.finally(() => { ended = true })
+  while (!ended) {
+    await new Promise((resolve) => setImmediate(resolve))
+    // Only the cleanup bound may fire; the answer arrives on its own.
+    if (r.calls.includes('discard')) for (const fire of [...r.timers.values()]) fire()
+  }
+  await asking
+  assert.equal(closedBeforeDiscard, true, 'closed before the discard was asked for')
+  const before = r.calls.indexOf('linkClosed:seat-1')
+  assert.ok(r.closes[0]! <= r.calls.findIndex((one) => one.startsWith('meteredEnd')) && r.closes[0]! <= before, `closed first: ${JSON.stringify({ closes: r.closes, calls: r.calls })}`)
 })
 
 test('sizes: an empty question, a 17 KiB question or context — askTooLarge, and nothing opens', async () => {

@@ -215,20 +215,27 @@ export class InsightPlane implements InsightReadApi {
       windows.push({ ...seatWindowOf(caller), runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt, closedAt: consult.closedAt })
       if (consult.closedAt === null || consult.openedAt < query.from || consult.openedAt >= query.to) continue
       const corpus = samples.filter((sample) => sample.runtime === consult.runtime && sample.sessionId === consult.sessionId)
+      // A per-call sample adds; a session sample is a running total, so only its largest reading is counted — never their sum.
+      const largest = corpus.filter((sample) => sample.scope === 'session')
+        .reduce<UsageSample | null>((best, sample) => best === null || (sample.usd.value ?? -1) > (best.usd.value ?? -1) ? sample : best, null)
+      const kept = [...corpus.filter((sample) => sample.scope !== 'session'), ...(largest ? [largest] : [])]
+      const keep = (instead: readonly UsageSample[]): void => { samples = [...samples.filter((one) => !corpus.includes(one)), ...instead] }
       const usage = consult.usage ?? null
       if (usage === null) {
         if (corpus.length === 0) gaps.push(CONSULT_UNKNOWN_GAP)
+        else keep(kept)
         continue
       }
-      // A per-call sample adds; a session sample is a running total, so its largest reading is the whole.
-      const counted = corpus.reduce((sum, sample) => sample.scope === 'call' ? sum + (sample.usd.value ?? 0) : sum, 0)
-        + Math.max(0, ...corpus.filter((sample) => sample.scope === 'session').map((sample) => sample.usd.value ?? 0))
-      if (corpus.length > 0 && corpus.every((sample) => sample.usd.value !== null) && counted >= usage.usd) continue
+      const counted = kept.reduce((sum, sample) => sum + (sample.usd.value ?? 0), 0)
+      if (corpus.length > 0 && corpus.every((sample) => sample.usd.value !== null) && counted >= usage.usd) {
+        keep(kept)
+        continue
+      }
       const sample = consultSample(consult, usage, caller.checkout.project)
-      samples = [...samples.filter((one) => !corpus.includes(one)), sample]
+      keep([sample])
       owned.push([sample, caller.id])
     }
-    return { detail: samples === read.samples && gaps.length === read.gaps.length ? read : { ...read, samples, gaps: [...new Set(gaps)], sources: [...read.sources, ...owned.map(([sample]) => sample.source)] }, windows, owned }
+    return { detail: samples.length === read.samples.length && samples.every((one, at) => one === read.samples[at]) && gaps.length === read.gaps.length ? read : { ...read, samples, gaps: [...new Set(gaps)], sources: [...read.sources, ...owned.map(([sample]) => sample.source)] }, windows, owned }
   }
 
   #report(query: InsightQuery, selectedSeatIds: ReadonlySet<string> | undefined, scan: ProjectScan): InsightReport {

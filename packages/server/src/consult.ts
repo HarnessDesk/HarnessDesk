@@ -80,6 +80,12 @@ export interface ConsultPort {
    * that deadline too, not by when the runtime answers.
    */
   open(agent: FlowSeat, where: { readonly cwd: string; readonly project: string | null }, signal: AbortSignal): Promise<OpenedConsult>
+  /**
+   * The consult's ask is over: nothing more of it, or of anything it handed
+   * work to, is admitted from here on. Called before its discard, and
+   * standing whether or not the discard ever finishes.
+   */
+  closed(consult: OpenedConsult): void
   /** Whether the runtime now holds the read ceiling — read back, never assumed. Bounded by the deadline too. */
   holdRead(consult: OpenedConsult): Promise<boolean>
   /**
@@ -200,6 +206,7 @@ export class ConsultPlane implements AgentsEngine {
   }
 
   async #discard(consult: OpenedConsult): Promise<void> {
+    this.port.closed(consult)
     const left = await this.#bounded('discard', this.port.discard(consult).catch((error: unknown) => `could not be discarded: ${String(error)}`))
     if (left === undefined || left) this.port.log('a consult conversation was not deleted', { runtime: consult.runtime, session: consult.sessionId, left: left ?? 'did not finish in time' })
   }
@@ -324,6 +331,8 @@ export class ConsultPlane implements AgentsEngine {
       // 9. Metered from the live conversation, its end recorded beside the caller, then discarded — each step bounded.
       // A question that never went spent nothing: neither unknown nor a closing to read.
       if (consult) {
+        // Closed the moment the ask ends — answered, failed or timed out — never waiting on a discard that may not finish.
+        this.port.closed(consult)
         const ended = this.port.now()
         let usage: UsageSample | null = null
         try { usage = sent ? this.port.usage(consult, ended) : null } catch (error) { this.port.log('a consult’s usage could not be read', { error: String(error) }) }

@@ -674,16 +674,24 @@ asked agent raises is declined by the desk. The asked agent is never offered
 caller's run: on a trigger's Goal it is metered as `<seat>/ask/<n>` on that
 Goal's budget, and a Goal at its cap refuses the ask. The usage is read from
 the live conversation before it is deleted and reconciled with whatever the
-recorded usage already counted — the larger figure stands, never the sum. An
-agent that reported none leaves the Goal's spend unknown, and the next ask is
-refused with that reason until a later reading of that conversation repairs
-it; a question withdrawn before it was sent costs nothing. Insight counts the
+recorded usage already counted — the final reading stands, never the sum, and
+a final reading below one taken earlier (a total that reset) leaves the spend
+unknown. An agent that reported none leaves the Goal's spend unknown, and the
+next ask is refused with that reason until a recorded reading taken at or
+after the consult's turn ended repairs it — one from part-way through repairs
+nothing; a Goal stopped meanwhile is still read for it, and one wrapped
+meanwhile settles then, after a restart too. A
+question withdrawn before it was sent costs nothing. Insight counts the
 consult under the seat that asked, from that same live reading kept with the
-seat when nothing on disk records more. The deadline
+seat when the last reading on disk is not larger. The consult is closed the
+moment its ask ends, before its deletion is even asked for, and nothing of it
+or of what it handed work to is admitted after; a runtime that hands its id
+out again opens a new consult, not the old one. The deadline
 bounds every step — opening, the read hold, metering and the answer — and
 cleanup has a bound of its own, so a consult that opens after its ask gave up
 is deleted rather than kept, and the agent's other conversations, held back
-while it opens, are let through one cleanup bound after the deadline.
+while it opens, are let through one cleanup bound after that opening's
+deadline, whatever other openings started since.
 
 Only an agent whose adapter reports a read ceiling can be asked; any other is
 refused by name when asked. Whether each agent's read mode really prevents

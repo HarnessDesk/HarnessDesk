@@ -4,7 +4,7 @@ import { DEFAULT_TRIGGER_DAILY_USD } from '@harnessdesk/protocol'
 import { seatWindowOf } from '../insight/attribution.js'
 import type { UsageSample } from '../ledger/insight.js'
 import { usdMicros } from './definition.js'
-import { attributeSample, goalSpend, meterSample, meterTurn, openMeter, settleConsult, type SessionMeter } from './spend.js'
+import { attributeSample, CONSULT_USAGE_UNKNOWN, goalSpend, meterSample, meterTurn, openMeter, settleConsult, type SessionMeter } from './spend.js'
 import type { IntakeBudget, IntakeOperation, IntakeSnapshot } from './store.js'
 
 export { CONSULT_USAGE_UNKNOWN } from './spend.js'
@@ -267,11 +267,11 @@ export class TriggerBudgets {
    * session the desk opened at zero: an older session found with nothing
    * says nothing about what it spent.
    *
-   * `settle` closes consults' meters in the same save, each with its final
-   * reading (`settleConsult`): reconciled with what the corpus counted, never
-   * added to it; with none and nothing counted, unknown — an ephemeral
-   * conversation found with nothing has not been shown to have spent
-   * nothing; and a question never sent is a known zero.
+   * `settle` closes consults' meters in the same save, after the turn's end
+   * is on them, each with its final reading (`settleConsult`): reconciled
+   * with what the corpus counted, never added to it; with none, unknown —
+   * a figure read part-way through a turn is not its whole; and a question
+   * never sent is a known zero.
    */
   read(
     goal: string, samples: readonly UsageSample[], seats: readonly SeatRecord[],
@@ -294,6 +294,7 @@ export class TriggerBudgets {
         })
         meters[seat.id] = meterSample(meter, sample)
       }
+      if (turn && meters[turn.seat]) meters[turn.seat] = meterTurn(meters[turn.seat]!, turn)
       for (const one of settle) {
         const settling = meters[one.seat]
         if (settling) meters[one.seat] = settleConsult(settling, one.final)
@@ -304,7 +305,6 @@ export class TriggerBudgets {
           meters[id] = { ...meter, observedAt: Math.max(meter.observedAt ?? 0, read.at) }
         }
       }
-      if (turn && meters[turn.seat]) meters[turn.seat] = meterTurn(meters[turn.seat]!, turn)
       if (JSON.stringify(meters) === JSON.stringify(budget.meters)) return { next: null, value: undefined }
       const clock = Math.max(snapshot.clock, this.#port.now())
       return { next: { ...snapshot, clock, budgets: { ...snapshot.budgets, [goal]: { ...budget, meters } } }, value: undefined }
@@ -437,6 +437,21 @@ export class TriggerBudgets {
   live(): readonly string[] {
     try {
       return Object.entries(this.#read().budgets).filter(([, budget]) => !budget.settled && budget.stop === null).map(([goal]) => goal)
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Every unsettled Goal — stopped or not — with a consult whose spend waits
+   * for its final reading: still read, so that reading can repair it, though
+   * a stop made meanwhile stands.
+   */
+  awaitingConsult(): readonly string[] {
+    try {
+      return Object.entries(this.#read().budgets)
+        .filter(([, budget]) => !budget.settled && Object.values(budget.meters).some((meter) => meter.unknown === CONSULT_USAGE_UNKNOWN))
+        .map(([goal]) => goal)
     } catch {
       return []
     }

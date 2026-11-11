@@ -131,6 +131,8 @@ export interface IntakeHostPort {
    * unknown and waiting for a reading.
    */
   consultWindows?(): readonly SeatRecord[]
+  /** Whether the Goal has wrapped, as its own record says: what a restarted desk settles a reconciled reservation by. */
+  goalWrapped?(goal: string): boolean
   /** Interrupts every live turn on the Goal's open Seats, keeping what each already said. */
   interrupt(goal: string): Promise<void>
   /** Whether the plan the Goal's Seats spend from has allowance left, as the usage service last read it. */
@@ -1229,17 +1231,23 @@ export class IntakePlane {
       return meter.turnStartedAt !== null && (meter.turnEndedAt === null || meter.turnStartedAt > meter.turnEndedAt)
     }).map((one) => one.id)
     const waiting = recorded.filter((one) => interrupted.includes(one.id) || budget.meters[one.id]!.unknown === CONSULT_USAGE_UNKNOWN)
-    return { windows: [...live, ...waiting], interrupted }
+    // A consult's conversation is that consult's alone, before and after its turn: a reading taken
+    // after it closed — the one that can prove its final figure — is still its own.
+    return { windows: [...live, ...waiting].map((one) => ({ ...one, closed: null })), interrupted }
   }
 
-  /** Closed consult windows whose meter is now known are let go; a wrapped Goal a reading reconciled settles. */
+  /**
+   * Closed consult windows whose meter is now known are let go; a wrapped
+   * Goal a reading reconciled settles — wrapped as this desk saw it, or as
+   * the Goal itself says after a restart.
+   */
   async #afterConsultRead(goal: string, wasUnknown: boolean): Promise<void> {
     const meters = this.#store.read().budgets[goal]?.meters ?? {}
     const left = (this.#consults.get(goal) ?? []).filter((one) => one.closed === null || meters[one.id]?.unknown === CONSULT_USAGE_UNKNOWN)
     if (left.length > 0) this.#consults.set(goal, left)
     else this.#consults.delete(goal)
     const stillUnknown = Object.values(meters).some((meter) => meter.unknown === CONSULT_USAGE_UNKNOWN)
-    if (wasUnknown && !stillUnknown && this.#wrapped.has(goal)) await this.#budgets.settle(goal)
+    if (wasUnknown && !stillUnknown && (this.#wrapped.has(goal) || this.#port.goalWrapped?.(goal) === true)) await this.#budgets.settle(goal)
   }
 
   /**
@@ -1310,13 +1318,18 @@ export class IntakePlane {
     await this.#afterConsultRead(goal, wasUnknown || closing.length > 0)
   }
 
-  /** Every live budget read once: what keeps a Seat inside a turn under a minute stale. */
+  /**
+   * Every live budget read once: what keeps a Seat inside a turn under a
+   * minute stale — and every Goal, stopped or not, whose consult's spend
+   * still waits for the reading that can repair it.
+   */
   meter(): Promise<void> {
     this.#metering ??= (async () => {
       const live = this.#budgets.live()
-      if (live.length === 0 || this.#closed) return
-      await this.#port.refreshLanes?.(live).catch(() => {})
-      for (const goal of live) {
+      const reading = [...new Set([...live, ...this.#budgets.awaitingConsult()])]
+      if (reading.length === 0 || this.#closed) return
+      if (live.length > 0) await this.#port.refreshLanes?.(live).catch(() => {})
+      for (const goal of reading) {
         if (this.#closed) return
         await this.#meterGoal(goal).catch((error: unknown) => this.#port.log('a trigger Goal could not be metered', { error: String(error) }))
       }

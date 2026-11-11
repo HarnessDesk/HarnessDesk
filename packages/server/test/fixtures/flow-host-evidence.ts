@@ -115,6 +115,8 @@ export interface DeskOptions {
   readonly questionTimers?: QuestionTimers
   /** The timers an `ask_agent` consult's deadline runs on, so a test fires it when it says. */
   readonly consultTimers?: QuestionTimers
+  /** How many retired consults the host keeps refusing by id. */
+  readonly consultsRetiredKept?: number
 }
 
 export const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: 'vendor-b' }, options: DeskOptions = {}): Promise<Desk> => {
@@ -145,6 +147,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     ...(options.findingForge ? { findingForge: options.findingForge } : {}),
     ...(options.questionTimers ? { questionTimers: options.questionTimers } : {}),
     ...(options.consultTimers ? { consultTimers: options.consultTimers } : {}),
+    ...(options.consultsRetiredKept !== undefined ? { consultsRetiredKept: options.consultsRetiredKept } : {}),
   })
   if (options.registerHostCleanup) options.registerHostCleanup(host)
   const runtimes = [

@@ -630,6 +630,8 @@ export interface HostOptions {
   readonly questionTimers?: QuestionTimers
   /** The timers an `ask_agent` consult's timeout runs on, for tests only, as `questionTimers` is. */
   readonly consultTimers?: QuestionTimers
+  /** How many retired consults stay refused by id, for tests only; `CONSULT_RETIRED_KEPT` everywhere else. */
+  readonly consultsRetiredKept?: number
   /**
    * How to give an agent one more account. Supplied by the wiring, because
    * only the wiring knows that a second Codex means a second process over a
@@ -757,6 +759,8 @@ export type Broadcast = (notification: WireNotification) => void
  * costs a person a refused post. See `Host#teamLive`.
  */
 const REOPEN_REFUSALS_TO_LET_GO = 2
+/** Retired consults still refused by id; beyond this many, the oldest is forgotten (`#retireConsults`). */
+const CONSULT_RETIRED_KEPT = 1024
 const IDLE_STOP_MS = 10 * 60_000
 const SEAT_REST_MS = IDLE_STOP_MS
 const LIVE_RUNTIME_METHODS = new Set<PropertyKey>([
@@ -2579,6 +2583,7 @@ export class Host {
           openedAt: consult.openedAt, closed: consult.closedAt === null ? null : { at: consult.closedAt, why: 'answered' }, restored: null,
         }] : []
       }),
+      goalWrapped: (goal) => this.#goalStore.standing(goal)?.state === 'wrapped',
       interrupt: (goal) => this.#interruptGoal(goal),
       lane: (goal) => this.#allowanceOf(goal),
       refreshLanes: (goals) => this.#refreshAllowances(goals),
@@ -7291,21 +7296,21 @@ export class Host {
       },
       open: async (agent, where, signal) => {
         const id = runtimeId(agent.runtime)
-        this.#consultOpening.set(id, (this.#consultOpening.get(id) ?? 0) + 1)
-        // The runtime's announcements are held while the consult opens — but
-        // only until the ask's deadline and one cleanup bound after it, never
-        // for as long as a stuck open takes: past that, every other
-        // conversation on the runtime is let through, and a consult that
-        // opens later may be seen until its discard removes it.
+        this.#consultOpeningSeq += 1
+        const opening = this.#consultOpeningSeq
+        this.#consultOpenings.set(opening, id)
+        // This opening holds back its runtime's announcements — its own, no
+        // other runtime's — only until the ask's deadline and one cleanup
+        // bound after it, never for as long as a stuck open takes: past that,
+        // what it held is let through, whatever other openings started since,
+        // and a consult that opens later may be seen until its discard removes it.
         let held = true
         let bound: unknown = null
         const release = (): void => {
           if (!held) return
           held = false
-          const left = (this.#consultOpening.get(id) ?? 1) - 1
-          if (left > 0) this.#consultOpening.set(id, left)
-          else this.#consultOpening.delete(id)
-          this.#releaseConsultHeld()
+          this.#consultOpenings.delete(opening)
+          this.#releaseConsultHeld(opening)
         }
         const expire = (): void => { bound = this.#consultSetTimer(release, CONSULT_CLEANUP_MS) }
         if (signal.aborted) expire()
@@ -7359,8 +7364,10 @@ export class Host {
           this.#consultClosed(key)
           this.#consultsGone.add(key)
           if (this.#consultsGone.size > 256) this.#consultsGone.delete(this.#consultsGone.values().next().value!)
+          this.#retireConsults()
         }
       },
+      closed: (consult) => this.#consultClosed(sessionKey(runtimeId(consult.runtime), makeSessionId(consult.sessionId))),
       metered: (caller, consult) => this.#intake.consulted(caller, consult),
       meteredStart: (goal, meter, started) => this.#intake.consultStarted(goal, meter, started),
       usage: (consult, ended) => this.#consultUsage(consult, ended),
@@ -7933,7 +7940,7 @@ export class Host {
     const consult = this.#consultOf(String(runtime), String(event.sessionId))
     for (const member of event.item.members) {
       if (!member.sessionId || member.sessionId === String(event.sessionId)) continue
-      if (consult !== null) this.#consultFamily.set(sessionKey(runtime, makeSessionId(member.sessionId)), consult)
+      if (consult !== null) this.#joinConsult(sessionKey(runtime, makeSessionId(member.sessionId)), consult)
       if (root !== null) this.#delegatedBy.set(sessionKey(runtime, makeSessionId(member.sessionId)), root)
       if (this.#delegatedBy.size > 2000) {
         const oldest = this.#delegatedBy.keys().next().value
@@ -7977,14 +7984,80 @@ export class Host {
     return null
   }
 
+  /** A new consult opened on this session key: an incarnation of its own, whatever an earlier consult on the same id left. */
+  #beginConsult(key: string): string {
+    this.#consultIncarnations += 1
+    const incarnation = `${key}\u0000${this.#consultIncarnations}`
+    this.#consultMembers.set(incarnation, { root: key, keys: new Set() })
+    this.#joinConsult(key, incarnation)
+    return incarnation
+  }
+
+  #joinConsult(key: string, incarnation: string): void {
+    const was = this.#consultFamily.get(key)
+    if (was === incarnation) return
+    if (was !== undefined) this.#consultMembers.get(was)?.keys.delete(key)
+    this.#consultFamily.set(key, incarnation)
+    this.#consultMembers.get(incarnation)?.keys.add(key)
+  }
+
+  /**
+   * A conversation the desk opens or registers anew on an id a closed
+   * consult once had: it is not that consult, so it leaves the consult's
+   * family rather than inheriting its refusal. A live consult's members are
+   * never touched.
+   */
+  #leaveClosedConsult(key: string): void {
+    const incarnation = this.#consultFamily.get(key)
+    if (incarnation === undefined || !(this.#consultsClosed.has(incarnation) || this.#consultsRetired.has(incarnation))) return
+    this.#consultFamily.delete(key)
+    this.#consultMembers.get(incarnation)?.keys.delete(key)
+  }
+
+  /** The consult on this session key has ended: from now on nothing of it, or of its family, is admitted. */
   #consultClosed(key: string): void {
-    if (this.#consultFamily.get(key) === key) this.#consultsClosed.add(key)
+    const incarnation = this.#consultFamily.get(key)
+    if (incarnation !== undefined && this.#consultMembers.get(incarnation)?.root === key) this.#consultsClosed.add(incarnation)
+  }
+
+  /**
+   * Closed consults none of whose family is still a live conversation here
+   * are retired: still refused, among the last `CONSULT_RETIRED_KEPT`. The
+   * oldest beyond that is forgotten; a runtime on which it had a child the
+   * desk never held is marked uncertain, as an evicted delegation is, so a
+   * late call from that child is refused rather than read as a stranger's.
+   * A live consult is never retired or forgotten.
+   */
+  #retireConsults(): void {
+    for (const incarnation of this.#consultsClosed) {
+      const family = this.#consultMembers.get(incarnation)
+      if (!family) { this.#consultsClosed.delete(incarnation); continue }
+      const live = [...family.keys].some((key) => {
+        const { runtime, id } = splitSessionKey(key as SessionKey)
+        return this.registry.get(runtime, id) !== undefined
+      })
+      if (live) continue
+      this.#consultsClosed.delete(incarnation)
+      this.#consultsRetired.add(incarnation)
+    }
+    while (this.#consultsRetired.size > (this.options.consultsRetiredKept ?? CONSULT_RETIRED_KEPT)) {
+      const oldest = this.#consultsRetired.values().next().value!
+      this.#consultsRetired.delete(oldest)
+      const family = this.#consultMembers.get(oldest)
+      this.#consultMembers.delete(oldest)
+      for (const key of family?.keys ?? []) {
+        if (this.#consultFamily.get(key) !== oldest) continue
+        this.#consultFamily.delete(key)
+        this.#consultsShown.delete(key)
+        if (key !== family!.root) this.#delegationUncertainRuntimes.add(String(splitSessionKey(key as SessionKey).runtime))
+      }
+    }
   }
 
   /** Why a call from a consult that has closed, or from anything it handed work to, is refused; null otherwise. */
   #closedConsultRefusal(runtime: string, sessionId: string): string | null {
     const consult = this.#consultOf(runtime, sessionId)
-    return consult !== null && this.#consultsClosed.has(consult) ? CONSULT_CLOSED_REFUSAL : null
+    return consult !== null && (this.#consultsClosed.has(consult) || this.#consultsRetired.has(consult)) ? CONSULT_CLOSED_REFUSAL : null
   }
 
   /**
@@ -8958,30 +9031,41 @@ export class Host {
    */
   readonly #consulting = new Set<string>()
   /**
-   * Consults being opened, by runtime. A runtime can announce a conversation
-   * before `createSession` answers with its id, so while one opens, that
-   * runtime's `session/started` — and anything after it for the same
-   * conversation — is held back from windows, then let go once the open
-   * answers, dropping the consult's own. Like `#creatingTranscripts`.
+   * Consults being opened, each with its runtime. A runtime can announce a
+   * conversation before `createSession` answers with its id, so while one
+   * opens, that runtime's `session/started` — and anything after it for the
+   * same conversation — is held back from windows, then let go once every
+   * opening it waited on has answered or reached its bound, dropping the
+   * consults' own. An opening that starts later never extends what an
+   * earlier one held. Like `#creatingTranscripts`.
    */
-  readonly #consultOpening = new Map<RuntimeId, number>()
-  readonly #consultHeld: WireNotification[] = []
-  readonly #consultHeldKeys = new Set<string>()
+  readonly #consultOpenings = new Map<number, RuntimeId>()
+  #consultOpeningSeq = 0
+  /** What is held back, in arrival order, by the conversation it is about. */
+  readonly #consultHeld: { readonly key: string; readonly notification: WireNotification }[] = []
+  /** Each held-back conversation, to the openings it waits on: those under way on its runtime when its start arrived. */
+  readonly #consultHeldKeys = new Map<string, Set<number>>()
   /** The one turn each consult is waiting for, by session key. */
   readonly #consultTurns = new Map<string, (turn: Turn) => void>()
   /** Consults discarded lately, newest last: a notice of theirs that arrives after the discard stays hidden too. */
   readonly #consultsGone = new Set<string>()
   /**
    * Every conversation that is a consult or was handed work by one — a
-   * reported child, and its children — by session key, to its consult. The
-   * read ceiling holds for all of them for the consult's whole life, and
-   * once the consult closes (`#consultsClosed`) every desk-tool call from any
-   * of them is refused. Kept for the desk's life, apart from the bounded
-   * caches (`#consultsGone`, `#delegatedBy`), so nothing a cache forgets lets
-   * a late call through; a consult is one turn, so the set stays small.
+   * reported child, and its children — by session key, to its consult's
+   * incarnation: the consult's session key and the count of consults this
+   * desk opened, so an id a runtime hands out again is a new consult, not
+   * the old one. The read ceiling holds for all of them for the consult's
+   * whole life, and once it closes (`#consultsClosed`) every desk-tool call
+   * from any of them is refused — independent of the bounded caches
+   * (`#consultsGone`, `#delegatedBy`). A closed consult with no live family
+   * retires (`#consultsRetired`), still refused, and only the oldest beyond
+   * `CONSULT_RETIRED_KEPT` is forgotten (`#retireConsults`).
    */
   readonly #consultFamily = new Map<string, string>()
+  readonly #consultMembers = new Map<string, { readonly root: string; readonly keys: Set<string> }>()
   readonly #consultsClosed = new Set<string>()
+  readonly #consultsRetired = new Set<string>()
+  #consultIncarnations = 0
   /** Consults that opened after their hold was let go, so a window may have heard them start: their removal is not hidden. */
   readonly #consultsShown = new Set<string>()
   #consult: ConsultPlane | null = null
@@ -9108,10 +9192,12 @@ export class Host {
       noteLeftOnFailure(refused, { kind: 'alreadyHeld' })
       throw refused
     }
+    // An id a closed consult once had is not that consult any more.
+    this.#leaveClosedConsult(sessionKey(runtime.info.id, live.id))
     if (where.consult) {
       const key = sessionKey(runtime.info.id, live.id)
       this.#consulting.add(key)
-      this.#consultFamily.set(key, key)
+      this.#beginConsult(key)
     }
     this.#seating.set(sessionKey(runtime.info.id, live.id), { live, reached: false, removing: false })
     try {
@@ -9149,15 +9235,12 @@ export class Host {
         // Nothing of a consult that never opened reaches a window, not even what was held back while it opened.
         const key = sessionKey(runtime.info.id, live.id)
         for (let at = this.#consultHeld.length - 1; at >= 0; at -= 1) {
-          const held = this.#consultHeld[at]!
-          if (held.method !== 'event') continue
-          const { event } = held.params
-          const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId :
-            'sessionId' in event ? event.sessionId : undefined
-          if (id !== undefined && sessionKey(held.params.runtime, id) === key) this.#consultHeld.splice(at, 1)
+          if (this.#consultHeld[at]!.key === key) this.#consultHeld.splice(at, 1)
         }
+        this.#consultHeldKeys.delete(key)
         this.#consulting.delete(key)
         this.#consultClosed(key)
+        this.#retireConsults()
       }
       throw error
     }
@@ -9891,7 +9974,7 @@ export class Host {
     this.#cancelSessionIndex(session.runtime, session.id)
     // A consult is never a row. While one opens, its runtime's rows wait: the consult may not have its id yet.
     if (this.#consulting.has(key)) return
-    if (this.#consultOpening.has(session.runtime)) now = false
+    if (this.#openingOn(session.runtime)) now = false
     if (!now) {
       this.#indexPending.set(key, session)
       const timer = setTimeout(() => this.#recordSessionIndex(session, true), 800)
@@ -12036,10 +12119,11 @@ export class Host {
    * What windows may hear of a notification while consults are open: nothing
    * of a consult conversation — no `session/started`, item, approval,
    * `session/removed` or index row — and, while one is being opened, its
-   * runtime's announcements held back until its id is known (`#consultOpening`).
+   * runtime's announcements held back until its id is known (`#consultOpenings`).
+   * One let go (`released`) is not held again by an opening that started since.
    */
-  #forWindows(notification: WireNotification): WireNotification | null {
-    if (this.#consulting.size === 0 && this.#consultsGone.size === 0 && this.#consultOpening.size === 0 && this.#consultHeld.length === 0) return notification
+  #forWindows(notification: WireNotification, released = false): WireNotification | null {
+    if (this.#consulting.size === 0 && this.#consultsGone.size === 0 && this.#consultOpenings.size === 0 && this.#consultHeld.length === 0) return notification
     switch (notification.method) {
       case 'event': {
         const { runtime, event } = notification.params
@@ -12048,9 +12132,11 @@ export class Host {
         if (id === undefined) return notification
         const key = sessionKey(runtime, id)
         if (this.#hiddenConsult(key)) return null
-        if (this.#consultHeldKeys.has(key) || (event.type === 'session/started' && this.#consultOpening.has(runtime))) {
-          this.#consultHeldKeys.add(key)
-          this.#consultHeld.push(notification)
+        if (!released && !this.#consultHeldKeys.has(key) && event.type === 'session/started' && this.#openingOn(runtime)) {
+          this.#consultHeldKeys.set(key, new Set([...this.#consultOpenings].filter(([, on]) => on === runtime).map(([opening]) => opening)))
+        }
+        if (this.#consultHeldKeys.has(key)) {
+          this.#consultHeld.push({ key, notification })
           return null
         }
         return notification
@@ -12062,7 +12148,7 @@ export class Host {
         if (this.#hiddenConsult(key)) return null
         // A conversation whose start is held back while a consult opens is held with it.
         if (this.#consultHeldKeys.has(key)) {
-          this.#consultHeld.push(notification)
+          this.#consultHeld.push({ key, notification })
           return null
         }
         return notification
@@ -12083,13 +12169,32 @@ export class Host {
     return this.#consulting.has(key) || this.#consultsGone.has(key)
   }
 
-  /** Every consult on a runtime has its id: what was held back goes out, the consults' own dropped. */
-  #releaseConsultHeld(): void {
-    if (this.#consultOpening.size > 0) return
-    const held = this.#consultHeld.splice(0)
-    this.#consultHeldKeys.clear()
-    for (const notification of held) {
-      const shown = this.#forWindows(notification)
+  /** Whether a consult is being opened on this runtime now. */
+  #openingOn(runtime: RuntimeId): boolean {
+    for (const on of this.#consultOpenings.values()) if (on === runtime) return true
+    return false
+  }
+
+  /**
+   * One opening answered or reached its bound: each conversation that waited
+   * on it alone goes out, in the order it arrived, the consults' own dropped.
+   * A conversation still waiting on another opening stays held.
+   */
+  #releaseConsultHeld(opening: number): void {
+    const free = new Set<string>()
+    for (const [key, waits] of this.#consultHeldKeys) {
+      waits.delete(opening)
+      if (waits.size === 0) free.add(key)
+    }
+    if (free.size === 0) return
+    for (const key of free) this.#consultHeldKeys.delete(key)
+    const out: WireNotification[] = []
+    for (let at = 0; at < this.#consultHeld.length;) {
+      const one = this.#consultHeld[at]!
+      if (free.has(one.key)) { out.push(one.notification); this.#consultHeld.splice(at, 1) } else at += 1
+    }
+    for (const notification of out) {
+      const shown = this.#forWindows(notification, true)
       if (shown) this.#broadcast(shown)
     }
   }

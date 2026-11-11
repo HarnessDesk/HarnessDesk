@@ -151,4 +151,11 @@ test('an ephemeral consult’s spend is kept with its link and folded into the a
   const twice = await plane([{ seat: 'seat-a', n: 5, runtime: 'runtime', sessionId: 'consult-running', openedAt: 5, closedAt: 20, usage: usage(0.42) }]).usage(query)
   const twiceRow = twice.breakdowns.find((one) => one.dimension === 'seat')!.rows.find((one) => one.seat === 'seat-a')!
   assert.ok(Math.abs(twiceRow.amounts.usd.value! - (1 + 0.42 + 0.42 + 0.5 + 0.42)) < 1e-9, `the running consult counts its live 0.42: ${twiceRow.amounts.usd.value}`)
+  // Round 3: when the corpus wins, it is its final reading that counts, never the running readings summed — 0.30 and 0.50 against 0.42 live is 0.50, not 0.80.
+  const higher = (usd: number, to: number): UsageSample => ({ ...sample('/repo', 'consult-higher', usd), key: `higher-${usd}`, scope: 'session', to })
+  detail.samples.push(higher(0.3, 11), higher(0.5, 12))
+  const won = await plane([{ seat: 'seat-a', n: 6, runtime: 'runtime', sessionId: 'consult-higher', openedAt: 5, closedAt: 20, usage: usage(0.42) }]).usage(query)
+  // The Seat's 1, the three consults above and this one's 0.50; the running one is not linked here, so it is nobody's.
+  const wonRow = won.breakdowns.find((one) => one.dimension === 'seat')!.rows.find((one) => one.seat === 'seat-a')!
+  assert.ok(Math.abs(wonRow.amounts.usd.value! - (1 + 0.42 + 0.42 + 0.5 + 0.5)) < 1e-9, `the corpus’s final 0.50, not 0.80: ${wonRow.amounts.usd.value}`)
 })
