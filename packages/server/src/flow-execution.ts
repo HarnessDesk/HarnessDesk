@@ -908,6 +908,12 @@ export interface PersonReviewBinding {
   readonly refusal?: string
 }
 
+/** How many providers a subset of them names. */
+function bits(mask: number): number {
+  let count = 0
+  for (let rest = mask; rest !== 0; rest &= rest - 1) count += 1
+  return count
+}
 
 export class FlowExecutions {
   readonly #files: ExecutionFiles
@@ -4614,36 +4620,54 @@ export class FlowExecutions {
       if (!next) return 'it would leave a later step with no independent provider'
       ordered.push(next)
     }
-    const slots: { readonly role: (typeof agents)[number]; readonly writers: ReadonlySet<string | null>; readonly providers: readonly (string | null)[] }[] = []
+    // Per role: its own writers, and each binding's distinct candidate providers, the same set kept once.
+    const slots: { readonly role: (typeof agents)[number]; readonly writers: ReadonlySet<string | null>; readonly bindings: readonly (readonly (string | null)[])[] }[] = []
     for (const other of ordered) {
       const writers = await this.#writers(run, other.independentOf)
       if (other.independentOf.includes(role.id)) writers.add(provider)
+      const bindings = new Map<string, (string | null)[]>()
       for (const binding of bindingsFor(run, other.id)) {
         const offered = binding.seats.length > 0 ? binding.seats : binding.agent.prefer
-        const providers: (string | null)[] = []
-        for (const candidate of offered) providers.push(await this.#port.providerOf(candidate.runtime, board.cwd ?? board.root))
-        slots.push({ role: other, writers, providers: [...new Set(providers)] })
+        const providers = new Set<string | null>()
+        for (const candidate of offered) providers.add(await this.#port.providerOf(candidate.runtime, board.cwd ?? board.root))
+        bindings.set(JSON.stringify([...providers].sort()), [...providers])
       }
+      slots.push({ role: other, writers, bindings: [...bindings.values()] })
     }
-    const chosen = new Map<string, Map<string | null, number>>()
-    const fits = (index: number): boolean => {
+    // What a role passes on is only the set of providers its bindings took, and a smaller set never refuses more
+    // downstream: so each role tries the smallest sets that give every binding a provider, not every way of
+    // choosing one per binding. That is bounded by the providers on offer, never by how many bindings there are;
+    // and the whole search has a ceiling, past which the move is refused rather than the host kept waiting.
+    let budget = 20_000
+    const chosen = new Map<string, ReadonlySet<string | null>>()
+    const fits = (index: number): boolean | 'exhausted' => {
       const slot = slots[index]
       if (!slot) return true
       const writers = new Set(slot.writers)
-      for (const dependency of slot.role.independentOf) for (const one of chosen.get(dependency)?.keys() ?? []) writers.add(one)
-      const mine = chosen.get(slot.role.id) ?? new Map<string | null, number>()
-      chosen.set(slot.role.id, mine)
-      for (const candidate of slot.providers) {
-        if (independentProviderReason(candidate, writers)) continue
-        mine.set(candidate, (mine.get(candidate) ?? 0) + 1)
-        if (fits(index + 1)) return true
-        const left = mine.get(candidate)! - 1
-        if (left > 0) mine.set(candidate, left)
-        else mine.delete(candidate)
+      for (const dependency of slot.role.independentOf) for (const one of chosen.get(dependency) ?? []) writers.add(one)
+      const allowed = slot.bindings.map((providers) => providers.filter((candidate) => !independentProviderReason(candidate, writers)))
+      if (allowed.some((providers) => providers.length === 0)) return false
+      const universe = [...new Set(allowed.flat())]
+      if (universe.length > 16) return 'exhausted'
+      const masks = allowed.map((providers) => providers.reduce((mask, one) => mask | (1 << universe.indexOf(one)), 0))
+      const subsets = Array.from({ length: (1 << universe.length) - 1 }, (_, at) => at + 1)
+        .sort((x, y) => bits(x) - bits(y) || x - y)
+      const taken: number[] = []
+      for (const subset of subsets) {
+        if ((budget -= 1) < 0) return 'exhausted'
+        if (taken.some((smaller) => (smaller & subset) === smaller)) continue
+        if (!masks.every((mask) => (mask & subset) !== 0)) continue
+        taken.push(subset)
+        chosen.set(slot.role.id, new Set(universe.filter((_, at) => (subset & (1 << at)) !== 0)))
+        const rest = fits(index + 1)
+        if (rest !== false) return rest
       }
+      chosen.delete(slot.role.id)
       return false
     }
-    if (!fits(0)) return 'it would leave a later step with no independent provider'
+    const verdict = fits(0)
+    if (verdict === 'exhausted') return 'its later steps’ independence could not be worked out in time'
+    if (!verdict) return 'it would leave a later step with no independent provider'
     return null
   }
 

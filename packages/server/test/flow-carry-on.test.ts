@@ -416,3 +416,29 @@ test('a restart that finishes seating a round still leaves a Seat carry-on holds
   assert.ok(rig.events.includes('order:seat-1'), 'let go, the Seat is handed its card')
 })
 
+/* Round 2, P2: the later-step search is bounded by the providers on offer, not the number of bindings. */
+const WIDE = `
+version: 2
+name: Write, review wide, then audit
+roles:
+  author: { kind: agent, uses: writer, seats: [alpha] }
+  reviewer: { kind: agent, uses: reviewer, grant: read, count: 32, independentOf: [author] }
+  auditor: { kind: agent, uses: auditor, independentOf: [reviewer] }
+seed: { role: author, title: Write }
+rules:
+  - { id: review, on: author, when: { every: [done] }, then: { role: reviewer, title: Review } }
+  - { id: audit, on: reviewer, when: { every: [approve] }, then: { role: auditor, title: Audit } }
+`
+test('thirty-two reviewer bindings and an auditor are checked at once, not one combination at a time', async (t) => {
+  const rig = await goalRig(t)
+  providers(rig).set('gamma', 'third').set('gamma-two', 'third')
+  await rig.start(WIDE, [agent('writer', ['done']), preferring(agent('reviewer', ['approve']), 'gamma', 'beta'), preferring(agent('auditor', ['approve']), 'gamma')])
+  await rig.flows.flush()
+  const writer = rig.sessionOf('seat-1')
+  const began = performance.now()
+  // Every reviewer has to leave gamma to the auditor: one answer, found without trying each reviewer's two choices.
+  assert.equal(await rig.flows.refuseSeatTarget(writer.runtime, writer.sessionId, 'alpha-two'), null)
+  assert.equal(await rig.flows.refuseSeatTarget(writer.runtime, writer.sessionId, 'beta-two'),
+    'it would leave a later step with no independent provider')
+  assert.ok(performance.now() - began < 2_000, `took ${Math.round(performance.now() - began)}ms`)
+})
