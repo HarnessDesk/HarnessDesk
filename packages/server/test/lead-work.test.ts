@@ -592,6 +592,19 @@ test('a bracket is set aside only when it is about the attempt', async t => {
   assert.ok('problem' in retry && retry.item === 'work-1', '"(retry)" is the same work')
 })
 
+test('a counted try, "(2nd try)" or "(#2)", is the same work, while an issue number still names different work', async t => {
+  const r = await rig(t)
+  await start(r, 'Fix flaky test', ['m-1'], 'fixture:a')
+  for (const title of ['Fix flaky test (2nd try)', 'Fix flaky test, 3rd attempt', 'Fix flaky test (#2)']) {
+    const again = await r.ledger.claim({ title, quotes: ['m-2'] })
+    assert.ok('problem' in again && again.item === 'work-1', `"${title}" is the same work`)
+  }
+  await start(r, 'Fix the crash (#41)', ['m-3'], 'fixture:b')
+  const other = await r.ledger.claim({ title: 'Fix the crash (#42)', quotes: ['m-4'] })
+  assert.ok(!('problem' in other), 'a bracketed issue number is not an attempt count')
+  r.ledger.release(other)
+})
+
 test('a retry under a reopened item ends by its own chat, not by the stopped try before it, and a reopen keeps to the day', async t => {
   const r = await rig(t)
   await start(r, 'Fix the login redirect', ['m-1'], 'fixture:a')
@@ -657,6 +670,35 @@ test('a late reminder says when it was due, a fired or cancelled one cannot be c
   const other = await restarted.setReminder({ text: 'Pay the hosting bill', at: r.now() + DAY, cause: 'person' })
   await restarted.cancelReminder({ id: other.id })
   await assert.rejects(restarted.cancelReminder({ id: other.id }), /already cancelled/)
+})
+
+test("a reminder the Lead set on an item is not its check-back, and closing the item ends every Lead entry on it", async t => {
+  const r = await rig(t)
+  await start(r, 'Fix the retry status list', ['m-1'], 'fixture:a')
+  const plain = await r.ledger.setReminder({ text: 'Look at the flaky run', at: r.now() + DAY, item: 'work-1', cause: 'automatic' })
+  assert.equal(plain.for, 'lead'); assert.equal(plain.kind, undefined, 'a reminder_set entry is a plain reminder')
+  assert.equal(card(await r.ledger.board(), 'work-1').remindAt, undefined, 'and the card does not show it as the check-back')
+  await r.ledger.note({ id: 'work-1', remindAt: r.now() + 2 * DAY })
+  let board = await r.ledger.board()
+  assert.deepEqual(board.reminders?.map(entry => [entry.id, entry.kind, entry.state]), [['remind-1', undefined, 'set'], ['remind-2', 'check-back', 'set']],
+    'a new check-back time leaves the plain reminder alone')
+  assert.equal(card(board, 'work-1').remindAt, r.now() + 2 * DAY)
+  assert.deepEqual(parseLeadWorkBoard(JSON.parse(JSON.stringify(board))), board, 'the kind passes the wire parser')
+  await r.ledger.close({ id: 'work-1', outcome: 'done' })
+  const all = (await r.ledger.board('all')).reminders ?? []
+  assert.deepEqual(all.filter(entry => entry.state === 'set'), [], 'nothing on the closed item stays set, holding a slot it can never free')
+})
+
+test('only a check-back counts toward the wakes cap', async t => {
+  const r = await rig(t)
+  await start(r, 'Fix the retry status list', ['m-1'], 'fixture:a')
+  for (let n = 0; n < 3; n++) {
+    await r.ledger.setReminder({ text: `Look again ${n}`, at: r.now() + 10 * 60_000, item: 'work-1', cause: 'automatic' })
+    r.tick(11 * 60_000)
+    for (const due of await r.ledger.dueReminders()) await r.ledger.reminded(due.id, due.remindAt)
+  }
+  await r.ledger.note({ id: 'work-1', remindAt: r.now() + DAY })
+  assert.equal(card(await r.ledger.board(), 'work-1').remindAt, r.now() + DAY, 'three plain wakes do not use up the check-back')
 })
 
 test("a check-back is named by its work's title", async t => {

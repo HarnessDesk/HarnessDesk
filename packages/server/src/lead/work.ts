@@ -111,13 +111,14 @@ const similar = (a: string, b: string, near = 0.8): boolean => {
   return shared / (x.size + y.size - shared) >= near
 }
 /** Words that mark another go at the same work, not different work: "(second attempt)", "retry", "try 2". */
-const ATTEMPT = /\b(?:another|second|third|fourth|fifth|new|next|one more)\s+(?:attempt|try|go|pass|run)\b|\b(?:attempt|try|retry|round|take)\s*#?\d+\b|\b(?:attempt|retry|again|redo)\b/giu
+const ATTEMPT = /\b(?:another|second|third|fourth|fifth|new|next|one more|\d+(?:st|nd|rd|th))\s+(?:attempt|try|go|pass|run)\b|\b(?:attempt|try|retry|round|take)\s*#?\d+\b|\b(?:attempt|retry|again|redo)\b/giu
 /** A trailing bracketed aside, stripped only when it is about the attempt: "(auth)" and "(billing)" stay different work. */
 const ASIDE = /\s*[([]([^)\]]*)[)\]]\s*$/u
 /** A title with its attempt words and any trailing aside in brackets taken off, for comparing one try with the next. */
 const sameWork = (title: string) => {
   const aside = ASIDE.exec(title)?.[1]
-  const bare = aside !== undefined && aside.replace(ATTEMPT, ' ').replace(/[^\p{L}\p{N}]+/gu, '') === '' ? title.replace(ASIDE, '') : title
+  // "(#2)" counts tries; "(#41)" names an issue, and a differing number keeps that different work.
+  const bare = aside !== undefined && (/^\s*#\d\s*$/u.test(aside) || aside.replace(ATTEMPT, ' ').replace(/[^\p{L}\p{N}]+/gu, '') === '') ? title.replace(ASIDE, '') : title
   return bare.replace(ATTEMPT, ' ').replace(/\s+/g, ' ').trim() || title
 }
 const ago = (ms: number) => ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} minutes` : `${Math.round(ms / 3_600_000)} hours`
@@ -125,7 +126,7 @@ const isReminder = (value: unknown): value is Reminder => {
   const entry = value as Reminder
   return !!entry && typeof entry === 'object' && typeof entry.id === 'string' && /^remind-[1-9][0-9]{0,8}$/.test(entry.id) &&
     typeof entry.text === 'string' && (entry.for === 'person' || entry.for === 'lead') && typeof entry.dueAt === 'number' &&
-    typeof entry.createdAt === 'number' && ['set', 'fired', 'cancelled'].includes(entry.state)
+    typeof entry.createdAt === 'number' && ['set', 'fired', 'cancelled'].includes(entry.state) && (entry.kind === undefined || entry.kind === 'check-back')
 }
 const watchKey = { chats: 'chat', teams: 'team', prs: 'pr', issues: 'issue' } as const
 const unreadable = () => Object.assign(new Error('The work ledger could not be read just now, so nothing was written. Try again in a moment.'), { wireCode: 'unavailable' })
@@ -192,7 +193,7 @@ export class LeadWorkLedger {
     this.stored = { version: 1, next, items, reminders, nextReminder }
     // A check-back an older ledger kept on its item becomes an entry the person can see and cancel.
     for (const item of items) if (item.remindAt !== undefined) {
-      if (item.closedAt === undefined) this.#remind({ text: clip(`Check on ${item.title}`, LEAD_WORK_LIMITS.reminderChars), for: 'lead', item: item.id, dueAt: item.remindAt }, item.updatedAt)
+      if (item.closedAt === undefined) this.#remind({ text: clip(`Check on ${item.title}`, LEAD_WORK_LIMITS.reminderChars), for: 'lead', kind: 'check-back', item: item.id, dueAt: item.remindAt }, item.updatedAt)
       delete item.remindAt
     }
     this.#trim()
@@ -267,7 +268,7 @@ export class LeadWorkLedger {
     item.closedAt = this.ports.now(); item.closedBy = 'host'; item.stage = 'stopped'
     delete item.blocker; delete item.remindAt; delete item.outcome
     this.#fact(item, why)
-    this.#endCheckBack(item, 'Its work was stopped')
+    this.#endLeadReminders(item, 'Its work was stopped')
   }
   /**
    * Room for one more open item. A full ledger first closes its oldest quiet item (nothing the host can follow), so it
@@ -413,7 +414,7 @@ export class LeadWorkLedger {
       if (input.remindAt !== undefined) {
         const now = this.ports.now()
         this.#endCheckBack(item, input.remindAt === null ? 'The Lead cleared it' : 'The Lead set a new time')
-        if (input.remindAt !== null) this.#remind({ text: clip(`Check on ${item.title}`, LEAD_WORK_LIMITS.reminderChars), for: 'lead', item: item.id,
+        if (input.remindAt !== null) this.#remind({ text: clip(`Check on ${item.title}`, LEAD_WORK_LIMITS.reminderChars), for: 'lead', kind: 'check-back', item: item.id,
           dueAt: Math.min(Math.max(input.remindAt, now + LEAD_WORK_LIMITS.remindGapMs), now + LEAD_WORK_LIMITS.remindMs) })
         this.#fact(item, input.remindAt === null ? 'Reminder cleared' : 'Reminder set')
       }
@@ -431,7 +432,7 @@ export class LeadWorkLedger {
         item.closedAt = this.ports.now(); item.closedBy = 'person'; item.outcome = input.outcome
         item.stage = input.outcome === 'done' ? 'done' : 'stopped'; delete item.blocker; delete item.remindAt
         this.#fact(item, input.outcome === 'done' ? 'The person marked it done' : 'The person dropped it')
-        this.#endCheckBack(item, 'The person closed its work')
+        this.#endLeadReminders(item, 'The person closed its work')
       }
       return this.#board('open')
     })
@@ -470,7 +471,7 @@ export class LeadWorkLedger {
       entry.state = 'fired'; entry.firedAt = this.ports.now()
       const item = entry.item === undefined ? undefined : this.stored.items.find(found => found.id === entry.item)
       if (!item) return
-      if (entry.for === 'lead') { item.wakes = this.#wakes(item) + 1; item.wakeMark = this.ports.asked?.() ?? 0 }
+      if (entry.kind === 'check-back') { item.wakes = this.#wakes(item) + 1; item.wakeMark = this.ports.asked?.() ?? 0 }
       this.#fact(item, entry.for === 'lead' ? 'The reminder woke the Lead' : "The person's reminder fired")
     })
   }
@@ -523,10 +524,10 @@ export class LeadWorkLedger {
 
   #reminders(): Reminder[] { return this.stored.reminders ??= [] }
   #set(): Reminder[] { return this.#reminders().filter(entry => entry.state === 'set') }
-  #checkBack(item: Item): Reminder | undefined { return this.#set().find(entry => entry.for === 'lead' && entry.item === item.id) }
-  #remind(input: { readonly text: string; readonly for: 'person' | 'lead'; readonly item?: string; readonly dueAt: number }, at = this.ports.now()): Reminder {
+  #checkBack(item: Item): Reminder | undefined { return this.#set().find(entry => entry.kind === 'check-back' && entry.item === item.id) }
+  #remind(input: { readonly text: string; readonly for: 'person' | 'lead'; readonly kind?: 'check-back'; readonly item?: string; readonly dueAt: number }, at = this.ports.now()): Reminder {
     const entry: Reminder = { id: `remind-${this.stored.nextReminder ?? 1}`, text: input.text, for: input.for, ...(input.item ? { item: input.item } : {}),
-      dueAt: input.dueAt, createdAt: at, state: 'set' }
+      dueAt: input.dueAt, createdAt: at, state: 'set', ...(input.kind ? { kind: input.kind } : {}) }
     this.stored.nextReminder = (this.stored.nextReminder ?? 1) + 1
     this.#reminders().push(entry)
     return entry
@@ -534,6 +535,10 @@ export class LeadWorkLedger {
   #cancel(entry: Reminder, why: string): void { entry.state = 'cancelled'; entry.cancelledAt = this.ports.now(); entry.why = why }
   /** The Lead's check-back on an item ends with the item; a reminder the person asked for keeps its time. */
   #endCheckBack(item: Item, why: string): void { const entry = this.#checkBack(item); if (entry) this.#cancel(entry, why) }
+  /** A closed item's `lead` entries never fire (the Lead has nothing to check on), so closing ends all of them. */
+  #endLeadReminders(item: Item, why: string): void {
+    for (const entry of this.#set()) if (entry.for === 'lead' && entry.item === item.id) this.#cancel(entry, why)
+  }
 
   /** Reminder wakes this item has had since the person last wrote to the Lead. */
   #wakes(item: Item): number {
@@ -649,7 +654,7 @@ export class LeadWorkLedger {
     else if (states.length && states.every(state => state.settled)) {
       stage = 'done'; item.closedAt = this.ports.now(); item.closedBy = 'host'; item.outcome = 'done'; delete item.remindAt
       this.#fact(item, 'Every link settled')
-      this.#endCheckBack(item, 'Its work finished')
+      this.#endLeadReminders(item, 'Its work finished')
     }
     else if (states.some(state => state.review !== undefined)) { stage = 'in-review'; blocker = states.find(state => state.review?.startsWith('Checks'))?.review }
     else stage = 'queued'

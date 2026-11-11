@@ -215,8 +215,9 @@ export const parseLeadWorkRead: Validator<{ readonly id: string }> = (value, pat
 
 /**
  * A reminder as a scheduled entry the person can see and cancel. `person` reminders are ones the person asked for: when
- * due they wake the Lead to tell the person. `lead` reminders are the Lead's own check-back on a work item, set through
- * `lead/work/note`. Only `fired` means it arrived; a `set` one has not, however close its time.
+ * due they wake the Lead to tell the person. `lead` reminders are the Lead's own: an item's check-back, set through
+ * `lead/work/note` (`kind: 'check-back'`), or one set in a turn no person's message woke. Only `fired` means it arrived;
+ * a `set` one has not, however close its time.
  */
 export type LeadReminderState = 'set' | 'fired' | 'cancelled'
 export interface LeadReminder {
@@ -234,13 +235,19 @@ export interface LeadReminder {
   readonly cancelledAt?: number
   /** Why it ended without firing, in the host's words. */
   readonly why?: string
+  /**
+   * `check-back` marks the one check-back an item has, set through `lead/work/note`: a new time replaces it, it is the
+   * card's `remindAt`, and its wakes count toward the item's cap. Left out for a reminder set through `lead/reminder/set`,
+   * even a `lead` one on an item.
+   */
+  readonly kind?: 'check-back'
 }
 const reminderId: Validator<string> = (value, path = '') => {
   const out = isString(value, path)
   return /^remind-[1-9][0-9]{0,8}$/.test(out) ? out : fail(path, 'expected a reminder id such as remind-3')
 }
 export const parseLeadReminder: Validator<LeadReminder> = (value, path = '') => {
-  const source = only(['id', 'text', 'for', 'item', 'dueAt', 'createdAt', 'state', 'firedAt', 'cancelledAt', 'why'])(value, path)
+  const source = only(['id', 'text', 'for', 'item', 'dueAt', 'createdAt', 'state', 'firedAt', 'cancelledAt', 'why', 'kind'])(value, path)
   const at = (key: string) => path ? `${path}.${key}` : key
   const out: Record<string, unknown> = {
     id: reminderId(source.id, at('id')), text: text(LEAD_WORK_LIMITS.reminderChars)(source.text, at('text')),
@@ -248,7 +255,7 @@ export const parseLeadReminder: Validator<LeadReminder> = (value, path = '') => 
     dueAt: time(source.dueAt, at('dueAt')), createdAt: time(source.createdAt, at('createdAt')),
     state: literalUnion('set', 'fired', 'cancelled')(source.state, at('state')),
     firedAt: optional(time)(source.firedAt, at('firedAt')), cancelledAt: optional(time)(source.cancelledAt, at('cancelledAt')),
-    why: optional(text(200))(source.why, at('why')),
+    why: optional(text(200))(source.why, at('why')), kind: optional(literalUnion('check-back'))(source.kind, at('kind')),
   }
   for (const key of Object.keys(out)) if (out[key] === undefined) delete out[key]
   return out as unknown as LeadReminder
