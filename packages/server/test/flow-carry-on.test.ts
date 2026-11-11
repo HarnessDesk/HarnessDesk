@@ -124,3 +124,56 @@ test('a run at its budget gets no switch', async (t) => {
   assert.deepEqual(await rig.flows.replaceSeat(seat.runtime, seat.sessionId, { runtime: 'alpha-two', mode: 'handoff' }), { refused: 'Run budget reached' })
   assert.deepEqual(rig.events.filter((one) => one.startsWith('replace:')), [])
 })
+
+/* Review fix 6: every binding of a later role must still fit, and each choice in a chain counts. */
+const TWO_BINDINGS = `
+version: 2
+name: Write then two reviews
+roles:
+  author: { kind: agent, uses: writer, seats: [alpha] }
+  reviewer: { kind: agent, uses: reviewer, grant: read, seats: [beta, gamma], independentOf: [author] }
+seed: { role: author, title: Write }
+rules:
+  - { id: review, on: author, when: { every: [done] }, then: { role: reviewer, title: Review } }
+`
+const CHAIN = `
+version: 2
+name: Write, review, then audit
+roles:
+  author: { kind: agent, uses: writer, seats: [alpha] }
+  reviewer: { kind: agent, uses: reviewer, independentOf: [author] }
+  auditor: { kind: agent, uses: auditor, independentOf: [reviewer] }
+seed: { role: author, title: Write }
+rules:
+  - { id: review, on: author, when: { every: [done] }, then: { role: reviewer, title: Review } }
+  - { id: audit, on: reviewer, when: { every: [approve] }, then: { role: auditor, title: Audit } }
+`
+const preferring = (entry: ReturnType<typeof agent>, ...runtimes: string[]): ReturnType<typeof agent> =>
+  ({ ...entry, definition: { ...entry.definition!, prefer: runtimes.map((runtime) => ({ runtime })) } })
+
+test('a writer may not move where any one binding of a later role loses its provider', async (t) => {
+  // The reviewer seats two: one on beta, one on gamma. The gamma one still fitting is not enough.
+  const rig = await goalRig(t)
+  providers(rig).set('gamma', 'third').set('gamma-two', 'third')
+  await rig.start(TWO_BINDINGS, AGENTS)
+  await rig.flows.flush()
+  const writer = rig.sessionOf('seat-1')
+  assert.equal(await rig.flows.refuseSeatTarget(writer.runtime, writer.sessionId, 'beta-two'),
+    'it would leave a later step with no independent provider')
+  assert.equal(await rig.flows.refuseSeatTarget(writer.runtime, writer.sessionId, 'gamma-two'),
+    'it would leave a later step with no independent provider')
+  assert.equal(await rig.flows.refuseSeatTarget(writer.runtime, writer.sessionId, 'alpha-two'), null)
+})
+
+test('a writer may not move where the provider a later role is forced onto leaves the role after it nothing', async (t) => {
+  // The reviewer may take beta or gamma; the auditor, independent of the reviewer, only gamma.
+  const rig = await goalRig(t)
+  providers(rig).set('gamma', 'third').set('gamma-two', 'third')
+  await rig.start(CHAIN, [agent('writer', ['done']), preferring(agent('reviewer', ['approve']), 'beta', 'gamma'), preferring(agent('auditor', ['approve']), 'gamma')])
+  await rig.flows.flush()
+  const writer = rig.sessionOf('seat-1')
+  // On beta's provider, the reviewer can only take gamma, and then the auditor has nothing independent of it.
+  assert.equal(await rig.flows.refuseSeatTarget(writer.runtime, writer.sessionId, 'beta-two'),
+    'it would leave a later step with no independent provider')
+  assert.equal(await rig.flows.refuseSeatTarget(writer.runtime, writer.sessionId, 'alpha-two'), null, 'the reviewer keeps beta, the auditor gamma')
+})

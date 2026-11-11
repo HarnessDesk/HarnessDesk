@@ -4562,28 +4562,68 @@ export class FlowExecutions {
     }
     const policy = policyOf(run)
     const board = this.#team.stateFor(run.goal)
-    for (const other of policy.roles) {
-      if (other.kind !== 'agent' || other.id === role.id || !other.independentOf.includes(role.id)) continue
-      const rounds = run.rounds.filter((one) => one.role === other.id)
-      for (const id of new Set(rounds.flatMap((one) => one.seats))) {
+    const agents = policy.roles.filter((one): one is Extract<FlowPolicy['roles'][number], { readonly kind: 'agent' }> => one.kind === 'agent')
+    const seated = (id: string): boolean => run.rounds.some((one) => one.role === id)
+    for (const other of agents) {
+      if (other.id === role.id || !other.independentOf.includes(role.id) || !seated(other.id)) continue
+      for (const id of new Set(run.rounds.filter((one) => one.role === other.id).flatMap((one) => one.seats))) {
         const reviewer = this.#port.seatOf(id)
         if (!reviewer) continue
         const reason = independentProviderReason(await this.#port.providerOf(reviewer.session.runtime, reviewer.checkout.cwd), new Set([provider]))
         if (reason) return reason.kind === 'sameProvider' ? 'it shares a provider with a seat that must be independent of this one' : unknown
       }
-      if (rounds.length > 0) continue
-      // Not seated yet: one of its candidates must still be independent of everyone it reviews, this move included.
-      const writers = await this.#writers(run, other.independentOf)
-      writers.add(provider)
-      let open = false
-      for (const binding of bindingsFor(run, other.id)) {
-        for (const candidate of binding.seats.length > 0 ? binding.seats : binding.agent.prefer) {
-          if (!independentProviderReason(await this.#port.providerOf(candidate.runtime, board.cwd ?? board.root), writers)) { open = true; break }
-        }
-        if (open) break
-      }
-      if (!open) return 'it would leave a later step with no independent provider'
     }
+    /* Roles not seated yet that must be independent of this one, directly or
+       through another such role: every binding of each must still find a
+       candidate once this move, and each choice made before it in that
+       chain, is counted. Never "one binding somewhere can": a role seats all
+       of its bindings, and a later role reads the providers an earlier one
+       ends up on. */
+    const affected: typeof agents = []
+    for (let grew = true; grew;) {
+      grew = false
+      for (const other of agents) {
+        if (other.id === role.id || seated(other.id) || affected.includes(other)) continue
+        if (other.independentOf.some((dependency) => dependency === role.id || affected.some((one) => one.id === dependency))) { affected.push(other); grew = true }
+      }
+    }
+    const ordered: typeof agents = []
+    while (ordered.length < affected.length) {
+      const next = affected.find((one) => !ordered.includes(one) &&
+        one.independentOf.every((dependency) => !affected.some((other) => other.id === dependency) || ordered.some((other) => other.id === dependency)))
+      if (!next) return 'it would leave a later step with no independent provider'
+      ordered.push(next)
+    }
+    const slots: { readonly role: (typeof agents)[number]; readonly writers: ReadonlySet<string | null>; readonly providers: readonly (string | null)[] }[] = []
+    for (const other of ordered) {
+      const writers = await this.#writers(run, other.independentOf)
+      if (other.independentOf.includes(role.id)) writers.add(provider)
+      for (const binding of bindingsFor(run, other.id)) {
+        const offered = binding.seats.length > 0 ? binding.seats : binding.agent.prefer
+        const providers: (string | null)[] = []
+        for (const candidate of offered) providers.push(await this.#port.providerOf(candidate.runtime, board.cwd ?? board.root))
+        slots.push({ role: other, writers, providers: [...new Set(providers)] })
+      }
+    }
+    const chosen = new Map<string, Map<string | null, number>>()
+    const fits = (index: number): boolean => {
+      const slot = slots[index]
+      if (!slot) return true
+      const writers = new Set(slot.writers)
+      for (const dependency of slot.role.independentOf) for (const one of chosen.get(dependency)?.keys() ?? []) writers.add(one)
+      const mine = chosen.get(slot.role.id) ?? new Map<string | null, number>()
+      chosen.set(slot.role.id, mine)
+      for (const candidate of slot.providers) {
+        if (independentProviderReason(candidate, writers)) continue
+        mine.set(candidate, (mine.get(candidate) ?? 0) + 1)
+        if (fits(index + 1)) return true
+        const left = mine.get(candidate)! - 1
+        if (left > 0) mine.set(candidate, left)
+        else mine.delete(candidate)
+      }
+      return false
+    }
+    if (!fits(0)) return 'it would leave a later step with no independent provider'
     return null
   }
 
