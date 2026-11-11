@@ -856,3 +856,27 @@ for (const queued of [false, true]) test(`a replacement Seat’s brief never end
   assert.ok(Number(records[0]!['hops']) >= 1, 'its hops are kept')
   assert.ok((records[0]!['tried'] as string[]).includes('codex') && (records[0]!['tried'] as string[]).includes('claude'), 'and the accounts it tried')
 })
+
+/* Round 2, P1: a seat's sends say they go into a Seat, so the host refuses one it finds no run's gate for. */
+test('every send into a seat says so, and a chat’s never does', async t => {
+  const seen: string[] = []
+  const recording = (r: Rig): CarryOnPorts['send'] => async (_runtime, _id, _text, kind, _stillOurs, admitted, seat) => {
+    admitted?.([])
+    seen.push(`${kind} ${seat === true ? 'seat' : 'chat'}`)
+  }
+  const seat = seatPorts()
+  const s = await rig(t, { owner: 'seat', seat: seat.ports })
+  const seatService = s.reopen({ send: recording(s) })
+  t.after(() => seatService.close())
+  await seatService.ended('codex', 's1', LIMIT)
+  await seatService.idle()
+  assert.ok(seen.length > 0 && seen.every(one => one.endsWith(' seat')), seen.join(', '))
+
+  seen.length = 0
+  const c = await rig(t)
+  const chatService = c.reopen({ send: recording(c) })
+  t.after(() => chatService.close())
+  await chatService.ended('codex', 's1', LIMIT)
+  await chatService.idle()
+  assert.ok(seen.length > 0 && seen.every(one => one.endsWith(' chat')), seen.join(', '))
+})

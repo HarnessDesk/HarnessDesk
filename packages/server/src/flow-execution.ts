@@ -908,6 +908,7 @@ export interface PersonReviewBinding {
   readonly refusal?: string
 }
 
+
 export class FlowExecutions {
   readonly #files: ExecutionFiles
   readonly #team: Team
@@ -4735,7 +4736,12 @@ export class FlowExecutions {
    */
   carriedAdmission(runtime: string, sessionId: string): { readonly admit: () => Promise<void>; readonly assert: () => void } | null {
     const found = this.#carried(runtime, sessionId)
-    if (!found) return null
+    if (!found) {
+      // A Seat of a run that has stalled, stopped or finished still has a gate: a closed one.
+      if (!this.#seatOfAnyRun(runtime, sessionId)) return null
+      const refuse = (): never => { throw new Error('This run is no longer handing out work.') }
+      return { admit: async () => refuse(), assert: refuse }
+    }
     const id = found.run.id
     const stopped = (): boolean => this.#stopRequests.has(id) || this.#runs.get(id)?.state !== 'running' || this.#runs.get(id)?.intake?.dispatchHeld === true
     return {
@@ -4750,6 +4756,21 @@ export class FlowExecutions {
       },
       assert: () => { if (stopped()) throw new Error('This run is no longer handing out work.') },
     }
+  }
+
+  /** Whether any v2 run, in any state, ever seated this conversation. */
+  #seatOfAnyRun(runtime: string, sessionId: string): boolean {
+    for (const run of this.#runs.values()) {
+      if (run.document.format !== 'agents') continue
+      for (const operation of run.operations) {
+        if (operation.kind !== 'seat' || !operation.seat) continue
+        for (const id of this.#lineage(run, operation.seat)) {
+          const seat = this.#port.seatOf(id)
+          if (seat && seat.session.runtime === runtime && seat.session.sessionId === sessionId) return true
+        }
+      }
+    }
+    return false
   }
 
   /**

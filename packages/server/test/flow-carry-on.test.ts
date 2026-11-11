@@ -316,3 +316,30 @@ test('a writer may not move where the provider a later role is forced onto leave
     'it would leave a later step with no independent provider')
   assert.equal(await rig.flows.refuseSeatTarget(writer.runtime, writer.sessionId, 'alpha-two'), null, 'the reviewer keeps beta, the auditor gamma')
 })
+
+/* Round 2, P1: a Seat whose run stopped handing out work while its send was being made gets a closed gate, never none. */
+test('a carried Seat whose run stalled meanwhile is refused at its gate, not let through ungated', async (t) => {
+  const rig = await goalRig(t)
+  providers(rig)
+  const run = await rig.startTriggered(WRITE_THEN_REVIEW('beta'), AGENTS)
+  await rig.flows.flush()
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  const old = rig.sessionOf('seat-1')
+  const opened = await rig.flows.replaceSeat(old.runtime, old.sessionId, { runtime: 'alpha-two', mode: 'handoff' })
+  assert.ok(!('refused' in opened))
+  const next = rig.sessionOf(String(opened.id))
+  // The brief is going out; spend lands, the budget refusal stalls the run while the packet is still being built.
+  rig.triggerGate = () => 'Run budget reached'
+  await assert.rejects(rig.flows.carriedAdmission(next.runtime, next.sessionId)!.admit(), /Run budget reached/)
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'stalled')
+  // The packet is ready now: the gate it asks for is a closed one.
+  const late = rig.flows.carriedAdmission(next.runtime, next.sessionId)
+  assert.ok(late, 'a Seat of a run that stalled still has a gate')
+  await assert.rejects(late.admit(), /no longer handing out work/)
+  assert.throws(() => late.assert(), /no longer handing out work/)
+  assert.ok(rig.flows.carriedAdmission(old.runtime, old.sessionId), 'and so does the Seat it replaced')
+  assert.equal(rig.flows.carriedAdmission('nobody', 'nothing'), null, 'a conversation no run seated has none')
+})
+

@@ -6131,13 +6131,19 @@ export class Host {
         // shows it as something the person typed.
         // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
         // last await: a person who writes while the host is resolving the handle wins there too.
-        send: async (runtime, sessionId, text, kind, stillOurs, admitted) => {
+        send: async (runtime, sessionId, text, kind, stillOurs, admitted, seat) => {
           const at = key(runtime, sessionId)
           // Into a Flow's Seat, the run's own gate rides the same admission: its budget is read when the send goes
-          // (a queued packet's when it drains), and its stop at the boundary itself (§9.4).
-          const run = this.#flows.carriedAdmission(runtime, sessionId)
-          const admission = Object.assign(async () => { await run?.admit() }, {
-            assertDispatch: () => { if (!stillOurs()) throw new Error('The person’s message went first.'); run?.assert() },
+          // (a queued packet's when it drains), and its stop at the boundary itself (§9.4). A Seat's send with no gate
+          // to pass — its run stalled or gone while the send was being made — is refused, never let through ungated.
+          const gate = (): { readonly admit: () => Promise<void>; readonly assert: () => void } | null => {
+            const run = this.#flows.carriedAdmission(runtime, sessionId)
+            if (!run && seat) throw new Error('This seat no longer belongs to a running run.')
+            return run
+          }
+          gate()
+          const admission = Object.assign(async () => { await gate()?.admit() }, {
+            assertDispatch: () => { if (!stillOurs()) throw new Error('The person’s message went first.'); gate()?.assert() },
             // Past the boundary: carry-on's marker goes in now, never for a send the person overtook. With the turns the
             // conversation already had, so carry-on watches the turn this send starts and nothing before it.
             ...(admitted ? { dispatchStarted: () => admitted((this.registry.get(at.runtime, at.sessionId)?.session.turns ?? []).map((turn) => String(turn.id))) } : {}),

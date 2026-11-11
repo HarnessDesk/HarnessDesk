@@ -142,7 +142,9 @@ export interface CarryOnPorts {
    */
   readonly send: (runtime: string, sessionId: string, text: string, kind: 'continue' | 'packet', stillOurs: () => boolean,
     /** Called once the host has admitted the send at its effect boundary, right before it leaves, with the turns the conversation already had. */
-    admitted?: (known: readonly string[]) => void) => Promise<void>
+    admitted?: (known: readonly string[]) => void,
+    /** Into a Team or Flow Seat: the host must find the run's own gate for it, and refuses the send when it cannot. */
+    seat?: boolean) => Promise<void>
   /**
    * A new conversation on `runtime` in the stuck conversation's own folder, with carry-on's lease on the handle its
    * creation attached, taken at the attachment (null when the host could not say).
@@ -690,7 +692,7 @@ export class CarryOnService {
       // The person wrote while it reopened: theirs is the continuation.
       if (!fence()) { await this.#settle(sending, { state: 'cleared', nextAt: null, throttle: undefined, note: PERSON_FIRST }); return }
       // The fence goes into the host's dispatch too, and is read again right before the message leaves.
-      await this.ports.send(at.runtime, at.sessionId, CONTINUE_TEXT, 'continue', fence)
+      await this.ports.send(at.runtime, at.sessionId, CONTINUE_TEXT, 'continue', fence, undefined, record.owner === 'seat')
     } catch {
       if (!fence()) { await this.#settle(sending, { state: 'cleared', nextAt: null, throttle: undefined, note: PERSON_FIRST }); return }
       await this.#settle(sending, { state: 'asked', note: 'The retry at the reset did not go through.' })
@@ -873,7 +875,7 @@ export class CarryOnService {
         const switched = { to, mode, ...(note ? { note } : {}) }
         let marked = false
         const markSwitched = () => { if (!marked) marked = this.#mark(current, moved, 'switched', switched) }
-        await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue', fence, (turns) => { markSwitched(); arm(turns) })
+        await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue', fence, (turns) => { markSwitched(); arm(turns) }, true)
         markSwitched()
         const kept: CarryOnUnwritten[] = marked ? [] : [{ ...moved, phase: 'switched', ...switched }]
         return await armed(await this.#settle(current, { state: 'moved', runtime: moved.runtime, sessionId: moved.sessionId, mode, watch: watchOf(), ...(note ? { note } : {}), ...this.#keep(current, kept) }, from))
@@ -883,7 +885,7 @@ export class CarryOnService {
       const leaving = { to, mode: 'handoff' as const, link: moved, ...(note ? { note } : {}) }
       let left = false
       const markLeft = () => { if (!left) left = this.#mark(current, from, 'left', leaving) }
-      await this.ports.send(moved.runtime, moved.sessionId, text, 'packet', fence, (turns) => { markLeft(); arm(turns) })
+      await this.ports.send(moved.runtime, moved.sessionId, text, 'packet', fence, (turns) => { markLeft(); arm(turns) }, true)
       markLeft()
       const kept: CarryOnUnwritten[] = [
         ...(left ? [] : [{ ...from, phase: 'left' as const, ...leaving }]),
