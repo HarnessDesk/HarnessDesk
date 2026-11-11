@@ -485,6 +485,20 @@ const CAUSE = {
 } as const satisfies Record<string, { word: string; tone: Tone }>
 
 /**
+ * One answer a notice offers when the member's stop is a question for the
+ * person — a seat out of its usage limit, say, that could go on elsewhere.
+ * The first is the recommended one; the label carries everything the answer
+ * needs, so nothing below it explains it again.
+ */
+export type ChannelNoticeChoice = {
+  readonly label: string
+  /** The same answer, said longer, on hover. */
+  readonly title?: string
+  readonly onSelect: () => void
+  readonly disabled?: boolean
+}
+
+/**
  * A row about a member rather than from one: its turn ended without an answer.
  *
  * Shaped like a signal — the same spine, the same aside voice — because it is
@@ -492,29 +506,61 @@ const CAUSE = {
  * because the difference between "still reading" and "ran out of its window
  * forty minutes ago" is the whole reason the row exists, and a grey sentence
  * in a busy channel is not that difference.
+ *
+ * When the stop waits on the person, the same row carries the decision:
+ * `choices` as a line of buttons under the sentence, the first one primary,
+ * and `note` for the one fact that varies (a candidate that was skipped and
+ * why). A Team never gets a second card for it — the notice is where the
+ * room already says the member stopped.
  */
 export const ChannelNotice = ({
   about,
   cause,
   text,
   at,
+  choices,
+  note,
 }: {
   readonly about: string
   readonly cause: 'limit' | 'auth' | 'stopped' | 'gone'
   /** The runtime's own words. */
   readonly text: string
   readonly at: string
-}) => (
-  <TurnItem register="light" data-channel="notice" className="flex items-baseline">
-    <span className={SPINE} aria-hidden />
-    <Text role="meta" className="min-w-0 flex-1">
-      <Chip tone={CAUSE[cause].tone} className="mr-1.5 align-baseline">
-        {CAUSE[cause].word}
-      </Chip>
-      <Text role="meta" ink="secondary">{about}</Text> {text}
-      <Text role="meta" numeric className="ml-1.5 whitespace-nowrap">{at}</Text>
-    </Text>
-  </TurnItem>
-)
+  readonly choices?: readonly ChannelNoticeChoice[]
+  readonly note?: string
+}) => {
+  const asking = choices !== undefined && choices.length > 0
+  return (
+    <TurnItem register="light" data-channel="notice" className="flex items-baseline">
+      <span className={SPINE} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <Text role="meta" className="block min-w-0">
+          <Chip tone={CAUSE[cause].tone} className="mr-1.5 align-baseline">
+            {CAUSE[cause].word}
+          </Chip>
+          <Text role="meta" ink="secondary">{about}</Text> {text}
+          <Text role="meta" numeric className="ml-1.5 whitespace-nowrap">{at}</Text>
+        </Text>
+        {note ? <Text as="p" role="meta" className="mt-1">{note}</Text> : null}
+        {asking ? (
+          <div data-slot="channel-notice-choices" className="mt-1.5 flex flex-wrap gap-1.5">
+            {choices.map((choice, index) => (
+              <Button
+                key={choice.label}
+                variant={index === 0 ? 'primary' : 'outline'}
+                size="sm"
+                title={choice.title ?? choice.label}
+                disabled={choice.disabled}
+                onClick={choice.onSelect}
+              >
+                {choice.label}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </TurnItem>
+  )
+}
 
 ChannelNotice.displayName = 'ChannelNotice'
