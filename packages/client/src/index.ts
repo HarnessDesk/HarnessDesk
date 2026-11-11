@@ -54,6 +54,8 @@ export interface Client {
 export interface ConnectOptions {
   readonly transport: () => Promise<ClientTransport>
   readonly client: HostParams<'client/hello'>['client']
+  /** Stated on the hello, like `client`: `mcp` when serving an MCP client. The desk gates starting work on it. */
+  readonly surface?: 'mcp'
   readonly subscribe?: HostParams<'client/subscribe'>
   /** Retain raw wire notifications for a consumer; off by default. */
   readonly rawNotifications?: boolean
@@ -555,7 +557,7 @@ export async function connect(options: ConnectOptions): Promise<Client> {
       if (readyToReconnect && !reconnecting) void reconnect()
     })]
     try {
-      hello = await request('client/hello', { client: options.client, protocol: CLIENT_PROTOCOL })
+      hello = await request('client/hello', { client: options.client, protocol: CLIENT_PROTOCOL, ...(options.surface ? { surface: options.surface } : {}) })
       if (hello.protocolVersion !== CLIENT_PROTOCOL) throw new WireCallError('incompatible', 'The client and desk speak different protocol versions.')
       ready = true
       readyToReconnect = true

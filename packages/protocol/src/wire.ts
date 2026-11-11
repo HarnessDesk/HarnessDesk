@@ -8,7 +8,7 @@ import type { LeadChatControlList, LeadRepeatControl, LeadBudgetRaise, LeadSpend
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
-import type { ClientTier, ClientTopic, FlowExecutionSummary } from './client-surface.js'
+import type { ClientTier, ClientTopic, FlowExecutionSummary, McpStartsView } from './client-surface.js'
 import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
@@ -888,7 +888,8 @@ export interface HostMethods {
   /** How full the Lead's conversation is, as one figure: read by the Lead about itself and by a phone. */
   'lead/context/use': { params: Record<string, never>; result: LeadContextUse }
   'client/hello': {
-    params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }
+    /** `surface` is stated, like `client`: `mcp` says the caller is serving an MCP client, which the desk gates starting work on. */
+    params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number; readonly surface?: 'mcp' }
     result: {
       readonly protocolVersion: number
       readonly hostVersion: string
@@ -2937,6 +2938,13 @@ export interface HostMethods {
    * installs Brave the week after they chose Chrome.
    */
   'app/browsers': { params: Record<string, never>; result: readonly InstalledBrowser[] }
+  /** Window only. Whether MCP clients may start work, and today's count; never on the client surface. */
+  'app/mcpStarts/get': { params: Record<string, never>; result: McpStartsView }
+  /** Window only. Turns starting work from MCP clients on or off, or sets the daily number; a stale revision is refused. */
+  'app/mcpStarts/set': {
+    params: { readonly revision: number; readonly mayStart?: boolean; readonly dailyStarts?: number }
+    result: McpStartsView
+  }
   /** What a paired phone reads of mention triage: every decision, newest first, read only. */
   'phone/triage/list': { params: { readonly limit?: number }; result: PhoneTriageList }
 
