@@ -100,7 +100,7 @@ const marker = (): Element | null =>
  * click on a project does; that is the one preference written.
  */
 const neverSent = (request: ReturnType<typeof vi.spyOn>): void => {
-  const forbidden = request.mock.calls.filter(([method, params]) =>
+  const forbidden = (request.mock.calls as unknown[][]).filter(([method, params]) =>
     /^(turn|flow|goal|team|lead|permission)\//.test(String(method)) || method === 'session/create' ||
     (method === 'app/state/set' && Object.keys((params as { patch: object }).patch).some((key) => key !== 'layouts')))
   expect(forbidden).toEqual([])

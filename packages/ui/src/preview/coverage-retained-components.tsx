@@ -6,11 +6,12 @@ import { LeadCheckpointNotice, LeadContextSection } from '../components/LeadChec
 import { MentionDecisionRows, type MentionTriageState } from '../components/MentionDecisions'
 import { LeadStatusPanel, useLeadControls } from '../components/LeadControls'
 import { PhoneAsk, PhoneSettingsSection } from '../components/PhoneSettings'
+import { PromptLinkMarker } from '../components/PromptLinkMarker'
 import { createLeadFixtureStore } from './frames-lead'
 import { leadContextFacts, leadSceneProjection } from './lead-fixture'
 import { useMemo, useState, useSyncExternalStore } from 'react'
 import type { TriggerBudgetState } from '@harnessdesk/protocol'
-import { Menu, Section, Text } from '../design'
+import { ComposerNoticeStack, Menu, Section, Text } from '../design'
 import { SeatFace } from '../components/AgentCards'
 import { AgentRow } from '../components/AgentRoster'
 import { ComposerOptionMenu, PermissionControl } from '../components/ComposerControls'
@@ -20,7 +21,7 @@ import { BudgetFooter } from '../components/TeamRoomPane'
 import { runTimeline } from '../lib/run-timeline'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { Dial, Frame } from './main'
-import { PREVIEW_AGENTS, PREVIEW_SESSION_KEY } from './harness'
+import { PREVIEW_AGENTS, PREVIEW_SESSION_KEY, previewStore } from './harness'
 import { overviewInput } from './team-overview-fixture'
 import { triggerDecisionsPage } from './intake-fixture'
 
@@ -77,6 +78,13 @@ const MentionTriageCoverage = () => {
   return <Section title="Mention triage" level="heading"><MentionDecisionRows triage={triage} /></Section>
 }
 
+/** A new chat's draft as a prompt link left it: the composer holds the link's words, so the mark shows what else it asked for. */
+const PromptLinkCoverage = () => {
+  const own = useMemo(() => previewStore({ promptLinkDraft: { text: 'Fix the flaky checkout test.', context: 'Pull request #42 · Flow review.' } }), [])
+  return <StoreProvider store={own}><Section title="Prompt link draft" level="heading">
+    <ComposerNoticeStack><PromptLinkMarker text="Fix the flaky checkout test." /></ComposerNoticeStack></Section></StoreProvider>
+}
+
 /** State-specific exports stay inspectable even when the unified Work view uses compact rows. */
 export const RetainedComponentsCoverage = () => {
   const [shown, setShown] = useState('off')
@@ -110,6 +118,7 @@ export const RetainedComponentsCoverage = () => {
       <LeadAndPhoneCoverage />
       <LeadWorkCoverage />
       <MentionTriageCoverage />
+      <PromptLinkCoverage />
       </>}
     </div>
   </Frame>
