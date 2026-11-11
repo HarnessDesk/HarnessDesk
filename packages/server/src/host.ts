@@ -4497,6 +4497,7 @@ export class Host {
       readRequestInFlight: () => this.#leadService?.requestInFlight ?? false,
       onFailure: (stage, failure) => this.#logger.warn('Lead request failed', { stage, code: leadFailureCode(failure) }),
       readActiveTool: () => this.#leadService?.activeTool ?? null,
+      readActiveStep: () => this.#leadService?.step ?? null,
       readChatEffectQueued: () => this.#leadChats?.effectsQueued ?? false,
       service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),

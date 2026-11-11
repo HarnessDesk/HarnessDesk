@@ -58,7 +58,7 @@ export const leadMemoryView: LeadMemoryView = { version: 1, revision: 7, auto: f
   history: [
     { version: 7, at: Date.parse('2026-11-09T03:00:00Z'), by: 'tidy', added: 1, removed: 2, changed: 1, tidy: { merged: 2, replaced: 0, archived: 1 }, undoable: true },
     { version: 6, at: Date.parse('2026-11-08T17:20:00Z'), by: 'person', added: 1, removed: 0, changed: 0, undoable: true }] }
-export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'settings-autonomy', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence', 'context-checkpoint', 'memory-proposal', 'settings-memory', 'memory-proposal-again'] as const
+export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'settings-autonomy', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence', 'context-checkpoint', 'memory-proposal', 'settings-memory', 'working-step', 'memory-proposal-again'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -139,17 +139,19 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
     projection = { ...projection, requestInFlight: scene === 'ordinary-reply',
       ...(scene === 'setup-blocked' ? { waitReason: 'lead-plan-not-independent' as const } : {}) }
   }
-  if (scene.startsWith('turn-') || scene === 'working-desk') {
+  if (scene.startsWith('turn-') || scene === 'working-desk' || scene === 'working-step') {
     thread.state = 'planning'
     thread.messages = [{ version: 1, id: 'desk-question', revision: 1, role: 'user', text: 'What is on this desk now?' }]
     const text = scene === 'turn-bold' ? '**运行中（1 个）**\n\n一个聊天正在检查键盘操作。'
       : scene === 'turn-heading' ? '## Running work\n\nOne chat is checking keyboard navigation.'
       : scene === 'turn-list' ? '- 运行中：检查键盘操作\n- Waiting: approve the documentation change'
       : 'The desk has 30 chats and 1 Team. One chat is running; the Team needs your review.'
-    if (scene !== 'working-desk') thread.messages = [...thread.messages, { version: 1, id: 'desk-answer', revision: 2, role: 'assistant', text,
+    if (scene !== 'working-desk' && scene !== 'working-step') thread.messages = [...thread.messages, { version: 1, id: 'desk-answer', revision: 2, role: 'assistant', text,
       ...(scene === 'turn-card' ? { proactive: { finding: 'The Team needs your review.', caveat: 'One chat is still working.', ask: 'Open changes', action: 'changes' as const } } : {}) }]
-    projection = { ...projection, requestInFlight: scene === 'working-desk',
-      ...(scene === 'working-desk' ? { activity: { since: Date.now() - 6000, method: 'lead/desk/summary' } } : {}) }
+    projection = { ...projection, requestInFlight: scene === 'working-desk' || scene === 'working-step',
+      ...(scene === 'working-desk' ? { activity: { since: Date.now() - 6000, method: 'lead/desk/summary' } } : {}),
+      // Between two desk calls: none is in flight, and the host still names the step the Lead is on.
+      ...(scene === 'working-step' ? { activity: { since: Date.now() - 9000, method: null, step: 'Starting a chat' } } : {}) }
   }
   // The desk summarised the earlier conversation: its marker sits between the turns it replaced and the ones after.
   if (scene === 'context-checkpoint') thread.messages = [

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { SessionKey } from '@harnessdesk/protocol'
 
-import { Drafts, draftsOf, UNSCOPED_RECOVERY_KEY } from './drafts'
+import { Drafts, draftsOf, LEAD_DRAFT_KEY, UNSCOPED_RECOVERY_KEY } from './drafts'
 
 const a = 'codex\u0000a' as SessionKey
 const b = 'claude\u0000b' as SessionKey
@@ -69,6 +69,18 @@ describe('draft reload storage', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('keeps the Lead composer\'s draft across a reload, and a cleared one stays cleared (#2091)', () => {
+    const drafts = new Drafts()
+    drafts.setLive(LEAD_DRAFT_KEY, { text: 'Check the stalled task', attachments: [] })
+    window.dispatchEvent(new Event('pagehide'))
+    expect(new Drafts().live(LEAD_DRAFT_KEY)?.text).toBe('Check the stalled task')
+    drafts.setLive(LEAD_DRAFT_KEY, { text: '', attachments: [] })
+    const reloaded = new Drafts()
+    expect(reloaded.live(LEAD_DRAFT_KEY)).toBeNull()
+    window.dispatchEvent(new Event('pagehide'))
+    expect(new Drafts().live(LEAD_DRAFT_KEY)).toBeNull()
   })
 
   it('flushes the newest live and recoverable drafts on pagehide', () => {

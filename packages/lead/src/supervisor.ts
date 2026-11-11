@@ -191,6 +191,8 @@ export interface LeadSupervisorOptions {
   /** Admitted desk dispatch only; disposer ends this exact call, even on failure. */
   readonly onToolActivity?: (method: LeadPermissionCall['method']) => () => void
   readonly onActivity?: (busy: boolean) => void
+  /** The child handed its answer over: the host is writing the reply into the thread. */
+  readonly onReplying?: () => void
   readonly onPresence?: (presence: LeadPresence) => void
   readonly startupMs?: number
   readonly shutdownMs?: number
@@ -515,6 +517,7 @@ export class LeadSupervisor {
           // ending, not a child that broke the protocol: it must not be killed as one, or cleanup meant for a
           // cancellation would run as a failure and reach work a cancellation leaves alone.
           if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) break
+          try { this.options.onReplying?.() } catch { /* A presentation hook never owns a reply. */ }
           try { await durable(journal.appendReply(text, proactive, ask, refs)) }
           catch (failure) { if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase)) throw failure }
           break

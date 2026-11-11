@@ -63,3 +63,24 @@ it('a Lead envelope retyped in another chat never borrows its sender label', () 
   expect(container.textContent).not.toContain('Sent by Dex')
   expect(container.querySelector('[data-lead-message]')).toBeNull()
 })
+
+it('after a stop, a replayed Lead message still reads as the Lead\'s, never as envelope text (#2090)', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Fix the stalled task.')
+  // The replay merged the agent's stop marker in front of the envelope, with no desk record.
+  render({ type: 'userMessage', id: itemId('u1'), content: [{ type: 'text', text: '[Request interrupted by user]' }, { type: 'text', text: envelope }] } as UserMessageItem,
+    [leadMessageKey('codex:s1', envelope)])
+  expect(container.textContent).toContain('Sent by Dex')
+  expect(container.textContent).toContain('Fix the stalled task.')
+  expect(container.textContent).not.toContain('<context')
+  expect(container.textContent).not.toContain('Request interrupted')
+})
+
+it('a Lead message an adapter peeled into the item\'s context still reads as the Lead\'s (#2090)', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Fix the stalled task.')
+  const body = envelope.slice(envelope.indexOf('\n') + 1, envelope.lastIndexOf('\n'))
+  render({ type: 'userMessage', id: itemId('u1'), content: [], context: [{ label: 'Lead message from Dex', text: body }] } as unknown as UserMessageItem,
+    [leadMessageKey('codex:s1', envelope)])
+  expect(container.textContent).toContain('Sent by Dex')
+  expect(container.querySelector('[data-lead-message]')).not.toBeNull()
+  expect(container.textContent).not.toContain('Context added')
+})

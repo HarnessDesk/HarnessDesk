@@ -1,4 +1,4 @@
-import { LEAD_LIMITS, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type LeadControlRefusal, type LeadPresence } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, LEAD_STEP_REPLYING, LEAD_STEP_THINKING, leadStepWords, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type LeadControlRefusal, type LeadPresence } from '@harnessdesk/protocol'
 import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse, LeadWithheldPiece } from '@harnessdesk/lead'
 import { LEAD_MESSAGES_DEFAULTS, leadRememberLines, parseLeadMessagesBody } from '@harnessdesk/lead'
 import { LeadSupervisor, chooseLeadRuntime, hostLeadRuntime, type LeadRuntime, type LeadRuntimeProber, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
@@ -80,6 +80,11 @@ export class LeadService {
   #requestInFlight = false
   readonly #activeTools = new Map<symbol, LeadPermissionCall['method']>()
   get activeTool(): LeadPermissionCall['method'] | null { return [...this.#activeTools.values()].at(-1) ?? null }
+  // The step the live line names: thinking until a desk call has words, then that call's words until the next one,
+  // then the reply. Calls take milliseconds; between them the model is reading what the last one returned.
+  #step: string | null = null
+  /** The current step in plain words while a request runs; null when none does. */
+  get step(): string | null { return this.#requestInFlight ? this.#step ?? LEAD_STEP_THINKING : null }
   get requestInFlight(): boolean { return this.#requestInFlight }
   /** Host dispatches, including accepted queued work, must observe lifecycle revocation immediately. */
   get managementAvailable(): boolean { return this.#enabled && !this.#closed && !this.#changingKeys && !this.#cleanupFailed }
@@ -87,6 +92,7 @@ export class LeadService {
     const next = busy && !this.#closed
     if (this.#requestInFlight === next) return
     this.#requestInFlight = next
+    this.#step = null
     if (!next) this.#activeTools.clear()
     // Activity outlives an individual send response; give its projection a fresh
     // revision without deriving liveness from durable billing reservations.
@@ -146,9 +152,15 @@ export class LeadService {
         } catch (error) { await this.#release(); throw error }
       },
       onActivity: busy => this.#activity(busy),
+      onReplying: () => {
+        if (!this.#requestInFlight) return
+        this.#step = LEAD_STEP_REPLYING
+        void options.journal.settingsChanged().catch(() => {})
+      },
       onToolActivity: method => {
         const key = Symbol()
         this.#activeTools.set(key, method)
+        this.#step = leadStepWords(method) ?? this.#step
         void options.journal.settingsChanged().catch(() => {})
         return () => {
           if (this.#activeTools.delete(key)) void options.journal.settingsChanged().catch(() => {})

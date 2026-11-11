@@ -1,5 +1,5 @@
 import { leadThreadStage } from './projection.js'
-import { boundLeadApprovalHistory, leadDisplayName, leadRequestFailure, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
+import { LEAD_STEP_THINKING, boundLeadApprovalHistory, leadDisplayName, leadRequestFailure, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
 import {
   parseLeadApprovalRevoke, parseLeadMessage, parseLeadAsk, parseLeadProactiveOutput, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
@@ -86,6 +86,8 @@ interface LeadControlsOptions {
   readonly context?: Pick<LeadContextStore, 'request' | 'due' | 'compact' | 'facts' | 'compacting' | 'epoch'> & Partial<Pick<LeadContextStore, 'settle'>>
   /** Test seam for the idle check after a step was recorded. */
   readonly scheduleContextCheck?: (run: () => void) => void
+  /** The Lead's current step in plain words, from the desk call in flight; null while it has named none. */
+  readonly readActiveStep?: () => string | null
 }
 /** One host owner, no transport or rendering. Child ports never contain these operations. */
 export class LeadControls {
@@ -213,7 +215,8 @@ export class LeadControls {
     const requestInFlight = this.#inFlight()
     if (!requestInFlight) this.#replySince = null
     else this.#replySince ??= this.options.now()
-    const activity = requestInFlight ? { since: this.#replySince!, method: this.options.readActiveTool?.() ?? null } : null
+    const step = this.options.readActiveStep?.() ?? null
+    const activity = requestInFlight ? { since: this.#replySince!, method: this.options.readActiveTool?.() ?? null, step: step ?? LEAD_STEP_THINKING } : null
     const { stage, reason: stageReason } = leadThreadStage(state, thread, personActions, waitReason as LeadWindowProjection['waitReason'], requestInFlight, this.options.readChatEffectQueued?.() ?? false)
     const failure = leadRequestFailure(waitReason, leadDisplayName(settings.name))
     const result = parseLeadWindowProjection({ stage, stageReason, version: 1, revision: state.seq, thread, settings, wayOut, waitReason, ...(failure && { failure }),

@@ -346,7 +346,8 @@ const planStep = (turn: Turn): PhoneWorkStep | null => {
 
 const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated: () => void, sent: ReadonlySet<string>, chatId: string): PhoneWorkTurn | null => {
   const split = splitContextContent(item.content)
-  const verified = split.injections.filter(block => isLeadMessageSource(block.label) && sent.has(leadMessageKey(chatId, wrapContext(block.label, block.text))))
+  // An adapter that peels the desk's envelope off a runtime's history leaves the block in `context`.
+  const verified = [...split.injections, ...(item.context ?? [])].filter(block => isLeadMessageSource(block.label) && sent.has(leadMessageKey(chatId, wrapContext(block.label, block.text))))
   const source = verified.length ? [
     ...verified.map(block => leadMessageWords(block.text)),
     split.text,

@@ -694,6 +694,88 @@ const decorateSessionOptions = <T extends { configOptions?: SessionConfigOption[
   return configOptions ? { ...response, configOptions } : response
 }
 
+/** What a load knows while the adapter underneath replays a stored conversation. */
+type LoadReplay = {
+  /**
+   * The stored kind of each user text the person did not type, by its trimmed
+   * text, with how many times it is stored. A match is used up, so the same
+   * words the person typed later stay theirs.
+   */
+  readonly kinds: Map<string, { readonly kind: StoredKind; left: number }>
+  /** Echoed command output already shown once. */
+  readonly noticed: Set<string>
+  /** The replay sent any part of the history: the history is its, and the bridge sends none. */
+  heard: boolean
+}
+
+const storedKindOf = (entry: Record<string, unknown>): StoredKind | undefined =>
+  entry.isCompactSummary === true ? 'compact' : entry.isMeta === true ? 'meta' : undefined
+
+/** The stored transcript's entries, or none: only the `.jsonl` file is read, never a sidecar folder of the same id. */
+const storedEntries = (sessionId: string): readonly Record<string, unknown>[] => {
+  const path = sessionFiles(sessionId).find((candidate) => candidate.endsWith('.jsonl'))
+  if (!path) return []
+  try {
+    return readFileSync(path, 'utf8').split('\n').filter(Boolean).flatMap((line) => {
+      try { const value = JSON.parse(line) as Record<string, unknown>; return value.type ? [value] : [] } catch { return [] }
+    })
+  } catch { return [] }
+}
+
+const userTexts = (entry: Record<string, unknown>): readonly string[] => {
+  const content = (entry.message as { content?: unknown } | undefined)?.content
+  const blocks = typeof content === 'string' ? [content] : Array.isArray(content) ? content : []
+  return blocks.flatMap((block) => typeof block === 'string' ? [block]
+    : (block as { type?: string; text?: unknown })?.type === 'text' ? [String((block as { text: unknown }).text)] : [])
+}
+
+const storedKinds = (entries: readonly Record<string, unknown>[]): Map<string, { readonly kind: StoredKind; left: number }> => {
+  const kinds = new Map<string, { readonly kind: StoredKind; left: number }>()
+  for (const entry of entries) {
+    const kind = entry.type === 'user' ? storedKindOf(entry) : undefined
+    if (!kind) continue
+    for (const text of userTexts(entry)) {
+      const key = text.trim()
+      const known = kinds.get(key)
+      if (known) known.left++
+      else kinds.set(key, { kind, left: 1 })
+    }
+  }
+  return kinds
+}
+
+/** The stored kind of a replayed user text, used up once it is matched. */
+const takeKind = (loading: LoadReplay, text: string): StoredKind | undefined => {
+  const key = text.trim()
+  const known = loading.kinds.get(key)
+  if (!known) return undefined
+  if (--known.left === 0) loading.kinds.delete(key)
+  return known.kind
+}
+
+/** What a replay of stored history is made of: hearing any of it means the replay is the history. */
+const HISTORY_UPDATES: ReadonlySet<string> = new Set(['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update'])
+
+/**
+ * A user message the adapter underneath replays, read as the bridge's own
+ * replay reads it: an interruption marker or a background report is a notice,
+ * plumbing the person never typed is dropped, and what Claude Code added is
+ * named as such. Only the person's side of a replay is touched; every other
+ * update passes as it came, so nothing live during a load is lost.
+ */
+const rereadReplayed = (params: SessionNotification, loading: LoadReplay): SessionNotification | null => {
+  const update = params.update
+  if (update.sessionUpdate !== 'user_message_chunk') return params
+  if (update.content.type !== 'text') return params
+  const replay = classifyReplayed(update.content.text, takeKind(loading, update.content.text))
+  if (replay === null) return null
+  const echo = replay.kind === 'notice' && replay.echo === true
+  if (echo && loading.noticed.has(replay.text)) return null
+  if (echo) loading.noticed.add(replay.text)
+  const meta = replay.kind === 'notice' ? { _meta: { ...update._meta, harnessdesk: { notice: true } } } : {}
+  return { ...params, update: { ...update, content: { ...update.content, text: replay.text }, ...meta } }
+}
+
 export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   readonly #controls = new Map<string, StoredControlsWithRuntime>()
   readonly #rawToolResults = new Map<string, Map<string, RawToolResult>>()
@@ -701,6 +783,12 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   readonly #delegations = new Map<string, DelegationRegistry>()
   readonly #outputPollers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #deletedSessions = new Set<string>()
+  // Sessions whose stored history the adapter underneath is replaying inside a
+  // load. Its replay is the history (thoughts, tool kinds, diffs and locations
+  // are its own); the bridge only re-reads the person's side of it, and
+  // replays the stored file itself only when that replay sent no part of the history (see
+  // `loadSession`).
+  readonly #loading = new Map<string, LoadReplay>()
   readonly #suppliedMcpServers = new Map<string, readonly string[]>()
   readonly #toolCalls: ToolCallStore = new Map()
   /** The exact input a session was prepared with, and what actually got staged for it — set once at create/load, reapplied unchanged by `#recreate`. */
@@ -770,7 +858,15 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     }
     client.sessionUpdate = async (params) => {
       let next = params
-      const update = params.update
+      const loading = this.#loading.get(params.sessionId)
+      // Any part of the history marks the replay as the history; none of it is held back.
+      if (loading && HISTORY_UPDATES.has(params.update.sessionUpdate)) loading.heard = true
+      if (loading && params.update.sessionUpdate === 'user_message_chunk') {
+        const reread = rereadReplayed(params, loading)
+        if (reread === null) return
+        next = reread
+      }
+      const update = next.update
       if (update.sessionUpdate === 'tool_call_update' && typeof update.toolCallId === 'string' && (update.status === 'completed' || update.status === 'failed')) {
         const raw = this.#rawToolResults.get(params.sessionId)?.get(update.toolCallId)
         if (raw?.name === 'Read' && raw.content !== undefined && update.rawOutput === undefined) {
@@ -871,7 +967,21 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     this.#deletedSessions.delete(request.sessionId)
     const instructed = withInstructions(request)
     const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
-    const response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController(), params.cwd) })
+    // The adapter underneath replays the stored transcript itself during the
+    // load, and its replay is the richer one. Its user messages are read
+    // through the same classifier as ours, so an interruption marker is a
+    // notice and never merges into the next message's bubble; and ours runs
+    // only when it sent no part of the history, so the history is written
+    // once (#2090).
+    const entries = storedEntries(request.sessionId)
+    const loading: LoadReplay = { kinds: storedKinds(entries), noticed: new Set(), heard: false }
+    this.#loading.set(request.sessionId, loading)
+    let response: LoadSessionResponse
+    try {
+      response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController(), params.cwd) })
+    } finally {
+      this.#loading.delete(request.sessionId)
+    }
     await this.#forceReadPermissionMode(request.sessionId, remembered)
     this.#suppliedMcpServers.set(request.sessionId, params.mcpServers?.map((server) => server.name) ?? [])
     this.#releaseAttachments(request.sessionId, input?.key)
@@ -882,7 +992,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     this.#controls.set(request.sessionId, stored)
     this.#tasks.set(request.sessionId, new TaskRegistry())
     this.#delegations.set(request.sessionId, new DelegationRegistry())
-    await this.#replayStored(request.sessionId)
+    if (!loading.heard) await this.#replayStored(request.sessionId, entries, loading.noticed)
     return environmentAck(
       { ...decorated, configOptions: [...(decorated.configOptions ?? []), ...customOptions(stored)] },
       environmentIn(params._meta),
@@ -1172,16 +1282,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     }
   }
 
-  async #replayStored(sessionId: string): Promise<void> {
-    const path = sessionFiles(sessionId)[0]
-    if (!path) return
-    let entries: Record<string, unknown>[] = []
-    try {
-      entries = readFileSync(path, 'utf8').split('\n').filter(Boolean).flatMap((line) => {
-        try { const value = JSON.parse(line) as Record<string, unknown>; return value.type ? [value] : [] } catch { return [] }
-      })
-    } catch { return }
-    const noticed = new Set<string>()
+  async #replayStored(sessionId: string, entries: readonly Record<string, unknown>[], noticed: Set<string>): Promise<void> {
     const send = async (update: SessionNotification['update']): Promise<void> => this.client.sessionUpdate({ sessionId, update })
     for (const entry of entries) {
       const message = entry.message as { role?: string; content?: unknown } | undefined
@@ -1191,7 +1292,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
         for (const block of blocks) {
           const text = typeof block === 'string' ? block : (block as { type?: string; text?: unknown })?.type === 'text' ? String((block as { text: unknown }).text) : ''
           if (text) {
-            const replay = classifyReplayed(text, entry.isCompactSummary === true ? 'compact' : entry.isMeta === true ? 'meta' : undefined)
+            const replay = classifyReplayed(text, storedKindOf(entry))
             const echo = replay?.kind === 'notice' && replay.echo === true
             if (replay && !(echo && noticed.has(replay.text))) {
               if (echo) noticed.add(replay.text)
