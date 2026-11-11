@@ -2499,8 +2499,16 @@ export class AppStore {
     // leaving for it starts the draft empty) and again after (a new chat's
     // composer already on screen keeps what it holds).
     const before = this.drafts.live(NEW_SESSION_DRAFT_KEY)
-    await this.startSessionIn(project.path)
+    if (this.#snapshot.workspace?.path !== project.path) {
+      // A link overtaken while its folder opens must not land that folder
+      // after a newer link (which may not have needed to open one at all).
+      const previous = this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+        ? this.#conversationWorkspaceSource : undefined
+      const navigation = ++this.#navigationEpoch
+      await this.#openWorkspace(project.path, () => current() && navigation === this.#navigationEpoch, undefined, previous)
+    }
     if (!current()) return 'superseded'
+    this.newDraft()
     if (this.#snapshot.workspace?.path !== project.path) return 'not-opened'
     // Whatever the new chat's draft holds is set aside, not overwritten:
     // its words unless they are the link's own, and its chips always.

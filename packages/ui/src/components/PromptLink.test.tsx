@@ -284,6 +284,30 @@ describe('a prompt link meets a desk already in use', () => {
     neverSent(request)
   })
 
+  it('does not let an older link land its folder after a newer one filled the open folder', async () => {
+    const { store, request } = await mountDesk()
+    await act(async () => { await store.openWorkspace('/work/widgets') })
+    const opening = deferred<void>()
+    const answer = request.getMockImplementation()!
+    request.mockImplementation((async (method: string, params?: { path?: string }) => {
+      if (method === 'workspace/open' && params?.path === '/work/other') await opening.promise
+      return answer(method as never, params as never)
+    }) as never)
+    let older!: Promise<string>
+    await act(async () => { older = store.fillFromPromptLink({ repo: '/work/other', prompt: 'Older link', pr: null, flow: null }) })
+    await act(async () => {
+      expect(await store.fillFromPromptLink({ repo: 'jane/widgets', prompt: 'Newer link', pr: 42, flow: null })).toBe('filled')
+    })
+    await act(async () => { opening.resolve(); expect(await older).toBe('superseded') })
+    // Let the store's wake reach the screen before reading it.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(store.getSnapshot().workspace?.path).toBe('/work/widgets')
+    expect(store.getSnapshot().promptLinkDraft?.text).toBe('Newer link')
+    expect(textarea()?.value).toBe('Newer link')
+    expect(marker()?.textContent).toContain('Pull request #42')
+    neverSent(request)
+  })
+
   it('leaves the desk where the person took it when an overtaken link answers', async () => {
     const { store, request } = await mountDesk()
     const answers = [deferred<WorkspaceEntry[]>(), deferred<WorkspaceEntry[]>()]
