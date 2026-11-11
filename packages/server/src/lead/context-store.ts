@@ -8,7 +8,7 @@ import {
   type LeadCompactionTrigger, type LeadContextMark, type LeadContextRecordInput, type LeadJournal, type LeadMessagesRequest,
   type LeadMessagesResult, type MessagesText, type MessagesTurn, leadClip, LEAD_WAKE_REFERENCE
 } from '@harnessdesk/lead'
-import { parseLeadContextFacts, type LeadCheckpointPerson, type LeadContextCheckpoint, type LeadContextFacts } from '@harnessdesk/protocol'
+import { parseLeadContextFacts, type LeadCheckpointPerson, type LeadContextCheckpoint, type LeadContextFacts, type LeadMessage } from '@harnessdesk/protocol'
 import { readBoundedJson, writeAtomicJson } from './bounded-json.js'
 
 /**
@@ -246,17 +246,22 @@ export class LeadContextStore {
     return leadPersonQuotes(words, ids.filter(id => !recorded.has(id)))
   }
   /**
-   * Person messages the stored conversation does not hold yet, oldest first, as the words a request carries. A line the
-   * desk wrote to say a reminder while the thread waited (`reminded`) goes with the wake it answers: no model step
-   * recorded it, and without it the Lead would read the reminder as still owed.
+   * The journal's messages for user turns `open` names, in journal order, each with the lines the desk wrote to say a
+   * reminder after it (`reminded`): no model step records such a line, so it goes with the turn it answers, and without
+   * it the Lead would read the reminder as still owed. The one pairing both what a request carries and what a lost
+   * step settles use.
    */
+  #withReminderLines(open: (id: string) => boolean): LeadMessage[] {
+    let taken = false
+    return this.options.journal.state.messages.filter(message => {
+      if (message.role === 'user') return taken = open(message.id)
+      return taken && message.role === 'assistant' && message.reminded !== undefined
+    })
+  }
+  /** Person messages the stored conversation does not hold yet, oldest first, as the words a request carries. */
   #unstored(): MessagesTurn[] {
     const known = new Set([...this.#known, ...personIds(this.#turns)])
-    let open = false
-    return this.options.journal.state.messages.filter(message => {
-      if (message.role === 'user') return open = !known.has(message.id)
-      return open && message.role === 'assistant' && message.reminded !== undefined
-    }).flatMap(message => leadHistory([message]).slice(-1))
+    return this.#withReminderLines(id => !known.has(id)).flatMap(message => leadHistory([message]).slice(-1))
   }
   /**
    * What the host's next request starts from: the stored conversation, then the person's words it does not hold yet.
@@ -286,9 +291,11 @@ export class LeadContextStore {
       const messages = this.options.journal.state.messages, open = persons.filter(id => !known.has(id))
       const last = messages.findLastIndex(message => message.role === 'user' && open.includes(message.id))
       if (!open.length || last < 0) return
-      const replies = messages.slice(last + 1).filter(message => message.role === 'assistant')
-      if (!replies.length) return
-      const turns = leadHistory([...messages.filter(message => message.role === 'user' && open.includes(message.id)), ...replies])
+      // Answered means a reply from the model: a line the desk wrote to say a reminder is not one.
+      if (!messages.slice(last + 1).some(message => message.role === 'assistant' && message.reminded === undefined)) return
+      // In journal order: each open message with its reminder lines, then every reply after the last of them.
+      const taken = new Set(this.#withReminderLines(id => open.includes(id)).map(message => message.id))
+      const turns = leadHistory(messages.filter((message, index) => taken.has(message.id) || index > last && message.role === 'assistant'))
       await this.#append({ base: this.#turns.length, extend: [], turns, measured: null })
     })
   }
