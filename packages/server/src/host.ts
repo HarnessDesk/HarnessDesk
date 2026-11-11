@@ -254,6 +254,7 @@ import { publicationsIn, withPublications } from './publications.js'
 import { CarryOnService, carryOnMayTake } from './carry-on/service.js'
 import { carryOnKey } from './carry-on/incidents.js'
 import { carryOnPacket } from './carry-on/handoff.js'
+import { CONTINUE_SOURCE } from './carry-on/decide.js'
 import {
   bindingLane as usageBindingLane,
   carryOnFor,
@@ -6129,8 +6130,8 @@ export class Host {
         // The lease, the turns it holds and what runs: a reattach, another open, a turn or a queued send all change it.
         return `${this.#carryOnLease(at.runtime, at.sessionId, record.live)}:${record.session.turns.length}:${record.running.size}:${this.#queueBusy(record) ? 1 : 0}`
       },
-      // A packet is the host's own words: it goes in as desk context, so the transcript never
-        // shows it as something the person typed.
+      // A packet and the continue are the host's own words: both go in as desk context, so the transcript never
+        // shows them as something the person typed. The packet is already enveloped; the continue is wrapped here.
         // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
         // last await: a person who writes while the host is resolving the handle wins there too.
         send: async (runtime, sessionId, text, kind, stillOurs, admitted, seat) => {
@@ -6145,12 +6146,13 @@ export class Host {
           }
           gate()
           const admission = Object.assign(async () => { await gate()?.admit() }, {
-            assertDispatch: () => { if (!stillOurs()) throw new Error('The person’s message went first.'); gate()?.assert() },
+            assertDispatch: () => { if (!stillOurs()) throw new Error('You sent a message first.'); gate()?.assert() },
             // Past the boundary: carry-on's marker goes in now, never for a send the person overtook. With the turns the
             // conversation already had, so carry-on watches the turn this send starts and nothing before it.
             ...(admitted ? { dispatchStarted: () => admitted((this.registry.get(at.runtime, at.sessionId)?.session.turns ?? []).map((turn) => String(turn.id))) } : {}),
           })
-          const input = [kind === 'packet' ? deskContextContent(text) : { type: 'text' as const, text }]
+          // The continue goes as desk context too, under its own label, so the transcript never draws it as the person's.
+          const input = [deskContextContent(kind === 'packet' ? text : wrapContext(CONTINUE_SOURCE, text))]
           // A packet waits its turn behind whatever the conversation is doing: a replacement Seat is still reading
           // its brief. Under the same admission, so the person writing first still wins when it is drained.
           const record = this.registry.get(at.runtime, at.sessionId)

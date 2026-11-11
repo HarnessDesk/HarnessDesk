@@ -8,13 +8,15 @@ import { test, type TestContext } from 'node:test'
 import {
   HANDOFF_PREFIX,
   runtimeId,
+  splitContextContent,
+  wrapContext,
   type CarryOnIncidentView,
   type CarryOnItem,
   type RuntimeInfo,
   type Session,
 } from '@harnessdesk/protocol'
 
-import { CONTINUE_TEXT } from '../src/carry-on/decide.js'
+import { CONTINUE_SOURCE, CONTINUE_TEXT } from '../src/carry-on/decide.js'
 import { Host, StateStore, serve } from '../src/index.js'
 import { MOVE_TEXT_CHARS } from '../src/lead/chats.js'
 import { FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
@@ -115,7 +117,10 @@ test('a sibling over the same store takes the thread over: the stuck account let
   const close = closeA.close.bind(closeA)
   closeA.close = async () => { order.push('close on the primary'); return close() }
 
-  await r.client.until(() => r.sent.some(one => one.runtime === SIBLING && one.text === CONTINUE_TEXT), 10_000, 'the continue on the sibling')
+  // The continue is the host's line, not the person's: it goes out as desk context, enveloped under its own label.
+  const CONTINUE = wrapContext(CONTINUE_SOURCE, CONTINUE_TEXT)
+  await r.client.until(() => r.sent.some(one => one.runtime === SIBLING && one.text === CONTINUE), 10_000, 'the continue on the sibling')
+  assert.ok(!r.sent.some(one => one.text === CONTINUE_TEXT), 'never as a plain line the person seems to have typed')
   assert.deepEqual(order, ['close on the primary', 'resume on the sibling'], 'one live writer per thread')
   assert.equal(r.sibling!.sessions.get(session.id)?.id, session.id, 'the same thread, not a new one')
 
@@ -125,6 +130,12 @@ test('a sibling over the same store takes the thread over: the stuck account let
   assert.equal(switched.mode, 'sameThread')
   assert.equal(switched.to?.account, 'account 2', 'named by its ordinal, never an address')
   assert.equal(switched.link, undefined, 'a same-thread switch has nowhere else to point')
+  const asked = after.turns.flatMap(turn => turn.items.flatMap(item => item.type === 'userMessage' ? [item] : []))
+  const carried = asked.filter(item => splitContextContent(item.content).injections.some(one => one.label === CONTINUE_SOURCE))
+  assert.equal(carried.length, 1, `the continue is in the transcript once, as desk context: ${JSON.stringify(asked.map(item => item.content))}`)
+  const continued = carried[0]!
+  assert.ok(continued.content.every(part => part.type !== 'text' || part.deskContext?.prefixLength === part.text.length), 'all of it the desk’s')
+  assert.equal(splitContextContent(continued.content).text, '', 'nothing of it reads as the person’s bubble')
 
   await r.client.until(() => changes(r).some(one => one.state === 'moved'), 5_000, 'the moved incident')
   const incident = changes(r).findLast(one => one.state === 'moved')!

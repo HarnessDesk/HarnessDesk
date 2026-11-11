@@ -214,6 +214,7 @@ test('an answer to a question that has moved on is refused with the current inci
   await assert.rejects(r.service.decide({ incidentId: view!.incidentId, choice: 'stop', always: false }),
     (error: Error & { wireCode?: string }) => error.wireCode === 'carryOnStale')
   assert.equal(r.marks.at(-1)?.item.phase, 'stopped')
+  assert.equal(r.marks.at(-1)?.item.note, 'stopped at your answer', 'the note speaks to the person, never about them')
 })
 
 test('the ledger keeps at most 64 incidents, oldest first out', async t => {
@@ -389,7 +390,7 @@ test('a person who starts using the sibling while carry-on reopens it keeps it: 
   assert.deepEqual(sends(r), [])
   const incident = r.published.at(-1)?.incident
   assert.equal(incident?.state, 'stopped')
-  assert.match(incident?.note ?? '', /also open on Codex · personal/)
+  assert.match(incident?.note ?? '', /^You sent a message first\. The conversation is also open on Codex · personal/)
 })
 
 test('a sibling nobody touched is still let go when the person’s message wins', async t => {
@@ -516,7 +517,7 @@ const dispatching = (r: Rig, service: () => CarryOnService, source = { runtime: 
     await new Promise(resolve => setTimeout(resolve, 1))
     void service().personSent(source.runtime, source.sessionId)
     // The host's admission, at its effect boundary.
-    if (stillOurs && !stillOurs()) throw new Error('The person’s message went first.')
+    if (stillOurs && !stillOurs()) throw new Error('You sent a message first.')
     admitted?.([])
     r.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)}`)
   }
@@ -572,7 +573,7 @@ test('a destination left open for the person is recorded in the conversation, wi
   assert.ok(stopped, `a stopped marker: ${r.marks.map(mark => mark.item.phase).join(', ')}`)
   assert.equal(stopped.at, 'codex s1', 'in the conversation the person is in')
   assert.deepEqual(stopped.item.link, { runtime: 'codex-2', sessionId: 's1' })
-  assert.match(stopped.item.note ?? '', /also open on Codex · personal/)
+  assert.match(stopped.item.note ?? '', /^You sent a message first\. The conversation is also open on Codex · personal/)
 })
 
 // ------------------------------------------------------------ the transcript stays true when the person wins
