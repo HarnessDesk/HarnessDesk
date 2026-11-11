@@ -65,6 +65,7 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-run-not-started': 'The plan is approved, but no work has started. Sending a message also continues.',
   'lead-send-deadline': 'The request timed out. Sending a message also continues.',
   'lead-child-exited': '{label} stopped unexpectedly. Sending a message also continues.',
+  'lead-child-exited-again': '{label} stopped again at the same step, so resuming would only repeat it. The desk log names the step. Sending a message tries again.',
   'lead-request-cancelled': 'The request was cancelled.',
 }
 // Why a goal ended, when no stopped card says it already. A person's own Stop needs no reason.

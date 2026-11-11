@@ -25,7 +25,7 @@ export type LeadStageFacts =
 /** Deliberately explicit: a new management reason must make a classification choice. */
 export const LEAD_WAIT_STAGES = {
   'lead-predecessor-unavailable': 'you-blocked', 'lead-predecessor-unverifiable': 'you-blocked', 'lead-renewal-blocked': 'you-blocked',
-  'lead-disabled': 'you-blocked', 'lead-key-changed': 'you-blocked', 'lead-host-shutdown': 'you-blocked', 'lead-child-exited': 'you-blocked', 'lead-ownership-withdrawn': 'you-blocked',
+  'lead-disabled': 'you-blocked', 'lead-key-changed': 'you-blocked', 'lead-host-shutdown': 'you-blocked', 'lead-child-exited': 'you-blocked', 'lead-child-exited-again': 'you-blocked', 'lead-ownership-withdrawn': 'you-blocked',
   'lead-result-awaiting-person': 'you-answer', 'lead-handback-limit': 'you-blocked', 'lead-handback-pending': 'you-answer', 'lead-publication-needs-you': 'you-blocked',
   'lead-pr-head-changed': 'you-answer', 'lead-pr-branch-rewritten': 'you-blocked', 'lead-result-revisions-exhausted': 'you-blocked', 'lead-start-binding-failed': 'you-blocked',
   'lead-plan-refused': 'you-blocked', 'lead-activity-failed': 'you-blocked', 'lead-subscription-failed': 'you-blocked', 'lead-tools-refused': 'you-blocked',

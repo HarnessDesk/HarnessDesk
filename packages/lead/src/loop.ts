@@ -1,6 +1,6 @@
 import { LEAD_REVIEWED_RESULT } from './recipes/reviewed-result.js'
 import { isWaitingOnYou, type LeadStage } from '@harnessdesk/protocol'
-import type { LeadJournalPort } from './child-ipc.js'
+import type { LeadChildFailureStage, LeadJournalPort } from './child-ipc.js'
 import { leadProactiveReport, type LeadWakeRecord, clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
 import { isLeadQuiet, leadApprovedPlan, leadInstructions, leadObservation, type LeadSeatChoices } from './instructions.js'
@@ -58,6 +58,11 @@ export interface LeadLoopOptions {
    * the latest when the epoch is new.
    */
   readonly onEpoch?: (at?: { readonly memory: LeadMemoryCore }) => { readonly standingAddendum?: string }
+  /**
+   * A failure the loop caught and carried on from (a wait for the person, a dropped record). `stage` is a static name;
+   * the caller reduces `failure` to a code before it goes anywhere, so no content reaches a log (#2085).
+   */
+  readonly onFailure?: (stage: LeadChildFailureStage, failure: unknown) => void
 }
 /** What the child reports to, and reads from, the host's stored conversation. */
 export interface LeadContextPort {
@@ -167,6 +172,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   // system prompt that changed, so a rename or a settings change waits for the next goal.
   // A compaction is also an epoch boundary: the conversation after it carries no reasoning, so the instructions may
   // change there too, and only there (onEpoch).
+  const noteFailure = (stage: LeadChildFailureStage, failure: unknown): void => { try { options.onFailure?.(stage, failure) } catch { /* A log never owns a turn. */ } }
   let instructionsFor: string | null = null, instructions = '', epoch = journal.state.context?.epoch ?? 0
   // The Core an epoch first read is journaled, so a restart in the same epoch reads it again rather than a later one.
   let memoryRecorded: Promise<unknown> = Promise.resolve()
@@ -178,7 +184,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       // Nothing was ever kept (revision 0): no record, so a desk without memory writes nothing per epoch.
       if (!same && record && state.memory.revision > 0) {
         const at = epoch
-        memoryRecorded = memoryRecorded.then(() => journal.memoryEpoch?.(goal, at, memory)).catch(() => {})
+        memoryRecorded = memoryRecorded.then(() => journal.memoryEpoch?.(goal, at, memory)).catch(failure => { noteFailure('memoryEpoch', failure) })
       }
       let addendum = ''
       try { addendum = options.onEpoch?.({ memory }).standingAddendum?.trim() ?? '' } catch { /* An epoch hook never blocks a turn. */ }
@@ -407,7 +413,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           result = { ...result, status: 'failed', reason: 'lead-messages-failed' }
       }
     }
-    catch { result = { status: 'failed', reason: 'lead-messages-failed' } }
+    catch (failure) { noteFailure('messages', failure); result = { status: 'failed', reason: 'lead-messages-failed' } }
     finally { signal?.removeEventListener('abort', abort); active = null }
     if (result.messages) {
       // Desk context of this moment leaves a one-line stub, here and in the stored conversation, so the next request's
@@ -436,7 +442,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         const text = [proactive.finding, proactive.caveat, proactive.ask].join('\n'), last = journal.state.messages.at(-1)
         if (!(last?.role === 'assistant' && last.text === text && JSON.stringify(last.proactive) === JSON.stringify(proactive))) {
           try { await journal.appendReply(text, proactive) }
-          catch { await waitForUser('lead-request-failed'); return result }
+          catch (failure) { noteFailure('appendReply', failure); await waitForUser('lead-request-failed'); return result }
         }
         const { proactive: _kept, ...delivered } = result
         result = delivered
@@ -445,7 +451,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const last = journal.state.messages.at(-1), words = (text: string) => text.replace(/\s+/g, ' ').trim()
       if (!(last?.role === 'assistant' && words(last.text) === words(result.text ?? '') && JSON.stringify(last.ask) === JSON.stringify(result.ask))) {
         try { await journal.appendReply(result.text ?? '', undefined, result.ask, result.refs) }
-        catch { await waitForUser('lead-request-failed'); return result }
+        catch (failure) { noteFailure('appendReply', failure); await waitForUser('lead-request-failed'); return result }
       }
       const { text: _kept, ask: _ask, refs: _refs, ...delivered } = result
       result = delivered
@@ -462,6 +468,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     notSentLast = result.reason === 'lead-messages-unsent' || result.reason === 'lead-messages-held' ? result.reason : null
     if (!['completed'].includes(result.status)) {
       if (result.reason === 'lead-messages-capacity') {
+        noteFailure('messages', { wireCode: 'lead-messages-capacity' })
         await waitForUser('lead-request-failed')
         return result
       }
@@ -473,7 +480,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       return result
     }
     try { await tools.settleStarts() }
-    catch { await waitForUser('lead-start-binding-failed'); return result }
+    catch (failure) { noteFailure('settleStarts', failure); await waitForUser('lead-start-binding-failed'); return result }
     if (journal.state.budget?.stop) reason = 'lead-budget-stopped'
     const proposal = result.proposals?.plan
     if (proposal && !terminal(journal.state.phase)) {
@@ -659,7 +666,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const queued = options.context?.compact && history && requestTemplate
         ? options.context.compact(owed ? 'overflow' : 'due').catch(() => false).then(run) : run(false)
       preparing = queued.catch(() => {})
-      void queued.catch(async () => { await waitForUser('lead-activity-failed') }).catch(() => {})
+      void queued.catch(async failure => { noteFailure('activity', failure); await waitForUser('lead-activity-failed') }).catch(() => {})
     })
     reportActivity()
   }
@@ -757,7 +764,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const subscribed = await tools.execute({ method: 'client/subscribe', params: { topics: LEAD_TOPICS, scope: { project: project.path } } })
       if (subscribed.outcome !== 'succeeded') throw new Error('lead-subscription-refused')
       await refresh()
-    } catch { synchronized = false; await waitForUser('lead-subscription-failed') }
+    } catch (failure) { noteFailure('subscribe', failure); synchronized = false; await waitForUser('lead-subscription-failed') }
   }
   return {
     get state(): LeadLoopState { return structuredClone({ phase: journal.state.phase, reason: journal.state.budget?.stop ? 'lead-budget-stopped' : journal.state.phase === 'waiting-for-user' ? journal.state.managementReason ?? reason : reason, synchronized, snapshot, relays, acceptance,

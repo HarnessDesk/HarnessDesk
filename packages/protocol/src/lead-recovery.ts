@@ -3,6 +3,8 @@
 export const LEAD_SETUP_WAITS = [
   'lead-chat-effect-uncertain', 'lead-plan-unseatable', 'lead-plan-not-independent', 'lead-plan-refused',
   'lead-card-too-large', 'lead-start-binding-failed', 'lead-result-revisions-exhausted',
+  // The child stopped the same way twice with nothing completed between: Resume would repeat the same step (#2085).
+  'lead-child-exited-again',
   ...['lead-request-unsent', 'lead-request-unsent-again', 'lead-request-withheld', 'lead-request-held', 'lead-request-held-again'] as const,
 ] as const
 

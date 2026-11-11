@@ -65,6 +65,8 @@ export interface LeadServiceOptions {
   readonly recordContext?: LeadSupervisorOptions['recordContext']
   readonly readContext?: LeadSupervisorOptions['readContext']
   readonly compactContext?: LeadSupervisorOptions['compactContext']
+  /** Where the child failed and its code, for the host log; never content. */
+  readonly onFailure?: LeadSupervisorOptions['onFailure']
 }
 /** The host owns this lifecycle and its only journal writer. This service never
  * stores a plaintext key: resolution is transient and host-only.
@@ -108,6 +110,10 @@ export class LeadService {
   #endLive: (() => void) | null = null
   #policy: LeadPermissionPolicy | null = null
   #exiting: Promise<void> | null = null
+  /** The logged failure that stopped the current child, and the last unexpected exit it led to, until a request
+   * comes back, the Lead is switched off or on, or the key changes. */
+  #stoppedBy: { readonly stage: string; readonly code: string } | null = null
+  #lastExit: string | null = null
   constructor(private readonly options: LeadServiceOptions) {
     this.#supervisor = (options.createSupervisor ?? (settings => new LeadSupervisor(settings)))({
       ...(options.runtimes === undefined ? {} : { runtimes: options.runtimes }),
@@ -231,6 +237,8 @@ export class LeadService {
           let decoded: unknown
           try { decoded = JSON.parse(response.body) } catch { /* Non-JSON errors still pass the literal scan. */ }
           scan(decoded)
+          // A provider answer, whatever its status, proves the child got past every step before the request: the count of repeated exits starts over.
+          this.#lastExit = null
           if (this.#providerFinalized.has(requestId)) return result
           if (response.status >= 200 && response.status < 300) {
             const rawUsage = decoded !== null && typeof decoded === 'object' && !Array.isArray(decoded)
@@ -285,6 +293,11 @@ export class LeadService {
       ...(options.compactContext ? { compactContext: async trigger => { this.#assertOpen(); return options.compactContext!(trigger) } } : {}),
       onStarted: () => { this.#endLive = options.childStarted() },
       onExit: reason => this.#exited(reason),
+      onFailure: failure => {
+        // A failure the child caught and carried on from is only logged; one that stopped the child also keys its exit.
+        if (failure.stopped) this.#stoppedBy = { stage: failure.stage, code: failure.code }
+        try { options.onFailure?.(failure) } catch { /* A log never owns the lifecycle. */ }
+      },
     })
   }
   #queue<T>(task: () => Promise<T>): Promise<T> {
@@ -328,12 +341,14 @@ export class LeadService {
   }
   #exited(reason: string): Promise<void> {
     this.#activity(false)
+    // Taken on every exit, before the guard below, so a failure never attaches to a later exit it did not cause.
+    const stoppedBy = this.#stoppedBy; this.#stoppedBy = null
     if (this.#exiting) return this.#exiting
     // Called only after the child has fully exited and its pending dispatches
     // have rejected. Recovery never races a live dispatch from that child.
     const task = (async () => {
       try {
-        try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-send-deadline'].includes(reason) ? reason : 'lead-child-exited') }
+        try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-send-deadline'].includes(reason) ? this.#expectedExit(reason) : this.#unexpectedExit(reason, stoppedBy)) }
         finally { await this.options.stopOwned(reason) }
         this.#endLive?.(); this.#endLive = null
         await this.#recoverRequests()
@@ -344,6 +359,19 @@ export class LeadService {
     this.#exiting = task
     void task.finally(() => { if (this.#exiting === task) this.#exiting = null }).catch(() => {})
     return task
+  }
+  #expectedExit(reason: string): string { this.#lastExit = null; return reason }
+  /**
+   * An exit nobody asked for. The same exit after the same logged failure, with no request come back between, is
+   * `lead-child-exited-again`: Resume would only start a child that stops at the same step, so the person is told the
+   * desk log names it instead of being offered Resume once more (#2085). An exit with no logged failure (the process
+   * was killed, the desk went away, startup timed out) is never called a repeat: nothing in the log would name it.
+   */
+  #unexpectedExit(reason: string, failure: { readonly stage: string; readonly code: string } | null): 'lead-child-exited' | 'lead-child-exited-again' {
+    const key = failure ? [reason, failure.stage, failure.code].join('\u0000') : null
+    const again = key !== null && this.#lastExit === key
+    this.#lastExit = key
+    return again ? 'lead-child-exited-again' : 'lead-child-exited'
   }
   async #halt(reason: string, finishExitedRecovery = false): Promise<void> {
     this.options.onManagementStopped?.(reason)
@@ -403,7 +431,7 @@ export class LeadService {
   }
   setEnabled(enabled: boolean): Promise<void> {
     if (this.#closed) return Promise.reject(new Error('lead-closed'))
-    this.#enabled = enabled
+    this.#enabled = enabled; this.#lastExit = null
     if (!enabled) this.options.onManagementStopped?.('lead-disabled')
     const generation = ++this.#generation
     return this.#queue(async () => {
@@ -431,12 +459,16 @@ export class LeadService {
     })
     this.#assertOpen()
     if (generation !== this.#generation) throw new Error('lead-lifecycle-changed')
-    return this.#supervisor.send(input)
+    const result = await this.#supervisor.send(input)
+    // Any result that came back, failed or refused included, proves the child ran: the count of repeated exits starts over
+    // (a provider answer during the request already reset it).
+    this.#lastExit = null
+    return result
   }
   #changeKey(provider: 'anthropic', write: () => Promise<unknown>, deleting = false): Promise<void> {
     if (provider !== 'anthropic') return Promise.reject(new Error('lead-provider-unsupported'))
     if (this.#closed) return Promise.reject(new Error('lead-closed'))
-    this.#publicProjection = null
+    this.#publicProjection = null; this.#lastExit = null
     ++this.#generation; ++this.#changingKeys
     return this.#queue(async () => {
       try {
