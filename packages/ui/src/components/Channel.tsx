@@ -387,7 +387,7 @@ export const ChannelStream = ({
         disabled: one.disabled,
         onSelect: (always: boolean) => {
           setTrouble(null)
-          void store.seatCarryOn.decide({ incidentId: incident.incidentId, choice: one.choice, always })
+          void store.seatCarryOn.decide({ incidentId: incident.incidentId, choice: one.choice, ...(one.target ? { target: one.target } : {}), always })
             .catch((error: unknown) => setTrouble(error instanceof Error ? error.message : String(error)))
         },
       })),

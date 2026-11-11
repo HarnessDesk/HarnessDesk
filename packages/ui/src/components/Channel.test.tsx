@@ -851,7 +851,8 @@ it('offers a seat’s carry-on answers on its latest limit notice and sends the 
   expect([...choices.querySelectorAll('button')].map((one) => one.textContent)).toEqual(['Continue in Checker', 'Wait until reset', 'Stop'])
   expect(notices[1]!.textContent).toContain('Skipped Builder · account 2')
   await act(async () => { button('Continue in Checker').click() })
-  expect(decide).toHaveBeenCalledWith({ incidentId: 'incident-1', choice: 'switch', always: false })
+  // The runtime the button named goes with the answer, so the host switches to the one the person saw.
+  expect(decide).toHaveBeenCalledWith({ incidentId: 'incident-1', choice: 'switch', target: 'claude', always: false })
 })
 
 it('a seat’s notice can make its answer the rule: the box says where it lands, and the answer carries it', async () => {

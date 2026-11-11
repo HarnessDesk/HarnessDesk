@@ -1,8 +1,10 @@
-import { sessionKey, type CarryOnDecisionChoice, type CarryOnIncidentView, type TeamEntry } from '@harnessdesk/protocol'
+import { sessionKey, type CarryOnDecisionChoice, type CarryOnIncidentView, type RuntimeId, type TeamEntry } from '@harnessdesk/protocol'
 
 /** One answer a seat's `limit` notice offers, with the words it shows. */
 export interface SeatCarryOnChoice {
   readonly choice: CarryOnDecisionChoice
+  /** The runtime a switch names: the one the button shows is the one the answer takes, even if the candidates moved. */
+  readonly target?: RuntimeId
   readonly label: string
   readonly title: string
   readonly disabled: boolean
@@ -25,8 +27,8 @@ export const seatCarryOnChoices = (
   if (target) {
     const account = target.account ? ` · ${target.account}` : ''
     out.push(target.mode === 'sameThread'
-      ? { choice: 'switch', label: `Switch to ${target.name}${account}`, title: `Continue this seat's conversation on ${target.name}${account}`, disabled: false }
-      : { choice: 'switch', label: `Continue in ${target.name}`, title: `Continue this seat's work in a new conversation on ${target.name}${account}, handed what it had done`, disabled: false })
+      ? { choice: 'switch', target: target.runtime, label: `Switch to ${target.name}${account}`, title: `Continue this seat's conversation on ${target.name}${account}`, disabled: false }
+      : { choice: 'switch', target: target.runtime, label: `Continue in ${target.name}`, title: `Continue this seat's work in a new conversation on ${target.name}${account}, handed what it had done`, disabled: false })
   }
   out.push({
     choice: 'wait',

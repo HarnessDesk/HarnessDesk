@@ -29,6 +29,10 @@ describe('seatCarryOnChoices', () => {
     expect(seatCarryOnChoices(handoff, () => '')![0]!.label).toBe('Continue in Checker')
   })
 
+  it('carries the runtime the switch names, and nothing on wait or stop', () => {
+    expect(seatCarryOnChoices(incident(), () => '')!.map((one) => [one.choice, one.target])).toEqual([['switch', 'codex'], ['wait', undefined], ['stop', undefined]])
+  })
+
   it('offers nothing unless the incident is asking', () => {
     expect(seatCarryOnChoices(undefined, () => '')).toBeNull()
     for (const state of ['deciding', 'waiting-reset', 'sending', 'moved', 'stopped', 'cleared'] as const)
