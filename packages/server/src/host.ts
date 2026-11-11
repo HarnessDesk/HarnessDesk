@@ -250,6 +250,19 @@ import { SeatHeldCards } from './seat-held-cards.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
+import { CarryOnService } from './carry-on/service.js'
+import { carryOnPacket } from './carry-on/handoff.js'
+import {
+  bindingLane as usageBindingLane,
+  carryOnFor,
+  carryOnPolicyOf,
+  CARRY_ON_PREFERENCE,
+  isBlocked as usageBlocked,
+  paceRankOf,
+  reachedLaneOf,
+  whenOutForChoice,
+  type CarryOnItem,
+} from '@harnessdesk/protocol'
 import { SessionNames } from './names.js'
 import { redactorFor, redactLog } from './diagnostics.js'
 import { waitFor } from './flow.js'
@@ -1149,6 +1162,8 @@ export class Host {
   #usage: UsageService | null = null
   #ledger: Ledger | null = null
   #plans: PlanStore | null = null
+  /** Conversations stuck at a usage limit, carried on by the person's rule. Built in the constructor, restored in `start()`. */
+  readonly #carryOn: CarryOnService
   /** What the wire methods may reach; see `HostContext`. Built once the fields above exist. */
   readonly #context: HostContext
 
@@ -2605,6 +2620,7 @@ export class Host {
         stopLead: (asked) => this.stopLeadForThread(asked),
       },
     })
+    this.#carryOn = this.#buildCarryOn()
     this.#context = this.#buildContext()
   }
 
@@ -3105,6 +3121,8 @@ export class Host {
     const shellIdentity = this.#state.state.workspaces[0]?.shellIdentity
     this.#shellProject = isShellProjectIdentity(shellIdentity) ? shellIdentity.project : shellFolder ?? null
     await this.#laneStore.load()
+    // A carry-on claim that was mid-send is asked again, never resent; a wait for a reset re-arms.
+    void this.#carryOn.restore().catch(() => { this.#logger.warn('Carry-on incidents could not be restored') })
     // Everything that restores a stored setting runs here, after the file has
     // been read, and never in the constructor. Until it did, a board left
     // holding inbound messages came back accepting them, and every plugin's
@@ -3841,6 +3859,8 @@ export class Host {
     // Cancels every v2 release still waiting on a Seat's turn to end: no
     // timer of this class's own outlives the process (#1027).
     this.#flows.dispose()
+    // No carry-on retry or reset fallback fires into a closing desk.
+    this.#carryOn.close()
     // No save preview survives the host: an apply from here on refuses, and one in flight finishes on its queue.
     this.#authoring.close()
     /* Triggers stop first: no new admission, no poll, no budget sweep and no
@@ -4936,6 +4956,14 @@ export class Host {
       const record = this.registry.get(runtimeId(address.runtime), makeSessionId(address.sessionId))
       if (record) record.cacheClosed = false
     }
+    // The person's own message wins over any carry-on incident: it is the continuation they chose. Only the window's
+    // and the phone's doors come through here; carry-on's own sends take the host's path and never count.
+    if ((method === 'turn/send' || method === 'turn/queue' || method === 'turn/steer') && typeof address?.runtime === 'string' && typeof address.sessionId === 'string')
+      void this.#carryOn.personSent(address.runtime, address.sessionId).catch(() => {})
+    if (method === 'workspace/session/send') {
+      const chat = (params as { readonly id?: unknown }).id, at = typeof chat === 'string' ? chat.indexOf(':') : -1
+      if (typeof chat === 'string' && at > 0) void this.#carryOn.personSent(chat.slice(0, at), chat.slice(at + 1)).catch(() => {})
+    }
     const finish = method !== 'session/prepare-eviction' && method !== 'session/cache-snapshot' && typeof address?.runtime === 'string' && typeof address.sessionId === 'string'
       ? this.#beginTranscriptOperation(runtimeId(address.runtime), makeSessionId(address.sessionId)) : null
     try { return await dispatch(this.#context, method, params) }
@@ -5835,6 +5863,120 @@ export class Host {
    * over this host's own state, so a method module never sees the class —
    * only what it was given — and can be run against a hand-built context.
    */
+  /**
+   * The carry-on service, wired to the host. Every name it reads is the
+   * runtime's presentation and an account ordinal or the gateway's own name —
+   * never an email; it acts through the same close, resume, create and send a
+   * window uses, its sends on the host's path so they never count as the
+   * person's.
+   */
+  #buildCarryOn(): CarryOnService {
+    const preferences = () => this.#state.state.preferences
+    const pools = () => {
+      const value = preferences()['accountPools']
+      return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, { readonly order?: unknown; readonly whenOut?: string } | undefined> : {}
+    }
+    const runtimeOf = (id: string) => this.#runtimes.get(runtimeId(id))
+    const agentOf = (runtime: AgentRuntime) => String(this.#infoOf(runtime).slot?.agent ?? runtime.info.id)
+    const key = (runtime: string, sessionId: string) => ({ runtime: runtimeId(runtime), sessionId: makeSessionId(sessionId) })
+    const cannotStart = (runtime: AgentRuntime) => {
+      const health = runtime.health()
+      return health.state === 'unavailable' && (health.reason === 'notInstalled' || health.reason === 'versionTooOld' || health.reason === 'spawnFailed')
+    }
+    return new CarryOnService({
+      file: join(this.#state.directory, 'carry-on', 'incidents.json'),
+      problem: reason => this.#logger.warn(reason),
+      owner: async (runtime, sessionId) => {
+        if (this.#evidence.seats.of(runtimeId(runtime), makeSessionId(sessionId)).some(seat => !seat.closed)) return 'seat'
+        if (await this.#leadChats?.recovers(`${runtime}:${sessionId}`)) return 'lead'
+        return 'chat'
+      },
+      policy: agent => {
+        const policy = carryOnPolicyOf(preferences())
+        return { ...carryOnFor(policy, pools()[agent]), otherAgents: policy.otherAgents }
+      },
+      describe: id => {
+        const runtime = runtimeOf(id)
+        if (!runtime) return null
+        const info = this.#infoOf(runtime), agent = agentOf(runtime)
+        const siblings = [...this.#runtimes.values()].filter(one => agentOf(one) === agent)
+        const report = this.#usageService.cached(runtime.info.id)
+        const account = info.slot?.gateway?.name ?? (siblings.length > 1 ? `account ${siblings.indexOf(runtime) + 1}` : undefined)
+        return {
+          id, agent, name: info.presentation.name, ...(account ? { account } : {}),
+          sessionStore: runtime.sessionStore ?? null, ownSessions: info.slot?.ownSessions === true, gateway: info.slot?.gateway !== undefined,
+          // A runtime not started yet is started by the resume or create that uses it; one that cannot start at all is
+          // as good as signed out, and the meter's own refusal is the one sign-out signal the host holds without asking.
+          signedIn: !cannotStart(runtime) && report?.error?.needsSignIn !== true,
+          resume: info.capabilities.resume === true,
+        }
+      },
+      runtimes: () => {
+        const all = [...this.#runtimes.values()]
+        // Within one agent, the person's own pool order; across agents, as the desk lists them.
+        const rank = (runtime: AgentRuntime) => {
+          const order = pools()[agentOf(runtime)]?.order
+          const at = Array.isArray(order) ? order.indexOf(String(runtime.info.id)) : -1
+          return at === -1 ? Number.MAX_SAFE_INTEGER : at
+        }
+        return all.map((runtime, at) => ({ runtime, at })).sort((a, b) =>
+          agentOf(a.runtime) === agentOf(b.runtime) ? rank(a.runtime) - rank(b.runtime) || a.at - b.at : a.at - b.at)
+          .map(({ runtime }) => String(runtime.info.id))
+      },
+      rank: id => { const report = this.#usageService.cached(runtimeId(id)); return paceRankOf(report ? [report] : [], Date.now()) },
+      meter: async id => {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const late = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 10_000); timer.unref() })
+        try {
+          const reports = await Promise.race([this.#usageService.refresh(runtimeId(id)), late])
+          const report = reports?.[0]
+          if (!report || report.error) return null
+          const lane = reachedLaneOf(report) ?? usageBindingLane(report.lanes)
+          return { reached: report.reached !== null, blocked: usageBlocked(report), resetsAt: lane?.resetsAt ?? null }
+        } finally { clearTimeout(timer) }
+      },
+      models: id => this.call('runtime/models', { runtime: runtimeId(id) }),
+      modelOf: (runtime, sessionId) => this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.settings?.model || undefined,
+      titleOf: (runtime, sessionId) => {
+        const at = key(runtime, sessionId)
+        return this.registry.get(at.runtime, at.sessionId)?.session.title ?? this.#sessionIndex.get(at.runtime, at.sessionId)?.title ?? 'Conversation'
+      },
+      busy: (runtime, sessionId) => {
+        const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+        return !!record && (record.running.size > 0 || this.#queueBusy(record))
+      },
+      close: async (runtime, sessionId) => { await this.call('session/close', key(runtime, sessionId)) },
+      resume: async (runtime, sessionId, model) => {
+        if (this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live) return
+        await this.call('session/resume', { ...key(runtime, sessionId), ...(model ? { options: { model } } : {}) })
+      },
+      send: async (runtime, sessionId, text) => { await sendTurn(this.#context, { ...key(runtime, sessionId), input: [{ type: 'text', text }] }) },
+      create: async (runtime, from, model) => {
+        const source = key(from.runtime, from.sessionId)
+        // The new conversation starts in the stuck one's folder, worktree included, so its uncommitted work is there.
+        const cwd = this.registry.get(source.runtime, source.sessionId)?.session.cwd ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.cwd
+        const session = await this.call('session/create', { runtime: runtimeId(runtime), options: { ...(cwd ? { cwd } : {}), ...(model ? { model } : {}) } })
+        const title = this.registry.get(source.runtime, source.sessionId)?.session.title ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.title
+        if (title) await this.call('session/setTitle', { runtime: runtimeId(runtime), sessionId: session.id, title }).catch(() => undefined)
+        return String(session.id)
+      },
+      packet: async (from, meta) => {
+        const at = key(from.runtime, from.sessionId)
+        const transcript = await this.#readTranscript(this.#runtime({ runtime: at.runtime }), at.sessionId, false)
+        return carryOnPacket(transcript.turns, { ...meta, title: transcript.title ?? 'Conversation' })
+      },
+      record: (runtime, sessionId, item) => this.#recordCarryOn(runtime, sessionId, item),
+      publish: (at, incident) => this.#push({ method: 'carryOn/changed', params: { incident, key: at } }),
+      writeRule: async (scope, agent, choice) => {
+        const current = preferences()
+        const patch = scope === 'desk'
+          ? { [CARRY_ON_PREFERENCE]: { ...carryOnPolicyOf(current), onLimit: choice } }
+          : { accountPools: { ...pools(), [agent]: { ...pools()[agent], whenOut: whenOutForChoice(choice) } } }
+        await this.call('app/state/set', { patch })
+      },
+    })
+  }
+
   #buildContext(): HostContext {
     return {
       options: this.options,
@@ -5985,6 +6127,7 @@ export class Host {
         close: params => this.leadWork.close(params), setReminder: params => this.leadWork.setReminder(params),
         cancelReminder: params => this.leadWork.cancelReminder(params) },
       personStopping: chat => { try { return this.#leadWork?.stopping(chat, 'person') ?? (() => {}) } catch { return () => {} } },
+      carryOn: { list: () => this.#carryOn.list(), decide: decision => this.#carryOn.decide(decision) },
       // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
       leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary([...this.#runtimes.values()].flatMap(runtime => {
         const report = this.#usageService.cached(runtime.info.id)
@@ -7810,6 +7953,21 @@ export class Host {
     if (!record) return false
     const running = [...record.running].at(-1)
     const turnId = running ?? record.session.turns.at(-1)?.id
+    if (turnId === undefined) return false
+    this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId, item })
+    return true
+  }
+
+  /**
+   * A carry-on marker, the way a publication is recorded: into the running or
+   * latest turn, through the host's own door, so the transcript store keeps it
+   * and every window learns of it. The agent never hears of it, so a replay
+   * puts it back where it stood (`publications.ts`).
+   */
+  #recordCarryOn(runtime: string, sessionId: string, item: CarryOnItem): boolean {
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record) return false
+    const turnId = [...record.running].at(-1) ?? record.session.turns.at(-1)?.id
     if (turnId === undefined) return false
     this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId, item })
     return true
@@ -10257,10 +10415,19 @@ export class Host {
          and the only sign is a room that stopped moving. So the seat is
          handed its order again. Unfinished turns and self-block hand-backs
          have separate hourly allowances, so neither can re-arm forever. */
-      void this.#flows.reArm(runtime, String(event.sessionId))
-      // The same turn-ended signal answers a v2 release still waiting on this
-      // Seat, rather than a poll of its own guessing when to ask again (#1027).
-      this.#flows.retryRelease(runtime, String(event.sessionId))
+      // While a carry-on incident holds the conversation it is the one recovery: a re-arm would retry the same
+      // exhausted account behind its back.
+      if (!this.#carryOn.live(String(runtime), String(event.sessionId))) {
+        void this.#flows.reArm(runtime, String(event.sessionId))
+        // The same turn-ended signal answers a v2 release still waiting on this
+        // Seat, rather than a poll of its own guessing when to ask again (#1027).
+        this.#flows.retryRelease(runtime, String(event.sessionId))
+      }
+    }
+    // A turn that ended on a usage limit opens a carry-on incident; one that continued a move settles it.
+    if (event.type === 'turn/completed' && !this.#disposed) {
+      void this.#carryOn.ended(String(runtime), String(event.sessionId), { id: String(event.turn.id), status: event.turn.status, error: event.turn.error ?? null })
+        .catch((error: unknown) => { this.#logger.warn('a carry-on incident could not be handled', { error: error instanceof Error ? error.message : String(error) }) })
     }
     if (event.type === 'session/closed') {
       this.#team.onSessionClosed(runtime, String(event.sessionId))

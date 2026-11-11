@@ -227,15 +227,15 @@ export class CarryOnService {
   }
 
   #mark(record: CarryOnRecord, at: { readonly runtime: string; readonly sessionId: string }, phase: CarryOnPhase,
-    extra: { readonly to?: CarryOnSide; readonly mode?: CarryOnMode; readonly note?: string; readonly link?: { readonly runtime: string; readonly sessionId: string } } = {}): void {
+    extra: { readonly to?: CarryOnSide; readonly mode?: CarryOnMode; readonly note?: string; readonly link?: { readonly runtime: string; readonly sessionId: string } } = {}): boolean {
     try {
       const { link, ...rest } = extra
-      this.ports.record(at.runtime, at.sessionId, {
+      return this.ports.record(at.runtime, at.sessionId, {
         id: itemId(`carry-on-${randomUUID()}`), type: 'carryOn', phase, cause: record.cause, from: record.from,
         ...(record.resetsAt !== null && (phase === 'waiting' || phase === 'stopped' || phase === 'exhausted') ? { resetsAt: record.resetsAt } : {}),
         ...rest, ...(link ? { link: { runtime: runtimeId(link.runtime), sessionId: makeSessionId(link.sessionId) } } : {}),
       })
-    } catch { /* A marker that cannot be written never stops the move it describes. */ }
+    } catch { /* A marker that cannot be written never stops the move it describes. */ return false }
   }
 
   // ------------------------------------------------------------ timers
@@ -507,9 +507,11 @@ export class CarryOnService {
       }
       if (mode === 'sameThread') {
         const moved = { runtime: target.runtime, sessionId: from.sessionId }
-        this.#mark(current, moved, 'switched', { to, mode, ...(note ? { note } : {}) })
+        // On the thread's last turn; a reopen that has not read its turns back yet takes it on the continue turn instead.
+        const marked = this.#mark(current, moved, 'switched', { to, mode, ...(note ? { note } : {}) })
         try { await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT) }
         catch { return this.#settle(current, { state: 'asked', note: 'The switch did not go through.' }) }
+        if (!marked) this.#mark(current, moved, 'switched', { to, mode, ...(note ? { note } : {}) })
         // The incident follows the conversation to the account that now holds it.
         return this.#settle(current, { state: 'moved', runtime: target.runtime, mode, watch: moved, ...(note ? { note } : {}) }, from)
       }

@@ -172,6 +172,14 @@ export interface HostContext {
    * by the ledger. The returned function takes the record back when the interrupt fails. Does nothing while no Lead runs.
    */
   personStopping(chat: string): () => void
+  /**
+   * Conversations stuck at a usage limit: what is live, for a reconnecting window, and the person's answer to one.
+   * `decide` refuses with `CarryOnStaleError` when the incident is no longer asking or the target is no longer offered.
+   */
+  readonly carryOn: {
+    list(): readonly import('@harnessdesk/protocol').CarryOnIncidentView[]
+    decide(input: import('@harnessdesk/protocol').CarryOnDecision): Promise<import('@harnessdesk/protocol').CarryOnIncidentView>
+  }
   /** Seen marks, the away digest, the morning brief and the state of each ask; refuses while no Lead runs here. */
   readonly leadPresence: Pick<import('../lead/presence.js').LeadPresenceStore, 'read' | 'dismiss' | 'brief' | 'updateBrief'>
   /** Autonomy modes, the three rule sections with their versions, and goal deadlines; refuses while no Lead runs here. */
