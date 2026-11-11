@@ -10,6 +10,7 @@ import { LeadBudgetAdmissionRefused } from './budget.js'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadResolvedTool } from './tools.js'
 import type { LeadAcceptanceEvidence } from './acceptance.js'
+import type { LeadWithheldPiece } from './credential-screen.js'
 import type { LeadMessagesRequest, LeadMessagesResult, MessagesPrice, MessagesHttpResponse, MessagesText, MessagesTurn } from './messages-types.js'
 import { parseLeadContextTurns } from './messages.js'
 import type { LeadContextRecordInput } from './loop.js'
@@ -167,7 +168,7 @@ export interface LeadSupervisorOptions {
   readonly committedBudgetEvent?: (event: LeadBudgetEvent) => void
   /** The host's last word on a model text before it is written down for the person: throw to refuse it. */
   readonly admitReply?: (text: string) => Promise<void>
-  readonly providerSend?: (requestId: string, body: string, signal: AbortSignal) => Promise<MessagesHttpResponse>
+  readonly providerSend?: (requestId: string, body: string, signal: AbortSignal, withheld?: readonly LeadWithheldPiece[]) => Promise<MessagesHttpResponse>
   /** Test seam for the host-owned, already-connected desk socket. */
   readonly connectDesk?: (descriptor: DeskPointer, signal: AbortSignal) => Promise<Socket | null>
   readonly onStarted?: () => Promise<void> | void
@@ -203,6 +204,17 @@ interface Running {
   markReady(): void
 }
 const error = (code: string) => new Error(`lead-child-${code}`)
+/** The child's count of what it withheld: turn indices, block kinds and counts only, so nothing it says can carry content. */
+const withheldPieces = (value: unknown): readonly LeadWithheldPiece[] => {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 1024) throw error('protocol')
+  return value.map(item => {
+    const piece = ipcObject(item, ['turn', 'kind', 'count'])
+    const whole = (n: unknown, max: number) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 && n <= max
+    if (!whole(piece.turn, 100_000) || !whole(piece.count, 100_000) || piece.count === 0 ||
+      !['text', 'tool_result', 'tool_use', 'thinking'].includes(piece.kind as string)) throw error('protocol')
+    return { turn: piece.turn as number, kind: piece.kind as LeadWithheldPiece['kind'], count: piece.count as number }
+  })
+}
 const ipcEpoch = (value: unknown): number => { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw error('protocol'); return value }
 const callFrom = (value: unknown): LeadPermissionCall => {
   const source = ipcObject(value, ['method', 'params'])
@@ -396,7 +408,7 @@ export class LeadSupervisor {
       const arity = { recordWake: 1, execute: 1, updateBudget: 1, setManagementPhase: 2, invalidateResults: 0, offerCard: 1,
         restoreResult: 2, recoverUnsettledRequests: 0, appendReply: 1, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 2,
         recordContext: 1, readContext: 1, compactContext: 1, memoryEpoch: 3 }[operation]
-      if (args.length !== arity && !(operation === 'appendReply' && (args.length === 2 || args.length === 3))) throw error('protocol')
+      if (args.length !== arity && !(operation === 'appendReply' && (args.length === 2 || args.length === 3)) && !(operation === 'provider-send' && args.length === 3)) throw error('protocol')
       let value: unknown = null
       switch (operation) {
         case 'recordWake': await durable(journal.recordWake(args[0] as import('@harnessdesk/protocol').LeadWakeRecord)); break
@@ -404,11 +416,15 @@ export class LeadSupervisor {
         case 'memoryEpoch': await durable(journal.memoryEpoch(args[0] as string, args[1] as number, args[2] as import('./memory.js').LeadMemoryCore)); break
         case 'provider-send': {
           if (typeof args[0] !== 'string' || typeof args[1] !== 'string' || new TextEncoder().encode(args[1]).length > 1_048_576) throw error('protocol')
+          const withheld = args.length === 3 ? withheldPieces(args[2]) : undefined
           try {
             if (!this.options.providerSend) throw error('provider-unavailable')
-            value = await this.options.providerSend(args[0], args[1], running.providerAbort.signal)
-          } catch {
-            if (!running.exited) write(running, { type: 'reply', id, ok: false, value: null, state: journal.state })
+            value = await this.options.providerSend(args[0], args[1], running.providerAbort.signal, withheld)
+          } catch (refusal) {
+            // A request the host refused by name before sending is told apart, so the child settles it at zero.
+            const guard = (refusal as { leadRequestRefused?: unknown })?.leadRequestRefused
+            const value = guard === 'credential' ? 'lead-provider-withheld' : typeof guard === 'string' ? 'lead-provider-refused' : null
+            if (!running.exited) write(running, { type: 'reply', id, ok: false, value, state: journal.state })
             return
           }
           break

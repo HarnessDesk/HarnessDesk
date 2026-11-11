@@ -19,3 +19,11 @@ it('is collapsed to the latest row and expands to include silent wakes with one 
   expect(box.querySelectorAll('[data-slot="row-desc"]')).toHaveLength(0)
   act(() => root.unmount())
 })
+
+it('names a wake whose request failed, rather than calling it silence', () => {
+  const box = document.createElement('div'), root = createRoot(box)
+  act(() => root.render(<LeadWakeLedger wakes={[{ id: 'failed', at: 100, source: 'desk-change', decision: 'failed', modelTurn: false, usdMicros: null }]} />))
+  expect(box.textContent).toContain('request failed')
+  expect(box.textContent).not.toContain('stayed silent')
+  act(() => root.unmount())
+})

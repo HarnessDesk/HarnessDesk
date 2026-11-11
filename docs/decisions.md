@@ -7,6 +7,23 @@ the rule is the last line of its section.
 
 ---
 
+## The Lead withholds a credential-shaped piece instead of refusing the whole request — 2026-11-10
+
+Before a Lead request leaves the machine the host checks the whole body for anything shaped like a password, key or token, and refuses it if one is there. The conversation that body carries is stored, so a refused piece was in every request after it: one config line a worker printed, read back by the Lead, stopped the Lead for good. The child now runs the same check block by block before it builds the body, and puts a one-line notice in place of each piece the host would refuse: a text keeps its place, a tool result keeps its correlation, a tool call keeps its id and loses its arguments. Reasoning is signed and cannot be edited, so a reasoning block that screens is dropped from an earlier assistant turn, which the provider does not need again, and kept in the latest one, whose tool loop needs it. The body the host checks is then the one the child counted and reserved, built once. What cannot be withheld piece by piece — the instructions, memory and rules every request starts with — is not sent at all, and reserves nothing. The child tells the host what it withheld as counts (turn, block kind, how many) with the first send of a request, and the host log gets one warning per such request, with the request id and sizes and never the content.
+
+A request the host still refuses before handing it to the transport is refused by name: the child settles it at zero rather than writing the reservation off as an unknown charge, the host log gets one warning naming the check, the request id and the sizes, and the Lead's wait says the request was not sent instead of telling the person to send a message to continue. The wait says which: `lead-request-withheld` when the instructions, memory or rules hold it, `lead-request-held` when the host's own check found it in the conversation (only the host can check against the real key), and `lead-request-unsent` for any other check. When the next request is refused the same way, the wait becomes `lead-request-held-again` or `lead-request-unsent-again`, which points at the desk log; a request that completes starts the count over. A send that may have reached the provider stays uncertain, as before.
+
+The check itself stays strict: any value counts as a credential, in any script, unless the whole value is a placeholder — `…`, `...`, a run of `*` or `•`, `[redacted]` or `<redacted>` — ending at a delimiter, an encoded line break, or a quote that really closes an encoded string. `password=…"hunter2` is a credential. A line the desk clipped to `authorization: …` is text; `password=пароль` is not.
+
+Rejected:
+
+- **Dropping the whole tool result or turn.** It breaks the tool-use correlation the provider requires and loses everything else the read said.
+- **Letting the host rewrite the body.** The host would send a body the child never sized; the reservation and the request would disagree again.
+- **Writing a refused request off.** Nothing was sent, so nothing was spent; a write-off charged the reservation's price for every attempt.
+- **Requiring a letter or a digit in a value.** It let a password in another script, or made of symbols, through the request check, the journal mask and public projections alike.
+
+**Rule:** a piece the host would refuse is withheld before the body is built and counted in the log; a request refused before sending is settled at zero and says it was not sent, and why.
+
 ## Review threads are settled by outcome — 2026-11-10
 
 After a repair round, a pull request is left full of open review threads: the ones the fix addressed and the ones the seat chose not to take. A reader cannot tell them apart without opening each, and a bot reviewer opens new ones on every push. The desk now settles each thread by what happened to it. A fixed thread is resolved and nothing is posted, because the commit is the answer and a "done" reply is noise in the reviewer's inbox. A declined thread gets exactly one plain sentence saying why and is left open, because the decision belongs to the reviewer, not to the seat that disagreed with them.

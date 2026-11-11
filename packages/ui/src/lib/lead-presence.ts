@@ -1,4 +1,4 @@
-import { isWaitingOnYou } from '@harnessdesk/protocol'
+import { isWaitingOnYou, leadWaitUnsent } from '@harnessdesk/protocol'
 import type { LeadPresence as LeadChecks, LeadRunReading } from '@harnessdesk/protocol'
 import type { LeadState } from '../state/lead'
 import type { LeadMood } from './lead-faces'
@@ -37,6 +37,8 @@ const reading = (state: LeadState): Omit<LeadPresence, 'quiet'> & { readonly qui
   const waiting = state.stage === undefined ? needs > 0 || thread.state === 'waiting-for-user' || state.waitReason === 'lead-result-awaiting-person' : isWaitingOnYou(state.stage)
   if (waiting && (state.stage === 'you-review' || state.waitReason === 'lead-result-awaiting-person')) return { mood: 'done', word: 'Done · ready to accept', needs: 1, goalActive }
   if (waiting) return { mood: 'alert', word: `${Math.max(needs, 1)} need${Math.max(needs, 1) === 1 ? 's' : ''} you`, needs: Math.max(needs, 1), goalActive }
+  // The desk refused the last request before sending it: not a wait on the person, and not work going on either.
+  if (leadWaitUnsent(state.waitReason)) return { mood: 'alert', word: 'Not sent', needs: 0, goalActive }
   if (thread.state === 'stopped') return { mood: 'sleeping', word: 'Paused', needs: 0, goalActive: false }
   if (thread.state === 'accepted') return { mood: 'done', word: 'Done', needs: 0, goalActive: false }
   if (thread.state === 'following') return { mood: 'neutral', word: 'Following', needs: 0, goalActive }

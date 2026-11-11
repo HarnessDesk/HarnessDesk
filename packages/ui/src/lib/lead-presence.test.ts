@@ -74,3 +74,12 @@ it('falls back to the old count and wording when an older host omits stage', () 
   state.changed({ method: 'lead/changed', params: old as ReturnType<typeof leadProjection> })
   expect(leadPresence(state.state)).toMatchObject({ needs: 1, word: '1 needs you' })
 })
+
+it('says a request was not sent instead of that the person is needed or that work goes on', () => {
+  for (const waitReason of ['lead-request-unsent', 'lead-request-unsent-again', 'lead-request-held', 'lead-request-held-again', 'lead-request-withheld'] as const) {
+    const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
+    state.changed({ method: 'lead/changed', params: leadProjection({ waitReason, wayOut: null, thread: { ...leadProjection().thread, state: 'waiting-for-user' } }) })
+    expect(state.state.stage).toBe('idle')
+    expect(leadPresence(state.state)).toMatchObject({ mood: 'alert', word: 'Not sent', needs: 0, quiet: false })
+  }
+})
