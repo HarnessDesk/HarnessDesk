@@ -4284,6 +4284,7 @@ export class Host {
         readContext: (epoch: number, room: number) => leadContext.read(epoch, room),
         compactContext: async (trigger: 'due' | 'overflow') => await this.#leadControls?.compactForWake(trigger) ?? false,
       } : {}),
+      readMemoryStatus: () => this.#leadMemoryContext(),
       onManagementStopped: reason => {
         if (reason === 'lead-host-shutdown') void this.#leadChats?.close()
         else if (reason === 'lead-disabled' || reason === 'lead-request-cancelled') this.#leadChats?.incidents?.cancel()

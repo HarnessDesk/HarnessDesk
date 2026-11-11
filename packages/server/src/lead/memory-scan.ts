@@ -48,8 +48,21 @@ export const leadMemoryTokens = (text: string): string[] => {
 /** The same entry however it is spaced, cased or punctuated. */
 export const leadMemoryKey = (text: string): string => leadMemoryTokens(text).join(' ')
 /** Two entries say the same thing: equal once normalised, or sharing at least 80% of their words. */
+/** "Don't", "do not", "never", "no", 不, 别, ない: a note and its negation share nearly every word, so near-matching
+ * reads whether each side is negated apart from its words, and two sides that differ are never the same note. Works on
+ * a note and on its key (where "don't" reads "don t"). */
+const NEGATION_AUX = /\b(?:do|does|did|is|are|was|were|wo|ca|should|would|could|must|have|has|had|need)n(?:['\u2019]|\s)t\b|\b(?:do|does|did)\s+not\b/g
+const NEGATION_WORD = /\b(?:not|never|no|none|nobody|nothing|nowhere|neither|nor|cannot|without)\b/g
+const NEGATION_CJK = /[不别別没沒勿无無非莫]|ない|ません/g
+const polarity = (text: string): { readonly negative: boolean; readonly rest: string } => {
+  const read = reading(text).replace(NEGATION_AUX, ' not ')
+  const rest = read.replace(NEGATION_WORD, ' ').replace(NEGATION_CJK, ' ')
+  return { negative: rest !== read, rest }
+}
 export const leadMemoryNear = (a: string, b: string): boolean => {
-  const left = new Set(leadMemoryTokens(a)), right = new Set(leadMemoryTokens(b))
+  const one = polarity(a), two = polarity(b)
+  if (one.negative !== two.negative) return false
+  const left = new Set(leadMemoryTokens(one.rest)), right = new Set(leadMemoryTokens(two.rest))
   if (!left.size || !right.size) return reading(a).trim() === reading(b).trim()
   let shared = 0
   for (const token of left) if (right.has(token)) shared++

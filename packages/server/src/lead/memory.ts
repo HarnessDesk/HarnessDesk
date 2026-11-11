@@ -313,8 +313,9 @@ export class LeadMemoryStore {
   /**
    * What became of the Lead's recent proposals, newest first, with Core now and every entry's id: what each request
    * tells the Lead (`leadMemoryStatus`), since the Core in its standing instructions is frozen for the epoch. A kept
-   * proposal whose entry a tidy merged reads as kept in the merged entry; one whose entry is gone (Forget, Undo) reads
-   * as forgotten.
+   * proposal whose entry a tidy merged reads as kept in the merged entry, with the entry's words as they are now; one
+   * whose entry is gone reads as forgotten (Forget), undone (Undo) or removed (any other way, such as an older client
+   * writing the list without it).
    */
   status(): LeadMemoryStatus {
     const { entries, inbox } = this.#state, byId = new Map(entries.map(entry => [entry.id, entry]))
@@ -331,10 +332,15 @@ export class LeadMemoryStore {
       if (record.state === 'pending') return waiting.has(record.id) ? [{ id: record.id, state: 'pending' as const, text: record.text, at: record.at }] : []
       if (record.state !== 'kept' && record.state !== 'edited') return [{ id: record.id, state: record.state, text: record.text, at: record.at }]
       const entry = live(record.entry)
-      if (!entry) return [{ id: record.id, state: 'forgotten' as const, text: record.text, at: record.at }]
-      // A tidy's merge is still the note kept; the person's own edit makes it theirs.
+      if (!entry) {
+        // Forget marks its own records; an entry gone any other way was undone or replaced, and says which.
+        const undone = this.#state.versions.some(version => version.by === 'undo' && version.changes.some(change => change.before?.id === record.entry && !change.after))
+        return [{ id: record.id, state: undone ? 'undone' as const : 'removed' as const, text: record.text, at: record.at }]
+      }
+      // A tidy's merge is still the note kept; the person's own edit makes it theirs. Either way the words are the
+      // entry's as they stand now, never the ones it replaced.
       const state: LeadMemoryProposalState = record.state === 'edited' || (entry.id === record.entry && entry.text !== record.text) ? 'edited' : 'kept'
-      return [{ id: record.id, state, text: record.text, entry: entry.id, at: record.at }]
+      return [{ id: record.id, state, text: entry.text, entry: entry.id, at: record.at }]
     })
     return { revision: this.#state.revision, proposals, core: leadMemoryCoreOrder(entries).map(entry => ({ id: entry.id, text: entry.text })),
       entries: entries.map(entry => entry.id), clearedAt: this.#state.clearedAt }

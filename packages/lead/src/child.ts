@@ -120,6 +120,10 @@ export const leadChildRpcPorts = (rpc: LeadChildRpc, readState: () => LeadState)
         if (typeof fresh.epoch !== 'number' || !Number.isSafeInteger(fresh.epoch) || fresh.epoch < 0) throw denied()
         return { epoch: fresh.epoch, messages: parseLeadContextTurns(fresh.messages).turns }
       },
+      memoryStatus: async () => {
+        const value = await rpc('readMemoryStatus', [])
+        return typeof value === 'string' ? value : null
+      },
     } satisfies Required<LeadContextPort>,
   }
 }

@@ -3,7 +3,7 @@ import { connect, createServer, type Socket } from 'node:net'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, parseLeadCard, parseLeadMessage, parseLeadProactive, parseLeadAsk, parseLeadMessageRefs,
-  type LeadBudgetEvent, type LeadCard, type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy, type LeadPresence, parseLeadPresence } from '@harnessdesk/protocol'
+  type LeadBudgetEvent, type LeadCard, type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy, type LeadPresence, parseLeadPresence, LEAD_MEMORY_LIMITS } from '@harnessdesk/protocol'
 import { preferUnpackedPath, type DeskPointer } from '@harnessdesk/client/node'
 import { parseLeadRunIdentity, type LeadJournal, type LeadDispatchResult } from './journal.js'
 import { LeadBudgetAdmissionRefused } from './budget.js'
@@ -165,6 +165,8 @@ export interface LeadSupervisorOptions {
   readonly readContext?: (epoch: number, room: number) => Promise<{ readonly epoch: number; readonly messages: readonly MessagesTurn[] } | null>
   /** Before a desk wake: compact if due past the hard line, or after the provider refused the wake as too long. */
   readonly compactContext?: (trigger: 'due' | 'overflow') => Promise<boolean>
+  /** The desk's memory status for a desk wake the child builds (`leadMemoryStatus`), or null. */
+  readonly readMemoryStatus?: () => Promise<string | null>
   readonly admitCardOffer?: (card: LeadCard) => void
   readonly admitBudgetEvent?: (event: LeadBudgetEvent) => void
   readonly committedBudgetEvent?: (event: LeadBudgetEvent) => void
@@ -540,6 +542,11 @@ export class LeadSupervisor {
           // The reply frame also carries the journal state: the conversation gets what is left of it.
           const framing = Buffer.byteLength(JSON.stringify({ type: 'reply', id, ok: true, value: null, state: journal.state }))
           value = await this.options.readContext?.(ipcEpoch(args[0]), Math.max(0, LEAD_FRAME_BYTES - framing - 16_384)) ?? null
+          break
+        }
+        case 'readMemoryStatus': {
+          const status = await this.options.readMemoryStatus?.()
+          value = typeof status === 'string' && Buffer.byteLength(status) <= LEAD_MEMORY_LIMITS.statusBytes ? status : null
           break
         }
         case 'compactContext': {

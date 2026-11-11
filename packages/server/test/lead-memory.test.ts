@@ -510,7 +510,11 @@ test('a kept note answers exists with its entry, and the status says it is kept'
   // Kept in the person's own words, it says so.
   const other = await store.propose({ text: 'Stay quiet about desk changes at night.', kind: 'preference' }, 7, 6)
   const edited = (await store.change({ action: 'keep', id: other.id!, text: 'Stay quiet about desk changes after 22:00.' }, 8)).core.find(one => one.text.includes('22:00'))!
-  assert.deepEqual(store.status().proposals[0], { id: other.id, state: 'edited', text: 'Stay quiet about desk changes at night.', entry: edited.id, at: store.status().proposals[0]!.at })
+  assert.deepEqual(store.status().proposals[0], { id: other.id, state: 'edited', text: 'Stay quiet about desk changes after 22:00.', entry: edited.id, at: store.status().proposals[0]!.at },
+    'the words the note says now, never the words the person replaced')
+  // Edited again in Settings, the status follows the entry.
+  await store.change({ action: 'edit', id: entry.id, text: 'Report in Chinese, short.' })
+  assert.deepEqual(store.status().proposals.map(item => [item.id, item.state, item.text]), [[other.id, 'edited', 'Stay quiet about desk changes after 22:00.'], [offered.id, 'edited', 'Report in Chinese, short.']])
 })
 
 test('a declined proposal is offered again once the person says it again, and says it was declined before', async () => {
@@ -563,8 +567,32 @@ test('a kept proposal a tidy merged reads as kept in the merged note; one Undo t
   const tidy = await store.tidy({ merge: [{ ids: [a.id!, b.id!], text: 'Staging Postgres listens on port 5433 and is reachable from the desk.' }], drop: [] })
   assert.equal(tidy.outcome, 'applied')
   const merged = store.entries().at(-1)!.id
-  assert.deepEqual(store.status().proposals.map(item => [item.id, item.state, item.entry]), [[b.id, 'kept', merged], [a.id, 'kept', merged]])
+  assert.deepEqual(store.status().proposals.map(item => [item.id, item.state, item.entry, item.text]), [[b.id, 'kept', merged, store.entries().at(-1)!.text], [a.id, 'kept', merged, store.entries().at(-1)!.text]])
   await store.change({ action: 'undo', version: (tidy as { version: number }).version })
   await store.change({ action: 'undo', version: store.view().history.find(item => item.by === 'lead' && item.undoable)!.version })
-  assert.equal(store.status().proposals.find(item => item.id === b.id)!.state, 'forgotten')
+  assert.equal(store.status().proposals.find(item => item.id === b.id)!.state, 'undone', 'Undo took it out; the person did not forget it')
+})
+
+test('a kept note taken out by something other than Forget or Undo reads as removed, never as forgotten', async () => {
+  let clock = 1000
+  const { store } = await open({ now: () => clock++ })
+  await store.change({ action: 'auto', on: true })
+  const older = await store.propose({ text: 'Staging Postgres listens on port 5433.', kind: 'fact' }, 1)
+  const newer = await store.propose({ text: 'Staging Postgres listens on port 5433 behind the VPN gateway.', kind: 'fact' }, 2)
+  assert.deepEqual([older.outcome, newer.outcome], ['kept', 'kept'])
+  // A tidy finds the newer note says it all and drops the older one.
+  assert.equal((await store.tidy({ merge: [], drop: [{ id: older.id!, by: newer.id! }] })).outcome, 'applied')
+  assert.equal(store.entries().some(entry => entry.id === older.id), false)
+  assert.deepEqual(store.status().proposals.map(item => [item.id, item.state]), [[newer.id, 'kept'], [older.id, 'removed']])
+})
+
+test('a negation is a different note: "never" against the same words is not the note already kept', async () => {
+  const { store } = await open()
+  const offered = await store.propose({ text: 'Merge pull requests after review.', kind: 'preference' }, 3, 2)
+  await store.change({ action: 'keep', id: offered.id! }, 4)
+  assert.equal((await store.propose({ text: 'Never merge pull requests after review.', kind: 'preference' }, 6, 5)).outcome, 'created')
+  assert.equal((await store.propose({ text: "Don't merge pull requests after review.", kind: 'preference' }, 8, 7)).outcome, 'pending', 'two negated forms are the same note')
+  assert.equal(leadMemoryNear('Run the linter before review.', 'Do not run the linter before review.'), false)
+  assert.equal(leadMemoryNear('提交前运行测试', '提交前不运行测试'), false)
+  assert.equal(leadMemoryNear('Run the linter before review.', 'run the linter before review!'), true)
 })

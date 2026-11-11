@@ -284,11 +284,15 @@ test('a desk wake after a compaction reads the stored conversation again and sen
   const checkpoint = lead.leadCheckpointTurn('c1', '## What the person wants\nNone.', false)
   let fresh: { epoch: number; messages: lead.MessagesTurn[] } | null = null
   const context = contextPort(() => fresh)
+  // The desk's memory status of this moment: a mid-epoch Forget the frozen Core cannot show.
+  const status = '<desk-memory-status>\n- [c4] forgotten by the person; not in memory\n</desk-memory-status>'
+  let statusReads = 0
+  const port = { ...context.port, async memoryStatus() { statusReads++; return status } }
   // The desk's own work ledger, read for the wake without a journaled step.
   const deskCall = s.options.desk.call, board = { version: 1, more: 0, items: [{ id: 'work-7', title: 'Fix the sign-in redirect', project: 'demo', stage: 'working',
     group: 'working', links: { chats: [], teams: [], prs: [], issues: [] }, createdAt: 50, updatedAt: 90 }] }
   s.options.desk.call = async (method: string, params: unknown) => method === 'lead/work/list' ? board : deskCall(method, params)
-  const loop = lead.createLeadLoop({ ...s.options, context: context.port })
+  const loop = lead.createLeadLoop({ ...s.options, context: port })
   try {
     await s.approve()
     s.setEvidence({ ...loopEvidence(), spend: { version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'worker-samples', sourceIds: ['sample-1'], goalId: 'team-1', executionIds: ['run-1'], quality: 'known', usdMicros: 1 }, reviews: [],
@@ -311,6 +315,10 @@ test('a desk wake after a compaction reads the stored conversation again and sen
     assert.match(cards, /- work-7 \[working\] "Fix the sign-in redirect"/, 'the wake carries the open work cards')
     assert.ok(![...s.journal.state.attempts.values()].some((attempt: any) => JSON.stringify(attempt).includes('lead/work/list')), 'reading them is not a step the Lead took')
     assert.ok(!JSON.stringify(context.records.at(-1)).includes('work-7'), 'and they are desk context: never stored')
+    const last = body.messages.at(-1).content.map((block: any) => block.text as string)
+    assert.equal(last[last.findIndex((text: string) => text?.startsWith('<work-ledger>')) + 1], status, 'the wake carries the memory status right after the work cards')
+    assert.ok(statusReads >= 1)
+    assert.ok(!JSON.stringify(context.records.at(-1)).includes('forgotten by the person'), 'the status is desk context too: never stored')
   } finally { await loop.close() }
 })
 

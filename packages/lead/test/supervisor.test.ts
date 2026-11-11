@@ -735,6 +735,26 @@ test('every operation the child may call passes the frame check at its full arit
   }
 })
 
+test('the child reads the desk\'s memory status through the host: the text, or null when the host has none or answers with something else', async () => {
+  for (const [answer, expected] of [['<desk-memory-status>\n- [c1] kept as m2\n</desk-memory-status>', '<desk-memory-status>\n- [c1] kept as m2\n</desk-memory-status>'], [null, null], [undefined, null], [42, null]] as const) {
+    let replied!: (message: any) => void
+    const reply = new Promise<any>(resolve => { replied = resolve })
+    let asked = 0
+    const child = fake((value, child) => {
+      if (value.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+      if (value.type === 'request') { asked = value.id; child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'readMemoryStatus', args: [] })) }
+      if (value.type === 'reply') { replied(value); child.stdout.write(frame({ version: 1, type: 'response', id: asked, result: { status: 'completed' } })) }
+      if (value.type === 'shutdown') child.kill()
+    })
+    const f = await fixture({ spawn: () => child, ...(answer === undefined ? {} : { readMemoryStatus: async () => answer }) })
+    void f.supervisor.send(request).catch(() => {})
+    const message = await reply
+    assert.equal(message.ok, true)
+    assert.equal(message.value, expected, String(answer))
+    await f.supervisor.stop()
+  }
+})
+
 test('a child stopped for a broken frame, and a failure it caught, both reach the host by stage and code alone', async () => {
   const failures: any[] = []
   const child = fake((value, child) => {
@@ -810,7 +830,7 @@ test('every call the child makes to the host sends an argument count the table a
   await port.appendReply('See the chat.', undefined, undefined, refs as any); await port.appendReply('See the chat. Which?', undefined, ask as any, refs as any)
   await ports.resolveTool({} as any); await ports.freezePlan({}); await ports.readEvidence('run-1')
   await ports.transport.send({ requestId: 'request-1', body: '{}' } as any); await ports.transport.send({ requestId: 'request-1', body: '{}', withheld: [{}] } as any)
-  await ports.context.record({} as any); await ports.context.read(1); await ports.context.compact('due')
+  await ports.context.record({} as any); await ports.context.read(1); await ports.context.compact('due'); await ports.context.memoryStatus()
   for (const call of sent) assert.ok(leadRpcArgsFit(call.operation as any, call.count), `${call.operation} sent ${call.count}`)
   assert.deepEqual([...new Set(sent.map(call => call.operation))].sort(), [...LEAD_RPC_OPERATIONS].sort(), 'every operation was driven')
   assert.ok(sent.some(call => call.operation === 'appendReply' && call.count === 4))

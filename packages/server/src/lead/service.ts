@@ -64,6 +64,7 @@ export interface LeadServiceOptions {
   /** The host's stored conversation: what each step adds, and the conversation again after a compaction. */
   readonly recordContext?: LeadSupervisorOptions['recordContext']
   readonly readContext?: LeadSupervisorOptions['readContext']
+  readonly readMemoryStatus?: LeadSupervisorOptions['readMemoryStatus']
   readonly compactContext?: LeadSupervisorOptions['compactContext']
   /** Where the child failed and its code, for the host log; never content. */
   readonly onFailure?: LeadSupervisorOptions['onFailure']
@@ -291,6 +292,7 @@ export class LeadService {
       ...(options.recordContext ? { recordContext: async record => { this.#assertOpen(); await options.recordContext!(record) } } : {}),
       ...(options.readContext ? { readContext: async (epoch, room) => { this.#assertOpen(); return options.readContext!(epoch, room) } } : {}),
       ...(options.compactContext ? { compactContext: async trigger => { this.#assertOpen(); return options.compactContext!(trigger) } } : {}),
+      ...(options.readMemoryStatus ? { readMemoryStatus: async () => { this.#assertOpen(); return options.readMemoryStatus!() } } : {}),
       onStarted: () => { this.#endLive = options.childStarted() },
       onExit: reason => this.#exited(reason),
       onFailure: failure => {
