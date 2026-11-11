@@ -137,3 +137,14 @@ describe('BrandMark', () => {
     expect(colourOf('kimi')).toContain('fill="currentColor"')
   })
 })
+
+describe('brand mark ids across React roots', () => {
+  it('keeps two roots\' copies of a mark apart, since the preview mounts fixtures as second roots', () => {
+    // Each renderToStaticMarkup call is a root of its own: useId would give both first marks the same suffix.
+    const first = renderToStaticMarkup(<BrandMark brand="codex" />)
+    const second = renderToStaticMarkup(<BrandMark brand="codex" />)
+    const ids = (markup: string) => [...markup.matchAll(/id="([^"]*)"/g)].map((match) => match[1])
+    expect(ids(first).length).toBeGreaterThan(0)
+    expect(ids(first).filter((id) => ids(second).includes(id))).toEqual([])
+  })
+})

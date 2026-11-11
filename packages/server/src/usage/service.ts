@@ -277,9 +277,36 @@ export class UsageService {
     const running = this.#inFlight.get(id)
     if (running) return running
 
-    const work = this.#build(runtime).then((report) => { this.#asked.add(id); return report }).finally(() => this.#inFlight.delete(id))
+    // A read that throws past the runtime's own guards is that agent's failure, never every agent's: `reports()`
+    // gathers with Promise.all, and one rejection there left the screen with no readings and nothing asked.
+    const work = this.#build(runtime)
+      .catch((cause: unknown) => this.#failed(id, cause))
+      .then((report) => { this.#asked.add(id); return report })
+      .finally(() => this.#inFlight.delete(id))
     this.#inFlight.set(id, work)
     return work
+  }
+
+  /**
+   * One agent's read that threw: its last good figures with the failure beside them, as a failed refresh keeps them,
+   * or a report with nothing but the failure, which every surface reads as Unknown. Cached and pushed directly, not
+   * through `#finish`, since the overlay there may be what threw.
+   */
+  #failed(id: RuntimeId, cause: unknown): UsageReport {
+    const error = { message: cause instanceof Error ? cause.message : String(cause) }
+    this.#options.log?.('a usage read failed', { runtime: id, error: error.message })
+    const previous = this.#cache.get(id) ?? null
+    const report: UsageReport = previous && (previous.lanes.length > 0 || hasReading(previous) || previous.unverified)
+      ? { ...previous, error }
+      : {
+          runtime: id, account: previous?.account ?? null, plan: null, lanes: [], credits: null, spend: null,
+          reached: null, source: RUNTIME_SOURCE, fetchedAt: this.#now(), staleAfterMs: DEFAULT_STALE_AFTER_MS, error,
+        }
+    this.#cache.set(id, report)
+    if (!this.#disposed) {
+      try { this.#options.onReport(report) } catch { /* a listener failing is not this agent's read failing */ }
+    }
+    return report
   }
 
   async #build(runtime: AgentRuntime): Promise<UsageReport | null> {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { runtimeId, type AgentRuntime, type RuntimeId, type SpendSummary, type UsageReport } from '@harnessdesk/protocol'
+import { isSilentUsage, runtimeId, trackedUsage, type AgentRuntime, type RuntimeId, type SpendSummary, type UsageReport } from '@harnessdesk/protocol'
 
 import { UsageService } from '../src/usage/service.js'
 import { MeterAuthError, type MeterReading, type UsageMeter } from '../src/usage/meter.js'
@@ -643,4 +643,30 @@ test('a stored plan folds into every report the overlay sees, including the onRe
   assert.equal(settled?.fetchedAt, first?.fetchedAt, 'settlement keeps the original meter reading')
   assert.deepEqual(usage.cached(METERED), settled, 'the cache and emitted report stay aligned')
   usage.dispose()
+})
+
+test('one agent whose read throws on a fresh start does not sink the others: it reads Unknown, and every agent asked is asked', async () => {
+  const BROKEN = runtimeId('broken')
+  const seen: UsageReport[] = []
+  // `spendFor` throwing escapes the runtime's own guards: the whole read of that one agent rejects.
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED), runtime(SILENT), runtime(BROKEN)],
+    meters: new Map([[METERED, meter]]),
+    spend: { spendFor: (id) => { if (id === BROKEN) throw new Error('ledger unreadable'); return null } },
+    onReport: (report) => seen.push(report),
+  })
+  try {
+    const reports = await usage.reports()
+    const byId = new Map(reports.map((report) => [report.runtime, report]))
+    assert.equal(byId.get(METERED)?.lanes[0]?.usedPercent, 40, 'the agent that answered still shows')
+    assert.equal(byId.has(SILENT), false, 'the silent agent has no reading, so the surfaces stand it in as Not reporting')
+    assert.equal(byId.get(BROKEN)?.error?.message, 'ledger unreadable', 'the failed read is its own error, which reads Unknown')
+    assert.deepEqual(byId.get(BROKEN)?.lanes, [])
+    for (const id of [METERED, SILENT, BROKEN]) assert.equal(usage.asked(id), true, `${id} was asked`)
+    assert.equal(usage.cached(BROKEN)?.error?.message, 'ledger unreadable', 'the host\'s cached view says the same')
+    // What every surface lists from that: the answer, the failure as its own card, and the silent agent's Not reporting.
+    const listed = trackedUsage([METERED, SILENT, BROKEN].map((id) => ({ id })), reports, [], Date.now(), (id) => usage.asked(id))
+    assert.deepEqual(listed.filter(isSilentUsage).map((report) => report.runtime), [SILENT])
+    assert.deepEqual(listed.filter((report) => !isSilentUsage(report)).map((report) => report.runtime).sort(), [BROKEN, METERED].sort())
+  } finally { usage.dispose() }
 })

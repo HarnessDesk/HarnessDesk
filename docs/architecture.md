@@ -1061,7 +1061,8 @@ Antigravity account read through `agy`) travel apart as `unverified: {whose, lan
 lanes. The same module orders an agent's accounts for
 *Prefer the account that resets soonest* (`pacedOrder`) and picks the account the Lead's chat start runs on.
 A refresh that fails after a good reading keeps that reading: `UsageService` holds the last lanes and balance with
-their `fetchedAt` and sets the report's `error`, and `usageStandingOf` judges the kept figures (`unknown` is only a
+their `fetchedAt` and sets the report's `error` (a read that throws is settled the same way, for that agent alone, so one
+agent's failure never sinks the others' reports), and `usageStandingOf` judges the kept figures (`unknown` is only a
 reading that never answered, or a kept Out reading whose blocking windows have since reset; `keptReading` names the
 kept case). The phone row then carries `refreshFailed` and
 `stale` beside the kept `left` and `readAt`, the Dashboard card and Plans row show the figures under a stale chip

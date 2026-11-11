@@ -1,4 +1,4 @@
-import { useId, useMemo, type SVGProps } from 'react'
+import { useMemo, useState, type SVGProps } from 'react'
 
 import harnessdesk from '../assets/brand/mark.svg?raw'
 import codex from '@lobehub/icons-static-svg/icons/codex.svg?raw'
@@ -289,8 +289,15 @@ export type BrandMarkProps = Omit<SVGProps<SVGSVGElement>, 'ref' | 'children' | 
 /** Marks whose drawing defines something by id, and so needs ids of its own in every copy. */
 const CARRIES_IDS = new Set((Object.keys(PATHS) as Brand[]).filter((brand) => PATHS[brand].includes('id="')))
 
+/**
+ * One count for the whole document rather than React's `useId`, which is unique only within one root: the preview
+ * harness mounts fixtures as second roots beside a hidden main one (`mountGlyphReview`), and two roots' first marks
+ * would share a suffix and so a gradient again.
+ */
+let copies = 0
+
 export const BrandMark = ({ brand, size = 16, label, className, ...rest }: BrandMarkProps) => {
-  const copy = useId().replace(/[^\w-]/g, '')
+  const [copy] = useState(() => (copies += 1).toString(36))
   const markup = useMemo(
     () => CARRIES_IDS.has(brand)
       ? PATHS[brand]

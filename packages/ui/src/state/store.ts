@@ -3239,7 +3239,9 @@ export class AppStore {
       const before = this.#snapshot.usage
       const kept = before.filter((entry) => !touched.has(keyOf(entry)))
       const usage = [...kept, ...reports]
-      this.#patch({ usage })
+      // A refresh of every agent is every agent asked, as a first read is: without it, a start whose first
+      // `usage/reports` failed would hide each silent agent's card for as long as the window is open.
+      this.#patch(runtime ? { usage } : { usage, usageAsked: true })
       this.#announceUsage(before, usage)
       this.#followPool(usage)
     } catch {

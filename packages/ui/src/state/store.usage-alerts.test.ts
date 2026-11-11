@@ -249,3 +249,32 @@ describe('usage reports that go silent', () => {
     })
   }
 })
+
+describe('whether the desk has been asked (#2111 review round 3)', () => {
+  it('counts the agents as asked once the host answers a refresh, even when the first read of the start failed', async () => {
+    vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+      if (method === 'app/state/get') return {}
+      if (method === 'usage/reports') throw new Error('socket closed')
+      return answers[method] ?? null
+    }) as never)
+    await store.loadUsage()
+    expect(store.getSnapshot().usageAsked).toBe(false)
+    // One agent's read failed on the host and came back as its own error; the other answered.
+    answers['usage/refresh'] = [report('dev@example.com', 40), { ...report(null, 0, 'cursor'), lanes: [], error: { message: 'ledger unreadable' } } as UsageReport]
+    await store.refreshUsage()
+    expect(store.getSnapshot().usageAsked).toBe(true)
+    expect(store.getSnapshot().usage.map((entry) => entry.runtime)).toEqual([runtimeId('codex'), runtimeId('cursor')])
+  })
+
+  it('does not count one agent refreshed on its own as every agent asked', async () => {
+    vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+      if (method === 'app/state/get') return {}
+      if (method === 'usage/reports') throw new Error('socket closed')
+      return answers[method] ?? null
+    }) as never)
+    await store.loadUsage()
+    answers['usage/refresh'] = [report('dev@example.com', 40)]
+    await store.refreshUsage(runtimeId('codex'))
+    expect(store.getSnapshot().usageAsked).toBe(false)
+  })
+})
