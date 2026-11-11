@@ -698,6 +698,26 @@ test('a checkpoint is written against the desk as it stands now, so it never kee
   assert.match(instruction, /wins over/, 'and it says the present wins over what the conversation said earlier')
 })
 
+test('a reminder said while the thread waits on the person reaches the stored conversation with its line, so it is not said again', async t => {
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const lead1 = await harness(t, { window: 200_000 })
+  await lead1.say('Tidy the release notes.')
+  await lead1.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  const controls = new LeadControls({ journal: lead1.journal, project: { id: 'demo', path: '/workspace/demo' }, model: 'fixture-model', now: () => 100, nextId: () => 'card',
+    push() {}, decidePerson: async () => {}, decideResult: async () => {}, context: lead1.store,
+    service: { async status() { return { configured: true, protection: 'synthetic cipher' } }, async setKey() {}, async deleteKey() {}, async assertPublic() {},
+      async send() { throw new Error('no model request while the thread waits') } } as any })
+  t.after(() => controls.close())
+  assert.equal(await controls.remind('wake-person', 'Reminder remind-2, which you set for the person, is due now. Remind the person now, in one short message.',
+    { reminder: 'remind-2', text: 'send the notes', person: true }), true)
+  const next = await lead1.store.request()
+  const turns = next.messages.map(turn => ({ role: turn.role, text: (Array.isArray(turn.content) ? turn.content : []).map((part: any) => part.text ?? '').join('\n') }))
+  const wake = turns.findIndex(turn => turn.text.includes('Remind the person now'))
+  assert.ok(wake >= 0, 'the wake goes with the next request')
+  assert.equal(turns[wake + 1]?.role, 'assistant', 'answered')
+  assert.match(turns[wake + 1]!.text, /You asked me to remind you: send the notes\./, 'by the line the person read')
+})
+
 test('a reminder wake past the soft line writes the reminder first and summarises after; past the hard line it summarises first and still writes it', async () => {
   for (const due of ['soft', 'hard'] as const) {
     const s = await controlsRig([{ status: 'completed', text: 'Time to check the release notes.' }])

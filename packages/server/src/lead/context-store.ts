@@ -245,10 +245,18 @@ export class LeadContextStore {
     const words = this.options.journal.state.messages.flatMap(message => message.role === 'user' && !message.wake && covered.has(message.id) ? [{ id: message.id, text: message.text }] : [])
     return leadPersonQuotes(words, ids.filter(id => !recorded.has(id)))
   }
-  /** Person messages the stored conversation does not hold yet, oldest first, as the words a request carries. */
+  /**
+   * Person messages the stored conversation does not hold yet, oldest first, as the words a request carries. A line the
+   * desk wrote to say a reminder while the thread waited (`reminded`) goes with the wake it answers: no model step
+   * recorded it, and without it the Lead would read the reminder as still owed.
+   */
   #unstored(): MessagesTurn[] {
     const known = new Set([...this.#known, ...personIds(this.#turns)])
-    return this.options.journal.state.messages.filter(message => message.role === 'user' && !known.has(message.id)).flatMap(message => leadHistory([message]).slice(-1))
+    let open = false
+    return this.options.journal.state.messages.filter(message => {
+      if (message.role === 'user') return open = !known.has(message.id)
+      return open && message.role === 'assistant' && message.reminded !== undefined
+    }).flatMap(message => leadHistory([message]).slice(-1))
   }
   /**
    * What the host's next request starts from: the stored conversation, then the person's words it does not hold yet.

@@ -640,12 +640,23 @@ export class LeadControls {
    */
   remind(key: string, text: string, wake?: { readonly reminder: string; readonly text: string; readonly person: boolean }, begin = false): Promise<boolean> { return this.#queue(async () => {
     const { journal, service } = this.options
-    if (journal.state.sends.some(send => send.key === key)) return true
+    const said = wake?.person ? `You asked me to remind you: ${wake.text.trim().replace(/[.!?]$/, '')}.` : ''
+    const sent = journal.state.sends.find(send => send.key === key)
+    if (sent) {
+      // A desk stopped between the entry and its line writes the line now, for the entry already there, while the
+      // thread still waits on the person and nothing came after the entry.
+      const messages = journal.state.messages, at = messages.findIndex(message => message.id === sent.messageId)
+      if (wake?.person && at >= 0 && messages[at]!.wake && !this.#inFlight() && leadWaitsOnPerson(journal.state) &&
+        !messages.slice(at + 1).some(message => message.role === 'user' || message.role === 'assistant' && message.text.trim()))
+        await journal.appendReply(said, undefined, undefined, undefined, wake.reminder)
+      return true
+    }
     if (this.#inFlight() || leadContainsSecret([text, wake?.text ?? ''])) return false
     const marked = wake ? { kind: 'reminder' as const, reminder: wake.reminder, text: wake.text } : undefined
     if (wake?.person && leadWaitsOnPerson(journal.state)) {
+      // Marked as the desk's line: no model wrote it, so it is not the Lead's reply to the chats it started before.
       await journal.appendMessage(key, text, 'schedule', undefined, marked)
-      await journal.appendReply(`You asked me to remind you: ${wake.text.trim().replace(/[.!?]$/, '')}.`)
+      await journal.appendReply(said, undefined, undefined, undefined, wake.reminder)
       return true
     }
     const status = await service.status('anthropic').catch(() => null)
