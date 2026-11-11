@@ -69,6 +69,15 @@ const INSTRUCTIONS: readonly RegExp[] = [
   /\|\s*(?:sh|bash|zsh|python\d?|node|perl|ruby)\b/,
   /\b(?:curl|wget)\s+-?\S+|\brm\s+-[rf]{1,2}\b|\bsudo\s+\S|\beval\s*\(|\bchmod\s+[0-7+]/,
   /\b(?:send|post|upload|forward|exfiltrate)\b[^.]{0,60}\bhttps?:\/\//,
+  // The same, in Chinese: overriding earlier words, skipping review or approval, and acting without the person.
+  /(?:忽略|无视|無視|不要理会|不要理會|忘记|忘記|忘掉|覆盖|覆蓋)[^。.]{0,20}(?:指令|指示|命令|规则|規則|提示词|提示詞|要求|设定|設定)/u,
+  /(?:不需要|不用|无需|無需|不必|跳过|跳過|绕过|繞過|省略|免去)[^。.]{0,12}(?:review|审查|審查|审核|審核|审批|審批|批准|确认|確認|测试|測試|检查|檢查|同意)/u,
+  /(?:直接|自动|自動|悄悄|默默)[^。.]{0,4}(?:合并|合併|merge|批准|通过|通過|推送|push|发布|發布|部署|删除|刪除)/u,
+  /(?:你现在是|你現在是|从现在起你|從現在起你|从现在开始你|從現在開始你|假装你是|假裝你是|扮演)/u,
+  // And in Japanese.
+  /(?:無視|忘れ)[^。.]{0,4}(?:て|ろ|なさい|ください)|(?:指示|命令|ルール|プロンプト)を(?:無視|忘れ)/u,
+  /(?:レビュー|承認|確認|テスト|審査)(?:は|を|も)?(?:不要|いらない|要らない|なしで|無しで|スキップ|飛ばして|省略)/u,
+  /(?:そのまま|直接|勝手に|自動で?)(?:マージ|承認|プッシュ|デプロイ|削除)/u,
 ]
 /** Credentials by shape, beyond the journal's own screen: keys, private-key blocks, assignments and long random runs. */
 const SECRETS: readonly RegExp[] = [
@@ -135,20 +144,31 @@ export const leadMemoryScan = (raw: string): LeadMemoryScan => {
   return { ok: true, text }
 }
 
+/** The verb that asks the Lead to keep something, at the very start once any address or "ok" before it is set aside. */
 const REMEMBER: readonly RegExp[] = [
-  /^(?:请|請|帮我|幫我)?(?:记住|記住|记下|記下|记一下|記一下)(?:这条|這條|这个|這個|这句|這句|一下|下来|下來)?[\s:,、]*([\s\S]+)$/u,
-  /^(?:これを)?(?:覚えて(?:おいて|ください)?|メモして)[\s:,、]*([\s\S]+)$/u,
-  /^(?:please\s+)?(?:remember|memori[sz]e|keep in mind|note down|make a note(?: of)?)\b(?:\s+(?:this|that))?\s*[:,\-–—]?\s*([\s\S]+)$/iu,
+  /^(?:请|請|帮我|幫我|你)?(?:以后|以後|今后|今後)?(?:都|也|要|一定要)?(?:记住|記住|记下|記下|记一下|記一下|记得|記得|记着|記著)(?:以后|以後|今后|今後)?(?:这条|這條|这个|這個|这句|這句|一下|下来|下來)?[\s:,、]*([\s\S]+)$/u,
+  /^(?:これを|これ)?(?:覚えて(?:おいて|ください|おいてください)?|メモして|記憶して)[\s:,、]*([\s\S]+)$/u,
+  /^(?:(?:please|pls|kindly|can you|could you|would you|will you|i want you to|i need you to)[\s,]+)*(?:remember|memori[sz]e|keep in mind|note down|make a note(?: of)?)\b(?:\s+(?:this|that))?\s*[:,\-–—]\s*([\s\S]+)$/iu,
+  /^(?:please\s+)?(?:remember|memori[sz]e|keep in mind|note down|make a note(?: of)?)\b(?:\s+(?:this|that))?\s+([\s\S]+)$/iu,
 ]
+/** What may come before the verb: a name or a short yes, ended by a comma or colon ("Dex，", "好的，", "OK:", "Please,"). */
+const ADDRESS = /^[^\s,、:;!?。]{1,16}\s*[,、:;!]\s*/u
 /**
- * The words a person's message asks the Lead to keep, when it opens by asking that ("记住这条：…", "Remember: …");
- * null for any other message. Only the opening is read: a message that mentions remembering somewhere is just a message.
+ * The words a person's message asks the Lead to keep, when it opens by asking that ("记住这条：…", "Dex, remember: …");
+ * null for any other message. The text is cleaned first, as a memory entry is, so an invisible character cannot hide
+ * the verb. Only the opening is read, past at most two short addresses: a message that mentions remembering somewhere
+ * later is just a message.
  */
 export const leadRememberRequest = (text: string): string | null => {
-  const opening = text.normalize('NFKC').trim()
-  for (const pattern of REMEMBER) {
-    const words = pattern.exec(opening)?.[1]?.trim()
-    if (words) return words
+  let opening = leadMemoryCleanLines(text).join('\n').trim()
+  for (let skipped = 0; skipped <= 2; skipped++) {
+    for (const pattern of REMEMBER) {
+      const words = pattern.exec(opening)?.[1]?.trim()
+      if (words) return words
+    }
+    const address = ADDRESS.exec(opening)
+    if (!address) return null
+    opening = opening.slice(address[0].length)
   }
   return null
 }

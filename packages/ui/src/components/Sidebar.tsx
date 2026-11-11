@@ -212,7 +212,7 @@ export const Sidebar = ({
     body={<>{sessionsBody}{explorerShown && <Explorer session={explorerSession} />}<LeftColumnBody hidden={!settings}>
       {settings && <SettingsNavigation section={settings.section} onSection={settings.onSection} onBack={settings.onBack} />}
     </LeftColumnBody></>}
-    footer={<><Slot name="sidebar.panel" />{!settings && <SidebarNotices />}<SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox} waiting={waiting}
+    footer={<><Slot name="sidebar.panel" />{!settings && <SidebarNotices />}<SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox} waiting={waiting.rows} needs={waiting.needs}
       onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
       onClear={() => store.clearInbox()} />}
       onOpenSettings={onOpenSettings}

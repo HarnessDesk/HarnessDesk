@@ -4,8 +4,8 @@ import { Chip, CodeText } from './Settings'
 import { MiddleTruncate } from '../ui/key-value'
 import type { InboxList, InboxWaiting } from './Notices'
 
-export const InboxMenu = ({ messages, waiting = [], onOpen, onMarkAllRead, onClear, now = Date.now(), close }:
-  Parameters<typeof InboxList>[0] & { waiting?: readonly InboxWaiting[]; close: () => void }) => {
+export const InboxMenu = ({ messages, waiting = [], needs = waiting.length, onOpen, onMarkAllRead, onClear, now = Date.now(), close }:
+  Parameters<typeof InboxList>[0] & { waiting?: readonly InboxWaiting[]; needs?: number; close: () => void }) => {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const unread = messages.filter(message => !message.read).length
   const marked = useRef(new Set<string>())
@@ -22,7 +22,7 @@ export const InboxMenu = ({ messages, waiting = [], onOpen, onMarkAllRead, onCle
   return <Menu close={close}>
     <MenuLabel>Inbox{unread ? ` · ${unread} new` : ''}</MenuLabel>
     {waiting.length > 0 && <>
-      <MenuLabel>{`Needs you · ${waiting.length}`}</MenuLabel>
+      <MenuLabel>{`Needs you · ${needs}`}</MenuLabel>
       {waiting.map(item => <MenuItem key={item.id} label={item.title} value={item.place} onSelect={() => item.onOpen?.()} />)}
       {messages.length > 0 && <MenuSeparator />}
     </>}

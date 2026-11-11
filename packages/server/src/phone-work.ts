@@ -130,8 +130,10 @@ export async function phoneSessionValues(
     }
   }
   const base = await read({})
+  // High risk: a choice the runtime marks so, or a permissions switch turned on (approving everything without asking).
   const highRisk = (options: readonly ConfigOption[], id: string, value: OptionValue) => {
     const option = findOption(options, id)
+    if (option?.type === 'boolean') return option.category === '_permissions' && value === true
     return option?.type === 'select' && option.choices.some(choice => choice.value === value && choice.risk === 'high')
   }
   if (cautious) for (const [id, value] of Object.entries(saved)) if (highRisk(base, id, value)) delete saved[id]
@@ -159,6 +161,9 @@ export async function phoneSessionValues(
     if (!option || !value || refuseOptionValue(option, value)) return refuse('That effort is not available for this model.')
     saved[option.id] = value
   }
+  // A model or profile can declare a value high risk that the base read did not, so a cautious start checks the saved
+  // dependent values again against what the chosen selectors declare.
+  if (cautious) for (const [id, value] of Object.entries(saved)) if (!(id in savedSelectors) && highRisk(declared, id, value)) delete saved[id]
   const dependentSaved = Object.fromEntries(Object.entries(saved).filter(([id]) => !(id in savedSelectors)))
   validate(dependentSaved, declared)
   const dependentRecommendations = (options: readonly ConfigOption[]) => {
@@ -168,6 +173,10 @@ export async function phoneSessionValues(
     // A cautious start also holds every permission-like list to a choice that is not high risk, whatever the runtime
     // would start on: the recommendation when it is safe, else the first choice that is.
     for (const option of options) {
+      if (option.type === 'boolean' && !(option.id in saved)) {
+        if (highRisk(options, option.id, recommended[option.id] ?? option.currentValue)) recommended[option.id] = false
+        continue
+      }
       if (option.type !== 'select' || selector(option) || option.id in saved) continue
       const value = recommended[option.id] ?? option.currentValue
       if (!highRisk(options, option.id, value)) continue

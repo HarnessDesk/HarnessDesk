@@ -22,7 +22,7 @@ export interface LeadPresencePorts {
   readonly waiting: () => readonly { readonly id: string; readonly title: string; readonly position: number }[]
   readonly revision: () => number
   /** The thread's messages, for the asks among them. */
-  readonly messages: () => readonly { readonly id: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk }[]
+  readonly messages: () => readonly { readonly id: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly source?: 'person' | 'automatic' | 'schedule' }[]
   /** Whether quiet hours hold work back right now. */
   readonly quiet: () => Promise<boolean>
   /** Autonomy for the morning brief: `off` and `observed` both mean it is not made; the day is spent either way. */
@@ -49,6 +49,9 @@ interface Mark {
   briefDone?: string
 }
 interface Plan { replaces?: string; baseline?: { from: number; spent: number; revision: number }; kind: LeadDigestKind; from: number; to: number; items: LeadDigestItem[]; more: number; spent: number }
+/** How long a question with no expiry of its own holds the work it decides. */
+export const LEAD_ASK_HOLD_MS = 24 * 60 * 60_000
+
 interface AskRecord { seenAt: number; expiresAt?: number; answer?: { option: string; by: string; at: number } }
 interface Stored {
   version: 1
@@ -290,15 +293,21 @@ export class LeadPresenceStore {
    * said since is more than the request it asked about, said again. Work that question decides must not start yet; the
    * person is pointed to it instead. Words that are not a repeat are the person moving on, and free the Lead to act.
    */
+  /** When the desk first saw the Lead ask this question; undefined for one it has not seen. */
+  askSeenAt(id: string): number | undefined { return this.#stored.asks[id]?.seenAt }
   unansweredAsk(): { readonly id: string; readonly question: string; readonly options: readonly string[] } | null {
     const messages = this.ports.messages(), now = this.ports.now()
     const at = messages.findLastIndex(message => message.role === 'assistant' && message.ask !== undefined)
     if (at < 0) return null
     const message = messages[at]!, record = this.#stored.asks[message.id]
     if (record?.answer || record?.expiresAt !== undefined && record.expiresAt <= now) return null
+    // A question with no clock of its own holds work back for a day at most; after that the person has plainly moved on.
+    if (record?.expiresAt === undefined && record && now - record.seenAt > LEAD_ASK_HOLD_MS) return null
     const same = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase()
-    const asked = messages.slice(0, at).findLast(one => one.role === 'user')
-    const since = messages.slice(at + 1).filter(one => one.role === 'user')
+    // Only the person's own words count: a schedule's, a trigger's or a reminder's message is not them asking or moving on.
+    const person = (one: (typeof messages)[number]) => one.role === 'user' && (one.source === undefined || one.source === 'person')
+    const asked = messages.slice(0, at).findLast(person)
+    const since = messages.slice(at + 1).filter(person)
     if (since.some(one => !asked || same(one.text) !== same(asked.text))) return null
     return { id: message.id, question: message.ask!.question, options: message.ask!.options.map(option => option.label) }
   }

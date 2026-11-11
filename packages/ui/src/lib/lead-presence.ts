@@ -1,4 +1,4 @@
-import { isWaitingOnYou } from '@harnessdesk/protocol'
+import { isWaitingOnYou, leadPersonNeeds } from '@harnessdesk/protocol'
 import type { LeadPresence as LeadChecks, LeadRunReading } from '@harnessdesk/protocol'
 import type { LeadState } from '../state/lead'
 import type { LeadMood } from './lead-faces'
@@ -18,6 +18,7 @@ export interface LeadPresence {
   readonly quiet: boolean
 }
 
+const needWord = (count: number) => `${count} need${count === 1 ? 's' : ''} you`
 const ENDED = new Set(['stopped', 'accepted', 'declined'])
 
 /** Read from the projection alone; it grants nothing. */
@@ -33,16 +34,28 @@ const reading = (state: LeadState): Omit<LeadPresence, 'quiet'> & { readonly qui
   const started = thread.state !== 'draft' || thread.messages.some(message => message.role === 'user')
   const reviewed = !!thread.contract || !!thread.pr || thread.cards.some(card => card.type === 'plan')
   const goalActive = reviewed && started && !ENDED.has(thread.state)
-  const needs = state.personActions.length + (state.wayOut || state.waitReason === 'lead-chat-effect-uncertain' ? 1 : 0) + (thread.state === 'awaiting-plan' && state.wayOut !== 'decide-plan' ? 1 : 0)
+  const needs = leadPersonNeeds({ personActions: state.personActions, wayOut: state.wayOut, waitReason: state.waitReason, thread })
   const waiting = state.stage === undefined ? needs > 0 || thread.state === 'waiting-for-user' || state.waitReason === 'lead-result-awaiting-person' : isWaitingOnYou(state.stage)
   if (waiting && (state.stage === 'you-review' || state.waitReason === 'lead-result-awaiting-person')) return { mood: 'done', word: 'Done · ready to accept', needs: 1, goalActive }
-  if (waiting) return { mood: 'alert', word: `${Math.max(needs, 1)} need${Math.max(needs, 1) === 1 ? 's' : ''} you`, needs: Math.max(needs, 1), goalActive }
+  if (waiting) return { mood: 'alert', word: needWord(Math.max(needs, 1)), needs: Math.max(needs, 1), goalActive }
   if (thread.state === 'stopped') return { mood: 'sleeping', word: 'Paused', needs: 0, goalActive: false }
   if (thread.state === 'accepted') return { mood: 'done', word: 'Done', needs: 0, goalActive: false }
   if (thread.state === 'following') return { mood: 'neutral', word: 'Following', needs: 0, goalActive }
   if (goalActive) return { mood: 'working', word: 'Working · 1 goal', needs: 0, goalActive }
   if (state.requestInFlight) return { mood: 'working', word: 'Thinking', needs: 0, goalActive: false }
   return AT_REST
+}
+
+/**
+ * The Lead's word with the desk's own count (`LeadInbox.needsYou`), so the Lead's row, its bar and the bell say the same
+ * number: the Lead's approvals and everything else on the desk that waits on the person. Until the desk has answered,
+ * or while its answer has not yet caught up with a need the Lead's own projection already shows, the projection stands.
+ */
+export const withDeskNeeds = (presence: LeadPresence, needs: number | null | undefined): LeadPresence => {
+  if (needs === null || needs === undefined || needs <= 0 || needs < presence.needs) return presence
+  if (presence.mood === 'sleeping' && presence.word !== 'Paused') return presence
+  if (needs === presence.needs && presence.word === 'Done · ready to accept') return presence
+  return { ...presence, mood: presence.needs > 0 || presence.mood === 'done' ? 'alert' : presence.mood, word: needWord(needs), needs, quiet: false }
 }
 
 /** "Checked 3 times · nothing new · stayed quiet": what the Lead did between turns without spending a request. */

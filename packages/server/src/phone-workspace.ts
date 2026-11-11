@@ -73,6 +73,8 @@ export interface PhoneWorkspacePorts {
   }
   /** The person's own open conversations that are live in this host right now. */
   readonly live: () => readonly PhoneLiveSession[]
+  /** Whether a conversation the host does not hold ended on a stop, from the host's kept transcript: Stopped survives a restart. */
+  readonly stopped?: (runtime: RuntimeId, id: SessionId) => boolean
   /** The agent's presentation name, from the runtime's own `presentation`; null for an agent this host does not know. */
   readonly seatName: (runtime: RuntimeId) => string | null
   /** Whether this agent moves deleted conversations to the Trash. */
@@ -436,7 +438,15 @@ export class PhoneWorkspace {
     const page = this.sessionsList({ ...(params.archived ? { state: 'archived' as const } : {}), cursor: params.cursor, limit: params.limit ?? WORK_ITEMS })
     const lead = this.#ports.leadChats?.()?.name
     const live = new Map(this.#ports.live().map(one => [`${one.runtime}:${one.id}`, one]))
-    return { items: page.rows.map(row => this.#sessionItem(row, lead, live.get(row.id))), nextCursor: page.next }
+    return { items: page.rows.map(row => this.#sessionItem(row, lead, live.get(row.id) ?? this.#keptStop(row))), nextCursor: page.next }
+  }
+
+  /** A conversation the host no longer holds, after a restart, keeps the stop it ended on. Runtime ids carry no colon. */
+  #keptStop(row: PhoneSessionRow): PhoneLiveSession | undefined {
+    const at = row.id.indexOf(':')
+    if (row.archived === true || at < 0 || !this.#ports.stopped) return undefined
+    const runtime = row.id.slice(0, at) as RuntimeId, id = row.id.slice(at + 1) as SessionId
+    return this.#ports.stopped(runtime, id) ? { runtime, id, running: false, waiting: false, stopped: true, cost: null } : undefined
   }
 
   #sessionItem(row: PhoneSessionRow, leadName: string | undefined, live: PhoneLiveSession | undefined): PhoneWorkItem {
@@ -498,7 +508,7 @@ export class PhoneWorkspace {
       updatedAt: row.updatedAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
       team: {
         stage: row.stage, ...(total > 0 ? { stageNote: `${done} of ${total} done` } : {}),
-        startedAt: input.view.goal.createdAt, workers,
+        roomId: input.view.board.id, startedAt: input.view.goal.createdAt, workers,
         reviewers: members.filter(member => /review|referee|audit|critic/i.test(member.role ?? '')).length,
         spent: micros(row.cost ?? 0),
         ...(step ? { step } : {}),

@@ -4089,7 +4089,9 @@ export class Host {
       cwd: async (runtime, id) => this.registry.get(runtime, id)?.session.cwd ?? this.#sessionIndex.get(runtime, id)?.cwd ?? null,
       live: (runtime, id) => {
         const held = this.registry.get(runtime, id)
-        return { approvalWaiting: (held?.approvals.size ?? 0) > 0, failed: held?.session.status.type === 'error', queuePaused: held?.queue.status === 'paused' && held.queue.messages.length > 0, queued: (held?.queue.messages.length ?? 0) > 0, running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0, stopped: held?.session.turns.at(-1)?.status === 'interrupted' }
+        return { approvalWaiting: (held?.approvals.size ?? 0) > 0, failed: held?.session.status.type === 'error', queuePaused: held?.queue.status === 'paused' && held.queue.messages.length > 0, queued: (held?.queue.messages.length ?? 0) > 0, running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0,
+          // A chat the host no longer holds, after a restart, keeps the stop its kept transcript ended on.
+          stopped: held ? held.session.turns.at(-1)?.status === 'interrupted' : this.#transcripts.lastTurnStopped(runtime, id) }
       },
       work: this.#phoneWorkView(),
       control: {
@@ -5954,7 +5956,7 @@ export class Host {
       leadInbox: async () => leadInbox({
         window: await this.#leadWindow().then(window => window.readThread()).catch(() => null),
         desk: await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
-        kept: this.#state.state.preferences['inbox'], now: Date.now(),
+        kept: this.#state.state.preferences['inbox'], now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id),
       }),
       leadThreadSend: async (params) => {
         // A text that answers the question just asked is checked against its expiry first, and its receipt names this device.
@@ -11196,6 +11198,7 @@ export class Host {
         touchedSince: (since) => this.#sessionIndex.touchedSince(since),
         costliestSince: (since, limit) => this.#sessionIndex.costliestSince(since, limit),
       },
+      stopped: (runtime, id) => !this.registry.get(runtime, id) && this.#transcripts.lastTurnStopped(runtime, id),
       live: () => this.registry.all().flatMap((record) => {
         const id = record.session.id
         if (!this.#sessionIndex.isOwn(record.runtime, id)) return []

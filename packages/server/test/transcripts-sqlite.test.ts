@@ -1213,3 +1213,20 @@ for (const { name, saved, replay } of thinReplayItems) test(`replay enrichment k
   const read = session([turn('one', [replay])])
   assert.deepEqual(store.enrichReplay(read, original).turns[0]!.items, [saved])
 })
+
+test('a conversation whose latest turn was stopped still reads stopped from a new store, as after a desk restart', async t => {
+  const { home, store } = await fixture(t)
+  const stopped = session([turn('t1', [message('a', 'first')]), { ...turn('t2', [message('b', 'half')]), status: 'interrupted' }])
+  store.record(stopped)
+  store.record(session([turn('t1', [message('a', 'done')])], 's2'))
+  await store.flush()
+  const restarted = new TranscriptStore(join(home, 'transcripts'))
+  try {
+    assert.equal(restarted.lastTurnStopped(stopped.runtime, stopped.id), true)
+    assert.equal(restarted.lastTurnStopped(stopped.runtime, sessionId('s2')), false, 'a finished conversation is not stopped')
+    assert.equal(restarted.lastTurnStopped(stopped.runtime, sessionId('unknown')), false)
+  } finally { await restarted.close() }
+  store.record(session([...stopped.turns, turn('t3', [message('c', 'continued')])]))
+  await store.flush()
+  assert.equal(store.lastTurnStopped(stopped.runtime, stopped.id), false, 'a turn after the stop clears it')
+})

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { runtimeId, sessionId, type LeadInbox, type LeadInboxItem } from '@harnessdesk/protocol'
 import type { InboxWaiting } from '../design'
 import { useSnapshot, useStore } from '../state/context'
+import type { AppStore } from '../state/store'
 import { sanitizeText } from '../lib/sanitize'
 
 type Opens = {
@@ -19,32 +20,69 @@ export const inboxWaiting = (inbox: LeadInbox | null, open: Opens): readonly Inb
       : item.kind === 'team' ? () => open.team(target)
       : item.kind === 'chat' && at > 0 ? () => open.chat(target.slice(0, at), target.slice(at + 1))
       : undefined
-    return { id: item.id, title: sanitizeText(item.title), ...(item.project ? { place: sanitizeText(item.project) } : {}), ...(onOpen ? { onOpen } : {}) }
+    const place = item.project ? sanitizeText(item.project) : undefined
+    return { id: item.id, title: sanitizeText(item.title), ...(place ? { place } : {}), ...(onOpen ? { onOpen } : {}) }
   })
 
 /** How long a burst of desk changes is let settle before the inbox is read again, and the slowest it is read. */
 const SETTLE_MS = 400
 const EVERY_MS = 30_000
 
+/** One read of the desk's inbox per store, shared by every surface that shows it, so the bell and the Lead's word read
+ * the same answer at the same moment. */
+interface Shared { inbox: LeadInbox | null; readonly listeners: Set<() => void>; users: number; soon?: ReturnType<typeof setTimeout>; every?: ReturnType<typeof setInterval> }
+const shared = new WeakMap<object, Shared>()
+const entry = (store: AppStore): Shared => {
+  let found = shared.get(store)
+  if (!found) shared.set(store, found = { inbox: null, listeners: new Set(), users: 0 })
+  return found
+}
+const read = (store: AppStore, one: Shared) => {
+  // A store without a transport (a window still connecting, a test's partial store) reads nothing.
+  const transport = store.transport
+  if (!one.users || typeof transport?.request !== 'function') return
+  void Promise.resolve().then(() => transport.request('lead/inbox/read', {})).then(next => {
+    if (!one.users) return
+    one.inbox = next
+    for (const listener of one.listeners) listener()
+  }).catch(() => {})
+}
+const noLead = () => () => {}
+
 /**
- * What waits on the person, read from the desk (`lead/inbox/read`): the same rows the phone's Inbox lists. Read again
- * when the Lead, a Team or a conversation changes, and every half minute besides; a desk that cannot answer leaves the
- * last rows in place.
+ * What waits on the person, read from the desk (`lead/inbox/read`): the same inbox the phone lists. Read again when the
+ * Lead, a Team or a conversation changes, and every half minute besides; a desk that cannot answer leaves the last
+ * answer in place. Null until the desk has answered.
  */
-export const useInboxWaiting = (): readonly InboxWaiting[] => {
-  const store = useStore(), snapshot = useSnapshot()
-  const lead = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
-  const [inbox, setInbox] = useState<LeadInbox | null>(null)
-  const changed = [lead.revision, lead.stage, snapshot.goals, snapshot.teams, snapshot.sessions.size, snapshot.inbox] as const
+export const useLeadInbox = (): LeadInbox | null => {
+  const store = useStore(), snapshot = useSnapshot(), one = entry(store)
+  const lead = useSyncExternalStore(store.lead?.subscribe ?? noLead, () => store.lead?.state)
+  const inbox = useSyncExternalStore(listener => { one.listeners.add(listener); return () => { one.listeners.delete(listener) } }, () => one.inbox)
   useEffect(() => {
-    let live = true
-    const read = () => { void store.transport.request('lead/inbox/read', {}).then(next => { if (live) setInbox(next) }).catch(() => {}) }
-    const soon = setTimeout(read, SETTLE_MS), every = setInterval(read, EVERY_MS)
-    return () => { live = false; clearTimeout(soon); clearInterval(every) }
-  }, [store, ...changed]) // eslint-disable-line react-hooks/exhaustive-deps
-  return useMemo(() => inboxWaiting(inbox, {
-    lead: () => store.openDestination({ kind: 'lead' }),
-    team: id => store.openGoal(id),
-    chat: (runtime, session) => { void store.openSession(sessionId(session), { runtime: runtimeId(runtime) }) },
+    one.users++
+    if (one.users === 1) one.every = setInterval(() => read(store, one), EVERY_MS)
+    return () => {
+      one.users--
+      if (!one.users) { clearInterval(one.every); clearTimeout(one.soon) }
+    }
+  }, [store, one])
+  const changed = [lead?.revision, lead?.stage, lead?.personActions?.length, snapshot.goals, snapshot.teams, snapshot.sessions?.size, snapshot.inbox] as const
+  useEffect(() => {
+    clearTimeout(one.soon)
+    one.soon = setTimeout(() => read(store, one), SETTLE_MS)
+  }, [store, one, ...changed]) // eslint-disable-line react-hooks/exhaustive-deps
+  return inbox
+}
+
+/** The bell's needs-you rows and the one count the desk gives for them. */
+export const useInboxWaiting = (): { readonly rows: readonly InboxWaiting[]; readonly needs: number } => {
+  const store = useStore(), inbox = useLeadInbox()
+  return useMemo(() => ({
+    rows: inboxWaiting(inbox, {
+      lead: () => store.openDestination({ kind: 'lead' }),
+      team: id => store.openGoal(id),
+      chat: (runtime, session) => { void store.openSession(sessionId(session), { runtime: runtimeId(runtime) }) },
+    }),
+    needs: inbox?.needsYou ?? 0,
   }), [inbox, store])
 }

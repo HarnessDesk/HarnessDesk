@@ -49,8 +49,8 @@ cards, state or prose. Older desks omit these fields, so phones fall back to
 the phone's Inbox tab lists the same one. It answers `LeadInbox`:
 
 ```json
-{"version": 1, "needsYou": 2, "items": [
-  {"id": "lead", "kind": "lead", "title": "Dex is waiting for you", "detail": "needs-answer", "at": 1789000000000, "needsYou": true},
+{"version": 1, "needsYou": 4, "items": [
+  {"id": "lead", "kind": "lead", "title": "Dex is waiting for you", "detail": "needs-answer", "at": 1789000000000, "needsYou": true, "count": 3},
   {"id": "team:goal-1", "kind": "team", "title": "build a game", "project": "Widgets", "at": 1789000000000, "needsYou": true, "target": "goal-1"},
   {"id": "notice:usage-1", "kind": "notice", "title": "Usage is high", "detail": "…", "at": 1788990000000, "needsYou": false, "read": false}
 ]}
@@ -62,9 +62,13 @@ the phone's Inbox tab lists the same one. It answers `LeadInbox`:
   id) or `notice` (a notice the desk kept; never counted).
 - Items that need the person come first, newest first, then kept notices,
   newest first; at most 40 of each (`LEAD_INBOX_LIMIT`).
-- `needsYou` is the one count both surfaces show. It includes items past the
-  desk summary's cap, so it can be larger than the number of listed
+- `count`, on the Lead's row only, is how many things the Lead waits on when it
+  is more than one (each approval it holds, plus a way out or a plan to
+  approve); absent means 1. The Lead's header word uses the same number.
+- `needsYou` is the one count both surfaces show: the rows' counts plus items
+  past the desk summary's cap, so it can be larger than the number of listed
   `needsYou: true` items. Do not count the list again.
+- An `ask` row's `at` is when the desk first saw the question, not the read.
 - Titles are untrusted text the desk has scrubbed; draw them as plain text.
 - Read it when the Inbox opens and when a `presence` or `notices` push arrives.
 
@@ -573,7 +577,10 @@ the reply names, never on a person message or with `proactive`:
 ```
 
 `kind` is `team`, `goal`, `session`, `chat` or `work`; a `session` or `chat`
-id is `runtime:session`, a `work` id names an item of `lead/work/list`. The
+id is `runtime:session`, a `work` id names an item of `lead/work/list`. A `team`
+id is the Team's room id: the phone's Team items are listed by goal id, so match
+it against `team.roomId` of the Team items in `workspace/read`, and a `goal` id
+against the item's `id`. The
 model writes them, so a client links only what its desk lists, under the desk's
 own title, and drops the rest; `title` is the model's and is a fallback only.
 

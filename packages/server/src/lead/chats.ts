@@ -459,6 +459,9 @@ export class LeadChats {
       const candidates = params.agent === undefined ? [] : await this.ports.recovery?.candidates(params.moveFrom) ?? []
       const matches = candidates.filter(one => one.key === params.agent || one.name === params.agent)
       if (params.agent !== undefined && matches.length !== 1) refuse('That agent is not in the available candidate list.')
+      // Whatever woke the turn: the presence store frees the question once the person says anything new, so an open one
+      // here means the person only repeated the request it is about (or nobody spoke). Letting a person-caused start
+      // through would start exactly the work the question was asked to decide.
       const open = params.moveFrom === undefined ? this.ports.unansweredAsk?.() ?? null : null
       if (open) {
         this.ports.noteDispatchNotStarted(attemptId)
@@ -567,6 +570,13 @@ export class LeadChats {
       if (cause === 'automatic' && await this.ports.deadlinePassed?.()) {
         this.ports.noteDispatchNotStarted(attemptId)
         throw Object.assign(new Error('The time for this goal has run out.'), { wireCode: 'leadDeadline' })
+      }
+      // A message into a chat is work too: while the Lead's question is open, nothing it decides is sent, whatever woke the
+      // turn. The presence store has already freed the question if the person said anything new since.
+      const open = params.retryAt === undefined ? this.ports.unansweredAsk?.() ?? null : null
+      if (open) {
+        this.ports.noteDispatchNotStarted(attemptId)
+        throw Object.assign(new Error(`Your question ${quoteLeadWorkText(open.question, 200)} is still open. Send nothing it decides; point the person to it.`), { wireCode: 'leadAskOpen' })
       }
       if (params.retryAt === 'reset') {
         await admit(); await this.#notHeld(params.id)

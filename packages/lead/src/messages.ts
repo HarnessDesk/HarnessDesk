@@ -24,6 +24,7 @@ const TOOL_ERROR = Object.freeze({
   scope: 'Tool failed: the selected project access check failed.',
   deadline: 'Tool refused: the time the person set for this goal has run out, so no new work starts for it. Tell the person, and ask whether to extend it.',
   cap: 'Tool refused: runs started without the person asking are limited, the account may be near its limit, or the Lead is still loading after a restart, so the person\'s next follow-up keeps its room. Wait for a run to finish, then try again.',
+  ask: 'Tool refused: your question to the person is still open and they have not picked an option. Do not act on what it decides; point the person to the question.',
   failed: 'Tool failed: the desk request could not complete.',
   overflow: 'Tool failed: its result exceeded the conversation limit.',
 })
@@ -530,6 +531,8 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
                 ? TOOL_ERROR.scope
               : dispatchError instanceof WireCallError && dispatchError.code === 'leadDeadline'
                 ? TOOL_ERROR.deadline
+              : dispatchError instanceof WireCallError && dispatchError.code === 'leadAskOpen'
+                ? TOOL_ERROR.ask
               : dispatchError instanceof WireCallError && dispatchError.code === 'leadRunCap'
                 ? TOOL_ERROR.cap
                 : TOOL_ERROR.failed

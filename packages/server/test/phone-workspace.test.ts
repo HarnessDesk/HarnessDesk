@@ -38,6 +38,7 @@ interface Fixture {
   readonly index: SessionIndex
   readonly db: DatabaseSync
   live: PhoneLiveSession[]
+  stopped?: Set<string>
   teams: PhoneTeamInput[]
   reports: UsageReport[]
   ledger: (query: LedgerQuery) => LedgerReport
@@ -71,6 +72,7 @@ const fixture = async (): Promise<Fixture> => {
     reports: async () => state.reports,
     ledger: async query => state.ledger(query),
     leadChats: () => state.lead,
+    stopped: (runtime, id) => state.stopped?.has(`${runtime}:${id}`) === true,
   })
   return Object.assign(state, { workspace })
 }
@@ -249,11 +251,22 @@ const team = (id: string, over: { sentence?: string; state?: 'open' | 'wrapping'
     goal: { id, root: HOSTILE.path, cwd: HOSTILE.path, sentence: over.sentence ?? 'Ship the importer', state: over.state ?? 'open', updatedAt: over.updatedAt ?? NOW - HOUR },
     activity: over.activity === undefined ? 'working' : over.activity,
     members: (over.seats ?? ['Reviewer', 'Frontend Builder']).map(name => ({ agent: { name }, role: null, seatLabel: `Fake Agent on ${name}`, session: { runtime: 'fake-agent', sessionId: name } })),
-    board: { intents: (over.cards ?? ['done', 'open', 'abandoned']).map((state, index) => ({ id: index + 1, title: `Card ${index + 1} in ${HOSTILE.path}`, state })) },
+    board: { id: `room-${id}`, intents: (over.cards ?? ['done', 'open', 'abandoned']).map((state, index) => ({ id: index + 1, title: `Card ${index + 1} in ${HOSTILE.path}`, state })) },
     waitingOn: [], receipt: null, problem: null,
   } as unknown as GoalView,
   execution: over.run === undefined && over.role === undefined ? null : { state: over.run ?? 'running', role: over.role ?? null },
   costs: over.costs ?? [1.25, 0.5],
+})
+
+test('a Team item carries its room id, so a Lead ref of kind team resolves to the item listed by goal id', async () => {
+  const f = await fixture()
+  try {
+    f.teams = [team('goal-docs'), team('goal-game')]
+    const items = await f.workspace.workItems()
+    assert.deepEqual(items.filter(item => item.kind === 'team').map(item => [item.id, item.team?.roomId]),
+      [['goal-docs', 'room-goal-docs'], ['goal-game', 'room-goal-game']])
+    assert.equal(items.find(item => item.team?.roomId === 'room-goal-game')?.id, 'goal-game')
+  } finally { await f.done() }
 })
 
 test('a Team row says stage, progress, who works on it and what it cost, and nothing about where', async () => {
@@ -531,6 +544,20 @@ test('work stages carry host waits and both counts use the same waiting predicat
     assert.equal((await f.workspace.dashboardRead({})).counts.needsYou, items.filter(waiting).length)
     assert.equal(f.workspace.sessionsList({}).counts.needsYou, items.filter(item => item.kind === 'session').filter(waiting).length)
     assert.equal((f.workspace.workSessions({ archived: true }).items[0] as any).stage, 'idle')
+  } finally { await f.done() }
+})
+
+test('a stopped session still says Stopped after a desk restart, when the host no longer holds it', async () => {
+  const f = await fixture()
+  try {
+    f.index.upsert(summary('stopped', { updatedAt: NOW - HOUR }))
+    f.index.upsert(summary('finished', { updatedAt: NOW - HOUR }))
+    f.live = []
+    f.stopped = new Set([`${agent}:stopped`])
+    const items = Object.fromEntries(f.workspace.workSessions({}).items.map(item => [item.id.split(':')[1], item]))
+    assert.equal(items.stopped!.stageReason, 'stopped')
+    assert.equal(items.stopped!.line, 'Stopped')
+    assert.equal(items.finished!.line, 'Done')
   } finally { await f.done() }
 })
 

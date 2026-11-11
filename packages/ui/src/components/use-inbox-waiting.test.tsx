@@ -26,3 +26,24 @@ describe('inboxWaiting', () => {
     expect(inboxWaiting(null, { lead: vi.fn(), team: vi.fn(), chat: vi.fn() })).toEqual([])
   })
 })
+
+describe('useInboxWaiting', () => {
+  it('reads nothing and throws nothing when the store has no transport or Lead yet', async () => {
+    const { act } = await import('react')
+    const { createRoot } = await import('react-dom/client')
+    const { StoreProvider } = await import('../state/context')
+    const { emptySnapshot } = await import('../state/store')
+    const { useInboxWaiting } = await import('./use-inbox-waiting')
+    vi.useFakeTimers()
+    const snapshot = { ...emptySnapshot(), status: 'open' }
+    const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as never
+    const seen: number[] = []
+    const Probe = () => { seen.push(useInboxWaiting().rows.length); return null }
+    const host = document.createElement('div'), root = createRoot(host)
+    act(() => root.render(<StoreProvider store={store}><Probe /></StoreProvider>))
+    expect(() => act(() => { vi.advanceTimersByTime(60_000) })).not.toThrow()
+    act(() => root.unmount())
+    vi.useRealTimers()
+    expect(seen.every(count => count === 0)).toBe(true)
+  })
+})

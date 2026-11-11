@@ -511,8 +511,10 @@ export const InboxPanel = ({
   side = 'right',
   size = 'icon-sm',
   ...list
-}: Parameters<typeof InboxList>[0] & { side?: 'top' | 'right' | 'bottom' | 'left'; size?: 'icon-sm' | 'icon-xs'; waiting?: readonly InboxWaiting[] }) => {
-  const unread = list.messages.filter((message) => !message.read).length, needs = list.waiting?.length ?? 0
+}: Parameters<typeof InboxList>[0] & { side?: 'top' | 'right' | 'bottom' | 'left'; size?: 'icon-sm' | 'icon-xs'; waiting?: readonly InboxWaiting[]
+  /** How many things need the person, as the desk counts them; a row can stand for more than one. Defaults to the rows. */
+  needs?: number }) => {
+  const unread = list.messages.filter((message) => !message.read).length, needs = list.needs ?? list.waiting?.length ?? 0
   const said = [needs ? `${needs} need${needs === 1 ? 's' : ''} you` : '', unread ? `${unread} unread` : ''].filter(Boolean).join(', ')
   const name = said ? `Inbox, ${said}` : 'Inbox'
   return (

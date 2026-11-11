@@ -223,6 +223,8 @@ export interface PhoneWorkTeam {
   readonly workers: readonly PhoneWorkWorker[]
   readonly reviewers: number
   readonly spent: PhoneMoney
+  /** The Team's room id, what a Lead `refs` entry of kind `team` names; the item's own `id` is the goal's. */
+  readonly roomId: string
   /** The plan step a Lead started this Team for, so two Teams of one goal can be told apart. Left out otherwise. */
   readonly step?: string
   /** The person accepted the Lead's result and this Team is ready to wrap: `workspace/team/wrap` will take it. */

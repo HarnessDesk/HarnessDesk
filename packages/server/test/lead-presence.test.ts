@@ -19,7 +19,7 @@ const rig = async (t: TestContext, over: Partial<LeadPresencePorts> = {}) => {
   t.after(() => rm(home, { recursive: true, force: true }))
   let now = new Date(2026, 10, 10, 6, 0).getTime(), spent = 0, revision = 10, quiet = false
   let items: LeadWorkCard[] = []
-  let messages: { id: string; role: string; text: string; ask?: LeadAsk }[] = []
+  let messages: { id: string; role: string; text: string; ask?: LeadAsk; source?: 'person' | 'automatic' | 'schedule' }[] = []
   const pushes: unknown[] = []
   const observed: unknown[] = []
   const ports: LeadPresencePorts = {
@@ -179,6 +179,33 @@ test('an unanswered ask holds work while the person only repeats the request; an
   await r.store.observe()
   r.tick(31 * MIN)
   assert.equal(r.store.unansweredAsk(), null, 'an expired question holds nothing')
+})
+
+test('a schedule or automatic message never closes the open question; only the person moving on does', async t => {
+  const r = await rig(t)
+  const asked = { id: 'message-1', role: 'user', text: 'Open a chat to fix the game', source: 'person' as const }
+  const question = { id: 'message-2', role: 'assistant', text: 'Which one?', ask: ask() }
+  r.setMessages([asked, question])
+  await r.store.observe()
+  r.setMessages([asked, question, { id: 'message-3', role: 'user', text: 'Run the morning check', source: 'schedule' as const }])
+  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'a scheduled message is not the person answering')
+  r.setMessages([asked, question, { id: 'message-3', role: 'user', text: 'A work item has gone quiet', source: 'automatic' as const }])
+  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'an automatic message is not the person answering')
+  // The request the question is about is the person's, never an automatic message just before it.
+  r.setMessages([asked, { id: 'message-1b', role: 'user', text: 'Check the desk', source: 'automatic' as const }, question, { id: 'message-3', role: 'user', text: 'Open a chat to fix the game', source: 'person' as const }])
+  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'the person saying the same request again still waits')
+  r.setMessages([asked, question, { id: 'message-3', role: 'user', text: 'Something else entirely' }])
+  assert.equal(r.store.unansweredAsk(), null, 'a legacy message without a source is the person')
+})
+
+test('a question with no expiry holds work for a day at most', async t => {
+  const r = await rig(t)
+  r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, { id: 'message-2', role: 'assistant', text: 'Start it?', ask: ask() }])
+  await r.store.observe()
+  r.tick(23 * 60 * MIN)
+  assert.equal(r.store.unansweredAsk()?.id, 'message-2')
+  r.tick(2 * 60 * MIN)
+  assert.equal(r.store.unansweredAsk(), null, 'past a day the question no longer holds work back')
 })
 
 test('an ask with no expiry stays open; the host, not the model, sets the clock', async t => {

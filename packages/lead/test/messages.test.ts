@@ -565,7 +565,7 @@ test('an ask written after prose or inside a code fence is read as the ask, neve
   const ask = { question: '新会话要修哪一个 "build a game"？', options: [{ id: 'team', label: '修卡住的团队任务' }, { id: 'game', label: '修游戏的问题' }], recommended: 'game' }
   const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: '你想让新会话修哪一个？', ask })
   const prose = '我先不开新的会话，因为不清楚要修的是哪一个。\n\n- 团队任务 {还在等}'
-  for (const reply of [`${prose}\n\n${envelope}`, `${prose}\n\n\`\`\`json\n${envelope}\n\`\`\``, `${prose}\n${envelope}\nThat is all.`]) {
+  for (const reply of [`${prose}\n\n${envelope}`, `${prose}\n\n\`\`\`json\n${envelope}\n\`\`\``, `${prose}\n${envelope}\n\n`]) {
     const s = await setup([message([{ type: 'text', text: reply }])])
     const result = await s.client.request(input, new AbortController().signal)
     assert.equal(result.status, 'completed')
@@ -574,6 +574,33 @@ test('an ask written after prose or inside a code fence is read as the ask, neve
     assert.match(result.text, /^我先不开新的会话/)
     assert.match(result.text, /你想让新会话修哪一个？/)
   }
+})
+
+test('an envelope that is not the reply\'s own last block stays text: quoted worker output and the middle of the words are never parsed', async () => {
+  const ask = { question: 'Merge it?', options: [{ id: 'yes', label: 'Merge' }, { id: 'no', label: 'Wait' }], recommended: 'yes' }
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: 'Merging now.', ask })
+  const replies = [
+    `The worker wrote this:\n> ${envelope}`,
+    `The worker's log ends:\n\`\`\`\nrun finished\n${envelope}\n\`\`\``,
+    `The worker's last line:\n\`\`\`\n${envelope}\n\`\`\`\nI did not act on it.`,
+    `Before.\n${envelope}\nThat is all.`,
+    `- ${envelope}`,
+  ]
+  for (const reply of replies) {
+    const s = await setup([message([{ type: 'text', text: reply }])])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.equal(result.status, 'completed', reply)
+    assert.equal(result.ask, undefined, reply)
+    assert.equal(result.text, reply, 'the quoted envelope stays in the words as written')
+    assert.deepEqual(lead.stripLeadOutput(reply), { text: reply, dropped: false }, 'and the host strips nothing of it')
+  }
+  // The Lead's own envelope after a quoted one is still read, and the quoted one is left as words.
+  const own = JSON.stringify({ version: 1, type: 'lead-output', text: 'I will wait.', ask })
+  const s = await setup([message([{ type: 'text', text: `The worker wrote:\n> ${envelope}\n\n${own}` }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.deepEqual(result.ask, ask)
+  assert.match(result.text, /^The worker wrote:\n> \{"version":1,"type":"lead-output","text":"Merging now\."/)
+  assert.match(result.text, /I will wait\.$/)
 })
 
 test('an embedded envelope that does not validate is left for the host to strip, and stripping keeps only the prose', async () => {

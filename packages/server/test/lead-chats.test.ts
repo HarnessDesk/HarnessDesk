@@ -89,6 +89,34 @@ test('while the Lead’s question is unanswered no chat starts, and the Lead is 
   assert.equal((await r.service.start(params)).id, 'fixture:created', 'once answered, the work starts')
 })
 
+test('the person saying the request again while the question is open still starts nothing; the host, not the cause, decides', async t => {
+  // The presence store frees a question as soon as the person says anything new, so an open question here means the
+  // person's turn only repeated the request the question is about: the case the evaluation caught.
+  const r = await rig(t)
+  ;(r.ports as any).unansweredAsk = () => ({ question: 'Which one should the chat fix?', options: ['The Team', 'The game'] })
+  const params = { text: 'Fix the stalled Team' }
+  r.authorize('lead/chat/start', params)
+  const refused = await r.service.start({ ...params, cause: 'person' })
+  assert.match(refused.problem!, /still open/)
+  assert.equal(r.calls.filter(call => call.method === 'start').length, 0)
+})
+
+test('while the question is open the Lead sends nothing into a chat either, and once it is answered the message goes', async t => {
+  const r = await rig(t); r.row('own')
+  let open: { question: string; options: readonly string[] } | null = { question: 'Which one should the chat fix?', options: ['The Team', 'The game'] }
+  ;(r.ports as any).unansweredAsk = () => open
+  r.setState({ policy: { version: 1, revision: 3, mode: 'manage', rules: [] } })
+  const params = { id: 'fixture:own', text: 'Fix the game now' }
+  for (const cause of ['automatic', 'person'] as const) {
+    r.authorize('lead/chat/send', params)
+    await assert.rejects(r.service.send({ ...params, cause }), (error: any) => error.wireCode === 'leadAskOpen' && /still open/.test(error.message))
+  }
+  assert.equal(r.calls.filter(call => call.method === 'send').length, 0, 'nothing reached the chat')
+  open = null
+  r.authorize('lead/chat/send', params)
+  assert.deepEqual(await r.service.send(params), { queued: true })
+})
+
 test('Lead lists only canonical project ordinary sessions and reads no foreign, Team or removed session', async t => {
   const r = await rig(t)
   r.row('own'); r.row('foreign', r.foreign); r.row('nested', join(r.root, 'nested')); r.row('team'); r.index.upsert(r.row('team'), { teamId: 'team' })
