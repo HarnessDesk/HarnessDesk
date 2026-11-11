@@ -480,11 +480,12 @@ export class LeadChats {
         return { id: '', problem: text.problem }
       }
       // The duplicate guard reads the ledger before anything is created, so a refusal starts nothing.
-      const claim = this.ports.ledger ? await this.ports.ledger.claim({ title: params.text, quotes: this.#quoteIds(params),
+      const claim = this.ports.ledger ? await this.ports.ledger.claim({ title: params.text, quotes: this.#quoteIds(params), cause,
         ...(params.ledgerItem !== undefined ? { ledgerItem: params.ledgerItem } : {}), ...(params.moveFrom !== undefined ? { moveFrom: params.moveFrom } : {}) }) : undefined
       if (claim && 'problem' in claim) {
         this.ports.noteDispatchNotStarted(attemptId)
-        return { id: '', problem: claim.problem }
+        // The existing item rides the refusal, so the Lead can name it and offer to continue it.
+        return { id: '', problem: claim.problem, ...(claim.item ? { ledgerItem: claim.item } : {}) }
       }
       try {
         // Claim first, then pace, then create: a refused duplicate never reads usage, and the fallback retry inside

@@ -57,7 +57,9 @@ const deskWideReads = new Set(['client/hello', 'library/usage', 'lead/desk/summa
   // Its own memory: a proposal waits for the person in their inbox; a search reads its own notes and conversation.
   'lead/memory/propose', 'lead/memory/search',
   // How full its own conversation is: a figure, never the conversation.
-  'lead/context/use'])
+  'lead/context/use',
+  // A reminder the person asked for, kept on the same board; it starts, sends and spends nothing.
+  'lead/reminder/set', 'lead/reminder/cancel'])
 const actionOf = (method: string, params: unknown): string | null =>
   Object.hasOwn(CLIENT_ACTION_TIERS, method) && typeof record(params).action === 'string' ? record(params).action as string : null
 // Canonical structural equality: property insertion order never changes authority.

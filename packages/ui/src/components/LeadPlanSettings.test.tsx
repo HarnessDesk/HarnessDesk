@@ -111,3 +111,28 @@ it('offers project seeds without acting, then persists an accept or a dismissal 
   expect(reopened.querySelectorAll('[data-lead-seed]')).toHaveLength(1)
   expect(reopened.querySelector('[data-lead-seed]')?.textContent).toContain('Docs')
 })
+
+it('lists a reminder that has not fired beside the tasks, with its time, and Cancel hands its id over', () => {
+  const cancel = vi.fn(), empty: LeadSchedule = { version: 1, quiet: null, tasks: [] }
+  const reminders = [
+    { id: 'remind-2', text: 'Send the changelog to the team', for: 'person' as const, dueAt: new Date(2026, 10, 12, 9).getTime(), createdAt: 1, state: 'set' as const },
+    { id: 'remind-1', text: 'Already done', for: 'person' as const, dueAt: 1, createdAt: 1, state: 'fired' as const, firedAt: 1 }
+  ]
+  const box = mount(<LeadScheduleSettings label="Dex" schedule={empty} pending={false} save={vi.fn()} reminders={reminders} cancelReminder={cancel} />)
+  expect([...box.querySelectorAll('[data-lead-reminder]')].map(row => row.getAttribute('data-lead-reminder'))).toEqual(['remind-2'])
+  const row = box.querySelector('[data-lead-reminder="remind-2"]')!
+  expect(row.textContent).toContain('Send the changelog to the team')
+  expect(row.textContent).toContain('Once, ')
+  expect(box.textContent).not.toContain('No scheduled tasks')
+  act(() => [...row.querySelectorAll('button')].find(one => one.textContent === 'Cancel')!.click())
+  expect(cancel).toHaveBeenCalledWith('remind-2')
+})
+
+it("marks the Lead's own check-back as such, beside the person's reminders", () => {
+  const empty: LeadSchedule = { version: 1, quiet: null, tasks: [] }
+  const reminders = [{ id: 'remind-3', text: 'Check on Fix the retry status list', for: 'lead' as const, item: 'work-2', dueAt: new Date(2026, 10, 12, 9).getTime(), createdAt: 1, state: 'set' as const }]
+  const box = mount(<LeadScheduleSettings label="Dex" schedule={empty} pending={false} save={vi.fn()} reminders={reminders} cancelReminder={vi.fn()} />)
+  const row = box.querySelector('[data-lead-reminder="remind-3"]')!
+  expect(row.textContent).toContain('Check-back')
+  expect(row.textContent).not.toContain('Reminder')
+})

@@ -1027,3 +1027,17 @@ test('the ledger claim comes first: a refused duplicate never asks pacing, and t
   assert.equal((result as any).ledgerItem, 'work-2')
   assert.deepEqual(events, ['claim', 'pace', 'create:fixture-2', 'create:default', 'started', 'release'])
 })
+
+test('a start passes what woke the turn to the ledger', async t => {
+  const r = await rig(t)
+  const causes: unknown[] = []
+  ;(r.ports as any).ledger = {
+    claim: async (input: any) => { causes.push(input.cause); return { problem: 'Already open as work-1.', item: 'work-1' } },
+    started: async () => 'work-1', release: () => {},
+  }
+  r.authorize('lead/chat/start', { text: 'Add the helper' })
+  await r.service.start({ text: 'Add the helper', cause: 'person' })
+  r.authorize('lead/chat/start', { text: 'Add the helper' })
+  await r.service.start({ text: 'Add the helper' })
+  assert.deepEqual(causes, ['person', 'automatic'])
+})

@@ -590,6 +590,9 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
             const result = { ...results[position]!, content: safeJson(executed.value, LIMIT.text), is_error: true }
             const extra = bytes(json(result)) - bytes(json(results[position]))
             if (extra <= available) { results[position] = result; available -= extra }
+            // Work that already exists: the host names the item, and the model offers to continue it in the same turn.
+            // It is not a refusal that parks the Lead for Resume. Other refusals keep their own handling.
+            if (typeof (executed.value as { ledgerItem?: unknown } | null)?.ledgerItem === 'string') transientTools.push(use.id)
           }
           if (executed.outcome === 'succeeded') {
             const result = { ...results[position]!, content: safeJson(executed.value ?? null, LIMIT.text), is_error: false }

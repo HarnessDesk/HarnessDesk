@@ -521,3 +521,9 @@ test('the Lead reads its own context use with no selected project, and never the
   assert.equal(decide({ method: 'lead/context/use', params: {}, project: null, runId: null, start: null }, c).effect, 'allow')
   assert.notEqual(decide({ method: 'lead/context/read', params: {}, project: null, runId: null, start: null }, c).effect, 'allow')
 })
+
+test('the Lead sets and cancels a reminder with no selected project', () => {
+  const c = { ...context(), project: null, approved: null }
+  assert.equal(decide({ method: 'lead/reminder/set', params: { text: 'Send the notes', inMinutes: 30 }, project: null, runId: null, start: null }, c).effect, 'allow')
+  assert.equal(decide({ method: 'lead/reminder/cancel', params: { id: 'remind-1' }, project: null, runId: null, start: null }, c).effect, 'allow')
+})

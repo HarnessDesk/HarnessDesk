@@ -42,7 +42,7 @@ import type { UserContent } from './items.js'
 import type { LibraryIntent, LibraryPlannedOp } from './library.js'
 import { runtimeId, type RuntimeId, type SessionId } from './ids.js'
 import type { ReviewRequest } from './runtime.js'
-import { parseLeadWorkClose, parseLeadWorkList, parseLeadWorkNote, parseLeadWorkRead } from './lead-work.js'
+import { parseLeadWorkClose, parseLeadWorkList, parseLeadWorkNote, parseLeadWorkRead, parseLeadReminderSet, parseLeadReminderCancel } from './lead-work.js'
 import { parseLeadAutonomySet, parseLeadDeadlineSet, parseLeadRulesUpdate } from './lead-autonomy.js'
 import { parseLeadBriefUpdate, parseLeadPresenceDismiss, parseLeadPresenceRead } from './lead-presence.js'
 import { parseLeadMemoryChange, parseLeadMemoryProposal, parseLeadMemorySearch } from './lead-memory.js'
@@ -1770,6 +1770,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'lead/memory/change': parseLeadMemoryChange,
   'lead/memory/propose': parseLeadMemoryProposal,
   'lead/memory/search': parseLeadMemorySearch,
+  'lead/reminder/set': parseLeadReminderSet,
+  'lead/reminder/cancel': parseLeadReminderCancel,
 }
 
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]
