@@ -344,7 +344,7 @@ const showAbout = async () => {
  * from this and nothing else — the shell never asks the host itself, because
  * two sources for one number is two numbers.
  */
-let traySummary = { title: '', agents: [] }
+let traySummary = { title: '', tooltip: '', agents: [] }
 
 /**
  * The images the menu draws beside its rows.
@@ -411,7 +411,7 @@ const createTray = () => {
   if (image.isEmpty()) return
   image.setTemplateImage(true)
   tray = new Tray(image)
-  tray.setToolTip('HarnessDesk')
+  tray.setToolTip(traySummary.tooltip || 'HarnessDesk')
   tray.setTitle(traySummary.title)
   // A menu set this way is what macOS opens on either button, and it keeps the
   // status item highlighted while it is open — `popUpContextMenu` does neither.
@@ -908,15 +908,18 @@ ipcMain.on('harnessdesk:set-theme', (_event, theme) => {
 })
 
 // What the status item says, and what its menu lists. The title is the
-// tightest figure of the lot: the one number worth two characters of menu bar.
+// current agent's figure — the agent the next Send goes to — and the tooltip
+// names whose it is.
 ipcMain.on('harnessdesk:tray-summary', (_event, summary) => {
   if (!summary || typeof summary !== 'object') return
   traySummary = {
     title: typeof summary.title === 'string' ? summary.title : '',
+    tooltip: typeof summary.tooltip === 'string' ? summary.tooltip : '',
     agents: Array.isArray(summary.agents) ? summary.agents : [],
   }
   if (!tray) return
   tray.setTitle(traySummary.title)
+  tray.setToolTip(traySummary.tooltip || 'HarnessDesk')
   tray.setContextMenu(buildTrayMenu())
 })
 

@@ -1,7 +1,17 @@
 import { leadStage, type LeadStageFacts, type LeadThread, type LeadWindowProjection } from '@harnessdesk/protocol'
-import { LEAD_LIMITS, parseLeadSettingsProjection, windowLeadThread, type LeadAction, type LeadCard, type LeadProgress, type LeadProject, type LeadSettingsProjection } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, parseLeadSettingsProjection, windowLeadThread, type LeadAction, type LeadCard, type LeadMessage, type LeadProgress, type LeadProject, type LeadSettingsProjection } from '@harnessdesk/protocol'
 import { leadBudgetProjection, leadPlanRuns, type LeadState } from '@harnessdesk/lead'
 
+/**
+ * A message as a thread shows it. A desk wake (a reminder that came due) is the model's user turn in the journal, but
+ * never the person's message: the window and the phone draw it as a `system` line in the reminder's own words, and an
+ * older phone that knows nothing of `wake` still reads a system line, not a bubble from the person.
+ */
+export const leadShownMessage = (message: LeadMessage): LeadMessage => {
+  if (!message.wake || message.role !== 'user') return message
+  const { source: _source, ...rest } = message
+  return { ...rest, role: 'system', text: `Reminder: ${message.wake.text}` }
+}
 /** Reserve the entire envelope; messages may be windowed, actionable cards may not. */
 export const leadWindowThread = (state: LeadState, project: LeadProject, settings: LeadSettingsProjection, now = state.budget?.now ?? 0, workers: readonly LeadCard[] = []) => {
   settings = parseLeadSettingsProjection(settings)
@@ -10,7 +20,7 @@ export const leadWindowThread = (state: LeadState, project: LeadProject, setting
     contract: state.contract, pr: state.pr, origin: state.origin, handback: state.handbacks.at(-1) ?? null, budget: state.budget ? { ...leadBudgetProjection(state.budget, now), logicalGoalId: state.budget.logicalGoalId } : null,
     cardPositions: Object.fromEntries(state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`)).map(card => [card.id, state.cardPositions[card.id]!]).concat(workers.map(card => [card.id, state.seq] as [string, number]))),
     decisions: state.decisionMessages.filter(message => !state.cards.some(card => card.id === message.card.id && !state.decidedCards.includes(`${card.id}:${card.revision}`))),
-    olderMessages: state.olderMessages, messages: state.messages,
+    olderMessages: state.olderMessages, messages: state.messages.map(leadShownMessage),
     cards: [...state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`)), ...workers] }, LEAD_LIMITS.ipcBytes - overhead)
 }
 

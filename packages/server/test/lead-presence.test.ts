@@ -871,6 +871,29 @@ test('a question an automatic report asks is a question: tracked, answerable by 
   await assert.rejects(r.store.beforeSend(desktop, 'Read the reason', 'message-7'), code('lead-ask-answered'), 'the second surface is refused, naming the first')
 })
 
+test('a reminder wake after a report\'s question leaves that question open, and typed option words still answer it', async t => {
+  const r = await rig(t)
+  const asked = { id: 'message-1', role: 'user', text: 'Fix the stalled game task', source: 'person' as const }
+  const question = { id: 'message-7', role: 'assistant', text: report.ask, proactive: report } as never
+  const said = { id: 'message-9', role: 'assistant', text: 'You asked me to remind you: send the notes.' }
+  // The desk's wake is never the person's message, whatever source it carries: the open question is still the report's.
+  for (const wake of [{ source: 'schedule' as const }, {}]) {
+    const s = await rig(t)
+    s.setMessages([asked, question])
+    await s.store.observe()
+    s.setMessages([asked, question, { id: 'message-8', role: 'user', text: 'Reminder remind-2 is due now.', ...wake, wake: { kind: 'reminder', reminder: 'remind-2', text: 'send the notes' } } as never, said])
+    const settle = await s.store.beforeSend(desktop, 'not now')
+    assert.ok(settle, 'the typed option answers the report\'s question across the wake')
+    await settle!(true)
+    assert.deepEqual((await s.store.read(desktop, { active: true })).asks, [{ id: 'message-7', status: 'answered', answer: { option: 'Not now', by: 'Desktop', at: s.now() } }])
+  }
+  // A person's own words in the same place are them moving on.
+  r.setMessages([asked, question])
+  await r.store.observe()
+  r.setMessages([asked, question, { id: 'message-8', role: 'user', text: 'Something else entirely', source: 'person' as const }, said])
+  assert.equal(await r.store.beforeSend(desktop, 'not now'), null, 'words after the person moved on are plain words')
+})
+
 test('a newer question replaces an older open one: the older reads replaced, refuses a tap, and holds nothing', async t => {
   const r = await rig(t)
   const first = { id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask() }

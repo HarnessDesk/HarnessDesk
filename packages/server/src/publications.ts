@@ -1,4 +1,4 @@
-import type { AgentItem, PublicationItem } from '@harnessdesk/protocol'
+import type { AgentItem, CarryOnItem, PublicationItem } from '@harnessdesk/protocol'
 
 /**
  * Publication items are the host's own: a runtime's account of a turn has
@@ -7,16 +7,23 @@ import type { AgentItem, PublicationItem } from '@harnessdesk/protocol'
  * runtime's list replaces the host's, the publications are put back where
  * they were — at the index they had, so a row that stood between two of the
  * agent's steps does not jump to the end of the turn.
+ *
+ * A carry-on marker is the host's in exactly the same way — the agent never
+ * heard that its conversation moved — and is kept by the same rule.
  */
 
+/** An item the host wrote into a turn and the runtime has never heard of. */
+export type HostItem = PublicationItem | CarryOnItem
+export const isHostItem = (item: AgentItem): item is HostItem => item.type === 'publication' || item.type === 'carryOn'
+
 export interface PlacedPublication {
-  readonly item: PublicationItem
+  readonly item: HostItem
   readonly index: number
 }
 
 /** The publications in a list of items, with where each stood. */
 export const publicationsIn = (items: readonly AgentItem[]): readonly PlacedPublication[] =>
-  items.flatMap((item, index) => (item.type === 'publication' ? [{ item, index }] : []))
+  items.flatMap((item, index) => (isHostItem(item) ? [{ item, index }] : []))
 
 /** The items with every publication not already among them put back at its place. */
 export const withPublications = (

@@ -365,11 +365,11 @@ export class PendingTurnOverlay {
     this.#shape.reconcileRead(read)
   }
 
-  /** Fold one completion and retain Host publication rows once, without replaying side effects. */
+  /** Fold one completion and retain Host publication and carry-on rows once, without replaying side effects. */
   applyHostCompletion(event: AgentEvent): void {
     if (event.type !== 'turn/completed') throw new Error('Expected a turn completion')
     const before = this.#shape.snapshot()
-    const publications = before.items.flatMap((item, index) => item.type === 'publication' ? [{ item, index, symbol: this.#items[index]! }] : [])
+    const publications = before.items.flatMap((item, index) => item.type === 'publication' || item.type === 'carryOn' ? [{ item, index, symbol: this.#items[index]! }] : [])
     this.apply(event)
     for (const publication of publications) {
       if (this.#shape.snapshot().items.some(item => item.id === publication.item.id)) continue

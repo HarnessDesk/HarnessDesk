@@ -867,6 +867,28 @@ const turnOpening = () => {
   return events
 }
 
+/**
+ * FAKE_CODEX_MODE=limit: every turn ends the way an account out of its usage
+ * allowance ends one — an `error` notification that will not be retried, then
+ * a failed `turn/completed` carrying `usageLimitExceeded`. The words are the
+ * shape of Codex's own, with no account in them.
+ */
+const playLimit = () => {
+  for (const message of turnOpening()) send(message)
+  const error = {
+    message: "You've hit your usage limit. Try again later.",
+    codexErrorInfo: 'usageLimitExceeded',
+    additionalDetails: null,
+    misalignment: null,
+  }
+  notify('error', { error, willRetry: false, threadId: THREAD, turnId: TURN })
+  notify('turn/completed', {
+    threadId: THREAD,
+    turn: { id: TURN, items: [], itemsView: 'full', status: 'failed', error, startedAt: turnStartedAt },
+  })
+  notify('thread/status/changed', { threadId: THREAD, status: { type: 'idle' } })
+}
+
 const playTurn = (openingAlreadySent = false) => {
   const nativeCommand = process.env.FAKE_CODEX_GIT_APPROVAL ? "/bin/zsh -lc 'git push origin x'" : 'ls -la'
   if (!openingAlreadySent) {
@@ -2628,6 +2650,7 @@ rl.on('line', (line) => {
         return
       }
       if (mode === 'turn') setImmediate(playTurn)
+      if (mode === 'limit') setImmediate(playLimit)
       if (mode === 'delegated-approval') setImmediate(() => {
         const parent = THREAD
         THREAD = `${parent}-child`
