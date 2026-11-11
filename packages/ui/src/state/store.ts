@@ -5,6 +5,7 @@ import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
 import { createLeadState } from './lead'
 import { createPhoneState } from './phone'
+import { createSeatCarryOnState } from './seat-carry-on'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
@@ -659,6 +660,8 @@ export class AppStore {
   readonly transport: Transport
   readonly lead: ReturnType<typeof createLeadState>
   readonly phone: ReturnType<typeof createPhoneState>
+  /** Carry-on questions of Team and Flow seats, answered from the Team's `limit` notice. */
+  readonly seatCarryOn: ReturnType<typeof createSeatCarryOnState>
   #leadCapabilityEpoch = 0
   #chatRootsVersion: { epoch: string; revision: number } | null = null
   #chatConnectionGeneration = 0
@@ -1475,6 +1478,7 @@ export class AppStore {
         }
         this.lead.changed(notification)
         this.phone.changed(notification)
+        this.seatCarryOn.changed(notification)
         if (notification.method === 'provenance/changed') {
           const { project, revision, health } = notification.params
           if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
@@ -1857,12 +1861,14 @@ export class AppStore {
           this.#patch({ status, leadAvailable: false, captureHealth: new Map(), provenanceRevision: new Map() })
           this.lead.reset()
           this.phone.reset()
+          this.seatCarryOn.reset()
         } else {
           this.#patch({ status })
           if (previous === 'reconnecting') {
             const adjacent = this.#snapshot.adjacentSession
             if (adjacent) { const { runtime, id } = splitSessionKey(adjacent.key); void this.openAdjacentSession(id, runtime) }
             void this.#refreshLeadAvailability()
+            void this.seatCarryOn.refresh().catch(() => {})
             const generation = this.#chatConnectionGeneration
             void this.transport.request('app/state/get', {}).then(preferences => this.#applyChatsPreferences(preferences, generation)).catch(() => {})
           }
@@ -1874,6 +1880,8 @@ export class AppStore {
     this.lead = createLeadState(this.transport, () => this.#snapshot.leadAvailable)
     this.phone = createPhoneState(this.transport)
     this.phone.subscribe(() => { const phoneLink = this.phone.state.enabled; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
+    this.seatCarryOn = createSeatCarryOnState(this.transport)
+    this.seatCarryOn.subscribe(() => this.#patch({ seatCarryOn: this.seatCarryOn.state }))
     this.#watchWindowWidth()
     this.enableTranscriptCache()
   }
@@ -1985,6 +1993,8 @@ export class AppStore {
     // is loaded once here rather than on the first ⌘U. Cached readings answer
     // most of these without anyone being asked again.
     void this.loadUsage()
+    // A seat already waiting on a person when this window connected still shows its question.
+    void this.seatCarryOn.refresh().catch(() => {})
     // The editor plane is pushed the moment the socket opens, which is before
     // any of the above has run — so a plugin's file, marked while this window
     // was closed, arrived with no runtime to open it into. Projected again

@@ -1,6 +1,7 @@
 import { DEFAULT_DIFF_PREFS, type DiffPrefs } from '../editor'
 import type { BrowserTileMount } from '../lib/browser-tiles'
 import type {
+  CarryOnIncidentView,
   HarnessDeskAccountStatus,
   HistoryImportState,
   AccountStatus,
@@ -272,6 +273,11 @@ export interface AppSnapshot {
   readonly leadAvailable: boolean
   /** The desk was started with the phone link on; the Phone page and its command exist only then. */
   readonly phoneLink: boolean
+  /**
+   * Carry-on incidents of Team and Flow seats, by the seat's session key. The
+   * Team's own `limit` notice carries the question; nothing else reads these.
+   */
+  readonly seatCarryOn: ReadonlyMap<string, CarryOnIncidentView>
   readonly teamFrameRequests: Readonly<Record<string, TeamFrameRequest>>
   /** Per-project state of local, opt-in commit-to-Seat capture. */
   readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
@@ -883,6 +889,7 @@ export const withClosedTurnFiles = (closed: ReadonlySet<string>, session: string
 const EMPTY: AppSnapshot = {
   leadAvailable: false,
   phoneLink: false,
+  seatCarryOn: new Map(),
   teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),
@@ -1055,4 +1062,5 @@ export const emptySnapshot = (): AppSnapshot => ({
   seatActivities: new Map(),
   findings: new Map(),
   findingRuns: new Map(),
+  seatCarryOn: new Map(),
 })
