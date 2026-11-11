@@ -634,13 +634,20 @@ export class LeadControls {
    * surface draws it as the person's message. One the person asked for (`wake.person`) is said in plain words, like a
    * reply, and the Lead is pressed once more if it stays quiet; the Lead's own check-back keeps the proactive envelope,
    * where silence is a fair answer. `begin` opens a goal first when the thread has closed, the way a scheduled run
-   * does. False when it cannot go now (a request in flight, an uncertain effect, a closed or waiting thread, no key);
-   * the host's timer offers it again.
+   * does. A thread that waits on the person cannot take a wake, so the person's reminder is said there in the Lead's
+   * name without a model request, and the thread goes on waiting. False when it cannot go now (a request in flight,
+   * an uncertain effect, a closed or waiting thread for the Lead's own check-back, no key); the host's timer offers it again.
    */
   remind(key: string, text: string, wake?: { readonly reminder: string; readonly text: string; readonly person: boolean }, begin = false): Promise<boolean> { return this.#queue(async () => {
     const { journal, service } = this.options
     if (journal.state.sends.some(send => send.key === key)) return true
     if (this.#inFlight() || leadContainsSecret([text, wake?.text ?? ''])) return false
+    const marked = wake ? { kind: 'reminder' as const, reminder: wake.reminder, text: wake.text } : undefined
+    if (wake?.person && leadWaitsOnPerson(journal.state)) {
+      await journal.appendMessage(key, text, 'schedule', undefined, marked)
+      await journal.appendReply(`You asked me to remind you: ${wake.text.trim().replace(/[.!?]$/, '')}.`)
+      return true
+    }
     const status = await service.status('anthropic').catch(() => null)
     if (!status?.configured || status.unavailable) return false
     if (begin && wake && canBeginLeadGoal(journal.state)) {
@@ -652,7 +659,6 @@ export class LeadControls {
     }
     if (hasUncertainLeadChatEffect(journal.state) || journal.state.budget?.stop) return false
     if (!['draft', 'running', 'following'].includes(journal.state.phase)) return false
-    const marked = wake ? { kind: 'reminder' as const, reminder: wake.reminder, text: wake.text } : undefined
     const person = wake?.person === true
     await this.#commitRequest(committed => journal.appendMessage(key, text, 'schedule', () => { committed(); this.#scheduleRequest = true }, marked), !person, undefined, true, false)
     return true
@@ -792,4 +798,13 @@ export class LeadControls {
     await this.#commitRequest(committed => this.options.journal.resume(parsed.expectedRevision, this.#unanswered(), committed), false, reason, false)
     return this.#projection()
   }) }
+}
+
+/**
+ * The thread waits on the person: a stop they must answer (a failed or held request, a summary to resume from, an
+ * uncertain effect, a spent budget) or a plan they have not decided. The loop takes no wake in that state.
+ */
+function leadWaitsOnPerson(state: LeadState): boolean {
+  if (['stopped', 'accepted', 'declined'].includes(state.phase)) return false
+  return state.phase === 'waiting-for-user' || state.phase === 'awaiting-plan' || hasUncertainLeadChatEffect(state) || !!state.budget?.stop
 }

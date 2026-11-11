@@ -162,6 +162,37 @@ test('a reminder wakes the Lead as a desk wake, never as the person\'s message, 
   assert.notEqual(projection.wayOut, 'resume', 'a wake the Lead stayed quiet on is not the person\'s message left unanswered')
 })
 
+test('a reminder the person asked for is said while the thread waits on them, and the thread keeps waiting', async t => {
+  const r = await workRig(t)
+  let calls = 0
+  const controls = r.controls(async () => ({ status: 'completed', text: ++calls === 1 ? 'I could not finish that.' : 'Picking it back up.' }))
+  await controls.send({ idempotencyKey: 'person-1', text: 'Tidy the release notes' }); await controls.idle()
+  await r.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  const before = await controls.readThread()
+  // The Lead's own check-back waits for the person like everything else: silence is a fair answer to it.
+  assert.equal(await controls.remind('wake-own', 'Reminder you set for work work-1. Check on it.', { reminder: 'remind-1', text: 'Check on the release', person: false }), false)
+  const prompt = 'Reminder remind-2, which you set for the person, is due now. Remind the person now, in one short message.'
+  assert.equal(await controls.remind('wake-person', prompt, { reminder: 'remind-2', text: 'send the notes', person: true }), true, 'the waiting stage does not hold back what the person asked for')
+  await controls.idle()
+  assert.equal(calls, 1, 'saying it costs no model request')
+  const [entry, reply] = r.journal.state.messages.slice(-2)
+  assert.deepEqual(entry?.wake, { kind: 'reminder', reminder: 'remind-2', text: 'send the notes' })
+  assert.equal(reply?.role, 'assistant')
+  assert.equal(reply?.text, 'You asked me to remind you: send the notes.')
+  assert.equal(controls.wakeOutcome('wake-person'), 'said', 'it is recorded as said, not offered again')
+  assert.equal(r.journal.state.phase, 'waiting-for-user', 'the thread still waits on the person')
+  assert.equal(r.journal.state.managementReason, 'lead-request-failed')
+  const after = await controls.readThread()
+  assert.equal(after.stage, before.stage)
+  assert.equal(after.wayOut, before.wayOut, 'and the same way out is offered')
+  assert.equal(await controls.remind('wake-person', prompt, { reminder: 'remind-2', text: 'send the notes', person: true }), true)
+  assert.equal(r.journal.state.messages.filter(message => message.text === 'You asked me to remind you: send the notes.').length, 1, 'said once')
+  // The person's next words resume the thread as before.
+  await controls.send({ idempotencyKey: 'person-2', text: 'Go on with the release notes' }); await controls.idle()
+  assert.equal(calls, 2)
+  assert.equal(r.journal.state.messages.at(-1)?.text, 'Picking it back up.')
+})
+
 test('a wake counts as said only for the Lead\'s turn that answers it: a later wake\'s reply never says an earlier one was said', async t => {
   const r = await workRig(t)
   let calls = 0
