@@ -138,3 +138,26 @@ test('#2108 review: the Lead stopping its own chat twice is not the person sayin
   assert.equal(typeof (third.value as { id?: string }).id, 'string', `no question first: ${JSON.stringify(third.value)}`)
   assert.equal(r.runtime.sessions.size, chats + 1, 'the third attempt started')
 })
+
+test('#2117 review 4: a stop after the person answered asks again; their earlier answer does not cover the next attempt', async t => {
+  const r = await rig(t)
+  const { item, last } = await twiceStopped(r)
+  await r.personWrites('Try the build task again')
+  const refused = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (third attempt)', ledgerItem: item } })
+  assert.ok((refused.value as { problem?: string }).problem, 'the host asks first')
+  // The person answers: continue the last chat. The Lead does, and the person stops that chat again.
+  await r.personWrites('Continue the last chat')
+  assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: last, text: 'Carry on from where you stopped' } })).outcome, 'succeeded')
+  await card(r, item, found => found.stage !== 'stopped')
+  await windowStop(r, last)
+  const found = await card(r, item, one => stopped(one) && ((one as Card & { stops?: unknown[] }).stops?.length ?? 0) === 3) as Card & { stops?: { by?: string }[] }
+  assert.deepEqual(found.stops?.map(stop => stop.by), ['person', 'person', 'person'])
+  // A fresh start now is a new question, not the answer the person gave before this stop.
+  const chats = r.runtime.sessions.size
+  const fresh = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (fresh)', ledgerItem: item } })
+  assert.match((fresh.value as { problem?: string }).problem ?? '', /stopped 3 times/, JSON.stringify(fresh.value))
+  assert.equal(r.runtime.sessions.size, chats, 'no chat was started')
+  await r.personWrites('Start it fresh')
+  const after = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (fresh)', ledgerItem: item } })
+  assert.equal(typeof (after.value as { id?: string }).id, 'string', JSON.stringify(after.value))
+})

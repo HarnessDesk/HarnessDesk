@@ -638,8 +638,9 @@ export type PhoneLeadActivity = NonNullable<import('./lead.js').LeadWindowProjec
  *   link names the phone on `lead/settings/decide`, and the desk refuses a phone's Apply on such a card with
  *   `lead-proposal-desk-only` and a sentence saying to apply it at the desk. Show No, and say the words are applied at
  *   the desk instead of offering Apply; the card stays.
- * - The words arrive scrubbed like the work board's (paths, addresses and key-shaped strings replaced); draw them as
- *   plain text, never as markup.
+ * - The words arrive scrubbed like the work board's (paths, addresses and key-shaped strings replaced), with `deskOnly`
+ *   set, in the snapshot and in every answer that carries the autonomy view (`lead/autonomy/read`, `lead/autonomy/set`,
+ *   `lead/settings/decide`); draw them as plain text, never as markup.
  * `applied`, `declined` and `stale` ones need no card; `history` is what the Lead reads to say what happened, never shown
  * as controls.
  */

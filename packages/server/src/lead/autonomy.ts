@@ -56,11 +56,16 @@ interface Stored {
   automatic?: string[]
   /** Who changed what, oldest first, the newest `LEAD_AUTONOMY_CHANGES_KEPT`. */
   changes?: LeadAutonomyChange[]
-  /** The Lead's proposals, oldest first; each keeps the person's message position it was made after, for the per-turn cap. */
+  /** The Lead's proposals, oldest first; each keeps the person's message position it was made after. */
   proposals?: StoredProposal[]
   nextProposal?: number
   /** The person's Noes, oldest first, kept apart from the cards so a refusal outlives its card. */
   declines?: StoredDecline[]
+  /**
+   * The cards made since the person's latest message: that message's position and the count. Kept apart from the cards,
+   * since a card replaced in the same turn can be dropped from the kept list and must still count toward the cap.
+   */
+  turn?: { personSeq: number; created: number }
 }
 type StoredProposal = { -readonly [K in keyof LeadSettingsProposal]: LeadSettingsProposal[K] } & { personSeq?: number }
 /** One No: which change (by key), on which card, and the person's message position when they said it. */
@@ -138,6 +143,8 @@ export class LeadAutonomyStore {
       try { const { personSeq, ...card } = one; return [{ ...parseLeadSettingsProposal(card), ...(Number.isSafeInteger(personSeq) ? { personSeq } : {}) }] } catch { return [] }
     }))
     if (Array.isArray(source.declines)) out.declines = source.declines.filter(isDecline).slice(-LEAD_SETTINGS_PROPOSAL_LIMITS.declines)
+    if (source.turn && Number.isSafeInteger(source.turn.personSeq) && Number.isSafeInteger(source.turn.created) && source.turn.created >= 0)
+      out.turn = { personSeq: source.turn.personSeq, created: source.turn.created }
     // The next id is past every id kept, whatever the counter says: an id is never handed out twice.
     const highest = Math.max(0, ...(out.proposals ?? []).map(one => Number(one.id.slice(1))), ...(out.declines ?? []).map(one => Number(one.id.slice(1))))
     const counter = Number.isSafeInteger(source.nextProposal) && source.nextProposal! > 0 ? source.nextProposal! : 1
@@ -343,13 +350,14 @@ export class LeadAutonomyStore {
     const standing = declined.findLast(one => personSeq <= one.personSeq)
     if (standing) return { outcome: 'refused', reason: 'declined', id: standing.id,
       note: `The person said No to this (${standing.id}) ${clock(standing.at)} and has not written since. Nothing was proposed; do not propose it again unless they ask for it.` }
-    const thisTurn = list.filter(one => one.personSeq === personSeq).length
+    const thisTurn = this.#stored.turn?.personSeq === personSeq ? this.#stored.turn.created : 0
     if (thisTurn >= LEAD_SETTINGS_PROPOSAL_LIMITS.perTurn) return { outcome: 'refused', reason: 'too-many',
       note: `You already proposed ${thisTurn} changes since the person last wrote. Nothing was proposed; wait for their answer on those before proposing more.` }
     if (pending) { pending.state = 'stale'; pending.decidedAt = at; event(pending, 'stale') }
     const id = `s${this.#stored.nextProposal ?? 1}`
     this.#stored.nextProposal = (this.#stored.nextProposal ?? 1) + 1
     list.push({ id, change, state: 'pending', proposedAt: at, afterSeq: seq, history: [{ what: 'proposed', at }], personSeq })
+    this.#stored.turn = { personSeq, created: thisTurn + 1 }
     this.#stored.proposals = keep(list)
     return { outcome: 'created', id, ...(declined.length ? { declinedBefore: true as const } : {}),
       note: `Proposed as ${id}${pending ? `, in place of ${pending.id}` : ''}. Nothing changes until the person presses Apply on its card, wherever they read this. ` +

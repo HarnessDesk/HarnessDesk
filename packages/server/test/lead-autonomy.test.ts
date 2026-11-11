@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createLeadJournal } from '@harnessdesk/lead'
-import { LEAD_RULE_DEFAULTS, type LeadAutonomyMode, type LeadSchedule, type LeadScheduledTask } from '@harnessdesk/protocol'
+import { LEAD_RULE_DEFAULTS, LEAD_SETTINGS_PROPOSAL_LIMITS, type LeadAutonomyMode, type LeadSchedule, type LeadScheduledTask } from '@harnessdesk/protocol'
 import { LeadAutonomyStore, LEAD_OBSERVED_NOTES } from '../src/lead/autonomy.js'
 import { LeadAutomaticGoals } from '../src/lead/automatic-goals.js'
 import { LeadPlanner } from '../src/lead/planner.js'
@@ -382,6 +382,26 @@ test('#2106 review: at most three new cards between two of the person\'s message
   assert.equal((await r.store.view()).proposals?.length, 3)
   r.writes()
   assert.equal((await r.store.proposeRules({ section: 'talk', add: 'Conclusion first.' })).outcome, 'created')
+})
+
+test('#2117 review 4: the cap on new cards in one turn holds when the kept list is full and each replaced card is dropped', async t => {
+  const r = await proposalRig(t)
+  // A full kept list of declined cards, one per turn, so nothing stale is left to drop first.
+  for (let i = 1; i <= LEAD_SETTINGS_PROPOSAL_LIMITS.kept; i++) {
+    const { id } = await r.store.proposeRules({ section: 'talk', add: `Earlier line ${i}.` })
+    await r.store.decide({ id: id!, decision: 'decline' })
+    r.writes()
+  }
+  // One turn: each proposal replaces the last, and the replaced card is the one the kept list drops.
+  const outcomes = []
+  for (const line of ['One.', 'Two.', 'Three.', 'Four.']) outcomes.push(await r.store.proposeRules({ section: 'done', add: line }))
+  assert.deepEqual(outcomes.map(one => one.outcome), ['created', 'created', 'created', 'refused'])
+  assert.equal(outcomes[3]!.reason, 'too-many')
+  // The count survives a restart, and the person's next message starts a new turn.
+  const reopened = await r.make()
+  assert.equal((await reopened.proposeRules({ section: 'done', add: 'Five.' })).reason, 'too-many')
+  r.writes()
+  assert.equal((await reopened.proposeRules({ section: 'done', add: 'Five.' })).outcome, 'created')
 })
 
 test('#2106 review: applied and stale cards are dropped first, a waiting one never is, and a No outlives its card', async t => {

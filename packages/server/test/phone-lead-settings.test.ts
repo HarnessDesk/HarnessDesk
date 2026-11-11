@@ -10,11 +10,11 @@ import { startPhoneLink } from '../src/phone-link.js'
 import { phoneAutonomy, phoneMemory } from '../src/phone-work.js'
 
 /** The real link, asked the way a phone asks; the host behind it records what reaches it. */
-const door = async () => {
+const door = async (answer: (method: string, params: unknown) => unknown = () => null) => {
   const home = await mkdtemp(join(tmpdir(), 'hd-phone-settings-'))
   const reached: { method: string; params: unknown }[] = []
   const host = {
-    call: async (method: string, params: unknown) => { reached.push({ method, params }); return null },
+    call: async (method: string, params: unknown) => { reached.push({ method, params }); return answer(method, params) },
     addBroadcaster: (_listener: (notification: WireNotification) => void) => () => {},
     attachPhoneLink: () => {},
   }
@@ -80,4 +80,24 @@ test('#2117 review 2: the phone is told outright which cards it answers No only,
   assert.equal(empty.add, undefined, 'a line the scrub empties is not sent')
   assert.equal(shown.add, 'Conclusion first.', 'a line shown exactly applies from the phone')
   for (const one of out) assert.deepEqual(parseLeadSettingsProposal(one), one, 'the phone\'s copy is a valid proposal')
+})
+
+test('#2117 review 4: every phone answer that carries the autonomy view is the phone\'s copy: words scrubbed, deskOnly set', async () => {
+  const card = (id: string, change: LeadSettingsChange) => ({ id, state: 'pending' as const, proposedAt: 1, afterSeq: 1, history: [{ what: 'proposed' as const, at: 1 }], change })
+  const raw: LeadAutonomyView = { version: 1, modes: LEAD_AUTONOMY_DEFAULTS, observed: [], rules: [], deadline: null, proposals: [
+    card('s1', { kind: 'rules', section: 'talk', fromVersion: 0, text: 'Keep it short.\nSend review notes to ops@acme.dev', add: 'Send review notes to ops@acme.dev' }),
+    card('s2', { kind: 'rules', section: 'done', fromVersion: 0, text: 'Check /srv/acme/private/notes.txt first.' }),
+    card('s3', { kind: 'rules', section: 'delegate', fromVersion: 0, text: 'Keep it short.\nConclusion first.', add: 'Conclusion first.' }),
+  ] }
+  const d = await door(() => structuredClone(raw))
+  try {
+    for (const [method, params] of [['lead/autonomy/read', {}], ['lead/settings/decide', { id: 's9', decision: 'decline' }], ['lead/autonomy/set', { kind: 'stuck', mode: 'off' }]] as const) {
+      const reply = await d.phone.request(method, params)
+      assert.equal(reply.ok, true, method)
+      const view = (reply as { result: LeadAutonomyView }).result
+      const text = JSON.stringify(view)
+      assert.doesNotMatch(text, /ops@acme\.dev|\/srv\/acme/, `${method} carries no address or path`)
+      assert.deepEqual(view.proposals!.map(one => [one.id, one.deskOnly ?? false]), [['s1', true], ['s2', true], ['s3', false]], `${method} marks the desk-only cards`)
+    }
+  } finally { await d.done() }
 })

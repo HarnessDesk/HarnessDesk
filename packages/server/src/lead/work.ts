@@ -285,7 +285,8 @@ export class LeadWorkLedger {
   /**
    * Another attempt at work the person stopped `stopsBeforeAsking` times is the person's call, even when the person asked
    * for it: the host refuses it once, naming what happened, and lets the next attempt through only after the person
-   * writes again (their answer to the Lead's question). The Lead's own stops are not counted: stopping its own chat is
+   * writes again (their answer to the Lead's question). Each new stop clears that answer, so a stop after it asks
+   * again. The Lead's own stops are not counted: stopping its own chat is
    * not the person saying no. A stop the desk could not attribute is counted, since it may have been the person's.
    * Null when the attempt may go ahead.
    */
@@ -760,6 +761,9 @@ export class LeadWorkLedger {
       const by = this.#stopActor(states)
       this.#stop(item, by === 'person' ? 'Stopped: the person stopped its chat' : by === 'lead' ? 'Stopped: the Lead stopped its chat' : 'Stopped: its chat was stopped', by)
       item.stops = [...item.stops ?? [], { at: item.closedAt!, ...(by ? { by } : {}) }].slice(-LEAD_WORK_LIMITS.stopsKept)
+      // A new stop is a new reason to ask: an answer the person gave before it (continue the last chat, say) does not
+      // also cover the attempt after this one.
+      delete item.retryAsked
       return
     }
     else if (states.length && states.every(state => state.settled)) {
