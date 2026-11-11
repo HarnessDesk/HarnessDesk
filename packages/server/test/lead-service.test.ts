@@ -1349,6 +1349,35 @@ test('host tool activity ends without clearing a newer overlapping tool', async 
   assert.equal(s.service.activeTool, null)
 })
 
+test('a turn with two tool calls publishes thinking, each step and the reply in plain words, and nothing once it ends (Q16)', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true); await s.service.send(input)
+  const { LeadControls } = await import('../src/lead/controls.js')
+  // Wired as the host wires them.
+  const controls = new LeadControls({ journal: s.journal, service: s.service, project: { id: 'synthetic', path: s.home }, model: 'synthetic-model',
+    now: () => 100, nextId: () => 'card', push() {}, decidePerson: async () => {}, decideResult: async () => {},
+    readRequestInFlight: () => s.service.requestInFlight, readActiveTool: () => s.service.activeTool, readActiveStep: () => s.service.step })
+  t.after(() => controls.close())
+  const step = async () => { const { activity } = await controls.readThread(); return activity ? activity.step ?? `missing step (${activity.method})` : null }
+  const supervisor = s.options()
+  const seen: (string | null)[] = []
+  supervisor.onActivity(true); seen.push(await step())
+  const readWork = supervisor.onToolActivity('lead/work/list'); seen.push(await step())
+  readWork(); seen.push(await step())
+  const startChat = supervisor.onToolActivity('lead/chat/start'); seen.push(await step())
+  startChat(); seen.push(await step())
+  supervisor.onReplying(); seen.push(await step())
+  supervisor.onActivity(false); seen.push(await step())
+  // The step stays named between calls, while the model reads what the call returned; the clock says how long.
+  assert.deepEqual(seen, ['Thinking', 'Reading your work', 'Reading your work', 'Starting a chat', 'Starting a chat', 'Writing the reply', null])
+  // A new request starts from thinking again, not from the last request's step.
+  supervisor.onActivity(true)
+  assert.equal(await step(), 'Thinking')
+  supervisor.onActivity(false)
+  // No method name ever reaches the words.
+  assert.ok(seen.every(words => words === null || !/[/_]/.test(words)))
+})
+
 // The read that stuck a desk: a worker chat stopped mid-run, one line of a command's output clipped to the desk's marker,
 // and text cut through a surrogate pair. The child builds, sizes and reserves it; the host checks and sends the same body.
 const stuckChatRead = JSON.stringify({ id: 'chat-1', title: 'Fix the config loader', agent: { name: 'Agent' }, status: 'stopped', turns: [

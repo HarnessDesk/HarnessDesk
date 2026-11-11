@@ -16,6 +16,9 @@ import {
   deskContextContent,
   recordDeskInput,
   splitContextContent,
+  leadMessageEnvelope,
+  leadMessageSource,
+  leadMessageWords,
 } from '@harnessdesk/protocol'
 
 import { AcpRuntime, type AcpUsageRecord } from '../src/index.js'
@@ -3064,6 +3067,23 @@ test('a conversation replayed from the agent is called by the first thing a pers
   const read = await runtime.readSession(sessionId('compacted'))
   assert.equal(read.preview, 'Now add the jitter')
   assert.equal(read.turns.length, 2, 'the summary is still in the transcript, as what the agent said it was')
+})
+
+test('a replay that hands back a stop marker ahead of the Lead\'s message still reads the message as the Lead\'s (#2090)', async (t) => {
+  // A peer that replays its stop marker unmarked, as one more user chunk in
+  // front of what the desk sent next: the two chunks merge into one bubble.
+  const envelope = leadMessageEnvelope('Dex', 'Fix the stalled task.')
+  const { runtime } = await storedAgent(t, (dir) => ({
+    interrupted: { cwd: dir, title: '', turns: [['Build a game'], ['[Request interrupted by user]', envelope]] },
+  }))
+  const read = await runtime.readSession(sessionId('interrupted'))
+  const users = read.turns.flatMap((turn) => turn.items).filter((item) => item.type === 'userMessage')
+  const last = users.at(-1)
+  assert.ok(last && last.type === 'userMessage')
+  const split = splitContextContent(last.content)
+  assert.deepEqual(split.injections.map((block) => block.label), [leadMessageSource('Dex')])
+  assert.equal(leadMessageWords(split.injections[0]!.text), 'Fix the stalled task.')
+  assert.equal(split.text, '', 'no envelope or marker is left as text')
 })
 
 test('an unclosed context lookalike remains the person\'s words (review of #231)', async (t) => {

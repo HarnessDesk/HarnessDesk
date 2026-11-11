@@ -1354,3 +1354,18 @@ test('appendReply refuses an ask together with a proactive report without writin
     assert.deepEqual(admitted, [])
   } finally { await f.supervisor.stop() }
 })
+
+test('the host hears that the reply is being written when the child hands it over, before it is kept', async () => {
+  const order: string[] = []
+  const child = fake((message, child) => {
+    if (message.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+    if (message.type === 'request') child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'appendReply', args: ['The build is green.'] }))
+    if (message.type === 'reply') { order.push('reply'); child.stdout.write(frame({ version: 1, type: 'response', id: 1, result: { status: 'completed' } })) }
+    if (message.type === 'shutdown') child.kill()
+  })
+  const f = await fixture({ spawn: () => child, onReplying: () => order.push('replying'), admitReply: async () => { order.push('admitted') } })
+  const sent = f.supervisor.send(request).catch(() => {})
+  for (let waited = 0; !order.includes('reply') && waited < 5000; waited += 20) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(order, ['admitted', 'replying', 'reply'])
+  await f.supervisor.stop(); await sent
+})

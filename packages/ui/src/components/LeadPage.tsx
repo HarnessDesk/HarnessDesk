@@ -12,6 +12,7 @@ import { leadOpeningJobs } from '../lib/lead-opening'
 import { LeadAway, useLeadAsks } from './LeadAway'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
+import { draftsOf, LEAD_DRAFT_KEY } from '../state/drafts'
 import { LeadHostNotice, LeadMessage } from './LeadMessage'
 import { LeadCards } from './LeadCards'
 import { leadRepeatTaskFor } from '../lib/lead-repeat'
@@ -94,7 +95,11 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const store = useStore(), snapshot = useSnapshot(), active = useDestinationActive()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const unavailable = state.settings?.unavailable === 'runtime'
-  const [goal, setGoal] = useState(initialGoal), [error, setError] = useState<string | null>(null)
+  // The box's words live with the store's drafts, so leaving the page and coming back finds
+  // exactly what was left in it — and an emptied box is written as empty, never skipped (#2091).
+  const drafts = draftsOf(store)
+  const [goal, setGoal] = useState(() => initialGoal || drafts.live(LEAD_DRAFT_KEY)?.text || ''), [error, setError] = useState<string | null>(null)
+  useEffect(() => { drafts.setLive(LEAD_DRAFT_KEY, { text: goal, attachments: [] }) }, [drafts, goal])
   const [confirmStop, setConfirmStop] = useState(false), [stopping, setStopping] = useState(false)
   const stoppingRef = useRef(false)
   const [choosingName, setChoosingName] = useState(false)
@@ -203,7 +208,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const replyArrived = !!firstReply && (!sending || lastUser?.id !== sendBaseline.current)
   const working = !state.error && requestPending && state.wayOut !== 'decide-plan' &&
     !replyArrived && <LeadMessage key={firstReply ? 'pending' : replyKey} role="assistant" name={label} lead={name} face
-      text="" working={<LeadWorking label={leadActivityLabel(state.activity?.method)} since={state.activity?.since} stopping={stopping} onStop={() => { if (goalActive) setConfirmStop(true); else void stop() }} />} />
+      text="" working={<LeadWorking label={state.activity?.step ?? leadActivityLabel(state.activity?.method)} since={state.activity?.since} stopping={stopping} onStop={() => { if (goalActive) setConfirmStop(true); else void stop() }} />} />
   const openingJobs = !state.error && state.thread && !state.thread.messages.length && !state.thread.olderMessages && !state.thread.cards.length ? leadOpeningJobs(snapshot, state.thread.project?.path ?? null, pr) : []
   const entries = [...(state.thread?.messages ?? []).map(message => ({ revision: message.revision, kind: 'message' as const, message })),
     ...cards.map(card => ({ revision: state.thread?.cardPositions?.[card.id] ?? card.revision, kind: 'card' as const, card })),
