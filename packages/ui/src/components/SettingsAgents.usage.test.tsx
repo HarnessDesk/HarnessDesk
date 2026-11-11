@@ -104,6 +104,7 @@ const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = 
     loadAccounts: vi.fn(async () => {}),
     limitsFor: vi.fn(async () => limits),
     loadCarryOnPolicy: async () => ({ onLimit: 'ask', otherAgents: true }),
+    readCarryOnRules: async () => true,
     readPlan: vi.fn(async () => ({ entry: null, suggestion: null, refusal: null })),
     agentCatalog: vi.fn(async () => []),
     acpRegistry: vi.fn(async () => ({ agents: [], fetchedAt: 1 })),

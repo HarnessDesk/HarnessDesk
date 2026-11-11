@@ -25,7 +25,7 @@ it('activation invalidates old plan and trigger reads across hide and return',as
 })
 it('an approved plan write after unmount does not start another read',async()=>{
   const box=document.createElement('div');document.body.append(box);const root=createRoot(box),snapshot=emptySnapshot(),pending=deferred<unknown>()
-  const store={getSnapshot:()=>snapshot,subscribe:()=>()=>{},loadCarryOnPolicy:async()=>({onLimit:'ask',otherAgents:true}),readPlan:vi.fn(async()=>({entry:{fee:{amount:20,currency:'USD',period:'month',source:'user',setAt:1}},suggestion:null,refusal:null})),setPlan:vi.fn(()=>pending.promise)} as unknown as AppStore
+  const store={getSnapshot:()=>snapshot,subscribe:()=>()=>{},loadCarryOnPolicy:async()=>({onLimit:'ask',otherAgents:true}),readCarryOnRules:async()=>true,readPlan:vi.fn(async()=>({entry:{fee:{amount:20,currency:'USD',period:'month',source:'user',setAt:1}},suggestion:null,refusal:null})),setPlan:vi.fn(()=>pending.promise)} as unknown as AppStore
   try{await act(async()=>root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:settings" active><PlanSection runtime={runtimeId('alpha')} account="synthetic" report={undefined} isKey={false}/></DestinationPageScope></StoreProvider>))
     act(()=>[...box.querySelectorAll<HTMLButtonElement>('button')].find(node=>node.textContent==='Clear')!.click())
     act(()=>root.render(<div>Work</div>));await act(async()=>pending.resolve(null));expect(store.setPlan).toHaveBeenCalledTimes(1);expect(store.readPlan).toHaveBeenCalledTimes(1)

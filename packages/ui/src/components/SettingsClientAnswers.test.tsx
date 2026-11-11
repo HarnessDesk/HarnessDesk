@@ -31,6 +31,7 @@ const mount = (load?: () => Promise<boolean>, save?: (value: boolean) => Promise
     loadUnattendedCeilings: vi.fn(async () => 'refuse'),
     loadQuestionWait: vi.fn(async () => '5m'),
     loadCarryOnPolicy: vi.fn(async () => ({ onLimit: 'ask', otherAgents: true })),
+    readCarryOnRules: async () => true,
     ...(load ? { loadClientsMayAnswer: load } : {}),
     ...(save ? { setClientsMayAnswer: save } : {}),
   } as unknown as AppStore

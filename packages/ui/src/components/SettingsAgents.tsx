@@ -640,19 +640,23 @@ const AgentAccounts = ({
   const pool = snapshot.accountPools[agent]
   // The pools are read again on each visit: an "Always do this for <agent>"
   // the host wrote from a card elsewhere would otherwise be undone by the
-  // next order change here, which writes the whole map. Until the newest
-  // read is in, nothing on this page writes the pools — a move made against
-  // the old map would write it back over the rule the read is bringing.
-  const [poolsReading, setPoolsReading] = useState(true)
+  // next order change here, which writes the whole map. Until a read has
+  // been applied, nothing on this page writes the pools — a move made
+  // against the old map would write it back over the rule the read is
+  // bringing. One that could not be read stays held, and says so.
+  const [pools, setPools] = useState<'reading' | 'read' | 'unread'>('reading')
   const poolsRead = useRef(0)
   useEffect(() => {
     if (!destinationActive) return
     const read = ++poolsRead.current
-    setPoolsReading(true)
-    void store.loadCarryOnPolicy().finally(() => {
-      if (read === poolsRead.current) setPoolsReading(false)
+    setPools('reading')
+    void store.readCarryOnRules().then((applied) => {
+      if (read === poolsRead.current) setPools(applied ? 'read' : 'unread')
+    }, () => {
+      if (read === poolsRead.current) setPools('unread')
     })
   }, [destinationActive, store])
+  const poolsReading = pools !== 'read'
   // In the order new sessions use them, so the list is the queue.
   const queue = inPoolOrder(siblings, pool, { reports: snapshot.usage, now: Date.now() })
   const order = queue.map((entry) => entry.id)
@@ -1040,7 +1044,9 @@ const AgentAccounts = ({
           }
         />
       </Rows>
-      {ordered && <Note ink="muted">New sessions follow the order above.</Note>}
+      {pools === 'unread'
+        ? <Note ink="muted">The saved order and rule could not be read, so they cannot be changed here. Open this page again to try once more.</Note>
+        : ordered && <Note ink="muted">New sessions follow the order above.</Note>}
 
       {destinationActive && namingAccount && <AccountNameDialog info={info} adding={adding}
         onAdd={addAccount} onClose={() => setNamingAccount(false)} />}

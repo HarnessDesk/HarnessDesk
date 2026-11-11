@@ -90,8 +90,9 @@ it('disconnect clears health and rejects stale response application; reconnect r
     ['host/hello', { clientVersion: '0.1.0' }],
     ['app/state/get', {}],
     ['provenance/status', {}],
-    // Live carry-on incidents, so a card a dropped link took away comes back.
-    ['carryOn/list', {}],
+    // Live carry-on incidents, so a card a dropped link took away comes back,
+    // stamped when the request goes out.
+    ['carryOn/list', {}, { onSend: expect.any(Function) }],
   ])
   expect(store.getSnapshot().provenanceRevision.get(ROOT)).toBe(1)
   expect(store.getSnapshot().chatsFolderRoots).toEqual(['/work/chats/one'])

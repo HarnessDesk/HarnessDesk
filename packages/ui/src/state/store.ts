@@ -604,25 +604,50 @@ export class AppStore {
    * this window overtook is dropped: the write is newer.
    */
   async loadCarryOnPolicy(): Promise<CarryOnPolicy> {
-    // A read a finished write overtook is asked again, a few times at most;
-    // one a write still in flight overtook is asked again when it settles.
-    for (let tries = 0; tries < 3; tries++) {
-      const revision = this.#carryOnRulesRevision
-      try {
-        if (this.#applyCarryOnRules(await this.transport.request('app/state/get', {}), revision) !== 'overtaken') break
-      } catch {
-        // The rule this window holds is the best it has.
-        break
-      }
-    }
+    await this.readCarryOnRules()
     return this.#snapshot.carryOnPolicy
   }
 
-  /** Applies a read of the rules unless a write of this window's is newer: `'overtaken'` when one finished since, `'held'` while one is in flight. */
-  #applyCarryOnRules(preferences: Readonly<Record<string, unknown>> | undefined, revision: number): 'applied' | 'overtaken' | 'held' | 'empty' {
+  /**
+   * Reads both levels of the rule until a read is applied, and says whether
+   * one was. A read never starts while a write of the rules is in flight — it
+   * waits for the write to settle — and one a write overtook is asked again,
+   * three times at most. False means this window still holds only its own
+   * copy: a page that writes the whole map must not write it from that.
+   */
+  async readCarryOnRules(): Promise<boolean> {
+    for (let tries = 0; tries < 3; tries++) {
+      if (this.#carryOnWrites > 0) await this.#carryOnRulesIdle()
+      const revision = this.#carryOnRulesRevision
+      let preferences: Readonly<Record<string, unknown>> | undefined
+      try {
+        preferences = await this.transport.request('app/state/get', {})
+      } catch {
+        // The rule this window holds is the best it has.
+        return false
+      }
+      const result = this.#applyCarryOnRules(preferences, revision, false)
+      if (result === 'applied') return true
+      if (result === 'empty') return false
+    }
+    return false
+  }
+
+  /** Settles once no write of the rules is in flight. */
+  #carryOnRulesIdle(): Promise<void> {
+    if (this.#carryOnWrites === 0) return Promise.resolve()
+    return new Promise(resolve => this.#carryOnIdleWaiters.push(resolve))
+  }
+
+  /**
+   * Applies a read of the rules unless a write of this window's is newer:
+   * `'overtaken'` when one finished since, `'held'` while one is in flight —
+   * which, for a read nobody is waiting on, asks for another when it settles.
+   */
+  #applyCarryOnRules(preferences: Readonly<Record<string, unknown>> | undefined, revision: number, rereadWhenSettled = true): 'applied' | 'overtaken' | 'held' | 'empty' {
     if (!preferences || typeof preferences !== 'object') return 'empty'
     if (this.#carryOnWrites > 0) {
-      this.#carryOnRulesStale = true
+      if (rereadWhenSettled) this.#carryOnRulesStale = true
       return 'held'
     }
     if (revision !== this.#carryOnRulesRevision) return 'overtaken'
@@ -640,9 +665,14 @@ export class AppStore {
     } finally {
       this.#carryOnRulesRevision++
       this.#carryOnWrites--
-      if (this.#carryOnWrites === 0 && this.#carryOnRulesStale) {
-        this.#carryOnRulesStale = false
-        void this.loadCarryOnPolicy()
+      if (this.#carryOnWrites === 0) {
+        const waiters = this.#carryOnIdleWaiters
+        this.#carryOnIdleWaiters = []
+        for (const resolve of waiters) resolve()
+        if (this.#carryOnRulesStale) {
+          this.#carryOnRulesStale = false
+          void this.loadCarryOnPolicy()
+        }
       }
     }
   }
@@ -672,10 +702,11 @@ export class AppStore {
    */
   async loadCarryOn(): Promise<void> {
     const generation = this.#chatConnectionGeneration
-    const stamp = ++this.#carryOnSeq
+    // Stamped again when the request goes out: its place in the host's order.
+    let stamp = ++this.#carryOnSeq
     let answer: { readonly incidents: readonly CarryOnIncidentView[] }
     try {
-      answer = await this.transport.request('carryOn/list', {})
+      answer = await this.transport.request('carryOn/list', {}, { onSend: () => { stamp = ++this.#carryOnSeq } })
     } catch {
       // Carry-on is the host's; a host without it has nothing live to show.
       return
@@ -721,12 +752,14 @@ export class AppStore {
   async decideCarryOn(decision: CarryOnDecision): Promise<CarryOnIncidentView> {
     const before = [...this.#snapshot.carryOnIncidents.values()].find(entry => entry.incidentId === decision.incidentId)
     const generation = this.#chatConnectionGeneration
-    const stamp = ++this.#carryOnSeq
+    // Stamped again when the request goes out: an answer made while the link
+    // was down is sent after a reconnect's list, so the list must not outrank it.
+    let stamp = ++this.#carryOnSeq
     const fresh = (at: string): boolean => generation === this.#chatConnectionGeneration && (this.#carryOnTouched.get(at) ?? 0) < stamp
     let incident: CarryOnIncidentView
     try {
       // "Always do this" is a write of the rule, by the host: no read of the rules lands across it.
-      const ask = () => this.transport.request('carryOn/decide', decision)
+      const ask = () => this.transport.request('carryOn/decide', decision, { onSend: () => { stamp = ++this.#carryOnSeq } })
       ;({ incident } = await (decision.always ? this.#writingCarryOnRules(ask) : ask()))
     } catch (error) {
       const refusal = error as { code?: unknown; data?: unknown }
@@ -874,7 +907,8 @@ export class AppStore {
   /**
    * Carry-on's fences. Every incident state is stamped with the moment its
    * news set out (`#carryOnSeq`): a push when it arrives, a list or an answer
-   * when its request was sent. A conversation keeps the stamp of the state it
+   * when its request was written to the socket — which, for one made while
+   * the link was down, is when the reconnect flushes it. A conversation keeps the stamp of the state it
    * shows (`#carryOnTouched`), and a state stamped earlier never replaces it,
    * so a list sent before an answer never outranks that answer, whichever
    * comes back first.
@@ -892,6 +926,7 @@ export class AppStore {
   #carryOnRulesRevision = 0
   #carryOnWrites = 0
   #carryOnRulesStale = false
+  #carryOnIdleWaiters: (() => void)[] = []
   #carryOnInboxPending: (() => void)[] = []
   // This authority is preparatory only: no body is evicted until the Host's
   // complete notification and durable-receipt guarantees are enabled.

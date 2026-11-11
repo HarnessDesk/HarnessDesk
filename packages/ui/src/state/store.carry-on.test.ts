@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { runtimeId, sessionKey, type CarryOnIncidentView, type HostMethodName, type SessionId, type WireNotification } from '@harnessdesk/protocol'
 
@@ -105,7 +105,7 @@ describe('carry-on in the store', () => {
     answers['carryOn/decide'] = { incident: incident({ state: 'stopped' }) }
     await store.decideCarryOn({ incidentId: 'incident-1', choice: 'stop', always: true })
     expect(store.getSnapshot().carryOnPolicy).toEqual({ onLimit: 'stop', otherAgents: true })
-    expect(request).toHaveBeenCalledWith('carryOn/decide', { incidentId: 'incident-1', choice: 'stop', always: true })
+    expect(request).toHaveBeenCalledWith('carryOn/decide', { incidentId: 'incident-1', choice: 'stop', always: true }, expect.objectContaining({ onSend: expect.any(Function) }))
 
     push(incident({ incidentId: 'incident-2', alwaysScope: 'agent' }))
     answers['carryOn/decide'] = { incident: incident({ incidentId: 'incident-2', state: 'waiting-reset', alwaysScope: 'agent' }) }
@@ -134,7 +134,7 @@ describe('carry-on in the store', () => {
     push(incident())
     answers['carryOn/decide'] = { incident: incident({ state: 'moved' }) }
     await store.decideCarryOn({ incidentId: 'incident-1', choice: 'switch', always: false, target: runtimeId('alpha-2') })
-    expect(request).toHaveBeenCalledWith('carryOn/decide', { incidentId: 'incident-1', choice: 'switch', always: false, target: 'alpha-2' })
+    expect(request).toHaveBeenCalledWith('carryOn/decide', { incidentId: 'incident-1', choice: 'switch', always: false, target: 'alpha-2' }, expect.objectContaining({ onSend: expect.any(Function) }))
   })
 
   it('applies the incident a stale refusal carries before saying it, and never retries', async () => {
@@ -296,28 +296,25 @@ describe('carry-on in the store', () => {
     expect(store.getSnapshot().accountPools[RUNTIME]?.whenOut).toBe('next')
   })
 
-  it('a read sent while a write is in flight never undoes the selection shown', async () => {
-    const { prefs, reads, flow } = host({ carryOn: { onLimit: 'ask', otherAgents: true } })
+  it('a read asked for while a write is in flight waits for it, and never undoes the selection shown', async () => {
+    const { prefs, flow } = host({ carryOn: { onLimit: 'ask', otherAgents: true } })
     const write = deferred<unknown>()
     answers['app/state/set'] = () => write.promise
     const writing = store.setCarryOnPolicy({ onLimit: 'stop', otherAgents: true })
     expect(store.getSnapshot().carryOnPolicy.onLimit).toBe('stop')
 
-    // Sent and answered while the write is still out: it predates the write.
-    const early = store.loadCarryOnPolicy()
-    reads[0]!.resolve(undefined)
-    await early
+    // Asked for while the write is out: nothing is read until it settles.
+    flow()
+    const reading = store.loadCarryOnPolicy()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(request.mock.calls.filter(([method]) => method === 'app/state/get')).toHaveLength(0)
     expect(store.getSnapshot().carryOnPolicy.onLimit).toBe('stop')
 
-    // Sent while the write is out, answered after it settled: still from before it.
-    const late = store.loadCarryOnPolicy()
     Object.assign(prefs, { carryOn: { onLimit: 'stop', otherAgents: true } })
     write.resolve(null)
     await writing
-    reads[1]!.resolve(undefined)
-    flow()
-    await late
-    await vi.waitFor(() => expect(store.getSnapshot().carryOnPolicy.onLimit).toBe('stop'))
+    await reading
+    expect(store.getSnapshot().carryOnPolicy.onLimit).toBe('stop')
   })
 
   it('a reconnect read that runs before a queued write flushes does not undo it', async () => {
@@ -347,5 +344,114 @@ describe('carry-on in the store', () => {
     answers['carryOn/list'] = { incidents: [] }
     status('open')
     await vi.waitFor(() => expect(store.getSnapshot().accountPools[RUNTIME]?.whenOut).toBe('stop'))
+  })
+
+  it('reads the rules again after a pending write, so a move made then writes the host’s rule, not the old one', async () => {
+    // This window still holds Next for Alpha; the host has Stop, written by an "Always" elsewhere.
+    store.setAccountPool(RUNTIME, { whenOut: 'next' })
+    await Promise.resolve()
+    const { prefs, flow } = host({ accountPools: { alpha: { whenOut: 'stop' } } })
+    const write = deferred<unknown>()
+    answers['app/state/set'] = () => write.promise
+    void store.setCarryOnPolicy({ onLimit: 'wait', otherAgents: true })
+
+    // The agent page opens while the desk-rule write is out: its read waits, and the page stays held.
+    let applied: boolean | undefined
+    const reading = store.readCarryOnRules().then(value => { applied = value })
+    flow()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(applied).toBeUndefined()
+    expect(request.mock.calls.filter(([method]) => method === 'app/state/get')).toHaveLength(0)
+
+    Object.assign(prefs, { carryOn: { onLimit: 'wait', otherAgents: true } })
+    write.resolve(null)
+    await reading
+    expect(applied).toBe(true)
+    expect(store.getSnapshot().accountPools[RUNTIME]?.whenOut).toBe('stop')
+
+    // Move up, once the page is let go: the map it writes carries Stop.
+    answers['app/state/set'] = null as never
+    store.setAccountPool(RUNTIME, { order: [runtimeId('alpha-2'), RUNTIME] })
+    const sets = request.mock.calls.filter(([method]) => method === 'app/state/set')
+    expect(sets.at(-1)?.[1]).toEqual({ patch: { accountPools: { alpha: { whenOut: 'stop', order: [runtimeId('alpha-2'), RUNTIME] } } } })
+  })
+
+  it('says no read was applied when every try is overtaken', async () => {
+    answers['app/state/get'] = (async () => {
+      // Each read is overtaken by a write from this window before it lands.
+      store.setAccountPool(RUNTIME, { whenOut: 'next' })
+      return { accountPools: { alpha: { whenOut: 'stop' } } }
+    }) as never
+    expect(await store.readCarryOnRules()).toBe(false)
+    expect(store.getSnapshot().accountPools[RUNTIME]?.whenOut).toBe('next')
+  })
+})
+
+/**
+ * The same ordering through the real Transport: on reconnect it announces
+ * Open before it flushes what was queued, so the reconnect's list goes out
+ * ahead of an answer made while the link was down.
+ */
+describe('carry-on over a reconnect', () => {
+  class FakeSocket {
+    static OPEN = 1
+    static last: FakeSocket
+    readyState = 0
+    listeners = new Map<string, (event: unknown) => void>()
+    sent: { id: number; method: string }[] = []
+    constructor(_url: string) { FakeSocket.last = this }
+    addEventListener(type: string, listener: (event: unknown) => void) { this.listeners.set(type, listener) }
+    send(frame: string) { this.sent.push(JSON.parse(frame) as { id: number; method: string }) }
+    close() { this.readyState = 3 }
+    open() { this.readyState = 1; this.listeners.get('open')?.({}) }
+    reply(value: unknown) { this.listeners.get('message')?.({ data: JSON.stringify(value) }) }
+    drop() { this.readyState = 3; this.listeners.get('close')?.({}) }
+    idOf(method: string) { return this.sent.filter(entry => entry.method === method).at(-1)!.id }
+  }
+  const original = globalThis.WebSocket
+  afterEach(() => { globalThis.WebSocket = original; vi.useRealTimers() })
+  const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve() }
+
+  const reconnectWithAnswer = async () => {
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const live = new AppStore('ws://localhost:0/')
+    Object.assign(live.getSnapshot(), { preferencesLoaded: true })
+    live.transport.connect()
+    const first = FakeSocket.last
+    first.open()
+    first.reply({ id: first.idOf('carryOn/list'), ok: true, result: { incidents: [incident()] } })
+    await settle()
+    expect(live.getSnapshot().carryOnIncidents.get(KEY)?.state).toBe('asked')
+
+    first.drop()
+    // Answered while the link is down: the request waits in the queue.
+    const deciding = live.decideCarryOn({ incidentId: 'incident-1', choice: 'stop', always: false })
+    deciding.catch(() => {})
+    vi.advanceTimersByTime(10_000)
+    vi.useRealTimers()
+    const second = FakeSocket.last
+    second.open()
+    const methods = second.sent.map(entry => entry.method)
+    // The reconnect's list goes out first, the queued answer after it.
+    expect(methods.indexOf('carryOn/list')).toBeLessThan(methods.indexOf('carryOn/decide'))
+    // The list, read before the answer reached the host, still says "asked".
+    second.reply({ id: second.idOf('carryOn/list'), ok: true, result: { incidents: [incident()] } })
+    await settle()
+    return { live, second, deciding }
+  }
+
+  it('an answer queued while the link was down outranks the list the reconnect sent ahead of it', async () => {
+    const { live, second, deciding } = await reconnectWithAnswer()
+    second.reply({ id: second.idOf('carryOn/decide'), ok: true, result: { incident: incident({ state: 'stopped' }) } })
+    await deciding
+    expect(live.getSnapshot().carryOnIncidents.get(KEY)?.state).toBe('stopped')
+  })
+
+  it('a stale refusal to that queued answer clears the card the list put back', async () => {
+    const { live, second, deciding } = await reconnectWithAnswer()
+    second.reply({ id: second.idOf('carryOn/decide'), ok: false, error: { code: 'carryOnStale', message: 'This was already answered.', data: { incident: null } } })
+    await expect(deciding).rejects.toThrow('already answered')
+    expect(live.getSnapshot().carryOnIncidents.has(KEY)).toBe(false)
   })
 })
