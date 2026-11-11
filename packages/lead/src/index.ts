@@ -45,3 +45,4 @@ export { LEAD_MEMORY_OPEN, LEAD_MEMORY_CLOSE, initialLeadMemoryCore, leadMemoryB
 export { LEAD_MEMORY_STATUS_OPEN, LEAD_MEMORY_STATUS_CLOSE, leadMemoryStatus, type LeadMemoryStatus, type LeadMemoryProposalStatus, type LeadMemoryProposalState } from './memory.js'
 export { leadAutonomyMode, leadDeadlinePassed, leadWakeAutonomy } from './autonomy.js'
 export { leadRulesAddendum, LEAD_RULES_OPEN, LEAD_RULES_CLOSE } from './context.js'
+export { LEAD_SETTINGS_STATUS_OPEN, LEAD_SETTINGS_STATUS_CLOSE, leadSettingsStatus } from './settings.js'

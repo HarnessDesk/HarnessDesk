@@ -19,8 +19,8 @@ import { LeadDetails } from '../components/LeadDetails'
 import { LeadAskOptions, LeadAvatar, LeadNameChoice, LeadPlanFlow, LeadTurn, LeadWorking, Text } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
-import { LEAD_SCENES, leadContextFacts, leadPresenceFixture, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadMemoryAgainView, leadMemoryView, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
-import { LEAD_AUTONOMY_DEFAULTS, LEAD_LIMITS, LEAD_RULE_DEFAULTS, LEAD_RULE_SECTIONS, LEAD_RULE_TITLES, type LeadAutonomyChange, type LeadAutonomyKind, type LeadAutonomyModes, type LeadAutonomyView, type LeadRuleSectionView, type LeadRuleVersion, type HostMethodName, type LeadWorkBoard, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_SCENES, leadContextFacts, leadPresenceFixture, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadMemoryAgainView, leadMemoryView, leadRuntime, leadSettingsProposals, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
+import { LEAD_AUTONOMY_DEFAULTS, LEAD_LIMITS, LEAD_RULE_DEFAULTS, LEAD_RULE_SECTIONS, LEAD_RULE_TITLES, type LeadAutonomyChange, type LeadAutonomyKind, type LeadAutonomyModes, type LeadAutonomyView, type LeadRuleSectionView, type LeadSettingsProposal, type LeadRuleVersion, type HostMethodName, type LeadWorkBoard, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
 export const createLeadFixtureStore = (scene: LeadScene) => {
@@ -56,7 +56,9 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     { at: Date.UTC(2026, 10, 8, 17, 0), by: 'person', what: 'mode', kind: 'stuck', from: 'act', to: 'observe' },
     { at: Date.UTC(2026, 10, 2, 17, 0), by: 'person', what: 'rules', section: 'talk', version: 1, how: 'edit' },
   ] : []
-  const autonomyView = (): LeadAutonomyView => ({ version: 1 as const, modes, observed, deadline: null, changes,
+  // The Lead's proposals, as the desk keeps them: Apply makes the change the card shows and records it as the person's.
+  let proposals: LeadSettingsProposal[] = scene === 'autonomy-proposal' ? [...leadSettingsProposals] : []
+  const autonomyView = (): LeadAutonomyView => ({ version: 1 as const, modes, observed, deadline: null, changes, ...(proposals.length ? { proposals: [...proposals].reverse() } : {}),
     rules: LEAD_RULE_SECTIONS.map(id => { const one = sectionView(id); return { id, title: one.title, text: one.text, custom: one.custom, version: one.version, ...(one.history[0] ? { changedAt: one.history[0].at } : {}) } }) })
   const emit = (next: LeadWindowProjection) => { current = next; store.lead.changed({ method: 'lead/changed', params: current }) }
   store.transport.request = (async (method: HostMethodName, input: unknown) => {
@@ -116,6 +118,23 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/autonomy/set') {
       if (modes[params.kind as LeadAutonomyKind] !== params.mode) changes = [{ at: Date.now(), by: 'person', what: 'mode', kind: params.kind, from: modes[params.kind as LeadAutonomyKind], to: params.mode }, ...changes]
       modes = { ...modes, [params.kind]: params.mode }; return autonomyView()
+    }
+    if (method === 'lead/settings/decide') {
+      const one = proposals.find(entry => entry.id === params.id && entry.state === 'pending')
+      if (!one) throw { code: 'lead-proposal-decided' }
+      const at = Date.now(), change = one.change
+      if (params.decision === 'apply' && change.kind === 'autonomy') {
+        changes = [{ at, by: 'person', what: 'mode', kind: change.autonomy, from: modes[change.autonomy], to: change.to }, ...changes]
+        modes = { ...modes, [change.autonomy]: change.to }
+      }
+      if (params.decision === 'apply' && change.kind === 'rules') {
+        const list = versions[change.section] ??= []
+        list.push({ version: (list.at(-1)?.version ?? 0) + 1, text: change.text, at, how: 'edit', base: LEAD_RULE_DEFAULTS[change.section] })
+        changes = [{ at, by: 'person', what: 'rules', section: change.section, version: list.at(-1)!.version, how: 'edit' }, ...changes]
+      }
+      const state = params.decision === 'apply' ? 'applied' as const : 'declined' as const
+      proposals = proposals.map(entry => entry === one ? { ...entry, state, decidedAt: at, history: [...entry.history, { what: state, at }] } : entry)
+      return autonomyView()
     }
     if (method === 'lead/rules/read') return rulesView()
     if (method === 'lead/rules/update') {

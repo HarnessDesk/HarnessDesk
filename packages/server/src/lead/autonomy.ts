@@ -5,7 +5,9 @@ import { leadAutonomyMode, leadRulesAddendum } from '@harnessdesk/lead'
 import { LEAD_AUTONOMY_CHANGES_KEPT, LEAD_AUTONOMY_DEFAULTS, LEAD_AUTONOMY_KINDS, LEAD_RULE_DEFAULTS, LEAD_RULE_LIMITS, LEAD_RULE_SECTIONS, LEAD_RULE_TITLES, parseLeadAutonomySet, parseLeadDeadlineSet,
   parseLeadAutonomyChange, parseLeadRulesUpdate, type LeadAutonomyChange, type LeadAutonomyKind, type LeadAutonomyMode, type LeadAutonomyModes, type LeadAutonomyRecord, type LeadAutonomySet, type LeadAutonomyView,
   type LeadDeadline, type LeadDeadlineSet, type LeadRuleSectionId, type LeadRuleSectionView, type LeadRulesUpdate, type LeadRulesView, type LeadRuleVersion,
-  type LeadWakeRecord } from '@harnessdesk/protocol'
+  type LeadWakeRecord, LEAD_AUTONOMY_LABELS, LEAD_SETTINGS_PROPOSAL_LIMITS, parseLeadAutonomyPropose, parseLeadRulesPropose, parseLeadSettingsDecide, parseLeadSettingsProposal,
+  type LeadAutonomyPropose, type LeadProposalEvent, type LeadRulesPropose, type LeadSettingsChange, type LeadSettingsDecide, type LeadSettingsProposal,
+  type LeadSettingsProposeResult } from '@harnessdesk/protocol'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
 
 const MAX_BYTES = 2 * 1024 * 1024
@@ -38,6 +40,10 @@ export interface LeadAutonomyPorts {
   /** The shipped defaults; a later build raises a section's version to show the person what changed. */
   readonly defaults?: typeof LEAD_RULE_DEFAULTS
   readonly changed?: () => void
+  /** The Lead's journal position, so a proposal card sits under the reply that follows it. */
+  readonly seq?: () => number
+  /** The position of the person's latest message: a No stands until the person writes again. */
+  readonly personSeq?: () => number
 }
 
 interface SectionFile { versions: LeadRuleVersion[]; acked?: number }
@@ -49,11 +55,18 @@ interface Stored {
   automatic?: string[]
   /** Who changed what, oldest first, the newest `LEAD_AUTONOMY_CHANGES_KEPT`. */
   changes?: LeadAutonomyChange[]
+  /** The Lead's proposals, oldest first; a declined one keeps the person's position when they said No. */
+  proposals?: StoredProposal[]
+  nextProposal?: number
 }
+type StoredProposal = { -readonly [K in keyof LeadSettingsProposal]: LeadSettingsProposal[K] } & { declinedSeq?: number }
 const MAX_AUTOMATIC_IDS = 256
 const fresh = (): Stored => ({ version: 1, sections: {} })
 const refused = (code: string, message = code) => Object.assign(new Error(message), { wireCode: code })
 const unreadable = () => Object.assign(new Error('The Lead autonomy file could not be read just now, so nothing was written. Try again in a moment.'), { wireCode: 'unavailable' })
+/** A time as the desk's clock reads it, for the sentence the Lead relays. */
+const clock = (at: number): string => { const date = new Date(at), two = (n: number) => String(n).padStart(2, '0')
+  return `on ${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())} at ${two(date.getHours())}:${two(date.getMinutes())}` }
 const stale = () => refused('lead-rules-stale', 'These words changed since you opened them. Read them again.')
 
 /**
@@ -95,6 +108,10 @@ export class LeadAutonomyStore {
     }
     if (source.deadline) out.deadline = source.deadline
     if (Array.isArray(source.changes)) out.changes = source.changes.flatMap(one => { try { return [parseLeadAutonomyChange(one)] } catch { return [] } }).slice(-LEAD_AUTONOMY_CHANGES_KEPT)
+    if (Array.isArray(source.proposals)) out.proposals = source.proposals.flatMap(one => {
+      try { return [{ ...parseLeadSettingsProposal({ ...one, declinedSeq: undefined }), ...(Number.isSafeInteger(one.declinedSeq) ? { declinedSeq: one.declinedSeq } : {}) }] } catch { return [] }
+    }).slice(-LEAD_SETTINGS_PROPOSAL_LIMITS.kept)
+    if (Number.isSafeInteger(source.nextProposal)) out.nextProposal = source.nextProposal
     if (Array.isArray(source.automatic)) out.automatic = source.automatic.filter((id): id is string => typeof id === 'string' && id.length <= 300).slice(-MAX_AUTOMATIC_IDS)
     return out
   }
@@ -172,7 +189,8 @@ export class LeadAutonomyStore {
         const custom = this.#custom(id), latest = this.#latest(id)
         return { id, title: LEAD_RULE_TITLES[id], text: custom?.text ?? this.#defaults[id].text, custom: !!custom, version: latest?.version ?? 0, ...(latest ? { changedAt: latest.at } : {}) }
       }),
-      changes: [...(this.#stored.changes ?? [])].reverse().slice(0, 32) }
+      changes: [...(this.#stored.changes ?? [])].reverse().slice(0, 32),
+      proposals: [...(this.#stored.proposals ?? [])].reverse().map(({ declinedSeq: _seq, ...one }) => structuredClone(one)) }
   }
   async set(params: LeadAutonomySet): Promise<LeadAutonomyView> {
     const { kind, mode } = parseLeadAutonomySet(params)
@@ -200,7 +218,13 @@ export class LeadAutonomyStore {
   }
   async updateRules(params: LeadRulesUpdate): Promise<LeadRulesView> {
     const update = parseLeadRulesUpdate(params)
-    await this.#write(async () => {
+    await this.#write(() => this.#rulesChange(update))
+    this.ports.changed?.()
+    return this.rules()
+  }
+  /** One change to a section, inside the write queue: the Settings page's and a proposal's Apply alike. */
+  async #rulesChange(update: LeadRulesUpdate): Promise<void> {
+    {
       const { section: id } = update, file = this.#stored.sections[id] ?? { versions: [] }, latest = file.versions.at(-1)
       if ((latest?.version ?? 0) !== update.expectedVersion) throw stale()
       const base = { version: this.#defaults[id].version, text: this.#defaults[id].text }
@@ -228,9 +252,106 @@ export class LeadAutonomyStore {
       this.#stored.sections[id] = { versions, ...(file.acked === undefined ? {} : { acked: file.acked }) }
       const change = this.#change({ at: entry.at, by: 'person', what: 'rules', section: id, version: entry.version, how: entry.how })
       await this.ports.journal.setAutonomy(this.#record(this.#modes()), change)
+    }
+  }
+
+  /**
+   * The Lead's proposal of a mode for one kind of unasked work. It changes nothing: it puts a card in front of the
+   * person, who applies or declines it on any surface. One pending proposal per kind: asking again for the same mode
+   * moves the card under the reply that asked (`asked-again`); a different mode replaces it. The same change the person
+   * declined is refused until the person has written since their No.
+   */
+  async proposeMode(params: LeadAutonomyPropose): Promise<LeadSettingsProposeResult> {
+    const { kind, mode } = parseLeadAutonomyPropose(params)
+    const title = LEAD_AUTONOMY_LABELS[kind].title
+    const result = await this.#write(() => {
+      const from = this.#modes()[kind]
+      if (from === mode) return { outcome: 'same' as const, note: `${title} is already ${mode}. Nothing changes, and there is nothing for the person to apply.` }
+      return this.#propose({ kind: 'autonomy', autonomy: kind, from, to: mode }, one => one.kind === 'autonomy' && one.autonomy === kind,
+        one => one.kind === 'autonomy' && one.to === mode)
+    })
+    if (result.outcome !== 'same') this.ports.changed?.()
+    return result
+  }
+  /**
+   * The Lead's proposal for a rule section: a line added to the words in force, or the section's whole new words. Like
+   * a mode, it is a card the person applies or declines; Apply saves a new version against the version it was proposed
+   * on, so words the person changed meanwhile are never written over.
+   */
+  async proposeRules(params: LeadRulesPropose): Promise<LeadSettingsProposeResult> {
+    const proposal = parseLeadRulesPropose(params)
+    const result = await this.#write(() => {
+      const id = proposal.section, fromVersion = this.#latest(id)?.version ?? 0
+      const current = this.#custom(id)?.text ?? this.#defaults[id].text
+      const add = 'add' in proposal ? proposal.add.replace(/\s+/g, ' ').trim() : undefined
+      const text = add !== undefined ? `${current.trimEnd()}\n${add}` : (proposal as { readonly text: string }).text
+      if (text.length > LEAD_RULE_LIMITS.chars) return { outcome: 'refused' as const, reason: 'too-long' as const,
+        note: `"${LEAD_RULE_TITLES[id]}" would be longer than ${LEAD_RULE_LIMITS.chars} characters. Nothing was proposed; propose shorter words.` }
+      if (text === current || add !== undefined && current.split('\n').some(row => row.trim() === add))
+        return { outcome: 'same' as const, note: `"${LEAD_RULE_TITLES[id]}" already says that. Nothing changes, and there is nothing for the person to apply.` }
+      return this.#propose({ kind: 'rules', section: id, fromVersion, text, ...(add !== undefined ? { add } : {}) }, one => one.kind === 'rules' && one.section === id,
+        one => one.kind === 'rules' && (add !== undefined ? one.add === add : one.text === text))
+    })
+    if (result.outcome !== 'same' && result.outcome !== 'refused' || result.reason === 'declined') this.ports.changed?.()
+    return result
+  }
+  /** Inside the write queue: asks again, refuses a declined change, or makes the card. `slot` finds the one pending proposal it replaces. */
+  #propose(change: LeadSettingsChange, slot: (one: LeadSettingsChange) => boolean, alike: (one: LeadSettingsChange) => boolean): LeadSettingsProposeResult {
+    const at = this.ports.now(), seq = Math.max(0, Math.floor(this.ports.seq?.() ?? 0)), personSeq = this.ports.personSeq?.() ?? 0
+    const list = this.#stored.proposals ??= []
+    const event = (one: StoredProposal, what: LeadProposalEvent['what']) => { one.history = [...one.history, { what, at }].slice(-LEAD_SETTINGS_PROPOSAL_LIMITS.history) }
+    const pending = list.find(one => one.state === 'pending' && slot(one.change))
+    if (pending && alike(pending.change)) {
+      pending.afterSeq = Math.max(pending.afterSeq, seq); pending.askedAgainAt = at; event(pending, 'asked-again')
+      return { outcome: 'asked-again', id: pending.id, note: `Your proposal ${pending.id} was already waiting for the person's Apply, first proposed ${clock(pending.proposedAt)}; its card moved under this reply. Nothing has changed yet.` }
+    }
+    const declined = list.filter(one => one.state === 'declined' && slot(one.change) && alike(one.change))
+    const standing = declined.find(one => personSeq <= (one.declinedSeq ?? 0))
+    if (standing) return { outcome: 'refused', reason: 'declined', id: standing.id,
+      note: `The person said No to this (${standing.id}) ${clock(standing.decidedAt ?? standing.proposedAt)} and has not written since. Nothing was proposed; do not propose it again unless they ask for it.` }
+    if (pending) { pending.state = 'stale'; pending.decidedAt = at; event(pending, 'stale') }
+    const id = `s${this.#stored.nextProposal ?? 1}`
+    this.#stored.nextProposal = (this.#stored.nextProposal ?? 1) + 1
+    list.push({ id, change, state: 'pending', proposedAt: at, afterSeq: seq, history: [{ what: 'proposed', at }] })
+    this.#stored.proposals = list.slice(-LEAD_SETTINGS_PROPOSAL_LIMITS.kept)
+    return { outcome: 'created', id, ...(declined.length ? { declinedBefore: true as const } : {}),
+      note: `Proposed as ${id}${pending ? `, in place of ${pending.id}` : ''}. Nothing changes until the person presses Apply on its card, wherever they read this. ` +
+        `Say it waits for their Apply; never say it is set. ${change.kind === 'rules' ? 'Applied words reach you at your next epoch.' : 'An applied mode holds for what the desk does on its own from then on.'}` }
+  }
+  /**
+   * The person's Apply or No on a proposal card, from the window or a phone. Apply makes exactly the change the card
+   * shows, through the same path as Settings, recorded as the person's; words changed since the proposal make it stale
+   * instead, and nothing is written. Neither the Lead's tools nor its door can reach this method.
+   */
+  async decide(params: LeadSettingsDecide): Promise<LeadAutonomyView> {
+    const { id, decision } = parseLeadSettingsDecide(params)
+    const outcome = await this.#write(async () => {
+      const one = this.#stored.proposals?.find(entry => entry.id === id)
+      if (!one) throw refused('lead-proposal-missing', 'That proposal is no longer kept.')
+      if (one.state !== 'pending') throw refused('lead-proposal-decided', one.state === 'stale' ? 'A newer proposal or a change of yours replaced this one.' : `This proposal was already ${one.state}.`)
+      const at = this.ports.now()
+      const close = (state: 'applied' | 'declined' | 'stale') => {
+        one.state = state; one.decidedAt = at; one.history = [...one.history, { what: state, at }].slice(-LEAD_SETTINGS_PROPOSAL_LIMITS.history)
+      }
+      if (decision === 'decline') { close('declined'); one.declinedSeq = this.ports.personSeq?.() ?? 0; return 'declined' as const }
+      const change = one.change
+      if (change.kind === 'autonomy') {
+        const current = this.#modes()
+        if (current[change.autonomy] !== change.to) {
+          const record = this.#change({ at, by: 'person', what: 'mode', kind: change.autonomy, from: current[change.autonomy], to: change.to })
+          await this.ports.journal.setAutonomy(this.#record({ ...current, [change.autonomy]: change.to }), record)
+        }
+        close('applied')
+        return 'applied' as const
+      }
+      if ((this.#latest(change.section)?.version ?? 0) !== change.fromVersion) { close('stale'); return 'stale' as const }
+      await this.#rulesChange({ section: change.section, action: 'edit', text: change.text, expectedVersion: change.fromVersion })
+      close('applied')
+      return 'applied' as const
     })
     this.ports.changed?.()
-    return this.rules()
+    if (outcome === 'stale') throw refused('lead-rules-stale', 'These words changed after the Lead proposed this, so nothing was applied. Ask the Lead to propose it again.')
+    return this.view()
   }
 
   /** A goal's deadline, or none. The clock starts now: the Lead reports at 80% of the time and starts no round at 100%. */

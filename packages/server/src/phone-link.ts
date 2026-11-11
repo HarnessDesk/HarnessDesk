@@ -91,6 +91,9 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/memory/change': 'answer',
     // A reminder listed on the work board: the phone cancels one, as the window does. Setting one is the Lead's.
     'lead/reminder/cancel': 'run',
+    // Apply or No on the Lead's own proposal card: it applies exactly the change the card shows, as the window's does.
+    // Writing rules or modes freely stays on the desk.
+    'lead/settings/decide': 'answer',
   },
   topics: { lead: 'read', workspace: 'read', notices: 'read', presence: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.
@@ -135,7 +138,7 @@ const WORKSPACE_EVENTS = new Set([
   'session/started', 'session/status', 'session/title', 'session/closed', 'turn/started', 'turn/completed',
   'approval/requested', 'approval/resolved',
 ])
-const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed', 'lead/memory/changed'])
+const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed', 'lead/memory/changed', 'lead/autonomy/changed'])
 
 /** The methods whose receipts and marks name the device that made them. */
 const PHONE_DEVICE_METHODS = new Set(['lead/presence/read', 'lead/presence/dismiss', 'lead/thread/send'])

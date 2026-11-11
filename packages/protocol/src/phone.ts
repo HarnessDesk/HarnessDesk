@@ -615,3 +615,33 @@ export type PhoneLeadReminder = import('./lead-work.js').LeadReminder
  * phone keeps naming the step from `activity.method`.
  */
 export type PhoneLeadActivity = NonNullable<import('./lead.js').LeadWindowProjection['activity']>
+
+/**
+ * A change to the Lead's own settings that the Lead proposed and the person decides, as `workspace/read` hands it over in
+ * `work.autonomy.proposals` (newest first; refreshed when the desk publishes `lead/autonomy/changed`). The Lead has no
+ * method that applies one: only the person's Apply does, from the desktop or the phone, through `lead/settings/decide`
+ * (tier `answer`) with `{ id, decision: 'apply' | 'decline' }`, which answers with the whole autonomy view.
+ *
+ * What the phone must render for each `pending` one, under the first Lead reply whose revision is after `afterSeq` (else
+ * under the latest reply), as the desktop does:
+ * - what it changes: for `change.kind === 'autonomy'`, the kind's title and `from → to` in the words Settings uses
+ *   (Off, Observe, Act); for `rules`, the line in `change.add`, or, without one, the section's whole new words
+ *   (`change.text`), with the section's title as a chip;
+ * - when it takes effect: a mode at once, for what the Lead does without being asked; a rule section at the Lead's next
+ *   epoch, never in the middle of a turn;
+ * - an "Asked again" chip when `askedAgainAt` is set (the same card, moved under the newer reply; the id is unchanged);
+ * - Apply and No, nothing else. A refusal (`lead-rules-stale`: the person's words changed since the proposal;
+ *   `lead-proposal-decided`: answered on another surface) is shown as the desk's sentence, and the card leaves.
+ * `applied`, `declined` and `stale` ones need no card; `history` is what the Lead reads to say what happened, never shown
+ * as controls.
+ */
+export type PhoneLeadSettingsProposal = import('./lead-autonomy.js').LeadSettingsProposal
+
+/**
+ * Each stop of a work item's attempts, oldest first, as `work.items[].stops` carries them: `by: 'person'` when the person
+ * stopped the chat (the desktop's Stop, the rail's Work menu, or the phone's own `workspace/stop`), `lead` when the Lead
+ * did, left out when the desk did not see who. The phone says "You stopped it" on a stopped item whose `stoppedBy` is
+ * `person`, and may count the attempts ("Stopped 2 times, by you each time"). Once an item has stopped twice, the desk
+ * refuses the Lead's next attempt until the person has answered, so a phone needs no control of its own for that.
+ */
+export type PhoneLeadWorkStop = import('./lead-work.js').LeadWorkStop

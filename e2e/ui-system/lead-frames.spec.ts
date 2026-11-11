@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
-const scenes = ['pending-plan', 'result-person-gate', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers'] as const
+const scenes = ['pending-plan', 'result-person-gate', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'autonomy-proposal'] as const
 for (const theme of ['light', 'dark']) for (const scene of scenes) test(`Lead synthetic ${scene} in ${theme}`, async ({ page }, info) => {
   await page.setViewportSize({ width: 1100, height: 980 })
   await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' || new URL(route.request().url()).hostname === 'localhost' ? route.continue() : route.abort())
@@ -19,6 +19,16 @@ for (const theme of ['light', 'dark']) for (const scene of scenes) test(`Lead sy
   else if (scene.startsWith('branch-')) await expect(frame.getByRole('button', { name: 'Take the branch back', exact: true })).toBeVisible()
   else if (scene === 'handback-running') await expect(frame.locator('[data-slot="lead-live-line"]')).toHaveText('Repairing checks · round 2')
   else if (scene === 'handback-limit') await expect(frame.locator('[data-lead-card="handback-limit"]')).toContainText('Automatic repairs reached their limit')
+  else if (scene === 'autonomy-proposal') {
+    const cards = frame.locator('[data-slot="lead-settings-proposals"]')
+    await expect(cards).toContainText('Desk-change reports: Act → Observe')
+    await expect(cards).toContainText('Takes effect at once')
+    await expect(cards.getByRole('button', { name: 'Apply', exact: true })).toHaveCount(2)
+    // The card sits inside the thread, under the reply's text: same left edge, never past the right.
+    const thread = frame.getByRole('region', { name: / thread$/ })
+    const [card, region, reply] = await Promise.all([cards.boundingBox(), thread.boundingBox(), frame.getByText('Those are settings, not notes').boundingBox()])
+    expect(card && region && reply && Math.abs(card.x - reply.x) <= 1 && card.x + card.width <= region.x + region.width).toBe(true)
+  }
   else await expect(frame.locator('[data-slot="lead-pr-status"]')).toContainText('#12')
   expect(await frame.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
   const directory = process.env.LEAD_D_FRAMES_DIR ?? info.outputPath('frames')
