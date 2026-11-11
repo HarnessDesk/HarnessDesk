@@ -27,7 +27,7 @@ const rig = async (t: TestContext) => {
     publish: (board: LeadWorkBoard) => { published.push(board) },
   }
   const ledger = await LeadWorkLedger.open(ports)
-  const chat = (id: string, stage: LeadStage, reason = stage === 'idle' ? 'idle' : stage === 'working' ? 'running' : 'worker-approval') => { chats.set(id, { stage, reason }) }
+  const chat = (id: string, stage: LeadStage, reason = stage === 'idle' ? 'idle' : stage === 'working' ? 'running' : 'worker-approval', turn?: string) => { chats.set(id, { stage, reason, ...(turn ? { turn } : {}) }) }
   return { ledger, ports, chats, teams, prs, published, chat, file: ports.file, home, notes,
     tick: (ms: number) => { now += ms }, now: () => now, reply: () => { replies++ }, ask: () => { asked++ },
     inProject: (name: string) => { project = name }, reopen: () => LeadWorkLedger.open(ports) }
@@ -160,9 +160,11 @@ test('a stop names who made it: the person from either surface, the Lead, or nob
   await start(r, 'Rename the status column', ['m-3'], 'fixture:c')
   for (const id of ['fixture:a', 'fixture:b', 'fixture:c']) r.chat(id, 'working')
   await r.ledger.refresh()
-  await r.ledger.stopping('fixture:a', 'person')
-  await r.ledger.stopping('fixture:b', 'lead')
-  // Who is about to stop a chat is written before the stop lands, so it survives a restart in between.
+  // The mark is taken at once, never waiting on the file.
+  assert.equal(typeof r.ledger.stopping('fixture:a', 'person'), 'function')
+  r.ledger.stopping('fixture:b', 'lead')
+  // It is also kept on disk, so a restart between the request and the stop it names keeps it.
+  await r.ledger.refresh()
   const reopened = await r.reopen()
   for (const id of ['fixture:a', 'fixture:b', 'fixture:c']) r.chat(id, 'idle', 'stopped')
   await reopened.refresh()
@@ -177,32 +179,133 @@ test('a stop names who made it: the person from either surface, the Lead, or nob
   assert.ok(timeline.includes('The person stopped a chat'), 'the timeline names the person too')
   assert.ok((await reopened.read({ id: 'work-2' })).timeline.some(fact => fact.text === 'The Lead stopped a chat'))
 
-  // A stop asked for that never landed does not name the next stop, ten minutes on.
-  r.chat('fixture:c', 'working'); await reopened.refresh()
-  await reopened.stopping('fixture:c', 'person')
-  r.tick(11 * 60_000)
-  r.chat('fixture:c', 'idle', 'stopped'); await reopened.refresh()
-  assert.equal(card(await reopened.board(), 'work-3').stoppedBy, undefined)
-
   // Work that starts again forgets who stopped it last time.
   r.chat('fixture:a', 'working'); await reopened.refresh()
   const again = card(await reopened.board(), 'work-1')
   assert.equal(again.stage, 'working')
   assert.equal(again.stoppedBy, undefined)
   // A chat no item holds is not an error.
-  await reopened.stopping('fixture:none', 'person')
+  reopened.stopping('fixture:none', 'person')
 })
 
-test('the window’s stop and the phone’s stop both tell the host the person is stopping, before the stop is sent', async () => {
+test('a stop request that did not land never names a later stop', async t => {
+  const r = await rig(t)
+  await start(r, 'Fix the stalled build', ['m-1'], 'fixture:a')
+  let later = 100
+  const stopLater = async () => {
+    const turn = `t-${later++}`
+    r.chat('fixture:a', 'working', 'running', turn); await r.ledger.refresh()
+    r.chat('fixture:a', 'idle', 'stopped', turn); await r.ledger.refresh()
+    const seen = card(await r.ledger.board(), 'work-1')
+    assert.equal(seen.stage, 'stopped')
+    return seen.stoppedBy
+  }
+  // Older than a minute when the stop is seen.
+  r.chat('fixture:a', 'working', 'running', 't-1'); await r.ledger.refresh()
+  r.ledger.stopping('fixture:a', 'person')
+  r.tick(61_000)
+  r.chat('fixture:a', 'idle', 'stopped', 't-1'); await r.ledger.refresh()
+  assert.equal(card(await r.ledger.board(), 'work-1').stoppedBy, undefined, 'a minute is the window')
+  // The interrupt failed and the caller took it back.
+  r.chat('fixture:a', 'working', 'running', 't-2'); await r.ledger.refresh()
+  r.ledger.stopping('fixture:a', 'person')()
+  assert.equal(await stopLater(), undefined)
+  // The chat was idle: there was nothing to stop, so nothing is recorded.
+  r.chat('fixture:a', 'idle', 'idle', 't-3'); await r.ledger.refresh()
+  r.ledger.stopping('fixture:a', 'person')
+  assert.equal(await stopLater(), undefined)
+  // The turn finished before the stop reached it: the record goes with the turn.
+  r.chat('fixture:a', 'working', 'running', 't-4'); await r.ledger.refresh()
+  r.ledger.stopping('fixture:a', 'lead')
+  r.chat('fixture:a', 'idle', 'idle', 't-4'); await r.ledger.refresh()
+  assert.equal(await stopLater(), undefined)
+  // Another turn is running when the host next looks: the stop missed the turn it was for.
+  r.chat('fixture:a', 'working', 'running', 't-5'); await r.ledger.refresh()
+  r.ledger.stopping('fixture:a', 'lead')
+  r.chat('fixture:a', 'working', 'running', 't-6'); await r.ledger.refresh()
+  assert.equal(await stopLater(), undefined)
+  // Bound to its turn: a stop seen on another turn is not the one asked for.
+  r.chat('fixture:a', 'working', 'running', 't-7'); await r.ledger.refresh()
+  r.ledger.stopping('fixture:a', 'person')
+  r.chat('fixture:a', 'idle', 'stopped', 't-8'); await r.ledger.refresh()
+  assert.equal(card(await r.ledger.board(), 'work-1').stoppedBy, undefined)
+  // While its turn still runs, the request waits for the stop it names.
+  r.chat('fixture:a', 'working', 'running', 't-10'); await r.ledger.refresh()
+  r.ledger.stopping('fixture:a', 'person')
+  await r.ledger.refresh()
+  r.chat('fixture:a', 'idle', 'stopped', 't-10'); await r.ledger.refresh()
+  assert.equal(card(await r.ledger.board(), 'work-1').stoppedBy, 'person')
+})
+
+test('a stop, a restart and another stop between two looks are a new stop with its own actor', async t => {
+  const r = await rig(t)
+  await start(r, 'Fix the stalled build', ['m-1'], 'fixture:a')
+  r.chat('fixture:a', 'working', 'running', 't-1'); await r.ledger.refresh()
+  r.ledger.stopping('fixture:a', 'person')
+  r.chat('fixture:a', 'idle', 'stopped', 't-1'); await r.ledger.refresh()
+  assert.equal(card(await r.ledger.board(), 'work-1').stoppedBy, 'person')
+  // Restarted and stopped by the Lead before the host looked again.
+  r.chat('fixture:a', 'working', 'running', 't-2'); r.ledger.stopping('fixture:a', 'lead')
+  r.chat('fixture:a', 'idle', 'stopped', 't-2'); await r.ledger.refresh()
+  let seen = card(await r.ledger.board(), 'work-1')
+  assert.equal(seen.stage, 'stopped')
+  assert.equal(seen.stoppedBy, 'lead')
+  assert.equal(seen.fact, 'The Lead stopped a chat')
+  // Again, with nobody recorded: the old actor is not carried over.
+  r.chat('fixture:a', 'working', 'running', 't-3')
+  r.chat('fixture:a', 'idle', 'stopped', 't-3'); await r.ledger.refresh()
+  seen = card(await r.ledger.board(), 'work-1')
+  assert.equal(seen.stoppedBy, undefined)
+  assert.equal(seen.fact, 'A chat was stopped')
+})
+
+test('the window’s stop and the phone’s stop are the person’s, recorded right before the interrupt and never waited on', async () => {
   const order: string[] = []
+  let interruptFails = false
+  const undone: string[] = []
+  let record: (chat: string) => () => void = chat => { order.push(`person:${chat}`); return () => { undone.push(chat) } }
   const ctx = {
-    personStopping: async (chat: string) => { order.push(`person:${chat}`) },
-    sessions: { live: async (params: { runtime: string; sessionId: string }) => ({ interrupt: async () => { order.push(`interrupt:${params.runtime}:${params.sessionId}`) } }) },
-    phoneWork: { stop: async (params: { id: string }, admit?: () => Promise<void>) => { await admit?.(); order.push(`phone-stop:${params.id}`); return {} } },
+    personStopping: (chat: string) => record(chat),
+    sessions: { live: async (params: { runtime: string; sessionId: string }) => ({ interrupt: async () => {
+      order.push(`interrupt:${params.runtime}:${params.sessionId}`); if (interruptFails) throw new Error('the agent is gone') } }) },
+    // The phone records through effectStarted, which the host calls right before it interrupts; the recovery-only path
+    // that admits and returns early never calls it.
+    phoneWork: { stop: async (params: { id: string }, admit?: () => Promise<void>, effectStarted?: () => void) => {
+      await admit?.(); if (params.id.endsWith('recovering')) return {}
+      effectStarted?.(); order.push(`phone-stop:${params.id}`); return {} } },
   } as unknown as HostContext
   await dispatch(ctx, 'turn/interrupt', { runtime: 'fixture', sessionId: 'a' } as never)
   await dispatch(ctx, 'workspace/stop', { id: 'fixture:b' } as never)
+  await dispatch(ctx, 'workspace/stop', { id: 'fixture:recovering' } as never)
   assert.deepEqual(order, ['person:fixture:a', 'interrupt:fixture:a', 'person:fixture:b', 'phone-stop:fixture:b'])
+  // A failed interrupt takes its record back.
+  interruptFails = true
+  await assert.rejects(dispatch(ctx, 'turn/interrupt', { runtime: 'fixture', sessionId: 'c' } as never), /the agent is gone/)
+  assert.deepEqual(undone, ['fixture:c'])
+  interruptFails = false
+  // A ledger that hangs or throws never holds the stop up.
+  order.length = 0
+  record = (() => new Promise(() => {})) as never
+  await dispatch(ctx, 'turn/interrupt', { runtime: 'fixture', sessionId: 'd' } as never)
+  record = () => { throw new Error('ledger unreadable') }
+  await dispatch(ctx, 'turn/interrupt', { runtime: 'fixture', sessionId: 'e' } as never)
+  await dispatch(ctx, 'workspace/stop', { id: 'fixture:f' } as never)
+  assert.deepEqual(order, ['interrupt:fixture:d', 'interrupt:fixture:e', 'phone-stop:fixture:f'])
+})
+
+test('the ledger takes a stop mark while its file cannot be written', async t => {
+  const r = await rig(t)
+  await start(r, 'Fix the stalled build', ['m-1'], 'fixture:a')
+  r.chat('fixture:a', 'working', 'running', 't-1'); await r.ledger.refresh()
+  await chmod(join(r.home, 'lead'), 0o500)
+  try {
+    const began = Date.now()
+    r.ledger.stopping('fixture:a', 'person')
+    assert.ok(Date.now() - began < 50, 'returns at once')
+    await r.ledger.refresh().catch(() => {})
+  } finally { await chmod(join(r.home, 'lead'), 0o700) }
+  r.chat('fixture:a', 'idle', 'stopped', 't-1'); await r.ledger.refresh()
+  assert.equal(card(await r.ledger.board(), 'work-1').stoppedBy, 'person', 'the mark in memory is what counts')
 })
 
 test('the person closes with Done or Drop, closing is never undone by desk activity, and the file survives a restart', async t => {

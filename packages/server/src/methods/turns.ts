@@ -60,9 +60,14 @@ export const turnMethods = {
 
   'turn/interrupt': async (ctx, params) => {
     const live = await ctx.sessions.live(params)
-    // A stop from the window is the person's; the Lead stops through lead/chat/stop and never reaches this method.
-    await ctx.personStopping(`${params.runtime}:${params.sessionId}`)
-    await live.interrupt()
+    // A stop from the window is the person's; the Lead stops through lead/chat/stop and never reaches this method. The
+    // record is taken right before the interrupt, never waited on, and taken back if the interrupt fails.
+    let undo: unknown
+    try { undo = ctx.personStopping(`${params.runtime}:${params.sessionId}`) } catch { /* A stop is never held up by the ledger. */ }
+    try { await live.interrupt() } catch (error) {
+      try { if (typeof undo === 'function') undo() } catch { /* As above. */ }
+      throw error
+    }
     return null
   },
 

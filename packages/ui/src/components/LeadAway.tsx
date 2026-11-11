@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { LEAD_DIGEST_ITEM_LABELS, type LeadAskState, type LeadDigest, type LeadDigestItem } from '@harnessdesk/protocol'
-import { Banner, Button, ListRow, ListRows, SectionHead, Text, ToolBodyControls, ToolSection } from '../design'
+import { Button, ListRow, ListRows, ToolBodyControls, ToolGroup, ToolProse, ToolSection } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { useSnapshot, useStore } from '../state/context'
 import type { LeadState } from '../state/lead'
-import { ChevronIcon, ExternalIcon } from './Icons'
+import { ChevronIcon, CrossIcon, ExternalIcon } from './Icons'
 import { leadDollars } from './LeadCards'
 import { leadDigestTarget, openLeadRefTarget } from './LeadRefs'
 
@@ -82,11 +82,13 @@ export const LeadAway = ({ active, state, label }: { readonly active: boolean; r
   const chats = new Set([...state.chats.map(chat => chat.id), ...(state.work?.items ?? []).flatMap(item => item.links.chats)])
   const desk = { runtimes: snapshot.runtimes, sessions: snapshot.sessions, teams: snapshot.teams, goals: snapshot.goals, chats, work: state.work ?? null }
   const lead = label?.trim() || 'The Lead'
-  return <div data-slot="lead-away"><Banner title={leadDigestTitle(digest)} onDismiss={dismiss}>
-    {digest.summary && <Text as="p" role="prose">{sanitizeText(digest.summary)}</Text>}
-    {leadDigestSections(digest).map(section => <section key={section.kind} aria-label={section.label} data-digest-group={section.kind}>
-      <SectionHead level="label" name={section.label} />
-      <ListRows>{section.items.map(item => {
+  // A card of the Lead's own, built like the rail's: its title, each group's label and each row's words stand on one
+  // row edge, and the dismiss and every row's trailing mark end on one right edge (ToolSection's contract).
+  return <div data-slot="lead-away"><ToolSection label={leadDigestTitle(digest)}
+    action={<Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} aria-label="Dismiss" onClick={dismiss}><CrossIcon size={13} /></Button>}>
+    {digest.summary && <ToolProse>{sanitizeText(digest.summary)}</ToolProse>}
+    {leadDigestSections(digest).map(section => <ToolGroup key={section.kind} label={section.label} data-digest-group={section.kind}>
+      <ListRows surface="panel">{section.items.map(item => {
         const found = leadDigestTarget(item.ref, desk)
         const row = { size: 'sm' as const, 'data-digest-item': item.id, title: sanitizeText(item.title), wrapTitle: true, subtitle: leadDigestLine(item, lead), wrapSubtitle: true }
         return found
@@ -94,7 +96,7 @@ export const LeadAway = ({ active, state, label }: { readonly active: boolean; r
             onClick={() => openLeadRefTarget(store, found.target)} trail={found.target.kind === 'pr' ? <ExternalIcon /> : <ChevronIcon />} />
           : <ListRow key={`${item.kind}-${item.id}`} {...row} />
       })}</ListRows>
-    </section>)}
-    <Text role="muted" data-slot="lead-away-note">{digest.more > 0 ? `${digest.more} more not shown · ` : ''}{leadDollars(digest.spentUsdMicros)} spent{digest.kind === 'away' ? ' while away' : ''}</Text>
-  </Banner></div>
+    </ToolGroup>)}
+    <ToolProse variant="note"><span data-slot="lead-away-note">{digest.more > 0 ? `${digest.more} more not shown · ` : ''}{leadDollars(digest.spentUsdMicros)} spent{digest.kind === 'away' ? ' while away' : ''}</span></ToolProse>
+  </ToolSection></div>
 }

@@ -16,8 +16,9 @@ export const phoneWorkspaceMethods = {
   'workspace/session/archive': (ctx, params) => ctx.phoneWork.sessionArchive(params, async address => sessionMethods['session/archive'](ctx, address)),
   'workspace/session/pin': (ctx, params) => ctx.phoneWork.sessionPin(params, async address => sessionMethods['session/pin'](ctx, address)),
   'workspace/session/delete': (ctx, params) => ctx.phoneWork.sessionDelete(params, async address => sessionMethods['session/delete'](ctx, address)),
-  // A stop from a phone is the person's. It is recorded only once the stop is going ahead, right before it is sent.
-  'workspace/stop': (ctx, params) => ctx.phoneWork.stop(params, () => ctx.personStopping(params.id)),
+  // A stop from a phone is the person's. It is recorded as the effect starts, right before the interrupt is sent, and
+  // never on the path that only cancels a recovery. The record never holds the stop up.
+  'workspace/stop': (ctx, params) => ctx.phoneWork.stop(params, undefined, () => { try { ctx.personStopping(params.id) } catch { /* As above. */ } }),
   'workspace/thread/read': (ctx, params) => ctx.phoneWork.threadRead(params),
   'workspace/approval/decide': (ctx, params) => ctx.phoneWork.approvalDecide(params),
   'workspace/team/wrap': (ctx, params) => ctx.phoneWork.teamWrap(params),

@@ -4091,7 +4091,9 @@ export class Host {
         const held = this.registry.get(runtime, id)
         return { approvalWaiting: (held?.approvals.size ?? 0) > 0, failed: held?.session.status.type === 'error', queuePaused: held?.queue.status === 'paused' && held.queue.messages.length > 0, queued: (held?.queue.messages.length ?? 0) > 0, running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0,
           // A chat the host no longer holds, after a restart, keeps the stop its kept transcript ended on.
-          stopped: held ? held.session.turns.at(-1)?.status === 'interrupted' : this.#transcripts.lastTurnStopped(runtime, id) }
+          stopped: held ? held.session.turns.at(-1)?.status === 'interrupted' : this.#transcripts.lastTurnStopped(runtime, id),
+          // The latest turn, so the work ledger matches a stop to the turn it was for.
+          ...(held?.session.turns.at(-1)?.id ? { turn: String(held.session.turns.at(-1)!.id) } : {}) }
       },
       work: this.#phoneWorkView(),
       control: {
@@ -5950,7 +5952,7 @@ export class Host {
       leadWork: { board: state => this.leadWork.board(state), read: params => this.leadWork.read(params),
         note: async params => { const card = await this.leadWork.note(params); void this.leadWork.refresh(); return card },
         close: params => this.leadWork.close(params) },
-      personStopping: async chat => { await this.#leadWork?.stopping(chat, 'person').catch(() => {}) },
+      personStopping: chat => { try { return this.#leadWork?.stopping(chat, 'person') ?? (() => {}) } catch { return () => {} } },
       // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
       leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary([...this.#runtimes.values()].flatMap(runtime => {
         const report = this.#usageService.cached(runtime.info.id)

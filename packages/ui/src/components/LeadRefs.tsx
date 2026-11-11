@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import { runtimeId, sessionId, sessionKey, type LeadDigestRef, type LeadMessageRef, type LeadWorkBoard, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
+import { LEAD_PULL_REQUEST_REF, runtimeId, sessionId, sessionKey, type LeadDigestRef, type LeadMessageRef, type LeadWorkBoard, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
 import { Button, InlineParts } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/snapshot'
@@ -29,7 +29,6 @@ export interface LeadRefDesk {
   readonly work: LeadWorkBoard | null
 }
 
-const PULL_REQUEST = /^([\w.-]+\/[\w.-]+)#(\d+)$/
 const FALLBACK: Record<LeadMessageRef['kind'], string> = { team: 'Team', goal: 'Team', session: 'Chat', chat: 'Chat', work: 'Work item' }
 
 /** The model's own title, as plain text. It names a ref only when the desk has no name of its own for it. */
@@ -83,11 +82,11 @@ export const leadRefLinks = (refs: readonly LeadMessageRef[], desk: LeadRefDesk)
 const workTarget = (id: string, desk: LeadRefDesk): { target: LeadRefTarget; title: string } | null => {
   const item = desk.work?.items.find(one => one.id === id)
   if (!item) return null
-  const chat = item.links.chats.at(-1), team = item.links.teams.at(-1), pr = item.links.prs.at(-1)?.match(PULL_REQUEST)
+  const chat = item.links.chats.at(-1), team = item.links.teams.at(-1), pr = item.links.prs.at(-1)?.match(LEAD_PULL_REQUEST_REF)
   const found = chat ? chatTarget(chat, { ...desk, chats: new Set([...desk.chats, chat]) }) : null
   if (found) return { target: found.target, title: 'Open its chat' }
   if (team && desk.teams.has(team)) return { target: { kind: 'team', id: team }, title: 'Open its Team' }
-  if (pr) return { target: { kind: 'pr', repository: pr[1]!, number: pr[2]! }, title: `Open pull request ${pr[1]}#${pr[2]}` }
+  if (pr) return { target: { kind: 'pr', repository: `${pr[1]}/${pr[2]}`, number: pr[3]! }, title: `Open pull request ${pr[1]}/${pr[2]}#${pr[3]}` }
   return null
 }
 
@@ -101,7 +100,7 @@ export const leadDigestTarget = (ref: LeadDigestRef | undefined, desk: LeadRefDe
   if (ref.kind === 'chat') { const found = chatTarget(ref.id, { ...desk, chats: new Set([...desk.chats, ref.id]) }); return found ? { target: found.target, title: 'Open the chat' } : null }
   if (ref.kind === 'team') return desk.teams.has(ref.id) ? { target: { kind: 'team', id: ref.id }, title: 'Open the Team' }
     : desk.goals.has(ref.id) ? { target: { kind: 'goal', id: ref.id }, title: 'Open the Team' } : null
-  if (ref.kind === 'pr') { const pr = ref.id.match(PULL_REQUEST); return pr ? { target: { kind: 'pr', repository: pr[1]!, number: pr[2]! }, title: `Open pull request ${pr[1]}#${pr[2]}` } : null }
+  if (ref.kind === 'pr') { const pr = ref.id.match(LEAD_PULL_REQUEST_REF); return pr ? { target: { kind: 'pr', repository: `${pr[1]}/${pr[2]}`, number: pr[3]! }, title: `Open pull request ${pr[1]}/${pr[2]}#${pr[3]}` } : null }
   if (ref.kind === 'card') return { target: { kind: 'card', id: ref.id }, title: 'Show the decision' }
   return workTarget(ref.id, desk)
 }

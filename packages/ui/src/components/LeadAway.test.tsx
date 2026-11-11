@@ -6,6 +6,7 @@ import { createLeadFixtureStore } from '../preview/frames-lead'
 import { LeadPage } from './LeadPage'
 import { LeadRecap, leadAsksAt, useLeadAsks, leadDigestLine, leadDigestSections, leadDigestTitle } from './LeadAway'
 import { openExternal } from '../lib/desktop'
+import { leadDigestTarget } from './LeadRefs'
 
 vi.mock('../lib/desktop', async original => ({ ...(await original<typeof import('../lib/desktop')>()), openExternal: vi.fn() }))
 import { leadPresenceFixture } from '../preview/lead-fixture'
@@ -61,6 +62,12 @@ it('each item the desk can find opens it: a chat, a decision card, a pull reques
   expect(openExternal).toHaveBeenCalledWith('https://github.com/acme/widgets/pull/42')
   expect(row('work-5').tagName).toBe('DIV')
   expect(row('work-5').getAttribute('data-digest-opens')).toBeNull()
+})
+
+it('a pull request link never walks a path: a name of . or .. is no link', () => {
+  const desk = { chats: new Set<string>(), teams: new Set<string>(), goals: new Set<string>(), work: new Set<string>() } as never
+  expect(leadDigestTarget({ kind: 'pr', id: 'acme/.github#7' }, desk)?.target).toEqual({ kind: 'pr', repository: 'acme/.github', number: '7' })
+  for (const id of ['../widgets#1', 'acme/..#1', 'acme/.#2', 'acme/widgets/../x#3']) expect(leadDigestTarget({ kind: 'pr', id }, desk)).toBeNull()
 })
 
 it('a stop says who made it: you, the Lead by name, or the host’s fact when nobody is known', async () => {

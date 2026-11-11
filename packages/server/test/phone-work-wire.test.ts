@@ -71,7 +71,8 @@ const door = async (chooseModel = false, canDelete = false) => {
       { id: 'effort', category: 'thought_level', type: 'select', label: 'Effort', currentValue: params.values?.effort as string ?? 'xhigh', choices: [{ value: 'xhigh', label: 'Extra high' }] },
     ], choices) : ({}), queue: async params => { state.actions.push(['send', params]); state.running = true; return { queuedId: null, sent: true } }, create: async params => { state.actions.push(['create', params]); return conversation },
     send: async params => { state.actions.push(['send', params]); state.running = true },
-    interrupt: async params => { state.actions.push(['stop', params]); state.running = false },
+    // As the host does: the effect starts right before the interrupt is sent.
+    interrupt: async (params, effectStarted) => { effectStarted?.(); state.actions.push(['stop', params]); state.running = false },
     respond: async params => { state.responded.push(params); state.pending = state.pending.filter(one => one.id !== params.approvalId) },
     hasSecret: () => false,
     now: () => 1_000,
@@ -82,8 +83,8 @@ const door = async (chooseModel = false, canDelete = false) => {
     phone: { state: () => attached?.state() ?? phoneLinkOff, pairing: () => attached!.pairing(), allow: (...a: never[]) => (attached!.allow as any)(...a),
       deny: (id: string) => attached!.deny(id), revoke: (d: string) => attached!.revoke(d) },
     phoneWork: work,
-    // The phone's stop is the person's: the host records it for the work ledger before the stop is sent.
-    personStopping: async (chat: string) => { stopping.push(chat) },
+    // The phone's stop is the person's: the host records it for the work ledger right before the stop is sent.
+    personStopping: (chat: string) => { stopping.push(chat); return () => {} },
   } as unknown as HostContext
   const broadcasters = new Set<(notification: WireNotification) => void>()
   const host = {
