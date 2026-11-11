@@ -1,4 +1,4 @@
-import { isWaitingOnYou, LEAD_INBOX_LIMIT, leadDisplayName, leadPersonNeeds, type LeadDeskSummary, type LeadInbox, type LeadInboxItem, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { isWaitingOnYou, LEAD_INBOX_LIMIT, leadDisplayName, leadNeedsYou, type LeadDeskSummary, type LeadInbox, type LeadInboxItem, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 import { scrub } from '../phone-redact.js'
 
@@ -20,8 +20,9 @@ const noticeOf = (raw: unknown): LeadInboxItem | null => {
 const leadItems = (window: LeadWindowProjection | null, now: number, ask: LeadInboxAsk | null | undefined, askSeenAt?: (id: string) => number | undefined): LeadInboxItem[] => {
   const asked: LeadInboxItem[] = ask ? [{ id: `ask:${ask.id}`, kind: 'ask', title: scrub(ask.question, 160) || 'A question for you', at: askSeenAt?.(ask.id) ?? now, needsYou: true, target: ask.id }] : []
   if (!window || window.stage === undefined || !isWaitingOnYou(window.stage)) return asked
-  // One row for the Lead, counting each thing it waits on, by the rule the Lead's own word uses.
-  const needs = Math.max(1, leadPersonNeeds(window)), count = needs > 1 ? { count: needs } : {}
+  // One row for the Lead, counting each other thing it waits on; with the question's row they add up to `leadNeedsYou`,
+  // the number the Lead's own word says.
+  const needs = leadNeedsYou({ ...window, openAsk: !!ask }, true) - asked.length, count = needs > 1 ? { count: needs } : {}
   const name = leadDisplayName(window.settings?.name ?? 'dex')
   return [...asked, { id: 'lead', kind: 'lead', title: `${name} is waiting for you`, ...(window.stageReason ? { detail: scrub(window.stageReason, 300) } : {}), at: now, needsYou: true, ...count }]
 }

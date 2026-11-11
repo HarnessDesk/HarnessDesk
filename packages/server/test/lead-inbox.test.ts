@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { LEAD_UNSENT_WAITS, leadPersonNeeds, leadStage, type LeadDeskSummary, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { isWaitingOnYou, LEAD_UNSENT_WAITS, leadNeedsYou, leadPersonNeeds, leadStage, type LeadDeskSummary, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 import { leadInbox } from '../src/lead/inbox.js'
 
@@ -94,3 +94,26 @@ test('a request the desk did not send is not a wait on the person: no Lead row a
     assert.equal(inbox.needsYou, 1, waitReason)
   }
 })
+
+test('with an open question the inbox and the Lead\'s word say one number: the inbox\'s Lead rows add up to leadNeedsYou', () => {
+  // #2105 review: the question's row counted one more than the rule the Lead's word used. One fixture, both numbers.
+  const open = { id: 'm4', question: 'Fix the Team or the game first?' }
+  const cases: [string, LeadWindowProjection][] = [
+    ['idle', window({ stage: 'idle' })],
+    ['waiting, nothing else counted', window({ stage: 'you-blocked' })],
+    ['waiting on three approvals', window({ stage: 'you-answer', personActions: [{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }] } as never)],
+    ['waiting on a plan', window({ stage: 'you-blocked', wayOut: 'decide-plan' } as never)],
+  ]
+  for (const [name, lead] of cases) {
+    const waiting = lead.stage !== undefined && isWaitingOnYou(lead.stage)
+    const inbox = leadInbox({ window: lead, desk: null, kept: [], now: NOW, ask: open })
+    const word = leadNeedsYou({ ...lead, openAsk: true }, waiting)
+    assert.equal(inbox.needsYou, word, name)
+    assert.equal(inbox.needsYou, inbox.items.reduce((sum, item) => sum + (item.needsYou ? item.count ?? 1 : 0), 0), `${name}: the rows add up`)
+    // Without the question each drops by exactly one, and the two still agree.
+    assert.equal(leadInbox({ window: lead, desk: null, kept: [], now: NOW, ask: null }).needsYou, leadNeedsYou(lead, waiting), `${name}, answered`)
+    assert.equal(word - leadNeedsYou(lead, waiting), 1, `${name}: the question is one`)
+  }
+  assert.equal(leadPersonNeeds({ openAsk: true }), 1, 'the shared rule counts the open question')
+})
+

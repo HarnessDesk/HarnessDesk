@@ -21,7 +21,7 @@ export const useLeadControls = () => {
   const face = name ?? (state.projectMissing ? LEAD_FIRST_NAME : null)
   // The Lead's word counts what the desk says needs the person, the same number the bell shows.
   const inbox = useLeadInbox()
-  const presence = withDeskNeeds(leadPresence(state), inbox?.needsYou), label = leadLabel(face)
+  const presence = withDeskNeeds(leadPresence(state, inbox?.items?.some(item => item.kind === 'ask') ?? false), inbox?.needsYou), label = leadLabel(face)
   const other: LeadName = face === 'lex' ? 'dex' : 'lex'
   const [confirmPause, setConfirmPause] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
   const ready = state.revision >= 0 && !state.error

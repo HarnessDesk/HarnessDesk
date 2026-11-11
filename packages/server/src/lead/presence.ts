@@ -72,6 +72,11 @@ interface Stored {
   origin?: { at: number; spent: number }
   /** The spans of away digests and recaps dismissed on any device, oldest first; spans that meet are joined. */
   seen?: Seen[]
+  /**
+   * Set once the questions that end a report from an automatic wake are tracked as questions. A record without it was
+   * written before they were: the reports already in the thread were never answerable, so they are settled, not reopened.
+   */
+  reportAsks?: true
   /** The id of the brief the person dismissed, on any device. */
   briefDone?: string
 }
@@ -189,12 +194,20 @@ export class LeadPresenceStore {
   #stored: Stored = fresh()
   #loaded = false
   #unreadable = false
-  constructor(private readonly ports: LeadPresencePorts) { this.#tail = this.#load().catch(() => {}) }
+  /** The record changed on load (reports settled) and is written with the next write even if nothing else changes. */
+  #settled = false
+  /** The report questions the thread already held when this store opened: the only ones an upgrade may settle. */
+  readonly #before: ReadonlySet<string>
+  constructor(private readonly ports: LeadPresencePorts) {
+    // Taken now, before the file is read, so a report appended while it is read is a new question, not an old one.
+    this.#before = new Set(ports.messages().filter(message => !message.ask && askOf(message)).map(message => message.id))
+    this.#tail = this.#load().catch(() => {})
+  }
 
   async #load(): Promise<void> {
     const read = await readBoundedJsonResult(this.ports.file, MAX_BYTES)
     this.#loaded = false; this.#unreadable = false
-    if (read.kind === 'unreadable') { await this.#setAside(); this.#loaded = true; return }
+    if (read.kind === 'unreadable') { await this.#setAside(); this.#settleOldReports(); this.#loaded = true; return }
     if (read.kind === 'value') {
       try {
         const value = read.value as Stored
@@ -213,7 +226,19 @@ export class LeadPresenceStore {
           ...(briefKept ? { briefDigest: briefKept } : {}), ...(seenSpans(seen).length ? { seen: seenSpans(seen) } : {}) }
       } catch { await this.#setAside(); this.#stored = fresh() }
     } else if (read.kind === 'io') return
+    this.#settleOldReports()
     this.#loaded = true
+  }
+  /**
+   * A record from before reports' questions were tracked: each report question already in the thread is recorded as
+   * expired now, nothing done, so an upgrade never turns an old, ignored report into today's open question.
+   */
+  #settleOldReports(): void {
+    if (this.#stored.reportAsks) return
+    const now = this.ports.now()
+    for (const id of this.#before) if (!this.#stored.asks[id]) this.#stored.asks[id] = { seenAt: now, expiresAt: now }
+    this.#stored.reportAsks = true
+    this.#settled = true
   }
   /** A file whose content cannot be understood is moved beside itself and the record starts empty, as the work ledger does. */
   async #setAside(): Promise<void> {
@@ -230,7 +255,7 @@ export class LeadPresenceStore {
       try {
         const out = await work()
         const after = JSON.stringify(this.#stored)
-        if (after !== before) await writeAtomicJson(this.ports.file, this.#stored, async () => {})
+        if (after !== before || this.#settled) { await writeAtomicJson(this.ports.file, this.#stored, async () => {}); this.#settled = false }
         return out
       } catch (error) { this.#stored = JSON.parse(before) as Stored; throw error }
     })
@@ -261,14 +286,15 @@ export class LeadPresenceStore {
    * holds until it is answered, its own clock runs out, or the Lead asks a newer one; the newest is the only one open.
    */
   #replacedBy(id: string, record: AskRecord, now: number): string | undefined {
-    if (record.answer || record.expiresAt !== undefined && record.expiresAt <= now) return undefined
+    if (record.answer) return undefined
     const messages = this.ports.messages(), at = messages.findIndex(message => message.id === id)
     if (at < 0) return undefined
     const newer = messages.slice(at + 1).find(message => askOf(message) !== undefined)
     if (!newer) return undefined
-    // A question that ran out before the newer one came is expired, not replaced.
-    const seen = this.#stored.asks[newer.id]?.seenAt
-    return record.expiresAt !== undefined && seen !== undefined && record.expiresAt <= seen ? undefined : newer.id
+    // A question that ran out before the newer one came is expired, not replaced; one replaced first stays replaced
+    // after its own clock would have run out. A newer one the desk has not recorded yet came now.
+    const seen = this.#stored.asks[newer.id]?.seenAt ?? now
+    return record.expiresAt !== undefined && record.expiresAt <= seen ? undefined : newer.id
   }
   #askStates(): LeadAskState[] {
     const now = this.ports.now()
@@ -488,6 +514,8 @@ export class LeadPresenceStore {
     const at = messages.findLastIndex(message => askOf(message) !== undefined)
     if (at < 0) return null
     const message = messages[at]!, record = this.#stored.asks[message.id], ask = askOf(message)!
+    // A report's question is open only once the desk has recorded it, so one from before an upgrade is never mistaken for new.
+    if (!record && !message.ask) return null
     // A question with no clock of its own holds until it is answered or a newer one replaces it; time alone never settles it.
     if (record?.answer || record?.expiresAt !== undefined && record.expiresAt <= now) return null
     // Only the person's own words count: a schedule's, a trigger's or a reminder's message is not them asking or moving on.
@@ -541,7 +569,8 @@ export class LeadPresenceStore {
    * expired question carry a note to the model that nothing was done. Returns a step to run once the send is over.
    */
   async beforeSend(device: LeadDeviceRef | undefined, text: string, askId?: string): Promise<((sent: boolean, messageId?: string) => Promise<void>) | null> {
-    // A tap names the question it answers, so a later message in the thread cannot turn it into plain words.
+    // A tap names the question it answers, so a later message in the thread cannot turn it into plain words. Typed words
+    // without an id go to the newest question only.
     // A question the person has only repeated their request under is still open: typed words can answer it.
     const held = askId ? undefined : this.unansweredAsk()
     const open = askId ? this.#askById(askId) : this.#openAsk() ?? (held ? this.#askById(held.id) : undefined)

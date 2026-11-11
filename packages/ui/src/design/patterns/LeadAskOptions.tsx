@@ -6,7 +6,7 @@ import { CheckIcon } from '../../components/Icons'
 
 const clock = (at: number) => new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
 /** The time of day for today; an earlier day names the day too, so a receipt never reads as today's when it is not. */
-const when = (at: number, now = Date.now()) => new Date(at).toDateString() === new Date(now).toDateString() ? clock(at)
+const when = (at: number, now: number) => new Date(at).toDateString() === new Date(now).toDateString() ? clock(at)
   : `${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(at)}, ${clock(at)}`
 
 /** What became of a question, as one word for `data-status`: a replaced question is expired to the host, and says why here. */
@@ -38,6 +38,6 @@ export const LeadAskOptions = ({ ask, onAnswer, disabled = false, picked, settle
     </div>
     {status === 'replaced' && <Text as="p" role="muted" data-slot="lead-ask-receipt">Replaced by a newer question · nothing was done</Text>}
     {status === 'expired' && <Text as="p" role="muted" data-slot="lead-ask-receipt">Expired · nothing was done</Text>}
-    {status === 'answered' && settled?.answer && <Text as="p" role="muted" data-slot="lead-ask-receipt">{`Answered by you on ${sanitizeText(settled.answer.by)} · ${when(settled.answer.at)}`}</Text>}
+    {status === 'answered' && settled?.answer && <Text as="p" role="muted" data-slot="lead-ask-receipt">{`Answered by you on ${sanitizeText(settled.answer.by)} · ${when(settled.answer.at, Date.now())}`}</Text>}
   </section>
 }
