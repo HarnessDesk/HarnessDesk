@@ -46,3 +46,5 @@ export { LEAD_MEMORY_STATUS_OPEN, LEAD_MEMORY_STATUS_CLOSE, leadMemoryStatus, ty
 export { leadAutonomyMode, leadDeadlinePassed, leadWakeAutonomy } from './autonomy.js'
 export { leadRulesAddendum, LEAD_RULES_OPEN, LEAD_RULES_CLOSE } from './context.js'
 export { LEAD_SETTINGS_STATUS_OPEN, LEAD_SETTINGS_STATUS_CLOSE, leadSettingsStatus } from './settings.js'
+export { LEAD_CLOCK_PREFIX, leadClockLine } from './clock.js'
+export { LEAD_WAKE_OPEN, LEAD_WAKE_REFERENCE } from './messages.js'

@@ -263,13 +263,21 @@ export interface LeadReminder {
    * even a `lead` one on an item.
    */
   readonly kind?: 'check-back'
+  /**
+   * A fired `person` reminder only: `said` once the Lead's message about it is written in the thread, `missed` when its
+   * wake (and one more try) ended without one. Left out while that is not known yet, and for the Lead's own reminders,
+   * whose wake may rightly end in silence. `fired` alone means the Lead was woken, never that the person was told.
+   */
+  readonly delivery?: 'said' | 'missed'
+  /** When `delivery` was settled. */
+  readonly deliveredAt?: number
 }
 const reminderId: Validator<string> = (value, path = '') => {
   const out = isString(value, path)
   return /^remind-[1-9][0-9]{0,8}$/.test(out) ? out : fail(path, 'expected a reminder id such as remind-3')
 }
 export const parseLeadReminder: Validator<LeadReminder> = (value, path = '') => {
-  const source = only(['id', 'text', 'for', 'item', 'dueAt', 'createdAt', 'state', 'firedAt', 'cancelledAt', 'why', 'kind'])(value, path)
+  const source = only(['id', 'text', 'for', 'item', 'dueAt', 'createdAt', 'state', 'firedAt', 'cancelledAt', 'why', 'kind', 'delivery', 'deliveredAt'])(value, path)
   const at = (key: string) => path ? `${path}.${key}` : key
   const out: Record<string, unknown> = {
     id: reminderId(source.id, at('id')), text: text(LEAD_WORK_LIMITS.reminderChars)(source.text, at('text')),
@@ -278,6 +286,7 @@ export const parseLeadReminder: Validator<LeadReminder> = (value, path = '') => 
     state: literalUnion('set', 'fired', 'cancelled')(source.state, at('state')),
     firedAt: optional(time)(source.firedAt, at('firedAt')), cancelledAt: optional(time)(source.cancelledAt, at('cancelledAt')),
     why: optional(text(200))(source.why, at('why')), kind: optional(literalUnion('check-back'))(source.kind, at('kind')),
+    delivery: optional(literalUnion('said', 'missed'))(source.delivery, at('delivery')), deliveredAt: optional(time)(source.deliveredAt, at('deliveredAt')),
   }
   for (const key of Object.keys(out)) if (out[key] === undefined) delete out[key]
   return out as unknown as LeadReminder

@@ -67,7 +67,10 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   if (['pending-plan', 'consent-expired', 'stale-card-replacement', 'narrow', 'app-shell'].includes(scene)) { thread.cards = [{ ...leadPlan, revision: scene === 'consent-expired' || scene === 'stale-card-replacement' ? 2 : 1 }]; thread.state = 'awaiting-plan'; thread.cardPositions = { plan: 2 } }
   // A reply that names work: the work item and its chat become links, a Team this desk does not have does not.
   if (scene === 'work-ledger') thread.messages = [...thread.messages, { version: 1, id: 'work-reply', revision: 2, role: 'assistant', text: 'The keyboard work is running in its chat, and the retry list is waiting for review.',
-    refs: [{ kind: 'work', id: 'work-3' }, { kind: 'work', id: 'work-2' }, { kind: 'team', id: 'room-gone', title: 'Not on this desk' }] }]
+    refs: [{ kind: 'work', id: 'work-3' }, { kind: 'work', id: 'work-2' }, { kind: 'team', id: 'room-gone', title: 'Not on this desk' }] },
+    // A reminder the person asked for: its wake is the desk's line, and the Lead's turn after it says the reminder.
+    { version: 1, id: 'remind-wake', revision: 3, role: 'system', text: 'Reminder: Check the review on the retry list', wake: { kind: 'reminder', reminder: 'remind-1', text: 'Check the review on the retry list' } },
+    { version: 1, id: 'remind-reply', revision: 4, role: 'assistant', text: 'You asked me to remind you now: check the review on the retry list. It is waiting for you.', refs: [{ kind: 'work', id: 'work-2' }] }]
   if (scene === 'repeating-plan') { thread.cards = [leadRepeatingPlan]; thread.state = 'awaiting-plan'; thread.cardPositions = { 'repeat-plan': 2 } }
   if (scene === 'second-look') { thread.cards = [leadSecondLook]; thread.contract = leadContract; thread.state = 'running' }
   if (scene === 'allowance-warning') { thread.cards = [leadAllowanceWarning]; thread.contract = leadContract; thread.state = 'running'; thread.budget = { ...leadBudget, leadUsdMicros: 1000000, workerUsdMicros: 3000000 } }
@@ -206,7 +209,7 @@ export const leadMemoryAgainView: LeadMemoryView = { ...leadMemoryView, revision
 
 /** What `lead/context/read` answers in the frames: a conversation summarised once, mostly read from the cache. */
 export const leadContextFacts: LeadContextFacts = { version: 1, windowTokens: 200_000, usedTokens: 46_000, cacheHitRate: 0.91, compacting: false, checkpoints: [
-  { id: 'checkpoint-demo', at: 1_767_225_600_000, fallback: false, beforeTokens: 170_000, afterTokens: 30_000,
+  { id: 'checkpoint-demo', at: Date.now() - 8 * 60 * 60_000, fallback: false, beforeTokens: 170_000, afterTokens: 30_000,
     person: { messages: [{ id: 'goal', text: 'Keep the docs short' }], leftOut: [] },
     text: '## Decisions made and why\nNone.\n\n## Work and where each piece stands\nThe sign-in page passes its checks.\n\n## Waiting on the person\nNone.\n\n## Facts learned\nEach doc is under a page.\n\n## Open questions / next step\nNone.' }] }
 
@@ -233,7 +236,7 @@ export const leadWorkFixture: LeadWorkBoard = { version: 1, more: 0, items: [
 reminders: [
   { id: 'remind-2', text: 'Send the changelog to the team', for: 'person', item: 'work-5', dueAt: Date.now() + 90 * 60_000, createdAt: Date.now() - 600_000, state: 'set' },
   { id: 'remind-3', text: 'Check on Fix the retry status list', for: 'lead', item: 'work-2', dueAt: Date.now() + 3 * 60 * 60_000, createdAt: Date.now() - 300_000, state: 'set', kind: 'check-back' },
-  { id: 'remind-1', text: 'Check the review on the retry list', for: 'person', item: 'work-2', dueAt: Date.now() - 20 * 60_000, createdAt: Date.now() - 3_600_000, state: 'fired', firedAt: Date.now() - 20 * 60_000 },
+  { id: 'remind-1', text: 'Check the review on the retry list', for: 'person', item: 'work-2', dueAt: Date.now() - 20 * 60_000, createdAt: Date.now() - 3_600_000, state: 'fired', firedAt: Date.now() - 20 * 60_000, delivery: 'said', deliveredAt: Date.now() - 19 * 60_000 },
 ] }
 
 /** What the host tells a window that has been away: one digest, and what became of the questions in the thread. */

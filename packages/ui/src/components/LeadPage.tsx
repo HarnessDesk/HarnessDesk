@@ -219,12 +219,12 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     ...(state.thread?.decisions ?? []).map(decision => ({ revision: decision.position, kind: 'decided' as const, decision })),
     // A steer sits just after what the thread held when it was sent; one without a revision stays at the end.
     ...(state.steers ?? []).map((steer, index) => ({ revision: steer.after === undefined ? Infinity : steer.after + 0.5, kind: 'steer' as const, steer, index }))].sort((a, b) => a.revision - b.revision)
-  // A Lead turn shows its face once, on its first line; the person's message starts the next turn.
+  // A Lead turn shows its face once, on its first line; the person's message, or a desk wake, starts the next turn.
   const faces = new Set<string>()
   for (let at = 0, open = false; at < entries.length; at++) {
     const entry = entries[at]!
     if (entry.kind !== 'message') continue
-    if (entry.message.role === 'user') open = false
+    if (entry.message.role === 'user' || entry.message.role === 'system') open = false
     else if (!open) { faces.add(entry.message.id); open = true }
   }
   const actionablePlan = entries.filter(entry => entry.kind === 'card' && entry.card.type === 'plan').at(-1)
@@ -280,7 +280,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
         {origin && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{leadOriginText(origin)}</Button> : leadOriginText(origin)}</Text>}
         {entries.map(entry => entry.kind === 'message'
-          ? entry.message.role === 'notice' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={entry.message.id === firstReply?.id ? replyKey : `message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
+          ? entry.message.role === 'notice' || entry.message.role === 'system' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={entry.message.id === firstReply?.id ? replyKey : `message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             ask={entry.message.ask} settled={asks.get(entry.message.id)} proactive={entry.message.proactive} disabled={sendDisabled} picked={answers.get(entry.message.id)}
             onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) && (asks.get(entry.message.id)?.status ?? 'open') === 'open' ? label => { if (!sendDisabled) void send(label, entry.message.id) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)}
             note={leadMessageNote(entry.message.refs, proposals.get(entry.message.id), settingsProposals.get(entry.message.id))} />

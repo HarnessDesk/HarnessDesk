@@ -261,7 +261,14 @@ export interface LeadMessage {
   readonly text: string
   /** Host notice only: the earlier conversation was summarised here. `lead/context/read` holds the summary by id. */
   readonly checkpoint?: LeadCheckpointMarker
+  /**
+   * The desk woke the Lead (a reminder came due): never words the person wrote. The journal keeps it as the model's
+   * user turn; a thread projection shows it as a `system` line reading the reminder's own words.
+   */
+  readonly wake?: LeadMessageWake
 }
+/** What woke the Lead: `reminder` is the reminder's id, `text` its own words (untrusted, as the person or Lead set them). */
+export interface LeadMessageWake { readonly kind: 'reminder'; readonly reminder: string; readonly text: string }
 export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'following' | 'accepted' | 'declined' | 'stopped'
 export const LEAD_MANAGEMENT_REASONS = [
   'lead-predecessor-unavailable', 'lead-predecessor-unverifiable', 'lead-renewal-blocked',
@@ -799,7 +806,8 @@ const parseLeadCheckpointMarker: Validator<LeadCheckpointMarker> = (value, path 
 export const parseLeadMessageRef: Validator<LeadMessageRef> = omitUnset(object<LeadMessageRef>({ kind: literalUnion(...LEAD_MESSAGE_REF_KINDS), id: opaque, title: optional(text(120)) }), ['title'])
 /** The refs a reply carries, at most `LEAD_MESSAGE_REFS_MAX`, one per kind and id. */
 export const parseLeadMessageRefs: Validator<readonly LeadMessageRef[]> = list(parseLeadMessageRef, LEAD_MESSAGE_REFS_MAX, 1, ref => `${ref.kind}:${ref.id}`)
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs'])
+const parseLeadMessageWake: Validator<LeadMessageWake> = object<LeadMessageWake>({ kind: literalUnion('reminder'), reminder: id, text: text(200) })
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs), wake: optional(parseLeadMessageWake) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs', 'wake'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
@@ -807,6 +815,7 @@ export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   if (message.ask && (message.role !== 'assistant' || message.proactive)) fail(path, 'ask requires an ordinary assistant message')
   if (message.checkpoint && message.role !== 'notice') fail(path, 'a checkpoint marker is a host notice')
   if (message.refs && message.role !== 'assistant') fail(path, 'refs belong to a reply')
+  if (message.wake && message.role !== 'user' && message.role !== 'system') fail(path, 'a wake is a desk turn')
   return message
 }
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {
