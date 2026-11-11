@@ -603,6 +603,21 @@ test('with a plan approved the host keeps the plan in the stored words and puts 
   assert.deepEqual(ask.stable, { turns: 1, blocks: 2 })
 })
 
+test('the state of the Lead\'s own memory proposals is desk context of the moment: after the work cards, never kept, and a failing read still answers', async () => {
+  const status = '<desk-memory-status>\n- [c1] declined by the person; not in memory: Lead with the conclusion.\n</desk-memory-status>'
+  const s = await controlsRig([], { readWorkContext: async () => 'Work cards: none open.', readMemoryContext: async () => status })
+  await s.controls.send({ idempotencyKey: 'send-memory', text: 'Lead with the conclusion, please.' })
+  await s.controls.idle()
+  const [ask] = s.sends.filter(one => !one.compaction)
+  const blocks = ask.messages.at(-1).content.map((block: any) => block.text as string)
+  assert.deepEqual(blocks.slice(-2), ['Work cards: none open.', status])
+  assert.equal(ask.kept, undefined, 'the status is stubbed when stored, never carried forward')
+  const failing = await controlsRig([], { readMemoryContext: async () => { throw new Error('unreadable store') } })
+  await failing.controls.send({ idempotencyKey: 'send-failing', text: 'Hello' })
+  await failing.controls.idle()
+  assert.equal(failing.sends.filter(one => !one.compaction).length, 1, 'an unreadable memory store does not stop the turn')
+})
+
 test('a stored conversation that already carries the approved plan gets no second copy, and the moment\'s step states stay desk context', async () => {
   const contract = parseLeadAcceptanceContract({ ...CONTRACT, project: { id: 'demo', path: '/workspace/demo' } })
   // The plan was stored with the first message after approval; this is the next one.

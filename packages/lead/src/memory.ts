@@ -75,3 +75,75 @@ export const parseLeadMemoryCore = (value: unknown): LeadMemoryCore => {
   const core = { revision: source.revision as number, entries }
   return leadMemoryBytes(core) <= LEAD_MEMORY_LIMITS.coreBytes ? core : bad()
 }
+
+/** What became of one of the Lead's proposals, as the host's memory store records it now. */
+export type LeadMemoryProposalState = 'pending' | 'kept' | 'edited' | 'declined' | 'forgotten'
+export interface LeadMemoryProposalStatus {
+  readonly id: string
+  readonly state: LeadMemoryProposalState
+  /** Null once the person forgot the note: its words are gone from the desk. */
+  readonly text: string | null
+  /** The entry it became, while it is kept or edited. */
+  readonly entry?: string
+  /** When it was last proposed or decided. */
+  readonly at: number
+}
+/** The store as one request tells the Lead about it: its proposals (newest first), Core now, and every entry id. */
+export interface LeadMemoryStatus {
+  readonly revision: number
+  readonly proposals: readonly LeadMemoryProposalStatus[]
+  readonly core: readonly { readonly id: string; readonly text: string }[]
+  readonly entries: readonly string[]
+  /** When the person last used Forget all, if ever. */
+  readonly clearedAt: number | null
+}
+export const LEAD_MEMORY_STATUS_OPEN = '<desk-memory-status'
+export const LEAD_MEMORY_STATUS_CLOSE = '</desk-memory-status>'
+const STATUS_TEXT = 160
+const SAID: Readonly<Record<LeadMemoryProposalState, string>> = {
+  pending: "waiting for the person's Keep, Edit or No; not in memory yet",
+  kept: 'kept',
+  edited: "kept in the person's words",
+  declined: 'declined by the person; not in memory',
+  forgotten: 'forgotten by the person; not in memory',
+}
+const day = (at: number): string => new Date(at).toISOString().slice(0, 10)
+/**
+ * The desk-context note that tells the Lead, on every request, what is in memory now and what became of what it
+ * proposed: Core is frozen in the standing instructions for an epoch, so a Keep, a No or a Forget made since then would
+ * otherwise reach it only at the next epoch, and it would say "already recorded" of a note the person declined or
+ * forgot. `read` is the Core the standing instructions hold. Null when there is nothing to say. The words are quoted
+ * data, cleaned like Core's, and the whole note stays within `limit` UTF-8 bytes, dropping the oldest proposals first.
+ */
+export const leadMemoryStatus = (status: LeadMemoryStatus, read: LeadMemoryCore, limit: number = LEAD_MEMORY_LIMITS.statusBytes): string | null => {
+  const proposals = status.proposals.slice(0, LEAD_MEMORY_LIMITS.statusProposals).map(proposal => {
+    const into = proposal.entry && (proposal.state === 'kept' || proposal.state === 'edited') ? ` as ${proposal.entry}` : ''
+    const words = proposal.text === null ? '' : `: ${leadMemoryClean(proposal.text, STATUS_TEXT)}`
+    return `- [${proposal.id}] ${SAID[proposal.state]}${into}${words}`
+  })
+  const before = new Map(read.entries.map(entry => [entry.id, entry.text])), now = new Set(status.entries)
+  const added = status.core.filter(entry => before.get(entry.id) !== entry.text)
+  const removed = read.entries.filter(entry => !now.has(entry.id)).map(entry => entry.id)
+  const changes = [
+    ...added.map(entry => `- ${entry.id} ${before.has(entry.id) ? 'changed' : 'now kept'}: ${leadMemoryClean(entry.text, STATUS_TEXT)}`),
+    ...(removed.length ? [`- no longer in memory: ${removed.join(', ')}`] : []),
+  ]
+  const cleared = status.clearedAt === null ? [] : [`The person cleared all memory on ${day(status.clearedAt)}. Nothing proposed before then is kept.`]
+  if (!proposals.length && !changes.length && !cleared.length) return null
+  const build = (shown: readonly string[]) => [
+    `${LEAD_MEMORY_STATUS_OPEN} revision="${status.revision}">`,
+    'Memory as the desk holds it now. A note is in memory only when your desk-memory list holds it and it is not named below as no longer in memory, or when it is named below as kept. Never tell the person something is recorded, noted or remembered otherwise: say it waits for their Keep, or propose it again.',
+    ...(shown.length ? ['What you proposed, newest first:', ...shown] : []),
+    ...(changes.length ? ['Changed since your desk-memory list:', ...changes] : []),
+    ...cleared,
+    LEAD_MEMORY_STATUS_CLOSE,
+  ].join('\n')
+  const bytes = (text: string) => new TextEncoder().encode(text).byteLength
+  let shown = proposals, text = build(shown)
+  while (bytes(text) > limit && shown.length) { shown = shown.slice(0, -1); text = build(shown) }
+  if (bytes(text) > limit) {
+    // Only the changes are left too large: say how many, not which.
+    text = build([]).replace(changes.join('\n'), `- ${added.length} notes kept or changed and ${removed.length} no longer in memory; the next summary brings the whole list.`)
+  }
+  return text
+}

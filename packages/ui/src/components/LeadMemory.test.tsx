@@ -34,6 +34,18 @@ it('places a proposal under the first Lead reply after it, else under the latest
   expect(leadMemoryPlacement([message('only-person', 1, 'user')], [candidate('waiting', 0)]).size).toBe(0)
 })
 
+it('a proposal asked again moves under the newer reply and says so, still one chip with the same Keep', async () => {
+  const thread = [message('ask', 1, 'user'), message('first', 2), message('ask-again', 3, 'user'), message('second', 4)]
+  const again = { ...candidate('Lead every report with the conclusion.', 3), id: 'c12', askedAgainAt: 2 }
+  expect([...leadMemoryPlacement(thread, [again])].map(([id, list]) => [id, list.map(one => one.id)])).toEqual([['second', ['c12']]])
+  const { box, calls } = await mount(() => <LeadMemoryProposals candidates={[again]} />, 'memory-proposal-again')
+  expect(box.textContent).toContain('Asked again')
+  expect([...box.querySelectorAll('button')].filter(one => one.textContent === 'Keep')).toHaveLength(1)
+  await act(async () => button(box, 'Keep').click())
+  await settle()
+  expect(changes(calls)).toEqual([{ action: 'keep', id: 'c12' }])
+})
+
 it('reads the entries a plan cites by their ids', () => {
   expect([...leadCitedEntries([{ type: 'plan', title: 'Add the export (m2), as kept (m12)' } as never])]).toEqual(['m2', 'm12'])
   expect(leadCitedEntries([{ type: 'result', title: '(m1)' } as never]).size).toBe(0)

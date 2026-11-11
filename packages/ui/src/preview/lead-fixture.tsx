@@ -58,7 +58,7 @@ export const leadMemoryView: LeadMemoryView = { version: 1, revision: 7, auto: f
   history: [
     { version: 7, at: Date.parse('2026-11-09T03:00:00Z'), by: 'tidy', added: 1, removed: 2, changed: 1, tidy: { merged: 2, replaced: 0, archived: 1 }, undoable: true },
     { version: 6, at: Date.parse('2026-11-08T17:20:00Z'), by: 'person', added: 1, removed: 0, changed: 0, undoable: true }] }
-export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'settings-autonomy', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence', 'context-checkpoint', 'memory-proposal', 'settings-memory'] as const
+export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'settings-autonomy', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence', 'context-checkpoint', 'memory-proposal', 'settings-memory', 'memory-proposal-again'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -162,8 +162,18 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   if (scene === 'memory-proposal') thread.messages = [
     { version: 1, id: 'memory-ask', revision: 1, role: 'user', text: 'Why did the review bounce?' },
     { version: 1, id: 'memory-reply', revision: 2, role: 'assistant', text: 'The linter failed on two files, so review stopped before it started. I can run it first next time.' }]
+  // The person said the same thing again while the note still waited: the reply says so and the same chip moved under it.
+  if (scene === 'memory-proposal-again') thread.messages = [
+    { version: 1, id: 'again-ask', revision: 1, role: 'user', text: 'Lead every report with the conclusion.' },
+    { version: 1, id: 'again-reply', revision: 2, role: 'assistant', text: 'Understood. I offered it as a note to keep; it waits for your Keep.' },
+    { version: 1, id: 'again-repeat', revision: 3, role: 'user', text: 'Remember: conclusion first in every report.' },
+    { version: 1, id: 'again-repeat-reply', revision: 4, role: 'assistant', text: 'That note is not kept yet: it still waits for your Keep, below.' }]
   return leadProjection({ ...projection, thread, stage: undefined, stageReason: undefined })
 }
+
+/** The same proposal, offered again while it waited: one chip, moved under the newer reply. */
+export const leadMemoryAgainView: LeadMemoryView = { ...leadMemoryView, revision: 9,
+  inbox: [{ id: 'c12', text: 'Lead every report with the conclusion.', kind: 'preference', source: { kind: 'message', id: 'again-reply' }, proposedAt: Date.parse('2026-11-10T17:00:00Z'), afterSeq: 3, askedAgainAt: Date.parse('2026-11-10T17:04:00Z') }] }
 
 /** What `lead/context/read` answers in the frames: a conversation summarised once, mostly read from the cache. */
 export const leadContextFacts: LeadContextFacts = { version: 1, windowTokens: 200_000, usedTokens: 46_000, cacheHitRate: 0.91, compacting: false, checkpoints: [

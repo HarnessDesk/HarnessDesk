@@ -19,7 +19,7 @@ import { LeadDetails } from '../components/LeadDetails'
 import { LeadAskOptions, LeadAvatar, LeadNameChoice, LeadPlanFlow, LeadTurn, LeadWorking, Text } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
-import { LEAD_SCENES, leadContextFacts, leadPresenceFixture, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadMemoryView, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
+import { LEAD_SCENES, leadContextFacts, leadPresenceFixture, leadWakeFixture, leadWorkFixture, leadContract, leadMemory, leadMemoryAgainView, leadMemoryView, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
 import { LEAD_AUTONOMY_DEFAULTS, LEAD_LIMITS, LEAD_RULE_DEFAULTS, LEAD_RULE_SECTIONS, LEAD_RULE_TITLES, type LeadAutonomyChange, type LeadAutonomyKind, type LeadAutonomyModes, type LeadAutonomyView, type LeadRuleSectionView, type LeadRuleVersion, type HostMethodName, type LeadWorkBoard, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
@@ -33,7 +33,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   })
   const shellRequest = store.transport.request.bind(store.transport)
   let current = leadSceneProjection(scene), schedule = leadSchedule, memory = leadMemory
-  let memoryView = scene === 'memory-proposal' || scene === 'settings-memory' ? leadMemoryView : { ...leadMemoryView, revision: 0, core: [], archive: [], inbox: [], history: [], coreBytes: 0 }
+  let memoryView = scene === 'memory-proposal-again' ? leadMemoryAgainView : scene === 'memory-proposal' || scene === 'settings-memory' ? leadMemoryView : { ...leadMemoryView, revision: 0, core: [], archive: [], inbox: [], history: [], coreBytes: 0 }
   let work: LeadWorkBoard = scene === 'work-ledger' ? leadWorkFixture : { version: 1, items: [], more: 0 }
   let presence = scene === 'presence' ? leadPresenceFixture() : { version: 1 as const, digest: null, asks: [], brief: { enabled: false, at: '07:30' } }
   // Autonomy and rules, as the host answers them: modes, versioned sections, and a would-have row to show.

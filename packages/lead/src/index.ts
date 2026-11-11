@@ -42,5 +42,6 @@ export { LEAD_CHECKPOINT_SECTIONS, LEAD_CHECKPOINT_OPEN, leadCheckpointInstructi
   leadFallbackCheckpoint, leadCheckpointMessages, leadRegionBytes, leadPersonSection, leadPersonQuotes, leadCheckpointCompose, leadCheckpointModelPart, leadFitTurns } from './compaction.js'
 export type { LeadCheckpointRequestFacts } from './compaction.js'
 export { LEAD_MEMORY_OPEN, LEAD_MEMORY_CLOSE, initialLeadMemoryCore, leadMemoryBytes, leadMemoryClean, leadMemoryLine, leadMemorySnapshot, parseLeadMemoryCore, type LeadMemoryCore, type LeadMemoryCoreEntry } from './memory.js'
+export { LEAD_MEMORY_STATUS_OPEN, LEAD_MEMORY_STATUS_CLOSE, leadMemoryStatus, type LeadMemoryStatus, type LeadMemoryProposalStatus, type LeadMemoryProposalState } from './memory.js'
 export { leadAutonomyMode, leadDeadlinePassed, leadWakeAutonomy } from './autonomy.js'
 export { leadRulesAddendum, LEAD_RULES_OPEN, LEAD_RULES_CLOSE } from './context.js'

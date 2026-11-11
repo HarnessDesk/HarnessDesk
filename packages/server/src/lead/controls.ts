@@ -80,6 +80,8 @@ interface LeadControlsOptions {
   readonly steerWorker?: (text: string) => Promise<boolean>
   /** The open work cards, already bounded; they ride the end of each request and are never stored in the thread. */
   readonly readWorkContext?: (turn: { readonly proactive: boolean }) => Promise<string | null>
+  /** What is in memory now and what became of the Lead's proposals, as desk context that closes each request. */
+  readonly readMemoryContext?: () => Promise<string | null>
   /** The stored conversation. Absent, each request is rebuilt from the words the person can read, as before. */
   readonly context?: Pick<LeadContextStore, 'request' | 'due' | 'compact' | 'facts' | 'compacting' | 'epoch'> & Partial<Pick<LeadContextStore, 'settle'>>
   /** Test seam for the idle check after a step was recorded. */
@@ -402,6 +404,11 @@ export class LeadControls {
         let work: string | null = null
         try { work = await this.options.readWorkContext?.({ proactive: !!proactive }) ?? null } catch { /* A request without the cards still answers. */ }
         if (work) desk.push({ type: 'text', text: work })
+        // Memory as the desk holds it now: the Core in the standing instructions is frozen for the epoch, so a Keep, a No
+        // or a Forget since then reaches the model here, every request, and it never calls a declined note recorded.
+        let memory: string | null = null
+        try { memory = await this.options.readMemoryContext?.() ?? null } catch { /* A request without it still answers. */ }
+        if (memory) desk.push({ type: 'text', text: memory })
         // One user turn: the person's words, the plan and the desk's context of this moment are never two turns in a row.
         messages = leadAppendUser(messages, desk)
         return { maxTokens: LEAD_OUTPUT_TOKENS, messages, conversation: this.#requestConversation,

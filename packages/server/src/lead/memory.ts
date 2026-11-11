@@ -1,6 +1,6 @@
 import { rename } from 'node:fs/promises'
 import { join } from 'node:path'
-import { leadMemoryBytes, type LeadMemoryCore } from '@harnessdesk/lead'
+import { leadMemoryBytes, type LeadMemoryCore, type LeadMemoryProposalState, type LeadMemoryProposalStatus, type LeadMemoryStatus } from '@harnessdesk/lead'
 import { LEAD_MEMORY_LIMITS, LEAD_SCHEDULE_LIMITS, parseLeadMemoryCandidate, parseLeadMemoryEntry, type LeadMemory, type LeadMemoryCandidate, type LeadMemoryChange,
   type LeadMemoryChangeBy, type LeadMemoryEntry, type LeadMemoryKind, type LeadMemoryProposal, type LeadMemoryProposalResult, type LeadMemoryVersionSummary,
   type LeadMemoryView } from '@harnessdesk/protocol'
@@ -27,6 +27,20 @@ interface StoredVersion {
   /** Forget took text out of this version, so it can no longer be put back. */
   readonly erased?: true
 }
+/** One of the Lead's proposals and what the person did with it. A kept one names its entry; whether that entry is
+ * still in memory is read from the entries, so Forget, Undo and a tidy's merge need no second record. */
+interface StoredProposal {
+  readonly id: string
+  readonly kind: LeadMemoryKind
+  /** Null once the person forgot the entry it became: forgotten means its words are gone. */
+  readonly text: string | null
+  readonly state: 'pending' | 'kept' | 'edited' | 'declined' | 'forgotten'
+  readonly entry?: string
+  /** When it was last proposed or decided. */
+  readonly at: number
+}
+/** A No, by the proposal's normalised words and the Lead's journal position when the person said it. */
+interface StoredDecline { readonly key: string; readonly seq: number }
 interface StoreState {
   readonly version: 1
   readonly revision: number
@@ -36,13 +50,17 @@ interface StoreState {
   readonly lastTidyAt: number | null
   readonly entries: readonly LeadMemoryEntry[]
   readonly inbox: readonly LeadMemoryCandidate[]
-  /** Proposals the person said No to, by their normalised words. */
-  readonly declined: readonly string[]
+  /** Proposals the person said No to. The same words are offered again only once the person has written since. */
+  readonly declined: readonly StoredDecline[]
+  /** The Lead's recent proposals, newest last, so each request can say what became of them. */
+  readonly proposals: readonly StoredProposal[]
+  /** When the person last used Forget all. */
+  readonly clearedAt: number | null
   readonly versions: readonly StoredVersion[]
   /** What the tidy spent on the observer model, per local day. */
   readonly spend: { readonly day: string; readonly usdMicros: number }
 }
-const EMPTY: StoreState = { version: 1, revision: 0, next: 1, auto: false, lastTidyAt: null, entries: [], inbox: [], declined: [], versions: [], spend: { day: '', usdMicros: 0 } }
+const EMPTY: StoreState = { version: 1, revision: 0, next: 1, auto: false, lastTidyAt: null, entries: [], inbox: [], declined: [], proposals: [], clearedAt: null, versions: [], spend: { day: '', usdMicros: 0 } }
 
 /** An entry as Undo compares it: when it was last used is not a change. */
 const sameEntry = (a: LeadMemoryEntry | null | undefined, b: LeadMemoryEntry | null | undefined): boolean =>
@@ -97,13 +115,30 @@ const parseVersion = (value: unknown): StoredVersion => {
   return { version: item.version, at: item.at, by: item.by, changes, ...(item.tidy ? { tidy: { merged: Number(item.tidy.merged) || 0, replaced: Number(item.tidy.replaced) || 0, archived: Number(item.tidy.archived) || 0 } } : {}),
     ...(item.undone === true ? { undone: true as const } : {}), ...(item.erased === true ? { erased: true as const } : {}) }
 }
+const PROPOSAL_STATES = ['pending', 'kept', 'edited', 'declined', 'forgotten'] as const
+/** A record the desk cannot read is dropped: it only tells the Lead what became of a proposal. */
+const parseProposal = (value: unknown): StoredProposal[] => {
+  const item = value as StoredProposal
+  if (!item || typeof item !== 'object' || typeof item.id !== 'string' || !PROPOSAL_STATES.includes(item.state) || !Number.isSafeInteger(item.at)) return []
+  if (item.text !== null && (typeof item.text !== 'string' || item.text.length > LEAD_MEMORY_LIMITS.textChars)) return []
+  const kind = (['preference', 'fact', 'lesson', 'rule'] as const).find(one => one === item.kind) ?? 'preference'
+  return [{ id: item.id, kind, text: item.text, state: item.state, at: item.at, ...(typeof item.entry === 'string' ? { entry: item.entry } : {}) }]
+}
+/** A No written before the desk kept its position reads as position 0: the next thing the person writes reopens it. */
+const parseDecline = (value: unknown): StoredDecline[] => {
+  if (typeof value === 'string') return [{ key: value, seq: 0 }]
+  const item = value as StoredDecline
+  return item && typeof item === 'object' && typeof item.key === 'string' && Number.isSafeInteger(item.seq) ? [{ key: item.key, seq: item.seq }] : []
+}
 const parseStore = (value: unknown): StoreState => {
   const item = value as StoreState
   if (!item || typeof item !== 'object' || item.version !== 1 || !Number.isSafeInteger(item.revision) || !Number.isSafeInteger(item.next)) throw new Error('lead-memory-store')
   const entries = (item.entries ?? []).map(entry => parseLeadMemoryEntry(entry)), inbox = (item.inbox ?? []).map(candidate => parseLeadMemoryCandidate(candidate))
   if (new Set([...entries.map(entry => entry.id), ...inbox.map(candidate => candidate.id)]).size !== entries.length + inbox.length) throw new Error('lead-memory-store')
   return { version: 1, revision: item.revision, next: item.next, auto: item.auto === true, lastTidyAt: Number.isSafeInteger(item.lastTidyAt) ? item.lastTidyAt : null,
-    entries, inbox, declined: (item.declined ?? []).filter((key): key is string => typeof key === 'string').slice(-LEAD_MEMORY_LIMITS.declined),
+    entries, inbox, declined: ((item.declined ?? []) as unknown[]).flatMap(parseDecline).slice(-LEAD_MEMORY_LIMITS.declined),
+    proposals: ((item.proposals ?? []) as unknown[]).flatMap(parseProposal).slice(-LEAD_MEMORY_LIMITS.proposals),
+    clearedAt: Number.isSafeInteger(item.clearedAt) ? item.clearedAt : null,
     versions: (item.versions ?? []).map(parseVersion).slice(-LEAD_MEMORY_LIMITS.versions),
     spend: item.spend && typeof item.spend.day === 'string' && Number.isSafeInteger(item.spend.usdMicros) ? item.spend : EMPTY.spend }
 }
@@ -213,38 +248,101 @@ export class LeadMemoryStore {
       coreBytes: leadMemoryBytes(this.core()), auto: this.#state.auto, lastTidyAt: this.#state.lastTidyAt }
   }
 
-  /** The Lead's proposal: scanned, checked against what is kept, offered and declined, then to the inbox (or kept at
-   * once when the person turned on keeping the Lead's notes, for facts and lessons). `afterSeq` is the Lead's journal
-   * position, so the Keep chip sits under the reply that follows. */
-  propose(proposal: LeadMemoryProposal, afterSeq: number): Promise<LeadMemoryProposalResult> {
+  /** The proposal records with this one put last, as the newest, within their bound. */
+  #recorded(record: StoredProposal, list: readonly StoredProposal[] = this.#state.proposals): StoredProposal[] {
+    return [...list.filter(one => one.id !== record.id), record].slice(-LEAD_MEMORY_LIMITS.proposals)
+  }
+  /** The record of a proposal the person just decided: from the one kept at proposing, or from the candidate itself
+   * when it reached the inbox another way (carried over from the earlier lines). */
+  #decided(candidate: LeadMemoryCandidate, state: StoredProposal['state'], at: number, entry?: string, list: readonly StoredProposal[] = this.#state.proposals): StoredProposal[] {
+    const old = list.find(one => one.id === candidate.id)
+    return this.#recorded({ id: candidate.id, kind: old?.kind ?? candidate.kind, text: candidate.text, state, at, ...(entry ? { entry } : {}) }, list)
+  }
+
+  /**
+   * The Lead's proposal: scanned, then checked against what is kept (`exists`, with the entry's id), what already waits
+   * for the person (`pending`, with its id: the Keep chip moves under the reply this turn writes, so the person sees it
+   * again rather than a second copy) and what the person declined. A declined proposal is refused until the person has
+   * written since their No (`personSeq`, the journal position of their latest message, is past the No's); then it is
+   * offered again, and the result says it was declined before. Otherwise it goes to the inbox (`created`), or is kept
+   * at once when the person turned on keeping the Lead's notes, for facts and lessons (`kept`). `afterSeq` is the
+   * Lead's journal position, so the Keep chip sits under the reply that follows. Only the desk's answer says whether a
+   * note is in memory; the Lead's words never do.
+   */
+  propose(proposal: LeadMemoryProposal, afterSeq: number, personSeq = 0): Promise<LeadMemoryProposalResult> {
     return this.#serial(async () => {
       const scan = leadMemoryScan(proposal.text)
       if (!scan.ok) return { outcome: 'refused' as const, reason: scan.reason }
-      const text = scan.text, at = this.#now(), key = leadMemoryKey(text)
-      if (this.#state.declined.some(old => old === key || leadMemoryNear(old, key))) return { outcome: 'refused' as const, reason: 'declined' as const }
+      const text = scan.text, at = this.#now(), key = leadMemoryKey(text), seq = Math.max(0, Math.floor(afterSeq))
       const repeat = this.#state.entries.find(entry => leadMemoryNear(entry.text, text))
       if (repeat) {
         // Saying it again is using it: it stays in Core longer.
         this.#state = { ...this.#state, entries: this.#state.entries.map(entry => entry.id === repeat.id ? { ...entry, usedAt: at } : entry) }
         await this.#save()
-        return { outcome: 'refused' as const, reason: 'duplicate' as const, id: repeat.id }
+        return { outcome: 'exists' as const, id: repeat.id }
       }
-      if (this.#state.inbox.some(candidate => leadMemoryNear(candidate.text, text))) return { outcome: 'refused' as const, reason: 'duplicate' as const }
+      const waiting = this.#state.inbox.find(candidate => leadMemoryNear(candidate.text, text))
+      if (waiting) {
+        await this.#commit({ inbox: this.#state.inbox.map(candidate => candidate.id === waiting.id ? { ...candidate, afterSeq: Math.max(candidate.afterSeq, seq), askedAgainAt: at } : candidate),
+          proposals: this.#decided(waiting, 'pending', at) }, 'lead')
+        return { outcome: 'pending' as const, id: waiting.id }
+      }
+      const declined = this.#state.declined.filter(old => old.key === key || leadMemoryNear(old.key, key))
+      if (declined.some(old => personSeq <= old.seq)) {
+        const record = [...this.#state.proposals].reverse().find(one => one.state === 'declined' && one.text !== null && leadMemoryNear(one.text, text))
+        return { outcome: 'refused' as const, reason: 'declined' as const, ...(record ? { id: record.id } : {}) }
+      }
+      // The person said it again after their No: the No no longer stands in the way, and a second No records it again.
+      const reopened = declined.length ? { declined: this.#state.declined.filter(old => !declined.includes(old)) } : {}
+      const before = declined.length ? { declinedBefore: true as const } : {}
       const source = proposal.source ?? { kind: 'message' as const, id: 'reply' }
       if (this.#state.auto && (proposal.kind === 'fact' || proposal.kind === 'lesson') && this.#state.entries.length < LEAD_MEMORY_LIMITS.entries) {
         const id = `m${this.#state.next}`
-        await this.#commit({ next: this.#state.next + 1, entries: [...this.#state.entries, { id, text, kind: proposal.kind, by: 'lead', tier: 'core', source, createdAt: at, usedAt: at, version: 1 }] }, 'lead')
+        await this.#commit({ ...reopened, next: this.#state.next + 1, entries: [...this.#state.entries, { id, text, kind: proposal.kind, by: 'lead', tier: 'core', source, createdAt: at, usedAt: at, version: 1 }],
+          proposals: this.#recorded({ id, kind: proposal.kind, text, state: 'kept', entry: id, at }) }, 'lead')
         return { outcome: 'kept' as const, id }
       }
       if (this.#state.inbox.length >= LEAD_MEMORY_LIMITS.inbox) return { outcome: 'refused' as const, reason: 'inbox-full' as const }
       const id = `c${this.#state.next}`
-      await this.#commit({ next: this.#state.next + 1, inbox: [...this.#state.inbox, { id, text, kind: proposal.kind, source, proposedAt: at, afterSeq: Math.max(0, Math.floor(afterSeq)) }] }, 'lead')
-      return { outcome: 'inbox' as const, id }
+      await this.#commit({ ...reopened, next: this.#state.next + 1, inbox: [...this.#state.inbox, { id, text, kind: proposal.kind, source, proposedAt: at, afterSeq: seq }],
+        proposals: this.#recorded({ id, kind: proposal.kind, text, state: 'pending', at }) }, 'lead')
+      return { outcome: 'created' as const, id, ...before }
     })
   }
 
-  /** What the person does, in Settings or on a Keep chip. */
-  change(change: LeadMemoryChange): Promise<LeadMemoryView> {
+  /**
+   * What became of the Lead's recent proposals, newest first, with Core now and every entry's id: what each request
+   * tells the Lead (`leadMemoryStatus`), since the Core in its standing instructions is frozen for the epoch. A kept
+   * proposal whose entry a tidy merged reads as kept in the merged entry; one whose entry is gone (Forget, Undo) reads
+   * as forgotten.
+   */
+  status(): LeadMemoryStatus {
+    const { entries, inbox } = this.#state, byId = new Map(entries.map(entry => [entry.id, entry]))
+    const waiting = new Set(inbox.map(candidate => candidate.id))
+    const live = (id: string | undefined): LeadMemoryEntry | undefined => {
+      for (let at = id, hops = 0; at && hops < 8; hops++) {
+        const found = byId.get(at)
+        if (found) return found
+        at = entries.find(entry => entry.source.kind === 'consolidation' && entry.source.id.split(',').includes(at!))?.id
+      }
+      return undefined
+    }
+    const proposals = [...this.#state.proposals].reverse().flatMap((record): LeadMemoryProposalStatus[] => {
+      if (record.state === 'pending') return waiting.has(record.id) ? [{ id: record.id, state: 'pending' as const, text: record.text, at: record.at }] : []
+      if (record.state !== 'kept' && record.state !== 'edited') return [{ id: record.id, state: record.state, text: record.text, at: record.at }]
+      const entry = live(record.entry)
+      if (!entry) return [{ id: record.id, state: 'forgotten' as const, text: record.text, at: record.at }]
+      // A tidy's merge is still the note kept; the person's own edit makes it theirs.
+      const state: LeadMemoryProposalState = record.state === 'edited' || (entry.id === record.entry && entry.text !== record.text) ? 'edited' : 'kept'
+      return [{ id: record.id, state, text: record.text, entry: entry.id, at: record.at }]
+    })
+    return { revision: this.#state.revision, proposals, core: leadMemoryCoreOrder(entries).map(entry => ({ id: entry.id, text: entry.text })),
+      entries: entries.map(entry => entry.id), clearedAt: this.#state.clearedAt }
+  }
+
+  /** What the person does, in Settings or on a Keep chip. `seq` is the Lead's journal position, which a No keeps: the
+   * same words are offered again only after the person writes past it. */
+  change(change: LeadMemoryChange, seq = 0): Promise<LeadMemoryView> {
     return this.#serial(async () => {
       const { entries, inbox } = this.#state, at = this.#now()
       const entry = (id: string) => entries.find(one => one.id === id) ?? (() => { throw leadRefusal('lead-memory-missing') })()
@@ -281,13 +379,15 @@ export class LeadMemoryStore {
           const text = change.text === undefined ? candidate.text : words(change.text), edited = leadMemoryFold(text) !== leadMemoryFold(candidate.text)
           const id = `m${this.#state.next}`
           await this.#commit({ next: this.#state.next + 1, inbox: inbox.filter(one => one.id !== candidate.id),
-            entries: [...entries, { id, text, kind: change.kind ?? candidate.kind, by: edited ? 'person' : 'lead', tier: 'core', source: candidate.source, createdAt: at, usedAt: at, version: 1 }] }, 'person')
+            entries: [...entries, { id, text, kind: change.kind ?? candidate.kind, by: edited ? 'person' : 'lead', tier: 'core', source: candidate.source, createdAt: at, usedAt: at, version: 1 }],
+            proposals: this.#decided(candidate, edited ? 'edited' : 'kept', at, id) }, 'person')
           break
         }
         case 'dismiss': {
           const candidate = inbox.find(one => one.id === change.id)
           if (!candidate) throw leadRefusal('lead-memory-missing')
-          await this.#commit({ inbox: inbox.filter(one => one.id !== candidate.id), declined: [...this.#state.declined, leadMemoryKey(candidate.text)].slice(-LEAD_MEMORY_LIMITS.declined) }, 'person')
+          await this.#commit({ inbox: inbox.filter(one => one.id !== candidate.id), declined: [...this.#state.declined, { key: leadMemoryKey(candidate.text), seq: Math.max(0, Math.floor(seq)) }].slice(-LEAD_MEMORY_LIMITS.declined),
+            proposals: this.#decided(candidate, 'declined', at) }, 'person')
           break
         }
         case 'move': {
@@ -309,7 +409,10 @@ export class LeadMemoryStore {
           const texts = new Set([old.text, ...this.#state.versions.flatMap(version => version.changes.filter(one => gone.has(one.id)).flatMap(one => [one.before?.text, one.after?.text]))
             .filter((text): text is string => typeof text === 'string')])
           await this.options.onForget?.([...texts])
-          await this.#commit({ entries: entries.filter(one => one.id !== old.id) }, 'person')
+          // What the Lead proposed and the person kept as this note is forgotten too, and its words go with it.
+          const proposals = this.#state.proposals.map(one => (one.entry && gone.has(one.entry)) || (one.text !== null && texts.has(one.text))
+            ? { ...one, state: 'forgotten' as const, text: null, at } : one)
+          await this.#commit({ entries: entries.filter(one => one.id !== old.id), proposals }, 'person')
           // Forgotten means gone: the text leaves every version too, and those versions can no longer be undone.
           this.#state = { ...this.#state, versions: this.#state.versions.map(version => version.changes.some(one => gone.has(one.id))
             ? { ...version, changes: version.changes.filter(one => !gone.has(one.id)), erased: true as const } : version) }
@@ -318,7 +421,7 @@ export class LeadMemoryStore {
         }
         case 'forget-all':
           await this.options.onForget?.('all')
-          await this.#commit({ entries: [], inbox: [], declined: [] }, 'person')
+          await this.#commit({ entries: [], inbox: [], declined: [], proposals: [], clearedAt: at }, 'person')
           this.#state = { ...this.#state, versions: [] }
           await this.#save()
           break
@@ -358,9 +461,10 @@ export class LeadMemoryStore {
   }
   /** `lead/memory/update` as before: the list it sends is the person's lines and the offered ones. A kept line is the
    * person's entry (an offered one it kept becomes one); a line left out is forgotten or declined. */
-  replaceLegacy(memory: LeadMemory): Promise<LeadMemory> {
+  replaceLegacy(memory: LeadMemory, seq = 0): Promise<LeadMemory> {
     return this.#serial(async () => {
       const at = this.#now(), items = new Map(memory.items.map(item => [item.id, item]))
+      let proposals = this.#state.proposals
       let next = this.#state.next
       const entries = this.#state.entries.flatMap(entry => {
         if (entry.by !== 'person') return [entry]
@@ -374,11 +478,15 @@ export class LeadMemoryStore {
         if (item.state !== 'kept' || entries.some(entry => entry.id === item.id)) continue
         const text = leadMemoryFold(item.text)
         if (!text || leadMemoryHasSecret(text)) continue
-        added.push({ id: `m${next++}`, text, kind: 'preference', by: 'person', tier: 'core', source: { kind: 'settings', id: 'settings' }, createdAt: at, usedAt: null, version: 1 })
+        const id = `m${next++}`, offered = this.#state.inbox.find(candidate => candidate.id === item.id)
+        added.push({ id, text, kind: 'preference', by: 'person', tier: 'core', source: { kind: 'settings', id: 'settings' }, createdAt: at, usedAt: null, version: 1 })
+        if (offered) proposals = this.#decided(offered, leadMemoryFold(offered.text) === text ? 'kept' : 'edited', at, id, proposals)
       }
       const inbox = this.#state.inbox.filter(candidate => items.get(candidate.id)?.state === 'suggested')
-      const declined = this.#state.inbox.filter(candidate => !items.has(candidate.id)).map(candidate => leadMemoryKey(candidate.text))
-      await this.#commit({ next, entries: [...entries, ...added].slice(0, LEAD_MEMORY_LIMITS.entries), inbox, declined: [...this.#state.declined, ...declined].slice(-LEAD_MEMORY_LIMITS.declined) }, 'person')
+      const left = this.#state.inbox.filter(candidate => !items.has(candidate.id))
+      for (const candidate of left) proposals = this.#decided(candidate, 'declined', at, undefined, proposals)
+      const declined = left.map(candidate => ({ key: leadMemoryKey(candidate.text), seq: Math.max(0, Math.floor(seq)) }))
+      await this.#commit({ next, proposals, entries: [...entries, ...added].slice(0, LEAD_MEMORY_LIMITS.entries), inbox, declined: [...this.#state.declined, ...declined].slice(-LEAD_MEMORY_LIMITS.declined) }, 'person')
       return this.legacy()
     })
   }
