@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { AccountStatus, RuntimeInfo, UsageLane, UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, type AccountStatus, type RuntimeInfo, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import { describeTray, startTrayUpdates } from './tray'
 
@@ -8,7 +8,7 @@ import { describeTray, startTrayUpdates } from './tray'
  * What the menu bar says with no window open.
  *
  * The claims worth pinning are the ones read at a glance: the figure on the
- * status item is the agent with least left, each row says what that agent has
+ * status item is the current agent's, each row says what that agent has
  * left in the words the header strip uses, a row with no figure says its state
  * instead, and every row carries the mark the menu draws beside it — and the
  * figure the shell needs to draw a bar.
@@ -104,17 +104,86 @@ describe('tray update lifetime', () => {
 })
 
 describe('describeTray', () => {
-  it('puts the agent with least left in the menu bar', () => {
+  it('puts the current agent in the menu bar, not the one with least left', () => {
     const summary = tray({
       runtimes: [runtime('claude', 'Claude Code'), runtime('cursor', 'Cursor Agent')],
       accountsByRuntime: { claude: signedIn, cursor: signedIn } as never,
+      activeRuntime: runtimeId('claude'),
       usage: [
         report('claude', [lane({ id: 'weekly', usedPercent: 42 })]),
         report('cursor', [lane({ id: 'weekly', usedPercent: 88 })]),
       ],
     })
-    expect(summary.title).toBe('12%')
+    expect(summary.title).toBe('58%')
+    expect(summary.tooltip).toBe('Claude Code — 58% left')
+    expect(summary.agents.map((agent) => agent.current)).toEqual([true, false])
     expect(summary.agents.map((agent) => agent.detail)).toEqual(['58% left', '12% left'])
+  })
+
+  it('says when the current agent is back, rather than 0%, once it is out', () => {
+    const summary = tray({
+      runtimes: [runtime('cursor', 'Cursor Agent')],
+      accountsByRuntime: { cursor: signedIn } as never,
+      activeRuntime: runtimeId('cursor'),
+      usage: [report('cursor', [lane({ id: 'weekly', usedPercent: 100, resetsAt: NOON + 3 * HOUR })])],
+    })
+    expect(summary.title).toBe('↻3h')
+    expect(summary.tooltip).toBe('Cursor Agent — 0% left, resets in 3h')
+  })
+
+  it('says 0% when the current agent is out and nothing says when it is back', () => {
+    const summary = tray({
+      runtimes: [runtime('cursor', 'Cursor Agent')],
+      accountsByRuntime: { cursor: signedIn } as never,
+      activeRuntime: runtimeId('cursor'),
+      usage: [report('cursor', [lane({ id: 'weekly', usedPercent: 100 })])],
+    })
+    expect(summary.title).toBe('0%')
+  })
+
+  it('does not let a spent agent that is not current pin the menu bar', () => {
+    const summary = tray({
+      runtimes: [runtime('claude', 'Claude Code'), runtime('cursor', 'Cursor Agent')],
+      accountsByRuntime: { claude: signedIn, cursor: signedIn } as never,
+      activeRuntime: runtimeId('claude'),
+      usage: [
+        report('claude', [lane({ id: 'weekly', usedPercent: 42 })]),
+        report('cursor', [lane({ id: 'weekly', usedPercent: 100, resetsAt: NOON + 3 * HOUR })]),
+      ],
+    })
+    expect(summary.title).toBe('58%')
+  })
+
+  it('leaves the mark alone, named for the app, when there is no current agent', () => {
+    const summary = tray({
+      runtimes: [runtime('claude', 'Claude Code')],
+      accountsByRuntime: { claude: signedIn } as never,
+      activeRuntime: null,
+      usage: [report('claude', [lane({ id: 'weekly', usedPercent: 42 })])],
+    })
+    expect(summary.title).toBe('')
+    expect(summary.tooltip).toBe('HarnessDesk')
+    expect(summary.agents.map((agent) => agent.current)).toEqual([false])
+  })
+
+  it('leaves the mark alone while the current agent still needs a sign-in', () => {
+    const summary = tray({
+      runtimes: [runtime('codex', 'OpenAI Codex')],
+      accountsByRuntime: { codex: signedOut } as never,
+      activeRuntime: runtimeId('codex'),
+      usage: [report('codex', [lane({ id: 'weekly', usedPercent: 42 })])],
+    })
+    expect(summary.agents[0]).toMatchObject({ needsSignIn: true, current: true })
+    expect(summary.title).toBe('')
+  })
+
+  it('leaves the mark alone while the current agent has no reading', () => {
+    const summary = tray({
+      runtimes: [runtime('claude', 'Claude Code')],
+      accountsByRuntime: { claude: signedIn } as never,
+      activeRuntime: runtimeId('claude'),
+    })
+    expect(summary.title).toBe('')
   })
 
   it('says what a row has left and when it comes back, in the strip’s own words', () => {
