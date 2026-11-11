@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import {
   CARRY_ON_PHASES,
   deskContextContent,
+  HANDOFF_PREFIX,
   runtimeId,
   sessionKey,
   type AgentItem,
@@ -49,6 +50,21 @@ const user = (id: string, text: string): AgentItem => ({ id: id as never, type: 
  */
 const carriedOn = (id: string): AgentItem =>
   ({ id: id as never, type: 'userMessage', content: [deskContextContent(wrapContext('Continued after a usage limit', 'Continue from where you stopped.'))] })
+/**
+ * The handoff packet as the host sends it into the new conversation: the old one's request, recent work and where it
+ * stopped, enveloped as desk context under "Handed off from <agent> — “<title>”" (the server's carry-on handoff), so it
+ * folds into a context block and never reads as the person's message.
+ */
+const HANDOFF_BODY = [
+  'Alpha · work reached its usage limit, so this conversation carries on here.',
+  'The request:\n> Make the checkout client retry a 502 before giving up.',
+  'The last message, whose turn did not finish:\n> Now cover the final failed attempt in the tests.',
+  'Recent turns:\n\nThe client now retries a 502 up to three times with a growing pause; the existing tests pass.',
+  'Commands run:\n\n$ pnpm test checkout --run\nexit unknown',
+  'Carry on from where it stopped: the change is in the working tree.',
+].join('\n\n')
+const handedOff = (id: string): AgentItem =>
+  ({ id: id as never, type: 'userMessage', content: [deskContextContent(wrapContext(`${HANDOFF_PREFIX}Alpha — “Retry the checkout call”`, HANDOFF_BODY))] })
 const answer = (id: string, text: string): AgentItem => ({ id: id as never, type: 'assistantMessage', phase: 'final', text })
 const command = (id: string, line: string, exitCode = 0): AgentItem =>
   ({ id: id as never, type: 'command', command: line, cwd: '/workspace/storefront', origin: 'agent', status: exitCode === 0 ? 'completed' : 'failed', actions: [], output: '', exitCode, durationMs: 4_200 })
@@ -97,7 +113,7 @@ export const carryOnStore = (theme: 'light' | 'dark' = 'light') => {
   sessions.set(CARRY_ON_KEYS.arrived, conversation(base, CARRY_ON_KEYS.arrived, 'Retry the checkout call', [
     { id: 'ar-1' as never, status: 'completed', items: [
       marker('ar-m', { phase: 'arrived', cause: 'credits', mode: 'handoff', from: WORK, to: OTHER_AGENT, resetsAt: RESET, link: { runtime: CODEX, sessionId: 'carry-on-left' as SessionId } }),
-      user('ar-u', COVER),
+      handedOff('ar-u'),
       command('ar-c', 'git status --short'),
       answer('ar-a', 'The retry change is in the working tree. I added the final-attempt case; all checkout tests pass.'),
     ] },
