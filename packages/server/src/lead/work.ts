@@ -1,5 +1,5 @@
 import { rename } from 'node:fs/promises'
-import { isWaitingOnYou, LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, leadWorkGroup, quoteLeadWorkText, type LeadStage, type LeadStopActor, type LeadWorkBoard, type LeadWorkCard,
+import { isWaitingOnYou, LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, leadStopTally, leadWorkGroup, quoteLeadWorkText, type LeadStage, type LeadStopActor, type LeadWorkBoard, type LeadWorkCard, type LeadWorkStop,
   type LeadWorkClose, type LeadWorkDetail, type LeadWorkFact, type LeadWorkLinks, type LeadWorkNote, type LeadWorkOrigin, type LeadWorkStage,
   type LeadReminder, type LeadReminderSet } from '@harnessdesk/protocol'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
@@ -99,6 +99,10 @@ interface Item {
   seenAt?: number
   /** Reminder wakes since the person last wrote, and the person's mark they count from. */
   wakes?: number; wakeMark?: number
+  /** Each attempt that ended because its chat was stopped, oldest first, and who stopped it when the host saw that. */
+  stops?: LeadWorkStop[]
+  /** The person's mark when the host last refused another attempt after repeated stops; a later message answers it. */
+  retryAsked?: number
 }
 type Reminder = { -readonly [K in keyof LeadReminder]: LeadReminder[K] }
 interface Stored { version: 1; next: number; items: Item[]; reminders?: Reminder[]; nextReminder?: number }
@@ -268,10 +272,31 @@ export class LeadWorkLedger {
     const now = this.ports.now()
     const tried = this.stored.items.filter(item => item.closedBy === 'host' && item.stage === 'stopped' && item.closedAt !== undefined && now - item.closedAt < LEAD_WORK_LIMITS.retryMs &&
       covers({ title: item.title, quotes: item.origin.quotes, project: item.project })).sort((a, b) => b.closedAt! - a.closedAt!)[0]
+    const ask = tried && this.#askFirst(tried)
+    if (ask) return ask
     if (tried) return { item: tried.id, problem: `Nothing was started: work ${tried.id} "${clip(tried.title, 80)}" was tried ${ago(now - tried.closedAt!)} ago and ended as ${tried.stage} ` +
       `(${tried.timeline.at(-1)?.text ?? 'closed'}).${chat(tried)} Name it to the person and ask whether to start another attempt, with options; ` +
       `if they already asked for one, pass ledgerItem "${tried.id}" to start it under the same item.` }
     return null
+  }
+
+  /**
+   * Another attempt at work stopped `stopsBeforeAsking` times is the person's call, even when the person asked for it:
+   * the host refuses it once, naming what happened, and lets the next attempt through only after the person writes
+   * again (their answer to the Lead's question). Null when the attempt may go ahead.
+   */
+  #askFirst(item: Item): LeadWorkClaimRefusal | null {
+    const stops = item.stops ?? []
+    if (item.closedAt === undefined || item.stage !== 'stopped' || stops.length < LEAD_WORK_LIMITS.stopsBeforeAsking) return null
+    const asked = this.ports.asked?.() ?? 0
+    if (item.retryAsked !== undefined && asked > item.retryAsked) return null
+    item.retryAsked = asked
+    const count = stops.length === 2 ? 'twice' : `${stops.length} times`
+    const chat = item.links.chats.at(-1)
+    return { item: item.id, problem: `Nothing was started: work ${item.id} "${clip(item.title, 80)}" was stopped ${count} (${leadStopTally(stops)}), ` +
+      `the last time ${ago(this.ports.now() - item.closedAt)} ago.${chat ? ` Its last chat is ${chat}.` : ''} Tell the person what happened, in those words, and ask ` +
+      `which they want before anything else: continue the last chat${chat ? ` (chat_send to ${chat})` : ''}, start fresh (pass ledgerItem "${item.id}" again once they answer), ` +
+      'or drop it (they press Drop on its card). Ask even though they asked for another attempt; the host starts the next one only after they answer.' }
   }
 
   /** Whether the host can follow any of an item's links right now. Issues it cannot; a pull request only while followed. */
@@ -354,6 +379,8 @@ export class LeadWorkLedger {
         if (found.closedAt !== undefined && found.closedBy === 'person') return { problem: `The person closed work ${found.id}. Start without ledgerItem for new work.` }
         if (found.closedAt !== undefined && this.ports.now() - found.closedAt >= LEAD_WORK_LIMITS.retryMs)
           return { problem: `Work ${found.id} ended more than a day ago. Start without ledgerItem for new work.` }
+        const ask = this.#askFirst(found)
+        if (ask) return ask
         if (found.closedAt !== undefined) { const problem = this.#room(); if (problem) return { problem } }
         item = found.id
       } else if (input.moveFrom !== undefined) {
@@ -381,7 +408,7 @@ export class LeadWorkLedger {
       this.#pending.delete(claim.token)
       const found = claim.item === null ? undefined : this.stored.items.find(entry => entry.id === claim.item && entry.closedBy !== 'person')
       if (found && found.closedAt !== undefined) {
-        delete found.closedAt; delete found.closedBy; delete found.outcome; found.stage = 'queued'; delete found.blocker
+        delete found.closedAt; delete found.closedBy; delete found.outcome; found.stage = 'queued'; delete found.blocker; delete found.retryAsked
         this.#fact(found, 'Another attempt started')
       }
       const item = found ?? this.#create({ kind: 'person', quotes: claim.quotes.slice(0, 3) }, claim.title, claim.project)
@@ -708,6 +735,9 @@ export class LeadWorkLedger {
       if (item.closedBy === 'host' && item.stage === 'stopped' && states.some(state => state.stopped)) {
         const by = this.#stopActor(states)
         if (by) item.stoppedBy = by; else delete item.stoppedBy
+        // The same attempt, stopped again: its stop names the latest actor rather than counting twice.
+        const last = item.stops?.at(-1)
+        if (last) item.stops!.splice(-1, 1, { at: last.at, ...(by ? { by } : {}) })
       }
       if (!states.some(state => state.stage !== 'idle')) return
       delete item.closedAt; delete item.outcome; delete item.closedBy; delete item.stoppedBy
@@ -725,6 +755,7 @@ export class LeadWorkLedger {
       // who stopped it when one actor stopped every chat and the host saw them do it.
       const by = this.#stopActor(states)
       this.#stop(item, by === 'person' ? 'Stopped: the person stopped its chat' : by === 'lead' ? 'Stopped: the Lead stopped its chat' : 'Stopped: its chat was stopped', by)
+      item.stops = [...item.stops ?? [], { at: item.closedAt!, ...(by ? { by } : {}) }].slice(-LEAD_WORK_LIMITS.stopsKept)
       return
     }
     else if (states.length && states.every(state => state.settled)) {
@@ -755,6 +786,7 @@ export class LeadWorkLedger {
       createdAt: item.createdAt, updatedAt: item.updatedAt,
       ...(item.closedAt !== undefined ? { closedAt: item.closedAt } : {}), ...(item.outcome ? { outcome: item.outcome } : {}),
       ...(item.stoppedBy && item.stage === 'stopped' ? { stoppedBy: item.stoppedBy } : {}),
+      ...(item.stops?.length ? { stops: item.stops.map(stop => ({ ...stop })) } : {}),
     }
   }
   #board(state: 'open' | 'all'): LeadWorkBoard {

@@ -54,13 +54,14 @@ it('Done closes the item through the host and it moves to Done; nothing else on 
   expect(items(box, 'done')).toEqual(['work-4', 'work-6', 'work-1'])
 })
 
-it('a working item’s menu stops its chat with the same stop the chat sends, and a stopped item says Stopped', async () => {
+it('a working item’s menu stops its chat with the same stop the chat sends, and an item the person stopped says so', async () => {
   const { box, store } = await mount('work-ledger')
   const calls: { method: string; params: unknown }[] = []
   const request = store.transport.request.bind(store.transport)
   store.transport.request = (async (method: string, params: unknown) => { calls.push({ method, params }); return request(method as never, params as never) }) as typeof store.transport.request
-  expect(box.querySelector('[data-work-item="work-6"]')!.textContent).toContain('Stopped')
-  expect(box.querySelector('[data-work-item="work-1"]')!.textContent).not.toContain('Stopped')
+  // #2108: the person stopped it (from this menu or the phone), so the card says "You stopped it", never only "Stopped".
+  expect(box.querySelector('[data-work-item="work-6"]')!.textContent).toContain('You stopped it')
+  expect(box.querySelector('[data-work-item="work-1"]')!.textContent).not.toContain('stopped')
   await act(async () => { box.querySelector<HTMLButtonElement>('[aria-label="Actions for Rename the status column"]')!.click() })
   expect([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].some(item => item.textContent?.startsWith('Stop'))).toBe(false)
   await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
