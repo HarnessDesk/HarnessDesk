@@ -26,6 +26,9 @@ import {
   validateForgeArgs,
   type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeVerb, type ForgeThreadsQuery, type ForgeThreadSettle, FORGE_READS,
   setTeamEngine,
+  setAgentsEngine,
+  type AgentsEngine,
+  type AgentsScope,
   type BrowserEngine,
   type BrowserSettings,
   type EditorEngine,
@@ -202,6 +205,11 @@ export interface PluginHostOptions {
    */
   readonly forgeEngine?: ForgeEngine | null
   /**
+   * The agents plane — one read-only question to another agent. Host-owned
+   * for the team plane's reason: a child knows no seat and no Flow.
+   */
+  readonly agentsEngine?: AgentsEngine | null
+  /**
    * The runtime that holds the plugin's process to the Node permission
    * model, asked before each start (`confinement.ts`). Absent, or a choice
    * with no runtime, and the process runs as before — its own process, not
@@ -328,6 +336,11 @@ export class PluginHostProcess {
   /** Points `ctx.forge` at a plane that exists — the team plane's reasoning, verbatim. */
   setForgeEngine(engine: ForgeEngine | null): void {
     this.#options = { ...this.#options, forgeEngine: engine }
+  }
+
+  /** Points `ctx.agents` at a plane that exists — the team plane's reasoning, verbatim. */
+  setAgentsEngine(engine: AgentsEngine | null): void {
+    this.#options = { ...this.#options, agentsEngine: engine }
   }
 
   /** The child's last-pushed truth; empty while it is down. */
@@ -789,7 +802,7 @@ export class PluginHostProcess {
     if (!bound) return request
     const params = { ...(request.params as Record<string, unknown>) }
     if (request.method.startsWith('editor/')) params['pluginId'] = bound.id
-    if (request.method.startsWith('team/') || request.method.startsWith('forge/')) {
+    if (request.method.startsWith('team/') || request.method.startsWith('forge/') || request.method.startsWith('agents/')) {
       const instance = this.#plugins[0]?.instanceId
       const { plugin: _claimed, ...scope } = (params['scope'] ?? {}) as Record<string, unknown>
       params['scope'] = instance === undefined ? scope : { ...scope, plugin: String(instance) }
@@ -1000,6 +1013,43 @@ export class PluginHostProcess {
             refuse(`Unknown request ${String(request.method)}.`)
             return
         }
+      }
+
+      if (request.method === 'agents/ask') {
+        const plane = this.#options.agentsEngine
+        if (!plane) {
+          refuse('The host has no agents plane.')
+          return
+        }
+        const params = request.params as Record<string, unknown>
+        const claimed = (params['scope'] ?? {}) as AgentsScope
+        // The team plane's rule: a claim the parent is not standing behind —
+        // no live invocation dispatched to this plugin, granted
+        // `agents.invoke`, for that conversation — is refused, not believed.
+        if (!this.#armedFor(claimed, 'agents')) {
+          refuse(
+            'Refused: this ask does not ride a live invocation the host dispatched to this plugin for that conversation. `ctx.agents` works only while a tool call for that conversation — dispatched to this plugin, which must be granted `agents.invoke` — is in flight.',
+          )
+          return
+        }
+        const scope: AgentsScope = {
+          ...claimed,
+          ...(claimed.invocation
+            ? { signal: this.#browserInvocations.signal(claimed.invocation, claimed.plugin) }
+            : {}),
+        }
+        reply({
+          response: request.request,
+          result: await plane.ask(
+            {
+              agent: String(params['agent'] ?? ''),
+              question: String(params['question'] ?? ''),
+              context: typeof params['context'] === 'string' ? params['context'] : null,
+            },
+            scope,
+          ),
+        })
+        return
       }
 
       if (request.method.startsWith('team/')) {
@@ -1632,13 +1682,14 @@ export class PluginHostProcess {
    * write a `team/*` frame while armed would reach the board without the
    * grant the manifest never asked for.
    */
-  #armedFor(scope: { readonly runtime?: unknown; readonly sessionId?: unknown; readonly plugin?: unknown; readonly invocation?: unknown }, plane: 'team' | 'forge'): boolean {
+  #armedFor(scope: { readonly runtime?: unknown; readonly sessionId?: unknown; readonly plugin?: unknown; readonly invocation?: unknown }, plane: 'team' | 'forge' | 'agents'): boolean {
     if (typeof scope.runtime !== 'string' || typeof scope.sessionId !== 'string' || typeof scope.plugin !== 'string') {
       return false
     }
     if ((this.#teamScopes.get(teamScopeKey(scope.runtime, scope.sessionId, scope.plugin)) ?? 0) <= 0) return false
     const plugin = this.#plugins.find((entry) => String(entry.instanceId) === scope.plugin)
-    if (plugin === undefined || !plugin.enabled || (plane === 'team' ? plugin.permissions.team !== true : !(plugin.permissions.forge === true || typeof plugin.permissions.forge === 'object' && (plugin.permissions.forge.publish || plugin.permissions.forge.write)))) return false
+    if (plugin === undefined || !plugin.enabled) return false
+    if (plane === 'agents' ? plugin.permissions.agents?.invoke !== true : (plane === 'team' ? plugin.permissions.team !== true : !(plugin.permissions.forge === true || typeof plugin.permissions.forge === 'object' && (plugin.permissions.forge.publish || plugin.permissions.forge.write)))) return false
     if (scope.invocation !== undefined) {
       try {
         this.#browserInvocations.resolve(scope.invocation, scope.plugin)
@@ -1649,10 +1700,10 @@ export class PluginHostProcess {
     return true
   }
 
-  /** The plugins whose scoped engine calls — team or forge — a live invocation arms. */
+  /** The plugins whose scoped engine calls — team, forge or agents — a live invocation arms. */
   #teamPlugins(): readonly PluginInstance[] {
     return this.#plugins.filter(
-      (plugin) => plugin.enabled && (plugin.permissions.team || plugin.permissions.forge),
+      (plugin) => plugin.enabled && (plugin.permissions.team || plugin.permissions.forge || plugin.permissions.agents?.invoke === true),
     )
   }
 
@@ -1744,6 +1795,8 @@ export interface SupervisedExtensionHostOptions {
    * no conversation, no model and no transcript.
    */
   readonly forgeEngine?: ForgeEngine | null
+  /** The agents plane for child plugins' `ctx.agents`; see `PluginHostOptions`. */
+  readonly agentsEngine?: AgentsEngine | null
   /**
    * The runtimes that may hold a plugin's process to the Node permission
    * model, in order of preference — the Lead's candidates on the desktop.
@@ -1786,7 +1839,7 @@ export class SupervisedExtensionHost {
   readonly #options: SupervisedExtensionHostOptions
   readonly #root: string
   readonly #consent: ConsentRecord
-  #engines: { browser: BrowserEngine | null; editor: EditorEngine | null; team: TeamEngine | null; forge: ForgeEngine | null }
+  #engines: { browser: BrowserEngine | null; editor: EditorEngine | null; team: TeamEngine | null; forge: ForgeEngine | null; agents: AgentsEngine | null }
   #browserSettings: BrowserSettingsWire | null = null
   #workspace: { root: string | null; branch: string | null; admitted?: readonly string[] } = { root: null, branch: null }
   #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'
@@ -1805,6 +1858,7 @@ export class SupervisedExtensionHost {
       editor: options.editorEngine ?? null,
       team: options.teamEngine ?? null,
       forge: options.forgeEngine ?? null,
+      agents: options.agentsEngine ?? null,
     }
     this.#installer = new PluginHostProcess({
       ...(options.logger ? { logger: options.logger } : {}),
@@ -1820,6 +1874,7 @@ export class SupervisedExtensionHost {
     // plugin whose `ctx.team` quietly points at nothing.
     if (options.teamEngine !== undefined) setTeamEngine(options.teamEngine)
     if (options.forgeEngine !== undefined) setForgeEngine(options.forgeEngine)
+    if (options.agentsEngine !== undefined) setAgentsEngine(options.agentsEngine)
   }
 
   /** Where plugins' processes run confined, or why they do not. */
@@ -1934,6 +1989,7 @@ export class SupervisedExtensionHost {
         ...(this.#engines.editor ? { editorEngine: this.#engines.editor } : {}),
         ...(this.#engines.team ? { teamEngine: this.#engines.team } : {}),
         ...(this.#engines.forge ? { forgeEngine: this.#engines.forge } : {}),
+        ...(this.#engines.agents ? { agentsEngine: this.#engines.agents } : {}),
         confinement: () => this.#pluginRuntime(),
         // Every restart is held to the record too, not only the first start:
         // a plugin that rewrites its manifest and exits must not come back
@@ -2315,6 +2371,13 @@ export class SupervisedExtensionHost {
     setForgeEngine(engine)
     this.#engines.forge = engine
     for (const proc of this.#processes()) proc.setForgeEngine(engine)
+  }
+
+  /** The agents plane (`ctx.agents`), to every side, for the same reason. */
+  setAgentsEngine(engine: AgentsEngine | null): void {
+    setAgentsEngine(engine)
+    this.#engines.agents = engine
+    for (const proc of this.#processes()) proc.setAgentsEngine(engine)
   }
 
   setWorkspace(state: { root: string | null; branch: string | null; admitted?: readonly string[] }): void {

@@ -34,6 +34,7 @@ import { inForgeInvocation } from './forge-invocation.js'
 import { runBrowserInvocation, type BrowserIdentity } from './browser-scopes.js'
 import { EditorService } from './editor.js'
 import { TeamService } from './team.js'
+import { AgentsService } from './agents.js'
 import { ForgeService } from './forge.js'
 import { IosService } from './ios.js'
 import type { IosCapability } from './ios-types.js'
@@ -213,6 +214,11 @@ export class ExtensionKernel implements CapabilityRegistry {
       }
     })
     this.#install(class extends TeamService {
+      constructor(ctx: Context) {
+        super(ctx, runtime)
+      }
+    })
+    this.#install(class extends AgentsService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
