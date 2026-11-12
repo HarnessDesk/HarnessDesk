@@ -224,7 +224,11 @@ export class LeadAutonomyStore {
     return { version: 1, modes: this.#modes(), observed, deadline,
       rules: LEAD_RULE_SECTIONS.map(id => {
         const custom = this.#custom(id), latest = this.#latest(id)
-        return { id, title: LEAD_RULE_TITLES[id], text: custom?.text ?? this.#defaults[id].text, custom: !!custom, version: latest?.version ?? 0, ...(latest ? { changedAt: latest.at } : {}) }
+        // A section ever saved carries its newest words and the shipped ones: a phone's history, diff and Restore preview.
+        const versions = [...(this.#stored.sections[id]?.versions ?? [])].reverse().slice(0, LEAD_RULE_LIMITS.carried)
+          .map(({ version, text, at, how, from }) => ({ version, text, at, how, ...(from === undefined ? {} : { from }) }))
+        return { id, title: LEAD_RULE_TITLES[id], text: custom?.text ?? this.#defaults[id].text, custom: !!custom, version: latest?.version ?? 0, ...(latest ? { changedAt: latest.at } : {}),
+          ...(versions.length ? { versions, shipped: this.#defaults[id].text } : {}) }
       }),
       changes: [...(this.#stored.changes ?? [])].reverse().slice(0, 32),
       proposals: [...(this.#stored.proposals ?? [])].reverse().map(({ personSeq: _seq, ...one }) => structuredClone(one)) }

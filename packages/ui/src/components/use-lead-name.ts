@@ -14,4 +14,8 @@ export const useLeadName = () => {
   return state?.settings?.name ?? null
 }
 
+/** What a sentence calls the Lead: its chosen name (Dex or Lex), as the phone says it, or "the Lead" before one is read. */
+export const leadCalled = (name: Parameters<typeof leadDisplayName>[0] | null | undefined): string => name ? leadDisplayName(name) : 'the Lead'
+export const useLeadCalled = (): string => leadCalled(useLeadName())
+
 export const LEAD_NAME_CHOICES = [{ name: 'dex', label: leadDisplayName('dex') }, { name: 'lex', label: leadDisplayName('lex') }] as const

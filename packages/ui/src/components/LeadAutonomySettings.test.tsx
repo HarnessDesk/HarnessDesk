@@ -27,7 +27,9 @@ it('lists the five kinds with their mode, and says what Observe does once', asyn
   const { box } = await mount(<LeadAutonomySection />)
   for (const title of ['Desk-change reports', 'Stuck nudges', 'Repeat runs', 'Mention triggers', 'Morning brief']) expect(box.textContent).toContain(title)
   expect(box.querySelectorAll('select').length).toBe(5)
-  expect(box.textContent).toContain('Observe writes what the Lead would have done')
+  // The caption names the Lead as the person chose to call it, the words the phone uses (#2146).
+  expect(box.textContent).toContain('Observe records what Dex would have done and does nothing.')
+  expect(box.textContent).not.toContain('the Lead')
   expect(box.textContent).toContain('Would have said a run had gone quiet.')
 })
 
@@ -47,7 +49,7 @@ it('rules: three sections; an edit is saved against its version and appears in t
   const edit = [...box.querySelectorAll<HTMLElement>('button')].filter(one => one.textContent === 'Edit')[2]!
   await act(async () => { edit.click() })
   const area = document.body.querySelector<HTMLTextAreaElement>('textarea[aria-label="What counts as done"]')!
-  expect(document.body.textContent).toContain("Takes effect at the Lead's next epoch")
+  expect(document.body.textContent).toContain("Takes effect at Dex's next epoch, never in the middle of a turn. It cannot widen what Dex is allowed to do.")
   await act(async () => {
     const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
     set.call(area, 'Tests pass and I looked.'); area.dispatchEvent(new Event('input', { bubbles: true }))
@@ -101,7 +103,7 @@ it('lists the changes the person made, newest first, with who made them and when
   const { box } = await mount(<LeadAutonomySection />)
   const changes = () => [...box.querySelectorAll('[aria-label="Autonomy changes"] [data-slot="row-title"]')].map(one => one.textContent)
   expect(changes()).toEqual(['Stuck nudges: Act → Observe', 'How to talk to me: version 1 saved'])
-  expect(box.textContent).toContain('Only you change these; the Lead cannot.')
+  expect(box.textContent).toContain('Only you change these; Dex cannot.')
   const select = box.querySelector<HTMLSelectElement>('select[aria-label="Repeat runs"]')!
   await act(async () => { select.value = 'off'; select.dispatchEvent(new Event('change', { bubbles: true })) })
   await settle()

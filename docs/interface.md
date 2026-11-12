@@ -2516,7 +2516,10 @@ rolled back. A restore saves a new version. Settings › Lead › Autonomy lists
 (a restore and a reset included) and every deadline, read again whenever the
 desk says autonomy changed. A proposal card for a rule section shows the words
 the section will hold against the words in force, as a diff, whether the Lead
-added a line or wrote the whole section.
+added a line or wrote the whole section. These pages and the cards call the Lead
+by its chosen name (Dex or Lex), as the phone does. A paired phone receives each
+saved section's newest five versions with their words and the shipped words, so
+it can show earlier wording and a diff; restoring stays at the desk.
 
 Settings › Lead › Memory says the Lead reads Core at the start of each conversation and searches Archive when it needs to. Its header holds Export (the notes as JSON) and Forget all, whose confirmation says it also empties the conversation copy the Lead searches and that the Lead's journal keeps its record. A switch, Keep the Lead's notes without asking, lets facts and lessons skip To review; an Add a note field adds the person's own note. To review lists waiting proposals with Keep, Edit and No; Core shows how much of its 6 KB is used, with a warning tone past 90%; Archive follows; each note offers Edit, Archive or Move to Core, and Forget, whose confirmation says what goes (the note, every saved version, passages that quote it) and what stays (the conversation it came from, the Lead's journal), since it cannot be undone, with a chip when the Lead wrote it or when the current plan cites it. History lists the last eight changes, and Undo on any change that can be undone. A Forget is its own row (You · 1 forgotten); a change whose words it took out keeps its counts under a Forgotten chip and can no longer be undone, so the list never reads only no change. When the desk could not hand the latest change to the Lead, an error banner at the top says the Lead still reads the version before it. In the Lead's thread, the same proposals sit under the reply they came with.
 

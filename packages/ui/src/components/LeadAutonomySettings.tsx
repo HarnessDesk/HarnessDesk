@@ -4,6 +4,7 @@ import { NativeSelect, Row, Rows, Section, Text } from '../design'
 import { useDestinationActive } from '../panels/destination-page'
 import { useStore } from '../state/context'
 import { leadRefusalText } from './lead-refusals'
+import { useLeadCalled } from './use-lead-name'
 
 const MODES: readonly { readonly value: LeadAutonomyMode; readonly label: string }[] = [
   { value: 'off', label: 'Off' }, { value: 'observe', label: 'Observe' }, { value: 'act', label: 'Act' },
@@ -27,7 +28,7 @@ const changeTitle = (change: LeadAutonomyChange): string => {
  * switched on.
  */
 export const LeadAutonomySection = () => {
-  const store = useStore(), active = useDestinationActive()
+  const store = useStore(), active = useDestinationActive(), called = useLeadCalled()
   const lead = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const goal = lead.thread?.budget?.logicalGoalId, open = !!goal && !['accepted', 'declined', 'stopped'].includes(lead.thread?.state ?? '')
   const [read, setView] = useState<LeadAutonomyView | null>(null)
@@ -54,18 +55,18 @@ export const LeadAutonomySection = () => {
         </NativeSelect>} />)}
     </Rows>
     {open && <Rows>
-      <Row title="Goal deadline" tooltip="At 80% of the time the Lead says so; at the deadline it starts no new round."
+      <Row title="Goal deadline" tooltip={`At 80% of the time ${called} says so; at the deadline it starts no new round.`}
         control={<NativeSelect aria-label="Goal deadline" value={view.deadline ? 'set' : 'none'} onChange={event => void setDeadline(event.target.value)}>
           {view.deadline && <option value="set" disabled>{`Until ${when(view.deadline.deadlineAt)}`}</option>}
           {DEADLINES.map(one => <option key={one.value} value={one.value}>{one.label}</option>)}
         </NativeSelect>} />
     </Rows>}
-    <Text role="muted">Observe writes what the Lead would have done to its record and does nothing.</Text>
+    <Text role="muted">{`Observe records what ${called} would have done and does nothing.`}</Text>
     {view.observed.length > 0 && <Rows>
       {view.observed.slice(0, 3).map(item => <Row key={item.id} title={item.note} control={<Text role="meta">{when(item.at)}</Text>} />)}
     </Rows>}
     {(view.changes?.length ?? 0) > 0 && <>
-      <Text role="muted">Recent changes. Only you change these; the Lead cannot.</Text>
+      <Text role="muted">{`Recent changes. Only you change these; ${called} cannot.`}</Text>
       <Rows aria-label="Autonomy changes">
         {view.changes!.slice(0, 5).map(change => <Row key={`${change.at}-${changeTitle(change)}`} title={changeTitle(change)}
           desc={change.what !== 'deadline' && change.proposal ? `Applied from proposal ${change.proposal}` : undefined} control={<Text role="meta">{when(change.at)}</Text>} />)}

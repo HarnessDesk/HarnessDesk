@@ -450,8 +450,11 @@ export interface PhoneWorkSnapshot {
    * changes reads (#2152): every mode change (`from → to`), every saved rule version (`version` and `how`: `edit` reads
    * "version N saved", `reset` "reset to default", `rollback` "version N restored"), and every deadline set or cleared.
    * `proposal` names the Lead's proposal the person applied ("Applied from proposal …"); without it the person changed
-   * it in Settings. `by` is always the person. A rule row's current `version` and `changedAt` are on `rules`. The words of
-   * older versions stay on the desk (`lead/rules/read` is not a phone method). Refreshed with the rest of the view when
+   * it in Settings. `by` is always the person. A rule row's current `version` and `changedAt` are on `rules`; a section ever
+   * saved also carries `versions` (its newest five, newest first: `version`, `text`, `at`, `how`, and `from` for a
+   * restore) and `shipped`, the default words. That is the earlier wording, a diff between any two rows, and what a
+   * Restore would bring back, all without `lead/rules/read`, which stays a desk method. Restoring is done at the desk:
+   * the phone never writes rule words. Refreshed with the rest of the view when
    * the desk publishes `lead/autonomy/changed`.
    *
    * Memory's history is on `lead/memory/view` (`history`, newest first): a Forget is its own row with `forgotten` (and

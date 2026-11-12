@@ -1,5 +1,5 @@
 import type { UsageLane, UsagePlanShape, UsagePreference, UsageReport, UsageShape } from '@harnessdesk/protocol'
-import { bindingLane, isSilentUsage, usageShapeOf } from '@harnessdesk/protocol'
+import { answeredWithNothing, bindingLane, isSilentUsage, usageShapeOf } from '@harnessdesk/protocol'
 
 import { paidForAccount, cycleStartFromLanes, periodBounds } from './paid'
 import { paidRatio } from './overview-strip'
@@ -211,8 +211,9 @@ export const statusOf = (
   view: ReportView,
   now: number,
 ): RowStatus => {
-  // The stand-in for a tracked agent nothing answered for: the one row that says Not reporting.
-  if (isSilentUsage(raw)) return 'notReporting'
+  // The stand-in for a tracked agent nothing answered for, and an account that answered with nothing to draw: the
+  // phone's Not reporting, the same expression (`phone-workspace.ts`), so the two surfaces never disagree (#2150).
+  if (isSilentUsage(raw) || answeredWithNothing(raw, now)) return 'notReporting'
   const standing = usageStandingOf(raw, now)
   // Unknown is a read that never answered. A refresh that failed after a good reading keeps that reading's standing,
   // as the card and the phone do; the row marks it stale (#2094).
@@ -221,7 +222,6 @@ export const statusOf = (
   if (balance !== null && balance < 0) return 'overdrawn'
   if (view.blocked || standing.status === 'out' || balance === 0) return 'out'
   if (standing.status === 'overdrawn') return 'overdrawn'
-  if (shape === 'none') return 'notReporting'
   // The card's chip says the same standing, so Short and Low win over overage; the card's note carries the overage.
   if (standing.status === 'short') return 'short'
   if (standing.status === 'low') return 'low'

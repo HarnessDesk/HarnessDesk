@@ -148,10 +148,15 @@ test('the snapshot carries the history the phone draws for autonomy and rules: e
     { at: 1, by: 'person' as const, what: 'deadline' as const, deadlineAt: null },
   ]
   const view = { version: 1 as const, modes: { 'desk-change': 'observe', stuck: 'act', repeat: 'act', mention: 'act', brief: 'act' } as const, observed: [], deadline: null, changes,
-    rules: [{ id: 'talk' as const, title: 'How to talk to me', text: 'Plain words.', custom: true, version: 3, changedAt: 5 }] }
+    rules: [{ id: 'talk' as const, title: 'How to talk to me', text: 'Plain words.', custom: true, version: 3, changedAt: 5, shipped: 'Shipped words.', versions: [
+      { version: 3, text: 'Plain words.', at: 5, how: 'rollback' as const, from: 1 }, { version: 2, text: 'Shipped words.', at: 4, how: 'reset' as const },
+      { version: 1, text: 'Plain words.', at: 3, how: 'edit' as const }] }] }
   const autonomy = (await rig({ leadAutonomy: async () => view }).work.snapshot()).autonomy!
   assert.deepEqual(autonomy.changes, changes, 'newest first, as the desktop ledger lists them')
   assert.deepEqual(autonomy.rules.map(one => [one.version, one.changedAt]), [[3, 5]])
+  // The earlier words and the shipped words ride along: the phone's wording, diff and Restore preview need no desk-only read.
+  assert.deepEqual(autonomy.rules[0]!.versions, view.rules[0]!.versions)
+  assert.equal(autonomy.rules[0]!.shipped, 'Shipped words.')
 })
 
 test('the phone Work list names the Teams and chats its Inbox counts that no work item holds (#2110)', async () => {

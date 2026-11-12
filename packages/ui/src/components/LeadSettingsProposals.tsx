@@ -5,14 +5,18 @@ import { sanitizeText } from '../lib/sanitize'
 import { useStore } from '../state/context'
 import { leadRefusalText } from './lead-refusals'
 import { leadRuleDiff } from './lead-rules-diff'
+import { useLeadCalled } from './use-lead-name'
 
 const MODE: Record<LeadAutonomyMode, string> = { off: 'Off', observe: 'Observe', act: 'Act' }
 
-/** When an applied change holds, said on the card because a mode and a rule section take effect differently. */
-export const LEAD_SETTINGS_EFFECT = {
-  autonomy: 'Takes effect at once, for what the Lead does without being asked.',
-  rules: "Takes effect at the Lead's next epoch, never in the middle of a turn.",
-} as const
+/**
+ * When an applied change holds, said on the card because a mode and a rule section take effect differently. `name` is
+ * what the Lead is called (`leadCalled`), Dex or Lex, the words the phone uses for the same card (#2146).
+ */
+export const leadSettingsEffect = (name: string) => ({
+  autonomy: `Takes effect at once, for what ${name} does without being asked.`,
+  rules: `Takes effect at ${name}'s next epoch, never in the middle of a turn.`,
+}) as const
 
 /** What one proposal changes, in the words Settings uses for the same row. The Lead wrote an added line, so it is drawn as plain text. */
 export const leadSettingsProposalTitle = (proposal: LeadSettingsProposal): string => {
@@ -39,7 +43,7 @@ const WholeWords = ({ section, current, text }: { readonly section: LeadRuleSect
 }
 
 export const LeadSettingsProposals = ({ proposals }: { readonly proposals: readonly LeadSettingsProposal[] }) => {
-  const store = useStore()
+  const store = useStore(), effect = leadSettingsEffect(useLeadCalled())
   const rules = useSyncExternalStore(store.lead.subscribe, () => store.lead.state.autonomy?.rules)
   const [pending, setPending] = useState(false), [error, setError] = useState<string | null>(null)
   const decide = (id: string, decision: 'apply' | 'decline') => {
@@ -54,7 +58,7 @@ export const LeadSettingsProposals = ({ proposals }: { readonly proposals: reado
       const whole = change.kind === 'rules'
         ? <WholeWords section={change.section} current={rules?.find(one => one.id === change.section)?.text} text={change.text} /> : null
       return <Row key={proposal.id} title={leadSettingsProposalTitle(proposal)}
-        desc={whole ? <>{LEAD_SETTINGS_EFFECT[change.kind]}{whole}</> : LEAD_SETTINGS_EFFECT[change.kind]}
+        desc={whole ? <>{effect[change.kind]}{whole}</> : effect[change.kind]}
         titleChip={<InlineParts>
           <Chip variant="quiet" tone="neutral">{change.kind === 'autonomy' ? 'Autonomy' : LEAD_RULE_TITLES[change.section]}</Chip>
           {proposal.askedAgainAt !== undefined && <Chip variant="quiet" tone="neutral" title="Proposed again while it waited for you; still one card">Asked again</Chip>}
