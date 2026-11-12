@@ -92,6 +92,10 @@ export interface LeadMemoryVersionSummary {
   /** False once a later change touched what this one changed, or once Forget erased what it held. */
   readonly undoable: boolean
   readonly undone?: true
+  /** The person's Forget: how many notes it took out. Its counts above are 0, since nothing of the note is kept to count. */
+  readonly forgotten?: number
+  /** Forget later took this change's words out. Its counts still say what it did; it can no longer be undone. */
+  readonly erased?: true
 }
 export interface LeadMemoryView {
   readonly version: 1
@@ -199,13 +203,14 @@ export const parseLeadMemoryCandidate: Validator<LeadMemoryCandidate> = (value, 
     ...(again === undefined ? {} : { askedAgainAt: again }) }
 }
 const versionSummary: Validator<LeadMemoryVersionSummary> = (value, path = '') => {
-  const item = only(['version', 'at', 'by', 'added', 'removed', 'changed', 'tidy', 'undoable', 'undone'])(value, path)
+  const item = only(['version', 'at', 'by', 'added', 'removed', 'changed', 'tidy', 'undoable', 'undone', 'forgotten', 'erased'])(value, path)
   const tidy = item.tidy === undefined ? undefined : only(['merged', 'replaced', 'archived'])(item.tidy, at(path, 'tidy'))
   return { version: count(item.version, at(path, 'version')), at: time(item.at, at(path, 'at')),
     by: literalUnion('person', 'lead', 'tidy', 'undo', 'migration')(item.by, at(path, 'by')),
     added: count(item.added, at(path, 'added')), removed: count(item.removed, at(path, 'removed')), changed: count(item.changed, at(path, 'changed')),
     ...(tidy ? { tidy: { merged: count(tidy.merged, at(path, 'tidy.merged')), replaced: count(tidy.replaced, at(path, 'tidy.replaced')), archived: count(tidy.archived, at(path, 'tidy.archived')) } } : {}),
-    undoable: isBoolean(item.undoable, at(path, 'undoable')), ...(item.undone === true ? { undone: true as const } : {}) }
+    undoable: isBoolean(item.undoable, at(path, 'undoable')), ...(item.undone === true ? { undone: true as const } : {}),
+    ...(item.forgotten === undefined ? {} : { forgotten: count(item.forgotten, at(path, 'forgotten')) }), ...(item.erased === true ? { erased: true as const } : {}) }
 }
 const bounded = <T>(item: Validator<T>, max: number, label: string): Validator<T[]> => (value, path = '') => {
   const out = arrayOf(item)(value, path)

@@ -139,6 +139,21 @@ test('the snapshot carries the autonomy table for the phone, and leaves it out w
   assert.equal(Object.hasOwn(await rig().work.snapshot(), 'autonomy'), false)
 })
 
+test('the snapshot carries the history the phone draws for autonomy and rules: every change, a proposal\'s and a restore\'s included (#2152)', async () => {
+  const changes = [
+    { at: 5, by: 'person' as const, what: 'rules' as const, section: 'talk' as const, version: 3, how: 'rollback' as const },
+    { at: 4, by: 'person' as const, what: 'rules' as const, section: 'talk' as const, version: 2, how: 'reset' as const },
+    { at: 3, by: 'person' as const, what: 'rules' as const, section: 'talk' as const, version: 1, how: 'edit' as const, proposal: 's2' },
+    { at: 2, by: 'person' as const, what: 'mode' as const, kind: 'desk-change' as const, from: 'act' as const, to: 'observe' as const, proposal: 's1' },
+    { at: 1, by: 'person' as const, what: 'deadline' as const, deadlineAt: null },
+  ]
+  const view = { version: 1 as const, modes: { 'desk-change': 'observe', stuck: 'act', repeat: 'act', mention: 'act', brief: 'act' } as const, observed: [], deadline: null, changes,
+    rules: [{ id: 'talk' as const, title: 'How to talk to me', text: 'Plain words.', custom: true, version: 3, changedAt: 5 }] }
+  const autonomy = (await rig({ leadAutonomy: async () => view }).work.snapshot()).autonomy!
+  assert.deepEqual(autonomy.changes, changes, 'newest first, as the desktop ledger lists them')
+  assert.deepEqual(autonomy.rules.map(one => [one.version, one.changedAt]), [[3, 5]])
+})
+
 test('the phone Work list names the Teams and chats its Inbox counts that no work item holds (#2110)', async () => {
   const board = { version: 1 as const, more: 0, items: [] }
   const inbox = { version: 1 as const, needsYou: 1, items: [{ id: 'team:goal-game', kind: 'team' as const, title: 'build a game', project: 'acme-api', at: 8, needsYou: true, target: 'goal-game' }] }

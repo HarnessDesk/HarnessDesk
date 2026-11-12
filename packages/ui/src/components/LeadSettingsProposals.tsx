@@ -24,8 +24,9 @@ export const leadSettingsProposalTitle = (proposal: LeadSettingsProposal): strin
 /**
  * The Lead's proposals to change a mode or a rule section, under the reply that made them. Nothing is changed until
  * the person presses Apply, which makes exactly the change shown, through the same store Settings writes; No closes the
- * card and the Lead is told. A section's whole new words sit inside their own row, as what changes against the words in
- * force. The phone draws the same card from `autonomy.proposals`.
+ * card and the Lead is told. The words a section will hold sit inside their own row, as what changes against the words
+ * in force, whether the Lead added a line or wrote the whole section. The phone draws the same card from
+ * `autonomy.proposals`, whose `text` carries the resulting words.
  */
 /**
  * A section's whole new words, as what changes against the words in force (the words alone until those are read). The
@@ -48,7 +49,9 @@ export const LeadSettingsProposals = ({ proposals }: { readonly proposals: reado
   return <div data-slot="lead-settings-proposals">
     <Rows aria-label="Change a setting?">{proposals.map(proposal => {
       const change = proposal.change
-      const whole = change.kind === 'rules' && change.add === undefined
+      // Every section change shows the words the section will hold against the words in force: an added line reads as
+      // an append among the lines that stay, never as the section's new words alone (#2152).
+      const whole = change.kind === 'rules'
         ? <WholeWords section={change.section} current={rules?.find(one => one.id === change.section)?.text} text={change.text} /> : null
       return <Row key={proposal.id} title={leadSettingsProposalTitle(proposal)}
         desc={whole ? <>{LEAD_SETTINGS_EFFECT[change.kind]}{whole}</> : LEAD_SETTINGS_EFFECT[change.kind]}

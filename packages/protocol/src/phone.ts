@@ -445,6 +445,17 @@ export interface PhoneWorkSnapshot {
   /**
    * Off / Observe / Act per proactive kind, the words the person's rules add, and the goal's deadline. Left out while no
    * Lead runs here. The phone changes a mode through `lead/autonomy/set`; the rules are read-only on a phone.
+   *
+   * The history the phone draws for autonomy and rules is `changes`, newest first, the list the desktop's Recent
+   * changes reads (#2152): every mode change (`from → to`), every saved rule version (`version` and `how`: `edit` reads
+   * "version N saved", `reset` "reset to default", `rollback` "version N restored"), and every deadline set or cleared.
+   * `proposal` names the Lead's proposal the person applied ("Applied from proposal …"); without it the person changed
+   * it in Settings. `by` is always the person. A rule row's current `version` and `changedAt` are on `rules`. The words of
+   * older versions stay on the desk (`lead/rules/read` is not a phone method). Refreshed with the rest of the view when
+   * the desk publishes `lead/autonomy/changed`.
+   *
+   * Memory's history is on `lead/memory/view` (`history`, newest first): a Forget is its own row with `forgotten` (and
+   * zero counts), and a change whose words Forget took out keeps its counts with `erased` set.
    */
   readonly autonomy?: import('./lead-autonomy.js').LeadAutonomyView
   /** The Lead's memory as the thread needs it. Left out while no Lead runs on the desk. */

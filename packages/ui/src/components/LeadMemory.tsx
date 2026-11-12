@@ -66,7 +66,9 @@ export const LeadMemoryProposals = ({ candidates }: { readonly candidates: reado
 const kb = (bytes: number) => (Math.round(bytes / 102.4) / 10).toFixed(1)
 const historyTitle = (item: LeadMemoryVersionSummary, label: string): string => {
   if (item.tidy) return `Tidy · ${[item.tidy.merged && `${item.tidy.merged} merged`, item.tidy.replaced && `${item.tidy.replaced} replaced`, item.tidy.archived && `${item.tidy.archived} to Archive`].filter(Boolean).join(', ') || 'no change'}`
-  const counts = [item.added && `${item.added} added`, item.changed && `${item.changed} changed`, item.removed && `${item.removed} removed`].filter(Boolean).join(', ') || 'no change'
+  // Forget keeps no words to count, so its own row says what it did; a change whose words it took keeps its counts.
+  const counts = item.forgotten ? `${item.forgotten} forgotten`
+    : [item.added && `${item.added} added`, item.changed && `${item.changed} changed`, item.removed && `${item.removed} removed`].filter(Boolean).join(', ') || 'no change'
   const who = item.by === 'person' ? 'You' : item.by === 'lead' ? label : item.by === 'undo' ? 'Undo' : 'Carried over'
   return `${who} · ${counts}`
 }
@@ -153,7 +155,7 @@ export const LeadMemorySection = ({ label, cards }: { readonly label: string; re
     </>}
     {history.length > 0 && <>
       <SectionHead level="label" name="History" />
-      <Rows>{history.map(item => <Row key={item.version} title={historyTitle(item, label)} titleChip={item.undone ? <Chip variant="quiet" tone="neutral">Undone</Chip> : undefined} tooltip={when(item.at)}
+      <Rows>{history.map(item => <Row key={item.version} title={historyTitle(item, label)} titleChip={item.undone ? <Chip variant="quiet" tone="neutral">Undone</Chip> : item.erased ? <Chip variant="quiet" tone="neutral" title="Forget took these words out; this change can no longer be undone">Forgotten</Chip> : undefined} tooltip={when(item.at)}
         control={item.undoable && !item.undone ? <Button variant="quiet" disabled={pending} onClick={() => change({ action: 'undo', version: item.version })}>Undo</Button> : undefined} />)}</Rows>
     </>}
     {forgetAll && <ConfirmDialog title="Forget everything?" confirmLabel="Forget all" cancelLabel="Keep memory" tone="destructive" busy={pending}

@@ -34,10 +34,13 @@ const RuleDialog = ({ section, prompt, save, close }: {
       <Text role="meta">Takes effect at the Lead's next epoch, never in the middle of a turn. It cannot widen what the Lead is allowed to do.</Text>
       <Button variant="link" onClick={() => setFull(open => !open)}>{full ? 'Hide full prompt' : 'View full prompt'}</Button>
       {full && <CodeText as="pre">{prompt || 'Nothing edited. The Lead uses the shipped words.'}</CodeText>}
-      {section.history.length > 0 && <Rows>
+      {section.history.length > 0 && <Rows aria-label={`Versions of ${section.title}`}>
         {section.history.map(entry => <Row key={entry.version} title={`Version ${entry.version}`} desc={entry.how === 'rollback' && entry.from ? `Restored from version ${entry.from}` : entry.proposal ? `Applied from proposal ${entry.proposal}` : HOW[entry.how]}
           control={<><Text role="meta">{when(entry.at)}</Text>{entry.version !== section.version && <Button variant="secondary" disabled={busy}
             onClick={() => void run({ section: section.id, action: 'rollback', to: entry.version, expectedVersion })}>Restore</Button>}</>} />)}
+        {/* The words before the first change are a version too: restoring them saves a new version, as Reset does (#2152). */}
+        {section.custom && <Row title="Shipped words" tooltip={section.default.text}
+          control={<Button variant="secondary" disabled={busy} onClick={() => void run({ section: section.id, action: 'reset', expectedVersion })}>Restore</Button>} />}
       </Rows>}
     </FormStack>
   </Dialog>

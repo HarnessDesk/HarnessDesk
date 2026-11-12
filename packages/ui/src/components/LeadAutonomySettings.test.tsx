@@ -115,3 +115,23 @@ it('rules: each edited section shows its version and when it changed, on its own
   const untouched = [...box.querySelectorAll<HTMLElement>('[data-slot="row-title"]')].find(one => one.textContent?.startsWith('What counts as done'))!.closest<HTMLElement>('[data-slot="row"]') ?? box
   expect(untouched.textContent).not.toContain('Version')
 })
+
+it('a first rule change can be restored to the shipped words from its history, and every save shows in Recent changes (#2152)', async () => {
+  const { box, calls } = await mount(<><LeadRulesSection /><LeadAutonomySection /></>)
+  const ledger = () => box.querySelector('[aria-label="Autonomy changes"]')!.textContent
+  const edit = [...box.querySelectorAll<HTMLElement>('button')].filter(one => one.textContent === 'Edit')[0]!
+  await act(async () => { edit.click() })
+  const dialog = () => document.body.querySelector<HTMLElement>('[role="dialog"]')!
+  const history = [...dialog().querySelectorAll('[data-slot="row"]')].map(row => row.textContent ?? '')
+  expect(history.find(row => row.startsWith('Version 1')), 'the version in force has nothing to restore').not.toContain('Restore')
+  const shipped = [...dialog().querySelectorAll<HTMLElement>('[data-slot="row"]')].find(row => row.textContent?.startsWith('Shipped words'))
+  expect(shipped, 'the words before the first change are in the history').toBeTruthy()
+  await act(async () => { [...shipped!.querySelectorAll<HTMLElement>('button')].find(one => one.textContent === 'Restore')!.click() })
+  await settle()
+  expect(calls.filter(call => call.method === 'lead/rules/update').map(call => call.params)).toEqual([{ section: 'talk', action: 'reset', expectedVersion: 1 }])
+  expect(ledger(), 'the restore that saved version 2 is in the ledger without reopening the page').toContain('How to talk to me: reset to default')
+  await act(async () => { [...dialog().querySelectorAll<HTMLElement>('[data-slot="row"]')].find(row => row.textContent?.startsWith('Version 1'))!.querySelector<HTMLElement>('button')!.click() })
+  await settle()
+  expect(calls.filter(call => call.method === 'lead/rules/update').at(-1)!.params).toEqual({ section: 'talk', action: 'rollback', to: 1, expectedVersion: 2 })
+  expect(ledger()).toContain('How to talk to me: version 3 restored')
+})

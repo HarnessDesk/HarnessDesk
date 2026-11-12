@@ -30,7 +30,10 @@ export const LeadAutonomySection = () => {
   const store = useStore(), active = useDestinationActive()
   const lead = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const goal = lead.thread?.budget?.logicalGoalId, open = !!goal && !['accepted', 'declined', 'stopped'].includes(lead.thread?.state ?? '')
-  const [view, setView] = useState<LeadAutonomyView | null>(null)
+  const [read, setView] = useState<LeadAutonomyView | null>(null)
+  // The store's copy is refreshed whenever the desk says autonomy changed, a rule section's save included, so Recent
+  // changes shows a save made in the Rules dialog without the page being opened again (#2152).
+  const view = lead.autonomy?.modes ? lead.autonomy : read
   const [pending, setPending] = useState<LeadAutonomyKind | null>(null), [error, setError] = useState<string | null>(null)
   useEffect(() => { if (active) void store.lead.readAutonomy().then(next => setView(next?.modes ? next : null), failure => setError(leadRefusalText(failure))) }, [active, store])
   const choose = async (kind: LeadAutonomyKind, mode: LeadAutonomyMode) => {

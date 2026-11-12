@@ -98,3 +98,15 @@ it('#2117 review 2: a section\'s whole words are diffed once per pair of words, 
   expect(diff.mock.calls.length, 'no rebuild for the same words').toBe(after)
   expect(box.querySelector('[aria-label="What changes in What counts as done"]')!.textContent).toContain('+ Done means every check run is green')
 })
+
+it('an added line shows the words the section will hold, as a diff against the words in force, so it reads as an append (#2152)', async () => {
+  const [, line] = leadSettingsProposals
+  const { box, store } = await mount(<LeadSettingsProposals proposals={[line!]} />)
+  await act(async () => { await store.lead.readAutonomy() })
+  const words = box.querySelector('[aria-label="What changes in How to talk to me"]')
+  expect(words, 'the resulting words are drawn, not only the added line').toBeTruthy()
+  expect(words!.closest('[data-slot="row"]')).toBeTruthy()
+  for (const kept of LEAD_RULE_DEFAULTS.talk.text.split('\n')) expect(words!.textContent).toContain(`  ${kept}`)
+  expect(words!.textContent).toContain('+ Lead every report with the conclusion.')
+  expect(words!.textContent).not.toMatch(/^- /m)
+})

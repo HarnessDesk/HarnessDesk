@@ -2507,7 +2507,18 @@ Open a goal when is a read-only list of project declarations with opens.lead
 true, using the arm preview's lead.summary. Each opens the project's returned
 trigger-file path. This page neither edits nor arms declarations.
 
-Settings › Lead › Memory says the Lead reads Core at the start of each conversation and searches Archive when it needs to. Its header holds Export (the notes as JSON) and Forget all, whose confirmation says it also empties the conversation copy the Lead searches and that the Lead's journal keeps its record. A switch, Keep the Lead's notes without asking, lets facts and lessons skip To review; an Add a note field adds the person's own note. To review lists waiting proposals with Keep, Edit and No; Core shows how much of its 6 KB is used, with a warning tone past 90%; Archive follows; each note offers Edit, Archive or Move to Core, and Forget, whose confirmation says what goes (the note, every saved version, passages that quote it) and what stays (the conversation it came from, the Lead's journal), since it cannot be undone, with a chip when the Lead wrote it or when the current plan cites it. History lists the last eight changes, and Undo on any change that can be undone. When the desk could not hand the latest change to the Lead, an error banner at the top says the Lead still reads the version before it. In the Lead's thread, the same proposals sit under the reply they came with.
+Settings › Lead › Rules holds three sections of the person's own words, each
+versioned. A section's dialog lists its versions, newest first, each with
+Restore but the one in force; while the person's words are in force, a last
+**Shipped words** row restores the default, so even a first change can be
+rolled back. A restore saves a new version. Settings › Lead › Autonomy lists
+**Recent changes**, newest first: every mode change, every saved rule version
+(a restore and a reset included) and every deadline, read again whenever the
+desk says autonomy changed. A proposal card for a rule section shows the words
+the section will hold against the words in force, as a diff, whether the Lead
+added a line or wrote the whole section.
+
+Settings › Lead › Memory says the Lead reads Core at the start of each conversation and searches Archive when it needs to. Its header holds Export (the notes as JSON) and Forget all, whose confirmation says it also empties the conversation copy the Lead searches and that the Lead's journal keeps its record. A switch, Keep the Lead's notes without asking, lets facts and lessons skip To review; an Add a note field adds the person's own note. To review lists waiting proposals with Keep, Edit and No; Core shows how much of its 6 KB is used, with a warning tone past 90%; Archive follows; each note offers Edit, Archive or Move to Core, and Forget, whose confirmation says what goes (the note, every saved version, passages that quote it) and what stays (the conversation it came from, the Lead's journal), since it cannot be undone, with a chip when the Lead wrote it or when the current plan cites it. History lists the last eight changes, and Undo on any change that can be undone. A Forget is its own row (You · 1 forgotten); a change whose words it took out keeps its counts under a Forgotten chip and can no longer be undone, so the list never reads only no change. When the desk could not hand the latest change to the Lead, an error banner at the top says the Lead still reads the version before it. In the Lead's thread, the same proposals sit under the reply they came with.
 
 A phone start uses the selected runtime’s saved new-session choices after validating them against the current adapter. Replies use the ordinary turn queue while an agent is busy. If creation succeeds but the first message cannot be confirmed, the response retains the session id and a warning; the phone opens that conversation with the draft instead of starting another session on retry.
 
