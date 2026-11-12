@@ -293,9 +293,13 @@ export class UsageService {
    * through `#finish`, since the overlay there may be what threw.
    */
   #failed(id: RuntimeId, cause: unknown): UsageReport {
-    const error = { message: cause instanceof Error ? cause.message : String(cause) }
-    this.#options.log?.('a usage read failed', { runtime: id, error: error.message })
     const previous = this.#cache.get(id) ?? null
+    // A throw says nothing about sign-in, so the last thing the meter said about it stands: a carried-on turn reads needsSignIn to pass over an account.
+    const error = {
+      message: cause instanceof Error ? cause.message : String(cause),
+      ...(previous?.error?.needsSignIn === true ? { needsSignIn: true } : {}),
+    }
+    this.#options.log?.('a usage read failed', { runtime: id, error: error.message })
     const report: UsageReport = previous && (previous.lanes.length > 0 || hasReading(previous) || previous.unverified)
       ? { ...previous, error }
       : {

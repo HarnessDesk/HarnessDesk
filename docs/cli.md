@@ -52,7 +52,7 @@ Every command ends with one of these. A command's own section lists the codes th
 | 1 | The desk answered with an error not covered below, or the command failed for another reason. |
 | 2 | An ambiguous conversation id, or usage: an unknown command or flag, a missing argument, or a spend without a terminal and without `--yes`. |
 | 3 | No desk: none is running for this home. |
-| 4 | Refused: the desk refused the request (a flow with problems, a tier this desk does not grant, a card not addressed to a person), or its socket failed the ownership check. The desk's error code is printed on stderr. |
+| 4 | Refused: the desk refused the request (a flow with problems, a tier this desk does not grant, a card not addressed to a person, or a start from an MCP client the person has not allowed or with no starts left for the day), or its socket failed the ownership check. The desk's error code is printed on stderr. |
 | 5 | Waiting for a person: `run wait` ended on a person card or a question. |
 | 6 | Incompatible: the desk speaks a different protocol version, or is older than this command line and lacks a method the command needs. |
 | 7 | `run wait`: the run ended stopped or stalled. |
@@ -645,3 +645,43 @@ harnessdesk run wait RUN --timeout 3600; echo $?
 harnessdesk waiting
 harnessdesk card answer TEAM 4 merged
 ```
+
+## Using it from an agent (MCP)
+
+`harnessdesk mcp` serves these commands to an agent as an MCP server, over standard input and output. Add it to an MCP client once:
+
+```sh
+claude mcp add harnessdesk -- harnessdesk mcp
+```
+
+Any other MCP client takes the same server as `command: harnessdesk` and `args: [mcp]`. Add `--home DIR` to the arguments to serve a desk other than the default one. The server keeps nothing between calls: each call finds the desk, does its work and disconnects, so a desk that restarts is found again on the next call, and a call made while no desk is running says so.
+
+Each command is one tool, with the same arguments and flags, and the tool answers with the command's `--json` output.
+
+| Tool | Command | Tier |
+| --- | --- | --- |
+| `desks` | [`desks`](#harnessdesk-desks) | read |
+| `status` | [`status`](#harnessdesk-status) | read |
+| `teams` | [`teams`](#harnessdesk-teams) | read |
+| `runs` | [`runs`](#harnessdesk-runs) | read |
+| `open` | [`open`](#harnessdesk-open) | run |
+| `flows` | [`flows`](#harnessdesk-flows) | read |
+| `flow_preview` | [`flow preview`](#harnessdesk-flow-preview) | read |
+| `flow_start` | [`flow start`](#harnessdesk-flow-start) | run |
+| `session_show` | [`session show`](#harnessdesk-session-show) | read |
+| `run_show` | [`run show`](#harnessdesk-run-show) | read |
+| `run_stop` | [`run stop`](#harnessdesk-run-stop) | run |
+| `run_wait` | [`run wait`](#harnessdesk-run-wait) | read |
+| `library_list` | [`library list`](#harnessdesk-library-list) | read |
+| `library_show` | [`library show`](#harnessdesk-library-show) | read |
+| `card_show` | [`card show`](#harnessdesk-card-show) | read |
+| `card_handoff` | [`card handoff`](#harnessdesk-card-handoff) | read |
+| `card_answer` | [`card answer`](#harnessdesk-card-answer) | answer |
+| `card_abandon` | [`card abandon`](#harnessdesk-card-abandon) | run |
+| `waiting` | [`waiting`](#harnessdesk-waiting) | read |
+
+- **Starting work is off until you turn it on.** A tool that starts a flow is refused, with `mcpStartsOff`, until **Let MCP clients start work** is on in Settings › Permissions › MCP clients. Then it counts against a number of starts a day that you choose there, 5 unless you change it, counted from midnight in your own time zone; past it, starts are refused with `mcpDailyCap`. A start that fails is not counted. Only a flow saved in the project, in your flows or in the app can be started, and always attended: a seat that would need a higher ceiling than it holds asks you, and an MCP client cannot pass `--unattended`. Runs started this way carry an **MCP** chip in the app. A desk started by a script can set `HARNESSDESK_MCP_MAY_START=1` in its environment instead of the switch.
+- **Answers.** `card_answer` speaks as you, so it needs the same **answer** tier as the command line, which is off by default. The Team's channel shows the answer as given from an MCP client, with the name the client gave.
+- **Waiting.** `run_wait` waits 600 seconds when no timeout is given, and at most 3600. A wait that runs out is an answer, not an error: call it again. A client that asks for progress hears from it every 15 seconds and whenever the run changes state, and a client that cancels the call ends the wait.
+- **Errors.** A command that fails comes back as a tool error whose text starts `exit N:`, with the exit code from the table above and the desk's code: `exit 3: noDesk: …`, `exit 4: mcpStartsOff: …`. A wait that ends because a person is needed is not an error: its result carries `exit` and `ended`.
+- **No `watch` tool:** it streams forever; use run_wait or status.

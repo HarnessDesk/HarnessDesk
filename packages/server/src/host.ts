@@ -187,8 +187,8 @@ import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, l
 import { initialLeadMemoryCore, leadMemoryStatus, leadSettingsStatus } from '@harnessdesk/lead'
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
-import type { LeadProject } from '@harnessdesk/protocol'
-import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
+import type { FlowExecution, LeadProject } from '@harnessdesk/protocol'
+import { ExecutionFiles, FlowExecutions, sourceDigest } from './flow-execution.js'
 import { FlowReview, PERSON_REVIEWER_ID } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
 import { seatOptionsProblem } from './seat-options.js'
@@ -203,6 +203,7 @@ import { GatedRegistry, CeilingGate, type Conversation, type HeldQuestion } from
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog, type ClientAuditEntry } from './audit.js'
+import { McpStarts } from './mcp-starts.js'
 import { CatalogRefresher } from './catalog-refresher.js'
 import { isProgramFailure, RuntimeCache, type CachedRuntime } from './runtime-cache.js'
 import {
@@ -254,6 +255,20 @@ import { SeatHeldCards } from './seat-held-cards.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
+import { CarryOnService } from './carry-on/service.js'
+import { carryOnPacket } from './carry-on/handoff.js'
+import { CONTINUE_SOURCE } from './carry-on/decide.js'
+import {
+  bindingLane as usageBindingLane,
+  carryOnFor,
+  carryOnPolicyOf,
+  CARRY_ON_PREFERENCE,
+  isBlocked as usageBlocked,
+  paceRankOf,
+  reachedLaneOf,
+  whenOutForChoice,
+  type CarryOnItem,
+} from '@harnessdesk/protocol'
 import { SessionNames } from './names.js'
 import { redactorFor, redactLog } from './diagnostics.js'
 import { waitFor } from './flow.js'
@@ -290,6 +305,7 @@ import type { UsageSample } from './ledger/insight.js'
 import { InsightContexts } from './insight/context.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
+import { startGoal } from './methods/flows.js'
 import { seatAgent } from './methods/agents.js'
 
 /**
@@ -925,6 +941,8 @@ export class Host {
   readonly #credentials: CredentialBroker
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
+  /** Whether MCP clients may start work, and today's count (`client-starts.json`). */
+  readonly #mcpStarts: McpStarts
   /** Sidebar metadata; the transcript store continues to own conversation bodies. */
   readonly #historyImport: HistoryImport
   #cacheEvictionTimer: ReturnType<typeof setTimeout> | undefined
@@ -1153,6 +1171,8 @@ export class Host {
   #usage: UsageService | null = null
   #ledger: Ledger | null = null
   #plans: PlanStore | null = null
+  /** Conversations stuck at a usage limit, carried on by the person's rule. Built in the constructor, restored in `start()`. */
+  readonly #carryOn: CarryOnService
   /** What the wire methods may reach; see `HostContext`. Built once the fields above exist. */
   readonly #context: HostContext
 
@@ -1260,6 +1280,7 @@ export class Host {
       log: (message, error) => this.#logger.warn(message, { error: String(error) }),
     })
     this.#audit = new AuditLog(join(this.#state.directory, 'audit.ndjson'))
+    this.#mcpStarts = new McpStarts(join(this.#state.directory, 'client-starts.json'))
     this.#transcripts = new TranscriptStore(join(this.#state.directory, 'transcripts'), (message, details) =>
       this.#logger.warn(message, details),
       () => this.#scheduleCacheEviction(),
@@ -2609,6 +2630,7 @@ export class Host {
         stopLead: (asked) => this.stopLeadForThread(asked),
       },
     })
+    this.#carryOn = this.#buildCarryOn()
     this.#context = this.#buildContext()
   }
 
@@ -3109,6 +3131,8 @@ export class Host {
     const shellIdentity = this.#state.state.workspaces[0]?.shellIdentity
     this.#shellProject = isShellProjectIdentity(shellIdentity) ? shellIdentity.project : shellFolder ?? null
     await this.#laneStore.load()
+    // A carry-on claim that was mid-send is asked again, never resent; a wait for a reset re-arms.
+    void this.#carryOn.restore().catch(() => { this.#logger.warn('Carry-on incidents could not be restored') })
     // Everything that restores a stored setting runs here, after the file has
     // been read, and never in the constructor. Until it did, a board left
     // holding inbound messages came back accepting them, and every plugin's
@@ -3845,6 +3869,8 @@ export class Host {
     // Cancels every v2 release still waiting on a Seat's turn to end: no
     // timer of this class's own outlives the process (#1027).
     this.#flows.dispose()
+    // No carry-on retry or reset fallback fires into a closing desk.
+    this.#carryOn.close()
     // No save preview survives the host: an apply from here on refuses, and one in flight finishes on its queue.
     this.#authoring.close()
     /* Triggers stop first: no new admission, no poll, no budget sweep and no
@@ -4814,7 +4840,7 @@ export class Host {
 
   /** The client's name is stated attribution, not authority. The door's live
    * action tier is checked again here; wire params cannot spoof provenance. */
-  async clientIntent(params: HostParams<'team/intent'>, client: string): Promise<HostResult<'team/intent'>> {
+  async clientIntent(params: HostParams<'team/intent'>, client: string, surface?: 'mcp'): Promise<HostResult<'team/intent'>> {
     if (params.action !== 'done' && params.action !== 'abandon') throw Object.assign(new Error('This action is not on the client surface.'), { wireCode: 'notOnClientSurface' })
     if (params.action === 'done' && !this.clientTiers().includes('answer')) throw Object.assign(new Error('This desk has not granted client answers.'), { wireCode: 'tierNotGranted' })
     const before = this.#flows.executionsFor(params.room).find(run => run.rounds.some(round => round.cards.includes(params.id)))
@@ -4830,7 +4856,7 @@ export class Host {
       if (run.state !== 'running' || run.rounds.some(one => one.n > (round?.n ?? Infinity) && one.cards.length > 0)) routed()
     }) : () => {}
     try {
-      await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client)
+      await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client, undefined, undefined, surface)
       await this.#team.flush()
       if (params.action === 'done') return null
       if (before) await Promise.race([this.#flows.cardContinuation(before.id), routing])
@@ -4842,6 +4868,56 @@ export class Host {
       const next = after?.rounds.find(one => one.n > (round?.n ?? Infinity) && one.cards.some(id => board.intents.some(card => card.id === id)))
       return { role: round?.role ?? null, nextRole: next?.role ?? null }
     } finally { detach() }
+  }
+
+  /**
+   * A flow start that came through the client door, stamped with where it came
+   * from. The origin is the host's: the door passes what the connection
+   * stated, and no wire param can carry or change it.
+   */
+  clientFlowStart(params: HostParams<'flow/start-goal'>, client: string, via: 'cli' | 'mcp'): Promise<FlowExecution> {
+    return startGoal(this.#context, params, { via, client })
+  }
+
+  /**
+   * A flow start from an MCP client. Off until the person turns it on, then
+   * counted against today's number; a start that fails is refunded. It never
+   * raises a ceiling: only attended work, and only a Flow saved where the
+   * catalogue finds it, so every grant a run from MCP holds is one the person
+   * saved. Seat overrides carry no ceiling, so they cannot raise one.
+   */
+  async clientStart(params: HostParams<'flow/start-goal'>, client: string): Promise<FlowExecution> {
+    const admission = await this.#mcpStarts.admit()
+    if (!admission.ok) throw Object.assign(new Error(admission.detail), { wireCode: admission.code })
+    try {
+      if (params.attended === false) {
+        throw Object.assign(new Error('An MCP client starts attended work only, so a ceiling a seat cannot hold asks you. Start unattended work in the app.'), { wireCode: 'mcpUnattended' })
+      }
+      // A front-door Goal is the window's to reuse, and Run again continues an
+      // earlier Run in its Team and checkout: both are work on an existing Team.
+      if (params.goal !== undefined || (params.continues !== undefined && params.continues !== null)) {
+        throw Object.assign(new Error('An MCP client cannot start work on an existing Team.'), { wireCode: 'refused' })
+      }
+      if (!await this.#savedFlowSource(params.root, params.source)) {
+        throw Object.assign(new Error('Start a Flow saved in this project; an MCP client cannot start an edited copy.'), { wireCode: 'mcpUnsavedFlow' })
+      }
+      return await this.clientFlowStart(params, client, 'mcp')
+    } catch (error) {
+      await this.#mcpStarts.refund(admission.ticket)
+      throw error
+    }
+  }
+
+  /** Whether this exact text is a Flow the project's catalogue holds, as `flow/source` would read it. */
+  async #savedFlowSource(root: string, source: string): Promise<boolean> {
+    const digest = sourceDigest(source)
+    for (const entry of await this.#flows.catalog(root)) {
+      let saved: string
+      try { saved = await this.#flows.catalogSource(root, entry.id, entry.origin) }
+      catch { continue }
+      if (sourceDigest(saved) === digest) return true
+    }
+    return false
   }
 
   recordClientAudit(entry: Omit<ClientAuditEntry, 'at' | 'via'>): void {
@@ -4975,6 +5051,14 @@ export class Host {
     if (method === 'session/resume' && typeof address?.runtime === 'string' && typeof address.sessionId === 'string') {
       const record = this.registry.get(runtimeId(address.runtime), makeSessionId(address.sessionId))
       if (record) record.cacheClosed = false
+    }
+    // The person's own message wins over any carry-on incident: it is the continuation they chose. Only the window's
+    // and the phone's doors come through here; carry-on's own sends take the host's path and never count.
+    if ((method === 'turn/send' || method === 'turn/queue' || method === 'turn/steer') && typeof address?.runtime === 'string' && typeof address.sessionId === 'string')
+      void this.#carryOn.personSent(address.runtime, address.sessionId).catch(() => {})
+    if (method === 'workspace/session/send') {
+      const chat = (params as { readonly id?: unknown }).id, at = typeof chat === 'string' ? chat.indexOf(':') : -1
+      if (typeof chat === 'string' && at > 0) void this.#carryOn.personSent(chat.slice(0, at), chat.slice(at + 1)).catch(() => {})
     }
     const finish = method !== 'session/prepare-eviction' && method !== 'session/cache-snapshot' && typeof address?.runtime === 'string' && typeof address.sessionId === 'string'
       ? this.#beginTranscriptOperation(runtimeId(address.runtime), makeSessionId(address.sessionId)) : null
@@ -5875,6 +5959,186 @@ export class Host {
    * over this host's own state, so a method module never sees the class —
    * only what it was given — and can be run against a hand-built context.
    */
+  /**
+   * The carry-on service, wired to the host. Every name it reads is the
+   * runtime's presentation and an account ordinal or the gateway's own name —
+   * never an email; it acts through the same close, resume, create and send a
+   * window uses, its sends on the host's path so they never count as the
+   * person's.
+   */
+  /** Identities for live handles, so carry-on can tell the handle it opened from one somebody else attached. */
+  readonly #carryOnHandles = new WeakMap<object, string>()
+  #carryOnHandleCount = 0
+  #carryOnHandle(live: object): string {
+    let handle = this.#carryOnHandles.get(live)
+    if (handle === undefined) { handle = `h${++this.#carryOnHandleCount}`; this.#carryOnHandles.set(live, handle) }
+    return handle
+  }
+
+  /**
+   * Carry-on's lease on a conversation: the handle it holds and how many opens the conversation had then. It stays
+   * carry-on's only while both are unchanged — no other handle, and no other caller opened it since, even one an
+   * adapter handed the very same handle.
+   */
+  #carryOnLease(runtime: RuntimeId, id: SessionId, live: object): string {
+    return `${this.#carryOnHandle(live)}@${this.registry.opens(runtime, id).opened}`
+  }
+
+  #buildCarryOn(): CarryOnService {
+    const preferences = () => this.#state.state.preferences
+    const pools = () => {
+      const value = preferences()['accountPools']
+      return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, { readonly order?: unknown; readonly whenOut?: string } | undefined> : {}
+    }
+    const runtimeOf = (id: string) => this.#runtimes.get(runtimeId(id))
+    const agentOf = (runtime: AgentRuntime) => String(this.#infoOf(runtime).slot?.agent ?? runtime.info.id)
+    const key = (runtime: string, sessionId: string) => ({ runtime: runtimeId(runtime), sessionId: makeSessionId(sessionId) })
+    const cannotStart = (runtime: AgentRuntime) => {
+      const health = runtime.health()
+      return health.state === 'unavailable' && (health.reason === 'notInstalled' || health.reason === 'versionTooOld' || health.reason === 'spawnFailed')
+    }
+    return new CarryOnService({
+      file: join(this.#state.directory, 'carry-on', 'incidents.json'),
+      problem: reason => this.#logger.warn(reason),
+      owner: async (runtime, sessionId) => {
+        if (this.#evidence.seats.of(runtimeId(runtime), makeSessionId(sessionId)).some(seat => !seat.closed)) return 'seat'
+        if (await this.#leadChats?.recovers(`${runtime}:${sessionId}`)) return 'lead'
+        return 'chat'
+      },
+      policy: agent => {
+        const policy = carryOnPolicyOf(preferences())
+        return { ...carryOnFor(policy, pools()[agent]), otherAgents: policy.otherAgents }
+      },
+      describe: id => {
+        const runtime = runtimeOf(id)
+        if (!runtime) return null
+        const info = this.#infoOf(runtime), agent = agentOf(runtime)
+        const siblings = [...this.#runtimes.values()].filter(one => agentOf(one) === agent)
+        const report = this.#usageService.cached(runtime.info.id)
+        const account = info.slot?.gateway?.name ?? (siblings.length > 1 ? `account ${siblings.indexOf(runtime) + 1}` : undefined)
+        return {
+          id, agent, name: info.presentation.name, ...(account ? { account } : {}),
+          sessionStore: runtime.sessionStore ?? null, ownSessions: info.slot?.ownSessions === true, gateway: info.slot?.gateway !== undefined,
+          // A runtime not started yet is started by the resume or create that uses it; one that cannot start at all is
+          // as good as signed out, and the meter's own refusal is the one sign-out signal the host holds without asking.
+          signedIn: !cannotStart(runtime) && report?.error?.needsSignIn !== true,
+          resume: info.capabilities.resume === true,
+        }
+      },
+      runtimes: () => {
+        const all = [...this.#runtimes.values()]
+        // Within one agent, the person's own pool order; across agents, as the desk lists them.
+        const rank = (runtime: AgentRuntime) => {
+          const order = pools()[agentOf(runtime)]?.order
+          const at = Array.isArray(order) ? order.indexOf(String(runtime.info.id)) : -1
+          return at === -1 ? Number.MAX_SAFE_INTEGER : at
+        }
+        return all.map((runtime, at) => ({ runtime, at })).sort((a, b) =>
+          agentOf(a.runtime) === agentOf(b.runtime) ? rank(a.runtime) - rank(b.runtime) || a.at - b.at : a.at - b.at)
+          .map(({ runtime }) => String(runtime.info.id))
+      },
+      rank: id => { const report = this.#usageService.cached(runtimeId(id)); return paceRankOf(report ? [report] : [], Date.now()) },
+      meter: async id => {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const late = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 10_000); timer.unref() })
+        try {
+          const reports = await Promise.race([this.#usageService.refresh(runtimeId(id)), late])
+          const report = reports?.[0]
+          if (!report || report.error) return null
+          const lane = reachedLaneOf(report) ?? usageBindingLane(report.lanes)
+          return { reached: report.reached !== null, blocked: usageBlocked(report), resetsAt: lane?.resetsAt ?? null }
+        } finally { clearTimeout(timer) }
+      },
+      models: id => this.call('runtime/models', { runtime: runtimeId(id) }),
+      modelOf: (runtime, sessionId) => this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.settings?.model || undefined,
+      titleOf: (runtime, sessionId) => {
+        const at = key(runtime, sessionId)
+        return this.registry.get(at.runtime, at.sessionId)?.session.title ?? this.#sessionIndex.get(at.runtime, at.sessionId)?.title ?? 'Conversation'
+      },
+      busy: (runtime, sessionId) => {
+        const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+        return !!record && (record.running.size > 0 || this.#queueBusy(record))
+      },
+      close: async (runtime, sessionId, lease) => {
+        if (lease !== undefined) {
+          // Only on carry-on's own lease: the handle it attached, with no other open since and none under way.
+          const at = key(runtime, sessionId)
+          const live = this.registry.get(at.runtime, at.sessionId)?.live
+          if (!live || this.registry.opens(at.runtime, at.sessionId).pending > 0 || this.#carryOnLease(at.runtime, at.sessionId, live) !== lease) return
+        }
+        await this.call('session/close', key(runtime, sessionId))
+      },
+      resume: async (runtime, sessionId, model) => {
+        const at = key(runtime, sessionId)
+        const before = this.registry.get(at.runtime, at.sessionId)
+        // Already open there, or being opened: somebody else's handle, which carry-on must never close.
+        const opens = this.registry.opens(at.runtime, at.sessionId)
+        if (before?.live || opens.pending > 0) return null
+        const attaches = before?.liveAttaches ?? 0
+        await this.call('session/resume', { ...at, ...(model ? { options: { model } } : {}) })
+        // Evidence of ownership, per call rather than per handle: exactly one open since the look before the await
+        // (carry-on's own), none still under way, and exactly one attachment, the one live now. Anything more means
+        // another opener came alongside — perhaps handed the very same handle — and then it is not carry-on's.
+        const after = this.registry.get(at.runtime, at.sessionId)
+        const now = this.registry.opens(at.runtime, at.sessionId)
+        if (!after?.live || (before !== undefined && after !== before) || after.liveAttaches !== attaches + 1 ||
+          now.opened !== opens.opened + 1 || now.pending > 0) return null
+        return this.#carryOnLease(at.runtime, at.sessionId, after.live)
+      },
+      footprint: (runtime, sessionId) => {
+        const at = key(runtime, sessionId)
+        const record = this.registry.get(at.runtime, at.sessionId)
+        if (!record?.live) return null
+        // The lease, the turns it holds and what runs: a reattach, another open, a turn or a queued send all change it.
+        return `${this.#carryOnLease(at.runtime, at.sessionId, record.live)}:${record.session.turns.length}:${record.running.size}:${this.#queueBusy(record) ? 1 : 0}`
+      },
+      // A packet and the continue are the host's own words: both go in as desk context, so the transcript never
+        // shows them as something the person typed. The packet is already enveloped; the continue is wrapped here.
+        // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
+        // last await: a person who writes while the host is resolving the handle wins there too.
+        send: async (runtime, sessionId, text, kind, stillOurs, admitted) => {
+          const admission = Object.assign(async () => {}, {
+            assertDispatch: () => { if (!stillOurs()) throw new Error('You sent a message first.') },
+            // Past the boundary: carry-on's marker goes in now, never for a send the person overtook.
+            ...(admitted ? { dispatchStarted: admitted } : {}),
+          })
+          await sendTurn(this.#context, { ...key(runtime, sessionId), input: [deskContextContent(kind === 'packet' ? text : wrapContext(CONTINUE_SOURCE, text))] }, admission)
+        },
+      create: async (runtime, from, model) => {
+        const source = key(from.runtime, from.sessionId)
+        // The new conversation starts in the stuck one's folder, worktree included, so its uncommitted work is there.
+        const cwd = this.registry.get(source.runtime, source.sessionId)?.session.cwd ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.cwd
+        // The lease is taken the moment the creation attaches its handle, never from a later read: by the time the
+        // creation returns, another opener may have put a handle of its own there.
+        let handle: string | null = null
+        const session = await createConversation(this.#context, { runtime: runtimeId(runtime), options: { ...(cwd ? { cwd } : {}), ...(model ? { model } : {}) } },
+          undefined, live => {
+            // A brand-new conversation has had no open but this creation, which counts none: the runtime may have
+            // announced it before the create returned, and an opener that reached it then holds the handle too.
+            const opens = this.registry.opens(runtimeId(runtime), live.id)
+            handle = opens.opened === 0 && opens.pending === 0 ? this.#carryOnLease(runtimeId(runtime), live.id, live) : null
+          })
+        const title = this.registry.get(source.runtime, source.sessionId)?.session.title ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.title
+        if (title) await this.call('session/setTitle', { runtime: runtimeId(runtime), sessionId: session.id, title }).catch(() => undefined)
+        return { sessionId: String(session.id), handle }
+      },
+      packet: async (from, meta) => {
+        const at = key(from.runtime, from.sessionId)
+        const transcript = await this.#readTranscript(this.#runtime({ runtime: at.runtime }), at.sessionId, false)
+        return carryOnPacket(transcript.turns, { ...meta, title: transcript.title ?? 'Conversation' })
+      },
+      record: (runtime, sessionId, item) => this.#recordCarryOn(runtime, sessionId, item),
+      publish: (at, incident) => this.#push({ method: 'carryOn/changed', params: { incident, key: at } }),
+      writeRule: async (scope, agent, choice) => {
+        const current = preferences()
+        const patch = scope === 'desk'
+          ? { [CARRY_ON_PREFERENCE]: { ...carryOnPolicyOf(current), onLimit: choice } }
+          : { accountPools: { ...pools(), [agent]: { ...pools()[agent], whenOut: whenOutForChoice(choice) } } }
+        await this.call('app/state/set', { patch })
+      },
+    })
+  }
+
   #buildContext(): HostContext {
     return {
       options: this.options,
@@ -5885,6 +6149,7 @@ export class Host {
       credentials: this.#credentials,
       harnessDeskAccount: this.#harnessDeskAccount,
       audit: this.#audit,
+      mcpStarts: this.#mcpStarts,
       transcripts: this.#transcripts,
       archive: this.#archive,
       sessionIndex: {
@@ -6026,6 +6291,7 @@ export class Host {
         close: params => this.leadWork.close(params), setReminder: params => this.leadWork.setReminder(params),
         cancelReminder: params => this.leadWork.cancelReminder(params) },
       personStopping: chat => { try { return this.#leadWork?.stopping(chat, 'person') ?? (() => {}) } catch { return () => {} } },
+      carryOn: { list: () => this.#carryOn.list(), decide: decision => this.#carryOn.decide(decision) },
       // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
       // The accounts the Dashboard lists, from the same cache: an allowance question never starts a refresh.
       leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary(this.#trackedUsage(this.#cachedUsage())),
@@ -7850,6 +8116,21 @@ export class Host {
     return true
   }
 
+  /**
+   * A carry-on marker, the way a publication is recorded: into the running or
+   * latest turn, through the host's own door, so the transcript store keeps it
+   * and every window learns of it. The agent never hears of it, so a replay
+   * puts it back where it stood (`publications.ts`).
+   */
+  #recordCarryOn(runtime: string, sessionId: string, item: CarryOnItem): boolean {
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record) return false
+    const turnId = [...record.running].at(-1) ?? record.session.turns.at(-1)?.id
+    if (turnId === undefined) return false
+    this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId, item })
+    return true
+  }
+
   /** The live handle a `(runtime, sessionId)` pair names, reconnecting if it must. */
   async #live(params: {
     readonly runtime: RuntimeId
@@ -7884,26 +8165,31 @@ export class Host {
     await this.#restingSessions.get(key)
     const held = this.registry.get(runtime, id)
     if (held?.live) return held.live
-    // Two calls arriving together — a send and the option write beside it —
-    // must resume once between them, not once each.
-    const already = this.#reattaching.get(key)
-    if (already) {
-      this.#reopenWaiters.set(key, (this.#reopenWaiters.get(key) ?? 0) + 1)
-      try {
-        return await already
-      } finally {
-        const left = (this.#reopenWaiters.get(key) ?? 1) - 1
-        if (left > 0) this.#reopenWaiters.set(key, left)
-        else this.#reopenWaiters.delete(key)
-      }
-    }
-    const attempt = this.#reattach(this.#runtime({ runtime }), id, route)
-    this.#reattaching.set(key, attempt)
+    // Each caller that needs the conversation opened is an open of its own, the one that joins a reopen in flight
+    // too: all of them are handed the one handle.
+    const release = this.registry.opening(runtime, id)
     try {
-      return await attempt
-    } finally {
-      this.#reattaching.delete(key)
-    }
+      // Two calls arriving together — a send and the option write beside it —
+      // must resume once between them, not once each.
+      const already = this.#reattaching.get(key)
+      if (already) {
+        this.#reopenWaiters.set(key, (this.#reopenWaiters.get(key) ?? 0) + 1)
+        try {
+          return await already
+        } finally {
+          const left = (this.#reopenWaiters.get(key) ?? 1) - 1
+          if (left > 0) this.#reopenWaiters.set(key, left)
+          else this.#reopenWaiters.delete(key)
+        }
+      }
+      const attempt = this.#reattach(this.#runtime({ runtime }), id, route)
+      this.#reattaching.set(key, attempt)
+      try {
+        return await attempt
+      } finally {
+        this.#reattaching.delete(key)
+      }
+    } finally { release() }
   }
 
   /** Conversations being re-opened right now, so concurrent callers share one. */
@@ -10292,10 +10578,23 @@ export class Host {
          and the only sign is a room that stopped moving. So the seat is
          handed its order again. Unfinished turns and self-block hand-backs
          have separate hourly allowances, so neither can re-arm forever. */
-      void this.#flows.reArm(runtime, String(event.sessionId))
-      // The same turn-ended signal answers a v2 release still waiting on this
-      // Seat, rather than a poll of its own guessing when to ask again (#1027).
-      this.#flows.retryRelease(runtime, String(event.sessionId))
+      // While a carry-on incident holds the conversation it is the one recovery: a re-arm would retry the same
+      // exhausted account behind its back.
+      if (!this.#carryOn.live(String(runtime), String(event.sessionId))) {
+        void this.#flows.reArm(runtime, String(event.sessionId))
+        // The same turn-ended signal answers a v2 release still waiting on this
+        // Seat, rather than a poll of its own guessing when to ask again (#1027).
+        this.#flows.retryRelease(runtime, String(event.sessionId))
+      }
+    }
+    // A turn that ended on a usage limit opens a carry-on incident; one that continued a move settles it.
+    if (event.type === 'turn/completed' && !this.#disposed) {
+      void this.#carryOn.ended(String(runtime), String(event.sessionId), { id: String(event.turn.id), status: event.turn.status, error: event.turn.error ?? null })
+        .catch((error: unknown) => { this.#logger.warn('a carry-on incident could not be handled', { error: error instanceof Error ? error.message : String(error) }) })
+    }
+    // A conversation that can take a transcript marker again gets the ones carry-on had to keep for it.
+    if ((event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'session/started') && !this.#disposed) {
+      void this.#carryOn.reachable(String(runtime), String(event.type === 'session/started' ? event.session.id : event.sessionId)).catch(() => {})
     }
     if (event.type === 'session/closed') {
       this.#team.onSessionClosed(runtime, String(event.sessionId))

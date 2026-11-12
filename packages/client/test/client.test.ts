@@ -272,6 +272,35 @@ test('host shutdown ends stream and never reconnects', async () => {
   assert.equal(opens, 1)
 })
 
+test('a client set to outlive a restart reconnects on host shutdown, through a desk that is briefly absent', async () => {
+  const first = new ScriptedTransport(), second = new ScriptedTransport()
+  let opens = 0
+  const client = await connect({
+    transport: async () => {
+      opens++
+      if (opens === 1) return first
+      // The desk is restarting: no socket yet, then the new desk.
+      if (opens === 2) throw new WireCallError('noDesk', 'No desk is running.')
+      return second
+    },
+    client: clientInfo, subscribe: { topics: ['runs'], scope: { run: 'run-1' } }, reconnectOnShutdown: true,
+  })
+  const events = client.events()[Symbol.asyncIterator]()
+  assert.equal((await next(events)).type, 'hello')
+  first.emit({ method: 'host/shutdown', params: { reason: 'desk-closed' } })
+  first.close()
+  const after: ClientEvent[] = []
+  for (;;) { const event = await next(events); after.push(event); if (event.type === 'gap') break }
+  assert.ok(!after.some(event => event.type === 'end'), 'a graceful close is not the end of the wait')
+  const gap = after.at(-1)
+  assert.equal(gap?.type === 'gap' && gap.reason, 'disconnected')
+  await client.synced()
+  assert.equal(opens, 3)
+  assert.ok(second.requests.some(request => request.method === 'client/subscribe'), 'the subscription is replayed to the new desk')
+  assert.equal(client.snapshot().runs[0]?.id, 'run-1')
+  client.close()
+})
+
 function typeRefusal(client: Awaited<ReturnType<typeof connect>>) {
   // @ts-expect-error terminal/open exists on the wire, but not on the client surface.
   void client.call('terminal/open', { cwd: '/tmp/demo' })

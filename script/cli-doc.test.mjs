@@ -143,6 +143,28 @@ test('nothing in the table can change without the reference changing', () => {
   }
 })
 
+test('the MCP section lists a tool for each command it is given and says why a command has none', () => {
+  const table = sample()
+  const mcp = {
+    tools: [
+      { name: 'ping', command: 'ping', tier: 'read' },
+      { name: 'pour_out', command: 'pour out', tier: 'answer' },
+    ],
+    excluded: { drip: 'never stops dripping' },
+    waitDefault: 600,
+    waitMax: 3600,
+  }
+  assert.doesNotMatch(render(table), /Using it from an agent/, 'no section without tools')
+  const text = render({ ...table, mcp })
+  assert.match(text, /## Using it from an agent \(MCP\)\n/)
+  assert.ok(text.indexOf('## A first session') < text.indexOf('## Using it from an agent (MCP)'))
+  assert.match(text, /claude mcp add harnessdesk -- harnessdesk mcp/)
+  assert.match(text, /\| `ping` \| \[`ping`\]\(#harnessdesk-ping\) \| read \|/)
+  assert.match(text, /\| `pour_out` \| \[`pour out`\]\(#harnessdesk-pour-out\) \| answer \|/)
+  assert.match(text, /No `drip` tool:\*\* it never stops dripping\./)
+  assert.match(text, /waits 600 seconds when no timeout is given, and at most 3600/)
+})
+
 /* ---- the real table, and the gate step ---------------------------------------------- */
 
 const built = join(root, 'packages/cli/dist/src/cli.js')

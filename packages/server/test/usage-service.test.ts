@@ -670,3 +670,22 @@ test('one agent whose read throws on a fresh start does not sink the others: it 
     assert.deepEqual(listed.filter((report) => !isSilentUsage(report)).map((report) => report.runtime).sort(), [BROKEN, METERED].sort())
   } finally { usage.dispose() }
 })
+
+test('a read that throws after the meter said to sign in keeps needsSignIn, so a carried-on turn never picks that account', async () => {
+  // A throw says nothing about sign-in; the last thing the meter said about it still stands (review of the #2128 merge).
+  let ledger = true
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([new MeterAuthError('sign in, or check the API key'), new MeterAuthError('sign in, or check the API key')])]]),
+    spend: { spendFor: () => { if (!ledger) throw new Error('ledger unreadable'); return null } },
+    onReport: () => undefined,
+  })
+  try {
+    assert.equal((await usage.refresh(METERED))[0]?.error?.needsSignIn, true)
+    ledger = false
+    const [after] = await usage.refresh(METERED)
+    assert.equal(after?.error?.message, 'ledger unreadable')
+    assert.equal(after?.error?.needsSignIn, true, 'the failure keeps the sign-in fact it cannot speak to')
+    assert.equal(usage.cached(METERED)?.error?.needsSignIn, true)
+  } finally { usage.dispose() }
+})
