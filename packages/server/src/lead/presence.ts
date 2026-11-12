@@ -1,5 +1,5 @@
 import type { LeadState } from '@harnessdesk/lead'
-import { LEAD_AUTONOMY_LABELS, LEAD_DIGEST_GROUP_LABELS, LEAD_PRESENCE_LIMITS, LEAD_RULE_TITLES, leadDigestGroup, capLeadPushText, leadMessageAsk, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
+import { LEAD_AUTONOMY_LABELS, LEAD_DIGEST_GROUP_LABELS, LEAD_PRESENCE_LIMITS, LEAD_RULE_TITLES, leadDigestGroup, capLeadPushText, leadMessageAsk, quoteLeadWorkText, leadDigestPushParts, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
   type LeadAsk, type LeadAskState, type LeadProactive, type LeadBriefSettings, type LeadBriefUpdate, type LeadDeviceRef, type LeadDigest, type LeadDigestItem,
   type LeadDigestKind, type LeadDigestRef, type LeadPresenceView, type LeadWorkBoard, type LeadWorkCard,
   type LeadAutonomyChange, type LeadAutonomyMode, type LeadDeskSummary, type LeadMemoryEntry } from '@harnessdesk/protocol'
@@ -384,9 +384,9 @@ export class LeadPresenceStore {
     const [board, desk, notes, changes] = await Promise.all([this.ports.board().catch(() => null), this.ports.desk?.().catch(() => null) ?? null,
       this.ports.memory?.().catch(() => []) ?? [], this.ports.settings?.().catch(() => []) ?? []])
     const waiting: LeadDigestItem[] = [], stopped: LeadDigestItem[] = [], done: LeadDigestItem[] = []
-    const seen = new Set<string>()
+    const seen = new Set<string>(), told: LeadWorkCard[] = []
     for (const card of board?.items ?? []) {
-      const entry = (kind: LeadDigestItem['kind'], at: number): LeadDigestItem => ({ kind, id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'Untitled work',
+      const entry = (kind: LeadDigestItem['kind'], at: number): LeadDigestItem => (told.push(card), { kind, id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'Untitled work',
         ...(card.fact || card.blocker ? { fact: clip(card.fact ?? card.blocker ?? '', LEAD_PRESENCE_LIMITS.factChars) } : {}),
         ref: digestRef(card), at, ...(kind === 'stopped' && card.stoppedBy ? { stoppedBy: card.stoppedBy } : {}) })
       const closed = card.closedAt ?? card.updatedAt
@@ -397,9 +397,10 @@ export class LeadPresenceStore {
     // Decisions that wait on the person but belong to no work item (a plan, a permission change). They open their card.
     for (const card of this.ports.waiting()) if (card.position > revision && card.position <= until && !seen.has(card.id))
       waiting.push({ kind: 'waiting', id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'A request waits for you', ref: { kind: 'card', id: card.id } })
-    // The desk's own Teams and chats, the ones the ledger does not already follow: one that came to need the person, and
-    // one that finished (went idle). Stopped and failed ones wait on the person, so they are among the first.
-    const followed = new Set((board?.items ?? []).flatMap(card => [...card.links.teams, ...card.links.chats]))
+    // The desk's own Teams and chats, the ones this digest does not already tell as a work item's row: one that came to
+    // need the person, and one that finished (went idle). Stopped and failed ones wait on the person, so they are among
+    // the first. A Team or chat whose work item has nothing new in the span is told here, or it would not be told at all.
+    const followed = new Set(told.flatMap(card => [...card.links.teams, ...card.links.chats]))
     const own = (item: LeadDeskSummary['recent'][number]) => item.updatedAt >= since && !followed.has(item.id) && isLeadDigestRefId(item.kind, item.id)
     const entry = (item: LeadDeskSummary['recent'][number], kind: LeadDigestItem['kind']): LeadDigestItem => ({ kind, id: itemId(item.kind, item.id),
       title: clip(item.title, LEAD_PRESENCE_LIMITS.titleChars) || (item.kind === 'team' ? 'Untitled Team' : 'Untitled chat'), ref: { kind: item.kind, id: item.id }, at: item.updatedAt })
@@ -475,6 +476,24 @@ export class LeadPresenceStore {
    * being lost behind it.
    */
   async read(device: LeadDeviceRef, options: { readonly active?: boolean; readonly recap?: boolean } = {}): Promise<LeadPresenceView> {
+    return this.#live(await this.#read(device, options))
+  }
+  /**
+   * A digest stays on a device until it is dismissed, and what a row opens can go in the meantime: a note forgotten, a
+   * reminder cancelled, done or cleared. Such a row keeps its words and loses its door, so it never opens onto nothing.
+   */
+  async #live(view: LeadPresenceView): Promise<LeadPresenceView> {
+    const items = view.digest?.items ?? []
+    const memory = items.some(item => item.ref?.kind === 'memory'), reminders = items.some(item => item.ref?.kind === 'reminder')
+    if (!view.digest || !memory && !reminders) return view
+    const [notes, board] = await Promise.all([memory ? this.ports.memory?.().catch(() => null) ?? null : null, reminders ? this.ports.board().catch(() => null) : null])
+    const noteIds = notes ? new Set(notes.map(note => note.id)) : null
+    const reminderIds = board ? new Set((board.reminders ?? []).filter(one => one.state === 'set' || one.state === 'fired').map(one => one.id)) : null
+    const gone = (ref: LeadDigestRef | undefined) => ref?.kind === 'memory' ? !!noteIds && !noteIds.has(ref.id) : ref?.kind === 'reminder' ? !!reminderIds && !reminderIds.has(ref.id) : false
+    if (!items.some(item => gone(item.ref))) return view
+    return parseLeadPresenceView({ ...view, digest: { ...view.digest, items: items.map(item => { if (!gone(item.ref)) return item; const { ref: _ref, ...rest } = item; return rest }) } })
+  }
+  async #read(device: LeadDeviceRef, options: { readonly active?: boolean; readonly recap?: boolean }): Promise<LeadPresenceView> {
     const step = await this.#write(async () => {
       this.#observeAsks()
       const now = this.ports.now(), revision = this.ports.revision(), spent = this.ports.spent()
@@ -808,8 +827,10 @@ export class LeadPresenceStore {
       this.#stored.briefSpent = this.ports.spent()
       this.#stored.briefRevision = this.ports.revision()
       this.#stored.briefDay = step.today
+      // A brief with nothing a push counts (an empty one, or only notes kept and settings applied) waits on every
+      // device and pushes nothing: "Nothing new." on a lock screen is noise.
       const text = leadDigestPushText(digest, this.ports.name())
-      this.ports.push?.({ digest: digest.id, phone: capLeadPushText('phone', text), window: capLeadPushText('window', text) })
+      if (leadDigestPushParts(digest).length) this.ports.push?.({ digest: digest.id, phone: capLeadPushText('phone', text), window: capLeadPushText('window', text) })
       this.ports.changed?.()
       return true
     })

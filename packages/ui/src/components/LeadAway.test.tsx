@@ -63,7 +63,7 @@ it('each item the desk can find opens it: a chat, a decision card, a pull reques
   await act(async () => { row('work-4').click() })
   expect(openSession).toHaveBeenCalledWith('rename-column', { runtime: 'fixture' })
   await act(async () => { row('plan-2').click() })
-  expect(openDestination).toHaveBeenCalledWith({ kind: 'lead', focus: 'plan-2' })
+  expect(openDestination).toHaveBeenCalledWith({ kind: 'lead', focus: 'plan-2', nonce: expect.any(Number) })
   await act(async () => { row('work-1').click() })
   expect(openExternal).toHaveBeenCalledWith('https://github.com/acme/widgets/pull/42')
   expect(row('work-5').tagName).toBe('DIV')

@@ -135,12 +135,15 @@ export const LeadSettings = ({ settings, expiry, update, setSpendLimit, onError,
  */
 const SETTINGS_ROW_FOCUS = /^(?:memory|autonomy|rules):[\w.:-]{1,200}$/
 const useSettingsRowFocus = (focus: string | null | undefined): void => {
-  const done = useRef<string | null>(null)
+  const store = useStore(), done = useRef<string | null>(null)
   useEffect(() => {
     if (!focus) { done.current = null; return }
     if (!SETTINGS_ROW_FOCUS.test(focus) || done.current === focus) return
-    return focusWhenDrawn(`[data-lead-settings-focus="${focus}"]`, () => { done.current = focus })
-  }, [focus])
+    // A note forgotten since the door was drawn: the person lands on the Memory section rather than nowhere.
+    const [section, id] = [focus.slice(0, focus.indexOf(':')), focus.slice(focus.indexOf(':') + 1)]
+    const gone = section === 'memory' ? () => { const view = store.lead.state.memory; return !!view && ![...view.core, ...view.archive].some(entry => entry.id === id) } : undefined
+    return focusWhenDrawn(`[data-lead-settings-focus="${focus}"]`, () => { done.current = focus }, { fallback: [`[data-lead-settings-focus="${section}"]`], gone })
+  }, [focus, store])
 }
 
 /** Settings owns this route; the capability gate prevents mounting it while disabled. */

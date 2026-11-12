@@ -279,9 +279,16 @@ export const parseLeadPresenceView: Validator<LeadPresenceView> = (value, path =
  * A short line for a push: what changed, in counts. Never model prose. A reminder is counted as one; a note kept or a
  * setting applied is the person's own doing and is not news for a push.
  */
-export const leadDigestPushText = (digest: LeadDigest, name: string): { readonly title: string; readonly body: string } => {
+/**
+ * What a push counts: what needs the person, reminders, work done and work stopped. Notes kept and settings applied are
+ * told on the card, not pushed. Empty: the digest holds nothing a push would say, so the host sends none.
+ */
+export const leadDigestPushParts = (digest: LeadDigest): readonly string[] => {
   const count = (group: LeadDigestGroup) => digest.items.filter(entry => leadDigestGroup(entry) === group).length + 0
-  const parts = [count('waiting') && `${count('waiting')} need${count('waiting') === 1 ? 's' : ''} you`, count('reminder') && `${count('reminder')} reminder${count('reminder') === 1 ? '' : 's'}`,
-    count('done') && `${count('done')} done`, count('stopped') && `${count('stopped')} stopped`].filter(Boolean)
+  return [count('waiting') && `${count('waiting')} need${count('waiting') === 1 ? 's' : ''} you`, count('reminder') && `${count('reminder')} reminder${count('reminder') === 1 ? '' : 's'}`,
+    count('done') && `${count('done')} done`, count('stopped') && `${count('stopped')} stopped`].filter((part): part is string => !!part)
+}
+export const leadDigestPushText = (digest: LeadDigest, name: string): { readonly title: string; readonly body: string } => {
+  const parts = leadDigestPushParts(digest)
   return { title: digest.kind === 'brief' ? `${name}: morning brief` : `${name}: while you were away`, body: parts.length ? parts.join(', ') : 'Nothing new.' }
 }

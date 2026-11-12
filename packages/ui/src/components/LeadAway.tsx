@@ -140,7 +140,8 @@ export const LeadAway = ({ active, state, label }: { readonly active: boolean; r
   const lead = label?.trim() || 'The Lead'
   // A card of the Lead's own, built like the rail's: its title, each group's label and each row's words stand on one
   // row edge, and the dismiss and every row's trailing mark end on one right edge (ToolSection's contract).
-  return <div data-slot="lead-away"><ToolSection label={leadDigestTitle(digest)}
+  // Over a short window the card scrolls inside the composer's notices; its title and Dismiss stay in view.
+  return <div data-slot="lead-away"><ToolSection label={leadDigestTitle(digest)} pinHead
     action={<Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} aria-label="Dismiss" onClick={dismiss}><CrossIcon size={13} /></Button>}>
     {digest.summary && <ToolProse>{sanitizeText(digest.summary)}</ToolProse>}
     {leadDigestSections(digest).map(section => <ToolGroup key={section.kind} label={section.label} data-digest-group={section.kind}>

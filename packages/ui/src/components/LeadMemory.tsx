@@ -127,7 +127,7 @@ export const LeadMemorySection = ({ label, cards }: { readonly label: string; re
     setTimeout(() => URL.revokeObjectURL(url), 0)
   }
   const history = view.history.slice(0, 8)
-  return <Section title="Memory" action={<InlineParts>
+  return <Section title="Memory" data-lead-settings-focus="memory" tabIndex={-1} action={<InlineParts>
       <Button size="sm" variant="outline" disabled={!view.core.length && !view.archive.length} onClick={exportView}>Export</Button>
       <Button size="sm" variant="outline" disabled={pending || !view.core.length && !view.archive.length && !view.inbox.length && !view.history.length} onClick={() => setForgetAll(true)}>Forget all</Button>
     </InlineParts>}>

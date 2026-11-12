@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test, { type TestContext } from 'node:test'
-import { LEAD_PRESENCE_LIMITS, capLeadPushText, isLeadDigestRefId, leadDigestPushText, parseLeadPresenceView, parseStoredLeadDigest, type LeadAsk, type LeadAutonomyChange, type LeadDeskItem, type LeadDeskSummary, type LeadDeviceRef,
+import { LEAD_PRESENCE_LIMITS, capLeadPushText, isLeadDigestRefId, leadDigestPushParts, leadDigestPushText, parseLeadPresenceView, parseStoredLeadDigest, type LeadAsk, type LeadAutonomyChange, type LeadDeskItem, type LeadDeskSummary, type LeadDeviceRef,
   type LeadMemoryEntry, type LeadReminder, type LeadWorkCard } from '@harnessdesk/protocol'
 import { leadInbox } from '../src/lead/inbox.js'
 import { LEAD_DIGEST_OBSERVER_DAILY_MICROS, LeadPresenceStore, leadRepeatsRequest, leadTurnContext, type LeadPresencePorts } from '../src/lead/presence.js'
@@ -539,6 +539,21 @@ test('the morning brief is off by default, waits for its time, once a day, and r
   assert.equal((await r.store.read(phone, { active: true })).digest, null)
   r.setNow(new Date(2026, 10, 11, 7, 40).getTime())
   assert.equal(await r.store.tick(), true, 'the next day')
+})
+
+test('a brief with nothing a push counts is kept on every device and pushes nothing, not "Nothing new." (#2147)', async t => {
+  let notes: LeadMemoryEntry[] = [], changes: LeadAutonomyChange[] = []
+  const r = await rig(t, { memory: async () => notes, settings: async () => changes })
+  await r.store.updateBrief({ enabled: true, at: '07:30' })
+  await r.store.read(desktop, { active: true })
+  notes = [note('m2', 'Staging listens on port 5433.', r.now() + MIN, { by: 'lead', kind: 'fact' })]
+  changes = [{ at: r.now() + 2 * MIN, by: 'person', what: 'mode', kind: 'brief', from: 'off', to: 'act' }] as LeadAutonomyChange[]
+  r.setNow(new Date(2026, 10, 10, 7, 31).getTime())
+  assert.equal(await r.store.tick(), true, 'the brief is made')
+  assert.equal(r.pushes.length, 0, 'and nothing is pushed')
+  const brief = (await r.store.read(phone, { active: true })).digest!
+  assert.deepEqual(brief.items.map(item => item.about), ['memory', 'setting'])
+  assert.deepEqual(leadDigestPushParts(brief), [])
 })
 
 test('switching the brief on after its time does not send one at once', async t => {
@@ -1185,6 +1200,41 @@ test('the away card and "What happened?" tell one list: reminders, Teams and cha
   for (const words of ['Needs you: ', 'Reminders: ', 'Kept in memory: ', 'Settings applied: ']) assert.ok(away.includes(words), `${words} in ${away}`)
   // A push counts reminders apart from what needs the person, and leaves the person's own doings out.
   assert.equal(leadDigestPushText(digest, 'Dex').body, '1 needs you, 1 reminder, 1 done, 1 stopped')
+})
+
+test('a row whose note was forgotten, or whose reminder was cancelled, keeps its words and loses its door (#2147)', async t => {
+  let notes: LeadMemoryEntry[] = [], reminders: LeadReminder[] = []
+  const r = await rig(t, { board: async () => ({ version: 1, items: [], more: 0, ...(reminders.length ? { reminders } : {}) }), memory: async () => notes })
+  await r.store.read(desktop, { active: true })
+  const left = r.now()
+  r.tick(32 * MIN)
+  notes = [note('m2', 'Staging listens on port 5433.', left + 5 * MIN, { by: 'lead', kind: 'fact' })]
+  reminders = [{ id: 'remind-2', text: 'Check the release notes', for: 'person', dueAt: left + 6 * MIN, createdAt: left - MIN, state: 'fired', firedAt: left + 6 * MIN }]
+  const doors = (view: Awaited<ReturnType<typeof r.store.read>>) => view.digest!.items.map(item => [item.title, item.ref?.kind ?? null])
+  assert.deepEqual(doors(await r.store.read(desktop, { active: true })), [['Check the release notes', 'reminder'], ['Staging listens on port 5433.', 'memory']])
+  // The card stays on the device; meanwhile the note is forgotten and the reminder cancelled.
+  notes = []
+  reminders = [{ ...reminders[0]!, state: 'cancelled' }]
+  assert.deepEqual(doors(await r.store.read(desktop)), [['Check the release notes', null], ['Staging listens on port 5433.', null]])
+})
+
+test('a Team linked from a work item with nothing new in the span is still told; one whose item is told is told once (#2147)', async t => {
+  let items: LeadWorkCard[] = [], desk: LeadDeskItem[] = []
+  const r = await rig(t, { board: async () => ({ version: 1, items, more: 0 }), desk: async () => deskOf(desk) })
+  await r.store.read(desktop, { active: true })
+  const left = r.now()
+  r.tick(32 * MIN)
+  items = [
+    // Last moved before the person left: not in this digest, so it does not speak for its Team.
+    work('work-1', 'working', left - 10 * MIN, { links: { chats: [], teams: ['team-7'], prs: [], issues: [] } }),
+    work('work-2', 'needs-you', left + 5 * MIN, { title: 'Pick a port', links: { chats: [], teams: ['team-8'], prs: [], issues: [] } }),
+  ]
+  desk = [
+    { id: 'team-7', kind: 'team', title: 'Ship the parking lot release', project: 'acme-app', state: 'needs-you', updatedAt: left + 6 * MIN },
+    { id: 'team-8', kind: 'team', title: 'Pick a port Team', project: 'acme-app', state: 'needs-you', updatedAt: left + 7 * MIN },
+  ]
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  assert.deepEqual(digest.items.map(item => item.title), ['Pick a port', 'Ship the parking lot release'])
 })
 
 test('a reminder about a work item opens that item, as the item\'s own row does (#2147)', async t => {

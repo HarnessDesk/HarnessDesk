@@ -155,3 +155,10 @@ it('a door from the away card brings the kept note into view and focus in Settin
   expect(row!.textContent).not.toMatch(/'s note/)
   expect(box.querySelector('[data-lead-settings-focus="memory:m5"]')!.textContent).toMatch(/'s note/)
 })
+
+it('a door to a note forgotten since lands on the Memory section, not nowhere (#2147)', async () => {
+  const { box } = await mount(() => <DestinationPageScope owner="settings" active><LeadSettingsSection focus="memory:m-gone" /></DestinationPageScope>)
+  await settle(); await settle()
+  expect(box.querySelector('[data-lead-settings-focus="memory:m-gone"]')).toBeNull()
+  expect(document.activeElement).toBe(box.querySelector('[data-lead-settings-focus="memory"]'))
+})

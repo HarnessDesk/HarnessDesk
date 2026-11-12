@@ -59,7 +59,7 @@ export const LeadRulesSection = () => {
   }
   if (!view) return error ? <Section title="Rules"><Text role="muted">{error}</Text></Section> : null
   const section = view.sections.find(one => one.id === open)
-  return <Section title="Rules">
+  return <Section title="Rules" data-lead-settings-focus="rules" tabIndex={-1}>
     <Rows>
       {view.sections.map(one => <Row key={one.id} title={one.title} data-lead-settings-focus={`rules:${one.id}`} tabIndex={-1}
         titleChip={one.defaultUpdated ? <Chip tone="warning">Default updated</Chip> : one.custom ? <Chip tone="neutral">Edited</Chip> : undefined}

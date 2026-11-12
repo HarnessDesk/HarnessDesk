@@ -245,11 +245,12 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
   /*
    * The rail docks only where the thread keeps its minimum beside it, counting the sidebar actually drawn: a sidebar
    * floating over a narrow window takes no column, but it covers as much of the thread as one would (#2179). A page
-   * that keeps its terminal pane gives the rail only the column beside that pane, as a session does.
+   * that keeps its terminal pane gives the rail only the column beside that pane, as a session does. The pane's width
+   * is the one it is drawn at, beside the standing sidebar; only the thread's minimum counts the floating one.
    */
   const drawnSidebar = column || floating ? workbench.sidebar.size : 0
   const railFloating = pageActive ? railOpen && railFloatsBeside(snapshot.windowWidth - drawnSidebar - (paneActive && rightPanelDrawn(workbench) && !rightPanelOverlay ? rightWidth : 0))
-    : workRailFloats(workbench, snapshot.windowWidth, drawnSidebar)
+    : workRailFloats(workbench, snapshot.windowWidth, standingSidebar, drawnSidebar)
   /*
    * A rail floating over the thread goes the way the floating sidebar does: on Escape, and on a press outside it.
    * While the floating sidebar lies over both, it is the surface on top and takes the key and the press itself.

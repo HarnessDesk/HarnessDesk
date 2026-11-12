@@ -69,6 +69,8 @@ const reminderLine = (entry: LeadReminder): string => {
 }
 
 /** Reminders the person can see: every one still set, and the ones that fired in the last day. A cancelled one is gone. */
+/** The Work card's header: where a door to a row that is gone lands, so the person is shown where it was. */
+export const LEAD_WORK_LANDING = 'section[data-slot="tool-section"][aria-label="Work"] [data-slot="tool-section-fold"]'
 export const leadVisibleReminders = (board: LeadWorkBoard | null | undefined): readonly LeadReminder[] =>
   (board?.reminders ?? []).filter(entry => entry.state === 'set' || entry.state === 'fired')
 
