@@ -67,6 +67,7 @@ import type { ProvenancePlane } from '../provenance/plane.js'
 import type { ExtensionHost, HostOptions, ModelRouteRecord, OpenedSeat } from '../host.js'
 import type { CorpusSpec, Ledger, RemoteEventsSource } from '../ledger/index.js'
 import type { LibrarySources } from '../library-sources.js'
+import type { McpConnectionTests } from '../mcp-test.js'
 import type { LibraryUpdates } from '../library-updates.js'
 import type { LibraryUsageReader } from '../library-usage.js'
 import type { Logger } from '../log.js'
@@ -352,6 +353,8 @@ export interface HostContext {
   libraryUpdates(): LibraryUpdates
   librarySources(): LibrarySources
   libraryUsage(): LibraryUsageReader
+  /** Test connection: starts one declared MCP server, or reaches its URL, once per click. */
+  mcpConnectionTests(): McpConnectionTests
   /** Read-only Insight reports plus the explicitly reviewed local seating action. */
   readonly insight: Pick<InsightPlane, 'goal' | 'goals' | 'usage' | 'agent' | 'compare' | 'previewOrder' | 'applyOrder'>
   /**

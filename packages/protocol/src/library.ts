@@ -704,3 +704,74 @@ export const shortPath = (path: string, home: string | undefined | null): string
   if (path === root) return '~'
   return path.startsWith(`${root}/`) ? `~${path.slice(root.length)}` : path
 }
+
+/**
+ * What a connection test starts or reaches, as the host read it from the
+ * server's own declaration. Variables and headers travel by name only: their
+ * values are secrets more often than not, and they never leave the host.
+ */
+export type McpTestTarget =
+  | {
+      readonly transport: 'stdio'
+      readonly scope: 'user' | 'project'
+      readonly command: string
+      readonly args: readonly string[]
+      /** The folder the command runs in. */
+      readonly cwd: string
+      readonly envNames: readonly string[]
+    }
+  | {
+      readonly transport: 'http' | 'sse'
+      readonly scope: 'user' | 'project'
+      readonly url: string
+      readonly headerNames: readonly string[]
+    }
+
+/**
+ * Why a connection test did not connect.
+ *
+ * `busy` — a test of this same declaration is already running.
+ * `needsSignIn` — the server answered 401; a test never signs in.
+ */
+export type McpTestFailure =
+  | 'notFound'
+  | 'spawnFailed'
+  | 'timeout'
+  | 'needsSignIn'
+  | 'protocol'
+  | 'httpError'
+  | 'busy'
+
+/**
+ * The answer to `library/mcp/test`.
+ *
+ * `confirm` is not a failure: a server declared in a project's own file is
+ * shown to the person before it runs, and the call comes back with the exact
+ * target and a digest of it. Sending that digest back as `confirmed` runs the
+ * test, and only while the declaration still matches it.
+ */
+export type McpTestResult =
+  | {
+      readonly ok: true
+      readonly tools: number
+      readonly serverName?: string
+      readonly serverVersion?: string
+      readonly ms: number
+    }
+  | {
+      readonly ok: false
+      readonly reason: McpTestFailure
+      /** One sentence; never carries a variable's or a header's value. */
+      readonly detail: string
+      readonly ms: number
+      /** The last few KB the server wrote to stderr, control codes removed and secrets masked. */
+      readonly stderr?: string
+    }
+  | {
+      readonly ok: false
+      readonly reason: 'confirm'
+      readonly detail: string
+      readonly ms: 0
+      readonly target: McpTestTarget
+      readonly digest: string
+    }

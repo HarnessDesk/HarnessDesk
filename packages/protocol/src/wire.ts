@@ -85,6 +85,7 @@ import type {
   LibraryPlan,
   LibraryPlannedOp,
   LibraryUsage,
+  McpTestResult,
   LibrarySourceResult,
   LibrarySkillUpdate,
 } from './library.js'
@@ -1293,6 +1294,19 @@ export interface HostMethods {
   'library/apply': {
     params: { readonly cwd?: string; readonly ops: readonly LibraryPlannedOp[] }
     result: readonly LibraryOpResult[]
+  }
+  /**
+   * Start one declared MCP server, or reach its URL, and ask it
+   * `initialize` and `tools/list`; then stop it. Only on a person's click.
+   * The renderer names a declaration (`path` is a copy's file, re-checked
+   * against the location table), never a command: the host reads the
+   * command, variables, URL and headers from that file itself. A server
+   * declared in a project's own file answers `confirm` until `confirmed`
+   * carries the digest of the target the person was shown.
+   */
+  'library/mcp/test': {
+    params: { readonly name: string; readonly path: string; readonly cwd?: string; readonly confirmed?: string }
+    result: McpTestResult
   }
   'runtime/hooks': {
     params: { readonly runtime: RuntimeId; readonly cwd?: string }

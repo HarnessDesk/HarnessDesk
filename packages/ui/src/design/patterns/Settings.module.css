@@ -1264,6 +1264,9 @@
 
 .monoBlock[data-wrap] {
   white-space: pre-wrap;
+  /* Folds a long unbroken token too (a URL, a path), so a command shown
+     for someone to approve never hides its tail past the plate's edge. */
+  overflow-wrap: anywhere;
 }
 
 pre.mono:not([data-block])[data-wrap] {

@@ -233,6 +233,7 @@ import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibrarySources, type LibrarySourcesOptions } from './library-sources.js'
 import { LibraryUpdates } from './library-updates.js'
 import { LibraryUsageReader } from './library-usage.js'
+import { McpConnectionTests } from './mcp-test.js'
 import type { Logger } from './log.js'
 import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
 import { StateStore, type ShellProjectIdentity } from './state.js'
@@ -989,6 +990,7 @@ export class Host {
   #libraryUpdates: LibraryUpdates | null = null
   #librarySources: LibrarySources | null = null
   #libraryUsage: LibraryUsageReader | null = null
+  #mcpConnectionTests: McpConnectionTests | null = null
   /** The archive for runtimes with none of their own. See `SessionArchive`. */
   readonly #archive: SessionArchive
   readonly #names: SessionNames
@@ -6593,6 +6595,7 @@ export class Host {
         )
         return this.#libraryUsage
       },
+      mcpConnectionTests: () => this.#mcpConnectionTests ??= new McpConnectionTests(this.options.libraryHome !== undefined ? { home: this.options.libraryHome } : {}),
       extensions: () => this.#requireExtensions(),
       push: (notification) => this.#push(notification),
       runtimes: {
