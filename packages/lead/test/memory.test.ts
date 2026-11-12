@@ -199,3 +199,17 @@ test('the memory status counts the changes when listing them would pass its byte
   const tight = lead.leadMemoryStatus({ revision: 1, clearedAt: 1, entries: [], core: [], proposals: [] }, { revision: 0, entries: [] }, 64)
   assert.match(tight!, /cleared all memory/)
 })
+
+// #2107: the Lead said "I said before this was recorded", "you declined it once", with nothing behind it. Each proposal
+// carries what the desk recorded happening to it, with times, and the note tells the Lead to say nothing beyond that.
+test('the memory status gives each proposal its recorded history, and says to claim no history beyond it', () => {
+  const at = (hh: number, mm: number) => new Date(2026, 10, 10, hh, mm).getTime()
+  const status = lead.leadMemoryStatus({ revision: 4, clearedAt: null, entries: [], core: [], proposals: [
+    { id: 'c2', state: 'declined', text: 'Report in Chinese, conclusion first.', at: at(14, 40),
+      history: [{ what: 'proposed', at: at(14, 2) }, { what: 'asked-again', at: at(14, 30) }, { what: 'declined', at: at(14, 40) }] },
+    { id: 'c1', state: 'pending', text: 'Deploys happen on Tuesdays.', at: at(9, 5), history: [{ what: 'proposed', at: at(9, 5) }] }] }, { revision: 0, entries: [] })!
+  assert.ok(status.includes('[c2] declined by the person; not in memory; propose it again only if the person says it again: Report in Chinese, conclusion first. (proposed 2026-11-10 14:02, asked again 2026-11-10 14:30, declined 2026-11-10 14:40)'), status)
+  assert.ok(status.includes('(proposed 2026-11-10 09:05)'))
+  assert.match(status, /Say only what these lines record about a proposal/)
+  assert.match(status, /never that you asked before, that they declined before, or that you reminded them/)
+})

@@ -10,7 +10,7 @@ import { destinationOf } from '../state/destinations'
 import { useTheme } from '../state/theme'
 import { emptyWorkbench } from '../state/workbench'
 import { overviewTeamStore } from './team-overview-fixture'
-import { triggerRunsStore } from './team-runs-fixture'
+import { mcpRunsStore, triggerRunsStore } from './team-runs-fixture'
 import { TeamFramePreview } from './TeamFramePreview'
 // These shell examples mount TeamRoomPane through the built-in view registry.
 import '../panels/builtins'
@@ -27,8 +27,8 @@ export const TeamFrame = () => {
   const store = useMemo(() => {
   const scene = new URLSearchParams(location.search).get('team-frame')
   const emptyFindings = scene === 'empty-findings'
-  const own = scene === 'trigger-runs' ? triggerRunsStore() : overviewTeamStore(scene === 'ready' ? 'done' : scene === 'running' || scene === 'member-chat' || scene === 'board' || emptyFindings ? 'running' : scene === 'no-run' ? 'no-run' : 'needs-you')
-  const main = {root:{kind:'pane' as const,id:'frame-team',view:{kind:'room' as const,room:'overview-team',...(scene === 'board' ? {framePage:'board' as const} : emptyFindings ? {framePage:'findings' as const} : {})}},focused:'frame-team',expanded:null}
+  const own = scene === 'trigger-runs' ? triggerRunsStore() : scene === 'mcp-runs' ? mcpRunsStore() : overviewTeamStore(scene === 'ready' ? 'done' : scene === 'running' || scene === 'member-chat' || scene === 'board' || emptyFindings ? 'running' : scene === 'no-run' ? 'no-run' : 'needs-you')
+  const main = {root:{kind:'pane' as const,id:'frame-team',view:{kind:'room' as const,room:'overview-team',...(scene === 'board' ? {framePage:'board' as const} : scene === 'mcp-runs' ? {framePage:'runs' as const} : emptyFindings ? {framePage:'findings' as const} : {})}},focused:'frame-team',expanded:null}
   const snapshot = own.getSnapshot()
   if (scene === 'member-chat') {
    const sessions = new Map(snapshot.sessions)

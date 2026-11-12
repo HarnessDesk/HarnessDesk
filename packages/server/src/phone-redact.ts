@@ -1,4 +1,6 @@
 import { homedir } from 'node:os'
+import type { LeadSettingsChange } from '@harnessdesk/protocol'
+import { LEAD_SETTINGS_PROPOSAL_LIMITS } from '@harnessdesk/protocol'
 import { basename, isAbsolute, relative, resolve } from 'node:path'
 
 /**
@@ -89,6 +91,21 @@ const shorten = (text: string, limit: number): string =>
  * key-shaped strings become an ellipsis, whitespace collapses to single spaces, and it is shortened.
  */
 export const scrub = (text: string, limit = TITLE_LIMIT): string => shorten(redact(text).replace(/\s+/g, ' ').trim(), limit)
+
+/**
+ * The one line of a settings proposal as a phone shows it, or nothing when the scrub leaves nothing. The phone may
+ * apply a proposal only when this is the line itself: Apply writes the original words, so a line the scrub redacted,
+ * collapsed or cut would be agreed to without being read.
+ */
+export const phoneProposalLine = (add: string): string => scrub(add, LEAD_SETTINGS_PROPOSAL_LIMITS.addChars)
+
+/**
+ * Whether a phone answers this proposal with No only, leaving Apply to the desk: a section's whole new words, or an
+ * added line the phone cannot show exactly as Apply would write it. The desk's `decide` and the phone's projection both
+ * ask this, so what the phone offers and what the desk accepts cannot drift apart.
+ */
+export const phoneAppliesAtDesk = (change: LeadSettingsChange): boolean =>
+  change.kind === 'rules' && (change.add === undefined || phoneProposalLine(change.add) !== change.add)
 
 /**
  * The same rules for a message with lines in it: what a person or an agent said, kept as they laid it out. Trailing
