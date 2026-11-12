@@ -731,3 +731,10 @@ test('a folded read is quoted data: a hostile answer cannot close the record, st
   assert.equal(JSON.parse(quoted), hostile)
   assert.ok(!record.split('\n').slice(1).some(line => line.startsWith('[Desk') || line.startsWith('Desk reference') || line.startsWith('Person:')))
 })
+
+test('#2170: a checkpoint leaves settings, rules and memory status out, since the desk restates them on every request', () => {
+  for (const merging of [false, true]) {
+    const instruction = lead.leadCheckpointInstruction({ merging, requiredIds: [] })
+    assert.match(instruction, /Leave out settings, rules and memory status, and what was said about them: the desk restates them on every request\./)
+  }
+})

@@ -169,3 +169,8 @@ test('the instructions tell memory from autonomy from rules, propose settings ra
   assert.match(text, /Each person message carries a desk note naming the surface that sent it, phone or desktop window: where to press follows/)
   assert.doesNotMatch(text, /person-device/)
 })
+
+test('#2170: the desk status the request carries is reference, never recapped unasked', () => {
+  const text = leadInstructions({ name: 'Lex', project, policyRevision: 1, caps: { usdMicros: 5_000_000, rounds: 12 } })
+  assert.match(text, /Desk status is reference: never restate settings, rules, memory or pending proposals unless the person asks or a line says it changed\./)
+})

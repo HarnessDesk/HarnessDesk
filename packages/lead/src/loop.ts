@@ -138,6 +138,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let snapshot: ClientSnapshot | null = null, relays: ReturnType<typeof leadWorkerApprovalRelay>[] = []
   let acceptance: { runId: string; result: LeadAcceptanceResult }[] = []
   let cancelBatch: (() => void) | null = null, dirty = false, continuationPending = false
+  /** Evidence reached the desk with no run or card event since the last batch (#2172): see `refreshSoon`. */
+  let evidenced = false
   let batchRunning = false, batchAgain = false, batchReply = false
   let requested = 0, reportedActivity = false
   const reportActivity = () => {
@@ -612,10 +614,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         // A wake refused as too long reads the stored conversation again whatever it was doing: a tool loop cut there
         // goes on from the stored copy, its open calls closed as text.
         const fromStore = owed || changed
-        const activity = dirty, continueTools = continuationPending
-        dirty = false; continuationPending = false
+        const activity = dirty, continueTools = continuationPending, fromEvidence = evidenced
+        dirty = false; continuationPending = false; evidenced = false
         let pendingWake: LeadWakeRecord = { id: nextId(), at: clock.now(), source: continueTools ? requestTemplate?.wakeSource ?? 'trigger' : 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null }
-        let stepped = false
+        // Only a batch that found something is a wake in the ledger: a tool continuation, a look that woke, a chat change,
+        // a desk wake owed, a decision the person's Observe recorded, or evidence that arrived on its own. The minute tick,
+        // a prose notice and a team change that wakes nothing look and find nothing nearly every time (#2172).
+        let stepped = false, caused = continueTools || fromEvidence
         try {
           if (journal.state.phase === 'following') return
           // The previous tool turn already read fresh evidence after dispatch.
@@ -624,7 +629,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           if (blocked()) {
             const state = journal.state
             if (!terminal(state.phase) && state.phase !== 'waiting-for-user' && !state.recoveryBlocked) {
-              dirty ||= activity; continuationPending ||= continueTools
+              // Carried to the batch that runs it, which records the wake then.
+              dirty ||= activity; continuationPending ||= continueTools; evidenced ||= fromEvidence; caused = false
             }
             return
           }
@@ -632,6 +638,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           const chatChanges = [...changedChats]
           const look = activity ? gate.look(snapshot, owned(), personActions, clock.now(), observedChats()) : null
           report()
+          if (look?.wake || chatChanges.length || deskOwed) caused = true
           if (look && !look.wake && !continueTools && !deskOwed && !chatChanges.length) return
           // The person's Off and Observe for unasked reports: the host looked, nothing woke the model. Observe says what it
           // would have done in the wake ledger; the change is taken as seen, so it is said once and not at every check.
@@ -697,7 +704,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           if (wakeOverflow && !closed) { dirty ||= activity; deskOwed ||= activity ? stepCause : false; continuationPending ||= continueTools; batchAgain = true }
           report()
         } finally {
-          try { if (!stepped) await journal.recordWake(pendingWake) }
+          try { if (!stepped && (caused || pendingWake.observed)) await journal.recordWake(pendingWake) }
           finally {
             batchRunning = false; batchReply = false
             if (batchAgain && !closed) { batchAgain = false; schedule(false) }
@@ -843,7 +850,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       }).finally(() => { requested--; reportActivity() })
     },
     /** Host evidence notifications share the bounded desk-event batch. */
-    refreshSoon: () => { if (!closed && started) { refreshPending = true; schedule(false) } },
+    // Evidence that reached the desk with no run or card event (a check a person ran) keeps its row on purpose: it is the
+    // one sign that the child read the desk again, and the host's publication walk waits on it as its fence.
+    refreshSoon: () => { if (!closed && started) { refreshPending = true; evidenced = true; schedule(false) } },
     refresh: () => queue(async () => { await start(); await refresh() }),
     idle: async () => { await preparing; await tail },
     async close() {
