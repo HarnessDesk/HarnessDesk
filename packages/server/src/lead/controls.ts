@@ -1,5 +1,5 @@
 import { leadThreadStage } from './projection.js'
-import { LEAD_STEP_THINKING, boundLeadApprovalHistory, leadDisplayName, leadRequestFailure, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
+import { LEAD_STEP_THINKING, boundLeadApprovalHistory, leadSurfaceOf, leadDisplayName, leadRequestFailure, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
 import {
   parseLeadApprovalRevoke, parseLeadMessage, parseLeadAsk, parseLeadProactiveOutput, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
@@ -343,7 +343,9 @@ export class LeadControls {
     if (journal.state.phase === 'waiting-for-user' && (journal.state.recoveryBlocked ||
       journal.state.consent && journal.state.consent.expiresAt <= this.options.now())) throw leadRefusal('lead-no-person-wait')
     return this.#commitRequest(async committed => {
-      const receipt = await journal.appendMessage(input.idempotencyKey, input.text, origin ? origin.source === 'schedule' ? 'schedule' : 'automatic' : 'person', committed)
+      // The surface stays with the person's message (#2166): a tool continuation and every later turn read it there.
+      const receipt = await journal.appendMessage(input.idempotencyKey, input.text, origin ? origin.source === 'schedule' ? 'schedule' : 'automatic' : 'person', committed,
+        undefined, !origin && input.device ? leadSurfaceOf(input.device) : undefined)
       if (!origin) this.#personDevice = input.device ?? null
       if (resume) await journal.resume(undefined, true, committed)
       return receipt

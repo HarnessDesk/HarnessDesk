@@ -348,12 +348,12 @@ export class LeadAutonomyStore {
     const pending = list.find(one => one.state === 'pending' && slot(one.change))
     if (pending && alike(pending.change)) {
       pending.afterSeq = Math.max(pending.afterSeq, seq); pending.askedAgainAt = at; event(pending, 'asked-again')
-      return { outcome: 'asked-again', id: pending.id, note: `Your proposal ${pending.id} was already waiting for the person's Apply, first proposed ${clock(pending.proposedAt)}; its card moved under this reply. Nothing has changed yet.` }
+      return { outcome: 'asked-again', id: pending.id, note: `Your proposal of this was already waiting for the person's Apply, first proposed ${clock(pending.proposedAt)}; its card moved under this reply. Nothing has changed yet.` }
     }
     const key = declineKey(change), declined = (this.#stored.declines ?? []).filter(one => one.key === key)
     const standing = declined.findLast(one => personSeq <= one.personSeq)
     if (standing) return { outcome: 'refused', reason: 'declined', id: standing.id,
-      note: `The person said No to this (${standing.id}) ${clock(standing.at)} and has not written since. Nothing was proposed; do not propose it again unless they ask for it.` }
+      note: `The person said No to this ${clock(standing.at)} and has not written since. Nothing was proposed; do not propose it again unless they ask for it.` }
     const thisTurn = this.#stored.turn?.personSeq === personSeq ? this.#stored.turn.created : 0
     if (thisTurn >= LEAD_SETTINGS_PROPOSAL_LIMITS.perTurn) return { outcome: 'refused', reason: 'too-many',
       note: `You already proposed ${thisTurn} changes since the person last wrote. Nothing was proposed; wait for their answer on those before proposing more.` }
@@ -364,8 +364,8 @@ export class LeadAutonomyStore {
     this.#stored.turn = { personSeq, created: thisTurn + 1 }
     this.#stored.proposals = keep(list)
     return { outcome: 'created', id, ...(declined.length ? { declinedBefore: true as const } : {}),
-      note: `Proposed as ${id}${pending ? `, in place of ${pending.id}` : ''}. Nothing changes until the person presses Apply on its card, wherever they read this. ` +
-        `Say it waits for their Apply; never say it is set. ${change.kind === 'rules' ? 'Applied words reach you at your next epoch.' : 'An applied mode holds for what the desk does on its own from then on.'}` }
+      note: `Proposed${pending ? ', in place of your earlier proposal for the same setting' : ''}. Nothing changes until the person presses Apply on its card, wherever they read this. ` +
+        `Say it waits for their Apply; never say it is set. ${change.kind === 'rules' ? 'Once applied, the settings status shows the new words.' : 'An applied mode holds for what the desk does on its own from then on.'}` }
   }
   /**
    * The person's Apply or No on a proposal card, from the window or a phone. Apply makes exactly the change the card

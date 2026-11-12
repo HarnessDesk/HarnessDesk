@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { LEAD_DIGEST_ITEM_LABELS, leadDigestMore, type LeadAskState, type LeadDigest, type LeadDigestItem } from '@harnessdesk/protocol'
-import { Button, ListRow, ListRows, ToolBodyControls, ToolGroup, ToolProse, ToolSection } from '../design'
+import { Button, ListRow, ListRows, Spinner, ToolGroup, ToolProse, ToolSection, TopBarToolButton } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { useSnapshot, useStore } from '../state/context'
 import type { LeadState } from '../state/lead'
-import { ChevronIcon, CrossIcon, ExternalIcon } from './Icons'
+import { ChevronIcon, CrossIcon, ExternalIcon, HistoryIcon } from './Icons'
 import { leadDollars } from './LeadCards'
 import { leadDigestTarget, openLeadRefTarget } from './LeadRefs'
 
@@ -91,7 +91,11 @@ export const useLeadAsks = (asks: readonly LeadAskState[]): readonly LeadAskStat
   return leadAsksAt(asks, Date.now())
 }
 
-/** The rail's way back to the digest: what changed in the last day, on demand and for this window only. */
+/**
+ * The way back to the digest: what changed in the last day, on demand and for this window only. It is a top-bar tool,
+ * one click from anywhere in the thread: at the foot of the rail it sat under the work list, and a narrow window draws
+ * that rail over the thread, so it covered the card the click brings (#2168).
+ */
 export const LeadRecap = () => {
   const store = useStore()
   // Reading the ledger can take seconds: the button says so, so the first click is seen to work and is not repeated.
@@ -100,8 +104,9 @@ export const LeadRecap = () => {
     setReading(true)
     void store.lead.readAway({ active: true, recap: true }).catch(() => {}).finally(() => setReading(false))
   }
-  return <ToolSection label="Recap"><ToolBodyControls><Button variant="outline" disabled={reading} aria-busy={reading || undefined} onClick={recap}>
-    {reading ? 'Reading…' : 'What happened?'}</Button></ToolBodyControls></ToolSection>
+  const label = reading ? 'Reading…' : 'What happened?'
+  return <TopBarToolButton data-lead-recap aria-label={label} title={label} disabled={reading} aria-busy={reading || undefined} onClick={recap}>
+    {reading ? <Spinner /> : <HistoryIcon />}</TopBarToolButton>
 }
 
 /**

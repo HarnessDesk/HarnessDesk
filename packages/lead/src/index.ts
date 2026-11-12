@@ -47,4 +47,4 @@ export { leadAutonomyMode, leadDeadlinePassed, leadWakeAutonomy } from './autono
 export { leadRulesAddendum, LEAD_RULES_OPEN, LEAD_RULES_CLOSE } from './context.js'
 export { LEAD_SETTINGS_STATUS_OPEN, LEAD_SETTINGS_STATUS_CLOSE, leadSettingsStatus } from './settings.js'
 export { LEAD_CLOCK_PREFIX, leadClockLine } from './clock.js'
-export { LEAD_WAKE_OPEN, LEAD_WAKE_REFERENCE } from './messages.js'
+export { LEAD_WAKE_OPEN, LEAD_WAKE_REFERENCE, LEAD_SURFACE_LINES } from './messages.js'

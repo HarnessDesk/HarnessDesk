@@ -4739,6 +4739,8 @@ export class Host {
     }
     return 0
   }
+  /** When the Lead's requests last carried the settings note: a settings change after it is news, and marked. */
+  #leadSettingsShownAt: number | null = null
   /** What each request tells the Lead about memory now: what became of its proposals, and what changed since the
    * Core its standing instructions hold. */
   async #leadMemoryContext(): Promise<string | null> {
@@ -4747,7 +4749,10 @@ export class Host {
     const memory = leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
     // Its own settings and what became of its proposals to change them ride the same note: a settings file that cannot
     // be read leaves them out rather than the memory status.
-    const settings = this.#leadAutonomy ? await this.#leadAutonomy.view().then(leadSettingsStatus, () => null) : null
+    // The settings note marks a change made after the Lead was last shown it, and says nothing else is news (#2165).
+    const since = this.#leadSettingsShownAt, shownAt = Date.now()
+    const settings = this.#leadAutonomy ? await this.#leadAutonomy.view().then(view => leadSettingsStatus(view, undefined, since), () => null) : null
+    if (settings) this.#leadSettingsShownAt = shownAt
     return settings ? `${memory}\n${settings}` : memory
   }
   /** The status a desk wake carries: null when the memory store cannot be read, or takes longer than

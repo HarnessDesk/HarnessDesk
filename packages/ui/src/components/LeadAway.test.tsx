@@ -153,7 +153,7 @@ it('"What happened?" asks the host for a recap of the last day', async () => {
   const root = createRoot(box)
   await act(async () => root.render(<StoreProvider store={store}><LeadRecap /></StoreProvider>))
   clean.push(() => { act(() => root.unmount()); box.remove() })
-  await act(async () => { [...box.querySelectorAll('button')].find(one => one.textContent === 'What happened?')!.click() })
+  await act(async () => { box.querySelector<HTMLButtonElement>('button[aria-label="What happened?"]')!.click() })
   expect(calls.find(call => call.method === 'lead/presence/read').params.recap).toBe(true)
 })
 
@@ -211,10 +211,11 @@ it('#2147: "What happened?" shows it is reading until the host answers, so the f
   await act(async () => { button().click() })
   expect(button().getAttribute('aria-busy')).toBe('true')
   expect(button().disabled).toBe(true)
-  expect(button().textContent).toBe('Reading…')
+  expect(button().getAttribute('aria-label')).toBe('Reading…')
+  expect(button().querySelector('[data-slot="spinner"]'), 'the icon turns into a spinner while it reads').not.toBeNull()
   await act(async () => { answer(); await new Promise(resolve => setTimeout(resolve, 0)) })
   expect(button().getAttribute('aria-busy')).not.toBe('true')
-  expect(button().textContent).toBe('What happened?')
+  expect(button().getAttribute('aria-label')).toBe('What happened?')
 })
 
 it('#2147: an open window nobody touches stops marking itself seen, and the first touch after reads as a return', async () => {

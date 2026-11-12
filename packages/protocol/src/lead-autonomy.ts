@@ -324,6 +324,7 @@ export type LeadRulesPropose = { readonly section: LeadRuleSectionId; readonly a
  */
 export interface LeadSettingsProposeResult {
   readonly outcome: 'created' | 'asked-again' | 'same' | 'refused'
+  /** The desk's own reference to the proposal. The wire never carries it to the Lead (#2167): the card is found by the person, not named by the Lead. */
   readonly id?: string
   readonly reason?: 'declined' | 'empty' | 'too-long' | 'too-many'
   readonly declinedBefore?: true

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { realpath } from 'node:fs/promises'
 import test, { type TestContext } from 'node:test'
-import { createLeadJournal, leadWorkCards, type LeadJournalRecord, type LeadPermissionCall, type LeadPermissionContext, type MessagesTurn } from '@harnessdesk/lead'
+import { LEAD_SURFACE_LINES, createLeadJournal, leadWorkCards, type LeadJournalRecord, type LeadPermissionCall, type LeadPermissionContext, type MessagesTurn } from '@harnessdesk/lead'
 import { LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, parseLeadReminderSet } from '@harnessdesk/protocol'
 import { LeadControls } from '../src/lead/controls.js'
+import { leadShownMessage } from '../src/lead/projection.js'
 import { PHONE_POLICY } from '../src/phone-link.js'
 import { evidenceDesk } from './fixtures/evidence-desk.js'
 
@@ -459,4 +460,23 @@ test('#2146: each person turn tells the Lead which device the person wrote from,
   assert.doesNotMatch(words(sent[1]!), /on their phone/)
   await controls.send({ idempotencyKey: 'unknown-1', text: 'One more' }); await controls.idle()
   assert.doesNotMatch(words(sent[2]!), /<person-device>/, 'a send that names no device says nothing about one')
+})
+
+test('#2166: each person message carries the surface that sent it, and every later request reads each message with its own', async t => {
+  const r = await workRig(t)
+  const sent: (readonly MessagesTurn[])[] = []
+  const controls = r.controls(async messages => { sent.push(messages); return { status: 'completed', text: 'Done.' } })
+  const people = (turns: readonly MessagesTurn[]) => turns.filter(turn => turn.role === 'user' && Array.isArray(turn.content)
+    && turn.content.some(part => 'text' in part && part.text.startsWith('Desk reference for the preceding person message: ')))
+  const said = (turn: MessagesTurn) => (Array.isArray(turn.content) ? turn.content : []).map(part => 'text' in part ? part.text : '')
+  await controls.send({ idempotencyKey: 'phone-2', text: 'Turn on auto-approve for reads.', device: { id: 'phone:p1', label: 'Phone' } }); await controls.idle()
+  await controls.send({ idempotencyKey: 'window-2', text: 'Where do I press it?', device: { id: 'window:w1', label: 'Desktop' } }); await controls.idle()
+  const stored = r.journal.state.messages.filter(message => message.role === 'user')
+  assert.deepEqual(stored.map(message => message.surface), ['phone', 'desktop'], 'the journal keeps each message\'s surface')
+  const first = people(sent[0]!), second = people(sent[1]!)
+  assert.ok(said(first.at(-1)!).includes(LEAD_SURFACE_LINES.phone), 'the phone turn names the phone')
+  assert.ok(said(second.at(-1)!).includes(LEAD_SURFACE_LINES.desktop), 'the desktop turn names the desktop')
+  assert.ok(!said(second.at(-1)!).includes(LEAD_SURFACE_LINES.phone))
+  assert.ok(said(second.at(-2)!).includes(LEAD_SURFACE_LINES.phone), 'the earlier phone message still reads as the phone\'s')
+  assert.ok(stored.every(message => !('surface' in leadShownMessage(message))), 'the surface is the Lead\'s context, not a new field on the thread both surfaces draw')
 })

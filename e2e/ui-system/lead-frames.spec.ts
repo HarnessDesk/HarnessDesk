@@ -114,3 +114,20 @@ for (const theme of ['light', 'dark']) test(`the Lead's rail carries its goal, p
   await frame.getByRole('button', { name: 'Toggle rail' }).click()
   await frame.screenshot({ path: info.outputPath(`app-shell-rail-${theme}.png`), animations: 'disabled' })
 })
+
+for (const theme of ['light', 'dark']) test(`#2168: What happened? is one click in the Lead's top bar, never under the rail, in ${theme}`, async ({ page }, info) => {
+  // A window as narrow as the sitting's: the rail is drawn over the thread here, and it used to hold the Recap card.
+  await page.setViewportSize({ width: 820, height: 640 })
+  await page.goto(`/preview.html?lead-synthetic=app-shell&theme=${theme}`)
+  const frame = page.locator('[data-frame-id="lead-app-shell"]')
+  const recap = frame.getByRole('button', { name: 'What happened?', exact: true })
+  await expect(recap).toBeVisible()
+  await expect(frame.locator('[data-frame-region="rail"]').getByRole('button', { name: 'What happened?' })).toHaveCount(0)
+  if (await frame.locator('[data-slot="fixed-shell"]').getAttribute('data-rail-open') !== 'true') await frame.getByRole('button', { name: 'Toggle rail' }).click()
+  // With the rail open, nothing is drawn over the button: the point under its centre is the button itself.
+  const box = (await recap.boundingBox())!
+  expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x!, y!)?.closest('[data-lead-recap]'), [box.x + box.width / 2, box.y + box.height / 2])).toBe(true)
+  const directory = process.env.LEAD_D_FRAMES_DIR ?? info.outputPath('frames')
+  await mkdir(directory, { recursive: true })
+  await frame.screenshot({ path: join(directory, `recap-top-bar-${theme}.png`), animations: 'disabled' })
+})

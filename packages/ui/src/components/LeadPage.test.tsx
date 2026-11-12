@@ -1014,3 +1014,20 @@ it('puts the wake ledger at the end of the thread, after the latest reply, never
   expect(ledger).not.toBeNull()
   expect(reply.compareDocumentPosition(ledger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
+it('#2168: "What happened?" is one click in the top bar, never at the foot of the rail a narrow window draws over the thread', async () => {
+  const base = leadProjection()
+  const { box, request } = await mount({ ...base, thread: { ...base.thread, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'assistant', text: 'First' }] } }, false, true)
+  const rail = box.querySelector('[data-testid="lead-rail"]')!
+  expect(rail.textContent).not.toContain('What happened?')
+  const recap = box.querySelector<HTMLButtonElement>('[data-slot="top-bar"] button[aria-label="What happened?"], button[data-lead-recap]')
+  expect(recap, 'the top bar carries it').not.toBeNull()
+  expect(rail.contains(recap)).toBe(false)
+  expect(recap!.title).toBe('What happened?')
+  await act(async () => { recap!.click() })
+  expect(request.mock.calls.some(([method, params]) => method === 'lead/presence/read' && (params as { recap?: boolean }).recap === true)).toBe(true)
+})
+it('#2168: an empty thread has nothing to recap, so the top bar offers no "What happened?"', async () => {
+  const base = leadProjection()
+  const { box } = await mount({ ...base, thread: { ...base.thread, messages: [] } }, false, true)
+  expect(box.querySelector('button[data-lead-recap]')).toBeNull()
+})

@@ -283,7 +283,17 @@ export interface LeadMessage {
    * still count).
    */
   readonly reminded?: string
+  /**
+   * The person's own messages only: the surface that sent it, as the send's device named it (`phone:` or `window:`).
+   * The Lead reads it with the message, so a later turn never takes an earlier one for another device's (#2166). Kept
+   * in the journal; the thread projection leaves it out.
+   */
+  readonly surface?: LeadMessageSurface
 }
+export const LEAD_MESSAGE_SURFACES = ['phone', 'desktop'] as const
+export type LeadMessageSurface = typeof LEAD_MESSAGE_SURFACES[number]
+/** Which surface a device reference names: a paired phone, or a desktop window. */
+export const leadSurfaceOf = (device: { readonly id: string }): LeadMessageSurface => device.id.startsWith('phone:') ? 'phone' : 'desktop'
 /** What woke the Lead: `reminder` is the reminder's id, `text` its own words (untrusted, as the person or Lead set them). */
 export interface LeadMessageWake { readonly kind: 'reminder'; readonly reminder: string; readonly text: string }
 export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'following' | 'accepted' | 'declined' | 'stopped'
@@ -825,7 +835,7 @@ export const parseLeadMessageRef: Validator<LeadMessageRef> = omitUnset(object<L
 /** The refs a reply carries, at most `LEAD_MESSAGE_REFS_MAX`, one per kind and id. */
 export const parseLeadMessageRefs: Validator<readonly LeadMessageRef[]> = list(parseLeadMessageRef, LEAD_MESSAGE_REFS_MAX, 1, ref => `${ref.kind}:${ref.id}`)
 const parseLeadMessageWake: Validator<LeadMessageWake> = object<LeadMessageWake>({ kind: literalUnion('reminder'), reminder: id, text: text(200) })
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs), wake: optional(parseLeadMessageWake), reminded: optional(id) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs', 'wake', 'reminded'])
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs), wake: optional(parseLeadMessageWake), reminded: optional(id), surface: optional(literalUnion(...LEAD_MESSAGE_SURFACES)) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs', 'wake', 'reminded', 'surface'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
@@ -835,6 +845,7 @@ export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   if (message.refs && message.role !== 'assistant') fail(path, 'refs belong to a reply')
   if (message.wake && message.role !== 'user' && message.role !== 'system') fail(path, 'a wake is a desk turn')
   if (message.reminded !== undefined && (message.role !== 'assistant' || message.ask || message.proactive)) fail(path, 'a reminder line is a plain reply')
+  if (message.surface !== undefined && (message.role !== 'user' || message.wake)) fail(path, 'a surface belongs to the person\'s own message')
   return message
 }
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {

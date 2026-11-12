@@ -103,6 +103,10 @@ it('lists the changes the person made, newest first, with who made them and when
   const { box } = await mount(<LeadAutonomySection />)
   const changes = () => [...box.querySelectorAll('[aria-label="Autonomy changes"] [data-slot="row-title"]')].map(one => one.textContent)
   expect(changes()).toEqual(['Stuck nudges: Act → Observe', 'How to talk to me: version 1 saved'])
+  // A change applied from a proposal names the Lead as the person calls it, never a proposal id (#2167).
+  const applied = box.querySelectorAll('[aria-label="Autonomy changes"] [data-slot="row"]')[1]!
+  expect(applied.textContent).toContain("Applied from Dex's proposal")
+  expect(box.textContent).not.toMatch(/proposal s[0-9]/)
   expect(box.textContent).toContain('Only you change these; Dex cannot.')
   const select = box.querySelector<HTMLSelectElement>('select[aria-label="Repeat runs"]')!
   await act(async () => { select.value = 'off'; select.dispatchEvent(new Event('change', { bubbles: true })) })
@@ -136,4 +140,13 @@ it('a first rule change can be restored to the shipped words from its history, a
   await settle()
   expect(calls.filter(call => call.method === 'lead/rules/update').at(-1)!.params).toEqual({ section: 'talk', action: 'rollback', to: 1, expectedVersion: 2 })
   expect(ledger()).toContain('How to talk to me: version 3 restored')
+})
+
+it('a rule version applied from a proposal says whose proposal it was, never its id (#2167)', async () => {
+  const { box } = await mount(<LeadRulesSection />)
+  const edit = [...box.querySelectorAll<HTMLElement>('button')].filter(one => one.textContent === 'Edit')[0]!
+  await act(async () => { edit.click() })
+  const version = [...document.body.querySelectorAll<HTMLElement>('[role="dialog"] [data-slot="row"]')].find(row => row.textContent?.startsWith('Version 1'))!
+  expect(version.textContent).toContain("Applied from Dex's proposal")
+  expect(document.body.textContent).not.toMatch(/proposal s[0-9]/)
 })

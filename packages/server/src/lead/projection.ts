@@ -12,7 +12,8 @@ export const leadShownMessage = (message: LeadMessage): LeadMessage => {
   if (message.role === 'assistant') return oldReply(message)
   if (message.role !== 'user') return message
   const words = message.wake?.text ?? oldWake(message.text)
-  if (words === null) return message
+  // Which surface sent a message is the Lead's to read (#2166); the thread both surfaces draw stays as it was.
+  if (words === null) { if (message.surface === undefined) return message; const { surface: _surface, ...shown } = message; return shown }
   const { source: _source, ...rest } = message
   return { ...rest, role: 'system', text: `Reminder: ${words}` }
 }
