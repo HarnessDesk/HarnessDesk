@@ -689,3 +689,64 @@ test('a read that throws after the meter said to sign in keeps needsSignIn, so a
     assert.equal(usage.cached(METERED)?.error?.needsSignIn, true)
   } finally { usage.dispose() }
 })
+
+/* A failure that is not about sign-in says nothing about sign-in (#2141): the last report's needsSignIn stands until a
+   reading or a fresh answer from the source replaces it, since a carried-on turn reads it to pass over an account. */
+
+test('a plain meter failure after one that said to sign in keeps needsSignIn beside the kept reading, until a reading clears it (#2141)', async () => {
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([weekly(30, 1_000), new MeterAuthError('sign in, or check the API key'), 'the quota service is down', weekly(40, 2_000)])]]),
+    onReport: () => undefined,
+  })
+  try {
+    await usage.refresh(METERED)
+    assert.equal((await usage.refresh(METERED))[0]?.error?.needsSignIn, true)
+    const [down] = await usage.refresh(METERED)
+    assert.equal(down?.lanes[0]?.usedPercent, 30, 'the last good reading stands')
+    assert.equal(down?.error?.message, 'the quota service is down')
+    assert.equal(down?.error?.needsSignIn, true, 'an outage says nothing about sign-in')
+    const [read] = await usage.refresh(METERED)
+    assert.equal(read?.lanes[0]?.usedPercent, 40)
+    assert.equal(read?.error, null, 'a reading is what clears the mark')
+  } finally { usage.dispose() }
+})
+
+test('a plain meter failure after a sign-in card with no reading keeps the card and its needsSignIn, rather than dropping it (#2141)', async () => {
+  const removed: RuntimeId[] = []
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([new MeterAuthError('sign in, or check the API key'), 'the quota service is down'])]]),
+    onReport: () => undefined,
+    onRemoved: (id) => removed.push(id),
+  })
+  try {
+    assert.equal((await usage.refresh(METERED))[0]?.error?.needsSignIn, true)
+    const [down] = await usage.refresh(METERED)
+    assert.ok(down, 'still a card')
+    assert.equal(down?.error?.message, 'the quota service is down')
+    assert.equal(down?.error?.needsSignIn, true)
+    assert.equal(usage.cached(METERED)?.error?.needsSignIn, true)
+    assert.deepEqual(removed, [])
+  } finally { usage.dispose() }
+})
+
+test('a runtime whose own limits throw, with a meter that then fails plainly, keeps the needsSignIn the meter gave before (#2141)', async () => {
+  const agent = runtime(METERED)
+  const unreachable = {
+    ...agent,
+    info: { ...agent.info, capabilities: { ...agent.info.capabilities, metered: true } },
+    getRateLimits: async () => { throw new Error('limits unreachable') },
+  } as unknown as AgentRuntime
+  const usage = new UsageService({
+    runtimes: () => [unreachable],
+    meters: new Map([[METERED, scriptedMeter([new MeterAuthError('sign in, or check the API key'), 'the quota service is down'])]]),
+    onReport: () => undefined,
+  })
+  try {
+    assert.equal((await usage.refresh(METERED))[0]?.error?.needsSignIn, true)
+    const [down] = await usage.refresh(METERED)
+    assert.ok(down)
+    assert.equal(down?.error?.needsSignIn, true, 'neither failure was about sign-in')
+  } finally { usage.dispose() }
+})

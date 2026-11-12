@@ -320,6 +320,9 @@ export class UsageService {
     const previous = this.#cache.get(id) ?? null
     // Figures worth keeping through a failed refresh: a window, or a prepaid balance (`hasReading`), not an error alone.
     const kept = previous !== null && (previous.lanes.length > 0 || hasReading(previous))
+    // A failure that is not about sign-in says nothing about sign-in (#2141): the last report's needsSignIn stands on
+    // every failure below, until a reading or a fresh answer from the source replaces it. A carried-on turn reads it.
+    const signInStands = previous?.error?.needsSignIn === true
 
     let lanes: readonly UsageLane[] = []
     let plan: string | null = null
@@ -351,7 +354,7 @@ export class UsageService {
       ])
       if ('error' in limitsResult) {
         const cause = limitsResult.error
-        error = { message: cause instanceof Error ? cause.message : String(cause) }
+        error = { message: cause instanceof Error ? cause.message : String(cause), ...(signInStands ? { needsSignIn: true } : {}) }
       } else {
         const limits = limitsResult.limits
         if (limits) {
@@ -389,7 +392,7 @@ export class UsageService {
       // reading to keep. The failure belongs to whoever the figures belong
       // to: the agent's own, or the other sign-in's.
       if ('failure' in read) {
-        const needsSignIn = read.needsSignIn === true
+        const needsSignIn = read.needsSignIn === true || signInStands
         if (kept) {
           error = { message: read.failure, ...(needsSignIn ? { needsSignIn: true } : {}) }
         } else if (previous?.unverified) {
