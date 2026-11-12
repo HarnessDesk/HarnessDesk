@@ -100,6 +100,27 @@ test('explicit PR follow events validate without broadening or duplicating the v
   }
 })
 
+test('a @harnessdesk request is an issue and pull-request event a Lead trigger may name, and the vocabulary stays closed', () => {
+  const definition = {
+    id: 'ask-desk', on: { kind: 'issue', events: ['mentioned'] },
+    opens: { lead: true }, goal: ['issue'], again: null, dedupe: ['issue', 'event'], from: 'collaborators',
+    concurrency: 1, forks: 'never', budget: { usd: 5, rounds: 3, hours: 4, withoutProgress: 2 },
+  }
+  assert.doesNotThrow(() => request('authoring/triggers/render', { definitions: [definition] }))
+  assert.doesNotThrow(() => request('authoring/triggers/render', { definitions: [{
+    ...definition, on: { kind: 'pull-request', events: ['opened', 'pushed', 'checks-failed', 'review-commented', 'mentioned'] },
+    goal: ['pr'], dedupe: ['pr', 'head', 'event'],
+  }] }))
+  assert.doesNotThrow(() => request('authoring/triggers/render', { definitions: [{ ...definition, on: { kind: 'issue', events: ['labelled', 'closed', 'commented', 'mentioned'] } }] }))
+  for (const on of [
+    { kind: 'issue', events: ['mentioned', 'mentioned'] },
+    { kind: 'pull-request', events: ['mentioned', 'asked'] },
+    { kind: 'schedule', events: ['mentioned'], everyMinutes: 60 },
+  ]) {
+    assert.throws(() => request('authoring/triggers/render', { definitions: [{ ...definition, on }] }), ValidationError, JSON.stringify(on))
+  }
+})
+
 test('mention triage controls take a trigger, a decision id and a mode, and nothing that could steer what is admitted', () => {
   const valid: Record<string, Record<string, unknown>> = {
     'trigger/decisions': { root: ROOT, id: 'ask' },

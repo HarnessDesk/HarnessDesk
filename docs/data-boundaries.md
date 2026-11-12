@@ -281,6 +281,43 @@ the armed mention triggers beside it: each one's id, project folder name,
 repository, mode on this machine, `from`, and its named people and bots (forge
 logins the triggers file already names).
 
+A trigger armed for `@harnessdesk` requests on pull requests also reads, as
+the same signed-in person, one repository-wide list of conversation comments
+updated since the comment window opened, and never since before the earliest
+trigger that asks was armed
+(`issues/comments?sort=updated&direction=asc&since=…`, paged), whatever number
+of pull requests moved; the reviews (`pulls/{n}/reviews`) of those pull
+requests the source's existing list read shows as updated, every page, and
+once more, five minutes later, of one read within five minutes of its update
+— from the page that held the last review it listed, and the whole list again
+only when that review has moved off its place or the list showed a draft, at
+most 20 pull requests a poll and the rest on the next;
+the inline comments of each review newly submitted there
+(`pulls/{n}/reviews/{id}/comments`); and, for a comment on a pull request that
+list did not show, or one whose reviews are read again after it left the list,
+that one pull request (`pulls/{n}`). An issue's comment in the list is dropped
+unread. Every comment that asks — and only those, on issues and pull requests
+alike — has its edit history read in one GitHub GraphQL query per poll (per
+issue, for an issue trigger) of at most 100 comments: a fixed query that sends
+only the comments' node ids, as their REST answers named them, and reads back
+for each its kind, `lastEditedAt` and `includesCreatedEdit`; it changes
+nothing, and it counts against the same signed-in person's GraphQL rate limit,
+about one point a read. With
+`from: collaborators` the author's permission is read once per author in a
+read, only for a request the forge says was never edited — after its edit
+history is read, so an edited request never costs that read. What it keeps beside
+the trigger's cursor is only what it handled inside its windows — comment,
+review and pull request ids with a time, and for a pull request awaiting its
+second read the count and last id of the reviews it listed, at most 2,000,
+dropped as the windows move — and the time of the newest comment a complete read covered, and each
+request as an admission fact: its comment or review URL, the author's account
+digest, whether the forge says it was never edited, and the words after
+`@harnessdesk`, clipped like every other body. Those words, the thread's title and its links
+are sent to the Lead's model provider when the request is handed to the Lead,
+inside the untrusted-context fence, on the same terms as every other Lead
+request; words that look like they hold a credential are replaced before they
+are sent. Nothing is posted back to the thread.
+
 **Retention:** yours. Deleting the folder, or disarming the trigger, stops it.
 
 ### Goal backups carry history, not authority
@@ -364,6 +401,19 @@ last good copy, or nothing, in its place.
   address fetches that one repository over HTTPS with `git`, anonymously —
   your credential helpers and `.netrc` are cut off — within 64 MB and 60
   seconds. Only when you ask. (`packages/server/src/library-sources.ts`)
+- **Test connection on an MCP server.** Only when you click it on one copy of
+  a server, the host starts that server from the declaration on disk — never
+  from anything the window sends — asks it to initialize and list its tools,
+  and stops it, within 15 seconds. A local command runs in its own process
+  group with the variables it declares on top of a minimal environment (no
+  HarnessDesk variables, a proxy without its user name and password, in the
+  project folder for a project's server); a remote server is asked at the
+  address it declares, with the headers it declares, no redirect followed,
+  and its session ended afterwards. A server the project's own file declares
+  shows its exact command or address first, with the variables that decide
+  what starts. What comes back is a tool count and the server's name;
+  variable and header values never appear in the answer, and a server that
+  asks for sign-in is not signed in to. (`packages/server/src/mcp-test.ts`)
 - **Plugins, on request.** The built-in **web** plugin fetches a page only
   from hosts you have added to its allowlist, which starts empty; a plugin you
   install from npm is downloaded when you install it.

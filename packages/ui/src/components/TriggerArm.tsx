@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import type { AgentEntry, TriggerArmPreview, TriggerDefinition, TriggerView } from '@harnessdesk/protocol'
+import { SUMMONS_WORD, type AgentEntry, type TriggerArmPreview, type TriggerDefinition, type TriggerView } from '@harnessdesk/protocol'
 
 import { Banner, Button, ConfirmDialog, KeyValue, KeyValueRow, Note, NoteList, Row, Rows } from '../design'
 import {
-  triggerAgainLabel, triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerProblemPlace, triggerRowWords,
+  isRequestTrigger, triggerAgainLabel, triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerProblemPlace, triggerRowWords,
 } from '../lib/intake'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { FlowPreviewReport } from './FlowStart'
+import { useLeadLabel } from './use-lead-name'
 
 export interface TriggerArmProps {
   readonly root: string
@@ -68,8 +69,10 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
   const flowErrors = (preview?.flow?.problems ?? []).filter((one) => one.level === 'error')
   const flowWarnings = (preview?.flow?.problems ?? []).filter((one) => one.level === 'warning')
   const armable = preview !== null && preview.token !== null
-  const words = preview?.definition ? triggerRowWords(preview.definition) : null
-  const againLabel = preview?.definition ? triggerAgainLabel(preview.definition.on.kind) : null
+  const leadName = useLeadLabel()
+  const words = preview?.definition ? triggerRowWords(preview.definition, leadName) : null
+  // A request fires on its comment alone; a new head or a later event on the thread never asks anything.
+  const againLabel = preview?.definition && !isRequestTrigger(preview.definition) ? triggerAgainLabel(preview.definition.on.kind) : null
 
   const arm = async (): Promise<void> => {
     if (!preview || preview.token === null || busy) return
@@ -156,12 +159,17 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
           {(againLabel || preview.definition.from) && (
             <Rows>
               {againLabel && <Row title={againLabel} desc={AGAIN_WORDS(preview.definition)} />}
-              {preview.definition.from && (
+              {preview.definition.from && (isRequestTrigger(preview.definition) ? (
+                <Row
+                  title="Who may ask"
+                  desc={`${triggerCommentWords(preview.definition.from)} Only a comment whose first line starts with ${SUMMONS_WORD} asks; an edit, a bot or a post this desk makes never does.`}
+                />
+              ) : (
                 <Row
                   title="Comments that fire it"
                   desc={`${triggerCommentWords(preview.definition.from)} Posts this desk makes never fire it.`}
                 />
-              )}
+              ))}
             </Rows>
           )}
           <KeyValue>

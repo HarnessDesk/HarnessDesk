@@ -87,4 +87,17 @@ export const libraryMethods = {
   },
 
   'library/usage': (ctx) => ctx.libraryUsage().read(),
+
+  'library/mcp/test': (ctx, params) => {
+    assertAbsoluteCwd(params)
+    // Only the identity crosses: the host reads the command, variables, URL
+    // and headers from the declaration itself, so no parameter can name what
+    // runs. Anything else a caller sends is not read.
+    return ctx.mcpConnectionTests().test({
+      name: params.name,
+      path: params.path,
+      ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
+      ...(params.confirmed !== undefined ? { confirmed: params.confirmed } : {}),
+    })
+  },
 } satisfies MethodsUnder<'library/'>

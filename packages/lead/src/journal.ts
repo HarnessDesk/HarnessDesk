@@ -7,7 +7,7 @@ import {
 import { compareLeadPolicyAuthority, sameLeadPolicyValues, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { isLeadPlanRenewal, hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, fenceLeadWorkerDispatch, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, leadGoalSpendCap, type LeadState } from './state.js'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, fenceLeadWorkerDispatch, hasPendingLeadPlan, leadRequestFenced, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, leadGoalSpendCap, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 import { parseLeadMemoryCore, type LeadMemoryCore } from './memory.js'
 
@@ -354,7 +354,7 @@ export type LeadDispatchResult = { readonly value: unknown } & (
 )
 export type LeadDispatch = (call: LeadPermissionCall, correlationId: string) => Promise<LeadDispatchResult>
 export interface LeadRecoveryAction { readonly id: string; readonly type: 'retry-read' | 'reconciled' | 'needs-user' | 'not-dispatched'; readonly count?: number }
-const refusal = (floor: 'start' | 'invalid-input', reason: string): LeadPermissionDecision => ({ effect: 'deny', floor, reason, rule: null, call: null })
+const refusal = (floor: 'start' | 'invalid-input' | 'unapproved', reason: string): LeadPermissionDecision => ({ effect: 'deny', floor, reason, rule: null, call: null })
 
 export { LEAD_MANAGEMENT_REASONS } from '@harnessdesk/protocol'
 
@@ -912,8 +912,10 @@ export class LeadJournal {
             run.correlationId === step.attemptId && this.#state.budget!.executionIds.includes(run.runId)))
         if (unbound) budget = { ...budget, spend: 'unknown' }
       } } catch { /* Invalid time cannot manufacture headroom. */ }
+      // No context, no clock: NaN fails every expiry comparison closed.
+      const now = capturedContext === null ? Number.NaN : this.#state.budget ? Math.max(capturedContext.now, this.#state.budget.now) : capturedContext.now
       let decision = capturedContext === null ? refusal('invalid-input', 'Invalid permission context')
-        : decideLeadPermission(request, { ...capturedContext, budget, now: this.#state.budget ? Math.max(capturedContext.now, this.#state.budget.now) : capturedContext.now,
+        : decideLeadPermission(request, { ...capturedContext, budget, now,
           desk: this.#state.policy ?? capturedContext.desk, approved })
       const step = this.#state.steps.find(step => step.id === stepId)
       const cancellation = isLeadCancellation(method, action)
@@ -921,6 +923,9 @@ export class LeadJournal {
       if (tier !== 'read' && !cancellation && (['stopped', 'accepted', 'declined'].includes(this.#state.phase) || leadWorkerDispatchBlockedByOpenPr(this.#state) || hasPendingLeadPlan(this.#state) ||
         this.#state.recoveryBlocked || this.#state.workerAuditWait || this.#state.managementReason === 'lead-worker-audit-failed' || this.#state.orphanedWorkerDispatch || this.#state.workerApprovals.some(rule => rule.dispatch) || [...this.#state.attempts.values()].some(attempt => attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.phase === 'started' && attempt.dispatched))))
         decision = refusal('start', 'Management is stopped pending recovery or user action')
+      // A request's goal waits for the person's approval whatever the policy mode allows: a stop narrows, so it passes.
+      if (tier !== 'read' && !cancellation && leadRequestFenced(this.#state, now))
+        decision = refusal('unapproved', 'A request from an issue or pull request starts and sends nothing without the person\'s current approval of its plan')
       if (method === 'flow/start-goal' && (!step || step.state !== 'pending' || request.start?.id !== step.id ||
         this.#state.steps.find(step => step.state !== 'started')?.id !== step.id)) decision = refusal('start', 'Step is unapproved, out of order or already admitted')
       if (decision.effect === 'allow' && method === 'flow/start-goal' && step) {

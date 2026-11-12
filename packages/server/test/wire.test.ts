@@ -2262,6 +2262,7 @@ const RELATIVE_FOLDER_ASKS: { readonly [M in FolderMethod]: (cwd: string) => Hos
   'library/definition': (cwd) => ({ kind: 'skill', name: 'hd-probe', path: '/nowhere/hd-probe', cwd }),
   'library/plan': (cwd) => ({ cwd, intents: [] }),
   'library/apply': (cwd) => ({ cwd, ops: [] }),
+  'library/mcp/test': (cwd) => ({ name: 'hd-probe', path: '/nowhere/.mcp.json', cwd }),
   'terminal/open': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd, size: { rows: 24, cols: 80 } }),
   'agent/seat': (cwd) => ({ id: 'hd-probe', cwd }),
 }

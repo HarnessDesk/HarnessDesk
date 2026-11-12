@@ -29,7 +29,11 @@ export interface FakePull {
   merged?: boolean
   checks?: { id: number; head_sha: string; name: string; status: string; conclusion: string | null; completed_at?: string }[]
   statuses?: { id: number; context: string; state: string; updated_at?: string }[]
-  reviews?: { id: number; commit_id: string; body: string; state: string; submitted_at: string; user: { id: number; login: string } | null }[]
+  reviews?: { id: number; commit_id: string; body: string; state: string; submitted_at: string | null; user: { id: number; login: string; type?: 'User' | 'Bot' } | null }[]
+  /** The pull request's conversation comments, as the repository-wide `issues/comments` list answers them. */
+  comments?: FakeIssue['comments']
+  /** Inline review comments, each in its review, as `pulls/{n}/reviews/{id}/comments` answers them. */
+  reviewComments?: { id: number; review: number; body: string; created: number; updated: number; user?: { id: number; login: string; type?: 'User' | 'Bot' }; edit?: Edit }[]
   extra?: Record<string, unknown>
 }
 
@@ -44,10 +48,13 @@ export interface FakeIssue {
   /** `label` is the name a labelled event carries, as the forge nests it; any value, so a malformed one can be staged. */
   events: { id: number; event: string; created: number; label?: unknown }[]
   /** `user` is who the forge says wrote it: the signed-in account when absent, nobody readable when null. */
-  comments: { id: number; body: string; created: number; updated: number; user?: { id: number; login: string; type?: 'User' | 'Bot' } | null }[]
+  comments: { id: number; body: string; created: number; updated: number; user?: { id: number; login: string; type?: 'User' | 'Bot' } | null; edit?: Edit }[]
   /** The labels the issue carries now, by name. */
   labels?: string[]
 }
+
+/** A comment's edit history as the forge's GraphQL answers it; absent, never edited. */
+export interface Edit { lastEditedAt: string | null; includesCreatedEdit: boolean }
 
 export type Failure = { exitCode: number; stderr: string } | 'timeout' | 'overflow' | 'malformed'
 
@@ -79,7 +86,12 @@ export class FakeForge {
   /** Answers `gh repo view` with this; null answers as a folder with no GitHub remote. */
   view: { nameWithOwner: string; url: string } | null = { nameWithOwner: REPO, url: `https://github.com/${REPO}` }
 
-  readonly runner: GhApiRunner = async (args) => {
+  /** The ids each GraphQL edit-history read asked about, in order. */
+  readonly histories: string[][] = []
+  /** What the GraphQL answer carries instead of nodes: an `errors` list, or a node of another kind. */
+  graphql: 'errors' | 'wrong-kind' | null = null
+
+  readonly runner: GhApiRunner = async (args, input) => {
     this.argv.push(args)
     if (args[0] === 'repo' && args[1] === 'view') {
       if (!this.view) return { stdout: '', stderr: 'no git remotes found', exitCode: 1, timedOut: false, overflow: false }
@@ -101,6 +113,7 @@ export class FakeForge {
     if (failure === 'overflow') return { stdout: '', stderr: '', exitCode: null, timedOut: false, overflow: true }
     if (failure === 'malformed') return { stdout: '{"not": "a list"', stderr: '', exitCode: 0, timedOut: false, overflow: false }
     if (failure) return { stdout: '', stderr: failure.stderr, exitCode: failure.exitCode, timedOut: false, overflow: false }
+    if (path === 'graphql') return { stdout: JSON.stringify(this.#history(input)), stderr: '', exitCode: 0, timedOut: false, overflow: false }
     if (path === 'user' && !this.user) return { stdout: '', stderr: 'gh: HTTP 401: Bad credentials', exitCode: 1, timedOut: false, overflow: false }
     const permission = /^repos\/[^/]+\/[^/]+\/collaborators\/([^/]+)\/permission$/.exec(path)
     if (permission && !this.permissions.has(permission[1]!)) return { stdout: '', stderr: 'gh: Not Found (HTTP 404)', exitCode: 1, timedOut: false, overflow: false }
@@ -120,13 +133,37 @@ export class FakeForge {
   /** What `users/{login}` answers, by login; a login not here answers 404. */
   users = new Map<string, { id: number; type?: 'User' | 'Bot' }>()
 
+  /** The one GraphQL query the reader makes: each comment's edit history, by node id, in order; an unknown id answers null. */
+  #history(input: string | null): unknown {
+    const body = JSON.parse(input ?? '{}') as { query?: string; variables?: { ids?: string[] } }
+    if (typeof body.query !== 'string' || !body.query.includes('lastEditedAt') || !Array.isArray(body.variables?.ids)) throw new Error('unexpected GraphQL read')
+    const ids = body.variables.ids
+    this.histories.push(ids)
+    if (this.graphql === 'errors') return { data: { nodes: ids.map(() => null) }, errors: [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded' }] }
+    const conversation = this.#threads().flatMap((issue) => issue.comments.map((one) => ({ node: `IC_${one.id}`, kind: 'IssueComment', edit: one.edit })))
+    const inline = this.pulls.flatMap((pull) => (pull.reviewComments ?? []).map((one) => ({ node: `PRRC_${one.id}`, kind: 'PullRequestReviewComment', edit: one.edit })))
+    return { data: { nodes: ids.map((id) => {
+      const one = [...conversation, ...inline].find((comment) => comment.node === id)
+      if (!one) return null
+      return { __typename: this.graphql === 'wrong-kind' ? 'Commit' : one.kind, id, lastEditedAt: one.edit?.lastEditedAt ?? null, includesCreatedEdit: one.edit?.includesCreatedEdit ?? false }
+    }) } }
+  }
+
   /** One comment as the forge's comment endpoints answer it, on an issue or a pull request's conversation. */
   commentJson(issue: FakeIssue, one: FakeIssue['comments'][number]): Record<string, unknown> {
     return {
-      id: one.id, body: one.body, created_at: iso(one.created), updated_at: iso(one.updated),
+      id: one.id, node_id: `IC_${one.id}`, body: one.body, created_at: iso(one.created), updated_at: iso(one.updated),
       ...(one.user === null ? {} : { user: one.user ?? { ...this.user, type: 'User' } }),
       html_url: `https://github.com/${this.repo}/${issue.pullRequest ? 'pull' : 'issues'}/${issue.number}#issuecomment-${one.id}`,
+      issue_url: `https://api.github.com/repos/${this.repo}/issues/${issue.number}`,
     }
+  }
+
+  /** Every thread's comments: the issues', and each pull request conversation's. */
+  #threads(): FakeIssue[] {
+    return [...this.issues, ...this.pulls.filter((one) => one.comments?.length).map((one): FakeIssue => ({
+      number: one.number, state: one.state, created: one.created, updated: one.updated, events: [], comments: one.comments!, pullRequest: true,
+    }))]
   }
 
   #answer(path: string): unknown {
@@ -150,9 +187,19 @@ export class FakeForge {
       if (!one) throw new Error(`missing pull ${path}`)
       return this.pullJson(one)
     }
+    if (parts[3] === 'pulls' && parts[5] === 'reviews' && parts[7] === 'comments') {
+      const one = this.pulls.find((row) => row.number === Number(parts[4]))
+      return slice((one?.reviewComments ?? []).filter((comment) => comment.review === Number(parts[6]))).map((comment) => ({
+        id: comment.id, node_id: `PRRC_${comment.id}`, pull_request_review_id: comment.review, body: comment.body, created_at: iso(comment.created), updated_at: iso(comment.updated),
+        user: comment.user ?? { ...this.user, type: 'User' }, path: 'src/widget.ts',
+        html_url: `https://github.com/${this.repo}/pull/${parts[4]}#discussion_r${comment.id}`,
+        pull_request_url: `https://api.github.com/repos/${this.repo}/pulls/${parts[4]}`,
+      }))
+    }
     if (parts[3] === 'pulls' && parts[5] === 'reviews') {
       if (parts[6]) return this.pulls.find((row) => row.number === Number(parts[4]))?.reviews?.find((one) => one.id === Number(parts[6]))
-      return slice(this.pulls.find((row) => row.number === Number(parts[4]))?.reviews ?? [])
+      return slice((this.pulls.find((row) => row.number === Number(parts[4]))?.reviews ?? [])
+        .map((one) => ({ html_url: `https://github.com/${this.repo}/pull/${parts[4]}#pullrequestreview-${one.id}`, ...one })))
     }
     if (parts[3] === 'commits') {
       const one = this.pulls.find((row) => row.head === parts[4])
@@ -162,13 +209,13 @@ export class FakeForge {
     if (parts[3] === 'issues' && parts[4] === 'comments' && parts.length === 5) {
       // The repository-wide list: every issue's and pull request conversation's comments, by update, from `since`.
       const since = Date.parse(url.searchParams.get('since') ?? iso(0))
-      const rows = this.issues.flatMap((issue) => issue.comments.map((one) => ({ issue, one })))
+      const rows = this.#threads().flatMap((issue) => issue.comments.map((one) => ({ issue, one })))
         .filter(({ one }) => one.updated >= since)
         .sort((a, b) => (url.searchParams.get('direction') === 'desc' ? b.one.updated - a.one.updated : a.one.updated - b.one.updated) || a.one.id - b.one.id)
       return slice(rows).map(({ issue, one }) => this.commentJson(issue, one))
     }
     if (parts[3] === 'issues' && parts[4] === 'comments' && parts.length === 6) {
-      for (const issue of this.issues) {
+      for (const issue of this.#threads()) {
         const one = issue.comments.find((row) => row.id === Number(parts[5]))
         if (one) return this.commentJson(issue, one)
       }
@@ -204,13 +251,13 @@ export class FakeForge {
       return { permission: one.permission, role_name: one.permission, user: { id: one.id, login: parts[4] } }
     }
     if (parts[3] === 'issues' && parts[5] === 'comments') {
+      // One thread's comments: an issue's, or a pull request's conversation, which the forge serves from the same endpoint.
       const since = Date.parse(url.searchParams.get('since') ?? iso(0))
-      const issue = this.issues.find((one) => one.number === Number(parts[4]))
-      return slice((issue?.comments ?? []).filter((one) => one.updated >= since)).map((one) => ({
-        id: one.id, body: one.body, created_at: iso(one.created), updated_at: iso(one.updated),
-        ...(one.user === null ? {} : { user: one.user ?? this.user }),
-        html_url: `https://github.com/${this.repo}/issues/${parts[4]}#issuecomment-${one.id}`,
-      }))
+      const number = Number(parts[4])
+      const pull = this.pulls.find((one) => one.number === number)
+      const thread: FakeIssue = this.issues.find((one) => one.number === number)
+        ?? { number, state: 'open', created: 0, updated: 0, events: [], comments: pull?.comments ?? [], pullRequest: pull !== undefined }
+      return slice(thread.comments.filter((one) => one.updated >= since)).map((one) => this.commentJson(thread, one))
     }
     throw new Error(`unexpected path ${path}`)
   }

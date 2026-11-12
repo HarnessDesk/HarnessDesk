@@ -11,6 +11,7 @@ import { ClockIcon } from './Icons'
 import { MentionDecisionRows, useMentionTriage } from './MentionDecisions'
 import { TriggerArm } from './TriggerArm'
 import { TriggerCreate } from './TriggerCreate'
+import { useLeadLabel } from './use-lead-name'
 
 export interface ProjectTriggersProps {
   readonly root: string
@@ -331,7 +332,8 @@ const TriggerRowGroup = ({
   readonly onRearm: () => void
   readonly onWatchFromNow: () => void
 }) => {
-  const words = trigger.definition ? triggerRowWords(trigger.definition) : null
+  const leadName = useLeadLabel()
+  const words = trigger.definition ? triggerRowWords(trigger.definition, leadName) : null
   const title = words?.title ?? trigger.id
   const desc = [
     words?.facts,

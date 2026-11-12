@@ -59,6 +59,7 @@ import { chipFor, SkillList, SkillRow, type SkillChip } from './SkillRow'
 import { SkillCard } from './SkillCard'
 import { LibrarySkillsControls } from '../panels/library-skills-controls'
 import { McpSheet } from './McpSheet'
+import { McpConnectionTest } from './McpConnectionTest'
 import { SkillPage } from './SkillPage'
 import { DestinationBar } from '../panels/destination-page'
 import { shortPath } from '../lib/paths'
@@ -803,7 +804,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
               open: () => setOpen(current => current === entry.name ? null : entry.name),
               cells: entry.reach.map((reach, index) => { const label = `${entry.name} — ${columns[index]?.label ?? reach.runtime}: ${REACH_NAME[reach.state]}`
                 return { id: reach.runtime, state: reach.state, label, problem: isReachProblem(reach.state), help: reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state], mark: <ReachMark state={reach.state} label={label} placement="cell" /> } }),
-              expanded: open === entry.name ? <EntryDetail entry={entry} columns={columns} usage={usage} scanOrder={scanOrder} hosts={hosts} home={library?.home} onFlow={setFlow} onRead={() => openEntry(entry)} /> : undefined,
+              expanded: open === entry.name ? <EntryDetail entry={entry} columns={columns} usage={usage} scanOrder={scanOrder} hosts={hosts} home={library?.home} cwd={cwd} onFlow={setFlow} onRead={() => openEntry(entry)} /> : undefined,
             }))}
             footer={kind === 'skill' ? { label: `Advertised each turn${screen.chip !== 'all' || screen.filter !== 'all' || screen.query.trim() !== '' ? ' (these rows)' : ''}`,
               title: 'Name and description at ≈3.6 characters per token — the catalogue line a runtime carries for every skill it loads, fired or not. How each runtime advertises varies; this prices the standard line.',
@@ -904,6 +905,7 @@ const EntryDetail = ({
   scanOrder,
   hosts,
   home,
+  cwd,
   onFlow,
   onRead,
 }: {
@@ -914,6 +916,8 @@ const EntryDetail = ({
   hosts: { readonly skill: ReadonlySet<RuntimeId>; readonly mcp: ReadonlySet<RuntimeId> }
   /** The host's home directory, so a path prints the way it is written. */
   home: string | undefined
+  /** The project whose own files count, which a project server's test runs in. */
+  cwd: string | undefined
   onFlow: (flow: LibraryFlow) => void
   /** Open the full reading surface for this entry. */
   onRead: () => void
@@ -1036,7 +1040,7 @@ const EntryDetail = ({
                           <TrashIcon size={12} />
                         </Button>
                       )}
-                    </Toolbar></>} desc={<Text role="meta">
+                    </Toolbar></>} desc={<><Text role="meta">
                       {copy.hollow
                         ? 'No definition inside it — a runtime that scans this directory lists the name and loads nothing.'
                         : copy.readBy.length === 0
@@ -1047,7 +1051,9 @@ const EntryDetail = ({
                               .map((id) => columns.find((one) => one.id === id)?.label ?? id)
                               .join(', ')}.`}
                       {copy.readOnly && ' Shipped by the runtime.'}
-                    </Text>} />
+                    </Text>
+                    {entry.kind === 'mcp' && !copy.hollow && <McpConnectionTest name={entry.name} path={copy.path} cwd={cwd} readBy={copy.readBy} home={home} />}
+                    </>} />
                 )
               })}
             </Rows>

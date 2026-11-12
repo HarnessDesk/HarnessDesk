@@ -30,11 +30,19 @@ export const TRIGGER_SOURCES: readonly TriggerSource[] = ['pull-request', 'issue
  */
 export type TriggerField = 'pr' | 'head' | 'event' | 'issue' | 'slot' | 'thread'
 
-export type PullRequestEvent = 'opened' | 'pushed' | 'checks-failed' | 'review-commented'
-export type IssueEvent = 'labelled' | 'closed' | 'commented'
+export type PullRequestEvent = 'opened' | 'pushed' | 'checks-failed' | 'review-commented' | 'mentioned'
+export type IssueEvent = 'labelled' | 'closed' | 'commented' | 'mentioned'
 
 /**
- * Whose comments fire a trigger that reads `commented` issue events,
+ * The word that makes a comment a request: `@harnessdesk`, the project's own
+ * organization on GitHub, at the start of a comment's first line. An `@` of
+ * an organization notifies nobody. See `summonsOf` in the server for the rule.
+ */
+export const SUMMONS_WORD = '@harnessdesk'
+
+/**
+ * Whose comments fire a trigger that reads `commented` issue events or
+ * `mentioned` requests on issues and pull requests,
  * compared by the forge's stable account id, never a display name:
  * - `me` (the default): only the forge account the trigger is armed with.
  * - `collaborators`: that account, and anyone the forge says can write to
@@ -68,8 +76,8 @@ export type TriggerOn =
 
 /** The complete vocabulary; new events do not silently broaden an existing declaration. */
 export const TRIGGER_EVENTS = {
-  'pull-request': ['opened', 'pushed', 'checks-failed', 'review-commented'],
-  issue: ['labelled', 'closed', 'commented'],
+  'pull-request': ['opened', 'pushed', 'checks-failed', 'review-commented', 'mentioned'],
+  issue: ['labelled', 'closed', 'commented', 'mentioned'],
   schedule: ['tick'],
   mention: ['commented'],
 } as const
@@ -120,8 +128,8 @@ export interface TriggerDefinition {
   readonly label?: readonly string[]
   /**
    * Whose comments fire it: present exactly when the trigger reads
-   * `commented` issue events or mentions, `me` unless the file says
-   * otherwise. A mention trigger never takes `anyone`.
+   * `commented` issue events, `mentioned` requests or mentions, `me` unless
+   * the file says otherwise. A mention trigger never takes `anyone`.
    */
   readonly from?: TriggerCommentFrom
   /**
@@ -323,7 +331,12 @@ export interface TriggerReview {
 }
 
 /**
- * One fact a source observed, normalized. Everything in it is either
+ * One fact a source observed, normalized. A `mentioned` fact is a comment
+ * (or a review's body) on an issue or pull request whose first line starts
+ * with {@link SUMMONS_WORD}: `event` is keyed on the comment id, `body` is
+ * the words after the command word, `head` is the pull request's head (null
+ * on an issue), and `author`, `authorWrites` and `desk` read as for
+ * `commented`. A bot never makes one. Everything in it is either
  * host-validated (the repository the arm was bound to, positive ids, full
  * commit ids, finite times, a URL confined to the repository) or bounded,
  * untrusted prose (`title`, `body`) that is information, never authority,
@@ -379,6 +392,14 @@ export interface TriggerFact {
   readonly login?: string | null
   /** A mention fact: the forge says the author is a bot account. */
   readonly bot?: boolean
+  /**
+   * A request (`mentioned`): whether the forge's own edit history says the
+   * comment is exactly as its author first wrote it — true; false when anyone
+   * edited it; null when that history could not be read. Only true asks: an
+   * edit may be anyone's who can write, so the words are no longer surely
+   * the author's.
+   */
+  readonly unedited?: boolean | null
 }
 
 /** How one watched source stands, in sentences a surface can show. */

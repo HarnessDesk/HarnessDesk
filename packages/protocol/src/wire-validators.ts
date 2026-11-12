@@ -843,10 +843,10 @@ const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
     return { kind: 'schedule', events: ['tick'] as const, everyMinutes }
   }
   if (kind === 'pull-request') {
-    return { kind: 'pull-request', events: flowWordList(4, literalUnion('opened', 'pushed', 'checks-failed', 'review-commented'))(record['events'], `${path}.events`) }
+    return { kind: 'pull-request', events: flowWordList(5, literalUnion('opened', 'pushed', 'checks-failed', 'review-commented', 'mentioned'))(record['events'], `${path}.events`) }
   }
   if (kind === 'issue') {
-    return { kind: 'issue', events: flowWordList(3, literalUnion('labelled', 'closed', 'commented'))(record['events'], `${path}.events`) }
+    return { kind: 'issue', events: flowWordList(4, literalUnion('labelled', 'closed', 'commented', 'mentioned'))(record['events'], `${path}.events`) }
   }
   if (kind === 'mention') {
     flowWordList(1, literalUnion('commented'))(record['events'], `${path}.events`)
@@ -1238,6 +1238,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'library/usage': shape({}),
   'library/plan': shape({ cwd: optional(isString), intents: arrayOf(libraryIntentValidator) }),
   'library/apply': shape({ cwd: optional(isString), ops: arrayOf(libraryPlannedOpValidator) }),
+  'library/mcp/test': shape({ name: atMost(512), path: atMost(4096), cwd: optional(isString), confirmed: optional(atMost(128)) }),
   // `null` is how a goal is cleared. `optional` turns it into undefined, and
   // the adapter clears only on null, so a clear arrived as nothing (#25).
   'session/goal': shape({ runtime: isString, sessionId: isString, objective: nullableString }),
