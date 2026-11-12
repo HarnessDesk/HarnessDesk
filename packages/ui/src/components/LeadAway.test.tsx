@@ -99,6 +99,11 @@ it('dismisses the digest through the host, which clears it for the desk', async 
 })
 
 it('an expired question keeps its options as an inert control and says nothing was done; an answered one is a receipt', async () => {
+  // The fixture answers an hour before now, and a receipt from an earlier day names the day instead of the time.
+  // Pin the clock to midday (local time) so the answer is always today's, whenever the suite runs; timers stay real.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(2026, 10, 11, 12, 0))
+  clean.push(() => vi.useRealTimers())
   const { box } = await mount()
   const asks = [...box.querySelectorAll<HTMLElement>('[data-slot="lead-ask"]')]
   const settled = (status: string, id: string) => asks.find(ask => ask.getAttribute('data-status') === status && ask.dataset.ask === id)!

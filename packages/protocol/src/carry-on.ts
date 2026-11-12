@@ -1,5 +1,5 @@
 import type { RuntimeId, SessionId } from './ids.js'
-import type { CarryOnCause, CarryOnMode, CarryOnSide } from './items.js'
+import type { CarryOnCause, CarryOnItem, CarryOnMode, CarryOnPhase, CarryOnSide } from './items.js'
 
 /**
  * Carrying a conversation on past a usage limit.
@@ -178,4 +178,136 @@ export interface CarryOnDecision {
   readonly target?: RuntimeId
   /** Write the choice as the rule at `alwaysScope`. */
   readonly always: boolean
+}
+
+// --------------------------------------------------------------------- marker
+
+/**
+ * What the transcript marker says, in words the desktop and the phone share.
+ *
+ * - `headline`: what happened, naming both sides — agent, account and model.
+ * - `detail`: why (the cause, naming the agent and account that ran out) and when its
+ *   limit resets, when known; a note the host recorded follows it.
+ * - `link`: the words of the link to the other conversation of a handoff.
+ */
+export interface CarryOnMarkerText {
+  readonly headline: string
+  readonly detail?: string
+  readonly link?: string
+}
+
+/** The fields of a marker its words are made from; the item itself fits. */
+export type CarryOnMarkerInput = Pick<CarryOnItem, 'phase' | 'cause' | 'from' | 'to' | 'resetsAt' | 'link' | 'note'>
+
+/** Formats a reset time the way the surface says times, such as "3:40 PM" or "Fri 3:40 PM". */
+export type CarryOnTimeFormat = (at: number) => string
+
+/**
+ * An account label is a nickname or an ordinal. Anything shaped like an email
+ * address is never shown, even if a record carried one by mistake.
+ */
+const accountLabel = (account: string | undefined): string | undefined => {
+  const label = account?.trim()
+  return label && !label.includes('@') ? label : undefined
+}
+
+/** One side, as "Agent · account · model", with what is unknown left out. */
+export const carryOnSideText = (side: CarryOnSide, options: { readonly model?: boolean } = {}): string =>
+  [side.name, accountLabel(side.account), options.model === false ? undefined : side.model].filter(Boolean).join(' · ')
+
+/**
+ * Who ran out, named as the headline names a side: "Agent · account", or the
+ * agent alone. A bare label such as "work" would read as a sentence about work.
+ */
+const subjectOf = (side: CarryOnSide): string => carryOnSideText(side, { model: false })
+
+const CAUSE: Readonly<Record<CarryOnCause, (who: string) => string>> = {
+  credits: (who) => `${who} reached its usage limit`,
+  rateLimit: (who) => `${who} stayed rate limited after retrying`,
+  blocked: (who) => `${who} has no usage left`,
+}
+
+/** The cause in a sentence, and the reset time when one is known. */
+const causeAndReset = (item: CarryOnMarkerInput, time: CarryOnTimeFormat, reset = true): string =>
+  [CAUSE[item.cause](subjectOf(item.from)), reset && item.resetsAt !== undefined ? `resets ${time(item.resetsAt)}` : undefined]
+    .filter(Boolean)
+    .join(' · ')
+
+/**
+ * A note the host recorded, as a sentence: the service writes some as phrases
+ * ("no reset time known"), which open with a capital here. Only the note —
+ * a name keeps the case its presentation gives it.
+ */
+const noteText = (note: string | undefined): string | undefined => {
+  const text = note?.trim()
+  return text ? `${text[0]!.toUpperCase()}${text.slice(1)}` : undefined
+}
+
+const sentence = (...parts: (string | undefined)[]): string | undefined => {
+  const shown = parts.map((part) => part?.trim()).filter((part): part is string => !!part)
+  return shown.length === 0 ? undefined : shown.map((part) => (/[.!?]$/.test(part) ? part : `${part}.`)).join(' ')
+}
+
+/** The `from` side, with its model dropped when it is the model the conversation went on with. */
+const fromText = (item: CarryOnMarkerInput): string =>
+  carryOnSideText(item.from, { model: !item.to?.model || item.to.model !== item.from.model })
+
+/** Why the conversation stopped, when the host did not say. */
+const EXHAUSTED_NOTE = 'No other account or agent has room'
+
+/**
+ * The marker's words for each phase. Names come from the record, which the
+ * host fills from the runtime's presentation and the account's label — never
+ * a runtime id and never an email.
+ */
+export const CARRY_ON_MARKER: Readonly<Record<CarryOnPhase, (item: CarryOnMarkerInput, time: CarryOnTimeFormat) => CarryOnMarkerText>> = {
+  switched: (item, time) => ({
+    headline: item.to ? `Switched from ${fromText(item)} to ${carryOnSideText(item.to)}` : `Switched from ${fromText(item)}`,
+    ...optional('detail', sentence(causeAndReset(item, time), noteText(item.note))),
+  }),
+  left: (item, time) => ({
+    headline: item.to ? `Continued in a new conversation with ${carryOnSideText(item.to)}` : 'Continued in a new conversation',
+    ...optional('detail', sentence(causeAndReset(item, time), noteText(item.note))),
+    ...(item.link ? { link: 'Open' } : {}),
+  }),
+  arrived: (item, time) => ({
+    headline: item.to ? `Continued from ${fromText(item)} on ${carryOnSideText(item.to)}` : `Continued from ${fromText(item)}`,
+    ...optional('detail', sentence(causeAndReset(item, time), noteText(item.note))),
+    ...(item.link ? { link: 'Earlier history' } : {}),
+  }),
+  waiting: (item, time) => ({
+    headline: item.resetsAt !== undefined
+      ? `Waiting for ${carryOnSideText(item.from)} to reset at ${time(item.resetsAt)}`
+      : `Waiting for ${carryOnSideText(item.from)} to reset`,
+    ...optional('detail', sentence(causeAndReset(item, time, false), noteText(item.note))),
+  }),
+  resumed: (item) => ({
+    headline: `Resumed on ${carryOnSideText(item.from)} after its reset`,
+    ...optional('detail', sentence(noteText(item.note))),
+  }),
+  // A stop can leave the conversation open elsewhere too (the move found it in
+  // use there): the note says where, and the link opens it.
+  stopped: (item, time) => ({
+    headline: `Stopped on ${carryOnSideText(item.from)}`,
+    ...optional('detail', sentence(causeAndReset(item, time), noteText(item.note))),
+    ...(item.link ? { link: 'Open' } : {}),
+  }),
+  exhausted: (item, time) => ({
+    headline: `Stopped on ${carryOnSideText(item.from)}`,
+    ...optional('detail', sentence(causeAndReset(item, time), noteText(item.note ?? EXHAUSTED_NOTE))),
+  }),
+}
+
+/** The marker's words for one item. */
+export const carryOnMarker = (item: CarryOnMarkerInput, time: CarryOnTimeFormat): CarryOnMarkerText =>
+  CARRY_ON_MARKER[item.phase](item, time)
+
+/** The marker as one plain line, for a surface with no room for a divider (the phone). */
+export const carryOnMarkerLine = (item: CarryOnMarkerInput, time: CarryOnTimeFormat): string => {
+  const text = carryOnMarker(item, time)
+  return sentence(text.headline, text.detail) ?? text.headline
+}
+
+function optional<K extends string>(key: K, value: string | undefined): { [P in K]?: string } {
+  return (value === undefined ? {} : { [key]: value }) as { [P in K]?: string }
 }
