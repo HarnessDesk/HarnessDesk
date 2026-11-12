@@ -2486,5 +2486,8 @@ test('#2172: the minute tick over an unchanged desk records no wake, while a des
     const added = s.journal.state.wakes.slice(before)
     assert.equal(added.length, 1, 'the desk change is one row')
     assert.equal(added[0]!.source, 'desk-change'); assert.equal(added[0]!.decision, 'silent'); assert.equal(added[0]!.modelTurn, false)
+    // Evidence that reached the desk with no run or card event (a check a person ran) is a desk change too.
+    loop.refreshSoon(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.journal.state.wakes.length, before + 2, 'the evidence change is one row')
   } finally { await loop.close() }
 })

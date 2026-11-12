@@ -138,7 +138,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let snapshot: ClientSnapshot | null = null, relays: ReturnType<typeof leadWorkerApprovalRelay>[] = []
   let acceptance: { runId: string; result: LeadAcceptanceResult }[] = []
   let cancelBatch: (() => void) | null = null, dirty = false, continuationPending = false
-  /** A desk event arrived since the last batch: the minute tick and the host's refreshes are not one (#2172). */
+  /** A desk event arrived since the last batch (a run, card, chat or evidence change); the minute tick is not one (#2172). */
   let evented = false
   let batchRunning = false, batchAgain = false, batchReply = false
   let requested = 0, reportedActivity = false
@@ -851,7 +851,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       }).finally(() => { requested--; reportActivity() })
     },
     /** Host evidence notifications share the bounded desk-event batch. */
-    refreshSoon: () => { if (!closed && started) { refreshPending = true; schedule(false) } },
+    // Evidence that reached the desk with no run or card event is a desk event too.
+    refreshSoon: () => { if (!closed && started) { refreshPending = true; evented = true; schedule(false) } },
     refresh: () => queue(async () => { await start(); await refresh() }),
     idle: async () => { await preparing; await tail },
     async close() {

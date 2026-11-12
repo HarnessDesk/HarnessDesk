@@ -1108,9 +1108,9 @@ test('the Lead reads another sign-in’s figures where the Dashboard draws them,
     assert.equal(account!.notReporting, undefined)
     assert.deepEqual(account!.windows, [], 'the agent’s own account is still not claimed to have figures')
     assert.deepEqual(account!.unverified, {
-      whose: 'CLI sign-in', readAgeMinutes: 1, stale: false, windows: [
-        { label: 'Weekly · Gemini Models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 100, remaining: null, unit: null, resetsAt: null, reached: false, projection: null },
-        { label: 'Weekly · Other models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 75, remaining: null, unit: null, resetsAt: NOW + 30 * HOUR, reached: false,
+      whose: 'CLI sign-in', readAgeMinutes: 1, readAge: '1m ago', stale: false, windows: [
+        { label: 'Weekly · Gemini Models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 100, remaining: null, unit: null, resetsAt: null, resetsIn: null, reached: false, projection: null },
+        { label: 'Weekly · Other models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 75, remaining: null, unit: null, resetsAt: NOW + 30 * HOUR, resetsIn: '1 d 6 h', reached: false,
           // The Dashboard's own projection, as for the agent's own windows.
           projection: { kind: 'lasts-to-reset', at: NOW + 30 * HOUR, basis: 'average consumption since window start', since: NOW + 30 * HOUR - 10_080 * 60_000, asOf: NOW } },
       ],

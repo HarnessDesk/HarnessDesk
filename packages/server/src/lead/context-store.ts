@@ -386,12 +386,12 @@ export class LeadContextStore {
       if (fewer !== null) { split = fewer; smallest = true }
     }
     // Every compaction starts an epoch, which costs the next requests their cache: an idle run that would barely lower
-    // the pressure is skipped, and the pressure comes straight back after it anyway (#2171). The checkpoint is measured
-    // at its largest.
-    const worth = (turns: readonly MessagesTurn[]) => trigger !== 'soft' || before - share(turns) >= LEAD_CONTEXT.minSaving
+    // the pressure is skipped, and the pressure comes straight back after it anyway (#2171). A prune is measured by
+    // what it leaves; a summary by what it folds away, since how long the checkpoint runs is the model's to say.
+    const idle = trigger === 'soft'
     let prune = pruned !== this.#turns && (split === null || trigger !== 'manual' && share(pruned) < this.#softAt)
-    if (prune && !worth(pruned)) prune = false
-    if (!prune && (split === null || !worth([room, ...(smallest ? leadPruneAndFold(this.#turns.slice(split), 0) : this.#turns.slice(split))]))) return leave()
+    if (prune && idle && before - share(pruned) < LEAD_CONTEXT.minSaving) prune = false
+    if (!prune && (split === null || idle && share(this.#turns.slice(0, split)) < LEAD_CONTEXT.minSaving)) return leave()
     await journal.contextCompactionStarted(id, now(), trigger)
     try {
       if (prune) {
