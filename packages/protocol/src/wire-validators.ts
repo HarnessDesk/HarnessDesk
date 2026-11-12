@@ -358,7 +358,7 @@ const flowSeatOverrides: Validator<Record<string, FlowSeat[]>> = (value, path = 
 
 const withoutHostOnly = <T>(read: Validator<T>): Validator<T> => (value: unknown, path = '') => {
   const object = isObject(value, path)
-  for (const key of ['attachments', 'knownCwd', 'runtimeServers']) {
+  for (const key of ['attachments', 'knownCwd', 'runtimeServers', 'withheldTools']) {
     if (Object.hasOwn(object, key)) throw new ValidationError(`${path}.${key}`, 'set by the host only')
   }
   return read(value, path)
@@ -710,6 +710,14 @@ const flowCheckValidator = goalShape({
   exits: recordOf(atMost(200, isFilled)),
   otherwise: atMost(200, isFilled),
 })
+/** A role's `ask`, held to the bounds the file's parser reports (`FLOW_ASK_LIMITS`). */
+const flowAskValidator: Validator<NonNullable<FlowAgentRole['ask']>> = (value, path = '') => {
+  const ask = goalShape({ seats: seatListValidator, times: goalInteger(1), timeoutSeconds: optional(goalInteger(30)) })(value, path)
+  if (ask.seats.length < 1 || ask.seats.length > 4) throw new ValidationError(`${path}.seats`, 'expected 1 to 4 seats')
+  if (ask.times > 20) throw new ValidationError(`${path}.times`, 'expected at most 20')
+  if (ask.timeoutSeconds !== undefined && ask.timeoutSeconds > 900) throw new ValidationError(`${path}.timeoutSeconds`, 'expected at most 900')
+  return ask as NonNullable<FlowAgentRole['ask']>
+}
 const flowPolicyRoleValidator: Validator<FlowPolicyRole> = (value, path = '') => {
   const record = isObject(value, path)
   const id = flowRoleId(record['id'], `${path}.id`)
@@ -725,6 +733,7 @@ const flowPolicyRoleValidator: Validator<FlowPolicyRole> = (value, path = '') =>
       grant: ceilingValidator,
       independentOf: flowWordList(32, flowRoleId),
       blind: optional(isBoolean),
+      ask: optional(flowAskValidator),
     })(record, path) as FlowAgentRole
     return { ...role, id }
   }

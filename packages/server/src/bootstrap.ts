@@ -521,7 +521,12 @@ export const createDefaultHost = (
       if (!scope) return { action: 'done', ok: false, output: 'HarnessDesk: this git write has no conversation caller.' }
       return host.gitSteering.handle(scope.runtime, scope.sessionId, params, signal)
     },
-    listTools: () => extensions.list('tool', {}),
+    // Per caller: a tool the host withholds from that conversation
+    // (`ask_agent` off a Flow seat whose role may not ask) is not listed.
+    listTools: (caller) => {
+      const withheld = host.withheldTools(caller ? callers.get(caller) : undefined)
+      return extensions.list('tool', {}).filter((tool) => !withheld.includes(tool.name))
+    },
     // Read at each bridge's handshake rather than fixed at start: whether
     // the sentence applies depends on which plugins are enabled right now.
     // Nothing for a bridge whose agent's runtime carries the sentence in an
@@ -705,6 +710,9 @@ export const createDefaultHost = (
   // And the forge plane: the seat a publication is signed as, the record of
   // it in the transcript, and the one sentence that tells an agent so.
   extensions.setForgeEngine(host.forgePlane)
+  // And the consult plane: `ctx.agents.ask`, one read-only question from a
+  // Flow seat to another agent, answered in a hidden conversation.
+  extensions.setAgentsEngine(host.consultPlane)
 
   // Codex writes its rollouts where the ledger can read them, and meters
   // itself over its own API — so it needs a corpus and no meter.

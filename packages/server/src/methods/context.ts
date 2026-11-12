@@ -471,6 +471,8 @@ export interface HostContext {
         readonly runtimeServers?: readonly string[]
         /** Phase 12's frozen, isolated skill/server filter, prepared before this call — never computed from the session it opens. */
         readonly attachments?: SessionAttachments
+        /** Plugin tools this conversation is not offered; absent, `ask_agent` is withheld (only a Flow seat whose role may ask is offered it). */
+        readonly withheldTools?: readonly string[]
       },
     ): Promise<OpenedSeat>
     /** Hands a seated conversation its standing order: one message, one turn. */

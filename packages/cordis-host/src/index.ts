@@ -85,6 +85,7 @@ export {
 } from './browser.js'
 export { EditorService, setEditorEngine, type EditorEngine } from './editor.js'
 export { TeamService, setTeamEngine, type TeamEngine, type TeamScope } from './team.js'
+export { AgentsService, setAgentsEngine, type AgentsEngine, type AgentsScope, type AskAnswer, type AskInput } from './agents.js'
 export {
   BrowserInvocations,
   BrowserScopes,

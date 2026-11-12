@@ -1,5 +1,6 @@
 import {
   DEFAULT_FLOW_BUDGET,
+  FLOW_ASK_LIMITS,
   isCeilingLevel,
   narrower,
   reaches as ceilingReaches,
@@ -8,6 +9,7 @@ import {
   type CeilingLevel,
   type CompiledFlow,
   type FlowAgentRole,
+  type FlowAsk,
   type FlowBinding,
   type FlowBudget,
   type FlowBase,
@@ -41,7 +43,8 @@ const BASE_FIELDS = new Set(['remote', 'branch'])
 const BUDGET_FIELDS = new Set(['rounds', 'without-progress'])
 /** The most rounds a budget may name, either key. */
 const BUDGET_LIMIT = 100
-const AGENT_FIELDS = new Set(['kind', 'uses', 'seats', 'count', 'isolate', 'grant', 'independentOf', 'blind'])
+const AGENT_FIELDS = new Set(['kind', 'uses', 'seats', 'count', 'isolate', 'grant', 'independentOf', 'blind', 'ask'])
+const ASK_FIELDS = new Set(['seats', 'times', 'timeoutSeconds'])
 const CHECK_FIELDS = new Set(['kind', 'check', 'run', 'exits', 'otherwise', 'timeout', 'cwd', 'onRequest'])
 const CHECK_VALUE_FIELDS = new Set(['run', 'exits', 'otherwise', 'timeout', 'cwd', 'onRequest'])
 const PERSON_FIELDS = new Set(['kind', 'outcomes', 'review'])
@@ -106,6 +109,33 @@ const integer = (value: unknown, at: string, problems: FlowProblem[], fallback: 
     return fallback
   }
   return value
+}
+
+/**
+ * A role's `ask`: who its seats may consult, how often and for how long. Each
+ * bound is a problem of its own rather than a quiet clamp — a file that says
+ * `times: 50` meant something, and the desk will not guess what.
+ *
+ * Whether a seat's agent is installed, and whether it can be held read-only,
+ * is not the file's to know: the desk refuses an ask to an agent it cannot
+ * hold at read, at the moment of asking.
+ */
+const readAsk = (raw: unknown, at: string, problems: FlowProblem[]): FlowAsk | undefined => {
+  if (raw === undefined) return undefined
+  const record = asRecord(raw)
+  if (!record) { problems.push(problem('error', at, 'ask is a map: seats, times and, if you like, timeoutSeconds')); return undefined }
+  unknownKeys(record, ASK_FIELDS, at, problems)
+  const listed = asList(record['seats']) ?? (record['seats'] === undefined || record['seats'] === null ? [] : [record['seats']])
+  const parsed = parseSeatList(listed)
+  for (const bad of parsed.broken) problems.push(problem('error', `${at}.seats[${bad.index}]`, bad.text))
+  if (!listed.length) problems.push(problem('error', `${at}.seats`, 'ask names at least one agent its seats may ask'))
+  if (listed.length > FLOW_ASK_LIMITS.seats) problems.push(problem('error', `${at}.seats`, `ask may name at most ${FLOW_ASK_LIMITS.seats} agents`))
+  if (record['times'] === undefined || record['times'] === null) problems.push(problem('error', `${at}.times`, `how many asks each seat gets per run, from ${FLOW_ASK_LIMITS.times.min} to ${FLOW_ASK_LIMITS.times.max}`))
+  const times = integer(record['times'], `${at}.times`, problems, FLOW_ASK_LIMITS.times.min, FLOW_ASK_LIMITS.times.min, FLOW_ASK_LIMITS.times.max)
+  const timeoutSeconds = record['timeoutSeconds'] === undefined
+    ? undefined
+    : integer(record['timeoutSeconds'], `${at}.timeoutSeconds`, problems, FLOW_ASK_LIMITS.timeoutSeconds.default, FLOW_ASK_LIMITS.timeoutSeconds.min, FLOW_ASK_LIMITS.timeoutSeconds.max)
+  return { seats: parsed.seats.slice(0, FLOW_ASK_LIMITS.seats), times, ...(timeoutSeconds === undefined ? {} : { timeoutSeconds }) }
 }
 
 const unknownKeys = (record: Record<string, unknown>, allowed: ReadonlySet<string>, at: string, problems: FlowProblem[]): void => {
@@ -311,7 +341,8 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
       // Blind unless the file says otherwise; anything but true or false is refused rather than read as either.
       const blind = record['blind']
       if (blind !== undefined && typeof blind !== 'boolean') problems.push(problem('error', `${at}.blind`, 'blind is true or false'))
-      roles.push({ id, kind: 'agent', uses, seats: parsed.seats, ...(count === undefined ? {} : { count }), isolate: record['isolate'] === true, grant: isCeilingLevel(grant) ? grant : 'read', independentOf, ...(typeof blind === 'boolean' ? { blind } : {}) })
+      const ask = readAsk(record['ask'], `${at}.ask`, problems)
+      roles.push({ id, kind: 'agent', uses, seats: parsed.seats, ...(count === undefined ? {} : { count }), isolate: record['isolate'] === true, grant: isCeilingLevel(grant) ? grant : 'read', independentOf, ...(typeof blind === 'boolean' ? { blind } : {}), ...(ask ? { ask } : {}) })
     } else if (kind === 'check') {
       unknownKeys(record, CHECK_FIELDS, at, problems)
       const check = readCheck(record, at, problems)
@@ -705,6 +736,7 @@ export const serializeFlowPolicy = (policy: FlowPolicy): string => {
       lines.push(`    grant: ${role.grant}`)
       if (role.independentOf.length) lines.push(`    independentOf: [${role.independentOf.map(scalar).join(', ')}]`)
       if (role.blind !== undefined) lines.push(`    blind: ${role.blind}`)
+      if (role.ask) lines.push(`    ask: { seats: [${role.ask.seats.map(seatValue).join(', ')}], times: ${role.ask.times}${role.ask.timeoutSeconds === undefined ? '' : `, timeoutSeconds: ${role.ask.timeoutSeconds}`} }`)
     } else if (role.kind === 'person') {
       lines.push(`    outcomes: [${role.outcomes.map(scalar).join(', ')}]`)
       if (role.review !== undefined) lines.push(`    review: ${role.review}`)

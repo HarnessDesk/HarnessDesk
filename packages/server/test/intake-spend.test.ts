@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import type { UsageSample } from '../src/ledger/insight.js'
-import { attributeSample, goalSpend, meterSample, meterTotal, meterTurn, openMeter, spendOf, type SessionMeter } from '../src/intake/spend.js'
+import { budgetRefusal } from '../src/intake/budget.js'
+import { attributeSample, CONSULT_TOTAL_WENT_DOWN, CONSULT_USAGE_UNKNOWN, goalSpend, meterSample, meterTotal, meterTurn, openMeter, settleConsult, spendOf, type SessionMeter } from '../src/intake/spend.js'
 
 /*
  * A trigger Goal's spend is each of its Seats' own attributed cost, from
@@ -97,4 +98,116 @@ test('vendor and list-price totals retain their provenance', () => {
   assert.deepEqual(goalSpend([meter()], 200), { spentMicros: 0, provenance: 'unknown', why: null })
   // One session's basis cannot change part-way.
   assert.equal(meterTotal(fold(meter(), [sample({ moneyBasis: 'vendorMetered' }), sample({ moneyBasis: 'listPrice', usd: exact(1) })]), 200).micros, null)
+})
+
+test('a consult’s final live reading is reconciled with an earlier corpus reading, never added to it, and never hidden by it', () => {
+  const consult = meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 })
+  const live = (usd: number, over: Partial<UsageSample> = {}) => sample({ key: 'consult:alpha:s1', usd: exact(usd), to: 130, ...over })
+  // The review's case: the corpus read $0.10 mid-turn, the live conversation's final total is $0.42, the Goal's cap is $0.20.
+  const midway = meterSample(consult, sample({ usd: exact(0.1), to: 110 }))
+  const settled = meterTurn(settleConsult(midway, live(0.42)), { ended: 130 })
+  assert.equal(meterTotal(settled, 200).micros, 420_000, 'the final reading stands')
+  const check = { now: 0, deadline: 1, closedRounds: 0, roundLimit: 9, idleRounds: 0, idleLimit: 9, lane: 'available' as const, paused: false, limitMicros: 200_000 }
+  assert.match(budgetRefusal({ ...check, spentMicros: goalSpend([settled], 200).spentMicros }) ?? '', /spend limit/, 'and the Goal at its $0.20 cap refuses')
+  // Per-call corpus figures and the live session total are one spend, counted once.
+  const calls = fold(consult, [sample({ scope: 'call', key: 'c1', usd: exact(0.06) }), sample({ scope: 'call', key: 'c2', usd: exact(0.04) })])
+  assert.equal(meterTotal(meterTurn(settleConsult(calls, live(0.42)), { ended: 130 }), 200).micros, 420_000)
+  // A live total below what the corpus already read is not one cumulative count: unknown, never the larger figure.
+  assert.equal(meterTotal(meterTurn(settleConsult(meterSample(consult, sample({ usd: exact(0.5) })), live(0.42)), { ended: 130 }), 200).micros, null)
+  // A final reading the meter cannot vouch for leaves it unknown: the corpus figure may not have been complete.
+  assert.equal(meterTotal(settleConsult(midway, live(0, { usd: { value: null, quality: 'unknown' }, moneyBasis: 'unknown' })), 200).micros, null)
+})
+
+const capCheck = (limit: number, spentMicros: number | null) => budgetRefusal({
+  now: 0, deadline: 1, closedRounds: 0, roundLimit: 9, idleRounds: 0, idleLimit: 9, lane: 'available', paused: false, limitMicros: limit, spentMicros,
+})
+
+test('round 3: a total that resets mid-consult — $0.30 read, then a final $0.12 — is unknown, and a $0.35 cap refuses', () => {
+  const consult = meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 })
+  const before = meterSample(consult, sample({ usd: exact(0.3), to: 110 }))
+  const settled = meterTurn(settleConsult(before, sample({ key: 'consult:alpha:s1', usd: exact(0.12), to: 130 })), { ended: 130 })
+  assert.equal(settled.unknown, CONSULT_TOTAL_WENT_DOWN)
+  assert.equal(meterTotal(settled, 200).micros, null, 'not a known $0.30')
+  assert.match(capCheck(350_000, goalSpend([settled], 200).spentMicros) ?? '', /Spend is unknown/)
+  // The same through per-call corpus figures: $0.30 counted, a final $0.12 is below it.
+  const calls = fold(consult, [sample({ scope: 'call', key: 'c1', usd: exact(0.2) }), sample({ scope: 'call', key: 'c2', usd: exact(0.1) })])
+  assert.equal(meterTotal(meterTurn(settleConsult(calls, sample({ key: 'consult:alpha:s1', usd: exact(0.12), to: 130 })), { ended: 130 }), 200).micros, null)
+  // A later corpus reading cannot clear it either: only a missing final reading is repaired.
+  assert.equal(meterSample(settled, sample({ usd: exact(0.4), to: 140 })).unknown, CONSULT_TOTAL_WENT_DOWN)
+})
+
+test('round 3: no final reading — $0.10 read mid-turn, nothing at its end — is unknown and refused until a reading at or after the turn’s end', () => {
+  const consult = meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 })
+  const midway = meterSample(consult, sample({ usd: exact(0.1), to: 110 }))
+  const settled = meterTurn(settleConsult(midway, null), { ended: 130 })
+  assert.equal(settled.unknown, CONSULT_USAGE_UNKNOWN)
+  assert.equal(goalSpend([settled], 200).spentMicros, null, 'not a known $0.10')
+  assert.match(capCheck(350_000, goalSpend([settled], 200).spentMicros) ?? '', /Spend is unknown/)
+  // Every record read again, the latest still from before the turn ended: still unknown.
+  const stale = meterSample(settled, sample({ usd: exact(0.12), to: 120 }))
+  assert.equal(stale.unknown, CONSULT_USAGE_UNKNOWN)
+  assert.equal(goalSpend([stale], 200).spentMicros, null)
+  // A record at the turn's end is its final reading, and repairs it.
+  const final = meterSample(stale, sample({ usd: exact(0.2), to: 130 }))
+  assert.equal(final.unknown, null)
+  assert.equal(meterTotal(final, 200).micros, 200_000)
+  assert.equal(capCheck(350_000, goalSpend([final], 200).spentMicros), null, 'and the cap admits again')
+})
+
+test('round 4: a corpus that replays $0.10 after $0.12 latches nothing, and the $0.20 final still repairs the spend', () => {
+  const consult = meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 })
+  const unknown = meterTurn(settleConsult(consult, null), { ended: 130 })
+  // Every read hands back everything the corpus holds, in the order it found it.
+  const first = fold(unknown, [sample({ key: 'r1', usd: exact(0.1), to: 110 })])
+  const second = fold(first, [sample({ key: 'r1', usd: exact(0.1), to: 110 }), sample({ key: 'r2', usd: exact(0.12), to: 120 })])
+  assert.deepEqual({ unknown: second.unknown, lastMicros: second.lastMicros }, { unknown: CONSULT_USAGE_UNKNOWN, lastMicros: 120_000 })
+  const third = fold(second, [
+    sample({ key: 'r1', usd: exact(0.1), to: 110 }), sample({ key: 'r2', usd: exact(0.12), to: 120 }), sample({ key: 'r3', usd: exact(0.2), to: 130 }),
+  ])
+  assert.equal(third.unknown, null, 'the replayed $0.10 is not a total that went down')
+  assert.equal(meterTotal(third, 200).micros, 200_000, 'the final $0.20 is the whole')
+  assert.equal(capCheck(350_000, goalSpend([third], 200).spentMicros), null)
+  // The same replay after the repair changes nothing.
+  assert.deepEqual(fold(third, [sample({ key: 'r1', usd: exact(0.1), to: 110 }), sample({ key: 'r3', usd: exact(0.2), to: 130 })]), third)
+  // A lower total taken after the last one counted is still a total that went down.
+  assert.match(meterSample(third, sample({ key: 'r4', usd: exact(0.15), to: 140 })).unknown ?? '', /went down/)
+})
+
+test('round 5: an older reading above the counted total is a reset — $0.12@120 counted, then $0.30@110 found — and a $0.20 cap refuses', () => {
+  const counted = meterSample(meter(), sample({ key: 'r2', usd: exact(0.12), to: 120 }))
+  assert.equal(meterTotal(counted, 200).micros, 120_000)
+  // The next read finds the older, higher record, and hands back the one already counted.
+  const found = fold(counted, [sample({ key: 'r1', usd: exact(0.3), to: 110 }), sample({ key: 'r2', usd: exact(0.12), to: 120 })])
+  assert.match(found.unknown ?? '', /went down/, 'the total once stood at $0.30: $0.12 is not what it spent')
+  assert.equal(goalSpend([found], 200).spentMicros, null)
+  assert.match(capCheck(200_000, goalSpend([found], 200).spentMicros) ?? '', /Spend is unknown/)
+  // The same on a consult whose final reading is missing: the older, higher record is no repair.
+  const consult = meterTurn(settleConsult(meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 }), null), { ended: 130 })
+  const waiting = meterSample(consult, sample({ key: 'r2', usd: exact(0.12), to: 120 }))
+  assert.equal(waiting.unknown, CONSULT_USAGE_UNKNOWN)
+  const later = fold(waiting, [sample({ key: 'r1', usd: exact(0.3), to: 110 }), sample({ key: 'r3', usd: exact(0.31), to: 130 })])
+  assert.match(later.unknown ?? '', /went down/, 'unknown for good, not repaired by the final')
+  // An older one at or below the count stays a harmless replay.
+  assert.deepEqual(meterSample(counted, sample({ key: 'r0', usd: exact(0.12), to: 105 })), counted)
+  assert.deepEqual(meterSample(counted, sample({ key: 'r0', usd: exact(0.05), to: 105 })), counted)
+})
+
+test('a consult’s unknown spend is repaired by a later valid reading, and a question never sent is a known zero', () => {
+  const consult = meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 })
+  const unknown = meterTurn(settleConsult(consult, null), { ended: 130 })
+  assert.equal(unknown.unknown, CONSULT_USAGE_UNKNOWN)
+  assert.equal(goalSpend([unknown], 200).spentMicros, null)
+  const repaired = meterSample(unknown, sample({ usd: exact(0.3), to: 140 }))
+  assert.equal(repaired.unknown, null)
+  assert.equal(meterTotal(repaired, 200).micros, 300_000, 'the first valid reading of the consult reconciles it')
+  // An invalid one does not: it is a reading the meter cannot vouch for, so the spend stays unknown for good.
+  const invalid = meterSample(unknown, sample({ usd: { value: null, quality: 'unknown' }, to: 140 }))
+  assert.notEqual(invalid.unknown, null, 'an invalid one does not')
+  assert.notEqual(meterSample(invalid, sample({ usd: exact(0.3), to: 150 })).unknown, null)
+  // Any other unknown stays as it was.
+  const other = meterSample(meter({ fresh: false }), sample())
+  assert.equal(meterSample(other, sample({ usd: exact(9), to: 999 })).unknown, other.unknown)
+  // Withdrawn before the question went: the turn it was about to start is forgotten, and nothing was spent.
+  const unsent = settleConsult(consult, 'unsent')
+  assert.deepEqual(meterTotal(unsent, 200), { micros: 0, why: null })
 })

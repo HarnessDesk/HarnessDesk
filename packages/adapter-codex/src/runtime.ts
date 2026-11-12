@@ -1231,7 +1231,7 @@ export class CodexRuntime implements AgentRuntime {
 
   async #createSession(options: SessionOptions): Promise<AgentSession> {
     const projection = new ToolProjection()
-    const dynamicTools = this.#projectTools(projection, { workspaceRoot: options.cwd })
+    const dynamicTools = this.#projectTools(projection, { workspaceRoot: options.cwd }, options.withheldTools)
     const { start, after } = await this.#startParamsFor(options)
     const gitCaller = await this.#steerStart(options.cwd, start)
     const response = await this.#server.request('thread/start', {
@@ -1538,10 +1538,11 @@ export class CodexRuntime implements AgentRuntime {
   #projectTools(
     projection: ToolProjection,
     scope: { workspaceRoot?: string },
+    withheld: readonly string[] = [],
   ): CodexProtocol.v2.DynamicToolSpec[] {
     const registry = this.#capabilities
     if (!registry) return []
-    return projection.build(registry, { ...scope, runtime: this.#id })
+    return projection.build(registry, { ...scope, runtime: this.#id }, withheld)
   }
 
   async #register(

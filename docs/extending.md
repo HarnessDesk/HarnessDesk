@@ -73,6 +73,7 @@ never runs half-wired.
 | `ctx.browser` | A real browser in the DevTools protocol — see [browser control](browser-control.md) |
 | `ctx.editor` | The file the person is looking at — show it, mark it, edit it |
 | `ctx.team` | The shared board and messages between conversations |
+| `ctx.agents` | One read-only question to another agent, answered once (`agents.invoke`); the host decides whether the calling conversation may ask, whom and how often |
 | `ctx.forge` | Signing and transcript publication (`forge.publish`); host-executed push, PR, review, comment and review-thread writes (`forge.write`): “Push branches and open, update and merge pull requests through HarnessDesk, as you, recorded in the project's Git record.” |
 | `ctx.ios` | The iOS Simulator, via `simctl` |
 | `ctx.android` | Android devices and emulators, via `adb` |
@@ -907,7 +908,7 @@ surfaces Codex's. See
 
 ### The built-ins
 
-Twelve plugins are built in, all written against this same API — with no
+Thirteen plugins are built in, all written against this same API — with no
 privileged path:
 
 | Plugin | Engine | What it adds |
@@ -917,6 +918,7 @@ privileged path:
 | search | `ctx.shell` | content and filename search, through ripgrep (`rg`) in the workspace |
 | task list | — | `todo_write` / `todo_read` for an agent whose runtime has no plan tool of its own; the sidebar's Tasks panel is the app's and is read from the conversation, not from here |
 | team | `ctx.team` | shared task board tools and cross-conversation messaging; the "Team board" context chip |
+| consult | `ctx.agents` | `ask_agent`: a Flow seat whose role says `ask:` asks another agent one question; the desk opens it hidden, ephemeral and held read-only in the caller's checkout, takes its one answer and discards it. Offered only to such a seat, and refused at call time to anyone else |
 | checkpoints | `ctx.shell` | record and list recoverable working-tree snapshots; provide the person's recovery command |
 | guardrails | hooks | repeated-identical-call escalation, destructive-command checks |
 | web | `ctx.http` | fetch a page as text |

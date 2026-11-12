@@ -264,6 +264,7 @@ const meterOf = (value: unknown): boolean => {
     time(value['openedAt']) && typeof value['fresh'] === 'boolean' && ['none', 'some', 'unknown'].includes(value['delegation'] as string) &&
     [null, 'call', 'session'].includes(value['scope'] as string | null) && [null, 'vendorMetered', 'listPrice'].includes(value['provenance'] as string | null) &&
     (value['model'] === null || text(value['model'], 200)) && nullableTime(value['baselineMicros']) && nullableTime(value['lastMicros']) &&
+    (value['lastAt'] === undefined || nullableTime(value['lastAt'])) &&
     time(value['callMicros']) && Array.isArray(value['calls']) && (value['calls'] as unknown[]).length <= 10_000 &&
     (value['calls'] as unknown[]).every((one) => text(one, 512)) && nullableTime(value['observedAt']) &&
     nullableTime(value['turnStartedAt']) && nullableTime(value['turnEndedAt']) && (value['unknown'] === null || text(value['unknown']))
