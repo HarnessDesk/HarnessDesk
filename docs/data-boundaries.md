@@ -270,6 +270,22 @@ the armed mention triggers beside it: each one's id, project folder name,
 repository, mode on this machine, `from`, and its named people and bots (forge
 logins the triggers file already names).
 
+A trigger armed for `@harnessdesk` requests on pull requests also reads, as
+the same signed-in person, the conversation comments
+(`issues/{n}/comments?since=…`) and the reviews (`pulls/{n}/reviews`) of only
+those pull requests the source's existing list read shows as updated since
+their own mark; an unchanged pull request is not read, and no new list read is
+added to any poll. With `from: collaborators` the author's permission is read
+once per author in a read. What it keeps is the per-pull-request marks (the
+last comment id, review id and update time read, at most 5,000 pull requests)
+beside the trigger's cursor, and each request as an admission fact: its
+comment URL, the author's account digest and the words after `@harnessdesk`,
+clipped like every other body. Those words, the thread's title and its links
+are sent to the Lead's model provider when the request is handed to the Lead,
+inside the untrusted-context fence, on the same terms as every other Lead
+request; words that look like they hold a credential are replaced before they
+are sent. Nothing is posted back to the thread.
+
 **Retention:** yours. Deleting the folder, or disarming the trigger, stops it.
 
 ### Goal backups carry history, not authority
