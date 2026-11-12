@@ -4,6 +4,7 @@ import { turnId, type AgentItem, type Turn } from '@harnessdesk/protocol'
 
 import {
   activityLabel,
+  carryOnAtBoundary,
   effectiveItemStatus,
   describeTurnWork,
   elapsedOf,
@@ -449,4 +450,59 @@ test('final Running row uses the same unwrapping as steering for escaped login c
   const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
   const script = ['git', 'push', 'origin', 'fix/checkout-retry'].map(quote).join(' ')
   expect(activityLabel(item('command', 'c', { command: '/bin/zsh -l -c ' + quote(script) }))).toBe('Running git push origin fix/checkout-retry')
+})
+
+describe('carry-on markers', () => {
+  const marker = (id: string, phase: string) => item('carryOn', id, { phase, cause: 'credits', from: { name: 'Agent', account: 'work' } })
+
+  test('a marker recorded into the turn that hit the limit closes it, below the failure', () => {
+    const left = marker('left', 'left')
+    const view = splitTurn(turn([item('userMessage', 'u'), item('command', 'c'), left], { status: 'failed' }))
+    expect(view.prompt.map(one => one.id)).toEqual(['u'])
+    expect(view.work.map(one => one.id)).toEqual(['c'])
+    expect(view.trailing).toEqual([])
+    expect(view.closing).toEqual([left])
+  })
+
+  test('a switch recorded into the continuing turn is hoisted to its top, above the continue prompt', () => {
+    const switched = marker('switched', 'switched')
+    const view = splitTurn(turn([item('userMessage', 'u'), switched, item('command', 'c'), item('assistantMessage', 'a', { phase: 'final' })], { status: 'inProgress' }))
+    expect(view.prompt.map(one => one.id)).toEqual(['switched', 'u'])
+    expect(view.work.map(one => one.id)).toEqual(['c'])
+    expect(view.answer.map(one => one.id)).toEqual(['a'])
+    expect(view.closing).toEqual([])
+  })
+
+  test('a continuing turn that fails at its own limit keeps its switch on top and its stop at the bottom', () => {
+    const view = splitTurn(turn([item('userMessage', 'u'), marker('switched', 'switched'), item('error', 'e'), marker('exhausted', 'exhausted')], { status: 'failed' }))
+    expect(view.prompt.map(one => one.id)).toEqual(['switched', 'u'])
+    expect(view.trailing.map(one => one.id)).toEqual(['e'])
+    expect(view.closing.map(one => one.id)).toEqual(['exhausted'])
+  })
+
+  test('the first turn of a handed-over conversation opens on its arrival marker', () => {
+    const view = splitTurn(turn([marker('arrived', 'arrived'), item('userMessage', 'u'), item('assistantMessage', 'a')]))
+    expect(view.prompt.map(one => one.id)).toEqual(['arrived', 'u'])
+    expect(view.answer.map(one => one.id)).toEqual(['a'])
+  })
+
+  test('a marker after the answer never ends the answer run or enters the work fold', () => {
+    const view = splitTurn(turn([item('userMessage', 'u'), item('command', 'c'), item('assistantMessage', 'a', { phase: 'final' }), marker('waiting', 'waiting')], { status: 'failed' }))
+    expect(view.work.map(one => one.id)).toEqual(['c'])
+    expect(view.answer.map(one => one.id)).toEqual(['a'])
+    expect(view.closing.map(one => one.id)).toEqual(['waiting'])
+  })
+
+  test('a marker at a turn boundary is the only rule there', () => {
+    const plain = turn([item('userMessage', 'u'), item('assistantMessage', 'a')])
+    const opens = turn([marker('switched', 'switched'), item('userMessage', 'u2')])
+    const closes = turn([item('userMessage', 'u3'), marker('stopped', 'stopped')], { status: 'failed' })
+    expect(carryOnAtBoundary(plain, plain)).toBe(false)
+    expect(carryOnAtBoundary(plain, opens)).toBe(true)
+    expect(carryOnAtBoundary(closes, plain)).toBe(true)
+    // A turn that opens on a marker but closed the one before with none: still one rule.
+    expect(carryOnAtBoundary(undefined, opens)).toBe(true)
+    // A closing marker in this turn does not stand at its top boundary.
+    expect(carryOnAtBoundary(plain, closes)).toBe(false)
+  })
 })

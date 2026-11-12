@@ -1,4 +1,4 @@
-import { firstAsk, sessionLabel, isLeadMessageSource, LEAD_MESSAGE_PREFIX, leadMessageKey, leadMessageWords, splitContextContent, wrapContext, type LeadChatControl } from '@harnessdesk/protocol'
+import { carryOnMarkerLine, firstAsk, sessionLabel, isLeadMessageSource, LEAD_MESSAGE_PREFIX, leadMessageKey, leadMessageWords, splitContextContent, wrapContext, type LeadChatControl } from '@harnessdesk/protocol'
 import { basename, isAbsolute, relative } from 'node:path'
 import type {
   AgentItem, Approval, ApprovalOption, CommandItem, FileChange, PhoneApprovalState, PhoneDiffLine, PhoneDiffHunk, PhoneWorkFileChange, PhoneWorkStep, PhoneWorkThread, PhoneWorkTurn,
@@ -362,6 +362,13 @@ const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated:
   return text === '' && attachments.length === 0 ? null : { type: 'you', id: String(item.id), text, attachments, ...(verified.length === 1 && split.text === '' && attachments.length === 0 ? { lead: { name: scrub(verified[0]!.label.slice(LEAD_MESSAGE_PREFIX.length), 60) } } : {}) }
 }
 
+/** A reset time as the desk says it: the time today, or the weekday and time. */
+const resetTime = (at: number): string => {
+  const date = new Date(at)
+  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return new Date().toDateString() === date.toDateString() ? time : `${date.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`
+}
+
 interface Timed { readonly id: string; readonly startedAt?: number; readonly completedAt?: number; readonly durationMs?: number }
 
 const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: ReadonlySet<string>, chatId: string): PhoneWorkTurn[] => {
@@ -398,6 +405,8 @@ const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: Reado
       continue
     }
     if (item.type === 'error') { close(); turns.push({ type: 'agent', id: String(item.id), markdown: `Something went wrong: ${scrub(item.message, 300)}` }); continue }
+    // A change of account, agent or model is never folded into the work: it stands as its own plain line, as the desk's marker does.
+    if (item.type === 'carryOn') { close(); turns.push({ type: 'agent', id: String(item.id), markdown: scrub(carryOnMarkerLine(item, resetTime), 300) }); continue }
     const one = stepOf(item, cwd, noteTruncated)
     // The same rule that names the step Thinking.
     const silent = item.type === 'reasoning' && scrub(item.summary[0] ?? '', TEXT_STEP_TITLE) === ''
