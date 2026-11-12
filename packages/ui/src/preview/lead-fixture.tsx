@@ -56,14 +56,20 @@ export const leadMemoryView: LeadMemoryView = { version: 1, revision: 7, auto: f
     { id: 'm6', text: 'The docs site builds from the website folder with its own lockfile.', kind: 'fact', by: 'lead', tier: 'archive', source: { kind: 'result', id: 'work-2' }, createdAt: 3, usedAt: null, version: 1 }],
   inbox: [{ id: 'c9', text: 'Run the linter before asking for review.', kind: 'lesson', source: { kind: 'message', id: 'memory-reply' }, proposedAt: 9, afterSeq: 1 }],
   history: [
+    // The person forgot a note: the row says so, and the change that added it keeps its count with its words gone.
+    { version: 8, at: Date.parse('2026-11-09T05:10:00Z'), by: 'person', added: 0, removed: 0, changed: 0, undoable: false, forgotten: 1 },
     { version: 7, at: Date.parse('2026-11-09T03:00:00Z'), by: 'tidy', added: 1, removed: 2, changed: 1, tidy: { merged: 2, replaced: 0, archived: 1 }, undoable: true },
-    { version: 6, at: Date.parse('2026-11-08T17:20:00Z'), by: 'person', added: 1, removed: 0, changed: 0, undoable: true }] }
+    { version: 6, at: Date.parse('2026-11-08T17:20:00Z'), by: 'person', added: 1, removed: 0, changed: 0, undoable: true },
+    { version: 5, at: Date.parse('2026-11-08T16:05:00Z'), by: 'lead', added: 1, removed: 0, changed: 0, undoable: false, erased: true }] }
 export const LEAD_SCENES = ['turn-paragraph', 'turn-bold', 'turn-heading', 'turn-list', 'turn-card', 'working-desk', 'ask-options', 'repeating-plan', 'settings-runs', 'settings-autonomy', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder', 'evidence-failed', 'work-ledger', 'presence', 'context-checkpoint', 'memory-proposal', 'settings-memory', 'working-step', 'memory-proposal-again', 'autonomy-proposal', 'autonomy-proposal-words'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
   let projection = base
   if (!['loading', 'empty', 'goal-composer', 'opening-jobs', 'wake-ledger'].includes(scene) && !scene.startsWith('settings-')) thread.messages = [{ version: 1, id: 'goal', revision: 1, role: 'user', text: leadContract.goal }]
+  // The ledger of what woke the Lead sits after the latest reply, where it happened, never above the conversation (#2149).
+  if (scene === 'wake-ledger') thread.messages = [{ version: 1, id: 'wake-ask', revision: 1, role: 'user', text: 'Check in on the nightly run every morning.' },
+    { version: 1, id: 'wake-reply', revision: 2, role: 'assistant', text: 'I will look at the nightly run each morning and tell you only when something needs you.' }]
   if (['pending-plan', 'consent-expired', 'stale-card-replacement', 'narrow', 'app-shell'].includes(scene)) { thread.cards = [{ ...leadPlan, revision: scene === 'consent-expired' || scene === 'stale-card-replacement' ? 2 : 1 }]; thread.state = 'awaiting-plan'; thread.cardPositions = { plan: 2 } }
   // A reply that names work: the work items and the Team it names by its board become links, a Team this desk does not have does not.
   if (scene === 'work-ledger') thread.messages = [...thread.messages, { version: 1, id: 'work-reply', revision: 2, role: 'assistant', text: 'The keyboard work is running in its chat, and the retry list is waiting for review.',

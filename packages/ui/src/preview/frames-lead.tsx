@@ -161,6 +161,8 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       else if (params.action === 'rollback') list.push({ ...make('rollback', list.find(one => one.version === params.to)!.text), from: params.to })
       const entry = list.at(-1)
       if (params.action !== 'keep' && entry) changes = [{ at: entry.at, by: 'person', what: 'rules', section: params.section, version: entry.version, how: entry.how }, ...changes]
+      // As on the desk: a saved section is an autonomy change, and the window is told to read it again.
+      queueMicrotask(() => store.lead.changed({ method: 'lead/autonomy/changed', params: {} }))
       return rulesView()
     }
     if (method === 'lead/work/list') return work

@@ -1605,7 +1605,9 @@ existing composer, strip or sidebar card, with their action and Inbox option.
 Toasts appear at the bottom right of the window, just above the composer when
 one is showing, so neither a page’s own controls nor Send and the model picker
 are covered. Without a composer, they sit a small gap above the window’s bottom
-edge. The shared notice card centres its tile on the complete copy block, with title above optional earned detail. Actions sit
+edge. There, the page keeps a lane under its scroll owner while a toast shows, so
+the toast covers none of its rows; a page with a composer showing keeps none,
+since the toast already sits above the composer. The shared notice card centres its tile on the complete copy block, with title above optional earned detail. Actions sit
 beside the copy, dropping below at three or more actions or below about 400px;
 a wrapped card keeps its dismiss at the top-right. Its plate matches the
 composer, and danger adds a left bar and tinted tile. A requested action that
@@ -2400,6 +2402,15 @@ and the separate-approval boundary for publishing, merging and deleting. Results
 show qualified check, review, findings and changes status, reasons and separately
 attributed Lead and reported worker spend. Unknown values remain unknown.
 
+A Lead reply links the Teams and chats it acted on, from the references the host
+attached to it. A reply that carries none links, at most three, the Teams and
+chats its words name, by the whole-word rule the phone uses
+(`leadWorkNamedIn`), so the two surfaces link the same work. The wake ledger,
+what woke the Lead and whether it spoke, sits at the end of the thread after the
+latest reply, so the conversation reads in time order. The thread follows its
+end while the reader is there, including when the browser moves the content down
+itself; only scrolling up stops it.
+
 A plan for recurring work carries a Repeats chip and a How it repeats block: its local timetable, that a slot is skipped while the previous run waits, and that an asleep desk makes one run when it wakes. The allowance is per run. Approve covers the stored contract for future runs; publishing, merging and deleting still ask on each run. A changed project, policy, seat, review independence or Flow source returns a plan card with the reason. Each run has its own result and acceptance. Plan and result Runs links open Settings › Lead, where each task's Runs view shows its next slot and last 12 runs, state, reason and known spend and rounds. Pause silently skips slots until Resume. Stop retains the history. Run once now requires an idle Lead. Settings tasks without an approved contract still ask for a plan approval each time.
 
 A host intervention on a worker stop shows one Second look entry with Said, Found and Did facts. A proven cleared issue or pull request can resume the existing run within its allowance; missing fresh check evidence can produce one steer asking the worker to show output. Such output remains advisory: required checks still need the person's own Run check action. Unchanged or unprovable claims reach the person as before.
@@ -2498,7 +2509,21 @@ Open a goal when is a read-only list of project declarations with opens.lead
 true, using the arm preview's lead.summary. Each opens the project's returned
 trigger-file path. This page neither edits nor arms declarations.
 
-Settings › Lead › Memory says the Lead reads Core at the start of each conversation and searches Archive when it needs to. Its header holds Export (the notes as JSON) and Forget all, whose confirmation says it also empties the conversation copy the Lead searches and that the Lead's journal keeps its record. A switch, Keep the Lead's notes without asking, lets facts and lessons skip To review; an Add a note field adds the person's own note. To review lists waiting proposals with Keep, Edit and No; Core shows how much of its 6 KB is used, with a warning tone past 90%; Archive follows; each note offers Edit, Archive or Move to Core, and Forget, whose confirmation says what goes (the note, every saved version, passages that quote it) and what stays (the conversation it came from, the Lead's journal), since it cannot be undone, with a chip when the Lead wrote it or when the current plan cites it. History lists the last eight changes, and Undo on any change that can be undone. When the desk could not hand the latest change to the Lead, an error banner at the top says the Lead still reads the version before it. In the Lead's thread, the same proposals sit under the reply they came with.
+Settings › Lead › Rules holds three sections of the person's own words, each
+versioned. A section's dialog lists its versions, newest first, each with
+Restore but the one in force; while the person's words are in force, a last
+**Shipped words** row restores the default, so even a first change can be
+rolled back. A restore saves a new version. Settings › Lead › Autonomy lists
+**Recent changes**, newest first: every mode change, every saved rule version
+(a restore and a reset included) and every deadline, read again whenever the
+desk says autonomy changed. A proposal card for a rule section shows the words
+the section will hold against the words in force, as a diff, whether the Lead
+added a line or wrote the whole section. These pages and the cards call the Lead
+by its chosen name (Dex or Lex), as the phone does. A paired phone receives each
+saved section's newest five versions with their words and the shipped words, so
+it can show earlier wording and a diff; restoring stays at the desk.
+
+Settings › Lead › Memory says the Lead reads Core at the start of each conversation and searches Archive when it needs to. Its header holds Export (the notes as JSON) and Forget all, whose confirmation says it also empties the conversation copy the Lead searches and that the Lead's journal keeps its record. A switch, Keep the Lead's notes without asking, lets facts and lessons skip To review; an Add a note field adds the person's own note. To review lists waiting proposals with Keep, Edit and No; Core shows how much of its 6 KB is used, with a warning tone past 90%; Archive follows; each note offers Edit, Archive or Move to Core, and Forget, whose confirmation says what goes (the note, every saved version, passages that quote it) and what stays (the conversation it came from, the Lead's journal), since it cannot be undone, with a chip when the Lead wrote it or when the current plan cites it. History lists the last eight changes, and Undo on any change that can be undone. A Forget is its own row (You · 1 forgotten); a change whose words it took out keeps its counts under a Forgotten chip and can no longer be undone, so the list never reads only no change. When the desk could not hand the latest change to the Lead, an error banner at the top says the Lead still reads the version before it. In the Lead's thread, the same proposals sit under the reply they came with.
 
 A phone start uses the selected runtime’s saved new-session choices after validating them against the current adapter. Replies use the ordinary turn queue while an agent is busy. If creation succeeds but the first message cannot be confirmed, the response retains the session id and a warning; the phone opens that conversation with the draft instead of starting another session on retry.
 

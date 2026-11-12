@@ -1,4 +1,4 @@
-import { burn, remainingOf, leadStage, isWaitingOnYou, isSilentUsage } from '@harnessdesk/protocol'
+import { answeredWithNothing, brandKeyField, burn, elapsedMinutes, remainingOf, leadStage, isWaitingOnYou, isSilentUsage } from '@harnessdesk/protocol'
 import { teamLeadStage } from './work-stage.js'
 import {
   sessionIndexCursorOf, sessionLabel,
@@ -77,6 +77,8 @@ export interface PhoneWorkspacePorts {
   readonly stopped?: (runtime: RuntimeId, id: SessionId) => boolean
   /** The agent's presentation name, from the runtime's own `presentation`; null for an agent this host does not know. */
   readonly seatName: (runtime: RuntimeId) => string | null
+  /** The agent's mark, a lobe-icons key from `brandForRuntime`; null or absent when it has none. Checked here before it is sent. */
+  readonly seatBrand?: (runtime: RuntimeId) => string | null
   /** Whether this agent moves deleted conversations to the Trash. */
   readonly canDelete?: (runtime: RuntimeId) => boolean
   /** Whether this runtime's `createdAt` is a measured start (`capabilities.startTimes`); absent means it is not. */
@@ -129,6 +131,9 @@ export class PhoneWorkspace {
 
   // ------------------------------------------------------------------ sessions
 
+  /** The `brand` field of a row about this agent: a key shaped as the wire allows, or nothing. */
+  #brand(runtime: RuntimeId): { brand?: string } { return brandKeyField(this.#ports.seatBrand?.(runtime)) }
+
   #stateOf(summary: SessionSummary, live: ReadonlyMap<string, PhoneLiveSession>): PhoneSessionState {
     if (summary.archived) return 'archived'
     const one = live.get(keyOf(summary.runtime, summary.id))
@@ -152,6 +157,7 @@ export class PhoneWorkspace {
       // Lead directs is its work, even though it runs as an ordinary conversation.
       startedBy: lead?.ids.has(id) ? 'lead' : 'you',
       seat,
+      ...this.#brand(summary.runtime),
       cost: money(one?.cost ?? entry.cost),
       lastActivityAt: summary.updatedAt,
       // A start the agent never recorded, or one later than the last activity, is left out rather than guessed.
@@ -166,7 +172,13 @@ export class PhoneWorkspace {
     return leadStage({ kind: 'session', archived, waiting: one?.waiting ?? false, failed: one?.failed ?? false, queuePaused: one?.queuePaused ?? false, running: one?.running ?? false, queued: one?.queued ?? false, stopped: one?.stopped ?? false })
   }
 
-  #counts(live: readonly PhoneLiveSession[]): PhoneSessionsList['counts'] {
+  /**
+   * The person's own sessions by state. Live ones are filtered to their own, as `deskSummary` filters them: a Team's
+   * seat waiting on the person is the Team's, and counted here it moved one of their sessions from done to needs-you,
+   * so the phone and the Lead said different numbers for the same desk (#2150).
+   */
+  #counts(all: readonly PhoneLiveSession[]): PhoneSessionsList['counts'] {
+    const live = all.filter(one => this.#ports.sessions.isOwn(one.runtime, one.id))
     const { active, archived } = this.#ownCounts()
     const running = live.filter(one => this.#sessionStage(one).stage === 'working').length
     const queued = live.filter(one => this.#sessionStage(one).stage === 'queued').length
@@ -305,8 +317,8 @@ export class PhoneWorkspace {
       const runtime = nameOf(report.runtime), ordinal = (ordinals.get(runtime) ?? 0) + 1
       ordinals.set(runtime, ordinal)
       const plan = report.planLabel ?? report.plan
-      const windows: LeadUsageWindow[] = report.lanes.map(lane => {
-        const view = report.error ? null : burn(lane, now)
+      const windowsOf = (lanes: readonly UsageLane[], failed: boolean, hit: string | null): LeadUsageWindow[] => lanes.map(lane => {
+        const view = failed ? null : burn(lane, now)
         const projection: LeadUsageWindow['projection'] = view?.forecast && lane.placeholder !== true ? {
           kind: view.runsOut ? 'runs-out' : 'lasts-to-reset',
           at: view.runsOut ? now + (view.etaMs ?? 0) : view.resetsAt,
@@ -321,19 +333,29 @@ export class PhoneWorkspace {
           windowMinutes: minutes, remainingPercent: lane.placeholder === true ? null : remainingOf(lane),
           remaining: lane.usageKnown !== false && lane.placeholder !== true && lane.used != null && lane.limit != null ? Math.max(0, lane.limit - lane.used) : null,
           unit: lane.unit ? safe(lane.unit) : null, resetsAt: lane.resetsAt,
-          reached: lane.placeholder !== true && (report.reached === lane.id || report.reached === lane.label || remainingOf(lane) === 0), projection,
+          reached: lane.placeholder !== true && (hit === lane.id || hit === lane.label || remainingOf(lane) === 0), projection,
         }
       })
+      const windows = windowsOf(report.lanes, report.error !== null, report.reached)
+      // Another sign-in's figures, as the Dashboard draws them for this agent: said as that sign-in's, never as its own.
+      const other = report.unverified
+      const borrowed = other && other.lanes.length > 0 ? {
+        whose: safe(other.whose), windows: windowsOf(other.lanes, Boolean(other.error), other.reached),
+        readAgeMinutes: ageMinutes(other.fetchedAt, now), stale: Boolean(other.error) || now - other.fetchedAt > other.staleAfterMs,
+      } : null
       if (report.credits) windows.push({ label: 'Balance', kind: 'balance', unlimited: report.credits.unlimited === true, windowMinutes: null,
         remainingPercent: null, remaining: report.credits.remaining, unit: safe(report.credits.unit), resetsAt: null,
         reached: report.reached === 'credits' || report.credits.unlimited !== true && report.credits.remaining !== null && report.credits.remaining <= 0, projection: null })
       const silent = isSilentUsage(report)
+      // The Plans table's "plan usage unavailable · Not reporting": an answer with nothing to show is said the same way.
+      const nothing = silent || answeredWithNothing(report, now)
       return {
         runtime, label: `${runtime}${plan ? ` · ${safe(plan)}` : ''}${totals.get(runtime)! > 1 ? ` · account ${ordinal}` : ''}`,
         plan: plan === null ? null : safe(plan), runningSessions: running.get(runtime) ?? 0, windows,
         reached: report.reached !== null, fetchedAt: report.fetchedAt,
         stale: !silent && now - report.fetchedAt > report.staleAfterMs,
-        ...(silent ? { notReporting: true as const } : {}),
+        ...(nothing ? { notReporting: true as const } : {}),
+        ...(borrowed ? { unverified: borrowed } : {}),
         ...(useFirstNote(report, now) ? { useFirst: true as const } : {}),
         error: report.error ? report.error.needsSignIn === true ? 'sign-in needed' as const : 'reading failed' as const : null,
         spend: report.spend ? { currency: safe(report.spend.currency), today: report.spend.todayCost,
@@ -422,7 +444,7 @@ export class PhoneWorkspace {
       allowance: allowanceOf(reports, monthly, now),
       counts,
       daily,
-      seats: seatsOf(reports, this.#ports.seatName),
+      seats: seatsOf(reports, this.#ports.seatName, this.#ports.seatBrand),
       period: {
         range,
         finished: this.#finishedSince(rangeStart, live, teams),
@@ -471,7 +493,7 @@ export class PhoneWorkspace {
       canDelete: row.canDelete, pinned: row.pinned, archived: row.archived === true,
       phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
       line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : stageReason === 'stopped' ? 'Stopped' : 'Done',
-      agent: { name: row.seat }, ...(lead ? { by: lead } : {}),
+      agent: { name: row.seat, ...(row.brand ? { brand: row.brand } : {}) }, ...(lead ? { by: lead } : {}),
       updatedAt: row.lastActivityAt, ...(row.startedAt === undefined ? {} : { startedAt: row.startedAt }),
       ...(row.cost === null ? {} : { cost: micros(row.cost) }),
     }
@@ -506,7 +528,7 @@ export class PhoneWorkspace {
       const one = live.get(keyOf(member.session.runtime, member.session.id))
       return {
         id: member.seat, title: scrub(member.title, 80) || 'Seat',
-        seat: { name: this.#ports.seatName(member.session.runtime) ?? 'Agent', ...(member.model ? { model: scrub(member.model, 40) } : {}) },
+        seat: { name: this.#ports.seatName(member.session.runtime) ?? 'Agent', ...(member.model ? { model: scrub(member.model, 40) } : {}), ...this.#brand(member.session.runtime) },
         status: one?.waiting ? 'waiting' : one?.running || member.holding ? 'running' : 'done',
         cost: micros(member.cost ?? 0),
       }
@@ -583,7 +605,7 @@ export class PhoneWorkspace {
         }),
       }
     }
-    const seats = seatRows(reports, this.#ports.seatName)
+    const seats = seatRows(reports, this.#ports.seatName, this.#ports.seatBrand)
     const runtimes = seats.map(seat => allowanceRowOf(seat, now))
     const pacing = pacingOf(seats, runtimes, now)
     return {
@@ -607,10 +629,12 @@ const STANDING_WORD: Record<UsageStandingStatus, string> = {
  * and the Plans table's never disagree; times are epoch milliseconds the phone counts down to. The older string
  * fields stay for a phone that reads only them. A source's error goes through `scrub`; the account never leaves.
  */
-const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
+const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => ({ ...allowanceFiguresOf(seat, now), ...(seat.brand ? { brand: seat.brand } : {}) })
+const allowanceFiguresOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
   const { report } = seat
   // A tracked agent nothing has read: listed, as the desk lists it, with no figures and no reading to date.
-  if (isSilentUsage(report)) return { id: seat.id, name: seat.label, models: [], running: [], last7: [], status: 'Not reporting', standing: 'unknown', notReporting: true }
+  // An account that answered with nothing to show reads the same: the Plans table's "plan usage unavailable · Not reporting".
+  if (isSilentUsage(report) || answeredWithNothing(report, now)) return { id: seat.id, name: seat.label, models: [], running: [], last7: [], status: 'Not reporting', standing: 'unknown', notReporting: true }
   const standing = usageStandingOf(report, now)
   // A failed refresh that kept its last good figures: they stand, as a stale reading, never as Unknown (#2094).
   const refreshFailed = keptReading(report)
@@ -684,8 +708,8 @@ const pacingSaid = (account: string, reason: 'use-first' | 'resets-soonest', win
     ? `Use ${account} first: its ${window} has ${left}% left and resets ${at}, so the rest would go unused.`
     : `Nothing is about to go unused. Of the accounts with room, ${account} resets soonest (its ${window}, ${left}% left, resets ${at}), so it is the one to use next.`
 
-/** Whole minutes since a reading, never negative. */
-const ageMinutes = (at: number, now: number): number => Math.max(0, Math.round((now - at) / 60_000))
+/** Whole minutes since a reading, rounded down and never negative: the protocol's one elapsed rule (#2150). */
+const ageMinutes = (at: number, now: number): number => elapsedMinutes(at, now)
 
 /**
  * A time on the desk's own clock, as a person reads it, with its zone: "Tue, Nov 17, 5:00 PM PST". The zone is the
@@ -747,7 +771,7 @@ interface SeatRow extends PhoneSeatUsage {
  * One row per signed-in agent. A name shared by several accounts gets a number so the rows can be told apart;
  * the account itself is never part of a row.
  */
-const seatRows = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts['seatName']): SeatRow[] => {
+const seatRows = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts['seatName'], seatBrand?: PhoneWorkspacePorts['seatBrand']): SeatRow[] => {
   const named = reports.flatMap(report => { const name = seatName(report.runtime); return name === null ? [] : [{ report, name }] })
   const total = new Map<string, number>()
   for (const { name } of named) total.set(name, (total.get(name) ?? 0) + 1)
@@ -764,6 +788,7 @@ const seatRows = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts
       id: several && nth > 1 ? `${report.runtime}:${nth}` : String(report.runtime),
       report,
       label: several ? `${name} ${nth}` : name,
+      ...brandKeyField(seatBrand?.(report.runtime)),
       windowPercent: short ? Math.round(short.usedPercent) : null,
       resetsAt: short?.resetsAt ?? null,
       weekPercent: week ? Math.round(week.usedPercent) : null,
@@ -771,8 +796,8 @@ const seatRows = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts
   })
 }
 
-const seatsOf = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts['seatName']): PhoneSeatUsage[] =>
-  seatRows(reports, seatName).map(({ label, windowPercent, resetsAt, weekPercent }) => ({ label, windowPercent, resetsAt, weekPercent }))
+const seatsOf = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts['seatName'], seatBrand?: PhoneWorkspacePorts['seatBrand']): PhoneSeatUsage[] =>
+  seatRows(reports, seatName, seatBrand).map(({ label, brand, windowPercent, resetsAt, weekPercent }) => ({ label, ...(brand ? { brand } : {}), windowPercent, resetsAt, weekPercent }))
 
 const pick = (lanes: readonly UsageLane[], compare: (a: UsageLane, b: UsageLane) => number): UsageLane | undefined => [...lanes].sort(compare)[0]
 

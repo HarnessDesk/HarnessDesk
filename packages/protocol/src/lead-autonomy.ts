@@ -35,6 +35,8 @@ export const LEAD_RULE_LIMITS = Object.freeze({
   chars: 3000,
   /** Versions kept per section, the shipped default excluded. */
   versions: 20,
+  /** Versions the autonomy view carries per section, newest first: what a phone shows of a section's history. */
+  carried: 5,
 })
 /**
  * What the Lead does with no edit. `version` rises only when the shipped words change; a person who edited a section
@@ -102,13 +104,30 @@ export type LeadAutonomyChange =
   | { readonly at: number; readonly by: 'person'; readonly what: 'deadline'; readonly deadlineAt: number | null }
 /** Changes kept, newest last in the file and newest first on the wire. */
 export const LEAD_AUTONOMY_CHANGES_KEPT = 64
+/** One saved version of a section as the autonomy view carries it: the words, when, and how they came to be. */
+export interface LeadAutonomyRuleVersion { readonly version: number; readonly text: string; readonly at: number; readonly how: LeadRuleVersion['how']; readonly from?: number }
+export interface LeadAutonomyRule {
+  readonly id: LeadRuleSectionId
+  readonly title: string
+  readonly text: string
+  readonly custom: boolean
+  readonly version?: number
+  readonly changedAt?: number
+  readonly versions?: readonly LeadAutonomyRuleVersion[]
+  readonly shipped?: string
+}
 /** What a phone shows: the table, the recent would-haves, the words in force, the deadline. Read-only except the modes. */
 export interface LeadAutonomyView {
   readonly version: 1
   readonly modes: LeadAutonomyModes
   readonly observed: readonly LeadObservedAction[]
-  /** `version` 0 is the shipped default; `changedAt` is when the newest version was saved, absent for the default. */
-  readonly rules: readonly { readonly id: LeadRuleSectionId; readonly title: string; readonly text: string; readonly custom: boolean; readonly version?: number; readonly changedAt?: number }[]
+  /**
+   * `version` 0 is the shipped default; `changedAt` is when the newest version was saved, absent for the default.
+   * A section ever saved also carries `versions`, its newest `LEAD_RULE_LIMITS.carried` versions newest first with their
+   * words, and `shipped`, the words a Restore to the default brings back: enough for a phone to show earlier wording and
+   * a diff between any two rows without `lead/rules/read`, which stays at the desk. Absent from an older desk.
+   */
+  readonly rules: readonly LeadAutonomyRule[]
   readonly deadline: LeadDeadline | null
   /** Who changed what, newest first, at most 32. Absent from an older desk. */
   readonly changes?: readonly LeadAutonomyChange[]
@@ -223,15 +242,22 @@ export const parseLeadAutonomyChange: Validator<LeadAutonomyChange> = (value, pa
   literalUnion('person')(source.by, at(path, 'by'))
   return { at: integer()(source.at, at(path, 'at')), by: 'person', what, deadlineAt: source.deadlineAt === null ? null : integer(1)(source.deadlineAt, at(path, 'deadlineAt')) }
 }
+const carriedVersion: Validator<LeadAutonomyRuleVersion> = (value, path = '') => {
+  const source = only(['version', 'text', 'at', 'how', 'from'])(value, path)
+  return { version: integer(1)(source.version, at(path, 'version')), text: ruleText(source.text, at(path, 'text')), at: integer()(source.at, at(path, 'at')),
+    how: literalUnion('edit', 'reset', 'rollback')(source.how, at(path, 'how')), ...(source.from === undefined ? {} : { from: integer(1)(source.from, at(path, 'from')) }) }
+}
 export const parseLeadAutonomyView: Validator<LeadAutonomyView> = (value, path = '') => {
   const source = only(['version', 'modes', 'observed', 'rules', 'deadline', 'changes', 'proposals'])(value, path)
   if (source.version !== 1) fail(at(path, 'version'), 'expected 1')
   const rules = arrayOf((one, where = '') => {
-    const row = only(['id', 'title', 'text', 'custom', 'version', 'changedAt'])(one, where)
+    const row = only(['id', 'title', 'text', 'custom', 'version', 'changedAt', 'versions', 'shipped'])(one, where)
     if (typeof row.custom !== 'boolean') fail(at(where, 'custom'), 'expected a boolean')
     return { id: section(row.id, at(where, 'id')), title: line(80)(row.title, at(where, 'title')), text: ruleText(row.text, at(where, 'text')), custom: row.custom as boolean,
       ...(row.version === undefined ? {} : { version: integer()(row.version, at(where, 'version')) }),
-      ...(row.changedAt === undefined ? {} : { changedAt: integer()(row.changedAt, at(where, 'changedAt')) }) }
+      ...(row.changedAt === undefined ? {} : { changedAt: integer()(row.changedAt, at(where, 'changedAt')) }),
+      ...(row.versions === undefined ? {} : { versions: arrayOf(carriedVersion)(row.versions, at(where, 'versions')).slice(0, LEAD_RULE_LIMITS.carried) }),
+      ...(row.shipped === undefined ? {} : { shipped: ruleText(row.shipped, at(where, 'shipped')) }) }
   })(source.rules, at(path, 'rules'))
   return { version: 1, modes: parseLeadAutonomyModes(source.modes, at(path, 'modes')),
     observed: arrayOf(observedAction)(source.observed, at(path, 'observed')).slice(0, 32), rules,

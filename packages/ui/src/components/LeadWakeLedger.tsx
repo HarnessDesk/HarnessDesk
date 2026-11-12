@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { LeadWakeRecord } from '@harnessdesk/protocol'
+import { formatElapsed, type LeadWakeRecord } from '@harnessdesk/protocol'
 import { Button, Row, Rows, Text } from '../design'
 import { leadDollars } from './LeadCards'
 
 const decision = { silent: 'stayed silent', spoke: 'spoke', asked: 'asked', failed: 'request failed' }
 const source = { schedule: 'schedule', 'desk-change': 'desk change', person: 'person', trigger: 'trigger' }
-const relative = (at: number, now: number) => { const minutes = Math.max(0, Math.floor((now - at) / 60_000)); return minutes < 1 ? 'now' : minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago` }
+/** The shared elapsed rule (`formatElapsed`), so a wake's age reads as every other age on the desk. */
+const relative = (at: number, now: number) => formatElapsed(at, now)
 
 /** One line per journaled wake. Collapsed keeps the latest; details are native titles. */
 export const LeadWakeLedger = ({ wakes }: { readonly wakes: readonly LeadWakeRecord[] }) => {

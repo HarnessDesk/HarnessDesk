@@ -40,8 +40,10 @@ it('#2106: each card says what it changes and when it takes effect, and an asked
   expect(box.textContent).toContain('Desk-change reports: Act → Observe')
   expect(box.textContent).toContain('Lead every report with the conclusion.')
   expect(box.textContent).toContain('How to talk to me')
+  // Each card names the Lead as the person chose to call it, as the phone's card does (#2146).
   expect(box.textContent).toContain(leadSettingsEffect('autonomy', 'dex'))
   expect(box.textContent).toContain(leadSettingsEffect('rules', 'dex'))
+  expect(box.textContent).not.toContain('the Lead')
   expect(box.textContent).toContain('Asked again')
   expect(buttons(box, 'Apply')).toHaveLength(2)
   expect(buttons(box, 'No')).toHaveLength(2)
@@ -104,4 +106,16 @@ it('#2117 review 2: a section\'s whole words are diffed once per pair of words, 
   await act(async () => { await store.lead.readAutonomy() })
   expect(diff.mock.calls.length, 'no rebuild for the same words').toBe(after)
   expect(box.querySelector('[aria-label="What changes in What counts as done"]')!.textContent).toContain('+ Done means every check run is green')
+})
+
+it('an added line shows the words the section will hold, as a diff against the words in force, so it reads as an append (#2152)', async () => {
+  const [, line] = leadSettingsProposals
+  const { box, store } = await mount(<LeadSettingsProposals proposals={[line!]} />)
+  await act(async () => { await store.lead.readAutonomy() })
+  const words = box.querySelector('[aria-label="What changes in How to talk to me"]')
+  expect(words, 'the resulting words are drawn, not only the added line').toBeTruthy()
+  expect(words!.closest('[data-slot="row"]')).toBeTruthy()
+  for (const kept of LEAD_RULE_DEFAULTS.talk.text.split('\n')) expect(words!.textContent).toContain(`  ${kept}`)
+  expect(words!.textContent).toContain('+ Lead every report with the conclusion.')
+  expect(words!.textContent).not.toMatch(/^- /m)
 })

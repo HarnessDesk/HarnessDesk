@@ -734,6 +734,11 @@ describe('formatting', () => {
     expect(formatAge(NOON - 2 * MINUTE, NOON)).toBe('2m ago')
   })
 
+  it('rounds an age down, as the phone does, so 14h 50m reads 14h ago (#2150)', () => {
+    expect(formatAge(NOON - (14 * 60 + 50) * MINUTE, NOON)).toBe('14h ago')
+    expect(formatAge(NOON - 50 * MINUTE, NOON)).toBe('50m ago')
+  })
+
   it('reads a plan the same on every badge, without rewriting what the source wrote', () => {
     // Codex reports its login method, in lower case; Cursor already title-cases.
     expect(planLabel('team')).toBe('Team')

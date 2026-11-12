@@ -1,4 +1,5 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
+import { brandKeyField } from '@harnessdesk/protocol'
 import type { LeadAutonomyView, LeadChatControl, LeadInbox, LeadWorkBoard, PhoneLeadMemory, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
 import { LEAD_MEMORY_LIMITS, LEAD_RULE_LIMITS } from '@harnessdesk/protocol'
 import {
@@ -35,6 +36,8 @@ export interface PhoneWorkPorts {
   readonly deskName: () => string
   readonly home: string | null
   readonly seatName: (runtime: RuntimeId) => string | null
+  /** The agent's mark, a lobe-icons key from `brandForRuntime`; null or absent when it has none. */
+  readonly seatBrand?: (runtime: RuntimeId) => string | null
   /** Index membership; archives are readable only when explicitly requested. */
   readonly isOwn: (runtime: RuntimeId, id: SessionId, includeArchived?: boolean) => boolean
   readonly summary: (runtime: RuntimeId, id: SessionId) => SessionSummary | null
@@ -309,7 +312,8 @@ export class PhoneWork {
     const waiting = work ? leadWorkWaiting(work, inbox, leadTeamKey(teams)) : []
     const choices = new Map(reads.map((one, index) => [one, catalogues[index]!]))
     const models = runtime ? choices.get(runtime)! : []
-    const agents: PhoneAgentChoice[] = ids.map(id => ({ id: String(id), name: scrub(this.#ports.seatName(id) ?? '', 60) || 'Agent', models: choices.get(id)!, ...(id === runtime ? { default: true as const } : {}) }))
+    const agents: PhoneAgentChoice[] = ids.map(id => ({ id: String(id), name: scrub(this.#ports.seatName(id) ?? '', 60) || 'Agent', ...brandKeyField(this.#ports.seatBrand?.(id)),
+      models: choices.get(id)!, ...(id === runtime ? { default: true as const } : {}) }))
     let projects: string[] = []
     try { projects = [...this.#projectNames()].filter(([, roots]) => roots.length === 1).map(([name]) => name).sort().slice(0, 50) } catch { /* Unreadable admission metadata is not a project choice. */ }
     return {
