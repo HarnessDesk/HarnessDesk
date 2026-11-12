@@ -675,3 +675,31 @@ test('a too-long refusal of a host request returns at once for the host to compa
     assert.equal(s.journal.state.phase, 'waiting-for-user')
   } finally { await loop.close() }
 })
+
+test('a closed exchange of reads folds into one desk record after the person\'s words, keeping its words and the latest reads whole', () => {
+  const long = 'row '.repeat(1000)
+  const exchange = (n: number) => [
+    user(text(`Question ${n}.`)),
+    assistant(text(`Looking ${n}.`), { type: 'tool_use' as const, id: `a-${n}`, name: 'desk_summary', input: {} }),
+    user({ type: 'tool_result' as const, tool_use_id: `a-${n}`, content: long, is_error: false }),
+    assistant({ type: 'tool_use' as const, id: `b-${n}`, name: 'work_list', input: {} }, { type: 'tool_use' as const, id: `c-${n}`, name: 'chat_read', input: { id: `chat-${n}` } }),
+    user({ type: 'tool_result' as const, tool_use_id: `b-${n}`, content: 'two cards', is_error: false }, { type: 'tool_result' as const, tool_use_id: `c-${n}`, content: 'refused', is_error: true }),
+    assistant(text(`Answer ${n}.`)),
+  ]
+  const turns = [1, 2, 3, 4, 5].flatMap(exchange)
+  const folded = lead.leadFoldToolExchanges(turns, 3)
+  assert.equal(lead.leadPairedTurns(folded), folded, 'no call is left without its answer')
+  // The three latest pairs (exchanges 4 and 5) stay whole; exchanges 1 to 3 become two turns each.
+  assert.equal(folded.length, 3 * 2 + 2 * 6)
+  const first = JSON.stringify(folded.slice(0, 2))
+  assert.ok(first.includes('Question 1.') && first.includes(lead.LEAD_FOLDED_READS_PREFIX))
+  assert.ok(first.includes('desk_summary {} answered: row') && first.includes('characters left out by the desk'))
+  assert.ok(first.includes('chat_read {\\"id\\":\\"chat-1\\"} failed: refused'))
+  assert.deepEqual(folded[1], assistant(text('Looking 1.'), text('Answer 1.')), 'the Lead\'s own words are kept, joined into its reply')
+  assert.ok(!first.includes('tool_use'), 'no call is left in a folded exchange')
+  assert.deepEqual(folded.slice(-12), turns.slice(-12), 'the latest exchanges are untouched')
+  assert.equal(lead.leadFoldToolExchanges(folded, 3), folded, 'folding again changes nothing')
+  // An exchange still open (its last call unanswered) is never folded.
+  const open = [...exchange(1).slice(0, 4)]
+  assert.equal(lead.leadFoldToolExchanges(open, 0), open)
+})

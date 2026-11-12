@@ -247,6 +247,60 @@ export const leadPruneContext = (turns: readonly MessagesTurn[], keepPairs: numb
   return changed ? pruned : turns
 }
 
+/** The desk's record of the reads behind a reply it folded; never a person reference, never a desk stub. */
+export const LEAD_FOLDED_READS_PREFIX = '[Desk record of the reads behind the reply that follows, folded to save room'
+const FOLDED_RESULT_CHARS = 800, FOLDED_INPUT_CHARS = 200, FOLDED_NOTE_CHARS = 16_000
+const foldedResult = (content: string): string => content.length <= FOLDED_RESULT_CHARS ? content
+  : `${leadClip(content, FOLDED_RESULT_CHARS, '')} [… ${content.length - FOLDED_RESULT_CHARS} characters left out by the desk]`
+/** A user turn that only answers the calls before it: tool results, and the stubs of the desk context sent with them. */
+const answersOnly = (turn: MessagesTurn | undefined): turn is MessagesTurn => !!turn && turn.role === 'user' &&
+  turn.content.some(block => block.type === 'tool_result') && turn.content.every(block => block.type === 'tool_result' || isStub(block))
+/**
+ * The pruning stage's second step, which needs no model either: an older answer the Lead reached through reads, folded.
+ * A question answered after three rounds of reads is eight turns as the model made them, and a request admits 200
+ * turns, so ordinary questions reached the summary line on turns long before the window was full. Folded, the reads go
+ * after the person's words as one desk record (each call named, each answer clipped) and the Lead's words between and
+ * after them join its reply: two turns, and what the Lead said is still its own. Only an exchange that ends in the
+ * Lead's reply is folded, never one still under way; the latest `keepPairs` tool pairs stay whole. Returns the same
+ * array when nothing changed.
+ */
+export const leadFoldToolExchanges = (turns: readonly MessagesTurn[], keepPairs: number = LEAD_CONTEXT.keepToolPairs): readonly MessagesTurn[] => {
+  const kept = toolPairs(turns).slice(0, keepPairs)
+  // Nothing at or after the assistant turn of the oldest pair kept whole is folded.
+  const limit = kept.length ? Math.min(...kept) - 1 : turns.length
+  const out: MessagesTurn[] = []
+  let changed = false
+  for (let index = 0; index < turns.length;) {
+    const opening = turns[index]!, first = turns[index + 1]
+    if (index + 1 >= limit || opening.role !== 'user' || opening.content[0]?.type !== 'text' || first?.role !== 'assistant' || !first.content.some(block => block.type === 'tool_use')) { out.push(opening); index++; continue }
+    const reads: string[] = [], words: MessagesText[] = []
+    let at = index + 1, closed = false
+    while (at < limit && turns[at]!.role === 'assistant') {
+      const assistant = turns[at]!, calls = assistant.content.flatMap(block => block.type === 'tool_use' ? [block] : [])
+      words.push(...assistant.content.filter((block): block is MessagesText => block.type === 'text'))
+      if (!calls.length) { closed = true; at++; break }
+      const answer = turns[at + 1]
+      if (at + 1 >= limit || !answersOnly(answer)) break
+      const results = new Map(answer.content.flatMap(block => block.type === 'tool_result' ? [[block.tool_use_id, block] as const] : []))
+      if (!calls.every(call => results.has(call.id))) break
+      for (const call of calls) {
+        const result = results.get(call.id)!
+        reads.push(`${call.name} ${leadClip(JSON.stringify(call.input ?? null), FOLDED_INPUT_CHARS)} ${result.is_error ? 'failed' : 'answered'}: ${foldedResult(result.content)}`)
+      }
+      at += 2
+    }
+    if (!closed || !reads.length) { out.push(opening); index++; continue }
+    changed = true
+    out.push({ role: 'user', content: [...opening.content, { type: 'text', text: leadClip(`${LEAD_FOLDED_READS_PREFIX}]\n${reads.map(read => `- ${read}`).join('\n')}`, FOLDED_NOTE_CHARS) }] })
+    out.push({ role: 'assistant', content: words.length ? words : [{ type: 'text', text: '(no words)' }] })
+    index = at
+  }
+  return changed ? leadMergedTurns(out) : turns
+}
+/** Both no-model steps of the pruning stage: older answers reached through reads folded, then older long results trimmed. */
+export const leadPruneAndFold = (turns: readonly MessagesTurn[], keepPairs: number = LEAD_CONTEXT.keepToolPairs): readonly MessagesTurn[] =>
+  leadPruneContext(leadFoldToolExchanges(turns, keepPairs), keepPairs)
+
 /** A tail may begin only where the person or the desk spoke: a user turn that answers no tool call. */
 export const leadContextBoundary = (turns: readonly MessagesTurn[], index: number): boolean =>
   index > 0 && index < turns.length && turns[index]!.role === 'user' && turns[index]!.content[0]?.type === 'text'

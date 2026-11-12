@@ -4,7 +4,7 @@ import {
   LEAD_CONTEXT, leadCheckpointInstruction, leadCheckpointMessages, leadCheckpointRefusal, leadCheckpointText, leadCheckpointTurn,
   leadContextBoundary, leadContextBytes, leadContextMarkOf, leadContextPressure, leadContextSplit, leadContextWindow, leadEstimatedTokens,
   leadCheckpointCompose, leadFallbackCheckpoint, leadFitTurns, leadHistory, leadMergedTurns, leadNextSoftShare, leadPairedTurns, leadPersonSection, leadPersonQuotes, leadCheckpointModelPart,
-  leadPruneContext, parseLeadContextTurns, LEAD_CONTEXT_UNCOUNTED,
+  leadPruneAndFold, parseLeadContextTurns, LEAD_CONTEXT_UNCOUNTED,
   type LeadCompactionTrigger, type LeadContextMark, type LeadContextRecordInput, type LeadJournal, type LeadMessagesRequest,
   type LeadMessagesResult, type MessagesText, type MessagesTurn, leadClip, LEAD_WAKE_REFERENCE
 } from '@harnessdesk/lead'
@@ -219,7 +219,7 @@ export class LeadContextStore {
   #bounded(turns: readonly MessagesTurn[]): readonly MessagesTurn[] {
     const room = LEAD_CONTEXT.diskBytes - 65_536
     if (leadContextBytes(turns) <= room) return turns
-    let kept = leadPruneContext(turns)
+    let kept = leadPruneAndFold(turns)
     while (leadContextBytes(kept) > room) {
       let cut = 1
       while (cut < kept.length && !leadContextBoundary(kept, cut)) cut++
@@ -367,7 +367,7 @@ export class LeadContextStore {
   async #compact(trigger: LeadCompactionTrigger, send: LeadContextSend): Promise<LeadCompactionOutcome> {
     const { journal, now, nextId } = this.options
     const id = nextId(), beforeTokens = this.tokens()
-    const pruned = leadPruneContext(this.#turns)
+    const pruned = leadPruneAndFold(this.#turns)
     let split = leadContextSplit(this.#turns, this.window)
     if (pruned === this.#turns && split === null) { this.#softAt = Math.min(LEAD_CONTEXT.hardShare, this.pressure() + LEAD_CONTEXT.hysteresis); return 'nothing' }
     const share = (turns: readonly MessagesTurn[]) => leadContextPressure({ window: this.window, tokens: this.tokens(turns), bytes: leadContextBytes(turns), turns: turns.length })
@@ -375,7 +375,7 @@ export class LeadContextStore {
     // smallest tail instead, its older tool results trimmed too.
     const room = leadCheckpointTurn(id, 'x'.repeat(LEAD_CONTEXT.checkpointChars), true)
     let smallest = false
-    if (split !== null && share([room, ...leadPruneContext(this.#turns.slice(split))]) >= LEAD_CONTEXT.hardShare) {
+    if (split !== null && share([room, ...leadPruneAndFold(this.#turns.slice(split))]) >= LEAD_CONTEXT.hardShare) {
       const fewer = leadContextSplit(this.#turns, this.window, true)
       if (fewer !== null) { split = fewer; smallest = true }
     }
@@ -384,7 +384,7 @@ export class LeadContextStore {
       if (pruned !== this.#turns) {
         if (split === null || trigger !== 'manual' && share(pruned) < this.#softAt) {
           const afterTokens = this.tokens(pruned)
-          await this.#replace(id, current => leadPruneContext(current), () => journal.contextPruned({ id, at: now(), beforeTokens, afterTokens }), share(pruned))
+          await this.#replace(id, current => leadPruneAndFold(current), () => journal.contextPruned({ id, at: now(), beforeTokens, afterTokens }), share(pruned))
           return 'pruned'
         }
       }
@@ -436,7 +436,7 @@ export class LeadContextStore {
       const fallback = text === null
       text ??= leadFallbackCheckpoint({ region, previous, ledgerIds: requiredIds, person })
       const checkpoint = leadCheckpointTurn(id, text, fallback)
-      const tailOf = (current: readonly MessagesTurn[]) => smallest ? leadPruneContext(current.slice(from), 0) : current.slice(from)
+      const tailOf = (current: readonly MessagesTurn[]) => smallest ? leadPruneAndFold(current.slice(from), 0) : current.slice(from)
       const after = [checkpoint, ...tailOf(this.#turns)]
       const afterTokens = this.tokens(after), afterShare = share(after)
       const revisions = personIds(region).flatMap(person => journal.state.messages.find(message => message.id === person)?.revision ?? [])

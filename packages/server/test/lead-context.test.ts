@@ -71,7 +71,11 @@ const PLAN = 'The person approved your plan. Approved contract: {"steps":[{"id":
 
 /** One Lead, the way the host runs it: a loop with the desk's context port, and the host's request built from the store. */
 const harness = async (t: any, settings: { readonly window: number; readonly failCheckpoints?: boolean; readonly ledgerIds?: readonly string[]; readonly records?: lead.LeadJournalRecord[]; readonly home?: string;
-  readonly plan?: boolean; readonly screen?: (text: string) => Promise<void>; readonly contract?: boolean; readonly readOnWake?: boolean; readonly deskNow?: () => Promise<string | null> }) => {
+  readonly plan?: boolean; readonly screen?: (text: string) => Promise<void>; readonly contract?: boolean; readonly readOnWake?: boolean; readonly deskNow?: () => Promise<string | null>
+  /** The fake model's ordinary answer and what the desk answers a read, in place of the defaults. */
+  readonly reply?: (body: any) => { readonly content: unknown[]; readonly stop_reason?: string }; readonly read?: (method: string) => unknown
+  /** The desk context of the moment each person request carries, in place of the one observation line. */
+  readonly moment?: (said: number) => readonly string[] }) => {
   const home = settings.home ?? await directory(t)
   const { journal, records } = await journalOver(settings.records)
   if (settings.contract) {
@@ -85,12 +89,12 @@ const harness = async (t: any, settings: { readonly window: number; readonly fai
   const provider = cachingProvider(body => {
     const last = body.messages.at(-1).content.map((block: any) => block.text ?? '').join('\n')
     if (last.includes(INSTRUCTION)) return { content: [text(settings.failCheckpoints ? 'Here is a short summary without headings.' : checkpointAnswer(body))] }
-    return replyAnswer(body, settings.readOnWake)
+    return settings.reply?.(body) ?? replyAnswer(body, settings.readOnWake)
   })
   // A desk whose only events are the chat changes the test emits; a chat list is long, so old ones are worth pruning.
   let ended: ((value: IteratorResult<any>) => void) | null = null
   const events: any[] = []
-  const desk = { async call(method: string) { return method === 'client/subscribe' ? { baseline: 1 } : method === 'lead/chat/list' ? { chats: [{ id: 'a', title: 'Fix the build' }, { id: 'b', title: 'Docs' }], log: 'listing '.repeat(900) } : { ok: true } },
+  const desk = { async call(method: string) { return method !== 'client/subscribe' && settings.read ? settings.read(method) : method === 'client/subscribe' ? { baseline: 1 } : method === 'lead/chat/list' ? { chats: [{ id: 'a', title: 'Fix the build' }, { id: 'b', title: 'Docs' }], log: 'listing '.repeat(900) } : { ok: true } },
     events() { return { [Symbol.asyncIterator]: () => ({ next: () => events.length ? Promise.resolve({ done: false, value: events.shift() }) : new Promise<IteratorResult<any>>(resolve => { ended = resolve }),
       async return() { ended?.({ done: true, value: undefined }); return { done: true as const, value: undefined } } }) } },
     async synced() {}, snapshot() { return { teams: [], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] } } }
@@ -135,7 +139,7 @@ const harness = async (t: any, settings: { readonly window: number; readonly fai
     const planned = withPlan ? withPlan.messages : settings.plan ? lead.leadAppendUser(built.messages, [text(PLAN)]) : built.messages
     const kept = withPlan ? withPlan.kept : settings.plan ? lead.leadContextMarkOf(planned) : undefined
     const moment = contract ? lead.leadPlanMoment({ contract, steps: journal.state.steps }) : []
-    const result = await loop.request({ maxTokens: 512, messages: lead.leadAppendUser(planned, [...moment, text(`Desk observation: ${said} messages so far.`)]),
+    const result = await loop.request({ maxTokens: 512, messages: lead.leadAppendUser(planned, [...moment, ...(settings.moment?.(said) ?? [`Desk observation: ${said} messages so far.`]).map(text)]),
       conversation: true, epoch: built.epoch, ...(built.base ? { base: built.base } : {}), ...(built.stable ? { stable: built.stable } : {}), ...(kept ? { kept } : {}) })
     assert.equal(result?.status, 'completed')
     await settle()
@@ -164,7 +168,7 @@ test('a 400-turn conversation with tool calls and desk wakes keeps a fact from t
   assert.ok(answered.length >= 20, `tool results sent back (${answered.length})`)
   assert.equal(lead.leadPairedTurns(lead1.store.turns), lead1.store.turns, 'every stored tool call has its answer')
   // Older tool results were trimmed before the checkpoints took them.
-  assert.ok(lead1.records.some(record => record.type === 'context-pruned') && lead1.provider.requests.some(request => JSON.stringify(request.body).includes('bytes trimmed by the desk')), 'old tool results were pruned')
+  assert.ok(lead1.records.some(record => record.type === 'context-pruned') && lead1.provider.requests.some(request => /bytes trimmed by the desk|characters left out by the desk/.test(JSON.stringify(request.body))), 'old tool results were pruned or folded')
   // Desk wakes ran on the stored conversation, and the last one still reads the approved plan's step ids.
   const deskWakes = lead1.provider.requests.filter(request => JSON.stringify(request.body.messages.at(-1)).includes('automatic wake'))
   assert.ok(deskWakes.length >= 30, `desk wakes (${deskWakes.length})`)
@@ -636,7 +640,10 @@ test('a stored conversation that already carries the approved plan gets no secon
 })
 
 test('in a long run of desk wakes with no person message, a checkpoint that took the approved plan does not lose it', async t => {
-  const lead1 = await harness(t, { window: 30_000, contract: true, readOnWake: true })
+  // A window small enough that the wakes' reads cross the hard line before the Lead, having spoken many times unanswered,
+  // waits for the person and stops waking: the pruning stage folds older reads, so at a larger window folding alone
+  // relieves the pressure in that many wakes and no checkpoint is written.
+  const lead1 = await harness(t, { window: 20_000, contract: true, readOnWake: true })
   assert.equal(await lead1.say('Fix the sign-in page.'), 'Noted.')
   const applied = () => lead1.records.filter(record => record.type === 'context-compaction-applied').length
   for (let n = 0; n < 120 && !applied(); n++) await lead1.deskChange()
@@ -759,4 +766,80 @@ test('a reminder wake past the soft line writes the reminder first and summarise
     await new Promise(resolve => setImmediate(resolve))
     assert.deepEqual(s.compactions, due === 'hard' ? ['hard'] : ['soft'], 'it runs once the Lead is idle')
   }
+})
+
+/**
+ * Ordinary questions the way the Lead answers them on a real desk: it reads the desk, its work and its chats (three
+ * rounds of tool calls, two of them at once), then writes a reply of a few hundred characters. The sizes are those
+ * of the desk's own answers on a desk with a few hundred chats. What the stored conversation is made of, and which of
+ * the three limits brings the next summary, is printed as a diagnostic.
+ */
+const ordinaryDesk = () => {
+  const row = (n: number) => ({ id: `fixture:chat-${n}`, title: `Fix the stalled build a game task (attempt ${n})`, project: 'acme-app', state: n % 7 ? 'idle' : 'running', updatedAt: 1_762_900_000_000 + n })
+  const reads: Record<string, unknown> = {
+    'lead/desk/summary': { chats: { running: 0, needsYou: 1, idle: 215 }, teams: { running: 0, needsYou: 1, idle: 3 }, projects: Array.from({ length: 6 }, (_, n) => ({ name: `project-${n}`, chats: 30 + n, teams: n })),
+      recent: Array.from({ length: 8 }, (_, n) => row(n)), needsYou: [row(99)], running: [], needsYouMore: 0, runningMore: 0, older: 207 },
+    'lead/work/list': { version: 1, items: Array.from({ length: 4 }, (_, n) => ({ id: `work-${n}`, title: `Fix the stalled build a game task (attempt ${n})`, stage: n ? 'done' : 'needs-you',
+      links: { chats: [`fixture:chat-${n}`], teams: n ? [] : ['team-1'], prs: [], issues: [] }, fact: 'The run could not open its first seat: the seat\'s project is not open.' })), more: 0 },
+    'lead/chat/list': { chats: Array.from({ length: 20 }, (_, n) => row(n)), cursor: 'next-20' },
+    'lead/chat/read': { id: 'fixture:chat-7', title: 'Fix the stalled build a game task', entries: Array.from({ length: 12 }, (_, n) => ({ role: n % 2 ? 'assistant' : 'user', text: `Step ${n}: ${'read the run, its blocker and the seat that failed to open; '.repeat(6)}` })), omittedSourceTurns: 40, truncated: true },
+  }
+  const call = (id: string, name: string, input: object = {}) => ({ type: 'tool_use', id, name, input })
+  const reply = (body: any) => {
+    const turns: any[] = body.messages
+    const person = turns.findLastIndex(turn => turn.role === 'user' && turn.content.some((block: any) => block.type === 'text' && block.text.startsWith(REFERENCE)))
+    const stage = turns.slice(person + 1).filter(turn => turn.role === 'assistant').length
+    const id = `call-${++calls}`
+    if (stage === 0) return { content: [call(id, 'desk_summary')], stop_reason: 'tool_use' }
+    if (stage === 1) return { content: [call(`${id}-a`, 'work_list'), call(`${id}-b`, 'chat_list')], stop_reason: 'tool_use' }
+    if (stage === 2) return { content: [call(id, 'chat_read', { id: 'fixture:chat-7' })], stop_reason: 'tool_use' }
+    return { content: [text(`结论：你不在的时候没有东西在运行，也没有新的审批。${'等你处理的还是只有那个团队任务，记录里给出的下一步是先收尾再重新启动。'.repeat(14)}`)] }
+  }
+  const moment = () => [
+    `<work-ledger>\n${Array.from({ length: 5 }, (_, n) => `- work-${n} · needs you · Fix the stalled build a game task (attempt ${n}) · The run could not open its first seat.`).join('\n')}\n</work-ledger>`,
+    `<desk-settings-status>\n${'- desk-change reports: observe, set by the person.\n'.repeat(6)}</desk-settings-status>`,
+  ]
+  return { reply, read: (method: string) => reads[method] ?? { ok: true }, moment }
+}
+/** What a stored conversation is made of, in bytes, and how full it is against each of the three limits. */
+const composition = (store: LeadContextStore) => {
+  const bytes = { person: 0, desk: 0, reply: 0, call: 0, result: 0, folded: 0, checkpoint: 0 }
+  for (const turn of store.turns) for (const block of turn.content) {
+    const size = lead.leadContextBytes(block)
+    if (block.type === 'tool_use') bytes.call += size
+    else if (block.type === 'tool_result') bytes.result += size
+    else if (block.type === 'text' && turn.role === 'assistant') bytes.reply += size
+    else if (block.type === 'text' && block.text.startsWith('<checkpoint')) bytes.checkpoint += size
+    else if (block.type === 'text' && block.text.startsWith(lead.LEAD_FOLDED_READS_PREFIX)) bytes.folded += size
+    else if (block.type === 'text' && (block.text.startsWith('[Desk context') || block.text.startsWith(REFERENCE))) bytes.desk += size
+    else bytes.person += size
+  }
+  const all = lead.leadContextBytes(store.turns)
+  return { bytes, turns: store.turns.length, tokens: store.tokens() / store.window, size: all / lead.LEAD_CONTEXT.requestBytes, count: store.turns.length / lead.LEAD_CONTEXT.requestTurns }
+}
+
+test('ordinary questions, each reading the desk in three rounds of tool calls, are not summarised every few questions', async t => {
+  const desk = ordinaryDesk()
+  const lead1 = await harness(t, { window: 200_000, reply: desk.reply, read: desk.read, moment: desk.moment })
+  const count = (type: string) => lead1.records.filter(record => record.type === type).length
+  const summarised: number[] = [], pruned: number[] = []
+  let peak: ReturnType<typeof composition> | null = null, folded: ReturnType<typeof composition> | null = null
+  for (let n = 1; n <= 40; n++) {
+    const summaries = count('context-compaction-applied'), prunes = count('context-pruned'), before = composition(lead1.store)
+    await lead1.say(`我不在的时候发生了什么？第 ${n} 次问。`)
+    if (count('context-compaction-applied') > summaries) summarised.push(n)
+    if (count('context-pruned') > prunes) { pruned.push(n); peak ??= before; folded ??= composition(lead1.store) }
+  }
+  t.diagnostic(`summaries after questions ${summarised.join(', ') || 'none'}; pruned after ${pruned.join(', ') || 'none'}`)
+  t.diagnostic(`at the soft line: ${JSON.stringify(peak)}`)
+  t.diagnostic(`after the first prune: ${JSON.stringify(folded)}`)
+  t.diagnostic(`after forty questions: ${JSON.stringify(composition(lead1.store))}`)
+  // Forty ordinary questions are well under the soft line of a 200k window once older reads are folded: the desk
+  // makes room without a model, and nothing is summarised.
+  assert.deepEqual(summarised, [], `summarised after questions ${summarised.join(', ')}`)
+  assert.ok(pruned.length >= 1 && pruned.length <= 4, `folded after questions ${pruned.join(', ')}`)
+  // The latest answer's reads stay as the model made them; an older one is the person's turn and the Lead's reply.
+  assert.equal(lead.leadPairedTurns(lead1.store.turns), lead1.store.turns, 'every stored call has its answer')
+  assert.ok(lead1.store.turns.some(turn => turn.role === 'user' && turn.content.some(block => block.type === 'text' && block.text.startsWith(lead.LEAD_FOLDED_READS_PREFIX))))
+  assert.ok(lead1.store.turns.at(-1)!.role === 'assistant' && lead1.store.turns.slice(-8).some(turn => turn.content.some(block => block.type === 'tool_use')))
 })
