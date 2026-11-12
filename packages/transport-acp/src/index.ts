@@ -442,8 +442,18 @@ export interface AcpToolCallUpdate {
 }
 
 export type AcpSessionUpdate =
-  | { readonly sessionUpdate: 'agent_message_chunk'; readonly content: AcpContentBlock }
-  | { readonly sessionUpdate: 'agent_thought_chunk'; readonly content: AcpContentBlock }
+  | {
+      readonly sessionUpdate: 'agent_message_chunk'
+      readonly content: AcpContentBlock
+      /**
+       * ACP's message id: every chunk of one message carries the same one,
+       * so a change of id is a new message even with nothing between them.
+       * Optional on the wire; an agent that sends none is read as one
+       * message per run of chunks, as before.
+       */
+      readonly messageId?: string | null
+    }
+  | { readonly sessionUpdate: 'agent_thought_chunk'; readonly content: AcpContentBlock; readonly messageId?: string | null }
   | {
       readonly sessionUpdate: 'user_message_chunk'
       readonly content: AcpContentBlock

@@ -1061,6 +1061,7 @@ const AlertAndBannerExamples = () => (
         </Alert>
       ))}
       <ActionError>Could not switch branches. The working tree has uncommitted changes.</ActionError>
+      <ActionError action={{ label: 'Try again', onSelect: () => {} }}>Could not reach the agent’s server.</ActionError>
       <Card variant="flush">
         <PatchHeader>packages/ui/src/components/GitPane.tsx</PatchHeader>
         <section className="flex items-center gap-2 px-3 py-2">

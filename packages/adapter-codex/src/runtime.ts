@@ -1582,6 +1582,7 @@ export class CodexRuntime implements AgentRuntime {
       environment: opened.environment,
       startBeside: (like) => this.#opened(() => this.#startBeside(like)),
       interruptible: (threadId, turnId) => this.#reviewTurns.interruptible(threadId, turnId),
+      stopDescendants: (threadId) => this.#stopDescendants(threadId),
       ...(this.#settleMs !== undefined ? { settleMs: this.#settleMs } : {}),
       ...(this.#capabilities ? { capabilities: this.#capabilities } : {}),
       onReleasing: (id) => this.#releasing(id),
@@ -1877,6 +1878,86 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   /**
+   * The loaded threads descended from `root`, found by the parent each names.
+   *
+   * Codex does not say which loaded threads a conversation's sub-agents are,
+   * so every loaded thread `among` admits is read for its parent and the tree
+   * is grown from `root` through those links; a thread `among` refuses is
+   * neither returned nor walked through. Each read is bounded to two seconds
+   * and one that fails leaves its thread out. Null once `abandoned` says so.
+   */
+  async #loadedDescendants(root: string, among: (id: string) => boolean, abandoned: () => boolean): Promise<string[] | null> {
+    const loaded: string[] = []
+    for (let cursor: string | null = null, page = 0; page < 10; page++) {
+      if (abandoned()) return null
+      const response: CodexProtocol.v2.ThreadLoadedListResponse = await this.#server.request(
+        'thread/loaded/list', { cursor }, { timeoutMs: 2_000 })
+      loaded.push(...response.data)
+      if (!(cursor = response.nextCursor)) break
+    }
+    if (abandoned()) return null
+    const candidates = loaded.filter((id) => id !== root && among(id))
+    if (candidates.length === 0) return []
+    const parents = new Map<string, string | null>()
+    await Promise.all(candidates.map(async (id) => {
+      try {
+        parents.set(id, (await this.#server.request('thread/read', { threadId: id, includeTurns: false }, { timeoutMs: 2_000 })).thread.parentThreadId)
+      } catch {
+        // Closed since the listing, or not readable: not part of the tree.
+      }
+    }))
+    if (abandoned()) return null
+    const descendants = new Set([root])
+    for (let grew = true; grew;) {
+      grew = false
+      for (const [id, parent] of parents) {
+        if (parent !== null && descendants.has(parent) && !descendants.has(id)) { descendants.add(id); grew = true }
+      }
+    }
+    descendants.delete(root)
+    return [...descendants]
+  }
+
+  /**
+   * Stop stops the whole tree: every in-progress turn of a loaded thread
+   * below `root` is interrupted, children and grandchildren alike.
+   *
+   * Codex's `turn/interrupt` aborts the one thread it names
+   * (`Session::interrupt_task` → `abort_all_tasks`, 0.167.1), and a spawned
+   * agent is a thread with turns of its own, so a stopped root would otherwise
+   * leave its sub-agents working. A descendant that is also open here as a
+   * conversation of its own is still part of this tree and is stopped too,
+   * through its own handle so a second stop reuses the first; its own
+   * descendants are walked through it. Nothing is unsubscribed — the
+   * conversation stays open. Each read and stop is bounded to two seconds and
+   * a failure is ignored, as when a closed seat's delegates are given back.
+   */
+  async #stopDescendants(root: string): Promise<void> {
+    try {
+      const descendants = await this.#loadedDescendants(root, (id) => !this.#releases.closed(id), () => this.#disposed)
+      if (!descendants) return
+      await Promise.all(descendants.map(async (id) => {
+        try {
+          const held = this.#sessions.get(id)
+          if (held) {
+            if (held.activeTurnId !== null) await held.interruptTurn()
+            return
+          }
+          const turns = await this.#server.request('thread/turns/list',
+            { threadId: id, limit: 1, sortDirection: 'desc', itemsView: 'notLoaded' }, { timeoutMs: 2_000 })
+          const active = turns.data.find(turn => turn.status === 'inProgress')
+          if (active) await this.#server.request('turn/interrupt', { threadId: id, turnId: active.id }, { timeoutMs: 2_000 })
+        } catch {
+          // Ended, closed or unreadable since the listing; an unanswered stop
+          // must not hold up the others.
+        }
+      }))
+    } catch {
+      // A process that is gone has no turns left to stop.
+    }
+  }
+
+  /**
    * Gives back the threads a closed conversation's sub-agents left loaded.
    *
    * Codex subscribes the parent's connection to each sub-agent thread it
@@ -1892,35 +1973,10 @@ export class CodexRuntime implements AgentRuntime {
     this.#delegateSweeps.set(root, sweep)
     const abandoned = () => this.#sessions.has(root) || this.#delegateSweeps.get(root) !== sweep
     try {
-      const loaded: string[] = []
-      for (let cursor: string | null = null, page = 0; page < 10; page++) {
-        if (abandoned()) return
-        const response: CodexProtocol.v2.ThreadLoadedListResponse = await this.#server.request(
-          'thread/loaded/list', { cursor }, { timeoutMs: 2_000 })
-        loaded.push(...response.data)
-        if (!(cursor = response.nextCursor)) break
-      }
-      if (abandoned()) return
-      const strangers = loaded.filter((id) => id !== root && !this.#sessions.has(id) && !this.#releases.closed(id))
-      if (strangers.length === 0) return
-      const parents = new Map<string, string | null>()
-      await Promise.all(strangers.map(async (id) => {
-        try {
-          parents.set(id, (await this.#server.request('thread/read', { threadId: id, includeTurns: false }, { timeoutMs: 2_000 })).thread.parentThreadId)
-        } catch {
-          // Closed since the listing, or not readable: not ours to give back.
-        }
-      }))
-      if (abandoned()) return
-      const descendants = new Set([root])
-      for (let grew = true; grew;) {
-        grew = false
-        for (const [id, parent] of parents) {
-          if (parent !== null && descendants.has(parent) && !descendants.has(id)) { descendants.add(id); grew = true }
-        }
-      }
-      descendants.delete(root)
-      await Promise.all([...descendants].map(async (id) => {
+      const descendants = await this.#loadedDescendants(root,
+        (id) => !this.#sessions.has(id) && !this.#releases.closed(id), abandoned)
+      if (!descendants) return
+      await Promise.all(descendants.map(async (id) => {
         const held = () => abandoned() || this.#sessions.has(id) || this.#releases.closed(id)
         if (held()) return
         try {
