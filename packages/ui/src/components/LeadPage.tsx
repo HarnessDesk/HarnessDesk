@@ -82,8 +82,9 @@ const STOPPED: Record<LeadStopReason, string> = {
   deadline: 'This goal was stopped at its deadline.',
 }
 const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs'}` : 'no runs yet'
+/** One empty list for every render, so a memo keyed on it holds (asks, a reply's refs). */
+const NONE: readonly never[] = []
 /** Elapsed time beside Stop: minutes under an hour, then hours and minutes. */
-const EMPTY_ASKS: readonly never[] = []
 export const leadElapsed = (ms: number) => { const minutes = Math.max(0, Math.floor(ms / 60000)); return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m` }
 
 /**
@@ -92,7 +93,7 @@ export const leadElapsed = (ms: number) => { const minutes = Math.max(0, Math.fl
  */
 const leadMessageNote = (refs: readonly LeadMessageRef[] | undefined, proposals: readonly LeadMemoryCandidate[] | undefined, settings?: readonly LeadSettingsProposal[], text?: string) => {
   if (!refs?.length && !text?.trim() && !proposals?.length && !settings?.length) return undefined
-  return <>{refs?.length || text?.trim() ? <LeadRefs refs={refs ?? []} text={text} /> : null}{proposals?.length ? <LeadMemoryProposals candidates={proposals} /> : null}{settings?.length ? <LeadSettingsProposals proposals={settings} /> : null}</>
+  return <>{refs?.length || text?.trim() ? <LeadRefs refs={refs ?? NONE} text={text} /> : null}{proposals?.length ? <LeadMemoryProposals candidates={proposals} /> : null}{settings?.length ? <LeadSettingsProposals proposals={settings} /> : null}</>
 }
 
 export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
@@ -196,7 +197,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   // The Lead's proposals to change a mode or a rule section, placed the same way; Apply or No answers them here or on a phone.
   const settingsProposals = leadMemoryPlacement(messages, (state.autonomy?.proposals ?? []).filter(proposal => proposal.state === 'pending'))
   const latestAsk = [...messages].reverse().find(message => message.role === 'assistant' && (message.ask || message.proactive?.options))
-  const asks = new Map(useLeadAsks(state.away?.asks ?? EMPTY_ASKS).map(ask => [ask.id, ask] as const))
+  const asks = new Map(useLeadAsks(state.away?.asks ?? NONE).map(ask => [ask.id, ask] as const))
   const answers = new Map(messages.flatMap((message, index) => {
     const answer = messages.slice(index + 1).find(next => next.role === 'user')
     return answer ? [[message.id, answer.text] as const] : []

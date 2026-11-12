@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { LEAD_PULL_REQUEST_REF, leadTeamKey, leadWorkNamedIn, runtimeId, sessionId, sessionKey, type LeadDigestRef, type LeadMessageRef, type LeadNamedWork, type LeadWorkBoard, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
 import { Button, InlineParts } from '../design'
 import { useSnapshot, useStore } from '../state/context'
@@ -155,8 +155,13 @@ export const LeadRefs = ({ refs, text }: { readonly refs: readonly LeadMessageRe
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const wantsWork = refs.some(ref => ref.kind === 'work')
   useEffect(() => { if (wantsWork && !state.work) void store.lead.readWork().catch(() => {}) }, [store, wantsWork, state.work])
-  const chats = new Set([...(state.chats ?? []).map(chat => chat.id), ...(state.work?.items ?? []).flatMap(item => item.links.chats)])
-  const links = leadRefLinks(refs, { runtimes: snapshot.runtimes, sessions: snapshot.sessions, teams: snapshot.teams, goals: snapshot.goals, chats, work: state.work ?? null }, text)
+  const { runtimes, sessions, teams, goals } = snapshot, held = state.chats, work = state.work ?? null
+  // A reply with no refs folds, sorts and scans every title on the desk; do it when the desk or the reply changes, not on
+  // every render of a long thread.
+  const links = useMemo(() => {
+    const chats = new Set([...(held ?? []).map(chat => chat.id), ...(work?.items ?? []).flatMap(item => item.links.chats)])
+    return leadRefLinks(refs, { runtimes, sessions, teams, goals, chats, work }, text)
+  }, [refs, text, runtimes, sessions, teams, goals, held, work])
   if (!links.length) return null
   const open = (target: LeadRefTarget) => openLeadRefTarget(store, target)
   return <div data-slot="lead-refs"><InlineParts>

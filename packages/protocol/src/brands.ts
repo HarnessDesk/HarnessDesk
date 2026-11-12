@@ -86,7 +86,7 @@ export const isBrand = (value: unknown): value is Brand => typeof value === 'str
  * whose mark in lobe-icons is Amazon's Nova and not the agent of that name.
  */
 const AGENT_PATTERNS: readonly (readonly [RegExp, Brand])[] = [
-  // Agents with a mark of their own.
+  // Agents with a mark of their own. A short name matches a whole word only, so "traefik-agent" wears no mark.
   [/claude/, 'claudecode'],
   [/anthropic/, 'anthropic'],
   [/codex|openai/, 'codex'],
@@ -94,16 +94,16 @@ const AGENT_PATTERNS: readonly (readonly [RegExp, Brand])[] = [
   [/gemini/, 'geminicli'],
   [/antigravity/, 'antigravity'],
   [/copilot/, 'githubcopilot'],
-  [/cline/, 'cline'],
+  [/\bcline\b/, 'cline'],
   [/windsurf|codeium/, 'windsurf'],
   [/opencode/, 'opencode'],
   [/openclaw/, 'openclaw'],
-  [/kiro/, 'kiro'],
-  [/kilo/, 'kilocode'],
-  [/devin/, 'devin'],
-  [/trae/, 'trae'],
+  [/\bkiro\b/, 'kiro'],
+  [/\bkilo(code)?\b/, 'kilocode'],
+  [/\bdevin\b/, 'devin'],
+  [/\btrae\b/, 'trae'],
   [/codebuddy/, 'codebuddy'],
-  [/goose/, 'goose'],
+  [/\bgoose\b/, 'goose'],
   [/hermes/, 'hermesagent'],
   [/junie/, 'junie'],
   [/qoder/, 'qoder'],

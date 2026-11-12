@@ -13,3 +13,12 @@ test('the wire field carries a key and drops anything shaped otherwise (#2150)',
   assert.equal(brandForRuntime({ id: 'agent-a', presentation: { name: 'Agent', brand: 'cursor' } }), 'cursor')
   assert.equal(brandForRuntime({ id: 'fake-agent', presentation: { name: 'Fake Agent' } }), null)
 })
+
+test('a short agent name marks only a whole word, so an unrelated agent never wears it on the phone (#2150)', () => {
+  const of = (id: string, name: string) => brandForRuntime({ id, presentation: { name } })
+  for (const [id, name] of [['traefik-agent', 'Traefik Agent'], ['kilogram', 'Kilogram'], ['incline', 'Incline'], ['devinity', 'Devinity'], ['mongoose-cli', 'Mongoose'], ['kirov', 'Kirov']] as const)
+    assert.equal(of(id, name), null, id)
+  for (const [id, name, brand] of [['trae-agent', 'Trae Agent', 'trae'], ['kilo', 'Kilo', 'kilocode'], ['kilocode', 'Kilo Code', 'kilocode'], ['cline', 'Cline', 'cline'],
+    ['devin', 'Devin', 'devin'], ['goose', 'goose', 'goose'], ['kiro-cli', 'Kiro CLI', 'kiro']] as const)
+    assert.equal(of(id, name), brand, id)
+})
