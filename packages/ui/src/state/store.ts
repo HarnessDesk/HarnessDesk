@@ -5,6 +5,7 @@ import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
 import { createLeadState } from './lead'
 import { createPhoneState } from './phone'
+import { createSeatCarryOnState } from './seat-carry-on'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
@@ -715,6 +716,8 @@ export class AppStore {
       return
     }
     if (!answer || !Array.isArray(answer.incidents) || generation !== this.#chatConnectionGeneration) return
+    // One read serves both: a seat's question belongs to its Team's notice, and the seats' state keeps those.
+    this.seatCarryOn.listed(answer.incidents)
     const listed = new Map<string, CarryOnIncidentView>(answer.incidents.map(incident => [sessionKey(incident.runtime, incident.sessionId), incident]))
     const held = this.#snapshot.carryOnIncidents
     for (const at of new Set<string>([...held.keys(), ...listed.keys()])) {
@@ -923,6 +926,8 @@ export class AppStore {
   readonly transport: Transport
   readonly lead: ReturnType<typeof createLeadState>
   readonly phone: ReturnType<typeof createPhoneState>
+  /** Carry-on questions of Team and Flow seats, answered from the Team's `limit` notice. */
+  readonly seatCarryOn: ReturnType<typeof createSeatCarryOnState>
   #leadCapabilityEpoch = 0
   #chatRootsVersion: { epoch: string; revision: number } | null = null
   #chatConnectionGeneration = 0
@@ -1763,6 +1768,7 @@ export class AppStore {
         }
         this.lead.changed(notification)
         this.phone.changed(notification)
+        this.seatCarryOn.changed(notification)
         if (notification.method === 'provenance/changed') {
           const { project, revision, health } = notification.params
           if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
@@ -2146,6 +2152,7 @@ export class AppStore {
           this.#patch({ status, leadAvailable: false, captureHealth: new Map(), provenanceRevision: new Map() })
           this.lead.reset()
           this.phone.reset()
+          this.seatCarryOn.reset()
         } else {
           this.#patch({ status })
           if (previous === 'reconnecting') {
@@ -2161,6 +2168,7 @@ export class AppStore {
             }).catch(() => {})
           }
           if (previous !== 'open') void this.loadCaptureHealth().catch(() => {})
+          // Chat and seat questions alike: a seat already waiting on a person, or one a dropped link took away, comes back.
           if (previous !== 'open') void this.loadCarryOn()
           if (previous === 'reconnecting' && this.#harnessDeskAccountRequested) void this.loadHarnessDeskAccount()
         }
@@ -2169,6 +2177,8 @@ export class AppStore {
     this.lead = createLeadState(this.transport, () => this.#snapshot.leadAvailable)
     this.phone = createPhoneState(this.transport)
     this.phone.subscribe(() => { const phoneLink = this.phone.state.enabled; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
+    this.seatCarryOn = createSeatCarryOnState(this.transport)
+    this.seatCarryOn.subscribe(() => this.#patch({ seatCarryOn: this.seatCarryOn.state }))
     this.#watchWindowWidth()
     this.enableTranscriptCache()
   }

@@ -7,7 +7,7 @@ import { test, type TestContext } from 'node:test'
 import type { CarryOnChoice, CarryOnIncidentView, CarryOnItem, CarryOnOwner, CarryOnScope, ModelInfo } from '@harnessdesk/protocol'
 
 import { BACKOFF_MS, INCIDENT_LIMIT } from '../src/carry-on/incidents.js'
-import { CarryOnService, type CarryOnPorts, type CarryOnRuntime } from '../src/carry-on/service.js'
+import { CarryOnService, type CarryOnPorts, type CarryOnRuntime, type CarryOnSeatPorts } from '../src/carry-on/service.js'
 
 /** The service of the design's §11.2, over fake ports, a fake clock and a fake timer. */
 
@@ -42,6 +42,8 @@ const rig = async (t: TestContext, options: {
   readonly resetsAt?: number | null
   readonly reached?: boolean
   readonly dir?: string
+  readonly seat?: CarryOnSeatPorts
+  readonly packets?: { blind?: boolean }[]
 } = {}): Promise<Rig> => {
   const dir = options.dir ?? await mkdtemp(join(tmpdir(), 'harnessdesk-carry-on-'))
   if (!options.dir) t.after(() => rm(dir, { recursive: true, force: true }))
@@ -74,16 +76,17 @@ const rig = async (t: TestContext, options: {
     close: async (runtime, id) => { state.calls.push(`close ${runtime} ${id}`) },
     resume: async (runtime, id) => { state.calls.push(`resume ${runtime} ${id}`); return `handle ${runtime} ${id}` },
     send: async (runtime, id, text, _kind, _stillOurs, admitted) => {
-      admitted?.()
+      admitted?.([])
       // Claim before send: whatever is being sent is already on disk.
       const disk = JSON.parse(await readFile(file, 'utf8')) as { records: { state: string }[] }
       state.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)} [${disk.records.map(record => record.state).join(',')}]`)
     },
     create: async runtime => { created += 1; state.calls.push(`create ${runtime}`); return { sessionId: `new-${created}`, handle: `handle ${runtime} new-${created}` } },
-    packet: async () => 'packet',
+    packet: async (_from, meta) => { options.packets?.push({ ...(meta.blind ? { blind: meta.blind } : {}) }); return 'packet' },
     record: (runtime, id, item) => { state.marks.push({ at: `${runtime} ${id}`, item }); return true },
     publish: (key, incident) => { state.published.push({ key: `${key.runtime} ${key.sessionId}`, incident }) },
     writeRule: async (scope, agent, choice) => { state.rules.push({ scope, agent, choice }) },
+    ...(options.seat ? { seat: options.seat } : {}),
     ...over,
   })
   const service = new CarryOnService(ports())
@@ -510,12 +513,12 @@ test('the cancel closes only the handle carry-on attached', async t => {
 
 /** A send port that dispatches the way the host does: an await, then the person writes, then the effect. */
 const dispatching = (r: Rig, service: () => CarryOnService, source = { runtime: 'codex', sessionId: 's1' }) =>
-  async (runtime: string, id: string, text: string, _kind: string, stillOurs?: () => boolean, admitted?: () => void) => {
+  async (runtime: string, id: string, text: string, _kind: string, stillOurs?: () => boolean, admitted?: (known: readonly string[]) => void) => {
     await new Promise(resolve => setTimeout(resolve, 1))
     void service().personSent(source.runtime, source.sessionId)
     // The host's admission, at its effect boundary.
     if (stillOurs && !stillOurs()) throw new Error('You sent a message first.')
-    admitted?.()
+    admitted?.([])
     r.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)}`)
   }
 
@@ -618,7 +621,7 @@ test('an admitted switch still writes its marker before the continue goes', asyn
   const order: string[] = []
   const service = r.reopen({
     record: (runtime, id, item) => { order.push(`mark ${item.phase}`); r.marks.push({ at: `${runtime} ${id}`, item }); return true },
-    send: async (runtime, id, _text, _kind, _stillOurs, admitted) => { admitted?.(); order.push(`send ${runtime} ${id}`) },
+    send: async (runtime, id, _text, _kind, _stillOurs, admitted) => { admitted?.([]); order.push(`send ${runtime} ${id}`) },
   })
   t.after(() => service.close())
   await service.ended('codex', 's1', LIMIT)
@@ -694,4 +697,187 @@ test('an admitted handoff whose markers could not be written yet settles moved a
   const left = r.marks.find(mark => mark.item.phase === 'left')!
   assert.deepEqual(left.item.link, { runtime: 'claude', sessionId: 'new-1' })
   assert.equal((await disk(r.file)).records[0]!['unwritten'], undefined)
+})
+
+// ------------------------------------------------------------ seats (piece D)
+
+/** A seat's run, as the flow engine would answer for it: who it refuses, and the Seats it opens in place. */
+const seatPorts = (over: {
+  readonly blind?: boolean
+  readonly overBudget?: boolean
+  readonly refuse?: Readonly<Record<string, string>>
+  readonly refuseOnOpen?: Readonly<Record<string, string>>
+  readonly held?: boolean
+} = {}) => {
+  const log: string[] = []
+  let opened = 0
+  const ports: CarryOnSeatPorts = {
+    of: async () => over.held === false ? null : { blind: over.blind ?? false, overBudget: over.overBudget ?? false },
+    refuse: async (_runtime, _sessionId, target) => over.refuse?.[target] ?? null,
+    replace: async (from, to) => {
+      log.push(`replace ${from.runtime} ${from.sessionId} -> ${to.runtime} ${to.mode}`)
+      const refused = over.refuseOnOpen?.[to.runtime]
+      if (refused) return { refused }
+      opened += 1
+      return { runtime: to.runtime, sessionId: to.mode === 'sameThread' ? from.sessionId : `seat-session-${opened}` }
+    },
+    recover: (runtime, sessionId) => { log.push(`recover ${runtime} ${sessionId}`) },
+  }
+  return { ports, log }
+}
+
+test('a seat moves by replacement on the same thread, and its own recovery waits', async t => {
+  const seat = seatPorts()
+  const r = await rig(t, { owner: 'seat', seat: seat.ports })
+  assert.equal(await r.service.ended('codex', 's1', LIMIT), true, 'carry-on took the turn: no re-arm behind it')
+  assert.deepEqual(seat.log, ['replace codex s1 -> codex-2 sameThread'])
+  assert.deepEqual(r.calls.filter(call => call.startsWith('close') || call.startsWith('resume')), [], 'the replacement reopens the thread, not the service')
+  assert.match(r.calls.at(-1)!, /^send codex-2 s1 Continue from where you stopped\./)
+  assert.equal(r.marks.at(-1)?.item.phase, 'switched')
+  assert.equal(r.published.at(-1)?.incident?.owner, 'seat', 'the Team view hears about it; the composer card filters it out')
+  // The continuing turn went through: the move held, and the new seat's own recovery takes it from here.
+  assert.equal(await r.service.ended('codex-2', 's1', { id: 't2', status: 'completed' }), false)
+})
+
+test('a candidate the run refuses for independence is skipped, with its reason on the marker', async t => {
+  const seat = seatPorts({ refuse: { 'codex-2': 'it shares a provider with the work this seat must be independent of' } })
+  const packets: { blind?: boolean }[] = []
+  const r = await rig(t, { owner: 'seat', seat: seat.ports, packets })
+  await r.service.ended('codex', 's1', LIMIT)
+  assert.deepEqual(seat.log, ['replace codex s1 -> claude handoff'])
+  const left = r.marks.find(mark => mark.item.phase === 'left')
+  assert.match(left?.item.note ?? '', /skipped Codex · personal: it shares a provider with the work this seat must be independent of/)
+  assert.equal(r.marks.find(mark => mark.item.phase === 'arrived')?.at, 'claude seat-session-1')
+  assert.deepEqual(packets, [{}], 'a seat that reads its siblings gets the whole packet')
+})
+
+test('a refusal at opening skips that candidate too, and spends no hop', async t => {
+  const seat = seatPorts({ refuseOnOpen: { 'codex-2': 'Its attachments do not carry over to another account.' } })
+  const r = await rig(t, { owner: 'seat', seat: seat.ports })
+  await r.service.ended('codex', 's1', LIMIT)
+  // The sibling failed to reopen the thread, and then failed to seat the agent again: the next candidate is taken.
+  assert.deepEqual(seat.log, ['replace codex s1 -> codex-2 sameThread', 'replace codex s1 -> codex-2 handoff', 'replace codex s1 -> claude handoff'])
+  const [record] = (await disk(r.file)).records
+  assert.equal(record!['state'], 'moved')
+  assert.equal(record!['hops'], 1)
+  assert.match(String(record!['note'] ?? r.marks.find(mark => mark.item.phase === 'left')?.item.note), /skipped Codex · personal: Its attachments do not carry over/)
+})
+
+test('no candidate passes: the seat stays stopped on its limit, and its own recovery runs', async t => {
+  const why = 'it would leave a later step with no independent provider'
+  const seat = seatPorts({ refuse: { 'codex-2': why, claude: why } })
+  const r = await rig(t, { owner: 'seat', seat: seat.ports })
+  assert.equal(await r.service.ended('codex', 's1', LIMIT), true)
+  assert.deepEqual(seat.log, ['recover codex s1'], 'nothing opened; the stop hands the seat back to its re-arm')
+  assert.equal(r.marks.at(-1)?.item.phase, 'exhausted')
+  assert.match(r.marks.at(-1)?.item.note ?? '', /skipped Codex · personal: it would leave/)
+  assert.equal(r.marks.at(-1)?.item.cause, 'credits')
+})
+
+test('a blind reviewer’s handoff carries the request and the instruction only', async t => {
+  const seat = seatPorts({ blind: true })
+  const packets: { blind?: boolean }[] = []
+  const r = await rig(t, { owner: 'seat', seat: seat.ports, packets, available: ['codex', 'claude'] })
+  await r.service.ended('codex', 's1', LIMIT)
+  assert.deepEqual(seat.log, ['replace codex s1 -> claude handoff'])
+  assert.deepEqual(packets, [{ blind: true }])
+})
+
+test('a run at its budget gets no switch: stopped, "Run budget reached", and the seat’s own path runs', async t => {
+  const seat = seatPorts({ overBudget: true })
+  const r = await rig(t, { owner: 'seat', seat: seat.ports })
+  assert.equal(await r.service.ended('codex', 's1', LIMIT), true)
+  assert.deepEqual(seat.log, ['recover codex s1'])
+  assert.equal(r.marks.at(-1)?.item.phase, 'stopped')
+  assert.equal(r.marks.at(-1)?.item.note, 'Run budget reached')
+  assert.equal(r.calls.length, 0)
+})
+
+test('a seat no running run holds is left to its own recovery', async t => {
+  const seat = seatPorts({ held: false })
+  const r = await rig(t, { owner: 'seat', seat: seat.ports })
+  assert.equal(await r.service.ended('codex', 's1', LIMIT), false)
+  assert.equal(r.marks.length, 0)
+  assert.equal(r.service.list().length, 0)
+})
+
+test('a seat asked is answered through the same decide, and a stop hands it back', async t => {
+  const seat = seatPorts()
+  const r = await rig(t, { owner: 'seat', seat: seat.ports, choice: 'ask' })
+  assert.equal(await r.service.ended('codex', 's1', LIMIT), true)
+  const [incident] = r.service.list()
+  assert.equal(incident?.owner, 'seat')
+  assert.equal(incident?.state, 'asked')
+  assert.equal(r.service.live('codex', 's1'), true, 'the host leaves its re-arm alone while the question is open')
+  await r.service.decide({ incidentId: incident!.incidentId, choice: 'stop', always: false })
+  assert.deepEqual(seat.log, ['recover codex s1'])
+  assert.equal(r.service.live('codex', 's1'), false)
+})
+
+/*
+ * Review fix 2: a replacement Seat starts on its brief, and its packet goes
+ * after it (queued behind it when the brief is still running). Only the
+ * continuation's own end says whether the move held, so a limit there goes on
+ * as the same incident, with its hops and the accounts it tried.
+ */
+for (const queued of [false, true]) test(`a replacement Seat’s brief never ends the watch; a limit on its ${queued ? 'queued ' : ''}continuation carries the same incident on`, async t => {
+  const seat = seatPorts({ refuse: { 'codex-2': 'it shares a provider with the work this seat must be independent of' } })
+  const r = await rig(t, { owner: 'seat', seat: seat.ports })
+  let drain: (() => void) | null = null
+  const service = r.reopen({
+    send: async (runtime, id, text, _kind, _stillOurs, admitted) => {
+      r.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)}`)
+      // The new Seat already had its brief. Queued, the packet is admitted only when that brief is over.
+      if (queued) drain = () => admitted?.(['brief-1'])
+      else admitted?.(['brief-1'])
+    },
+  })
+  t.after(() => service.close())
+  assert.equal(await service.ended('codex', 's1', LIMIT), true)
+  assert.deepEqual(seat.log, ['replace codex s1 -> claude handoff'])
+  const [moved] = (await disk(r.file)).records
+  assert.equal(moved!['state'], 'moved')
+  assert.equal(moved!['hops'], 1)
+
+  // The brief finishing is not the continuation: the watch stays where it was.
+  assert.equal(await service.ended('claude', 'seat-session-1', { id: 'brief-1', status: 'completed' }), false)
+  if (queued) {
+    assert.deepEqual((await disk(r.file)).records[0]!['watch'], { runtime: 'claude', sessionId: 'seat-session-1', pending: true })
+    drain!()
+    await service.idle()
+  }
+  assert.deepEqual((await disk(r.file)).records[0]!['watch'], { runtime: 'claude', sessionId: 'seat-session-1', skip: ['brief-1'] })
+
+  // The continuation itself hits a limit: the same incident goes on, never a fresh one at hops 0.
+  assert.equal(await service.ended('claude', 'seat-session-1', { ...LIMIT, id: 't-continue' }), true)
+  await service.idle()
+  const records = (await disk(r.file)).records
+  assert.equal(records.length, 1, 'no second incident')
+  assert.equal(records[0]!['incidentId'], moved!['incidentId'])
+  assert.ok(Number(records[0]!['hops']) >= 1, 'its hops are kept')
+  assert.ok((records[0]!['tried'] as string[]).includes('codex') && (records[0]!['tried'] as string[]).includes('claude'), 'and the accounts it tried')
+})
+
+/* Round 2, P1: a seat's sends say they go into a Seat, so the host refuses one it finds no run's gate for. */
+test('every send into a seat says so, and a chat’s never does', async t => {
+  const seen: string[] = []
+  const recording = (r: Rig): CarryOnPorts['send'] => async (_runtime, _id, _text, kind, _stillOurs, admitted, seat) => {
+    admitted?.([])
+    seen.push(`${kind} ${seat === true ? 'seat' : 'chat'}`)
+  }
+  const seat = seatPorts()
+  const s = await rig(t, { owner: 'seat', seat: seat.ports })
+  const seatService = s.reopen({ send: recording(s) })
+  t.after(() => seatService.close())
+  await seatService.ended('codex', 's1', LIMIT)
+  await seatService.idle()
+  assert.ok(seen.length > 0 && seen.every(one => one.endsWith(' seat')), seen.join(', '))
+
+  seen.length = 0
+  const c = await rig(t)
+  const chatService = c.reopen({ send: recording(c) })
+  t.after(() => chatService.close())
+  await chatService.ended('codex', 's1', LIMIT)
+  await chatService.idle()
+  assert.ok(seen.length > 0 && seen.every(one => one.endsWith(' chat')), seen.join(', '))
 })

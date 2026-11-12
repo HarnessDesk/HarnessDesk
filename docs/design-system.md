@@ -1323,6 +1323,14 @@ because the difference between "still reading" and "ran out of its window
 forty minutes ago" is the whole reason the row exists, and a grey sentence
 in a busy channel is not that difference.
 
+When the stop waits on the person, the same row carries the decision:
+`choices` as a line of buttons under the sentence, the first one the
+filled act the composer's own decision card draws, `always` as the box that
+turns the answer into the rule from now on (its label states its scope, and
+it is unticked each time the question is shown), and `note` for the one
+fact that varies (a candidate that was skipped and why). A Team never gets a second card for it — the notice is where the
+room already says the member stopped.
+
 ### `Checklist`
 
 `packages/ui/src/design/patterns/Checklist.tsx`

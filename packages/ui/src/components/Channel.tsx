@@ -13,11 +13,12 @@ import type {
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { Button, Chip, Separator } from '../design'
-import { ChannelMessage, ChannelNotice, ChannelSignal } from '../design'
+import { ChannelMessage, ChannelNotice, ChannelSignal, type ChannelNoticeChoice } from '../design'
 import { type Brand, brandForRuntime } from '../lib/brands'
 import { Markdown } from './Markdown'
 import { Face } from '../design'
 import { sanitizeText } from '../lib/sanitize'
+import { latestLimitNotices, seatCarryOnAlways, seatCarryOnChoices } from '../lib/seat-carry-on'
 
 /**
  * The channel: what the conversations on one board said, in order.
@@ -348,6 +349,7 @@ export const ChannelStream = ({
   const snapshot = useSnapshot()
   const batches = useMemo(() => channelSignalBatches(room, snapshot.flowExecutions.values()), [room, snapshot.flowExecutions])
   const rows = useMemo(() => readChannel(entries, batches), [entries, batches])
+  const asking = useMemo(() => latestLimitNotices(entries), [entries])
   const compactName = (actor: TeamActor): string => sanitizeText(displayName?.(actor) ?? actorName(actor, snapshot))
   const recipientName = (target: NonNullable<TeamMessage['to']>): string => sanitizeText(displayName?.({ kind: 'agent', ...target }) ?? target.nickname ?? target.title)
   const audience = (entry: TeamMessage, targets?: readonly NonNullable<TeamMessage['to']>[]): { to: string; toTitle: string } => {
@@ -371,6 +373,28 @@ export const ChannelStream = ({
   }
 
   const setTrouble = onTrouble
+  /* A seat out of its usage limit whose carry-on asks the person: the answer
+     goes on its Team's own notice, the latest one for that member (§9.1). */
+  const carryOnAsk = (entry: TeamNotice): { choices?: readonly ChannelNoticeChoice[]; always?: { label: string }; note?: string } => {
+    const member = asking.get(entry.id)
+    const incident = member ? snapshot.seatCarryOn.get(member) : undefined
+    const choices = seatCarryOnChoices(incident, timeOf)
+    if (!choices || !incident) return {}
+    return {
+      choices: choices.map((one) => ({
+        label: sanitizeText(one.label),
+        title: sanitizeText(one.title),
+        disabled: one.disabled,
+        onSelect: (always: boolean) => {
+          setTrouble(null)
+          void store.seatCarryOn.decide({ incidentId: incident.incidentId, choice: one.choice, ...(one.target ? { target: one.target } : {}), always })
+            .catch((error: unknown) => setTrouble(error instanceof Error ? error.message : String(error)))
+        },
+      })),
+      always: { label: sanitizeText(seatCarryOnAlways(incident)) },
+      ...(incident.note ? { note: sanitizeText(incident.note) } : {}),
+    }
+  }
   const nodes = (() => {
     const nodes: ReactNode[] = []
     let day: string | null = null
@@ -389,6 +413,7 @@ export const ChannelStream = ({
             cause={row.entry.cause}
             text={sanitizeText(row.entry.text)}
             at={timeOf(row.entry.at)}
+            {...carryOnAsk(row.entry)}
           />
         ) : row.kind === 'signal' ? (
           <ChannelSignal

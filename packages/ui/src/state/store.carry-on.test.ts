@@ -76,6 +76,16 @@ describe('carry-on in the store', () => {
     expect(store.getSnapshot().carryOnIncidents.size).toBe(1)
   })
 
+  it('one read on connect serves chats and seats: a seat’s question goes to the seats’ state, and no second list is sent', async () => {
+    const seat = incident({ incidentId: 'incident-seat', sessionId: 'seat-thread' as SessionId, owner: 'seat' })
+    answers['carryOn/list'] = { incidents: [incident(), seat] }
+    status('open')
+    await vi.waitFor(() => expect(store.getSnapshot().seatCarryOn.size).toBe(1))
+    expect(store.getSnapshot().seatCarryOn.get(sessionKey(RUNTIME, seat.sessionId))?.incidentId).toBe('incident-seat')
+    expect(store.getSnapshot().carryOnIncidents.get(KEY)?.owner).toBe('chat')
+    expect(request.mock.calls.filter(([method]) => method === 'carryOn/list')).toHaveLength(1)
+  })
+
   it('keeps one inbox copy per state, opens the conversation from it, and marks the question read once answered', () => {
     push(incident())
     push(incident())

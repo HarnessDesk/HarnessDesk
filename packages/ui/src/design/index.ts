@@ -228,6 +228,7 @@ export {
   ChannelNotice,
   ChannelSignal,
   type ChannelMessageProps,
+  type ChannelNoticeChoice,
   type ChannelState,
 } from './patterns/ChannelMessage'
 export { AgentCard, MemberName, CardBand, CardCrest, CardCrestBody, CardShell, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'

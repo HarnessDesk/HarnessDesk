@@ -14,7 +14,15 @@ import { CarryOnNotice } from './CarryOnNotice'
 let container: HTMLDivElement
 let root: Root
 
+/** The reset the cards below name, and a clock on the same day before it, both in the zone the test runs in. */
+const RESET = new Date(2026, 10, 11, 16, 30)
+const NOW = new Date(2026, 10, 11, 12, 0)
+const clock = (at: Date): string => at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+
 beforeEach(() => {
+  // The reset line depends on whether the reset is today, so the test owns the clock.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW)
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -22,6 +30,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.useRealTimers()
 })
 
 const RUNTIME = runtimeId('runtime-a1')
@@ -37,7 +46,7 @@ const incident = (patch: Partial<CarryOnIncidentView> = {}): CarryOnIncidentView
   state: 'asked',
   cause: 'credits',
   from: { name: 'Alpha', account: 'work', model: 'model-large' },
-  resetsAt: new Date(2026, 10, 11, 16, 30).getTime(),
+  resetsAt: RESET.getTime(),
   openedAt: Date.now(),
   choices: { target: { runtime: SIBLING, name: 'Alpha', account: 'personal', mode: 'sameThread', tier: 0 }, wait: true },
   others: [
@@ -71,12 +80,18 @@ it('names the stuck account and where "Switch now" goes, from the names the host
   mount(incident())
   const text = container.textContent ?? ''
   expect(text).toContain('Alpha · work reached its usage limit.')
-  expect(text).toMatch(/Resets at \d/)
+  expect(text).toContain(`Resets at ${clock(RESET)}`)
   expect(button('Switch to Alpha · personal')).toBeDefined()
   expect(button('Wait until reset')?.disabled).toBe(false)
   expect(button('Stop')).toBeDefined()
   expect(text).toContain('Always do this')
   for (const id of [RUNTIME, SIBLING, OTHER, 'runtime-c1']) expect(text).not.toContain(id)
+})
+
+it('a reset on another day names its day as well as its time', () => {
+  const later = new Date(2026, 10, 12, 9, 15)
+  mount(incident({ resetsAt: later.getTime() }))
+  expect(container.textContent).toContain(`Resets at ${later.toLocaleDateString(undefined, { weekday: 'short' })} ${clock(later)}`)
 })
 
 it('a handoff says it continues with the other agent, and an agent-level rule names its scope', () => {
