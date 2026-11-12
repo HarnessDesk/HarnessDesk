@@ -262,12 +262,17 @@ reminders: [
 
 /** What the host tells a window that has been away: one digest, and what became of the questions in the thread. */
 export const leadPresenceFixture = (now = Date.now()): LeadPresenceView => ({ version: 1, brief: { enabled: false, at: '07:30' },
-  digest: { version: 1, id: `away-${now - 10_800_000}-${now}`, kind: 'away', from: now - 10_800_000, to: now, spentUsdMicros: 1_200_000, more: 0, items: [
+  digest: { version: 1, id: `away-${now - 10_800_000}-${now}`, kind: 'away', from: now - 10_800_000, to: now, spentUsdMicros: 1_200_000, more: 1, items: [
     // Each item opens what it names: a chat, a decision card, a pull request. One with nothing the desk can open stays a reading.
     { kind: 'waiting', id: 'work-4', title: 'Rename the status column', fact: 'An approval waits for you', ref: { kind: 'chat', id: 'fixture:rename-column' }, at: now - 1_200_000 },
     { kind: 'waiting', id: 'plan-2', title: 'A plan waits for your approval', ref: { kind: 'card', id: 'plan-2' } },
     { kind: 'stopped', id: 'work-6', title: 'Retry the flaky upload test', fact: 'Stopped: the person stopped its chat', ref: { kind: 'chat', id: 'fixture:upload-retry' }, at: now - 5_400_000, stoppedBy: 'person' },
     { kind: 'stopped', id: 'work-5', title: 'Ship the changelog after the rename', fact: 'Waits for the column rename', ref: { kind: 'work', id: 'work-5' }, at: now - 3_600_000 },
-    { kind: 'done', id: 'work-1', title: 'Update the onboarding copy', fact: 'Pull request merged', ref: { kind: 'pr', id: 'acme/widgets#42' }, at: now - 7_200_000 }] },
+    { kind: 'done', id: 'work-1', title: 'Update the onboarding copy', fact: 'Pull request merged', ref: { kind: 'pr', id: 'acme/widgets#42' }, at: now - 7_200_000 },
+    // A reminder that fired opens what it is about; a note kept and a setting applied open their row in Settings. Each
+    // group's heading says what happened, so these rows carry no second line. A ninth item (a chat that finished) is counted.
+    { kind: 'waiting', about: 'reminder', id: 'remind-1', title: 'Check the review on the retry list', fact: 'A reminder fired', ref: { kind: 'chat', id: 'fixture:chat-2' }, at: now - 1_200_000 },
+    { kind: 'done', about: 'memory', id: 'm2', title: 'Release notes go in CHANGELOG.md under Unreleased.', fact: 'Kept in memory', ref: { kind: 'memory', id: 'm2' }, at: now - 2_400_000 },
+    { kind: 'done', about: 'setting', id: `setting:autonomy:brief:${now - 1_800_000}`, title: 'Morning brief, Act', fact: 'Applied in Settings', ref: { kind: 'setting', id: 'autonomy:brief' }, at: now - 1_800_000 }] },
   asks: [{ id: 'ask-answered', status: 'answered', answer: { option: 'Fix focus only', by: 'iPhone', at: now - 3_600_000 } }, { id: 'ask-expired', status: 'expired', expiresAt: now - 600_000 },
     { id: 'ask-replaced', status: 'expired', replacedBy: 'ask-live' }, { id: 'ask-live', status: 'open' }] })

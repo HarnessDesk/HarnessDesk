@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createLeadJournal } from '@harnessdesk/lead'
-import { LEAD_RULE_DEFAULTS, LEAD_RULE_LIMITS, LEAD_SETTINGS_PROPOSAL_LIMITS, parseLeadAutonomyView, type LeadAutonomyMode, type LeadSchedule, type LeadScheduledTask } from '@harnessdesk/protocol'
+import { LEAD_RULE_DEFAULTS, LEAD_RULE_LIMITS, LEAD_SETTINGS_PROPOSAL_LIMITS, parseLeadAutonomyView, type LeadAutonomyMode, type LeadSchedule, type LeadScheduledTask, type LeadWorkBoard } from '@harnessdesk/protocol'
 import { LeadAutonomyStore, LEAD_OBSERVED_NOTES } from '../src/lead/autonomy.js'
 import { LeadAutomaticGoals } from '../src/lead/automatic-goals.js'
 import { LeadPlanner } from '../src/lead/planner.js'
@@ -165,7 +165,9 @@ test('brief: Off and Observe spend the day without a digest; Act makes it', asyn
     const pushes: unknown[] = []
     let now = new Date(2026, 10, 10, 7, 0).getTime()
     const presence = new LeadPresenceStore({ file: join(home, 'lead', 'presence.json'), now: () => now, spent: () => 0, revision: () => 10,
-      board: async () => ({ version: 1, items: [], more: 0 }), waiting: () => [], messages: () => [], quiet: async () => false, name: () => 'Dex',
+      // One item that needs the person, so a brief Act makes has something to push.
+      board: async () => ({ version: 1, items: [{ id: 'work-1', title: 'Pick a port', project: 'acme-app', stage: 'needs-you', group: 'needs-you', links: { chats: [], teams: [], prs: [], issues: [] }, createdAt: 0, updatedAt: now }], more: 0 }) as LeadWorkBoard,
+      waiting: () => [], messages: () => [], quiet: async () => false, name: () => 'Dex',
       briefGate: () => r.store.gate('brief'), push: notice => { pushes.push(notice) } })
     await presence.updateBrief({ enabled: true, at: '07:30' })
     now = new Date(2026, 10, 10, 8, 0).getTime()

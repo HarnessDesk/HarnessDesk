@@ -69,6 +69,8 @@ const reminderLine = (entry: LeadReminder): string => {
 }
 
 /** Reminders the person can see: every one still set, and the ones that fired in the last day. A cancelled one is gone. */
+/** The Work card's header: where a door to a row that is gone lands, so the person is shown where it was. */
+export const LEAD_WORK_LANDING = 'section[data-slot="tool-section"][aria-label="Work"] [data-slot="tool-section-fold"]'
 export const leadVisibleReminders = (board: LeadWorkBoard | null | undefined): readonly LeadReminder[] =>
   (board?.reminders ?? []).filter(entry => entry.state === 'set' || entry.state === 'fired')
 
@@ -130,7 +132,7 @@ export const LeadWork = () => {
         trail={<>{card.outcome === 'dropped' ? <Chip tone="neutral">Dropped</Chip> : card.stage === 'stopped' && <Chip tone="neutral" title={stopsTitle(card)}>{card.stoppedBy === 'person' ? 'You stopped it' : 'Stopped'}</Chip>}<WorkActions card={card} onClose={outcome => { void close(card, outcome) }} /></>} /> })}</ListRows>
     </ToolGroup>)}
     {reminders.length > 0 && <ToolGroup label="Reminders" heading={`Reminders · ${reminders.length}`} data-work-group="reminders">
-      <ListRows surface="panel">{reminders.map(entry => <ListRow key={entry.id} size="sm" data-work-reminder={entry.id}
+      <ListRows surface="panel">{reminders.map(entry => <ListRow key={entry.id} size="sm" data-work-reminder={entry.id} tabIndex={-1}
         title={sanitizeText(entry.text)} wrapTitle
         // When it is due, or what became of it, is the fact that varies, so it earns the line. A person's reminder says
         // Said only once the Lead's message was written; one the Lead never wrote says Missed, never Fired as if said.

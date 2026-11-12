@@ -1388,6 +1388,35 @@ it('a page rail floats over the page where the column cannot hold it, by the ses
   expect(railFloatsBeside(FRAME.main.min + FRAME.infoCard.width)).toBe(false)
 })
 
+it('a rail floats wherever docking it would leave the thread under its minimum beside the sidebar actually drawn (#2179)', () => {
+  // A narrow window draws the sidebar over the thread, not beside it; it still covers what the rail would leave.
+  const cases = [[740, true, true], [740, false, true], [800, true, true], [800, false, false],
+    [900, true, true], [900, false, false], [1200, true, false], [1200, false, false]] as const
+  for (const [windowWidth, shown, floats] of cases) {
+    const narrowWindow = windowWidth < FRAME.fold.sidebarFloats
+    const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }),
+      { windowWidth, narrowWindow, sidebarFloating: narrowWindow && shown, sidebarCollapsed: !narrowWindow && !shown })
+    const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return null }
+    act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={<nav>Sidebar</nav>} pageActive pages={<Page />} /></StoreProvider>))
+    const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+    const label = `${windowWidth}px, sidebar ${shown ? 'shown' : 'hidden'}`
+    expect(shell.dataset.leftOpen, label).toBe(String(shown))
+    expect(shell.dataset.railFloats, label).toBe(String(floats))
+  }
+})
+
+it('a rail floating only because the sidebar lies over the thread leaves Escape and presses to the sidebar (#2179)', () => {
+  const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth: 900, narrowWindow: true, sidebarFloating: true })
+  const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return null }
+  const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={<button type="button" data-testid="sidebar-row">Chat</button>} pageActive pages={<Page />} /></StoreProvider>))
+  draw()
+  const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  expect([shell().dataset.railFloats, shell().dataset.railOpen]).toEqual(['true', 'true'])
+  act(() => { container.querySelector('[data-testid="sidebar-row"]')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })) })
+  draw()
+  expect(shell().dataset.railOpen, 'a press in the sidebar on top is the sidebar\'s').toBe('true')
+})
+
 it('a page rail floats when the terminal pane the page keeps leaves the column too narrow', () => {
   // 1100px holds the rail alone; beside a 400px terminal the column is 700px, under the line.
   for (const [terminal, floats] of [[false, false], [true, true]] as const) {

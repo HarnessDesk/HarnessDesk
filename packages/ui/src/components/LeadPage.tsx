@@ -26,7 +26,9 @@ import { LeadDetails } from './LeadDetails'
 import { useShell } from '../panels/views'
 import { AtIcon, FolderIcon, FolderOpenIcon, PlusIcon, RouteIcon, SendIcon, SettingsIcon, StopIcon } from './Icons'
 import { LeadStatusPanel, useLeadControls } from './LeadControls'
-import { sidebarPlacement } from '../state/workbench'
+import { pageRailOpen, sidebarPlacement } from '../state/workbench'
+import { focusWhenDrawn } from '../lib/focus-when-drawn'
+import { LEAD_WORK_LANDING, leadVisibleReminders } from './LeadWork'
 import { formatLeadConsentTime } from './lead-consent-time'
 import { LeadMemoryProposals, leadMemoryPlacement } from './LeadMemory'
 import { LeadSettingsProposals } from './LeadSettingsProposals'
@@ -98,7 +100,7 @@ const leadMessageNote = (refs: readonly LeadMessageRef[] | undefined, proposals:
   return <>{refs?.length || text?.trim() ? <LeadRefs refs={refs ?? NONE} text={text} /> : null}{proposals?.length ? <LeadMemoryProposals candidates={proposals} /> : null}{settings?.length ? <LeadSettingsProposals proposals={settings} /> : null}</>
 }
 
-export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
+export const LeadPage = ({ initialGoal = '', focus = null, nonce }: { readonly initialGoal?: string; readonly focus?: string | null; readonly nonce?: number }) => {
   const store = useStore(), snapshot = useSnapshot(), active = useDestinationActive()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const unavailable = state.settings?.unavailable === 'runtime'
@@ -257,13 +259,27 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const focusedDecision = useRef<string | null>(null)
   useEffect(() => {
     if (!active) { focusedDecision.current = null; return }
-    if (!focus || focusedDecision.current === focus) return
+    const door = `${focus}:${nonce ?? ''}`
+    if (!focus || focusedDecision.current === door) return
     const element = [...(thread.current?.querySelectorAll<HTMLElement>('[data-lead-card]') ?? [])].find(node => node.dataset.leadCard === focus)
     if (!element) return
-    focusedDecision.current = focus
+    focusedDecision.current = door
     requestedDecisionFocus.current = focus; setSelectedDecision(focus)
     element.scrollIntoView?.({ block: 'end' }); focusDock(focus)
-  }, [active, focus, state.revision])
+  }, [active, focus, nonce, state.revision])
+  // A reminder's door is the Work list: the rail comes back if it was put away, and the reminder's row comes into view.
+  const focusedReminder = useRef<string | null>(null)
+  useEffect(() => {
+    if (!active) { focusedReminder.current = null; return }
+    const door = `${focus}:${nonce ?? ''}`
+    if (!focus || !/^remind-\d+$/.test(focus) || focusedReminder.current === door) return
+    // Once per click: the rail opens, and the row is focused when the rail's contents arrive.
+    focusedReminder.current = door
+    if (!pageRailOpen(store.getSnapshot().workbench, 'lead')) store.togglePageRail('lead')
+    // A reminder cancelled or cleared since the door was drawn: the person lands on the Work card instead.
+    const gone = () => { const work = store.lead.state.work; return !!work && !leadVisibleReminders(work).some(entry => entry.id === focus) }
+    return focusWhenDrawn(`[data-work-reminder="${focus}"]`, () => {}, { fallback: [LEAD_WORK_LANDING], gone })
+  }, [active, focus, nonce, store])
   useEffect(() => {
     if (!active || !requestedDecisionFocus.current) return
     if (!cards.some(card => card.id === requestedDecisionFocus.current)) { requestedDecisionFocus.current = null; return }

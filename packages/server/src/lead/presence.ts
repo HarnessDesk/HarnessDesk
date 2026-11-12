@@ -1,7 +1,8 @@
 import type { LeadState } from '@harnessdesk/lead'
-import { LEAD_DIGEST_ITEM_LABELS, LEAD_PRESENCE_LIMITS, capLeadPushText, formatLeadDollars, leadMessageAsk, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
+import { LEAD_AUTONOMY_LABELS, LEAD_DIGEST_GROUP_LABELS, LEAD_PRESENCE_LIMITS, LEAD_RULE_TITLES, leadDigestGroup, capLeadPushText, formatLeadDollars, leadMessageAsk, quoteLeadWorkText, leadDigestPushParts, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
   type LeadAsk, type LeadAskState, type LeadProactive, type LeadBriefSettings, type LeadBriefUpdate, type LeadDeviceRef, type LeadDigest, type LeadDigestItem,
-  type LeadDigestKind, type LeadDigestRef, type LeadPresenceView, type LeadWorkBoard, type LeadWorkCard } from '@harnessdesk/protocol'
+  type LeadDigestKind, type LeadDigestRef, type LeadPresenceView, type LeadWorkBoard, type LeadWorkCard,
+  type LeadAutonomyChange, type LeadAutonomyMode, type LeadDeskSummary, type LeadMemoryEntry } from '@harnessdesk/protocol'
 import { rename } from 'node:fs/promises'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
 
@@ -23,6 +24,12 @@ export interface LeadPresencePorts {
   readonly revision: () => number
   /** The thread's messages, for the asks among them: a reply's `ask`, or the options of a report from an automatic wake. */
   readonly messages: () => readonly { readonly id: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly proactive?: LeadProactive; readonly source?: 'person' | 'automatic' | 'schedule'; readonly wake?: unknown }[]
+  /** The desk's own Teams and chats, as the desk summary reads them: the ones that need the person, and the newest. */
+  readonly desk?: () => Promise<LeadDeskSummary | null>
+  /** The notes in the Lead's memory, Core and Archive. */
+  readonly memory?: () => Promise<readonly LeadMemoryEntry[]>
+  /** The settings the person changed: autonomy modes and rule sections, with when. */
+  readonly settings?: () => Promise<readonly LeadAutonomyChange[]>
   /** Whether quiet hours hold work back right now. */
   readonly quiet: () => Promise<boolean>
   /** Autonomy for the morning brief: `off` and `observed` both mean it is not made; the day is spent either way. */
@@ -104,6 +111,17 @@ const digestRef = (card: LeadWorkCard): LeadDigestRef => {
     : [['team', team], ['chat', chat], ['pr', pr]]
   const found = order.find(([kind, id]) => id && isLeadDigestRefId(kind, id))
   return found ? { kind: found[0], id: found[1]! } : { kind: 'work', id: card.id }
+}
+const MODE_WORDS: Readonly<Record<LeadAutonomyMode, string>> = { off: 'Off', observe: 'Observe', act: 'Act' }
+/** A digest item id that fits the wire's 96 characters: the ref's own id when it does, so the same thing keeps one id. */
+const itemId = (prefix: string, id: string) => `${prefix}:${id}`.slice(0, 96)
+/** A setting change as the item that opens it, in the receipt's words; a deadline belongs to the goal, not to Settings. */
+const settingItem = (change: LeadAutonomyChange): LeadDigestItem | null => {
+  if (change.what === 'deadline') return null
+  const [title, focus] = change.what === 'mode' ? [`${LEAD_AUTONOMY_LABELS[change.kind].title}, ${MODE_WORDS[change.to]}`, `autonomy:${change.kind}`]
+    : [`${LEAD_RULE_TITLES[change.section]}, version ${change.version}`, `rules:${change.section}`]
+  return { kind: 'done', about: 'setting', id: itemId('setting', `${focus}:${change.at}`), title: clip(title, LEAD_PRESENCE_LIMITS.titleChars), fact: 'Applied in Settings',
+    ref: { kind: 'setting', id: focus }, at: change.at }
 }
 /** An hour and minute in the desk's zone, as the away card titles its window: "09:27". */
 const hourMinute = (at: number) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
@@ -362,13 +380,21 @@ export class LeadPresenceStore {
     return out.slice(-LEAD_PRESENCE_LIMITS.asks)
   }
 
-  /** Every item since `since`, in the order the person acts on; the caller drops what was seen, then caps the list. */
+  /**
+   * Every item since `since`, in the order the person acts on; the caller drops what was seen, then caps the list. One
+   * list for every digest (the away card, "What happened?", the morning brief) and for the away note the Lead reads, so
+   * none of them can tell a different story: the work ledger's items and the decisions waiting on the person; the desk's
+   * own Teams and chats that came to need the person or finished, unless the ledger already tells them; the reminders of
+   * the person's that fired; the notes kept in memory; and the settings the person applied. The last three are what the
+   * person or the Lead did rather than work that moved, so they come after it, and the desk's finished chats last of all.
+   */
   async #items(since: number, revision: number, until = Infinity): Promise<LeadDigestItem[]> {
-    const board = await this.ports.board().catch(() => null)
+    const [board, desk, notes, changes] = await Promise.all([this.ports.board().catch(() => null), this.ports.desk?.().catch(() => null) ?? null,
+      this.ports.memory?.().catch(() => []) ?? [], this.ports.settings?.().catch(() => []) ?? []])
     const waiting: LeadDigestItem[] = [], stopped: LeadDigestItem[] = [], done: LeadDigestItem[] = []
-    const seen = new Set<string>()
+    const seen = new Set<string>(), told: LeadWorkCard[] = []
     for (const card of board?.items ?? []) {
-      const entry = (kind: LeadDigestItem['kind'], at: number): LeadDigestItem => ({ kind, id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'Untitled work',
+      const entry = (kind: LeadDigestItem['kind'], at: number): LeadDigestItem => (told.push(card), { kind, id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'Untitled work',
         ...(card.fact || card.blocker ? { fact: clip(card.fact ?? card.blocker ?? '', LEAD_PRESENCE_LIMITS.factChars) } : {}),
         ref: digestRef(card), at, ...(kind === 'stopped' && card.stoppedBy ? { stoppedBy: card.stoppedBy } : {}) })
       const closed = card.closedAt ?? card.updatedAt
@@ -379,7 +405,31 @@ export class LeadPresenceStore {
     // Decisions that wait on the person but belong to no work item (a plan, a permission change). They open their card.
     for (const card of this.ports.waiting()) if (card.position > revision && card.position <= until && !seen.has(card.id))
       waiting.push({ kind: 'waiting', id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'A request waits for you', ref: { kind: 'card', id: card.id } })
-    return [...waiting, ...stopped, ...done]
+    // The desk's own Teams and chats, the ones this digest does not already tell as a work item's row: one that came to
+    // need the person, and one that finished (went idle). Stopped and failed ones wait on the person, so they are among
+    // the first. A Team or chat whose work item has nothing new in the span is told here, or it would not be told at all.
+    const followed = new Set(told.flatMap(card => [...card.links.teams, ...card.links.chats]))
+    const own = (item: LeadDeskSummary['recent'][number]) => item.updatedAt >= since && !followed.has(item.id) && isLeadDigestRefId(item.kind, item.id)
+    const entry = (item: LeadDeskSummary['recent'][number], kind: LeadDigestItem['kind']): LeadDigestItem => ({ kind, id: itemId(item.kind, item.id),
+      title: clip(item.title, LEAD_PRESENCE_LIMITS.titleChars) || (item.kind === 'team' ? 'Untitled Team' : 'Untitled chat'), ref: { kind: item.kind, id: item.id }, at: item.updatedAt })
+    for (const item of desk?.needsYou ?? []) if (own(item)) waiting.push(entry(item, 'waiting'))
+    const finished = (desk?.recent ?? []).filter(item => item.state === 'idle' && own(item)).map(item => entry(item, 'done'))
+    // The person's reminders that fired. One about a work item opens that item, as the item's own row does; any other
+    // opens the reminder on the Work list.
+    const cards = new Map((board?.items ?? []).map(card => [card.id, card]))
+    const reminders: LeadDigestItem[] = (board?.reminders ?? []).filter(one => one.for === 'person' && one.state === 'fired' && one.firedAt !== undefined && one.firedAt >= since)
+      .sort((a, b) => a.firedAt! - b.firedAt!).map(one => {
+        const card = one.item ? cards.get(one.item) : undefined
+        return { kind: 'waiting', about: 'reminder', id: one.id, title: clip(one.text, LEAD_PRESENCE_LIMITS.titleChars) || 'A reminder', fact: 'A reminder fired',
+          ref: card ? digestRef(card) : { kind: 'reminder', id: one.id }, at: one.firedAt! }
+      })
+    // Notes kept in memory: by the person's Keep, their own Add, or the Lead keeping its own. A tidy's merge and the
+    // carrying-across of older lines are housekeeping, not something that happened.
+    const kept: LeadDigestItem[] = notes.filter(note => note.createdAt >= since && note.source.kind !== 'consolidation' && note.source.id !== 'migration')
+      .sort((a, b) => a.createdAt - b.createdAt).map(note => ({ kind: 'done', about: 'memory', id: note.id, title: clip(note.text, LEAD_PRESENCE_LIMITS.titleChars) || 'A note',
+        fact: 'Kept in memory', ref: { kind: 'memory', id: note.id }, at: note.createdAt }))
+    const applied = [...changes].filter(change => change.at >= since).sort((a, b) => a.at - b.at).flatMap(change => settingItem(change) ?? [])
+    return [...waiting, ...reminders, ...stopped, ...done, ...kept, ...applied, ...finished]
   }
 
   /** The part of a digest that needs only the ledger; the optional paragraph is added outside the queue. */
@@ -434,6 +484,24 @@ export class LeadPresenceStore {
    * being lost behind it.
    */
   async read(device: LeadDeviceRef, options: { readonly active?: boolean; readonly recap?: boolean } = {}): Promise<LeadPresenceView> {
+    return this.#live(await this.#read(device, options))
+  }
+  /**
+   * A digest stays on a device until it is dismissed, and what a row opens can go in the meantime: a note forgotten, a
+   * reminder cancelled, done or cleared. Such a row keeps its words and loses its door, so it never opens onto nothing.
+   */
+  async #live(view: LeadPresenceView): Promise<LeadPresenceView> {
+    const items = view.digest?.items ?? []
+    const memory = items.some(item => item.ref?.kind === 'memory'), reminders = items.some(item => item.ref?.kind === 'reminder')
+    if (!view.digest || !memory && !reminders) return view
+    const [notes, board] = await Promise.all([memory ? this.ports.memory?.().catch(() => null) ?? null : null, reminders ? this.ports.board().catch(() => null) : null])
+    const noteIds = notes ? new Set(notes.map(note => note.id)) : null
+    const reminderIds = board ? new Set((board.reminders ?? []).filter(one => one.state === 'set' || one.state === 'fired').map(one => one.id)) : null
+    const gone = (ref: LeadDigestRef | undefined) => ref?.kind === 'memory' ? !!noteIds && !noteIds.has(ref.id) : ref?.kind === 'reminder' ? !!reminderIds && !reminderIds.has(ref.id) : false
+    if (!items.some(item => gone(item.ref))) return view
+    return parseLeadPresenceView({ ...view, digest: { ...view.digest, items: items.map(item => { if (!gone(item.ref)) return item; const { ref: _ref, ...rest } = item; return rest }) } })
+  }
+  async #read(device: LeadDeviceRef, options: { readonly active?: boolean; readonly recap?: boolean }): Promise<LeadPresenceView> {
     const step = await this.#write(async () => {
       this.#observeAsks()
       const now = this.ports.now(), revision = this.ports.revision(), spent = this.ports.spent()
@@ -572,17 +640,21 @@ export class LeadPresenceStore {
       const found = card ? card.items : (await this.#items(away.from, away.revision, away.until ?? away.revision)).filter(entry => entry.at === undefined || entry.at <= away.to)
       const shown = found.slice(0, LEAD_PRESENCE_LIMITS.items), more = card ? card.more : found.length - shown.length
       const spent = card ? card.spentUsdMicros : this.#spentBetween(away.from, away.to), dollars = formatLeadDollars(spent)
-      const lines = shown.map(entry => `- ${LEAD_DIGEST_ITEM_LABELS[entry.kind]}: ${quoteLeadWorkText(entry.title, LEAD_PRESENCE_LIMITS.titleChars)}${awayRef(entry.ref)}`)
+      // A reminder is told below, with when it fired and the work item it is about; every other item by its group's name.
+      const ledger = shown.filter(entry => leadDigestGroup(entry) !== 'reminder')
+      const lines = ledger.map(entry => `- ${LEAD_DIGEST_GROUP_LABELS[leadDigestGroup(entry)]}: ${quoteLeadWorkText(entry.title, LEAD_PRESENCE_LIMITS.titleChars)}${awayRef(entry.ref)}`)
       if (more > 0) lines.push(`- and ${more} more`)
-      // Reminders that fired inside the window, with the work item each is about.
+      // The person's reminders that fired inside the window, with the work item each is about; the Lead's own are its business.
       const board = await this.ports.board().catch(() => null)
-      const fired = (board?.reminders ?? []).filter(entry => entry.firedAt !== undefined && entry.firedAt >= from && entry.firedAt <= to).slice(0, LEAD_PRESENCE_LIMITS.items)
+      const fired = (board?.reminders ?? []).filter(entry => entry.for === 'person' && entry.firedAt !== undefined && entry.firedAt >= from && entry.firedAt <= to).slice(0, LEAD_PRESENCE_LIMITS.items)
         .map(entry => `- ${quoteLeadWorkText(entry.text, LEAD_PRESENCE_LIMITS.titleChars)} fired ${hourMinute(entry.firedAt!)}${entry.item ? `, about a work item${awayRef({ kind: 'work', id: entry.item })}` : ''}`)
-      const moved = lines.length ? `In that span, on the work ledger:\n${lines.join('\n')}\n` : 'In that span nothing on the work ledger finished, stopped or came to need them. '
+      const moved = lines.length ? `In that span:\n${lines.join('\n')}\n`
+        : fired.length ? 'In that span nothing else finished, stopped or came to need them, nothing was kept in memory and no setting changed. '
+        : 'In that span nothing finished, stopped or came to need them, no reminder fired, nothing was kept in memory and no setting changed. '
       const reminded = fired.length ? `Reminders that fired in that span:\n${fired.join('\n')}\n` : ''
       const said = card ? `${dollars} was spent in that span. That window, those items and that spend are what the person's away card shows: say them as given here. `
-        : lines.length || spent > 0 ? `${dollars} was spent in it. ` : 'Nothing was spent, so no away digest was shown. '
-      const linked = shown.some(entry => entry.ref && entry.ref.kind !== 'pr' && entry.ref.kind !== 'card') || fired.some(line => line.includes('(work '))
+        : lines.length || fired.length || spent > 0 ? `${dollars} was spent in it. ` : 'Nothing was spent, so no away digest was shown. '
+      const linked = ledger.some(entry => entry.ref && entry.ref.kind !== 'pr' && entry.ref.kind !== 'card') || fired.some(line => line.includes('(work '))
       // The desk does not know a device's time zone: its times are the desk's, and named so.
       return `The person was away from ${deskTime(from)} to ${deskTime(to)}, desk time${deskZone()}: no window or phone of theirs was looked at in between. ${moved}${reminded}${said}` +
         (linked ? 'An id in parentheses after a kind, as in (team …), (chat …) or (work …), can be used as a ref: to link that item, add it to refs with that kind and id. ' : '') +
@@ -783,8 +855,10 @@ export class LeadPresenceStore {
       this.#stored.briefSpent = this.ports.spent()
       this.#stored.briefRevision = this.ports.revision()
       this.#stored.briefDay = step.today
+      // A brief with nothing a push counts (an empty one, or only notes kept and settings applied) waits on every
+      // device and pushes nothing: "Nothing new." on a lock screen is noise.
       const text = leadDigestPushText(digest, this.ports.name())
-      this.ports.push?.({ digest: digest.id, phone: capLeadPushText('phone', text), window: capLeadPushText('window', text) })
+      if (leadDigestPushParts(digest).length) this.ports.push?.({ digest: digest.id, phone: capLeadPushText('phone', text), window: capLeadPushText('window', text) })
       this.ports.changed?.()
       return true
     })

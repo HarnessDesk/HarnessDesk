@@ -86,8 +86,24 @@ export const parseLeadDeviceRef: Validator<LeadDeviceRef> = (value, path = '') =
 export type LeadDigestKind = 'away' | 'recap' | 'brief'
 export type LeadDigestItemKind = 'done' | 'waiting' | 'stopped'
 export const LEAD_DIGEST_ITEM_LABELS: Readonly<Record<LeadDigestItemKind, string>> = Object.freeze({ done: 'Done', waiting: 'Needs you', stopped: 'Stopped or stuck' })
+/**
+ * What a digest item is about, besides work: a reminder of the person's that fired, a note kept in the Lead's memory, or
+ * a setting the person applied. Absent for work (a work item, a Team or chat on the desk, or a decision card). A surface
+ * that does not know it still reads the item by its `kind` (a reminder is `waiting`, a note or a setting `done`) and its
+ * `fact`, which says what it is in words; one that knows it lists the item under its own group and needs no fact.
+ */
+export type LeadDigestItemAbout = 'reminder' | 'memory' | 'setting'
+/** The groups a digest is drawn in, in this order: what waits on the person first, what they did themselves last. */
+export const LEAD_DIGEST_GROUPS = ['waiting', 'reminder', 'stopped', 'done', 'memory', 'setting'] as const
+export type LeadDigestGroup = typeof LEAD_DIGEST_GROUPS[number]
+export const LEAD_DIGEST_GROUP_LABELS: Readonly<Record<LeadDigestGroup, string>> = Object.freeze({ ...LEAD_DIGEST_ITEM_LABELS,
+  reminder: 'Reminders', memory: 'Kept in memory', setting: 'Settings applied' })
+/** The group an item is drawn in. */
+export const leadDigestGroup = (item: Pick<LeadDigestItem, 'kind' | 'about'>): LeadDigestGroup => item.about ?? item.kind
 export interface LeadDigestItem {
   readonly kind: LeadDigestItemKind
+  /** What the item is about when it is not work; absent for work. */
+  readonly about?: LeadDigestItemAbout
   /** A work item id (`work-3`) or a card id; opens the same thing on every surface. */
   readonly id: string
   readonly title: string
@@ -102,10 +118,12 @@ export interface LeadDigestItem {
 }
 /** Who stopped a chat: the person, from any surface, or the Lead. */
 export type LeadStopActor = 'person' | 'lead'
-export type LeadDigestRefKind = 'chat' | 'team' | 'pr' | 'work' | 'card'
+export type LeadDigestRefKind = 'chat' | 'team' | 'pr' | 'work' | 'card' | 'reminder' | 'memory' | 'setting'
 /**
  * What a digest item opens. `chat` is `runtime:session`, `team` a Team id, `pr` `owner/repo#number`, `work` a work item
- * id and `card` a decision card in the Lead conversation. A surface draws a link only for what it can find itself.
+ * id and `card` a decision card in the Lead conversation; `reminder` a reminder (`remind-<n>`) on the Work list, `memory`
+ * a kept note (`m<n>`) and `setting` a setting in Settings › Lead (`autonomy:<kind>` or `rules:<section>`). A surface
+ * draws a link only for what it can find itself, and drops a link of a kind it does not know.
  */
 export interface LeadDigestRef { readonly kind: LeadDigestRefKind; readonly id: string }
 export interface LeadDigest {
@@ -190,10 +208,10 @@ export const isLeadDigestRefId = (kind: LeadDigestRefKind, id: string): boolean 
   kind === 'pr' ? LEAD_PULL_REQUEST_REF.test(id) : kind === 'chat' ? /^[\w.-]{1,64}:[^\s\u0000-\u001f\u007f]{1,235}$/.test(id) : /^[\w.:-]{1,200}$/.test(id))
 const digestRef: Validator<LeadDigestRef> = (value, path = '') => {
   const source = only(['kind', 'id'])(value, path)
-  const kind = literalUnion('chat', 'team', 'pr', 'work', 'card')(source.kind, at(path, 'kind')), id = text(300)(source.id, at(path, 'id'))
+  const kind = literalUnion('chat', 'team', 'pr', 'work', 'card', 'reminder', 'memory', 'setting')(source.kind, at(path, 'kind')), id = text(300)(source.id, at(path, 'id'))
   return isLeadDigestRefId(kind, id) ? { kind, id } : fail(at(path, 'id'), `expected a ${kind} id`)
 }
-const ITEM_FIELDS = ['kind', 'id', 'title', 'fact', 'ref', 'at', 'stoppedBy'] as const
+const ITEM_FIELDS = ['kind', 'about', 'id', 'title', 'fact', 'ref', 'at', 'stoppedBy'] as const
 const DIGEST_FIELDS = ['version', 'id', 'kind', 'from', 'to', 'items', 'more', 'spentUsdMicros', 'summary', 'summaryUsdMicros'] as const
 const item: Validator<LeadDigestItem> = (value, path = '') => {
   const source = only([...ITEM_FIELDS])(value, path)
@@ -201,7 +219,8 @@ const item: Validator<LeadDigestItem> = (value, path = '') => {
   const ref = optional(digestRef)(source.ref, at(path, 'ref'))
   const when = optional(time)(source.at, at(path, 'at'))
   const stoppedBy = optional(literalUnion('person', 'lead'))(source.stoppedBy, at(path, 'stoppedBy'))
-  return { kind: literalUnion('done', 'waiting', 'stopped')(source.kind, at(path, 'kind')), id: text(96)(source.id, at(path, 'id')),
+  const about = optional(literalUnion('reminder', 'memory', 'setting'))(source.about, at(path, 'about'))
+  return { kind: literalUnion('done', 'waiting', 'stopped')(source.kind, at(path, 'kind')), ...(about === undefined ? {} : { about }), id: text(96)(source.id, at(path, 'id')),
     title: text(LEAD_PRESENCE_LIMITS.titleChars)(source.title, at(path, 'title')), ...(fact === undefined ? {} : { fact }),
     ...(ref === undefined ? {} : { ref }), ...(when === undefined ? {} : { at: when }), ...(stoppedBy === undefined ? {} : { stoppedBy }) }
 }
@@ -229,7 +248,7 @@ export const parseStoredLeadDigest = (value: unknown): LeadDigest => {
   const items = (Array.isArray(top.items) ? top.items : []).flatMap(entry => {
     const known = pick(entry, ITEM_FIELDS)
     // Whole first, then without its link, then as an older host wrote it.
-    for (const drop of [[], ['ref'], ['ref', 'at', 'stoppedBy']]) {
+    for (const drop of [[], ['ref'], ['ref', 'about', 'at', 'stoppedBy']]) {
       const tried = Object.fromEntries(Object.entries(known).filter(([key]) => !drop.includes(key)))
       try { return [item(tried.ref === undefined ? tried : { ...tried, ref: pick(tried.ref, ['kind', 'id']) })] } catch { /* Try with less. */ }
     }
@@ -256,9 +275,20 @@ export const parseLeadPresenceView: Validator<LeadPresenceView> = (value, path =
   if (asks.length > LEAD_PRESENCE_LIMITS.asks) fail(at(path, 'asks'), 'too many asks')
   return { version: 1, digest: source.digest === null ? null : parseLeadDigest(source.digest, at(path, 'digest')), asks, brief: parseLeadBriefSettings(source.brief, at(path, 'brief')) }
 }
-/** A short line for a push: what changed, in counts. Never model prose. */
+/**
+ * A short line for a push: what changed, in counts. Never model prose. A reminder is counted as one; a note kept or a
+ * setting applied is the person's own doing and is not news for a push.
+ */
+/**
+ * What a push counts: what needs the person, reminders, work done and work stopped. Notes kept and settings applied are
+ * told on the card, not pushed. Empty: the digest holds nothing a push would say, so the host sends none.
+ */
+export const leadDigestPushParts = (digest: LeadDigest): readonly string[] => {
+  const count = (group: LeadDigestGroup) => digest.items.filter(entry => leadDigestGroup(entry) === group).length + 0
+  return [count('waiting') && `${count('waiting')} need${count('waiting') === 1 ? 's' : ''} you`, count('reminder') && `${count('reminder')} reminder${count('reminder') === 1 ? '' : 's'}`,
+    count('done') && `${count('done')} done`, count('stopped') && `${count('stopped')} stopped`].filter((part): part is string => !!part)
+}
 export const leadDigestPushText = (digest: LeadDigest, name: string): { readonly title: string; readonly body: string } => {
-  const count = (kind: LeadDigestItemKind) => digest.items.filter(entry => entry.kind === kind).length + 0
-  const parts = [count('waiting') && `${count('waiting')} need${count('waiting') === 1 ? 's' : ''} you`, count('done') && `${count('done')} done`, count('stopped') && `${count('stopped')} stopped`].filter(Boolean)
+  const parts = leadDigestPushParts(digest)
   return { title: digest.kind === 'brief' ? `${name}: morning brief` : `${name}: while you were away`, body: parts.length ? parts.join(', ') : 'Nothing new.' }
 }

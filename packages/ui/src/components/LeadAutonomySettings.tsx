@@ -47,9 +47,9 @@ export const LeadAutonomySection = () => {
     try { const next = await store.lead.setDeadline({ logicalGoalId: goal!, deadlineAt: ms === null ? null : Date.now() + ms }); if (next?.modes) setView(next) } catch (failure) { setError(leadRefusalText(failure)) }
   }
   if (!view) return error ? <Section title="Autonomy"><Text role="muted">{error}</Text></Section> : null
-  return <Section title="Autonomy">
+  return <Section title="Autonomy" data-lead-settings-focus="autonomy" tabIndex={-1}>
     <Rows>
-      {LEAD_AUTONOMY_KINDS.map(kind => <Row key={kind} title={LEAD_AUTONOMY_LABELS[kind].title} tooltip={LEAD_AUTONOMY_LABELS[kind].hint}
+      {LEAD_AUTONOMY_KINDS.map(kind => <Row key={kind} title={LEAD_AUTONOMY_LABELS[kind].title} tooltip={LEAD_AUTONOMY_LABELS[kind].hint} data-lead-settings-focus={`autonomy:${kind}`} tabIndex={-1}
         control={<NativeSelect aria-label={LEAD_AUTONOMY_LABELS[kind].title} value={view.modes[kind]} disabled={pending === kind} onChange={event => void choose(kind, event.target.value as LeadAutonomyMode)}>
           {MODES.map(mode => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
         </NativeSelect>} />)}

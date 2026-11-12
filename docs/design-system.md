@@ -278,6 +278,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-rail-sheet-filter` | `blur(12px)` |
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
+| `--hd-composer-notices-max-height` | `60dvh` |
 | `--hd-page-wide` | `1320px` |
 | `--hd-page-aside` | `320px` |
 | `--hd-page-gutter` | `24px` |

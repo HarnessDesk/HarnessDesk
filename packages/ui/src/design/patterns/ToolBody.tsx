@@ -31,7 +31,7 @@ export const ToolBody = ({ children }: { children: ReactNode }) => useContext(Se
  * `SectionHead` has no edge of its own and lands on the card's border;
  * `e2e/ui-system/tool-section-inset.spec.ts` measures every card it reaches.
  */
-export const ToolSection = ({ label, children, action, value, fold, defaultOpen = true }: {
+export const ToolSection = ({ label, children, action, value, fold, defaultOpen = true, pinHead }: {
   label: string
   children?: ReactNode
   action?: ReactNode
@@ -40,6 +40,11 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
   /** The card folds to its header; `defaultOpen` says how it starts. */
   fold?: boolean
   defaultOpen?: boolean
+  /**
+   * The header stays in view while the card scrolls inside a box shorter than it: its title and its action with it. A
+   * box with padding names `--tool-pin-top` (its padding, negated) so the header covers that strip too.
+   */
+  pinHead?: boolean
 }) => {
   const [open, setOpen] = useState(defaultOpen)
   const bodyId = useId()
@@ -49,7 +54,7 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
       className="ms-auto min-w-0 max-w-1/2 shrink-0 truncate tabular-nums"><Text role="muted" ink="secondary" truncate className="block"><ChipLook.Provider value="quiet">{value}</ChipLook.Provider></Text></span> : null
   return <section data-slot="tool-section" data-folded={shown ? undefined : ''} aria-label={label}
     className="min-w-0 rounded-(--hd-panel-card-radius) border border-(--hd-panel-card-border) bg-(--hd-panel-card-fill) py-(--hd-panel-card-pad-y) [[data-slot=tool-section]+&]:shadow-[inset_0_1px_0_var(--hd-panel-card-rule)]">
-    <GroupLabel as="div" surface="tool">
+    <GroupLabel as="div" surface="tool" data-pinned={pinHead ? '' : undefined} className={pinHead ? 'sticky top-[var(--tool-pin-top,0)] z-(--hd-z-sticky) bg-(--hd-panel-card-fill)' : undefined}>
       {fold ? <Button variant="ghost" size="content-min" bordered={false} data-slot="tool-section-fold" aria-label={label} aria-describedby={summary ? `${bodyId}-summary` : undefined} aria-expanded={open} aria-controls={bodyId}
         className="hd-no-drag min-w-0 flex-1 shrink justify-start gap-(--hd-space-1) text-left aria-expanded:bg-transparent aria-expanded:hover:bg-(--hd-hover)" onClick={() => setOpen(value => !value)}>
         {/* The chevron follows the label, and open has no fill: the chevron

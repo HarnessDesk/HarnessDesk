@@ -35,7 +35,7 @@ const mount = async ({ page = true }: { readonly page?: boolean } = {}) => {
 
 it('orders a digest by what the person acts on: Needs you, then Stopped or stuck, then Done', () => {
   const digest = leadPresenceFixture(1_000_000_000_000).digest!
-  expect(leadDigestSections(digest).map(section => section.label)).toEqual(['Needs you', 'Stopped or stuck', 'Done'])
+  expect(leadDigestSections(digest).map(section => section.label)).toEqual(['Needs you', 'Reminders', 'Stopped or stuck', 'Done', 'Kept in memory', 'Settings applied'])
   expect(leadDigestTitle(digest)).toMatch(/^While you were away · \d\d:\d\d–\d\d:\d\d/)
   expect(leadDigestTitle({ ...digest, kind: 'brief' })).toBe('Morning brief')
 })
@@ -63,11 +63,38 @@ it('each item the desk can find opens it: a chat, a decision card, a pull reques
   await act(async () => { row('work-4').click() })
   expect(openSession).toHaveBeenCalledWith('rename-column', { runtime: 'fixture' })
   await act(async () => { row('plan-2').click() })
-  expect(openDestination).toHaveBeenCalledWith({ kind: 'lead', focus: 'plan-2' })
+  expect(openDestination).toHaveBeenCalledWith({ kind: 'lead', focus: 'plan-2', nonce: expect.any(Number) })
   await act(async () => { row('work-1').click() })
   expect(openExternal).toHaveBeenCalledWith('https://github.com/acme/widgets/pull/42')
   expect(row('work-5').tagName).toBe('DIV')
   expect(row('work-5').getAttribute('data-digest-opens')).toBeNull()
+})
+
+it('reminders fired, notes kept and settings applied are their own groups; the heading says what happened, so a row has no second line (#2147)', async () => {
+  const { box } = await mount()
+  const card = box.querySelector<HTMLElement>('[data-slot="lead-away"]')!
+  const row = (id: string) => card.querySelector<HTMLElement>(`[data-digest-item^="${id}"]`)!
+  expect(row('remind-1').textContent).toBe('Check the review on the retry list')
+  expect(row('m2').textContent).toBe('Release notes go in CHANGELOG.md under Unreleased.')
+  expect(row('setting:autonomy:brief:').textContent).toBe('Morning brief, Act')
+  expect(card.textContent).toContain('Reminders')
+  expect(card.textContent).toContain('Kept in memory')
+  expect(card.textContent).toContain('Settings applied')
+  expect(leadDigestLine({ kind: 'done', about: 'memory', id: 'm2', title: 'A note', fact: 'Kept in memory' }, 'Dex')).toBeUndefined()
+  expect(leadDigestLine({ kind: 'done', id: 'work-1', title: 'Done', fact: 'Pull request merged' }, 'Dex')).toBe('Pull request merged')
+})
+
+it('a note kept and a setting applied open their row in Settings; a reminder on its own opens it on the Work list (#2147)', async () => {
+  const { box, store } = await mount()
+  const openDestination = vi.spyOn(store, 'openDestination').mockImplementation(() => {})
+  const card = box.querySelector<HTMLElement>('[data-slot="lead-away"]')!
+  await act(async () => { card.querySelector<HTMLElement>('[data-digest-item="m2"]')!.click() })
+  expect(openDestination).toHaveBeenLastCalledWith({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: 'memory:m2' } })
+  await act(async () => { card.querySelector<HTMLElement>('[data-digest-item^="setting:autonomy:brief:"]')!.click() })
+  expect(openDestination).toHaveBeenLastCalledWith({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: 'autonomy:brief' } })
+  const desk = { chats: new Set<string>(), teams: new Set<string>(), goals: new Set<string>(), work: new Set<string>() } as never
+  expect(leadDigestTarget({ kind: 'reminder', id: 'remind-9' }, desk)).toEqual({ target: { kind: 'reminder', id: 'remind-9' }, title: 'Show the reminder' })
+  expect(leadDigestTarget({ kind: 'setting', id: 'rules:done' }, desk)).toEqual({ target: { kind: 'settings', focus: 'rules:done' }, title: 'Show the setting' })
 })
 
 it('a pull request link never walks a path: a name of . or .. is no link', () => {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { focusWhenDrawn } from '../lib/focus-when-drawn'
 import { LEAD_LIMITS, leadNoSpendLimit, type ClientMethodName, type LeadWindowProjection, type LeadPermissionPolicy, type LeadSettingsProjection, type LeadSettingsUpdate, type LeadCard } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, FormStack, InlineParts, Input, NativeSelect, Row, Rows, Section, LeadNameChoice, Switch, Text } from '../design'
 
@@ -127,12 +128,31 @@ export const LeadSettings = ({ settings, expiry, update, setSpendLimit, onError,
 }
 
 
+/**
+ * A door into one row of this page, from a digest item or anywhere else that names it: a kept note (`memory:m4`), an
+ * autonomy kind (`autonomy:brief`) or a rule section (`rules:done`). Each section reads its own view, so the row may
+ * arrive after the page does: the page waits for it (a few seconds at most), then brings it into view and focus once.
+ */
+const SETTINGS_ROW_FOCUS = /^(?:memory|autonomy|rules):[\w.:-]{1,200}$/
+const useSettingsRowFocus = (focus: string | null | undefined): void => {
+  const store = useStore(), done = useRef<string | null>(null)
+  useEffect(() => {
+    if (!focus) { done.current = null; return }
+    if (!SETTINGS_ROW_FOCUS.test(focus) || done.current === focus) return
+    // A note forgotten since the door was drawn: the person lands on the Memory section rather than nowhere.
+    const [section, id] = [focus.slice(0, focus.indexOf(':')), focus.slice(focus.indexOf(':') + 1)]
+    const gone = section === 'memory' ? () => { const view = store.lead.state.memory; return !!view && ![...view.core, ...view.archive].some(entry => entry.id === id) } : undefined
+    return focusWhenDrawn(`[data-lead-settings-focus="${focus}"]`, () => { done.current = focus }, { fallback: [`[data-lead-settings-focus="${section}"]`], gone })
+  }, [focus, store])
+}
+
 /** Settings owns this route; the capability gate prevents mounting it while disabled. */
 export const LeadSettingsSection = ({ focus }: { readonly focus?: string | null }) => {
   const store = useStore(), active = useDestinationActive()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => { if (active) void store.lead.readSettings().catch(error => setError(leadRefusalText(error))) }, [active, store])
+  useSettingsRowFocus(active ? focus : null)
   return state.settings ? <><LeadSettings settings={state.settings} expiry={state.planConsentExpiresAt} cards={state.thread?.cards}
     error={error} onError={error => setError(leadRefusalText(error))} update={value => { setError(null); return store.lead.updateSettings(value) }}
     setSpendLimit={usdMicros => { setError(null); return store.lead.setSpendLimit(usdMicros) }}

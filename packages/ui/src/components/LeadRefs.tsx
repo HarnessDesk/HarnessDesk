@@ -15,6 +15,10 @@ export type LeadRefTarget =
   | { readonly kind: 'pr'; readonly repository: string; readonly number: string }
   /** A decision card in the Lead conversation. */
   | { readonly kind: 'card'; readonly id: string }
+  /** A reminder on the Lead's Work list. */
+  | { readonly kind: 'reminder'; readonly id: string }
+  /** One row of Settings › Lead: a kept note (`memory:m4`), an autonomy kind or a rule section. */
+  | { readonly kind: 'settings'; readonly focus: string }
 
 export interface LeadRefLink { readonly key: string; readonly label: string; readonly title: string; readonly target: LeadRefTarget }
 
@@ -78,7 +82,7 @@ export const leadRefLinks = (refs: readonly LeadMessageRef[], desk: LeadRefDesk,
   }
   const links: LeadRefLink[] = [], seen = new Set<string>()
   const add = (ref: LeadMessageRef, target: LeadRefTarget, label: string, title: string) => {
-    const key = target.kind === 'chat' ? `chat:${target.runtime}:${target.session}` : target.kind === 'pr' ? `pr:${target.repository}#${target.number}` : `${target.kind}:${target.id}`
+    const key = target.kind === 'chat' ? `chat:${target.runtime}:${target.session}` : target.kind === 'pr' ? `pr:${target.repository}#${target.number}` : target.kind === 'settings' ? `settings:${target.focus}` : `${target.kind}:${target.id}`
     if (seen.has(key)) return
     seen.add(key)
     links.push({ key, label, title, target })
@@ -137,15 +141,21 @@ export const leadDigestTarget = (ref: LeadDigestRef | undefined, desk: LeadRefDe
   if (ref.kind === 'team') { const room = teamTarget(ref.id, desk); return room ? { target: room.target, title: 'Open the Team' } : null }
   if (ref.kind === 'pr') { const pr = ref.id.match(LEAD_PULL_REQUEST_REF); return pr ? { target: { kind: 'pr', repository: `${pr[1]}/${pr[2]}`, number: pr[3]! }, title: `Open pull request ${pr[1]}/${pr[2]}#${pr[3]}` } : null }
   if (ref.kind === 'card') return { target: { kind: 'card', id: ref.id }, title: 'Show the decision' }
+  if (ref.kind === 'reminder') return { target: { kind: 'reminder', id: ref.id }, title: 'Show the reminder' }
+  if (ref.kind === 'memory') return { target: { kind: 'settings', focus: `memory:${ref.id}` }, title: 'Show the note in Settings' }
+  if (ref.kind === 'setting') return { target: { kind: 'settings', focus: ref.id }, title: 'Show the setting' }
   return workTarget(ref.id, desk)
 }
 
+/** Each click on a door into the Lead page is its own request, so a second click shows the row again. */
+let doorClicks = 0
 /** Opens what a link names: a chat, a Team, a pull request in the browser, or a decision card in the Lead conversation. */
 export const openLeadRefTarget = (store: Pick<AppStore, 'openSession' | 'openTeamRoom' | 'openGoal' | 'openDestination'>, target: LeadRefTarget): void => {
   if (target.kind === 'chat') void store.openSession(target.session, { runtime: target.runtime })
   else if (target.kind === 'team') store.openTeamRoom(target.id)
   else if (target.kind === 'goal') store.openGoal(target.id)
-  else if (target.kind === 'card') store.openDestination({ kind: 'lead', focus: target.id })
+  else if (target.kind === 'card' || target.kind === 'reminder') store.openDestination({ kind: 'lead', focus: target.id, nonce: ++doorClicks })
+  else if (target.kind === 'settings') store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: target.focus } })
   else openExternal(`https://github.com/${target.repository}/pull/${target.number}`)
 }
 

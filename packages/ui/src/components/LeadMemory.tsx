@@ -91,7 +91,7 @@ const EntryRow = ({ entry, label, cited, pending, change }: { readonly entry: Le
       <Button variant="quiet" onClick={() => setEditing(null)}>Cancel</Button>
     </InlineParts>} />
   const chip = cited ? <Chip tone="info">Used in this plan</Chip> : entry.by === 'lead' ? <Chip variant="quiet" tone="neutral">{`${label}'s note`}</Chip> : undefined
-  return <><Row title={entry.text} titleChip={chip} tooltip={`${entry.id} · ${KIND[entry.kind]}`}
+  return <><Row title={entry.text} titleChip={chip} tooltip={`${entry.id} · ${KIND[entry.kind]}`} data-lead-settings-focus={`memory:${entry.id}`} tabIndex={-1}
     control={<InlineParts>
       <Button variant="quiet" disabled={pending} onClick={() => setEditing(entry.text)}>Edit</Button>
       {entry.tier === 'core'
@@ -127,7 +127,7 @@ export const LeadMemorySection = ({ label, cards }: { readonly label: string; re
     setTimeout(() => URL.revokeObjectURL(url), 0)
   }
   const history = view.history.slice(0, 8)
-  return <Section title="Memory" action={<InlineParts>
+  return <Section title="Memory" data-lead-settings-focus="memory" tabIndex={-1} action={<InlineParts>
       <Button size="sm" variant="outline" disabled={!view.core.length && !view.archive.length} onClick={exportView}>Export</Button>
       <Button size="sm" variant="outline" disabled={pending || !view.core.length && !view.archive.length && !view.inbox.length && !view.history.length} onClick={() => setForgetAll(true)}>Forget all</Button>
     </InlineParts>}>

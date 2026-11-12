@@ -1058,8 +1058,12 @@ export const swapWorkPane = (workbench: Workbench): Workbench => {
   return { ...workbench, frameTools: { ...workbench.frameTools, [subject]: { ...intent, expanded: !intent.expanded } } }
 }
 
-export const workRailFloats = (workbench: Workbench, windowWidth: number, standingSidebar: number): boolean =>
-  workRailOpen(workbench) && railFloatsBeside(windowWidth - standingSidebar - (rightPanelDrawn(workbench) && !rightPanelOverlays(workbench, windowWidth) ? effectiveRightWidth(workbench, windowWidth, standingSidebar) : 0))
+/**
+ * Whether a work pane's open rail floats. The pane beside the thread is as wide as the standing sidebar leaves it, the
+ * width it is drawn at; the thread's minimum counts the sidebar drawn, standing or floating over it (#2179).
+ */
+export const workRailFloats = (workbench: Workbench, windowWidth: number, standingSidebar: number, drawnSidebar = standingSidebar): boolean =>
+  workRailOpen(workbench) && railFloatsBeside(windowWidth - drawnSidebar - (rightPanelDrawn(workbench) && !rightPanelOverlays(workbench, windowWidth) ? effectiveRightWidth(workbench, windowWidth, standingSidebar) : 0))
 
 /** Whether an open rail floats: the column it would share cannot hold the reading minimum beside it. A page's rail and a work pane's use the same line. */
 export const railFloatsBeside = (column: number): boolean => column < FRAME.main.min + FRAME.infoCard.width

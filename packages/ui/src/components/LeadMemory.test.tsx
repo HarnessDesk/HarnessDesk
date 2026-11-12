@@ -4,6 +4,8 @@ import { afterEach, expect, it } from 'vitest'
 import type { LeadMemoryCandidate, LeadMessage } from '@harnessdesk/protocol'
 import { createLeadFixtureStore } from '../preview/frames-lead'
 import { StoreProvider } from '../state/context'
+import { LeadSettingsSection } from './LeadSettings'
+import { DestinationPageScope } from '../panels/destination-page'
 import { LeadMemoryProposals, LeadMemorySection, leadCitedEntries, leadMemoryForgetAllText, leadMemoryForgetText, leadMemoryPlacement } from './LeadMemory'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -141,4 +143,22 @@ it('history after Forget says what was forgotten and what each change did, never
   expect(rows.some(row => row.includes('You · 1 forgotten'))).toBe(true)
   expect(rows, 'the change Forget emptied keeps its count and says it was forgotten').toContain('Dex · 1 addedForgotten')
   expect(box.textContent).not.toContain('no change')
+})
+
+it('a door from the away card brings the kept note into view and focus in Settings (#2147)', async () => {
+  const { box } = await mount(() => <DestinationPageScope owner="settings" active><LeadSettingsSection focus="memory:m2" /></DestinationPageScope>)
+  await settle(); await settle()
+  const row = box.querySelector<HTMLElement>('[data-lead-settings-focus="memory:m2"]')
+  expect(row).not.toBeNull()
+  expect(document.activeElement).toBe(row)
+  // A note the person kept says nothing about who kept it; only the Lead's own notes carry the Lead's name (#2181).
+  expect(row!.textContent).not.toMatch(/'s note/)
+  expect(box.querySelector('[data-lead-settings-focus="memory:m5"]')!.textContent).toMatch(/'s note/)
+})
+
+it('a door to a note forgotten since lands on the Memory section, not nowhere (#2147)', async () => {
+  const { box } = await mount(() => <DestinationPageScope owner="settings" active><LeadSettingsSection focus="memory:m-gone" /></DestinationPageScope>)
+  await settle(); await settle()
+  expect(box.querySelector('[data-lead-settings-focus="memory:m-gone"]')).toBeNull()
+  expect(document.activeElement).toBe(box.querySelector('[data-lead-settings-focus="memory"]'))
 })
