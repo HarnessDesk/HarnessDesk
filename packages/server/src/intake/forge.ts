@@ -78,7 +78,7 @@ export const requestCoverageOf = (value: unknown): RequestCoverage | null => {
   const entries = Object.entries(value['seen'])
   if (entries.length > SEEN_LIMIT) return null
   for (const [key, at] of entries) {
-    if (!/^[cprtu][1-9][0-9]{0,15}$/.test(key) || !Number.isSafeInteger(at) || (at as number) < 0) return null
+    if (!/^[clprtu][1-9][0-9]{0,15}$/.test(key) || !Number.isSafeInteger(at) || (at as number) < 0) return null
   }
   return { seen: Object.fromEntries(entries) as Record<string, number>, ...(through === undefined ? {} : { through: through as number }) }
 }
@@ -795,7 +795,7 @@ export class ForgeSource {
         const comments = Math.max(cursor.baseline, Math.max(through, asked.through) - OVERLAP_MS)
         const reviews = Math.max(cursor.baseline, through - OVERLAP_MS)
         const settling = Object.entries(asked.seen).filter(([key]) => key.startsWith('u')).map(([, at]) => at)
-        const floors: Record<string, number> = { c: comments, p: reviews, r: Math.min(reviews, ...settling), t: 0, u: 0 }
+        const floors: Record<string, number> = { c: comments, l: 0, p: reviews, r: Math.min(reviews, ...settling), t: 0, u: 0 }
         const seen = Object.fromEntries(Object.entries(asked.seen).filter(([key, at]) => at >= floors[key[0]!]!))
         if (Object.keys(seen).length > SEEN_LIMIT) return this.#gap(cursor, 'More pull request comments changed than one read can cover.')
         coverage = { seen, through: asked.through }
@@ -1154,22 +1154,39 @@ export class ForgeSource {
         return key.startsWith('u') && now >= at + OVERLAP_MS && !reading.has(number) ? [{ number, at }] : []
       }).sort((a, b) => a.at - b.at || a.number - b.number)
       for (const one of due.slice(0, Math.min(SETTLE_LIMIT, ISSUE_LIMIT - reading.size))) {
-        // The page that held the last review listed then: a review submitted since is on it or after it.
-        reading.set(one.number, { settling: one.at, from: Math.max(1, Math.ceil((seen[`t${one.number}`] ?? 0) / PER_PAGE)) })
+        // The page that held the last review listed then: a review appended since is on it or after it. Without that
+        // review's id to check the page against, the whole list.
+        const last = seen[`l${one.number}`]
+        reading.set(one.number, { settling: one.at, from: last === undefined ? 1 : Math.max(1, Math.ceil((seen[`t${one.number}`] ?? 0) / PER_PAGE)) })
       }
       const order: { row: PullRow; settling: number | null; from: number }[] = []
       for (const [number, how] of reading) order.push({ row: await pull(number), ...how })
       let opened = 0
-      for (const { row, settling: since, from } of order.sort((a, b) => a.row.updated - b.row.updated || a.row.number - b.row.number)) {
+      for (const { row, settling: since, from: tail } of order.sort((a, b) => a.row.updated - b.row.updated || a.row.number - b.row.number)) {
         // A review submitted after the read before is never older than that read's update.
         const floor = since === null ? reviewSince : Math.min(reviewSince, since)
-        const reviews = await this.#all(project, `repos/${repository}/pulls/${row.number}/reviews`, deadline, signal, from)
+        const path = `repos/${repository}/pulls/${row.number}/reviews`
+        let from = tail
+        let reviews = await this.#all(project, path, deadline, signal, from)
         if (reviews === null) return 'A pull request has more reviews than one read can cover.'
+        if (from > 1) {
+          // Reviews are listed in the order they were created, so one created as a draft long before and submitted
+          // since lands earlier in the list, not on its tail; and only a pending review — on this list, only the
+          // desk's own — can be deleted. Either moves the review last listed then off the place it held: then the
+          // whole list, once.
+          const held = reviews[(seen[`t${row.number}`] ?? 0) - 1 - (from - 1) * PER_PAGE]
+          if (!isMap(held) || held['id'] !== seen[`l${row.number}`]) {
+            from = 1
+            reviews = await this.#all(project, path, deadline, signal)
+            if (reviews === null) return 'A pull request has more reviews than one read can cover.'
+          }
+        }
+        let pending = false
         for (const raw of reviews) {
           if (!isMap(raw)) throw unreadable()
           const id = positive(raw['id'])
           // A pending review has not been submitted: nobody has said it yet, and it stays new until it is.
-          if (raw['submitted_at'] === null || raw['submitted_at'] === undefined || raw['state'] === 'PENDING') continue
+          if (raw['submitted_at'] === null || raw['submitted_at'] === undefined || raw['state'] === 'PENDING') { pending = true; continue }
           const submitted = time(raw['submitted_at'])
           const key = `r${id}`
           if (seen[key] !== undefined || submitted < floor || submitted <= armed) continue
@@ -1209,9 +1226,14 @@ export class ForgeSource {
         if (now < row.updated + OVERLAP_MS) {
           seen[`u${row.number}`] = row.updated
           seen[`t${row.number}`] = (from - 1) * PER_PAGE + reviews.length
+          // The id the next read checks its tail against — only from a whole list with no draft on it to be deleted.
+          const last = reviews.length > 0 && from === 1 && !pending ? reviews[reviews.length - 1] : null
+          if (isMap(last)) seen[`l${row.number}`] = positive(last['id'])
+          else delete seen[`l${row.number}`]
         } else {
           delete seen[`u${row.number}`]
           delete seen[`t${row.number}`]
+          delete seen[`l${row.number}`]
         }
       }
       if (asked.reduce((sum, one) => sum + one.nodes.length, 0) > ISSUE_LIMIT) return burst

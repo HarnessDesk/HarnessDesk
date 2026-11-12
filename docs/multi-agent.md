@@ -875,7 +875,8 @@ them. On a pull request the desk reads one repository-wide list of the
 conversation comments updated since its last complete read, however many pull
 requests moved, and the reviews of only those pull requests its list read
 shows as updated — and once more, five minutes later, of one read within five
-minutes of its update, from its last page, twenty a poll: a review is new by when it was
+minutes of its update, from its last page (the whole list when an older draft
+was submitted since and moved it), twenty a poll: a review is new by when it was
 submitted, so one left pending and submitted later still asks, even within
 the same second. A review's summary never asks — the
 forge does not say whether it was edited — but its inline comments do, as one

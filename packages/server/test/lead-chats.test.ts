@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { initialLeadState, reduceLeadBudget, summarizeLeadArguments, type LeadState, type LeadPermissionContext } from '@harnessdesk/lead'
-import { leadMessageEnvelope, leadMessageKey, type UserContent, runtimeId, sessionId, type SessionSummary } from '@harnessdesk/protocol'
+import { leadMessageEnvelope, leadMessageKey, parseLeadAcceptanceContract, type UserContent, runtimeId, sessionId, type SessionSummary } from '@harnessdesk/protocol'
 import { LEAD_CHAT_HELD, type LeadChatsPorts } from '../src/lead/chats.js'
 import { SessionIndex } from '../src/session-index.js'
 
@@ -1082,6 +1082,30 @@ test('the host gate holds every chat start and send for a request until its plan
   r.authorize('lead/chat/start', { text: 'Do work' })
   await r.service.start({ text: 'Do work' })
   assert.deepEqual(r.calls.map(call => call.method), ['stop', 'start'])
+})
+
+test('an approved request\'s chats are fenced again once its consent runs out, until it is renewed, but never a stop', async t => {
+  const r = await rig(t); r.row('own')
+  // Approved: a contract, a consent that runs to 1000 and no plan card waiting on the person.
+  r.setState({ origin: { source: 'pull-request', event: 'mentioned', subject: 'acme/widgets#7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' },
+    contract: parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Repair check', project: r.project, policyRevision: 1,
+      steps: [{ id: 'implement', title: 'Implement', flow: 'lead-reviewed-result', sourceRevision: 'source-1', variables: {}, attendance: 'attended',
+        assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' }, ceiling: 'edit' }] }],
+      assertions: [{ id: 'check', kind: 'check', description: 'Checks pass' }], caps: { usdMicros: 500, rounds: 3 } }),
+    consent: { contractDigest: 'a'.repeat(64), contractRevision: 1, policyRevision: 1, expiresAt: 1000 } })
+  r.authorize('lead/chat/start', { text: 'Do work' })
+  await r.service.start({ text: 'Do work' })
+  assert.deepEqual(r.calls.map(call => call.method), ['start'], 'inside its approval the request starts work')
+  // Past expiry, with no renewal offered yet: the plan no longer reads as waiting, but nothing starts or sends.
+  await r.advance(1000)
+  r.authorize('lead/chat/start', { text: 'Do more work' })
+  await assert.rejects(r.service.start({ text: 'Do more work' }), /approve its plan/i)
+  const params = { id: 'fixture:own', text: 'Continue' }
+  r.authorize('lead/chat/send', params)
+  await assert.rejects(r.service.send(params), /approve its plan/i)
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await r.service.stop({ id: 'fixture:own' })
+  assert.deepEqual(r.calls.map(call => call.method), ['start', 'stop'])
 })
 
 test('a request from an issue or pull request is never quoted as the person\'s words', async t => {

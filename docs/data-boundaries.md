@@ -284,8 +284,9 @@ trigger that asks was armed
 of pull requests moved; the reviews (`pulls/{n}/reviews`) of those pull
 requests the source's existing list read shows as updated, every page, and
 once more, five minutes later, of one read within five minutes of its update
-— from the page that held the last review it listed, at most 20 pull requests
-a poll and the rest on the next;
+— from the page that held the last review it listed, and the whole list again
+only when that review has moved off its place or the list showed a draft, at
+most 20 pull requests a poll and the rest on the next;
 the inline comments of each review newly submitted there
 (`pulls/{n}/reviews/{id}/comments`); and, for a comment on a pull request that
 list did not show, or one whose reviews are read again after it left the list,
@@ -301,8 +302,9 @@ about one point a read. With
 read, only for a request the forge says was never edited — after its edit
 history is read, so an edited request never costs that read. What it keeps beside
 the trigger's cursor is only what it handled inside its windows — comment,
-review and pull request ids with a time, at most 2,000, dropped as the windows
-move — and the time of the newest comment a complete read covered, and each
+review and pull request ids with a time, and for a pull request awaiting its
+second read the count and last id of the reviews it listed, at most 2,000,
+dropped as the windows move — and the time of the newest comment a complete read covered, and each
 request as an admission fact: its comment or review URL, the author's account
 digest, whether the forge says it was never edited, and the words after
 `@harnessdesk`, clipped like every other body. Those words, the thread's title and its links

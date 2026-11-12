@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { decideLeadPermission, leadBudgetProjection, leadRequestAwaitsPlan, leadWorkerDispatchBlockedByOpenPr, leadReviewedResultSourceFor, type LeadJournal, type LeadAcceptanceResult } from '@harnessdesk/lead'
+import { decideLeadPermission, leadBudgetProjection, leadRequestFenced, leadWorkerDispatchBlockedByOpenPr, leadReviewedResultSourceFor, type LeadJournal, type LeadAcceptanceResult } from '@harnessdesk/lead'
 import { LEAD_LIMITS, type LeadBudgetEvent, type LeadProject, type SeatRecord } from '@harnessdesk/protocol'
 import { attributeSample, goalSpend, meterSample, meterTurn, openMeter } from '../intake/spend.js'
 import { seatWindowOf } from '../insight/attribution.js'
@@ -153,7 +153,7 @@ export class LeadBudgets implements FlowLeadGuard {
     if (!contract || contract.digest !== binding.contractDigest || !step || admitted?.state !== 'admitted' ||
       !attempt || attempt.correlationId !== binding.startId || attempt.phase !== 'started' || !attempt.dispatched || attempt.method !== 'flow/start-goal' ||
       state.runs.some(run => run.correlationId === binding.startId) ||
-      state.recoveryBlocked || leadWorkerDispatchBlockedByOpenPr(state) || leadRequestAwaitsPlan(state) || ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) ||
+      state.recoveryBlocked || leadWorkerDispatchBlockedByOpenPr(state) || leadRequestFenced(state, this.port.now()) || ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) ||
       !await this.port.member(contract.project)) throw new Error('lead-start-not-approved')
     const current = journal.state
     const decision = decideLeadPermission({ method: 'flow/start-goal', params: pending.params, project: pending.project, runId: null, start: step },
@@ -196,7 +196,7 @@ export class LeadBudgets implements FlowLeadGuard {
       if (budget.stop || leadWorkerDispatchBlockedByOpenPr(current, run.id) || ['stopped', 'accepted', 'declined'].includes(current.phase) || current.recoveryBlocked) throw new Error('lead-budget-stopped')
       // A request from an issue or pull request dispatches nothing while its plan waits for the person — a renewal
       // offered after its consent ran out included, on a reopened journal too — nor once that consent has run out.
-      if (leadRequestAwaitsPlan(current) || (current.origin?.event === 'mentioned' && current.consent!.expiresAt <= this.port.now())) throw new Error('lead-plan-not-approved')
+      if (leadRequestFenced(current, this.port.now())) throw new Error('lead-plan-not-approved')
       if (current.pr?.state === 'open' && (!current.consent || current.consent.expiresAt <= this.port.now() || current.phase !== 'running' || current.consent.renewalCardRevision !== undefined)) throw new Error('lead-repair-consent')
       // A brand-new execution has no worker turn to meter. Once work exists,
       // missing or stale attribution stops it rather than inferring zero.

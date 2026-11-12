@@ -338,6 +338,44 @@ test('a hundred moved pull requests of 900 reviews each are read once, then once
   assert.ok(total <= 100 * 10 + 100 * 2, `review list reads over ten minutes: ${total}`)
 })
 
+test('a review drafted before every listed one and submitted in the same second as the read before lands on page 1, and still asks once: the whole list is read again, only then', async () => {
+  for (const visibleDraft of [false, true]) {
+    const forge = new FakeForge()
+    const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+    const at = ARMED + MINUTE
+    const reviews: NonNullable<FakePull['reviews']> = Array.from({ length: 900 }, (_, i) => ({
+      id: 101 + i, commit_id: sha('a'), body: 'Earlier.', state: 'COMMENTED', submitted_at: submittedAt(ARMED - 60 * MINUTE), user: WRITER,
+    }))
+    // The desk's own draft is the one pending review the list shows; it is deleted before the next read.
+    if (visibleDraft) reviews[0] = { id: 10, commit_id: sha('a'), body: '', state: 'PENDING', submitted_at: null, user: JANE }
+    forge.pulls.push({ number: 14, head: sha('a'), state: 'open', created: ARMED - 120 * MINUTE, updated: at, reviews })
+    const listReads = () => reviewReads(forge, 14).filter((path) => path.includes('/reviews?'))
+    const first = await source(forge, at).poll(PROJECT, baseline, never, asking)
+    assert.deepEqual(first.facts, [])
+    assert.equal(listReads().length, 10)
+    // Someone else's draft, older than every listed review, is submitted later within that same second: reviews are
+    // listed in the order they were created, so it lands first, not on the tail — and the pull request's update does not change.
+    const late = { id: 50, commit_id: sha('a'), body: '', state: 'COMMENTED', submitted_at: submittedAt(at), user: WRITER }
+    if (visibleDraft) reviews[0] = late
+    else reviews.unshift(late)
+    forge.pulls[0]!.reviewComments = [{ id: 501, review: 50, body: '@harnessdesk cover the empty case', created: at - MINUTE, updated: at - MINUTE, user: WRITER }]
+    forge.calls.length = 0
+    const second = await source(forge, ARMED + 20 * MINUTE).poll(PROJECT, first.next, never, asking)
+    assert.equal(second.complete, true, String(second.problem))
+    assert.deepEqual(second.facts.map((fact) => [fact.event, fact.body]), [[eventKey([REPO, 14, 'mentioned', 'review', 50]), 'cover the empty case']], `visible draft: ${visibleDraft}`)
+    // A moved tail is two pages, then the whole list once; a list that showed a draft is read whole straight away.
+    assert.deepEqual(listReads().map((path) => Number(/page=([0-9]+)$/.exec(path)![1])),
+      visibleDraft ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    let cursor = second.next
+    for (const later of [30, 40]) {
+      const read = await source(forge, ARMED + later * MINUTE).poll(PROJECT, cursor, never, asking)
+      assert.deepEqual(read.facts, [], `asks once (visible draft: ${visibleDraft})`)
+      cursor = read.next
+    }
+    assert.equal(Object.keys(cursor.requests?.seen ?? {}).some((key) => /^[ltu]/.test(key)), false, 'settled')
+  }
+})
+
 test('a request arm newer than its source reads nothing from before it was armed: no old request, no gap, and a later one asks once', async () => {
   const forge = new FakeForge()
   const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)

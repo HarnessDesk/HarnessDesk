@@ -2216,5 +2216,17 @@ test('a request from an issue or pull request starts and sends nothing until its
   await journal.decideCard(click, 200)
   assert.equal(lead.leadRequestAwaitsPlan(journal.state), false)
   assert.equal((await run('approved', 'lead/chat/start')).outcome, 'succeeded')
+  // Once that approval runs out, with no renewal offered yet, the plan no longer reads as waiting, yet the shared
+  // fence still holds every start and send; a stop still passes.
+  const expiry = journal.state.consent!.expiresAt
+  assert.equal(lead.leadRequestFenced(journal.state, expiry - 1), false)
+  assert.equal(lead.leadRequestFenced(journal.state, expiry), true)
+  const late = async (id: string, method: string) => journal.execute({ id, request: chat(method), context: { ...context, now: expiry } }, async () => { dispatched++; return { value: {}, identity: null } })
+  for (const method of ['lead/chat/start', 'lead/chat/send']) {
+    const result = await late(`expired-${method}`, method)
+    assert.equal(result.outcome, 'denied')
+    assert.equal(result.decision.floor, 'unapproved')
+  }
+  assert.equal((await late('expired-stop', 'lead/chat/stop')).outcome, 'succeeded')
   assert.deepEqual((await open(storage)).state, journal.state)
 })
