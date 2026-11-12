@@ -11,7 +11,7 @@ import { LeadRepeats } from './lead/repeats.js'
 import { HarnessDeskAccount } from './harnessdesk-account.js'
 import { gitSteerContext } from './git-gateway/steer-context.js'
 import { leadContextUse, redactGitCommand } from '@harnessdesk/protocol'
-import { leadInbox } from './lead/inbox.js'
+import { leadInbox, leadInboxWaiting } from './lead/inbox.js'
 import { GitSteering, type SteerScope } from './git-gateway/steering.js'
 import { parseGitCommand } from '@harnessdesk/protocol'
 import { LeadAutomaticGoals } from './lead/automatic-goals.js'
@@ -166,7 +166,7 @@ import {
   sessionModel,
   supersededUsageNotices,
   trackedUsage,
-  type LeadInbox,
+  type LeadInbox, type LeadDeskSummary,
   type UsageReport,
 } from '@harnessdesk/protocol'
 
@@ -6488,7 +6488,13 @@ export class Host {
       // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
       // The accounts the Dashboard lists, from the same cache: an allowance question never starts a refresh.
       leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary(this.#trackedUsage(this.#cachedUsage())),
-      leadDeskSummary: params => this.#phoneWorkspaceView().deskSummary(params),
+      // The waiting count rides the summary from the Inbox the bell and the phone show, the open question included, so
+      // a count the Lead says matches the rows it lists (#2182).
+      leadDeskSummary: async params => {
+        const summary = await this.#phoneWorkspaceView().deskSummary(params)
+        const inbox = await this.#leadInboxRead(summary).catch(() => null)
+        return inbox ? { ...summary, waiting: leadInboxWaiting(inbox) } : summary
+      },
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       // One inbox for the bell and the phone: the Lead's window, the desk's needs-you work, and the kept notices.
       leadInbox: () => this.#leadInboxRead(),
@@ -6536,7 +6542,7 @@ export class Host {
       leadMemoryPropose: async params => (await this.#leadMemory()).propose(params, this.#leadJournal?.state.seq ?? 0, this.#leadPersonSeq()),
       leadMemorySearch: async params => this.#leadMemorySearch(params.query, params.limit),
       leadContextRead: async () => (await this.#leadWindow()).readContext(),
-      leadContextUse: async () => leadContextUse(await (await this.#leadWindow()).readContext()),
+      leadContextUse: async () => leadContextUse(await (await this.#leadWindow()).readContext(), Date.now()),
       leadContextCompact: async () => (await this.#leadWindow()).compactContext(),
       leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,
@@ -12176,10 +12182,10 @@ export class Host {
   }
 
   /** One inbox for the bell, the phone and the Work list: the Lead's window, the desk's needs-you work, the kept notices. */
-  async #leadInboxRead(): Promise<LeadInbox> {
+  async #leadInboxRead(summary?: LeadDeskSummary): Promise<LeadInbox> {
     return leadInbox({
       window: await this.#leadWindow().then(window => window.readThread()).catch(() => null),
-      desk: await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
+      desk: summary ?? await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
       kept: this.#currentNotices(), now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id),
       ask: this.#leadPresence?.openAsk() ?? null,
     })

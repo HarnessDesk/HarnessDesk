@@ -122,10 +122,13 @@ export class LeadControls {
   #actionsGeneration = 0
   #actions: { readonly scope: string; readonly generation: number; readonly value: readonly LeadAction[] } | null = null
   readonly #detach: () => void
+  /** A person request that read the settings and returned before its reply was stored (the child stores it from a
+   * continuation after a tool call): kept when a reply of the Lead's lands past `seq` (#2180). */
+  #shownPending: { readonly at: number; readonly seq: number } | null = null
   #contextWork: Promise<unknown> = Promise.resolve()
   #contextCheck = false
   constructor(private readonly options: LeadControlsOptions) {
-    this.#detach = options.journal.onChange(() => { void this.#notify() })
+    this.#detach = options.journal.onChange(() => { this.#settleShown(); void this.#notify() })
   }
   #notify(liveApprovals = false): Promise<void> {
     this.#notifications = this.#notifications.then(async () => {
@@ -146,6 +149,13 @@ export class LeadControls {
     return this.#notifications
   }
   close(): void { this.#closed = true; this.#detach() }
+  /** The pending settings mark, kept once the reply it waited for is stored. */
+  #settleShown(): void {
+    const pending = this.#shownPending
+    if (!pending || !leadAnsweredSince(this.options.journal, pending.seq)) return
+    this.#shownPending = null
+    void this.options.settingsShown?.(pending.at)?.catch(() => { /* The next reply keeps it. */ })
+  }
   async idle(): Promise<void> {
     await this.#tail
     while (this.#continuation) await this.#continuation
@@ -493,9 +503,12 @@ export class LeadControls {
       }
       else await journal.settingsChanged()
       // The person read a reply from a request that carried the settings: they are no longer news to the Lead. Decided
-      // from the journal, since the child stores its reply itself and returns a result without the words (#2170).
-      if (person && !proactive && settingsShownAt !== undefined && leadAnsweredSince(journal, sentAt))
-        try { await this.options.settingsShown?.(settingsShownAt) } catch { /* The next reply keeps it. */ }
+      // from the journal, since the child stores its reply itself and returns a result without the words (#2170); a
+      // reply that comes from the child's continuation after a tool call lands after this, and keeps it then (#2180).
+      if (person && !proactive && settingsShownAt !== undefined) {
+        this.#shownPending = { at: settingsShownAt, seq: sentAt }
+        this.#settleShown()
+      }
       this.contextChanged()
     } catch (failure) {
       try { this.options.onFailure?.('request', failure) } catch { /* A log never owns the request. */ }

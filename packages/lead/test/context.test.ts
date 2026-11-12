@@ -738,3 +738,25 @@ test('#2170: a checkpoint leaves settings, rules and memory status out, since th
     assert.match(instruction, /Leave out settings, rules and memory status, and what was said about them: the desk restates them on every request\./)
   }
 })
+
+test('#2180: a tool continuation of a person turn carries that turn\'s desk context again, so the reply reads the settings news the turn read', async () => {
+  const s = await loopFixture([message([tool('catalog', 'flow_catalog', { root: '/workspace/demo' })], { stop_reason: 'tool_use' }), message([text('Done.')])])
+  const context = contextPort()
+  const loop = lead.createLeadLoop({ ...s.options, context: context.port })
+  try {
+    const work = '<work-ledger>\nOpen work the host tracks.\n- w1 Fix the game\n</work-ledger>\n\n<host-note>The person was away from 09:00 to 10:00.</host-note>'
+    const status = '<desk-memory-status>\nNothing pending.\n</desk-memory-status>\n<desk-settings-status>\n- How to talk to me (talk), version 1. Last change 12 Nov 10:41: the person applied your proposal, changed since your last reply.\n</desk-settings-status>'
+    await loop.request({ messages: [user(text('Anything new?'), text(work), text(status))], maxTokens: 100, stable: { turns: 1, blocks: 1 }, epoch: 0, wakeSource: 'person' })
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2, 'the tool result is answered by a continuation')
+    const last = JSON.parse(s.fake.requests[1].body).messages.at(-1)
+    assert.equal(last.content[0].type, 'tool_result', 'the tool result comes first')
+    const texts: string[] = last.content.filter((block: any) => block.type === 'text').map((block: any) => block.text)
+    assert.ok(texts.some(one => one.includes(', changed since your last reply')), 'the settings news reaches the request that writes the reply')
+    assert.ok(texts.some(one => one.includes('<host-note>The person was away')), 'and so does the turn\'s host note')
+    assert.ok(!texts.some(one => one.includes('Anything new?')), 'the person\'s words stay where they were, never repeated')
+    // The stored copy stubs it again: what the continuation carried is desk context of that moment too.
+    const stored = JSON.stringify(context.records.at(-1))
+    assert.ok(!stored.includes('changed since your last reply'), 'never kept verbatim in the stored conversation')
+  } finally { await loop.close() }
+})

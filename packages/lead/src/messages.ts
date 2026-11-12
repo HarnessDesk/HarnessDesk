@@ -202,11 +202,12 @@ export const LEAD_WAKE_OPEN = 'Desk wake, not a message from the person: '
 export const LEAD_WAKE_REFERENCE = 'Desk reference for the preceding desk wake: '
 /**
  * The line a person message carries for the surface that sent it (#2166). It is part of the person's turn, stored with
- * it, so a tool continuation and every later request read the same thing; a card or ask works on either surface.
+ * it, so a tool continuation and every later request read the same thing; a card or ask works on either surface. It
+ * says what that surface opens, so the Lead never sends a phone user to the desktop for a Team the phone opens (#2182).
  */
 export const LEAD_SURFACE_LINES: Readonly<Record<LeadMessageSurface, string>> = Object.freeze({
-  phone: 'Desk note: the person sent the message above from their phone.',
-  desktop: 'Desk note: the person sent the message above from the desktop window.',
+  phone: 'Desk note: the person sent the message above from their phone, which opens any Team or chat from its Inbox or Work tab and answers questions and cards there.',
+  desktop: 'Desk note: the person sent the message above from the desktop window, which opens anything on the desk.',
 })
 /** The most turns of the person's readable conversation one request carries. The request admits LIMIT.turns - 2;
  * the rest is room for the host's own closing turns and for a tool loop's continuations within the request. */

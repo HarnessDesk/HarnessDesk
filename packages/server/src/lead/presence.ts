@@ -105,6 +105,14 @@ const digestRef = (card: LeadWorkCard): LeadDigestRef => {
   const found = order.find(([kind, id]) => id && isLeadDigestRefId(kind, id))
   return found ? { kind: found[0], id: found[1]! } : { kind: 'work', id: card.id }
 }
+/** An hour and minute in the desk's zone, as the away card titles its window: "09:27". */
+const hourMinute = (at: number) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
+const cents = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+/** Money as the away card says it: whole cents, and an amount above zero that rounds to $0.00 in words. */
+const awayDollars = (micros: number) => { const text = cents.format(micros / 1_000_000); return micros > 0 && text === '$0.00' ? 'less than $0.01' : text }
+/** What a named thing opens by, for the Lead's refs: a Team, chat or work item by kind and id; a pull request by name. */
+const awayRef = (ref: LeadDigestRef | undefined): string => !ref ? '' : ref.kind === 'pr' ? ` (pull request ${ref.id})`
+  : ref.kind === 'card' ? ' (a decision card in your conversation)' : ` (${ref.kind} ${ref.id})`
 const stored = (value: unknown): LeadDigest | undefined => { if (value === undefined) return undefined; try { return parseStoredLeadDigest(value) } catch { return undefined } }
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const validEnd = (value: unknown): value is { revision: number; spent: number } => !!value && finite((value as { revision: unknown }).revision) && finite((value as { spent: unknown }).spent)
@@ -553,16 +561,30 @@ export class LeadPresenceStore {
     return this.#write(async () => {
       const away = this.#stored.away, now = this.ports.now()
       if (!away || now < away.to || now - away.to > LEAD_AWAY_NOTE_MS) return undefined
+      // The away card a device still holds for this absence is what the person reads: the note gives its window, items
+      // and spend, so the Lead's figures are the card's (#2147). A card that began before another device last looked, or
+      // one from an earlier absence, is not this one; once dismissed, the desk's own span stands in. A mark moves at most
+      // twice a minute, so a minute's slack.
+      const card = Object.values(this.#stored.devices).flatMap(mark => mark.pending?.kind === 'away' && mark.pending.from >= away.from - 60_000 && mark.pending.to >= away.to - 60_000 && mark.pending.to <= now ? [mark.pending] : [])
+        .reduce<LeadDigest | undefined>((best, one) => !best || one.to > best.to ? one : best, undefined)
+      const from = card?.from ?? away.from, to = card?.to ?? away.to
       // A ledger item is dated; a decision card is not, so it counts only when it waited by the revision at the return.
-      const found = (await this.#items(away.from, away.revision, away.until ?? away.revision)).filter(entry => entry.at === undefined || entry.at <= away.to)
-      const spent = this.#spentBetween(away.from, away.to), dollars = `$${(spent / 1_000_000).toFixed(2)}`
-      const lines = found.slice(0, LEAD_PRESENCE_LIMITS.items).map(entry => `- ${LEAD_DIGEST_ITEM_LABELS[entry.kind]}: ${quoteLeadWorkText(entry.title, LEAD_PRESENCE_LIMITS.titleChars)}`)
-      if (found.length > lines.length) lines.push(`- and ${found.length - lines.length} more`)
-      const moved = lines.length ? `In that span, on the work ledger:\n${lines.join('\n')}\n${dollars} was spent in it. `
-        : spent > 0 ? `In that span nothing on the work ledger finished, stopped or came to need them; ${dollars} was spent. `
-        : 'In that span nothing on the work ledger finished, stopped or came to need them, and nothing was spent, so no away digest was shown. '
-      return `The person was away from ${deskTime(away.from)} to ${deskTime(away.to)} (desk time): no window or phone of theirs was looked at in between. ${moved}` +
-        `Anything from before ${deskTime(away.from)} happened before they left: never report it as happening while they were away.`
+      const found = card ? card.items : (await this.#items(away.from, away.revision, away.until ?? away.revision)).filter(entry => entry.at === undefined || entry.at <= away.to)
+      const shown = found.slice(0, LEAD_PRESENCE_LIMITS.items), more = card ? card.more : found.length - shown.length
+      const spent = card ? card.spentUsdMicros : this.#spentBetween(away.from, away.to), dollars = awayDollars(spent)
+      const lines = shown.map(entry => `- ${LEAD_DIGEST_ITEM_LABELS[entry.kind]}: ${quoteLeadWorkText(entry.title, LEAD_PRESENCE_LIMITS.titleChars)}${awayRef(entry.ref)}`)
+      if (more > 0) lines.push(`- and ${more} more`)
+      // Reminders that fired inside the window, with the work item each is about.
+      const board = await this.ports.board().catch(() => null)
+      const fired = (board?.reminders ?? []).filter(entry => entry.firedAt !== undefined && entry.firedAt >= from && entry.firedAt <= to).slice(0, LEAD_PRESENCE_LIMITS.items)
+        .map(entry => `- ${entry.id} ${quoteLeadWorkText(entry.text, LEAD_PRESENCE_LIMITS.titleChars)} fired ${hourMinute(entry.firedAt!)}${entry.item ? `, about ${entry.item}${awayRef({ kind: 'work', id: entry.item })}` : ''}`)
+      const moved = lines.length ? `In that span, on the work ledger:\n${lines.join('\n')}\n` : 'In that span nothing on the work ledger finished, stopped or came to need them. '
+      const reminded = fired.length ? `Reminders that fired in that span:\n${fired.join('\n')}\n` : ''
+      const said = card ? `Their away card reads "While you were away · ${hourMinute(from)}–${hourMinute(to)}" and "${dollars} spent while away": give that window and that spend as the card does. `
+        : lines.length || spent > 0 ? `${dollars} was spent in it. ` : 'Nothing was spent, so no away digest was shown. '
+      return `The person was away from ${deskTime(from)} to ${deskTime(to)} (desk time): no window or phone of theirs was looked at in between. ${moved}${reminded}${said}` +
+        'To link a Team, chat or work item named here, add it to refs with the kind and id in its brackets. ' +
+        `Anything from before ${deskTime(from)} happened before they left: never report it as happening while they were away.`
     })
   }
   async observe(): Promise<void> { if (await this.#write(() => this.#observeAsks())) this.ports.changed?.() }

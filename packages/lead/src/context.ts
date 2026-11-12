@@ -126,6 +126,18 @@ export const leadStubVolatile = (messages: readonly MessagesTurn[], mark: LeadCo
 }
 
 /**
+ * The desk context a request's last turn carries after `kept`: the text blocks its stored copy turns into a stub
+ * (`leadStubVolatile`). A tool continuation of that turn carries them again after its tool results, so the reply it
+ * writes reads the desk (the settings news, the host note, the work ledger) as the turn did, not a one-line stub (#2180).
+ */
+export const leadTurnDesk = (messages: readonly MessagesTurn[], kept: LeadContextMark | undefined): MessagesText[] => {
+  const index = messages.length - 1, turn = messages[index], end = kept ?? { turns: 0, blocks: 0 }
+  if (!turn || turn.role !== 'user' || index < end.turns - 1) return []
+  const from = index === end.turns - 1 ? end.blocks : 0
+  return turn.content.flatMap((block, position) => position >= from && block.type === 'text' && !isStub(block) ? [{ type: 'text' as const, text: block.text }] : [])
+}
+
+/**
  * Adjacent turns of one role, joined into one turn. A provider reads two user turns in a row as one anyway; the desk
  * never sends or stores them apart, so a mark counted on the request is the mark on what is stored. The same array
  * when nothing needed it.

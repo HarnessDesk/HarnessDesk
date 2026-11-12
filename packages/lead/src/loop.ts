@@ -8,8 +8,8 @@ import { isLeadQuiet, leadApprovedPlan, leadInstructions, leadObservation, type 
 import { leadWakeAutonomy } from './autonomy.js'
 import { classifyLeadRuns, createLeadWakeGate, leadChatFingerprint, type LeadRunReading, type LeadWakeCounts } from './wake.js'
 import { createLeadMessages } from './messages.js'
-import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesTurn, MessagesUsage } from './messages-types.js'
-import { LEAD_CONTEXT, type LeadEpochHeld, leadAppendUser, leadWithPlan, leadCloseOpenLoop, leadContextBytes, leadContextMarkOf, leadContextRecord, leadPruneContext, leadStubVolatile, type LeadContextRecord } from './context.js'
+import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesText, MessagesTurn, MessagesUsage } from './messages-types.js'
+import { LEAD_CONTEXT, type LeadEpochHeld, leadAppendUser, leadTurnDesk, leadWithPlan, leadCloseOpenLoop, leadContextBytes, leadContextMarkOf, leadContextRecord, leadPruneContext, leadStubVolatile, type LeadContextRecord } from './context.js'
 import { leadWorkCards } from './work.js'
 import { parseLeadWorkBoard } from '@harnessdesk/protocol'
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
@@ -152,6 +152,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let tail: Promise<unknown> = Promise.resolve(), iterator: AsyncIterator<ClientEvent> | null = null
   let pump: Promise<void> | null = null, active: AbortController | null = null
   let history: readonly MessagesTurn[] | null = null, requestTemplate: LeadMessagesRequest | null = null
+  /** The desk context the host's latest request carried after its stored part; its tool continuations carry it again. */
+  let turnDesk: readonly MessagesText[] = []
   let stepUsage: MessagesUsage | undefined
   let publicationSources: { runId: string; reviewedHead: string; evidenceRevision: string }[] = []
   let lastResultSignature: string | null = null
@@ -698,8 +700,16 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           let planned: ReturnType<typeof leadWithPlan> = { messages: [...history] }
           try { if (journal.state.contract) planned = leadWithPlan(history, leadApprovedPlan(journal.state.contract)) } catch { /* Too large to carry: the host refused it too. */ }
           const observed = activity ? withObservation(planned.messages, observation) : planned.messages
+          // A tool continuation of the host's request carries that request's desk context again, after the tool results:
+          // the reply it writes reads what the turn read (#2180). Fresh cards and memory read for this batch replace theirs.
+          if (!continueTools) turnDesk = []
+          const carried = turnDesk.flatMap(block => {
+            const left = work ? block.text.replace(/^<work-ledger>[\s\S]*?<\/work-ledger>\s*/, '') : block.text
+            return !left || memory && left.startsWith(LEAD_MEMORY_STATUS_OPEN) ? [] : [{ type: 'text' as const, text: left }]
+          })
+          const fresh = [...carried, ...(work ? [{ type: 'text' as const, text: work }] : []), ...(memory ? [{ type: 'text' as const, text: memory }] : [])]
           await step({ ...rest, proactive, wakeSource: pendingWake.source, epoch, ...(mark ? { stable: mark, base: mark } : {}), ...(planned.kept ? { kept: planned.kept } : {}),
-            messages: work || memory ? leadAppendUser(observed, [...(work ? [{ type: 'text' as const, text: work }] : []), ...(memory ? [{ type: 'text' as const, text: memory }] : [])]) : observed }, undefined, pendingWake)
+            messages: fresh.length ? leadAppendUser(observed, fresh) : observed }, undefined, pendingWake)
           // Refused as too long: owed once more, after the desk compacts.
           if (wakeOverflow && !closed) { dirty ||= activity; deskOwed ||= activity ? stepCause : false; continuationPending ||= continueTools; batchAgain = true }
           report()
@@ -824,7 +834,12 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     start: () => queue(start),
     request: (input: LeadMessagesRequest, signal?: AbortSignal) => {
       requested++; reportActivity()
-      return queue(async () => { await start(); return step(input, signal) }).finally(() => { requested--; reportActivity() })
+      return queue(async () => {
+        await start()
+        // Stored history stubs this turn's desk context; a tool continuation of it gets it back whole (#2180).
+        turnDesk = options.context || input.stable ? leadTurnDesk(input.messages, input.kept ?? input.stable) : []
+        return step(input, signal)
+      }).finally(() => { requested--; reportActivity() })
     },
     /** A checkpoint request: the same instructions, tools and turns as the conversation's own requests, then one
      * instruction. It is queued behind any turn in flight, spends from the goal's budget, and says nothing to the person. */
