@@ -115,6 +115,9 @@ export const invokeForBridge = async (
   )
 }
 
+/** How long a burst of registry events is gathered into one `tools/changed` push. */
+const TOOLS_CHANGED_WINDOW_MS = 250
+
 interface Request {
   id?: number | string
   method?: string
@@ -145,7 +148,34 @@ export class ToolGateway {
   /** Every bridge connected right now — ended by `stop`, which must not wait on an agent that has not hung up. */
   readonly #sockets = new Set<Socket>()
 
+  /**
+   * The tool set changed — a plugin came, went, reloaded or updated. Tells
+   * every connected bridge with one unsolicited line (`tools/changed`, no
+   * `id`, so it can never be taken for a reply); the bridge turns it into
+   * MCP's `notifications/tools/list_changed`, which is how an agent with a
+   * conversation already open learns to ask for the list again. A reload
+   * emits several registry events in a row, so pushes coalesce: at most one
+   * per window, sent when the window closes. The timer is unref'd and
+   * cleared by `stop`, so neither a test nor a quitting desk waits on it.
+   */
+  toolsChanged(): void {
+    if (this.#pushTimer || !this.#server) return
+    this.#pushTimer = setTimeout(() => {
+      this.#pushTimer = null
+      for (const socket of this.#sockets) {
+        if (!socket.destroyed) socket.write(`${JSON.stringify({ method: 'tools/changed' })}\n`)
+      }
+    }, TOOLS_CHANGED_WINDOW_MS)
+    this.#pushTimer.unref()
+  }
+
+  #pushTimer: NodeJS.Timeout | null = null
+
   async stop(): Promise<void> {
+    if (this.#pushTimer) {
+      clearTimeout(this.#pushTimer)
+      this.#pushTimer = null
+    }
     // A host refused by the home writer lock never owned this socket.
     if (!this.#server) return
     await new Promise<void>((resolve) => {

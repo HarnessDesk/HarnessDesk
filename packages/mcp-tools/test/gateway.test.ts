@@ -252,3 +252,93 @@ test('an external MCP server’s tools are merged into tools/list, and a call fo
     if (existsSync(sockPath)) unlinkSync(sockPath)
   }
 })
+
+/**
+ * A change to the tool set reaches an agent whose conversation is already
+ * open: the gateway pushes an id-less `tools/changed` line, and the bridge
+ * turns it into MCP's `notifications/tools/list_changed` — but only once the
+ * agent has initialized, and never as the answer to a request.
+ */
+test('the bridge advertises listChanged and forwards a gateway push only after initialize, never as a reply', async () => {
+  const sockPath = join(tmpdir(), `hdt-${randomUUID().slice(0, 8)}.sock`)
+  if (existsSync(sockPath)) unlinkSync(sockPath)
+
+  let held: Socket | null = null
+  let pushBeforeInitialize = false
+  const server = createServer((sock) => {
+    held = sock
+    let buf = ''
+    sock.on('data', (chunk) => {
+      buf += chunk.toString()
+      for (;;) {
+        const newline = buf.indexOf('\n')
+        if (newline === -1) break
+        const line = buf.slice(0, newline)
+        buf = buf.slice(newline + 1)
+        if (!line.trim()) continue
+        const msg = JSON.parse(line)
+        if (msg.method === 'server/info') {
+          // The bridge is connected but has not answered `initialize` yet.
+          if (pushBeforeInitialize) sock.write(`${JSON.stringify({ method: 'tools/changed' })}\n`)
+          sock.write(`${JSON.stringify({ id: msg.id, result: { instructions: '' } })}\n`)
+        } else if (msg.method === 'tools/list' || msg.method === 'mcp/list') {
+          // A push lands while a request is pending: it must not answer it.
+          if (msg.method === 'tools/list') sock.write(`${JSON.stringify({ method: 'tools/changed' })}\n`)
+          setTimeout(() => sock.write(`${JSON.stringify({ id: msg.id, result: { tools: [] } })}\n`), 50)
+        }
+      }
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(sockPath, resolve))
+
+  const proc = spawn(process.execPath, [MAIN], {
+    env: { ...process.env, HD_TOOLS_SOCKET: sockPath },
+    stdio: ['pipe', 'pipe', 'inherit'],
+  })
+  const rl = createInterface({ input: proc.stdout })
+  const notifications: string[] = []
+  const replies = new Map<number, (res: { result?: unknown; error?: unknown }) => void>()
+  rl.on('line', (line) => {
+    if (!line.trim()) return
+    const parsed = JSON.parse(line)
+    if (typeof parsed.id === 'number') replies.get(parsed.id)?.(parsed)
+    else if (typeof parsed.method === 'string') notifications.push(parsed.method)
+  })
+  const send = (req: { id: number; method: string }) =>
+    new Promise<{ result?: unknown; error?: unknown }>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`MCP request ${req.id} timed out`)), 5000)
+      replies.set(req.id, (res) => {
+        clearTimeout(timer)
+        resolve(res)
+      })
+      proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', params: {}, ...req }) + '\n')
+    })
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 150))
+
+  try {
+    pushBeforeInitialize = true
+    const init = await send({ id: 1, method: 'initialize' })
+    assert.deepEqual(
+      (init.result as { capabilities: unknown }).capabilities,
+      { tools: { listChanged: true } },
+      'the bridge says its tool list can change',
+    )
+    await settle()
+    assert.deepEqual(notifications, [], 'a push that arrives before initialize completes is not forwarded')
+
+    // Control: with the feature absent (no forwarding) this stays empty.
+    held!.write(`${JSON.stringify({ method: 'tools/changed' })}\n`)
+    await settle()
+    assert.deepEqual(notifications, ['notifications/tools/list_changed'], 'a push after initialize reaches the agent')
+
+    // A push mid-request neither resolves nor rejects it; the real reply does.
+    const listed = await send({ id: 2, method: 'tools/list' })
+    assert.deepEqual(listed.result, { tools: [] })
+    assert.equal(listed.error, undefined)
+    assert.equal(notifications.length, 2, 'the mid-request push is forwarded once, as a notification')
+  } finally {
+    proc.kill()
+    server.close()
+    if (existsSync(sockPath)) unlinkSync(sockPath)
+  }
+})
