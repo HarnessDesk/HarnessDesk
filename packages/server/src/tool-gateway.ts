@@ -118,6 +118,14 @@ export const invokeForBridge = async (
 /** How long a burst of registry events is gathered into one `tools/changed` push. */
 const TOOLS_CHANGED_WINDOW_MS = 250
 
+/**
+ * The calls only the MCP bridge makes. A socket that has made one is a bridge
+ * and may be pushed to; the git stand-in and the Claude hook share this socket
+ * but send one `git/steer` and read the first line back as its reply, so a
+ * push to them would be taken for that reply.
+ */
+const BRIDGE_METHODS: ReadonlySet<string> = new Set(['server/info', 'tools/list', 'tools/invoke', 'mcp/list', 'mcp/call'])
+
 interface Request {
   id?: number | string
   method?: string
@@ -147,10 +155,12 @@ export class ToolGateway {
 
   /** Every bridge connected right now — ended by `stop`, which must not wait on an agent that has not hung up. */
   readonly #sockets = new Set<Socket>()
+  /** The connected sockets that have made a bridge call, the only ones `toolsChanged` writes to. */
+  readonly #bridges = new WeakSet<Socket>()
 
   /**
    * The tool set changed — a plugin came, went, reloaded or updated. Tells
-   * every connected bridge with one unsolicited line (`tools/changed`, no
+   * every connected bridge (never a `git/steer` caller) with one unsolicited line (`tools/changed`, no
    * `id`, so it can never be taken for a reply); the bridge turns it into
    * MCP's `notifications/tools/list_changed`, which is how an agent with a
    * conversation already open learns to ask for the list again. A reload
@@ -163,7 +173,7 @@ export class ToolGateway {
     this.#pushTimer = setTimeout(() => {
       this.#pushTimer = null
       for (const socket of this.#sockets) {
-        if (!socket.destroyed) socket.write(`${JSON.stringify({ method: 'tools/changed' })}\n`)
+        if (!socket.destroyed && this.#bridges.has(socket)) socket.write(`${JSON.stringify({ method: 'tools/changed' })}\n`)
       }
     }, TOOLS_CHANGED_WINDOW_MS)
     this.#pushTimer.unref()
@@ -216,6 +226,7 @@ export class ToolGateway {
     const reply = (body: object): void => {
       if (!socket.destroyed) socket.write(`${JSON.stringify({ id: request.id, ...body })}\n`)
     }
+    if (typeof request.method === 'string' && BRIDGE_METHODS.has(request.method)) this.#bridges.add(socket)
     try {
       switch (request.method) {
         case 'tools/list': {
