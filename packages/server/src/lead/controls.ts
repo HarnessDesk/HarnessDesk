@@ -473,7 +473,10 @@ export class LeadControls {
         settingsShownAt = undefined
         // A mark still being written is read as written, never as the one before it; a write that hangs holds no request
         // up for longer than a few seconds, and the request then reads the mark as it stands.
-        await Promise.race([this.#shownWrite, new Promise<void>(resolve => { const wait = setTimeout(resolve, LEAD_SHOWN_WRITE_WAIT_MS); wait.unref?.() })])
+        let wait: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([this.#shownWrite, new Promise<void>(resolve => { wait = setTimeout(resolve, LEAD_SHOWN_WRITE_WAIT_MS) })])
+        } finally { clearTimeout(wait) }
         try {
           const note = await this.options.readMemoryContext?.() ?? null
           memory = typeof note === 'string' ? note : note?.text ?? null
