@@ -70,5 +70,8 @@ test('after half an hour with no window or phone looked at, the next person turn
   await settled(2)
   assert.doesNotMatch(requests[0]!, /The person was away/)
   assert.match(requests.at(-1)!, /<host-note>[^<]*The person was away from/, 'the turn after the absence is told the window')
-  assert.match(requests.at(-1)!, /nothing was spent, so no away digest was shown/)
+  // The first reply's spend is metered after the person's last look, so their away card shows it; the note gives the
+  // window and the spend as that card reads them, never a figure of its own (#2147).
+  assert.match(requests.at(-1)!, /Their away card reads \\"While you were away · \d\d:\d\d–\d\d:\d\d\\" and \\"[^"\\]+ spent while away\\"/)
+  assert.doesNotMatch(requests.at(-1)!, /no away digest was shown/)
 })

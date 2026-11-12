@@ -413,8 +413,10 @@ export class LeadControls {
       this.#requestWaitReason = null
       const { context } = this.options
       let persons: readonly string[] = []
-      // When the request that was sent read the settings; kept only once its reply to the person is stored.
+      // When the request that was sent read the settings; kept only once its reply to the person is stored. A new
+      // request supersedes an earlier one still waiting for its reply: that one failed or answered nobody.
       let settingsShownAt: number | undefined
+      this.#shownPending = null
       const build = async () => {
         // With the context engine the request starts from the stored conversation, tool pairs and all; without it,
         // from the words the person can read. Either way no reasoning from an earlier request is carried.
@@ -505,7 +507,7 @@ export class LeadControls {
       // The person read a reply from a request that carried the settings: they are no longer news to the Lead. Decided
       // from the journal, since the child stores its reply itself and returns a result without the words (#2170); a
       // reply that comes from the child's continuation after a tool call lands after this, and keeps it then (#2180).
-      if (person && !proactive && settingsShownAt !== undefined) {
+      if (person && !proactive && settingsShownAt !== undefined && result.status !== 'failed') {
         this.#shownPending = { at: settingsShownAt, seq: sentAt }
         this.#settleShown()
       }
