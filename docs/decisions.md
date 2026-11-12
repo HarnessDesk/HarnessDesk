@@ -20,6 +20,24 @@ An OS `harnessdesk://` launch was only a focus hint: the shell read neither the 
 
 **Rule:** a `harnessdesk://` launch may only fill a draft, through `parsePromptLink`; anything that would act on the desk is not a link's to do.
 
+## A seat that hits its usage limit is replaced, never moved — 2026-11-11
+
+Carry-on (continuing a conversation on another account or agent when a turn hits a usage limit) applies to Team and Flow seats as well as chats, with the same rule and the same `carryOn/decide`. A seat's question is never a card over a composer: it goes on the Team's own `usage limit` notice for that member, as Switch, Wait until reset and Stop.
+
+A `SeatRecord` is bound to its conversation and its label, and a run stalls a seat that comes back under a different label. So a switch opens a replacement seat for the same card, in the same checkout and lane, with the same role, card, blind setting and binding. Only the conversation and the label change. The round lists both seats in order, the old one closed with `limit`, and a review guard asks only the seat that is working now. A sibling account of the same agent resumes the same thread; any other agent is seated with its brief and gets the handoff packet as its first work message. A blind reviewer's packet leaves out the recent turns, so it reads nothing of the work it must judge independently.
+
+Each candidate goes through the independence check in both directions before it is opened: a reviewer cannot move onto the provider of the work it reviews, and a writer cannot move onto the provider of a seat that must be independent of it, or leave a step still to come with no independent candidate. A refused candidate is skipped, with its reason in the incident's note. When none passes, or the run is at its budget ("Run budget reached"), the seat stays stopped with its `limit` notice.
+
+While an incident is live, the seat's own recovery (re-arming the card, retrying a release) does not run, so the card is never handed back underneath the question. When the incident ends stopped, that recovery runs as it did before.
+
+Rejected:
+
+- **Changing the seat's conversation in place.** The run's journal, its evidence and the `#sameSeat` check all rely on a seat keeping its conversation; a moved seat would read as one that silently changed agents.
+- **A carry-on card in the Team view.** The notice already says the member stopped; a second surface would say it twice.
+- **Letting the seat's recovery run beside the question.** Both would hand the card out, once to the stuck account and once to the replacement.
+
+**Rule:** a seat is carried on by a replacement for the same card that passes the run's independence check; the old seat stays in the round, closed with `limit`; and nothing hands the card back while the question is open.
+
 ## The Lead's child and its host check one argument table, and a stop says where it happened — 2026-11-10
 
 The Lead's child asks the host to write to the journal over a framed pipe, one named operation at a time. Two places checked how many arguments each operation may carry: the frame decoder, with a cap of two for most operations, and the host's dispatch, with an exact count. When the child began journaling the memory Core each conversation epoch reads (three arguments), only the dispatch was taught the new count. The decoder refused the frame, the host stopped the child as a broken protocol, and because the record is written on the first request of every new epoch, every request after a summary failed before it was reserved. Each Resume started a child that stopped at the same place, and nothing anywhere said why.
@@ -5859,6 +5877,19 @@ A sitting saw every question the Lead asked "expire" within a minute: the phone 
 - **An upgrade settles the reports already there.** Reports' questions were never answerable before this, so on every start each report question the thread holds with no record of its own is recorded as expired then, nothing done; the set is taken before the file is read, so a report that arrives meanwhile is new. Rejected: tracking them all as new (the newest ignored report, days old, would land in both inboxes dated now), a cut-off by age (any age would still reopen a report the person had chosen to leave), and a one-time marker in the record (an older build keeps the marker but records no report, so going back to it and forward again reopened what it saw).
 - **One count for the question.** `leadPersonNeeds` counts the open question, and `leadNeedsYou` is the Lead's whole count, which the inbox's Lead rows add up to and the Lead's word says. A question's replaced state outlives its own clock: replaced first, it stays replaced. Rejected: counting the question only in the inbox (the header and the bell agreed only through the desk's total, and the rule that says they never disagree did not know the question).
 - **One receipt, drawn the same everywhere.** A settled question keeps its options as disabled buttons, the picked one marked, with one line: who answered, on which device, and when, or that it expired or was replaced and nothing was done. A newly seen question publishes `lead/presence/changed`, so the other surface redraws without waiting for its next read. Rejected: settled options as plain text (they read as part of the message, not as a choice that was made or missed).
+
+
+## Carry on past a usage limit — 2026-11-11
+
+A conversation that reached its usage limit used to stop where it was. The usage notice offered the next account to new sessions only, and an open conversation stayed on its account because its thread lives in that account's history. Now a running conversation carries on: on another account of the same agent, in a new conversation with another agent, or by waiting for its reset, after asking or by a rule the person set. The desk's rule is the `carryOn` preference (Settings › Permissions › When a usage limit is reached); an agent's own **When an account runs out** overrides it, and **Always do this** on the card writes whichever of the two the card names. The order candidates are tried in is the pacing order ("Account pacing is an order and a note, not a scheduler", above), so this adds no ranking of its own and no new request to any vendor.
+
+- **The switch is an item in the transcript, not a notice.** Notice kinds can be muted, and a muted switch would leave a conversation that changed account or agent with nothing to say so; a notice also has no field for the two sides or the link between two conversations. Only the inbox's kept copy (*Usage limits in a conversation*) can be muted. Rejected: a `NoticeItem` kind (mutable, and shapeless).
+- **Choose before waiting.** The candidates are ranked before any timer is set, so a conversation never waits for a reset while an account with room sits idle. Rejected: "retry at reset" alone (it waits even when the next account is free).
+- **"Soon" is five hours.** A reset retry comes before another agent only when the reset is within one five-hour window: a handoff to another agent loses its working context (it gets a packet, not its memory), and beyond a window a stopped conversation costs more than that loss. A weekly limit resetting in days always prefers a switch. It is a number to revisit with use.
+- **No automatic switch to an API-key slot.** A gateway slot bills a key by the token, which no rule the person set for their plans agreed to. The card may still list it, marked API key, for the person to pick.
+- **An unanswered ask spends nothing new.** Only a yes or an always rule may spend another account or agent. At a known reset an unanswered card resolves as Wait until reset, one retry on the same account the person already chose; with no reset known it stays asked and the conversation stays stopped. Rejected: a timeout that takes the recommended switch (it would spend an account, or send the text to another vendor, without anyone saying yes).
+- **A seat's switch is a replacement seat.** A seat record is bound to its session and label, and the flow engine stalls a run whose seat changes label under it, so a Team seat that runs out is replaced by a new seat of the same run on the same card, after the same independence check a reviewer's provider takes. Rejected: mutating the seat in place (the evidence would describe a seat that never existed).
+- **Other agents are on by default.** The owner's rule asks every limit to carry on, and the same agent is not always there; the row's own line and `docs/data-boundaries.md` say the recent text goes to that agent's provider, and the switch turns it off.
 
 ## An MCP client starts work only when you let it — 2026-11-11
 

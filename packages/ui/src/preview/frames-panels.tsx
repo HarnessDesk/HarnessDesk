@@ -1,7 +1,7 @@
 import { GIT_PREVIEW_ROOT } from './git-fixture'
 import { useState } from 'react'
 
-import { runtimeId, type TeamEntry } from '@harnessdesk/protocol'
+import { runtimeId, sessionKey, type CarryOnIncidentView, type TeamEntry } from '@harnessdesk/protocol'
 
 import { AuthorDialog } from '../components/LibraryActions'
 import { BrowserPane } from '../components/BrowserPane'
@@ -33,6 +33,26 @@ const repeatedRecipientEntries: readonly TeamEntry[] = [1, 2].map(index => ({
   from: { kind: 'user' }, to: { runtime: runtimeId('claude'), sessionId: 'k1', title: 'Auth refactor', nickname: 'Reviewer' },
   text: 'Yes, check this.', state: 'delivered',
 }))
+
+/*
+ * A seat out of its usage limit while the desk is set to ask (carry-on §9.1):
+ * the member's own `limit` notice carries the answer. The skipped candidate's
+ * reason is the note, and the reset is known, so Wait is offered.
+ */
+const carryOnNotice: TeamEntry = {
+  kind: 'notice', id: 'carry-on-limit', at: Date.now() - 2 * 60_000, cause: 'limit',
+  about: { kind: 'agent', runtime: runtimeId('codex'), sessionId: 'c1', title: 'API migration' },
+  text: "You've hit your usage limit. It resets at 5:10 PM.",
+}
+const carryOnStore = previewStore({
+  seatCarryOn: new Map([[sessionKey(runtimeId('codex'), 'c1'), {
+    incidentId: 'preview-carry-on', runtime: runtimeId('codex'), sessionId: 'c1', owner: 'seat', state: 'asked', cause: 'limit',
+    from: { name: 'Alpha', account: 'account 1' }, openedAt: Date.now() - 2 * 60_000, resetsAt: Date.now() + 70 * 60_000,
+    choices: { target: { runtime: runtimeId('claude'), name: 'Beta', account: 'account 1', mode: 'handoff', tier: 0 }, wait: true },
+    others: [], alwaysScope: 'desk',
+    note: 'Skipped Alpha · account 2: it would leave a later step with no independent provider',
+  } as unknown as CarryOnIncidentView]]),
+})
 
 /**
  * A store of its own, so `TaskPanel` — which reads the active session's own
@@ -180,6 +200,13 @@ export const PanelFrames = () => {
       <Frame id="room-channel-grouping" title="Room — the channel's own grouping">
         <div className="max-h-[420px] overflow-y-auto p-4">
           <ChannelStream entries={new URLSearchParams(location.search).get('channel-case') === 'repeated-recipient' ? repeatedRecipientEntries : TEAM.channel} room={TEAM.id} onTrouble={() => {}} />
+        </div>
+      </Frame>
+      <Frame id="room-channel-carry-on" title="Team — a seat's usage limit asks what to do">
+        <div className="max-h-[420px] overflow-y-auto p-4">
+          <StoreProvider store={carryOnStore}>
+            <ChannelStream entries={[...TEAM.channel.slice(0, 3), carryOnNotice]} room={TEAM.id} onTrouble={() => {}} />
+          </StoreProvider>
         </div>
       </Frame>
       <Frame id="tasks-session-plan" title="Tasks — a session's own plan">

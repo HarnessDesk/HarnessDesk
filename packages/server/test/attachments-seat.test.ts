@@ -595,3 +595,21 @@ test('collection never follows a link swapped in for a staging folder', async ()
   await symlink(join(outer, 'staged'), join(folder, '.staged'))
   assert.equal(await new AttachmentsPlane(folder, port).collectStaged(new Set()), 0)
 })
+
+test('a Seat that froze nothing to load filters nothing, so carry-on may move its thread to another account', async () => {
+  // Review fix 7 (carry-on §9.2): every Agent Seat may freeze a record, so "a record exists" is not "attachments exist".
+  const id = identity({ seed: 'carried' })
+  const port = portFor({ scout: [declaration(id)] })
+  permit(port, subject(), id)
+  const plane = new AttachmentsPlane(tempDir('hd-attach-seat-carry-'), port)
+
+  const empty = await plane.prepare(subject({ agent: 'plain' }))
+  await plane.record(seat('seat-plain'), empty, { key: empty.input.key, loaded: [], refused: [] })
+  assert.equal(await plane.frozen('seat-plain' as never), true, 'the empty set is frozen like any other')
+  assert.equal(await plane.filters('seat-plain' as never), false, 'but it narrows nothing a sibling account would load')
+
+  const declared = await plane.prepare(subject())
+  await plane.record(seat('seat-declared'), declared, { key: declared.input.key, loaded: [{ kind: 'skill', name: id.name, digest: id.digest }], refused: [] })
+  assert.equal(await plane.filters('seat-declared' as never), true, 'a declared attachment does not carry over')
+  assert.equal(await plane.filters('seat-never' as never), false)
+})

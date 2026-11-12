@@ -784,7 +784,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'MainDestination': ['DestinationBody', 'MainDestination'],
   'Menu': ['ContextMenu', 'IssueMark', 'Menu', 'MenuAccountGroup', 'MenuAccountRow', 'MenuItem', 'MenuLabel', 'MenuNote', 'MenuSeparator', 'MenuToggle', 'Submenu', 'useContextMenu', 'useMenuClose'],
   'ModalDialog': ['Dialog', 'DialogBody', 'DialogFooter', 'DialogHead', 'modalSurfaceClass'],
-  'Notices': ['ComposerNotice', 'ComposerNoticeStack', 'ComposerTail', 'InboxPanel', 'NoticeCard', 'NoticeStrip', 'showToast'],
+  'Notices': ['ComposerNotice', 'ComposerNoticeStack', 'ComposerTail', 'DecisionNotice', 'InboxPanel', 'NoticeCard', 'NoticeStrip', 'showToast'],
   'Page': ['Page', 'PageColumns', 'PageStack'],
   'PageControls': ['PageControls', 'PageExplanation', 'PreservedText', 'ShortcutKeys'],
   'PageOptions': ['PageOptions'],

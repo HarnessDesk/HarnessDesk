@@ -128,12 +128,15 @@ export {
   ComposerNotice,
   ComposerNoticeStack,
   ComposerTail,
+  DecisionNotice,
   InboxList,
   InboxPanel,
   NoticeCard,
   NoticeStrip,
   showProgress,
   showToast,
+  type DecisionAlternative,
+  type DecisionChoice,
   type InboxMessage,
   type InboxWaiting,
   type NoticeAct,
@@ -225,6 +228,7 @@ export {
   ChannelNotice,
   ChannelSignal,
   type ChannelMessageProps,
+  type ChannelNoticeChoice,
   type ChannelState,
 } from './patterns/ChannelMessage'
 export { AgentCard, MemberName, CardBand, CardCrest, CardCrestBody, CardShell, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
