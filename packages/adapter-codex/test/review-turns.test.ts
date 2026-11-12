@@ -17,7 +17,7 @@ const T = 'thread-1'
 const turn = (id: string, status: 'inProgress' | 'completed' = 'inProgress') => ({
   id,
   items: [],
-  itemsView: 'notLoaded' as const,
+  rootTurnId: null, itemsView: 'notLoaded' as const,
   status,
   error: null,
   startedAt: null,
