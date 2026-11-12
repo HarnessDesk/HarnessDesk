@@ -129,9 +129,9 @@ const harness = async (t: any, settings: { readonly window: number; readonly fai
   }
   let said = 0
   /** One person turn, as the host's request: the stored conversation, the new words, one line of desk context. */
-  const say = async (words: string) => {
+  const say = async (words: string, surface?: 'phone' | 'desktop') => {
     if (store.due() === 'hard') await store.compact('hard', send)
-    await journal.appendMessage(`person-${run}-${++said}`, words, 'person')
+    await journal.appendMessage(`person-${run}-${++said}`, words, 'person', undefined, undefined, surface)
     const built = await store.request()
     // As the host builds it: the plan after the person's words (kept as it is), then desk context of the moment.
     const contract = journal.state.contract
@@ -635,7 +635,7 @@ test('with a plan approved the host keeps the plan in the stored words and puts 
 })
 
 test('the state of the Lead\'s own memory proposals is desk context of the moment: after the work cards, never kept, and a failing read still answers', async () => {
-  const status = '<desk-memory-status>\n- [c1] declined by the person; not in memory: Lead with the conclusion.\n</desk-memory-status>'
+  const status = '<desk-memory-status>\n- declined by the person; not in memory: Lead with the conclusion.\n</desk-memory-status>'
   const s = await controlsRig([], { readWorkContext: async () => 'Work cards: none open.', readMemoryContext: async () => status })
   await s.controls.send({ idempotencyKey: 'send-memory', text: 'Lead with the conclusion, please.' })
   await s.controls.idle()
@@ -869,4 +869,34 @@ test('ordinary questions, each reading the desk in three rounds of tool calls, a
   assert.equal(lead.leadPairedTurns(lead1.store.turns), lead1.store.turns, 'every stored call has its answer')
   assert.ok(lead1.store.turns.some(turn => turn.role === 'user' && turn.content.some(block => block.type === 'text' && block.text.startsWith(lead.LEAD_FOLDED_READS_PREFIX))))
   assert.ok(lead1.store.turns.at(-1)!.role === 'assistant' && lead1.store.turns.slice(-8).some(turn => turn.content.some(block => block.type === 'tool_use')))
+})
+
+test('#2166: a tool continuation reads the surface of the message it answers, never an earlier one\'s', async t => {
+  const seen: string[][] = []
+  const lines = (body: any) => body.messages.filter((turn: any) => turn.role === 'user').flatMap((turn: any) => turn.content.flatMap((block: any) =>
+    block.type === 'text' && block.text.startsWith('Desk note: the person sent') ? [block.text] : []))
+  const lead1 = await harness(t, { window: 200_000, reply: body => {
+    const turn = body.messages.at(-1)
+    if (turn.content.some((block: any) => block.type === 'tool_result')) seen.push(lines(body))
+    return replyAnswer(body)
+  } })
+  await lead1.say('Remember: the code word is amber-2.', 'phone')
+  await lead1.say('Check the chats.', 'desktop')
+  assert.equal(seen.length, 1, 'the continuation after the chat list was sent')
+  assert.deepEqual(seen[0], [lead.LEAD_SURFACE_LINES.phone, lead.LEAD_SURFACE_LINES.desktop],
+    'the continuation still names the desktop for the newest message, and the phone for the earlier one')
+})
+
+test('#2165: the settings a request read stop being news only once the Lead\'s reply to the person is stored, never on a failed request', async () => {
+  const kept: number[] = []
+  let read = 0
+  const s = await controlsRig([{ status: 'failed', reason: 'lead-request-failed' }, { status: 'completed', text: 'Noted.' }], {
+    readMemoryContext: async () => ({ text: '<desk-memory-status>\nNothing.\n</desk-memory-status>', settingsShownAt: ++read * 1000 }),
+    settingsShown: async (at: number) => { kept.push(at) } })
+  await s.controls.send({ idempotencyKey: 'send-failed', text: 'How should you write to me?' })
+  await s.controls.idle()
+  assert.deepEqual(kept, [], 'a failed request answered nobody')
+  await s.controls.send({ idempotencyKey: 'send-answered', text: 'How should you write to me?' })
+  await s.controls.idle()
+  assert.deepEqual(kept, [2000], 'the reply keeps the time its own request read the settings')
 })

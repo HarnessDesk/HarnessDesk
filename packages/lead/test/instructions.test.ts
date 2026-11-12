@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { parseLeadAcceptanceContract, type LeadAcceptanceContract } from '@harnessdesk/protocol'
-import { leadContinuation, leadDeviceContext, leadInstructions } from '../src/index.js'
+import { leadContinuation, leadInstructions } from '../src/index.js'
 
 const project = { id: 'acme', path: '/work/acme' }
 const assignments = [
@@ -165,12 +165,7 @@ test('the instructions tell memory from autonomy from rules, propose settings ra
   assert.match(text, /Work the person stopped is their call/)
   assert.doesNotMatch(text, /stopped twice/)
   assert.match(text, /Mark "starts":true on each option that starts or restarts a chat/)
-})
-
-test('#2146: the device block says where the person wrote from, quotes the phone\'s name as data, and that cards work there', () => {
-  const phone = leadDeviceContext({ id: 'phone:p1', label: 'Jane\'s <phone>' })
-  assert.match(phone, /^<person-device>The person wrote this message on their phone "Jane's \\u003cphone>"/)
-  assert.match(phone, /Every card and ask option works there: tell them to press it where they are, never on the desktop/)
-  assert.doesNotMatch(leadDeviceContext({ id: 'window:w1', label: 'Desktop' }), /phone "/)
-  assert.match(leadDeviceContext({ id: 'window:w1', label: 'Desktop' }), /in the desktop window/)
+  // #2166: one source names the surface, the desk note on each message.
+  assert.match(text, /Each person message carries a desk note naming the surface that sent it, phone or desktop window: where to press follows/)
+  assert.doesNotMatch(text, /person-device/)
 })

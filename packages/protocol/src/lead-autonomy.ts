@@ -180,11 +180,16 @@ const active: Validator<LeadRuleActive> = (value, path = '') => {
   const source = only(['version', 'text'])(value, path)
   return { version: integer(1)(source.version, at(path, 'version')), text: ruleText(source.text, at(path, 'text')) }
 }
+/** The sections the person edited, as a record carries them. */
+export const parseLeadAutonomyRules: Validator<LeadAutonomyRecord['rules']> = (value, path = '') => {
+  const rules = only(LEAD_RULE_SECTIONS)(value, path)
+  const out: Partial<Record<LeadRuleSectionId, LeadRuleActive>> = {}
+  for (const key of LEAD_RULE_SECTIONS) if (rules[key] !== undefined) out[key] = active(rules[key], at(path, key))
+  return out
+}
 export const parseLeadAutonomyRecord: Validator<LeadAutonomyRecord> = (value, path = '') => {
   const source = only(['modes', 'rules', 'deadline'])(value, path)
-  const rules = only(LEAD_RULE_SECTIONS)(source.rules, at(path, 'rules'))
-  const out: Partial<Record<LeadRuleSectionId, LeadRuleActive>> = {}
-  for (const key of LEAD_RULE_SECTIONS) if (rules[key] !== undefined) out[key] = active(rules[key], at(at(path, 'rules'), key))
+  const out = parseLeadAutonomyRules(source.rules, at(path, 'rules'))
   let deadline: LeadAutonomyRecord['deadline']
   if (source.deadline !== undefined) {
     const d = only(['logicalGoalId', 'deadlineAt'])(source.deadline, at(path, 'deadline'))
@@ -324,6 +329,7 @@ export type LeadRulesPropose = { readonly section: LeadRuleSectionId; readonly a
  */
 export interface LeadSettingsProposeResult {
   readonly outcome: 'created' | 'asked-again' | 'same' | 'refused'
+  /** The desk's own reference to the proposal. The wire never carries it to the Lead (#2167): the card is found by the person, not named by the Lead. */
   readonly id?: string
   readonly reason?: 'declined' | 'empty' | 'too-long' | 'too-many'
   readonly declinedBefore?: true

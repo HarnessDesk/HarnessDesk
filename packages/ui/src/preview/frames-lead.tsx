@@ -48,7 +48,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   // Autonomy and rules, as the host answers them: modes, versioned sections, and a would-have row to show.
   let modes: LeadAutonomyModes = scene === 'settings-autonomy' ? { ...LEAD_AUTONOMY_DEFAULTS, stuck: 'observe', mention: 'off' } : LEAD_AUTONOMY_DEFAULTS
   const versions: Record<string, LeadRuleVersion[]> = scene === 'settings-autonomy'
-    ? { talk: [{ version: 1, text: 'Plain words. One question at a time.', at: Date.UTC(2026, 10, 2, 17, 0), how: 'edit', base: LEAD_RULE_DEFAULTS.talk }],
+    ? { talk: [{ version: 1, text: 'Plain words. One question at a time.', at: Date.UTC(2026, 10, 2, 17, 0), how: 'edit', base: LEAD_RULE_DEFAULTS.talk, proposal: 's2' }],
         // Written against an older default, so the section shows what changed since: the real diff, Keep mine or Use new.
         delegate: [{ version: 1, text: 'Prefer the reviewer on another agent.', at: Date.UTC(2026, 10, 3, 17, 0), how: 'edit',
           base: { version: 0, text: `${LEAD_RULE_DEFAULTS.delegate.text.split('.')[0]}.\nOld line the shipped words no longer carry.` } }] } : {}
@@ -63,7 +63,8 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   // Who changed what, newest first: the host keeps them beside the versions.
   let changes: LeadAutonomyChange[] = scene === 'settings-autonomy' ? [
     { at: Date.UTC(2026, 10, 8, 17, 0), by: 'person', what: 'mode', kind: 'stuck', from: 'act', to: 'observe' },
-    { at: Date.UTC(2026, 10, 2, 17, 0), by: 'person', what: 'rules', section: 'talk', version: 1, how: 'edit' },
+    // Applied from the Lead's proposal: the ledger names the Lead, never the proposal's id (#2167).
+    { at: Date.UTC(2026, 10, 2, 17, 0), by: 'person', what: 'rules', section: 'talk', version: 1, how: 'edit', proposal: 's2' },
   ] : []
   // The Lead's proposals, as the desk keeps them: Apply makes the change the card shows and records it as the person's.
   let proposals: LeadSettingsProposal[] = scene === 'autonomy-proposal' ? [...leadSettingsProposals] : scene === 'autonomy-proposal-words' ? [leadSettingsWordsProposal] : []

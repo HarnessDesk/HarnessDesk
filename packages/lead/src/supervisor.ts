@@ -439,7 +439,7 @@ export class LeadSupervisor {
       switch (operation) {
         case 'recordWake': await durable(journal.recordWake(args[0] as import('@harnessdesk/protocol').LeadWakeRecord)); break
         // The journal parses all three: a goal id, an epoch and a Core within its budget.
-        case 'memoryEpoch': await durable(journal.memoryEpoch(args[0] as string, args[1] as number, args[2] as import('./memory.js').LeadMemoryCore)); break
+        case 'memoryEpoch': await durable(journal.memoryEpoch(args[0] as string, args[1] as number, args[2] as import('./memory.js').LeadMemoryCore, args[3] as import('@harnessdesk/protocol').LeadAutonomyRecord['rules'] | undefined)); break
         case 'provider-send': {
           if (typeof args[0] !== 'string' || typeof args[1] !== 'string' || new TextEncoder().encode(args[1]).length > 1_048_576) throw error('protocol')
           const withheld = args.length === 3 ? withheldPieces(args[2]) : undefined

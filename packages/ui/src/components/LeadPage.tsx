@@ -9,7 +9,7 @@ import { LeadNameIntro } from './LeadNameIntro'
 import { LeadWakeLedger } from './LeadWakeLedger'
 import { LeadOpening } from './LeadOpening'
 import { leadOpeningJobs } from '../lib/lead-opening'
-import { LeadAway, useLeadAsks } from './LeadAway'
+import { LeadAway, LeadRecap, useLeadAsks } from './LeadAway'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { draftsOf, LEAD_DRAFT_KEY } from '../state/drafts'
@@ -143,7 +143,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   }
   const railHosted = usePageRailHost()
   useConversationTopBar(owner, { mark: <LeadAvatar name={face} size="header" />, place: label, placeTitle: `${label} · ${presence.word}`, placeMenu: close => <LeadStatusPanel close={close} controls={controls} />,
-    ...presence.quiet ? {} : { state: <Text role="muted" data-slot="lead-presence">{presence.word}</Text> }, tools: <>{railHosted && <PageRailToggle page="lead" />}<Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={controls.openSettings}><SettingsIcon /></Button></>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
+    ...presence.quiet ? {} : { state: <Text role="muted" data-slot="lead-presence">{presence.word}</Text> }, tools: <>{(state.thread?.messages.length ?? 0) > 0 && <LeadRecap />}{railHosted && <PageRailToggle page="lead" />}<Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={controls.openSettings}><SettingsIcon /></Button></>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
   useWorkDetails(owner, <LeadDetails />, active)
   // The run strip's clock: a minute is its smallest step, so it ticks twice a minute while a goal runs.
   const [now, setNow] = useState(() => Date.now())

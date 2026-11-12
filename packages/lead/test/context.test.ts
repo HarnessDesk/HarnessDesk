@@ -285,7 +285,7 @@ test('a desk wake after a compaction reads the stored conversation again and sen
   let fresh: { epoch: number; messages: lead.MessagesTurn[] } | null = null
   const context = contextPort(() => fresh)
   // The desk's memory status of this moment: a mid-epoch Forget the frozen Core cannot show.
-  const status = '<desk-memory-status>\n- [c4] forgotten by the person; not in memory\n</desk-memory-status>'
+  const status = '<desk-memory-status>\n- forgotten by the person; not in memory\n</desk-memory-status>'
   let statusReads = 0
   const port = { ...context.port, async memoryStatus() { statusReads++; return status } }
   // The desk's own work ledger, read for the wake without a journaled step.

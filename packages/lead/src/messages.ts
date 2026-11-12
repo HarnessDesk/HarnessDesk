@@ -2,6 +2,7 @@ import { WireCallError } from '@harnessdesk/client'
 import { leadToolDefinitions, parseLeadToolCall, LeadToolFencedError, LeadToolRefusedError } from './tools.js'
 import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
   type LeadAsk, type LeadProactive, type LeadMessageRef, LEAD_MESSAGE_REFS_MAX, parseLeadMessageRef, parseLeadAsk, parseLeadProactiveOutput, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
+import type { LeadMessageSurface } from '@harnessdesk/protocol'
 import type { LeadPermissionCall } from './permissions.js'
 import { LEAD_CONTEXT } from './context.js'
 import { LEAD_CHECKPOINT_OPEN } from './compaction.js'
@@ -199,6 +200,14 @@ const systemBlocks = (system: string) => [{ type: 'text' as const, text: system,
 /** How a desk wake (a reminder that came due) opens in the model's history, and the reference line that follows it. */
 export const LEAD_WAKE_OPEN = 'Desk wake, not a message from the person: '
 export const LEAD_WAKE_REFERENCE = 'Desk reference for the preceding desk wake: '
+/**
+ * The line a person message carries for the surface that sent it (#2166). It is part of the person's turn, stored with
+ * it, so a tool continuation and every later request read the same thing; a card or ask works on either surface.
+ */
+export const LEAD_SURFACE_LINES: Readonly<Record<LeadMessageSurface, string>> = Object.freeze({
+  phone: 'Desk note: the person sent the message above from their phone.',
+  desktop: 'Desk note: the person sent the message above from the desktop window.',
+})
 /** The most turns of the person's readable conversation one request carries. The request admits LIMIT.turns - 2;
  * the rest is room for the host's own closing turns and for a tool loop's continuations within the request. */
 export const LEAD_HISTORY_TURNS = 128
@@ -210,7 +219,7 @@ export const LEAD_HISTORY_BYTES = LIMIT.bytes / 2
  * holds, in turns or in bytes, are both ordinary, and either one, sent as it stands, is refused before every request
  * that follows.
  */
-export const leadHistory = (messages: readonly { readonly id?: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly proactive?: LeadProactive; readonly wake?: { readonly kind: string } }[]): MessagesTurn[] => {
+export const leadHistory = (messages: readonly { readonly id?: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly proactive?: LeadProactive; readonly wake?: { readonly kind: string }; readonly surface?: LeadMessageSurface }[]): MessagesTurn[] => {
   const spoken = messages.filter(message => message.role === 'user' || message.role === 'assistant')
   const turns: MessagesTurn[] = spoken.slice(-LEAD_HISTORY_TURNS).map(message => {
     const ask = message.ask ?? (message.proactive?.options && message.proactive.recommended ? {
@@ -224,6 +233,8 @@ export const leadHistory = (messages: readonly { readonly id?: string; readonly 
     return { role: message.role as 'user' | 'assistant', content: [
       ...(ask && !message.text.trim() ? [] : [{ type: 'text' as const, text: message.text }]),
       ...(message.role === 'user' && message.id ? [{ type: 'text' as const, text: `Desk reference for the preceding person message: ${message.id}` }] : []),
+      // Where the person wrote it stays with the message, so neither this turn nor a later one takes it for another device's.
+      ...(message.role === 'user' && message.surface ? [{ type: 'text' as const, text: LEAD_SURFACE_LINES[message.surface] }] : []),
       ...(message.role === 'assistant' && ask ? [{ type: 'text' as const, text: `Decision offered in this reply: ${JSON.stringify((({ startsMarked: _host, ...offered }) => offered)(parseLeadAsk(ask)))}` }] : []),
     ] }
   })

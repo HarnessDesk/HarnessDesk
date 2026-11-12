@@ -1,4 +1,4 @@
-import { parseLeadApprovalAudit, parseLeadAutonomyChange, parseLeadMessageRefs, type LeadMessageRef, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyChange, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadApprovalAudit, parseLeadAutonomyChange, parseLeadAutonomyRules, parseLeadMessageRefs, type LeadMessageRef, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyChange, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import {
   parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_LIMITS, LEAD_MANAGEMENT_REASONS, leadNoSpendLimit, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
@@ -133,8 +133,9 @@ export type LeadJournalEvent =
   /** The host's memory store changed Core: the Lead reads this at its next epoch. */
   | { readonly type: 'memory-core'; readonly memory: LeadMemoryCore }
   /** The Core one epoch's standing instructions were built with, so a restart in that epoch builds them again byte
-   * for byte. `goal` is the logical goal id, empty between goals. */
-  | { readonly type: 'memory-epoch'; readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore }
+   * for byte. `goal` is the logical goal id, empty between goals. `rules` are the person's sections those instructions
+   * hold, which the settings note compares against; absent in a record written before they were kept (#2165). */
+  | { readonly type: 'memory-epoch'; readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore; readonly rules?: LeadAutonomyRecord['rules'] }
 export type LeadCompactionTrigger = 'soft' | 'hard' | 'manual' | 'overflow'
 export type LeadJournalRecord = Base & LeadJournalEvent
 export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown, previous?: LeadState): LeadJournalRecord; checkpoint?(): LeadState | null; journalSecurity?(): LeadJournalSecurity }
@@ -226,7 +227,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'context-compaction-applied': ['id', 'at', 'fromSeq', 'toSeq', 'beforeTokens', 'afterTokens', 'model', 'usdMicros', 'fallback'],
     'context-pruned': ['id', 'at', 'beforeTokens', 'afterTokens'],
     'memory-core': ['memory'],
-    'memory-epoch': ['goal', 'epoch', 'memory'],
+    'memory-epoch': ['goal', 'epoch', 'memory', ...(Object.hasOwn(source, 'rules') ? ['rules'] : [])],
   }
   const type = choice(source.type, Object.keys(keys))
   object(source, ['version', 'seq', 'type', ...keys[type]!])
@@ -319,7 +320,8 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     }
     case 'context-pruned': event = { type, id: identifier(source.id), at: integer(source.at), beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens) }; break
     case 'memory-core': event = { type, memory: parseLeadMemoryCore(source.memory) }; break
-    case 'memory-epoch': event = { type, goal: leadMemoryEpochGoal(source.goal), epoch: integer(source.epoch), memory: parseLeadMemoryCore(source.memory) }; break
+    case 'memory-epoch': event = { type, goal: leadMemoryEpochGoal(source.goal), epoch: integer(source.epoch), memory: parseLeadMemoryCore(source.memory),
+      ...(Object.hasOwn(source, 'rules') ? { rules: parseLeadAutonomyRules(source.rules) } : {}) }; break
     default: throw new Error('lead-journal-type')
   }
   const record = { version: 1 as const, seq, ...event }
@@ -526,10 +528,10 @@ export class LeadJournal {
     if (parsed.revision <= this.#state.memory.revision) return
     return this.#append({ type: 'memory-core', memory: parsed })
   }) }
-  /** The Core an epoch's instructions were first built with. Written once per goal and epoch; a later call for the
-   * same pair is a no-op, so the first build is the one a restart repeats. */
-  memoryEpoch(goal: string, epoch: number, memory: LeadMemoryCore): Promise<void> { return this.#queue(async () => {
-    const at = { goal: leadMemoryEpochGoal(goal), epoch: integer(epoch), memory: parseLeadMemoryCore(memory) }
+  /** The Core and the person's rule sections an epoch's instructions were first built with. Written once per goal and
+   * epoch; a later call for the same pair is a no-op, so the first build is the one a restart repeats. */
+  memoryEpoch(goal: string, epoch: number, memory: LeadMemoryCore, rules?: LeadAutonomyRecord['rules']): Promise<void> { return this.#queue(async () => {
+    const at = { goal: leadMemoryEpochGoal(goal), epoch: integer(epoch), memory: parseLeadMemoryCore(memory), ...(rules === undefined ? {} : { rules: parseLeadAutonomyRules(rules) }) }
     const held = this.#state.memoryEpoch
     if (held && held.goal === at.goal && held.epoch === at.epoch) return
     return this.#append({ type: 'memory-epoch', ...at })
@@ -559,8 +561,9 @@ export class LeadJournal {
   setOrigin(origin: LeadOrigin, key?: string): Promise<void> { return this.#queue(() => this.#append({ type: 'origin', origin, ...(key ? { key } : {}) })) }
   ownedPush(operation: LeadOwnedPush): Promise<void> { return this.#queue(() => this.#append({ type: 'owned-push', operation })) }
   observePr(pr: LeadPullRequest): Promise<void> { return this.#queue(() => this.#append({ type: 'pr-observed', pr })) }
-  /** `wake` marks a desk wake (a reminder that came due): the model's user turn, never the person's message. */
-  appendMessage(idempotencyKey: string, text: string, source: NonNullable<LeadMessage['source']>, committed?: () => void, wake?: LeadMessage['wake']): Promise<LeadSendReceipt> {
+  /** `wake` marks a desk wake (a reminder that came due): the model's user turn, never the person's message. `surface` is
+   * the device that sent a person's message (#2166), kept with it so every later request reads where it came from. */
+  appendMessage(idempotencyKey: string, text: string, source: NonNullable<LeadMessage['source']>, committed?: () => void, wake?: LeadMessage['wake'], surface?: LeadMessage['surface']): Promise<LeadSendReceipt> {
     if (!['person', 'automatic', 'schedule'].includes(source)) return Promise.reject(new Error('Lead message source is required.'))
     const input = parseLeadThreadSend({ idempotencyKey, text })
     return this.#queue(async () => {
@@ -568,7 +571,7 @@ export class LeadJournal {
       if (previous) return { messageId: previous.messageId, revision: previous.revision }
       const revision = this.#state.seq + 1, messageId = `message-${revision}`
       await this.#append({ type: 'message', idempotencyKey: input.idempotencyKey,
-        message: { version: 1, id: messageId, revision, role: 'user', text: input.text, source, ...(wake ? { wake } : {}) } }, committed)
+        message: { version: 1, id: messageId, revision, role: 'user', text: input.text, source, ...(wake ? { wake } : {}), ...(surface && source === 'person' && !wake ? { surface } : {}) } }, committed)
       return { messageId, revision }
     })
   }

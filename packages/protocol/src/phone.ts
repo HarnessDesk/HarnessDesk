@@ -482,8 +482,9 @@ export interface PhoneWorkSnapshot {
    * The history the phone draws for autonomy and rules is `changes`, newest first, the list the desktop's Recent
    * changes reads (#2152): every mode change (`from → to`), every saved rule version (`version` and `how`: `edit` reads
    * "version N saved", `reset` "reset to default", `rollback` "version N restored"), and every deadline set or cleared.
-   * `proposal` names the Lead's proposal the person applied ("Applied from proposal …"); without it the person changed
-   * it in Settings. `by` is always the person. A rule row's current `version` and `changedAt` are on `rules`; a section ever
+   * `proposal` is set when the person applied one of the Lead's proposals: the row reads "Applied from <the Lead's
+   * name>'s proposal", as the desktop draws it (#2167). The value is the desk's own reference, never a word to show;
+   * without it the person changed it in Settings. `by` is always the person. A rule row's current `version` and `changedAt` are on `rules`; a section ever
    * saved also carries `versions` (its newest five, newest first: `version`, `text`, `at`, `how`, and `from` for a
    * restore) and `shipped`, the default words. That is the earlier wording, a diff between any two rows, and what a
    * Restore would bring back, all without `lead/rules/read`, which stays a desk method. Restoring is done at the desk:
