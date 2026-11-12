@@ -1580,6 +1580,7 @@ test('an agent dying mid-turn fails the turn cleanly — never hangs', async () 
     const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
     assert.equal(turn.status, 'failed')
     assert.ok(turn.error, 'the turn carries why')
+    assert.equal(turn.error?.code, 'runtimeUnavailable', 'and what kind of failure it was')
     assert.equal(typeof turn.durationMs, 'number', 'a failed live turn still carries its wall time')
     assert.equal(runtime.health().state, 'unavailable')
   } finally {
