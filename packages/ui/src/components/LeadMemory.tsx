@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { LEAD_MEMORY_LIMITS, type LeadCard, type LeadMemoryCandidate, type LeadMemoryChange, type LeadMemoryEntry, type LeadMemoryVersionSummary, type LeadMemoryView, type LeadMessage } from '@harnessdesk/protocol'
+import { LEAD_MEMORY_KIND_LABELS, LEAD_MEMORY_LIMITS, type LeadCard, type LeadMemoryCandidate, type LeadMemoryChange, type LeadMemoryEntry, type LeadMemoryVersionSummary, type LeadMemoryView, type LeadMessage } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, InlineParts, Input, Row, Rows, Section, SectionHead, Switch, Text } from '../design'
 import { useDestinationActive } from '../panels/destination-page'
 import { useStore } from '../state/context'
@@ -29,7 +29,7 @@ export const leadCitedEntries = (cards: readonly LeadCard[] = []): ReadonlySet<s
   return new Set([...text.matchAll(/\((m\d{1,4})\)/g)].map(match => match[1]!))
 }
 
-const KIND: Record<LeadMemoryEntry['kind'], string> = { preference: 'Preference', fact: 'Fact', lesson: 'Lesson', rule: 'Rule' }
+const KIND = LEAD_MEMORY_KIND_LABELS
 
 /** Keep, Edit or No on one proposal, under the reply it came with or in Settings. Edited text is the person's. */
 const ProposalRow = ({ candidate, pending, change }: { readonly candidate: LeadMemoryCandidate; readonly pending: boolean; readonly change: (change: LeadMemoryChange) => void }) => {

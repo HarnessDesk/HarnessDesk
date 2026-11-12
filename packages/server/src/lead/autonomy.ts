@@ -45,7 +45,10 @@ export interface LeadAutonomyPorts {
   readonly seq?: () => number
   /** The position of the person's latest message: a No stands until the person writes again. */
   readonly personSeq?: () => number
+  /** One line in the Lead's thread saying what the person's Apply changed (#2176). */
+  readonly receipt?: (text: string) => Promise<void>
 }
+const MODE_WORDS: Readonly<Record<LeadAutonomyMode, string>> = { off: 'Off', observe: 'Observe', act: 'Act' }
 
 interface SectionFile { versions: LeadRuleVersion[]; acked?: number }
 interface Stored {
@@ -382,6 +385,8 @@ export class LeadAutonomyStore {
    */
   async decide(params: LeadSettingsDecide): Promise<LeadAutonomyView> {
     const { id, decision, device } = parseLeadSettingsDecide(params)
+    // What the person's Apply changed, said once in the thread after it is written; a No and a stale card say nothing.
+    let applied: string | undefined
     const outcome = await this.#write(async () => {
       const one = this.#stored.proposals?.find(entry => entry.id === id)
       if (!one) throw refused('lead-proposal-missing', 'That proposal is no longer kept.')
@@ -407,15 +412,18 @@ export class LeadAutonomyStore {
           await this.ports.journal.setAutonomy(this.#record({ ...current, [change.autonomy]: change.to }), record)
         }
         close('applied')
+        applied = `Applied · ${LEAD_AUTONOMY_LABELS[change.autonomy].title}, ${MODE_WORDS[change.to]}`
         return 'applied' as const
       }
       if ((this.#latest(change.section)?.version ?? 0) !== change.fromVersion ||
         change.fromDefault !== undefined && change.fromDefault !== this.#defaults[change.section].version) { close('stale'); return 'stale' as const }
       await this.#rulesChange({ section: change.section, action: 'edit', text: change.text, expectedVersion: change.fromVersion }, one.id)
       close('applied')
+      applied = `Applied · ${LEAD_RULE_TITLES[change.section]}, version ${this.#latest(change.section)?.version ?? 0}`
       return 'applied' as const
     })
     this.ports.changed?.()
+    if (applied) await this.ports.receipt?.(applied)
     if (outcome === 'stale') throw refused('lead-rules-stale', 'These words changed after the Lead proposed this, so nothing was applied. Ask the Lead to propose it again.')
     return this.view()
   }

@@ -56,9 +56,9 @@ export interface LeadChatsPorts {
    * the Lead makes on its own for that goal is refused then; the person's own are not.
    */
   readonly deadlinePassed?: () => Promise<boolean>
-  /** The Lead's question the person has not answered yet, if any (`LeadPresenceStore.unansweredAsk`). While it is open
-   * no chat starts: the Lead never picks an option for the person, and a repeat of the request points to the question. */
-  readonly unansweredAsk?: () => { readonly question: string; readonly options: readonly string[] } | null
+  /** The Lead's question that holds a chat start, if any (`LeadPresenceStore.askHoldingChatStart`). While it holds, no
+   * chat starts: the Lead never picks an option for the person, and a repeat of the request points to the question. */
+  readonly askHoldingChatStart?: () => { readonly question: string; readonly options: readonly string[] } | null
   /**
    * Account pacing. Asked only for a start the Lead made without naming an agent, and answered only when the person
    * turned on "Prefer the account that resets soonest" for the agent the desk would start on. The agent is one the
@@ -496,7 +496,7 @@ export class LeadChats {
       // Whatever woke the turn: the presence store frees the question once the person says anything new, so an open one
       // here means the person only repeated the request it is about (or nobody spoke). Letting a person-caused start
       // through would start exactly the work the question was asked to decide.
-      const open = params.moveFrom === undefined ? this.ports.unansweredAsk?.() ?? null : null
+      const open = params.moveFrom === undefined ? this.ports.askHoldingChatStart?.() ?? null : null
       if (open) {
         this.ports.noteDispatchNotStarted(attemptId)
         return { id: '', problem: `Your question ${quoteLeadWorkText(open.question, 200)} is still open and the person has not picked an option. Do not start the work it decides, and do not pick for them: point the person to the question and its options (${open.options.map(option => quoteLeadWorkText(option, 60)).join(', ')}).` }
@@ -616,7 +616,7 @@ export class LeadChats {
       }
       // A message into a chat is work too: while the Lead's question is open, nothing it decides is sent, whatever woke the
       // turn. The presence store has already freed the question if the person said anything new since.
-      const open = params.retryAt === undefined ? this.ports.unansweredAsk?.() ?? null : null
+      const open = params.retryAt === undefined ? this.ports.askHoldingChatStart?.() ?? null : null
       if (open) {
         this.ports.noteDispatchNotStarted(attemptId)
         throw Object.assign(new Error(`Your question ${quoteLeadWorkText(open.question, 200)} is still open. Send nothing it decides; point the person to it.`), { wireCode: 'leadAskOpen' })

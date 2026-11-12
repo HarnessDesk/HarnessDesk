@@ -41,6 +41,8 @@ export const LEAD_MEMORY_LIMITS = Object.freeze({
 
 export type LeadMemoryKind = 'preference' | 'fact' | 'lesson' | 'rule'
 export const LEAD_MEMORY_KINDS = ['preference', 'fact', 'lesson', 'rule'] as const satisfies readonly LeadMemoryKind[]
+/** A kind in the person's words: the memory page's chip, and the thread's receipt when they keep a proposal. */
+export const LEAD_MEMORY_KIND_LABELS: Readonly<Record<LeadMemoryKind, string>> = Object.freeze({ preference: 'Preference', fact: 'Fact', lesson: 'Lesson', rule: 'Rule' })
 export type LeadMemoryAuthor = 'person' | 'lead'
 export type LeadMemoryTier = 'core' | 'archive'
 /** Where an entry came from: a reply of the Lead's, a reviewed result, a tidy, or the person's own Settings. */

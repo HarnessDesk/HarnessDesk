@@ -907,6 +907,35 @@ it('keeps answered ordinary asks as inert records with the picked label marked a
   expect(button('Start it').disabled).toBe(true)
 })
 
+// #2173: the desk's ask states are the one rule. Words about something else leave the question open, so its options stay
+// live while the desk holds it open; the person's next message being one of them, or the desk closing it, ends it.
+it('keeps the latest ask live while the desk holds it open past words about something else, and ends it when the desk does (#2173)', async () => {
+  const base = leadProjection()
+  const ask = { version: 1 as const, id: 'ask', revision: 1, role: 'assistant' as const, text: 'A choice.', ask: askFixture }
+  const aside = [ask, { version: 1 as const, id: 'person', revision: 2, role: 'user' as const, text: 'Also, what is on the desk?' },
+    { version: 1 as const, id: 'reply', revision: 3, role: 'assistant' as const, text: 'Two chats are running.' }]
+  const { store, request, update } = await mount({ ...base, thread: { ...base.thread, messages: aside } })
+  const presence = (status: 'open' | 'answered' | 'expired', more: object = {}) => {
+    request.mockImplementation(async (method: string) => ({ version: 1, digest: null, brief: { enabled: false, at: '07:30' }, asks: [{ id: 'ask', status, ...more }] }) as never)
+    return act(async () => { await store.lead.readAway() })
+  }
+  // Until the desk has said, words after the question settle it, as they always did.
+  expect(button('Start it').disabled).toBe(true)
+  await presence('open')
+  expect(button('Start it').disabled, 'the desk holds it open, so a tap still answers it').toBe(false)
+  const send = vi.spyOn(store.lead, 'send').mockResolvedValue({ messageId: 'answer', revision: 4 })
+  await act(async () => button('Start it').click())
+  expect(send).toHaveBeenCalledWith('Start it', expect.any(String), 'ask')
+  // A newer question takes its place: the desk says so, and the old one goes inert.
+  await presence('expired', { replacedBy: 'newer' })
+  expect(button('Start it').disabled).toBe(true)
+  // The person's next message being one of the options is the answer, whatever the desk has read so far.
+  await presence('open')
+  await update({ thread: { ...base.thread, messages: [ask, { version: 1, id: 'typed', revision: 2, role: 'user', text: 'not now' }] } })
+  expect(button('Start it').disabled).toBe(true)
+  expect(document.querySelector('[data-picked="true"]')?.textContent).toContain('Not now')
+})
+
 it('sends an option label with its internal spacing unchanged', async () => {
   const base = leadProjection(), label = 'Start  it'
   const { store } = await mount({ ...base, thread: { ...base.thread, messages: [{ version: 1, id: 'ask-spaces', revision: 1, role: 'assistant', text: 'Choose.', ask: { ...askFixture, options: [{ id: 'start', label }, askFixture.options[1]!] } }] } })

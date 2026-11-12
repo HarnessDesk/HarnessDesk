@@ -2393,7 +2393,15 @@ the limits popover: tightening applies at once, raising asks on a card in the
 conversation. The plan's decision stays in the conversation; the rail only reads
 it back, and before approval it reads the latest plan card, the one the
 conversation is asking about. Where it floats it is open by default too, like
-the session rail; its toggle puts it away.
+the session rail; its toggle puts it away, and so do Escape and a press anywhere
+outside it, as for the floating sidebar, so what it lay over answers the next
+press. A press inside it, or a menu it opened, keeps it. Each Work row opens
+what it stands for from its own body: a Team that needs the person, an item's
+Team when it has one, else the item's latest chat; its actions menu answers for
+itself. A question the Lead asked keeps its options live while the desk holds it
+open and it is the newest, past anything the person says about something else;
+Keep and Apply on a proposal each leave one line in the thread saying what was
+kept or applied.
 
 Decision details are assistant Markdown in journal order, without card borders,
 inset rows, revision labels or internal identifiers. Plans show LeadPlanFlow, an ordered flow diagram of steps and responsible roles

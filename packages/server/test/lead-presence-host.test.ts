@@ -75,3 +75,36 @@ test('#2105: the question an automatic report asks is in the inbox, a phone tap 
   await assert.rejects(r.host.call('lead/thread/send', { idempotencyKey: 'tap-2', text: 'Read the reason', ask: id, device: window }),
     (error: Error & { wireCode?: string }) => error.wireCode === 'lead-ask-answered')
 })
+
+// #2173: one rule says whether a question is open — the desk's ask states. The Inbox, the window's card, the phone (which
+// reads the same `asks`) and the Lead's own work context all follow it; the person talking about something else does not
+// close it, and only a newer question of the Lead's replaces it.
+test('#2173: an ask stays open in the Inbox past an unrelated message, a newer Lead ask replaces it, and the Lead is told which is open', async t => {
+  const r = await rig(t)
+  const ask = (question: string) => ({ question, options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }], recommended: 'yes' })
+  await r.journal.appendReply('Start the label fix?', undefined, ask('Start the label fix?'))
+  const first = r.journal.state.messages.at(-1)!.id
+  await r.journal.appendMessage('person-1', 'Also, remind me at five to check the build', 'person')
+  const settle = () => new Promise(resolve => setTimeout(resolve, 50))
+  await settle()
+  const asks = async () => (await r.host.call('lead/inbox/read', {})).items.filter(item => item.kind === 'ask').map(item => item.target)
+  assert.deepEqual(await asks(), [first], 'talking about something else leaves the question open in the Inbox')
+  let view = await r.host.call('lead/presence/read', { device: window })
+  assert.deepEqual(view.asks.map(one => [one.id, one.status]), [[first, 'open']], 'the same state the window and the phone draw')
+  let board = await r.host.call('lead/work/list', {})
+  assert.deepEqual([board.ask?.id, board.ask?.question], [first, 'Start the label fix?'], 'the Lead reads the open question with its work')
+  await r.journal.appendReply('Which project should it go in?', undefined, ask('Which project should it go in?'))
+  const second = r.journal.state.messages.at(-1)!.id
+  await settle()
+  assert.deepEqual(await asks(), [second], 'the newer question takes its place')
+  view = await r.host.call('lead/presence/read', { device: window })
+  assert.deepEqual(view.asks.map(one => [one.id, one.status, one.replacedBy]), [[first, 'expired', second], [second, 'open', undefined]])
+  board = await r.host.call('lead/work/list', {})
+  assert.equal(board.ask?.id, second)
+  t.mock.method(r.host.credentials, 'leadStatus', async () => ({ configured: true, protection: 'synthetic cipher' }))
+  t.mock.method(r.host.credentials, 'resolveLead', async () => 'fixture-key')
+  await r.host.call('lead/thread/send', { idempotencyKey: 'tap-1', text: 'Yes', ask: second, device: window })
+  await settle()
+  assert.deepEqual(await asks(), [], 'an answered question leaves the Inbox')
+  assert.equal((await r.host.call('lead/work/list', {})).ask, undefined, 'and the Lead is told nothing is open')
+})

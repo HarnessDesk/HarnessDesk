@@ -82,6 +82,8 @@ const STOPPED: Record<LeadStopReason, string> = {
   deadline: 'This goal was stopped at its deadline.',
 }
 const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs'}` : 'no runs yet'
+/** An option's words as a typed answer matches them: case, spacing and end punctuation aside. */
+const optionWords = (text: string) => text.normalize('NFKC').trim().replace(/[\s.!?。！？]+$/u, '').replace(/\s+/g, ' ').toLowerCase()
 /** One empty list for every render, so a memo keyed on it holds (asks, a reply's refs). */
 const NONE: readonly never[] = []
 /** Elapsed time beside Stop: minutes under an hour, then hours and minutes. */
@@ -198,10 +200,21 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const settingsProposals = leadMemoryPlacement(messages, (state.autonomy?.proposals ?? []).filter(proposal => proposal.state === 'pending'))
   const latestAsk = [...messages].reverse().find(message => message.role === 'assistant' && (message.ask || message.proactive?.options))
   const asks = new Map(useLeadAsks(state.away?.asks ?? NONE).map(ask => [ask.id, ask] as const))
+  // A question is answered here when the person's next message is one of its options; other words leave it to the desk,
+  // whose ask states say whether it is still open (#2173): the person writing about something else does not close it.
   const answers = new Map(messages.flatMap((message, index) => {
-    const answer = messages.slice(index + 1).find(next => next.role === 'user')
-    return answer ? [[message.id, answer.text] as const] : []
+    const options = message.ask?.options ?? message.proactive?.options
+    const next = options && messages.slice(index + 1).find(one => one.role === 'user')
+    const option = next && options.find(one => optionWords(one.label) === optionWords(next.text))
+    return option ? [[message.id, option.label] as const] : []
   }))
+  // Live while it is the latest question, not answered, and open by the desk's record; before the desk has said, a
+  // message of the person's after it settles it, as it always did.
+  const askLive = (message: { readonly id: string; readonly revision: number }) => {
+    if (message.id !== latestAsk?.id || answers.has(message.id)) return false
+    const settled = asks.get(message.id)
+    return settled ? settled.status === 'open' : !messages.some(one => one.role === 'user' && one.revision > message.revision)
+  }
   // What the Lead is doing this second, as one quiet line at the end of the thread. A window that cannot trust its
   // projection says nothing; a plan on the table or a wait for the person is not work, and a stopped card speaks for itself.
   const phase = state.thread?.state, progress = state.progress, pr = state.thread?.pr, origin = state.thread?.origin, handback = state.thread?.handback
@@ -287,7 +300,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {entries.map(entry => entry.kind === 'message'
           ? entry.message.role === 'notice' || entry.message.role === 'system' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={entry.message.id === firstReply?.id ? replyKey : `message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             ask={entry.message.ask} settled={asks.get(entry.message.id)} proactive={entry.message.proactive} disabled={sendDisabled} picked={answers.get(entry.message.id)}
-            onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) && (asks.get(entry.message.id)?.status ?? 'open') === 'open' ? label => { if (!sendDisabled) void send(label, entry.message.id) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)}
+            onAnswer={askLive(entry.message) ? label => { if (!sendDisabled) void send(label, entry.message.id) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)}
             note={leadMessageNote(entry.message.refs, proposals.get(entry.message.id), settingsProposals.get(entry.message.id), entry.message.role === 'user' ? undefined : entry.message.text)} />
           : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
             note={<Chip variant="quiet" tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
