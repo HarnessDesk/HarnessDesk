@@ -5,7 +5,7 @@ import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
 import type { LeadPermissionCall } from './permissions.js'
 import { LEAD_CONTEXT } from './context.js'
 import { LEAD_CHECKPOINT_OPEN } from './compaction.js'
-import { splitLeadOutput } from './envelope.js'
+import { splitLeadOutput, stripLeadToolMarkup } from './envelope.js'
 import { leadContainsSecret, leadWithholdCredentialsReport, type LeadWithheldPiece } from './credential-screen.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
   MessagesRedactedThinking, MessagesText, MessagesThinking, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
@@ -224,7 +224,7 @@ export const leadHistory = (messages: readonly { readonly id?: string; readonly 
     return { role: message.role as 'user' | 'assistant', content: [
       ...(ask && !message.text.trim() ? [] : [{ type: 'text' as const, text: message.text }]),
       ...(message.role === 'user' && message.id ? [{ type: 'text' as const, text: `Desk reference for the preceding person message: ${message.id}` }] : []),
-      ...(message.role === 'assistant' && ask ? [{ type: 'text' as const, text: `Decision offered in this reply: ${JSON.stringify(parseLeadAsk(ask))}` }] : []),
+      ...(message.role === 'assistant' && ask ? [{ type: 'text' as const, text: `Decision offered in this reply: ${JSON.stringify((({ startsMarked: _host, ...offered }) => offered)(parseLeadAsk(ask)))}` }] : []),
     ] }
   })
   let bytes = new TextEncoder().encode(JSON.stringify(turns)).length
@@ -333,8 +333,12 @@ const proposals = (text: string, outer?: string): { text: string; plan: LeadAcce
     // The envelope after the prose, or in a code fence, is still the envelope: protocol JSON is never the person's
     // words. One that names itself but does not validate is left in the text; the host strips it and warns.
     const split = splitLeadOutput(text)
-    if (!split?.envelope) return { text, plan: null, cards: [], decoded }
-    try { return { ...proposals(JSON.stringify(split.envelope), split.prose), decoded: { decoded, envelope: split.envelope } } } catch { return { text, plan: null, cards: [], decoded } }
+    // Tool-call markup in the words is a call the model printed instead of making (#2148). It never reaches a surface.
+    if (!split?.envelope) return { text: stripLeadToolMarkup(text).text, plan: null, cards: [], decoded }
+    // Before an envelope, the words around such markup are the misfire and the model's note about it ("the envelope must
+    // be the whole reply, correcting below"); the envelope is the reply the instructions asked for, so it stands alone.
+    const before = stripLeadToolMarkup(split.prose)
+    try { return { ...proposals(JSON.stringify(split.envelope), before.dropped ? '' : split.prose), decoded: { decoded, envelope: split.envelope } } } catch { return { text: stripLeadToolMarkup(text).text, plan: null, cards: [], decoded } }
   }
   if (outer !== undefined) prose = outer
   const candidate = decoded
@@ -343,9 +347,12 @@ const proposals = (text: string, outer?: string): { text: string; plan: LeadAcce
   if (source.cards !== undefined && (!Array.isArray(source.cards) || source.cards.length > LIMIT.blocks)) return fail()
   const cards = source.cards === undefined ? [] : (source.cards as unknown[]).map(value => parseLeadCard(value))
   if (new Set(cards.map(card => card.id)).size !== cards.length) fail()
-  const own = source.text === undefined ? '' : string(source.text)
+  const own = source.text === undefined ? '' : stripLeadToolMarkup(string(source.text)).text
   return { text: prose && own && !prose.includes(own) ? `${prose}\n\n${own}` : prose || own,
-    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards, ...(source.proactive === undefined ? {} : { proactive: parseLeadProactiveOutput(source.proactive) }), ...(source.ask === undefined ? {} : { ask: parseLeadAsk(source.ask) }),
+    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards,
+    // #2145: a question read now was written under the rule that marks an option `starts`; the host stamps it so, and
+    // a question stored before the rule (without the stamp) keeps the old answer behaviour.
+    ...(source.proactive === undefined ? {} : { proactive: { ...parseLeadProactiveOutput(source.proactive), startsMarked: true as const } }), ...(source.ask === undefined ? {} : { ask: { ...parseLeadAsk(source.ask), startsMarked: true as const } }),
     ...(source.proactive === undefined && replyRefs(source.refs).length > 0 ? { refs: replyRefs(source.refs) } : {}), decoded }
 }
 /** Cancellation also wins when a broken injected operation ignores its signal. */

@@ -20,7 +20,7 @@ export type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesRequest, Lead
   MessagesTransport, MessagesHttpRequest, MessagesHttpResponse, MessagesPrice, MessagesUsage, MessagesToolScope,
   MessagesTurn, MessagesText, MessagesThinking, MessagesRedactedThinking, MessagesToolUse, MessagesToolResult } from './messages-types.js'
 export { createLeadLoop } from './loop.js'
-export { LEAD_ENVELOPE_CLOSING_MAX, splitLeadOutput, stripLeadOutput, type LeadEnvelopeSplit } from './envelope.js'
+export { LEAD_ENVELOPE_CLOSING_MAX, splitLeadOutput, stripLeadOutput, stripLeadToolMarkup, type LeadEnvelopeSplit } from './envelope.js'
 export { classifyLeadRuns, createLeadWakeGate, leadChatFingerprint, leadDeskFingerprint, LEAD_STUCK_MS, type LeadRunClass, type LeadRunReading, type LeadWakeCounts } from './wake.js'
 export { LEAD_QUIET, LEAD_REMEMBER, isLeadQuiet, leadRememberLines } from './instructions.js'
 export type { LeadLoop, LeadLoopOptions, LeadLoopState, LeadLoopClock, LeadContextPort, LeadContextRecordInput } from './loop.js'
@@ -29,7 +29,7 @@ export type { LeadTools, LeadToolsOptions, LeadResolvedTool } from './tools.js'
 export { evaluateLeadAcceptance, leadPublicationEvidenceRevision, leadResultSummary, leadVerifyLine, LEAD_HEDGE_PHRASES, LEAD_REPAIR_INSTRUCTIONS, leadAssertionsToRerun, leadRepairInput, leadRepairDetail, leadAcceptanceObservation } from './acceptance.js'
 export type { LeadAcceptanceEvidence, LeadAcceptanceResult } from './acceptance.js'
 export { LEAD_REVIEWED_RESULT, leadReviewedResultSource, leadReviewedResultSourceFor } from './recipes/reviewed-result.js'
-export { leadInstructions, leadContinuation, leadApprovedPlan, leadPlanMoment, leadObservation, parseLeadSeatChoices, LEAD_SEATS_PER_ROLE } from './instructions.js'
+export { leadInstructions, leadContinuation, leadApprovedPlan, leadPlanMoment, leadDeviceContext, leadObservation, parseLeadSeatChoices, LEAD_SEATS_PER_ROLE } from './instructions.js'
 export type { LeadSeatChoices, LeadInstructionFacts, LeadContinuationFacts } from './instructions.js'
 
 export { leadDataContainsCredential } from './journal-security.js'

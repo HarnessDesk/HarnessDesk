@@ -1836,7 +1836,7 @@ for (const source of ['schedule', 'trigger'] as const) test(`a ${source} wake pr
   const loop = exported('createLeadLoop')(s.options)
   try {
     await loop.request({ ...input, proactive: true, wakeSource: source })
-    assert.deepEqual(s.journal.state.messages.at(-1)?.proactive, report)
+    assert.deepEqual(s.journal.state.messages.at(-1)?.proactive, { ...report, startsMarked: true })
     assert.equal(s.journal.state.messages.at(-1)?.text, [report.finding, report.caveat, report.ask].join('\n'))
     assert.equal(s.records.filter(record => record.type === 'wake').length, 1)
   } finally { await loop.close() }
@@ -2363,7 +2363,7 @@ test('an ordinary ask is journaled once and counted as a decision without a ques
   const loop = exported('createLeadLoop')(s.options)
   try {
     await loop.request(input)
-    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, ask)
+    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, { ...ask, startsMarked: true })
     assert.equal(s.journal.state.wakes.at(-1)?.decision, 'asked')
   } finally { await loop.close() }
 })
@@ -2377,7 +2377,7 @@ test('an ask-only ordinary reply answers the person without a silent-turn retry'
     const result = await loop.request(input)
     assert.equal(result.status, 'completed')
     assert.equal(s.fake.requests.length, 1)
-    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, ask)
+    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, { ...ask, startsMarked: true })
   } finally { await loop.close() }
 })
 

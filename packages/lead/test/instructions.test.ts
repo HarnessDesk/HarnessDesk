@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { parseLeadAcceptanceContract, type LeadAcceptanceContract } from '@harnessdesk/protocol'
-import { leadContinuation, leadInstructions } from '../src/index.js'
+import { leadContinuation, leadDeviceContext, leadInstructions } from '../src/index.js'
 
 const project = { id: 'acme', path: '/work/acme' }
 const assignments = [
@@ -157,7 +157,20 @@ test('the instructions tell memory from autonomy from rules, propose settings ra
   assert.match(text, /rules_propose/)
   assert.match(text, /You cannot change a mode or a rule yourself/)
   assert.match(text, /Never say you asked before, that the person declined before, or that you reminded them/)
-  assert.match(text, /never tell the person to press Keep or Apply on the desktop/)
+  // #2146: the card works where the person is, and "the desk" is never a place to press something.
+  assert.match(text, /tell them to press it where they are, never send them to the desktop/)
+  assert.match(text, /never write "on the desk" for where to press/)
   assert.match(text, /say who stopped it as the work-ledger block records it/)
-  assert.match(text, /stopped twice/)
+  // #2145: one stop by the person is enough to ask, and an option that starts a chat says so.
+  assert.match(text, /Work the person stopped is their call/)
+  assert.doesNotMatch(text, /stopped twice/)
+  assert.match(text, /Mark "starts":true on each option that starts or restarts a chat/)
+})
+
+test('#2146: the device block says where the person wrote from, quotes the phone\'s name as data, and that cards work there', () => {
+  const phone = leadDeviceContext({ id: 'phone:p1', label: 'Jane\'s <phone>' })
+  assert.match(phone, /^<person-device>The person wrote this message on their phone "Jane's \\u003cphone>"/)
+  assert.match(phone, /Every card and ask option works there: tell them to press it where they are, never on the desktop/)
+  assert.doesNotMatch(leadDeviceContext({ id: 'window:w1', label: 'Desktop' }), /phone "/)
+  assert.match(leadDeviceContext({ id: 'window:w1', label: 'Desktop' }), /in the desktop window/)
 })

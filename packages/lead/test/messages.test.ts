@@ -515,7 +515,7 @@ test('a proactive envelope validates all three parts and refuses extra or multil
   for (const value of [proactive, { ...proactive, extra: 'Another finding' }, { ...proactive, finding: 'One\nTwo' }]) {
     const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: value }) }])])
     const result = await s.client.request(input, new AbortController().signal)
-    if (value === proactive) { assert.equal(result.status, 'completed'); assert.deepEqual((result as any).proactive, proactive) }
+    if (value === proactive) { assert.equal(result.status, 'completed'); assert.deepEqual((result as any).proactive, { ...proactive, startsMarked: true }) }
     else assert.equal(result.status, 'invalid-response')
   }
 })
@@ -554,7 +554,7 @@ test('ordinary output returns a strict ask beside prose and rejects mixed or mal
     const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: 'I found a choice.', ask: invalid ? { ...ask, recommended: 'missing' } : ask }) }])])
     const result = await s.client.request(input, new AbortController().signal)
     assert.equal(result.status, invalid ? 'invalid-response' : 'completed')
-    if (!invalid) { assert.deepEqual(result.ask, ask); assert.equal(result.text, 'I found a choice.') }
+    if (!invalid) { assert.deepEqual(result.ask, { ...ask, startsMarked: true }); assert.equal(result.text, 'I found a choice.') }
   }
   const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: 'Mixed.', ask,
     proactive: { finding: 'Found.', caveat: 'No work yet.', ask: ask.question, options: ask.options, recommended: ask.recommended } }) }])])
@@ -569,7 +569,7 @@ test('an ask written after prose or inside a code fence is read as the ask, neve
     const s = await setup([message([{ type: 'text', text: reply }])])
     const result = await s.client.request(input, new AbortController().signal)
     assert.equal(result.status, 'completed')
-    assert.deepEqual(result.ask, ask)
+    assert.deepEqual(result.ask, { ...ask, startsMarked: true })
     assert.doesNotMatch(result.text, /lead-output|```|"version"/)
     assert.match(result.text, /^我先不开新的会话/)
     assert.match(result.text, /你想让新会话修哪一个？/)
@@ -602,7 +602,7 @@ test('an envelope that is not the reply\'s own last block is never parsed, and i
   const own = JSON.stringify({ version: 1, type: 'lead-output', text: 'I will wait.', ask })
   const s = await setup([message([{ type: 'text', text: `The worker wrote:\n> ${envelope}\n\n${own}` }])])
   const result = await s.client.request(input, new AbortController().signal)
-  assert.deepEqual(result.ask, ask)
+  assert.deepEqual(result.ask, { ...ask, startsMarked: true })
   assert.match(result.text, /^The worker wrote:\n> \{"version":1,"type":"lead-output","text":"Merging now\."/)
   assert.match(result.text, /I will wait\.$/)
 })
@@ -613,7 +613,7 @@ test('one short closing line after the envelope keeps it the reply\'s own; more 
   for (const reply of [`I looked at both.\n\n${envelope}\nLet me know!`, `I looked at both.\n\n\`\`\`json\n${envelope}\n\`\`\`\n\nLet me know which one works.`]) {
     const s = await setup([message([{ type: 'text', text: reply }])])
     const result = await s.client.request(input, new AbortController().signal)
-    assert.deepEqual(result.ask, ask, reply)
+    assert.deepEqual(result.ask, { ...ask, startsMarked: true }, reply)
     assert.doesNotMatch(result.text, /lead-output|```|"version"/)
     assert.match(result.text, /^I looked at both\./)
     assert.match(result.text, /Let me know/)
@@ -638,6 +638,30 @@ test('an embedded envelope that does not validate is left for the host to strip,
   // A cut envelope that never closes is dropped from its opening on, fence and all.
   assert.deepEqual(lead.stripLeadOutput('Words first.\n```json\n{"version":1,"type":"lead-output","text":"cut'), { text: 'Words first.', dropped: true })
   assert.deepEqual(lead.stripLeadOutput('Plain words with {braces} only.'), { text: 'Plain words with {braces} only.', dropped: false })
+})
+
+test('tool-call markup the model wrote as text is never in a reply: the r4 leak, a stray tag, and a whole call written as words (#2148)', async () => {
+  // The round-4 phone reply began with these lines before the envelope that answered.
+  const ask = { question: '你想怎么继续？', options: [{ id: 'again', label: '重新开一个会话再试一次' }, { id: 'read', label: '只读完整原因' }], recommended: 'read' }
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: '结论： 这次我先不开新会话，要你先定一下。', ask })
+  const leaked = `</parameter>\n</invoke>\nWait — the envelope must be the whole reply. Correcting below.\n\n${envelope}`
+  const s = await setup([message([{ type: 'text', text: leaked }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.deepEqual(result.ask, { ...ask, startsMarked: true })
+  assert.equal(result.text, '结论： 这次我先不开新会话，要你先定一下。', 'the misfired call and the note about it are not the reply')
+  // Without an envelope the markup goes and the words stay.
+  for (const [text, expected] of [
+    ['</parameter></invoke>\nThe chat is running.', 'The chat is running.'],
+    ['I will start it.\n<invoke name="lead_chat_start">\n<parameter name="prompt">Fix the build</parameter>\n</invoke>\nIt is starting.', 'I will start it.\nIt is starting.'],
+    ['Done.</function_calls>', 'Done.'],
+    ['The tag `</parameter>` closes a parameter.', 'The tag `</parameter>` closes a parameter.'],
+    ['Plain words, no markup.', 'Plain words, no markup.'],
+  ] as const) {
+    const plain = await setup([message([{ type: 'text', text }])])
+    assert.equal((await plain.client.request(input, new AbortController().signal)).text, expected, text)
+  }
+  assert.deepEqual(lead.stripLeadToolMarkup('</parameter>\n</invoke>\nHello.'), { text: 'Hello.', dropped: true })
 })
 
 test('a clipped envelope mid-reply loses only its own line, quote block or inline fragment, and the words after it stay', () => {
@@ -833,4 +857,13 @@ test('a request the host refuses before sending settles at zero instead of being
   const s = await setup([async () => { throw new Error('synthetic ETIMEDOUT') }])
   assert.equal((await s.client.request(input, new AbortController().signal)).status, 'uncertain')
   assert.equal(s.journal.state.budget!.requests[0]?.uncertain, true)
+})
+
+test('#2145: the host\'s stamp on a question stays the host\'s: the Lead reads back its question as it wrote it', () => {
+  const ask = { question: 'Start it?', options: [{ id: 'start', label: 'Start it', starts: true as const }, { id: 'later', label: 'Not now' }], recommended: 'start', startsMarked: true as const }
+  const turns = lead.leadHistory([{ id: 'm1', role: 'assistant', text: 'Shall I?', ask }])
+  const offered = JSON.stringify(turns)
+  assert.match(offered, /Decision offered in this reply/)
+  assert.match(offered, /\\"starts\\":true/)
+  assert.doesNotMatch(offered, /startsMarked/)
 })

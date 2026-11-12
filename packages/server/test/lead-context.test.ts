@@ -218,6 +218,8 @@ test('a checkpoint the model cannot write falls back to the desk\'s own, keeps t
   assert.ok(opening?.type === 'text' && opening.text.includes('kind="desk"') && opening.text.includes('- work-7'), 'the ledger ids survive the fallback')
   assert.equal(lead1.journal.state.messages.at(-1)?.checkpoint?.fallback, true)
   // The breaker stays open after a desk-written checkpoint: the next compaction asks the model once, not three times.
+  // Two more turns give it something to fold, however much of the window the standing instructions take.
+  await lead1.say('One more message.'); await lead1.say('And another.')
   const before = lead1.provider.requests.length
   await lead1.store.compact('manual', lead1.send)
   assert.equal(lead1.provider.requests.length - before, 1)

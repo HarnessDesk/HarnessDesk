@@ -616,7 +616,10 @@ export interface PhoneTriageList {
  * through the host, with its own id (`remind-N`), its text, whom it is for (`person` or the Lead's own `lead`
  * check-back), the work item it belongs to, when it is due, and its state. `set` has not fired: show it with its due
  * time and a Cancel that calls `lead/reminder/cancel` with its id (tier `run`); a `lead` one is the Lead's own check-back,
- * which quiet hours and autonomy hold, so mark it as one. `fired` has reached its time: show it as fired with `firedAt`. `cancelled` is listed for a day with its reason and needs no control. Left out when there are none.
+ * which quiet hours and autonomy hold, so mark it as one. `fired` has reached its time: show it as fired with `firedAt`, and `delivery: 'said'` once the Lead's message about it
+ * is written. A `fired` or `cancelled` one (listed for a day, the cancelled with its reason) can be cleared: a Clear that
+ * calls `lead/reminder/clear` with its id (tier `run`) takes it off the board and out of the Lead's cards for good, and
+ * a `set` one answers that it must be cancelled instead. Left out when there are none.
  */
 export type PhoneLeadReminder = import('./lead-work.js').LeadReminder
 

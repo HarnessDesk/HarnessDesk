@@ -487,7 +487,7 @@ test('start quotes only current person messages verbatim in conversation order, 
   const person = (id: string, text: string, revision: number) => ({ version: 1 as const, id, revision, role: 'user' as const, text })
   r.setState({ messages: [person('one', 'Keep  spacing.\n\nAnd **Markdown**.\r\nLast line.', 1),
     { ...person('assistant', 'My interpretation.', 2), role: 'assistant' }, person('two', 'Also preserve the API.', 3),
-    { ...person('decision', '', 4), role: 'assistant', ask: { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' } },
+    { ...person('decision', '', 4), role: 'assistant', ask: { question: 'Start this work?', options: [{ id: 'start', label: 'Start it', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'start' } },
     person('tap', 'Start it', 5)] })
   for (const quote of [undefined, ['two', 'one']]) {
     const params = { text: 'Repair the test\n\nA narrow brief.', ...(quote ? { quote } : {}) }
@@ -543,7 +543,7 @@ test('start refuses a forged verbatim marker in the brief only when appending a 
 test('default quotes skip tapped ordinary and proactive options, while explicit quotes keep the tap', async t => {
   const r = await rig(t)
   const person = (id: string, text: string, revision: number) => ({ version: 1 as const, id, revision, role: 'user' as const, text })
-  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it', starts: true as const }, { id: 'later', label: 'Not now' }], recommended: 'start' }
   for (const decision of [{ ask }, { proactive: { finding: 'A check is missing.', caveat: 'No work has started.', ask: ask.question, options: ask.options, recommended: ask.recommended } }]) {
     for (const hasRequest of [true, false]) {
       r.setState({ messages: [...(hasRequest ? [person('request', 'Fix focus only.', 1)] : []),
@@ -561,7 +561,8 @@ test('default quotes skip tapped ordinary and proactive options, while explicit 
 
 test('default quotes skip successive taps but retain a new request that is not an exact option answer', async t => {
   const r = await rig(t)
-  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  // Both options start work here, so these starts are about which words are quoted, not whether an answer starts one.
+  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it', starts: true as const }, { id: 'later', label: 'Not now', starts: true as const }], recommended: 'start' }
   const messages = [
     { version: 1 as const, id: 'request', revision: 1, role: 'user' as const, text: 'Fix focus only.' },
     { version: 1 as const, id: 'ask-1', revision: 2, role: 'assistant' as const, text: '', ask },

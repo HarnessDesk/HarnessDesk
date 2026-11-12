@@ -6,7 +6,7 @@ import {
   parseLeadBudgetRaise, parseLeadSpendLimitSet, leadNoSpendLimit, type LeadBudgetRaise, type LeadSpendLimitSet, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadLimitedCaps, leadApprovedPlan, leadPlanMoment, leadWithPlan, leadHistory, leadAppendUser, type LeadContextMark, type LeadJournal, type LeadState, type LeadStopFrom, type MessagesTurn } from '@harnessdesk/lead'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadLimitedCaps, leadApprovedPlan, leadPlanMoment, leadDeviceContext, leadWithPlan, leadHistory, leadAppendUser, type LeadContextMark, type LeadJournal, type LeadState, type LeadStopFrom, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -104,6 +104,8 @@ export class LeadControls {
   #automaticRequest = false
   /** Set only by a path the person took (their own message, their plan approval, their resume); read once by the next request. */
   #personRequest = false
+  /** The device the person's latest message came from, as its send named it: the next person turn says where (#2146). */
+  #personDevice: LeadThreadSend['device'] | null = null
   #requestWaitReason: string | null = null
   /** The request in hand is a desk wake the schedule made (a reminder), whatever the thread's origin. */
   #scheduleRequest = false
@@ -342,6 +344,7 @@ export class LeadControls {
       journal.state.consent && journal.state.consent.expiresAt <= this.options.now())) throw leadRefusal('lead-no-person-wait')
     return this.#commitRequest(async committed => {
       const receipt = await journal.appendMessage(input.idempotencyKey, input.text, origin ? origin.source === 'schedule' ? 'schedule' : 'automatic' : 'person', committed)
+      if (!origin) this.#personDevice = input.device ?? null
       if (resume) await journal.resume(undefined, true, committed)
       return receipt
     }, !!origin)
@@ -432,6 +435,8 @@ export class LeadControls {
         let memory: string | null = null
         try { memory = await this.options.readMemoryContext?.() ?? null } catch { /* A request without it still answers. */ }
         if (memory) desk.push({ type: 'text', text: memory })
+        // Where the person wrote from, so a reply on the phone never sends them to the desktop for a card they have.
+        if (person && this.#personDevice) desk.push({ type: 'text', text: leadDeviceContext(this.#personDevice) })
         // One user turn: the person's words, the plan and the desk's context of this moment are never two turns in a row.
         messages = leadAppendUser(messages, desk)
         return { maxTokens: LEAD_OUTPUT_TOKENS, messages, conversation: this.#requestConversation,
@@ -461,8 +466,8 @@ export class LeadControls {
         if (proactive) {
           const report = leadProactiveReport(parseLeadProactiveOutput(result.proactive!), 0, 1, false)
           await service.assertPublic(report)
-          await journal.appendReply([report.finding, report.caveat, report.ask].join('\n'), report)
-        } else await journal.appendReply(result.text ?? '', undefined, result.ask, result.refs)
+          await journal.appendModelReply([report.finding, report.caveat, report.ask].join('\n'), report)
+        } else await journal.appendModelReply(result.text ?? '', undefined, result.ask, result.refs)
       }
       else if (result.status === 'refused' && !['accepted', 'declined', 'stopped', 'waiting-for-user'].includes(journal.state.phase) && journal.state.budget &&
         leadBudgetProjection(journal.state.budget, this.options.now()).spend !== 'known') {

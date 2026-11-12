@@ -89,8 +89,10 @@ export const PHONE_POLICY: PhonePolicy = {
     // propose and search stay off the phone.
     'lead/memory/view': 'read',
     'lead/memory/change': 'answer',
-    // A reminder listed on the work board: the phone cancels one, as the window does. Setting one is the Lead's.
+    // A reminder listed on the work board: the phone cancels a set one and clears a fired or cancelled one, as the
+    // window does. Setting one is the Lead's.
     'lead/reminder/cancel': 'run',
+    'lead/reminder/clear': 'run',
     // Apply or No on the Lead's own proposal card: it applies exactly the change the card shows, as the window's does.
     // Writing rules or modes freely stays on the desk.
     'lead/settings/decide': 'answer',
