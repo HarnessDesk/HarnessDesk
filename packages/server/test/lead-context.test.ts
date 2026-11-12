@@ -214,10 +214,14 @@ test('a checkpoint the model cannot write falls back to the desk\'s own, keeps t
   assert.ok(opening?.type === 'text' && opening.text.includes('kind="desk"') && opening.text.includes('- work-7'), 'the ledger ids survive the fallback')
   assert.equal(lead1.journal.state.messages.at(-1)?.checkpoint?.fallback, true)
   // The breaker stays open after a desk-written checkpoint: the next compaction asks the model once, not three times.
-  const before = lead1.provider.requests.length
-  await lead1.store.compact('manual', lead1.send)
-  assert.equal(lead1.provider.requests.length - before, 1)
-  assert.equal(lead1.records.filter(record => record.type === 'context-compaction-applied').length, 2)
+  // Whether there is anything left to fold right after the first one depends on how long the Lead's prompt is, so talk
+  // until there is, and count only the checkpoint requests.
+  const asked = () => lead1.provider.requests.filter(request => JSON.stringify(request.body.messages.at(-1)).includes(INSTRUCTION)).length
+  const applied2 = () => lead1.records.filter(record => record.type === 'context-compaction-applied').length
+  const before = asked()
+  while (applied2() < 2 && n < 400) if (await lead1.store.compact('manual', lead1.send) === 'nothing') await lead1.say(`Message ${++n}.${filler(n)}`)
+  assert.equal(asked() - before, 1)
+  assert.equal(applied2(), 2)
 })
 
 test('the stored conversation survives a restart, imports each person message once, and re-sends one never answered', async t => {
