@@ -14,6 +14,8 @@
  *                       fails it by the chosen option
  *  - "think"          → emits a thought chunk before the answer
  *  - "slow"           → answers only after 10s (interrupt target)
+ *  - "start a subagent" → starts a child that a cancel does not stop; see
+ *                       the branch itself
  *  - anything else    → two message chunks and end_turn
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs'
@@ -64,7 +66,13 @@ const NO_LIST = process.env.FAKE_ACP_NO_LIST === '1'
  * when it comes back.
  */
 const GREY_ON_LOAD = new Set((process.env.FAKE_ACP_GREY_ON_LOAD ?? '').split(',').filter(Boolean))
+// FAKE_ACP_SEQUENCE=<file> records, one line each and in the order they
+// arrived, every cancel, close and open the agent was sent.
+const sequence = (line) => {
+  if (process.env.FAKE_ACP_SEQUENCE) appendFileSync(process.env.FAKE_ACP_SEQUENCE, `${line}\n`)
+}
 const recordOpen = (method, sessionId, cwd, meta) => {
+  sequence(`${method} ${sessionId}`)
   if (process.env.FAKE_ACP_OPENS) {
     // With the attachment extension on, each line also says whether the open
     // carried a Seat's filter — the one fact a test of "never unfiltered" needs.
@@ -362,6 +370,33 @@ const runPrompt = async (id, params) => {
 
   if (text.includes('fail with detail')) {
     return fail(id, 'Internal error', { details: 'the session is owned by another process' })
+  }
+
+  // "start a subagent" plays DeepSeek Harness's `subagent` tool, as measured
+  // on 0.2.2-rc.2: the prompt starts a child process and waits on it; a
+  // cancel settles the prompt as cancelled at once, and the child runs on,
+  // the agent speaking for it with no prompt open, until the session is
+  // closed. FAKE_ACP_SUBAGENTS=<file> records each child's pid as it starts.
+  if (text.includes('start a subagent')) {
+    if (STORE) {
+      const store = readStore()
+      const entry = store[state.id] ?? { sessionId: state.id, cwd: state.cwd, title: 'A chat about a subagent', updatedAt: new Date().toISOString(), turns: [] }
+      entry.turns.push([text])
+      store[state.id] = entry
+      writeStore(store)
+    }
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+    if (process.env.FAKE_ACP_SUBAGENTS) appendFileSync(process.env.FAKE_ACP_SUBAGENTS, `${child.pid}\n`)
+    let ticks = 0
+    state.subagent = { child, ticker: setInterval(() => say(`subagent still working ${++ticks}.`), 20) }
+    say('started a subagent.')
+    for (;;) {
+      if (cancelled.has(state.id)) {
+        cancelled.delete(state.id)
+        return reply(id, { stopReason: 'cancelled' })
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
   }
 
   if (text.includes('slow')) {
@@ -1181,9 +1216,18 @@ const handlers = {
   },
   'test/crash': () => { process.exit(1) },
   'session/close': async (id, params) => {
+    sequence(`session/close ${params.sessionId}`)
     if (process.env.FAKE_ACP_NO_CLOSE) return fail(id, 'close is unsupported')
     if (process.env.FAKE_ACP_CLOSE_SILENT) return
     if (process.env.FAKE_ACP_CLOSE_FAIL) return fail(id, 'close refused')
+    // Closing is what ends a subagent the cancel left running.
+    const subagent = sessions.get(params.sessionId)?.subagent
+    if (subagent) {
+      clearInterval(subagent.ticker)
+      const exited = once(subagent.child, 'exit')
+      subagent.child.kill('SIGTERM')
+      await exited
+    }
     const helper = helpers.get(params.sessionId)
     if (helper) {
       const exited = once(helper, 'exit')
@@ -1569,6 +1613,7 @@ const handlers = {
     })
   },
   'session/cancel': (_id, params) => {
+    sequence(`session/cancel ${params.sessionId}`)
     cancelled.add(params.sessionId)
     const state = sessions.get(params.sessionId)
     if (state?.waitingGoal !== undefined) {
