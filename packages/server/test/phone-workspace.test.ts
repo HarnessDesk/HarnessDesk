@@ -45,6 +45,7 @@ interface Fixture {
   ledger: (query: LedgerQuery) => LedgerReport
   lead: { name: string; ids: Set<string>; teams?: Map<string, { step: string | null; accepted: boolean }>; wrapsOnDesk?: (team: string) => boolean } | null
   knowsStart: boolean
+  brand: string | null
   readonly done: () => Promise<void>
 }
 
@@ -54,7 +55,7 @@ const fixture = async (): Promise<Fixture> => {
   const index = new SessionIndex(file)
   const db = new DatabaseSync(file)
   const state: Fixture = {
-    index, db, live: [], teams: [], reports: [], lead: null, knowsStart: true, ledger: () => ({ totalCost: null, scannedAt: null, rows: [], daily: [] } as unknown as LedgerReport),
+    index, db, live: [], teams: [], reports: [], lead: null, knowsStart: true, brand: null, ledger: () => ({ totalCost: null, scannedAt: null, rows: [], daily: [] } as unknown as LedgerReport),
     workspace: undefined as never, done: async () => { db.close(); index.close(); await rm(root, { recursive: true, force: true }) },
   }
   const workspace = new PhoneWorkspace({
@@ -68,6 +69,7 @@ const fixture = async (): Promise<Fixture> => {
     },
     live: () => state.live,
     seatName: (runtime: import('@harnessdesk/protocol').RuntimeId) => runtime === agent ? 'Fake Agent' : null,
+    seatBrand: (runtime: import('@harnessdesk/protocol').RuntimeId) => runtime === agent ? state.brand : null,
     knowsStart: () => state.knowsStart,
     teams: async () => state.teams,
     reports: async () => state.reports,
@@ -389,6 +391,29 @@ test('a plan with no short window shows a seat with no bar, and an agent the des
   } finally { await f.done() }
 })
 
+test('every row the phone draws an agent beside carries its mark\'s key, and a key that is not one is never sent (#2150)', async () => {
+  const f = await populated()
+  try {
+    f.brand = 'claudecode'
+    f.ledger = () => ledgerOf([], 0)
+    f.reports = [report('a@example.com', { lanes: [{ id: 'session', label: '5-hour', usedPercent: 40, windowMinutes: 300, resetsAt: NOW + HOUR }] })]
+    f.teams = [{ ...team('t-build', { role: 'implementer' }), members: [{ seat: 'builder', session: { runtime: agent, id: sessionId('team-seat') }, title: 'Builder', role: 'implementer', model: null, holding: true, cost: null }] }]
+    const brands = (rows: readonly { brand?: string }[]) => [...new Set(rows.map(row => row.brand))]
+    assert.deepEqual(brands(f.workspace.sessionsList({}).rows), ['claudecode'], 'Sessions rows')
+    const items = await f.workspace.workItems()
+    assert.deepEqual(brands(items.filter(one => one.kind === 'session').map(one => one.agent!)), ['claudecode'], 'the work list\'s session rows')
+    assert.deepEqual(brands(items.find(one => one.kind === 'team')!.team!.workers.map(one => one.seat)), ['claudecode'], 'a Team\'s workers')
+    assert.deepEqual(brands((await f.workspace.workUsage())!.runtimes), ['claudecode'], 'allowance tiles and Accounts')
+    assert.deepEqual(brands((await f.workspace.dashboardRead({})).seats), ['claudecode'], 'the dashboard\'s seats')
+    // An agent with no mark sends no key, and anything not shaped like one is dropped rather than sent.
+    for (const bad of [null, 'Claude Code', 'claude-code', '', 'x'.repeat(33)]) {
+      f.brand = bad
+      assert.deepEqual(brands(f.workspace.sessionsList({}).rows), [undefined], String(bad))
+      assert.deepEqual(brands((await f.workspace.dashboardRead({})).seats), [undefined], String(bad))
+    }
+  } finally { await f.done() }
+})
+
 test('a phone allowance says the desk’s own standing, counts down to times and names no account', async () => {
   const f = await fixture()
   try {
@@ -661,10 +686,30 @@ test('queued sessions count as neither running nor done', async () => {
     assert.deepEqual(f.workspace.sessionsList({}).counts, { running: 1, needsYou: 1, done: 1, archived: 0 })
     f.live.push({ runtime: agent, id: sessionId('no-longer-indexed'), running: false, waiting: false, queued: true, cost: null })
     f.live.push({ runtime: agent, id: sessionId('also-no-longer-indexed'), running: false, waiting: false, queued: true, cost: null })
-    assert.equal(f.workspace.sessionsList({}).counts.done, 0, 'a changed index cannot make done negative')
+    assert.deepEqual(f.workspace.sessionsList({}).counts, { running: 1, needsYou: 1, done: 1, archived: 0 },
+      'a live session the index no longer lists is no one of the person\'s, so it moves no count')
   } finally { await f.done() }
 })
 
+
+test('the phone’s session counts and the Lead’s desk summary count the same own sessions (#2150)', async () => {
+  const f = await fixture()
+  try {
+    for (const id of ['working', 'waiting', 'idle-1', 'idle-2']) f.index.upsert(summary(id))
+    // A Team's seat is listed under its Team, not as one of the person's sessions, wherever it is counted.
+    f.index.upsert(summary('team-seat'), { archived: false, teamId: 'team-1' })
+    f.live = [
+      { runtime: agent, id: sessionId('working'), running: true, waiting: false, cost: null },
+      { runtime: agent, id: sessionId('waiting'), running: false, waiting: true, cost: null },
+      { runtime: agent, id: sessionId('team-seat'), running: false, waiting: true, cost: null },
+    ]
+    const phone = f.workspace.sessionsList({}).counts
+    const desk = (await f.workspace.deskSummary({})).totals.chats
+    assert.deepEqual(phone, { running: 1, needsYou: 1, done: 2, archived: 0 })
+    assert.deepEqual(desk, { running: 1, needsYou: 1, idle: 2 })
+    assert.equal(phone.running + phone.needsYou + phone.done, desk.running + desk.needsYou + desk.idle)
+  } finally { await f.done() }
+})
 
 test('Lead summary counts every project, keeps old attention items, and bounds only recents', async () => {
   const f = await fixture()
@@ -1047,5 +1092,63 @@ test('another sign-in\'s figures reach the phone apart from the agent\'s own, un
     assert.equal(rows[1]!.unverified?.stale, true)
     assert.equal(rows[2]!.unverified, undefined)
     assert.ok(!JSON.stringify(rows).includes('@'), 'no account leaves the desk')
+  } finally { await f.done() }
+})
+
+test('the Lead reads another sign-in’s figures where the Dashboard draws them, never as no data (#2150)', async () => {
+  const f = await fixture()
+  try {
+    // The agent's own sign-in reports nothing; a separate CLI sign-in has a fresh, full weekly window per model group.
+    const borrowed = report('dev@example.com', { plan: null, lanes: [], unverified: {
+      whose: 'CLI sign-in', reached: null, fetchedAt: NOW - 60_000, staleAfterMs: 5 * 60_000, lanes: [
+        { id: 'gemini:weekly', label: 'Weekly', scope: 'Gemini Models', usedPercent: 0, windowMinutes: 10_080, resetsAt: null },
+        { id: 'other:weekly', label: 'Weekly', scope: 'Other models', usedPercent: 25, windowMinutes: 10_080, resetsAt: NOW + 30 * HOUR },
+      ] } })
+    const [account] = (await f.workspace.usageSummary([borrowed])).accounts
+    assert.equal(account!.notReporting, undefined)
+    assert.deepEqual(account!.windows, [], 'the agent’s own account is still not claimed to have figures')
+    assert.deepEqual(account!.unverified, {
+      whose: 'CLI sign-in', readAgeMinutes: 1, readAge: '1m ago', stale: false, windows: [
+        { label: 'Weekly · Gemini Models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 100, remaining: null, unit: null, resetsAt: null, resetsIn: null, reached: false, projection: null },
+        { label: 'Weekly · Other models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 75, remaining: null, unit: null, resetsAt: NOW + 30 * HOUR, resetsIn: '1 d 6 h', reached: false,
+          // The Dashboard's own projection, as for the agent's own windows.
+          projection: { kind: 'lasts-to-reset', at: NOW + 30 * HOUR, basis: 'average consumption since window start', since: NOW + 30 * HOUR - 10_080 * 60_000, asOf: NOW } },
+      ],
+    })
+  } finally { await f.done() }
+})
+
+test('an account that answered with nothing to show reads Not reporting to the Lead and the phone, as on the Plans table (#2150)', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    // Spend alone, no window, balance or billing shape: the desktop Plans row says "plan usage unavailable · Not reporting".
+    f.reports = [report('dev@example.com', { plan: null, lanes: [], spend: { currency: 'USD', todayCost: 1, windowCost: 4, windowDays: 30, provenance: 'ledger' } } as never)]
+    const [row] = (await f.workspace.workUsage())!.runtimes
+    assert.deepEqual([row!.status, row!.standing, row!.notReporting], ['Not reporting', 'unknown', true])
+    const [account] = (await f.workspace.usageSummary(f.reports)).accounts
+    assert.equal(account!.notReporting, true)
+    assert.equal(account!.spend?.today, 1, 'what it spent is still said')
+  } finally { await f.done() }
+})
+
+test('#2174: Lead allowance says each reset and read age in the Dashboard\'s words, and marks a reset already past', async () => {
+  const f = await fixture()
+  try {
+    const result = await f.workspace.usageSummary([report('dev@example.com', { fetchedAt: NOW - 12_251 * 60_000, staleAfterMs: 1000, lanes: [
+      { id: 'monthly', label: 'Monthly', usedPercent: 40, windowMinutes: 43200, resetsAt: NOW + 21.14 * 24 * HOUR },
+      { id: 'weekly', label: 'Weekly', usedPercent: 10, windowMinutes: 10080, resetsAt: NOW - 37 * HOUR },
+      { id: 'session', label: '5-hour', usedPercent: 10, windowMinutes: 300, resetsAt: null },
+    ] })])
+    const account = result.accounts[0]!
+    assert.equal(account.readAge, '8d ago', '12,251 minutes is eight and a half days, said as eight')
+    assert.equal(account.readAgeMinutes, 12_251)
+    const [monthly, weekly, session] = account.windows
+    assert.equal(monthly!.resetsIn, '21 d 3 h', 'the Dashboard\'s countdown, never rounded up to 22 days')
+    assert.equal(monthly!.resetPassed, undefined)
+    assert.equal(weekly!.resetsIn, null)
+    assert.equal(weekly!.resetPassed, true, 'the stored reset is in the past: these figures are from before it')
+    assert.equal(session!.resetsIn, null)
+    assert.equal(session!.resetPassed, undefined)
   } finally { await f.done() }
 })

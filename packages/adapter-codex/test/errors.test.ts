@@ -54,3 +54,14 @@ test('a workspace spend cap is running out of credit, not an unknown failure', (
 test('a usage limit in the message is read the same way', () => {
   assert.equal(mapTurnError({ message: "You've hit your usage limit. It resets at 3:20 PM." }).code, 'credits')
 })
+
+test('0.167 terminal and policy-capacity failures are not read as a retryable rate limit', () => {
+  assert.equal(mapTurnError({ message: 'No such model', codexErrorInfo: 'modelNotFound' }).code, 'unknown')
+  assert.equal(mapTurnError({ message: 'Capacity restricted by policy', codexErrorInfo: 'policyCapacityUnavailable' }).code, 'unknown')
+  assert.equal(mapTurnError({ message: 'busy', codexErrorInfo: 'serverOverloaded' }).code, 'rateLimit')
+})
+
+test('an error discriminant from a newer server than this build knows falls back to the message', () => {
+  assert.equal(mapTurnError({ message: 'slow down, too many requests', codexErrorInfo: 'someFutureKind' }).code, 'rateLimit')
+  assert.equal(mapTurnError({ message: 'x', codexErrorInfo: { futureKind: { a: 1 } } }).code, 'unknown')
+})

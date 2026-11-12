@@ -8,7 +8,7 @@ import { StoreProvider } from '../state/context'
 import { DestinationPageScope } from '../panels/destination-page'
 import { TopBarProvider } from '../panels/top-bar'
 import { LeadPage } from './LeadPage'
-import { LEAD_SETTINGS_EFFECT, LeadSettingsProposals, leadSettingsProposalTitle } from './LeadSettingsProposals'
+import { LeadSettingsProposals, leadSettingsEffect, leadSettingsProposalTitle } from './LeadSettingsProposals'
 import { leadRuleDiff } from './lead-rules-diff'
 
 // The real diff, counted: a section's whole words are diffed once per pair of words, not on every store update.
@@ -40,11 +40,20 @@ it('#2106: each card says what it changes and when it takes effect, and an asked
   expect(box.textContent).toContain('Desk-change reports: Act → Observe')
   expect(box.textContent).toContain('Lead every report with the conclusion.')
   expect(box.textContent).toContain('How to talk to me')
-  expect(box.textContent).toContain(LEAD_SETTINGS_EFFECT.autonomy)
-  expect(box.textContent).toContain(LEAD_SETTINGS_EFFECT.rules)
+  // Each card names the Lead as the person chose to call it, as the phone's card does (#2146).
+  expect(box.textContent).toContain(leadSettingsEffect('autonomy', 'dex'))
+  expect(box.textContent).toContain(leadSettingsEffect('rules', 'dex'))
+  expect(box.textContent).not.toContain('the Lead')
   expect(box.textContent).toContain('Asked again')
   expect(buttons(box, 'Apply')).toHaveLength(2)
   expect(buttons(box, 'No')).toHaveLength(2)
+})
+
+it('#2146: the card names the Lead by its name, as the phone\'s card does', async () => {
+  const { box } = await mount(<LeadSettingsProposals proposals={leadSettingsProposals} />)
+  expect(box.textContent).toContain('Takes effect at once, for what Dex does without being asked.')
+  expect(box.textContent).toContain("Takes effect at Dex's next epoch, never in the middle of a turn.")
+  expect(box.textContent).not.toContain('the Lead')
 })
 
 it('#2106: Apply and No under the Lead reply send the person\'s decision, and an answered card leaves the thread', async () => {
@@ -83,7 +92,7 @@ it('#2106 review: a section\'s whole new words sit inside their own row, as what
   expect(buttons(row, 'Apply'), 'the row the words sit in is the one Apply answers').toHaveLength(1)
   expect(words.textContent).toContain(`- ${LEAD_RULE_DEFAULTS.done.text}`)
   expect(words.textContent).toContain('+ Done means every check run is green and the person reviewed it.')
-  expect(row.textContent).toContain(LEAD_SETTINGS_EFFECT.rules)
+  expect(row.textContent).toContain(leadSettingsEffect('rules', 'dex'))
 })
 
 it('#2117 review 2: a section\'s whole words are diffed once per pair of words, not on every store update', async () => {
@@ -97,4 +106,16 @@ it('#2117 review 2: a section\'s whole words are diffed once per pair of words, 
   await act(async () => { await store.lead.readAutonomy() })
   expect(diff.mock.calls.length, 'no rebuild for the same words').toBe(after)
   expect(box.querySelector('[aria-label="What changes in What counts as done"]')!.textContent).toContain('+ Done means every check run is green')
+})
+
+it('an added line shows the words the section will hold, as a diff against the words in force, so it reads as an append (#2152)', async () => {
+  const [, line] = leadSettingsProposals
+  const { box, store } = await mount(<LeadSettingsProposals proposals={[line!]} />)
+  await act(async () => { await store.lead.readAutonomy() })
+  const words = box.querySelector('[aria-label="What changes in How to talk to me"]')
+  expect(words, 'the resulting words are drawn, not only the added line').toBeTruthy()
+  expect(words!.closest('[data-slot="row"]')).toBeTruthy()
+  for (const kept of LEAD_RULE_DEFAULTS.talk.text.split('\n')) expect(words!.textContent).toContain(`  ${kept}`)
+  expect(words!.textContent).toContain('+ Lead every report with the conclusion.')
+  expect(words!.textContent).not.toMatch(/^- /m)
 })

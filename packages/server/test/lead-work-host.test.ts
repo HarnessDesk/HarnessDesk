@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { realpath } from 'node:fs/promises'
 import test, { type TestContext } from 'node:test'
-import { createLeadJournal, leadWorkCards, type LeadJournalRecord, type LeadPermissionCall, type LeadPermissionContext, type MessagesTurn } from '@harnessdesk/lead'
+import { LEAD_SURFACE_LINES, createLeadJournal, leadWorkCards, type LeadJournalRecord, type LeadPermissionCall, type LeadPermissionContext, type MessagesTurn } from '@harnessdesk/lead'
 import { LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, parseLeadReminderSet } from '@harnessdesk/protocol'
 import { LeadControls } from '../src/lead/controls.js'
+import { leadShownMessage } from '../src/lead/projection.js'
 import { PHONE_POLICY } from '../src/phone-link.js'
 import { evidenceDesk } from './fixtures/evidence-desk.js'
 
@@ -392,3 +393,90 @@ test('a reminder the Lead sets through its door is listed on the board the windo
   assert.throws(() => parseLeadReminderSet({ text: 'Never', inMinutes: 0 }), /1 to 43200/)
 })
 const DAY = 24 * 60 * 60 * 1000
+
+test('#2144: the reply to a turn that carried a fired reminder marks it said, so later turns stop repeating it; the person clears one from either surface', async t => {
+  const r = await workRig(t)
+  const set = await r.execute({ method: 'lead/reminder/set', params: { text: 'Look at the build CI', inMinutes: 20, cause: 'person' } })
+  const entry = set.value as { id: string; dueAt: number }
+  // A reminder that fired with no wake of its own to say it, as one from an earlier sitting did.
+  await r.host.leadWork.reminded(entry.id, entry.dueAt)
+  const sent: (readonly MessagesTurn[])[] = []
+  const controls = r.controls(async messages => { sent.push(messages); return { status: 'completed', text: sent.length === 1 ? 'The chat is running. Also: your reminder to look at the build CI is due.' : 'Still running.' } })
+  const words = (turns: readonly MessagesTurn[]) => turns.flatMap(turn => Array.isArray(turn.content) ? turn.content : []).map(part => 'text' in part ? part.text : '').join('\n')
+  await controls.send({ idempotencyKey: 'person-1', text: 'How is the build going?' }); await controls.idle()
+  assert.match(words(sent[0]!), /remind-1 for the person "Look at the build CI" fired \d+m ago, not yet said to the person/)
+  let delivery: string | undefined
+  for (let tries = 0; tries < 100 && delivery !== 'said'; tries++) {
+    delivery = (await r.host.call('lead/work/list', {})).reminders?.find(found => found.id === entry.id)?.delivery
+    if (delivery !== 'said') await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.equal(delivery, 'said', 'the reply that carried it said it')
+  await controls.send({ idempotencyKey: 'person-2', text: 'And now?' }); await controls.idle()
+  assert.doesNotMatch(words(sent[1]!), /not yet said to the person|tell them now/, 'the next turn is not told to say it again')
+  assert.match(words(sent[1]!), /remind-1 for the person "Look at the build CI" said to the person/)
+
+  // Clearing is the person's, on the window and the phone; the Lead has no door to it.
+  assert.equal(PHONE_POLICY.methods['lead/reminder/clear'], 'run', 'the phone may clear a reminder')
+  const lead = await r.execute({ method: 'lead/reminder/clear' as never, params: { id: entry.id } as never })
+  assert.equal(lead.outcome, 'denied', 'the Lead cannot clear one: the method is off its door')
+  const cleared = await r.host.call('lead/reminder/clear', { id: entry.id })
+  assert.equal(cleared.reminders?.some(found => found.id === entry.id) ?? false, false)
+  assert.equal((await r.host.call('workspace/read', {})).work?.reminders?.some(found => found.id === entry.id) ?? false, false, 'the phone reads it gone too')
+})
+
+test('#2144: a host notice that lands before the Lead answers never marks a reminder said; only the Lead\'s own reply to the turn does', async t => {
+  const r = await workRig(t)
+  const set = await r.execute({ method: 'lead/reminder/set', params: { text: 'Look at the build CI', inMinutes: 20, cause: 'person' } })
+  const entry = set.value as { id: string; dueAt: number }
+  await r.host.leadWork.reminded(entry.id, entry.dueAt)
+  const delivery = async () => (await r.host.call('lead/work/list', {})).reminders?.find(found => found.id === entry.id)?.delivery
+  let early: string | undefined
+  const controls = r.controls(async () => {
+    // The desk writes a notice of its own while the Lead is still answering, as the takeover notice does.
+    await r.journal.appendReply('Host notice: 1 queued Lead message was not delivered because the person took over chat a.')
+    await new Promise(resolve => setTimeout(resolve, 50))
+    early = await delivery()
+    return { status: 'completed', text: 'The chat is running. Also: your reminder to look at the build CI is due.' }
+  })
+  await controls.send({ idempotencyKey: 'person-1', text: 'How is the build going?' }); await controls.idle()
+  assert.notEqual(early, 'said', 'the host notice did not say the reminder')
+  let late: string | undefined
+  for (let tries = 0; tries < 100 && late !== 'said'; tries++) { late = await delivery(); if (late !== 'said') await new Promise(resolve => setTimeout(resolve, 20)) }
+  assert.equal(late, 'said', 'the Lead\'s reply to the turn did')
+})
+
+test('#2146: each person turn says once which surface the person wrote from, and never the device\'s own name', async t => {
+  const r = await workRig(t)
+  const sent: (readonly MessagesTurn[])[] = []
+  const controls = r.controls(async messages => { sent.push(messages); return { status: 'completed', text: 'Done.' } })
+  const last = (turns: readonly MessagesTurn[]) => (Array.isArray(turns.at(-1)!.content) ? turns.at(-1)!.content as readonly { text?: string }[] : []).map(part => part.text ?? '')
+  const words = (turns: readonly MessagesTurn[]) => turns.flatMap(turn => Array.isArray(turn.content) ? turn.content : []).map(part => 'text' in part ? part.text : '').join('\n')
+  await controls.send({ idempotencyKey: 'phone-1', text: 'Did my change apply?', device: { id: 'phone:p1', label: 'Jane\'s phone <b>' } }); await controls.idle()
+  assert.deepEqual(last(sent[0]!).filter(text => /phone|desktop/i.test(text) && text !== 'Did my change apply?'), [LEAD_SURFACE_LINES.phone],
+    'one line names the surface; no second block says it again')
+  assert.doesNotMatch(words(sent[0]!), /Jane|<person-device>/, 'the device\'s own name never reaches the model')
+  await controls.send({ idempotencyKey: 'window-1', text: 'And now?', device: { id: 'window:w1', label: 'Desktop' } }); await controls.idle()
+  assert.ok(last(sent[1]!).includes(LEAD_SURFACE_LINES.desktop))
+  assert.ok(!last(sent[1]!).includes(LEAD_SURFACE_LINES.phone))
+  await controls.send({ idempotencyKey: 'unknown-1', text: 'One more' }); await controls.idle()
+  assert.ok(!last(sent[2]!).some(text => text.startsWith('Desk note: the person sent')), 'a send that names no device says nothing about one')
+})
+
+test('#2166: each person message carries the surface that sent it, and every later request reads each message with its own', async t => {
+  const r = await workRig(t)
+  const sent: (readonly MessagesTurn[])[] = []
+  const controls = r.controls(async messages => { sent.push(messages); return { status: 'completed', text: 'Done.' } })
+  const people = (turns: readonly MessagesTurn[]) => turns.filter(turn => turn.role === 'user' && Array.isArray(turn.content)
+    && turn.content.some(part => 'text' in part && part.text.startsWith('Desk reference for the preceding person message: ')))
+  const said = (turn: MessagesTurn) => (Array.isArray(turn.content) ? turn.content : []).map(part => 'text' in part ? part.text : '')
+  await controls.send({ idempotencyKey: 'phone-2', text: 'Turn on auto-approve for reads.', device: { id: 'phone:p1', label: 'Phone' } }); await controls.idle()
+  await controls.send({ idempotencyKey: 'window-2', text: 'Where do I press it?', device: { id: 'window:w1', label: 'Desktop' } }); await controls.idle()
+  const stored = r.journal.state.messages.filter(message => message.role === 'user')
+  assert.deepEqual(stored.map(message => message.surface), ['phone', 'desktop'], 'the journal keeps each message\'s surface')
+  const first = people(sent[0]!), second = people(sent[1]!)
+  assert.ok(said(first.at(-1)!).includes(LEAD_SURFACE_LINES.phone), 'the phone turn names the phone')
+  assert.ok(said(second.at(-1)!).includes(LEAD_SURFACE_LINES.desktop), 'the desktop turn names the desktop')
+  assert.ok(!said(second.at(-1)!).includes(LEAD_SURFACE_LINES.phone))
+  assert.ok(said(second.at(-2)!).includes(LEAD_SURFACE_LINES.phone), 'the earlier phone message still reads as the phone\'s')
+  assert.ok(stored.every(message => !('surface' in leadShownMessage(message))), 'the surface is the Lead\'s context, not a new field on the thread both surfaces draw')
+})

@@ -1,5 +1,5 @@
-import { useEffect, useSyncExternalStore } from 'react'
-import { LEAD_PULL_REQUEST_REF, leadTeamKey, runtimeId, sessionId, sessionKey, type LeadDigestRef, type LeadMessageRef, type LeadWorkBoard, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { LEAD_PULL_REQUEST_REF, leadTeamKey, leadWorkNamedIn, runtimeId, sessionId, sessionKey, type LeadDigestRef, type LeadMessageRef, type LeadNamedWork, type LeadWorkBoard, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
 import { Button, InlineParts } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/snapshot'
@@ -48,11 +48,34 @@ const chatTarget = (id: string, desk: LeadRefDesk): { target: LeadRefTarget; tit
 }
 
 /**
+ * The Teams and chats this desk lists, by the titles a reply would name them with: a Team by its goal's sentence (what
+ * the Lead's desk summary and the phone call it) and by its own name, a chat by its title.
+ */
+const namedWork = (desk: LeadRefDesk): readonly LeadNamedWork[] => {
+  const items: LeadNamedWork[] = []
+  for (const view of desk.goals.values()) {
+    const name = (desk.teams.get(view.goal.id) ?? view.board)?.name?.trim()
+    for (const title of new Set([view.goal.sentence?.trim(), name].filter((one): one is string => Boolean(one))))
+      items.push({ kind: 'team', id: view.goal.id, title })
+  }
+  for (const [id, team] of desk.teams) if (!desk.goals.has(id) && team.name?.trim()) items.push({ kind: 'team', id, title: team.name.trim() })
+  for (const session of desk.sessions.values()) if (session.title?.trim())
+    items.push({ kind: 'session', id: `${session.runtime}:${session.id}`, title: session.title.trim(), ...(session.archived ? { archived: true } : {}) })
+  return items
+}
+
+/**
  * The links a reply's refs become. A ref is only a pointer the model wrote: it turns into a link only when the desk
  * itself has what it names, and it is labelled with the desk's own name for it before the model's. Anything the desk
  * cannot find is left out, never drawn as a link that goes nowhere.
+ *
+ * A reply that carries no refs is read for the titles of the Teams and chats this desk lists, by the rule the phone
+ * reads it with (`leadWorkNamedIn`), so the same reply has the same links under it on both (#2149).
  */
-export const leadRefLinks = (refs: readonly LeadMessageRef[], desk: LeadRefDesk): readonly LeadRefLink[] => {
+export const leadRefLinks = (refs: readonly LeadMessageRef[], desk: LeadRefDesk, text?: string): readonly LeadRefLink[] => {
+  if (refs.length === 0 && text) {
+    return leadRefLinks(leadWorkNamedIn(text, namedWork(desk)).map(item => ({ kind: item.kind, id: item.id, title: item.title })), desk)
+  }
   const links: LeadRefLink[] = [], seen = new Set<string>()
   const add = (ref: LeadMessageRef, target: LeadRefTarget, label: string, title: string) => {
     const key = target.kind === 'chat' ? `chat:${target.runtime}:${target.session}` : target.kind === 'pr' ? `pr:${target.repository}#${target.number}` : `${target.kind}:${target.id}`
@@ -127,13 +150,18 @@ export const openLeadRefTarget = (store: Pick<AppStore, 'openSession' | 'openTea
 }
 
 /** The chats, Teams and work a reply names, as links under it that open them. */
-export const LeadRefs = ({ refs }: { readonly refs: readonly LeadMessageRef[] }) => {
+export const LeadRefs = ({ refs, text }: { readonly refs: readonly LeadMessageRef[]; readonly text?: string }) => {
   const store = useStore(), snapshot = useSnapshot()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const wantsWork = refs.some(ref => ref.kind === 'work')
   useEffect(() => { if (wantsWork && !state.work) void store.lead.readWork().catch(() => {}) }, [store, wantsWork, state.work])
-  const chats = new Set([...(state.chats ?? []).map(chat => chat.id), ...(state.work?.items ?? []).flatMap(item => item.links.chats)])
-  const links = leadRefLinks(refs, { runtimes: snapshot.runtimes, sessions: snapshot.sessions, teams: snapshot.teams, goals: snapshot.goals, chats, work: state.work ?? null })
+  const { runtimes, sessions, teams, goals } = snapshot, held = state.chats, work = state.work ?? null
+  // A reply with no refs folds, sorts and scans every title on the desk; do it when the desk or the reply changes, not on
+  // every render of a long thread.
+  const links = useMemo(() => {
+    const chats = new Set([...(held ?? []).map(chat => chat.id), ...(work?.items ?? []).flatMap(item => item.links.chats)])
+    return leadRefLinks(refs, { runtimes, sessions, teams, goals, chats, work }, text)
+  }, [refs, text, runtimes, sessions, teams, goals, held, work])
   if (!links.length) return null
   const open = (target: LeadRefTarget) => openLeadRefTarget(store, target)
   return <div data-slot="lead-refs"><InlineParts>

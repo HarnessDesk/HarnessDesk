@@ -3006,7 +3006,7 @@ Prose and a missing-fact note stand on the card's row edge; a note takes second-
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
-A card's buttons, on the card's row edge: "What happened?", "Review update…". Never a bare `Button` in a card.
+A card's buttons, on the card's row edge: "Review update…". Never a bare `Button` in a card.
 
 ### `TopBarToolButton`
 

@@ -157,7 +157,20 @@ test('the instructions tell memory from autonomy from rules, propose settings ra
   assert.match(text, /rules_propose/)
   assert.match(text, /You cannot change a mode or a rule yourself/)
   assert.match(text, /Never say you asked before, that the person declined before, or that you reminded them/)
-  assert.match(text, /never tell the person to press Keep or Apply on the desktop/)
+  // #2146: the card works where the person is, and "the desk" is never a place to press something.
+  assert.match(text, /tell them to press it where they are, never send them to the desktop/)
+  assert.match(text, /never write "on the desk" for where to press/)
   assert.match(text, /say who stopped it as the work-ledger block records it/)
-  assert.match(text, /stopped twice/)
+  // #2145: one stop by the person is enough to ask, and an option that starts a chat says so.
+  assert.match(text, /Work the person stopped is their call/)
+  assert.doesNotMatch(text, /stopped twice/)
+  assert.match(text, /Mark "starts":true on each option that starts or restarts a chat/)
+  // #2166: one source names the surface, the desk note on each message.
+  assert.match(text, /Each person message carries a desk note naming the surface that sent it, phone or desktop window: where to press follows/)
+  assert.doesNotMatch(text, /person-device/)
+})
+
+test('#2170: the desk status the request carries is reference, never recapped unasked', () => {
+  const text = leadInstructions({ name: 'Lex', project, policyRevision: 1, caps: { usdMicros: 5_000_000, rounds: 12 } })
+  assert.match(text, /Desk status is reference: never restate settings, rules, memory or pending proposals unless the person asks or a line says it changed\./)
 })

@@ -139,6 +139,26 @@ test('the snapshot carries the autonomy table for the phone, and leaves it out w
   assert.equal(Object.hasOwn(await rig().work.snapshot(), 'autonomy'), false)
 })
 
+test('the snapshot carries the history the phone draws for autonomy and rules: every change, a proposal\'s and a restore\'s included (#2152)', async () => {
+  const changes = [
+    { at: 5, by: 'person' as const, what: 'rules' as const, section: 'talk' as const, version: 3, how: 'rollback' as const },
+    { at: 4, by: 'person' as const, what: 'rules' as const, section: 'talk' as const, version: 2, how: 'reset' as const },
+    { at: 3, by: 'person' as const, what: 'rules' as const, section: 'talk' as const, version: 1, how: 'edit' as const, proposal: 's2' },
+    { at: 2, by: 'person' as const, what: 'mode' as const, kind: 'desk-change' as const, from: 'act' as const, to: 'observe' as const, proposal: 's1' },
+    { at: 1, by: 'person' as const, what: 'deadline' as const, deadlineAt: null },
+  ]
+  const view = { version: 1 as const, modes: { 'desk-change': 'observe', stuck: 'act', repeat: 'act', mention: 'act', brief: 'act' } as const, observed: [], deadline: null, changes,
+    rules: [{ id: 'talk' as const, title: 'How to talk to me', text: 'Plain words.', custom: true, version: 3, changedAt: 5, shipped: 'Shipped words.', versions: [
+      { version: 3, text: 'Plain words.', at: 5, how: 'rollback' as const, from: 1 }, { version: 2, text: 'Shipped words.', at: 4, how: 'reset' as const },
+      { version: 1, text: 'Plain words.', at: 3, how: 'edit' as const }] }] }
+  const autonomy = (await rig({ leadAutonomy: async () => view }).work.snapshot()).autonomy!
+  assert.deepEqual(autonomy.changes, changes, 'newest first, as the desktop ledger lists them')
+  assert.deepEqual(autonomy.rules.map(one => [one.version, one.changedAt]), [[3, 5]])
+  // The earlier words and the shipped words ride along: the phone's wording, diff and Restore preview need no desk-only read.
+  assert.deepEqual(autonomy.rules[0]!.versions, view.rules[0]!.versions)
+  assert.equal(autonomy.rules[0]!.shipped, 'Shipped words.')
+})
+
 test('the phone Work list names the Teams and chats its Inbox counts that no work item holds (#2110)', async () => {
   const board = { version: 1 as const, more: 0, items: [] }
   const inbox = { version: 1 as const, needsYou: 1, items: [{ id: 'team:goal-game', kind: 'team' as const, title: 'build a game', project: 'acme-api', at: 8, needsYou: true, target: 'goal-game' }] }
@@ -696,6 +716,12 @@ const agentsRig = (over: Partial<PhoneWorkPorts> = {}) => {
   })
   return { ...r, created, choices }
 }
+
+test('each agent a phone can start on carries its mark\'s key, as the desktop draws it, and only a key of the wire\'s shape (#2150)', async () => {
+  const brands = { [String(RT)]: 'codex', [String(RT2)]: 'Not A Key' } as Record<string, string>
+  const snapshot = await agentsRig({ seatBrand: runtime => brands[String(runtime)] ?? null }).work.snapshot()
+  assert.deepEqual(snapshot.agents?.map(agent => [agent.id, agent.brand]), [[String(RT), 'codex'], [String(RT2), undefined]])
+})
 
 test('the snapshot lists each ready agent with its own models, the default first, and keeps the default models for older phones', async () => {
   const snapshot = await agentsRig().work.snapshot()
