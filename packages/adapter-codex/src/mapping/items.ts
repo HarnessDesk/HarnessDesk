@@ -527,7 +527,8 @@ export const mapItem = (item: ThreadItem): AgentItem => {
       return {
         id,
         type: 'image',
-        path: item.savedPath ?? item.result,
+        // 0.167 delivers the image either inline (`result`) or by `fileId`.
+        path: item.savedPath ?? ('result' in item ? item.result : item.fileId),
         generated: { prompt: item.revisedPrompt, status: item.status },
       }
 

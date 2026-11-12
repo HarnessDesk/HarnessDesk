@@ -8,7 +8,7 @@ const PLAN_LABELS: Record<CodexProtocol.PlanType, string> = {
   self_serve_business_usage_based: 'Business Usage Based', business: 'Business',
   ent26: 'Enterprise', enterprise_cbp_automation: 'Enterprise Automation',
   enterprise_cbp_usage_based: 'Enterprise Usage Based', enterprise: 'Enterprise',
-  edu: 'Education', edu_plus: 'Education Plus', edu_pro: 'Education Pro', unknown: 'Unknown',
+  edu: 'Education', edu_plus: 'Education Plus', edu_pro: 'Education Pro', sci: 'Science', sci_plus: 'Science Plus', unknown: 'Unknown',
 }
 
 export const mapPlanLabel = (raw: string | null | undefined): string | null => {
@@ -44,6 +44,8 @@ export const mapAccount = (account: CodexProtocol.v2.Account | null): Account[] 
       return [{ kind: 'apiKey', label: 'API key' }]
     case 'amazonBedrock':
       return [{ kind: 'amazonBedrock', label: 'Amazon Bedrock' }]
+    case 'gcp':
+      return [{ kind: 'gcp', label: 'Google Cloud' }]
   }
 }
 
