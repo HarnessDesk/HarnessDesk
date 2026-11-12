@@ -1338,8 +1338,13 @@ export interface AgentSession {
    * drawn from a brief nobody typed. `noticeKind: 'agentBrief'` marks that
    * standing order for a folded Markdown disclosure in the transcript.
    * Omitted, or `'user'`, is the default and changes nothing.
+   *
+   * `signal` withdraws the send: an adapter looks at it after every wait of
+   * its own, last thing before the turn is written to the agent, and sends
+   * nothing once it is aborted — rejecting with its reason. A turn the agent
+   * already accepted when it aborts is interrupted.
    */
-  send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId>
+  send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }): Promise<TurnId>
   /** Add to the turn already in flight without interrupting it. */
   steer(input: readonly UserContent[]): Promise<void>
   interrupt(): Promise<void>

@@ -9314,7 +9314,8 @@ export class Host {
       [{ type: 'text', text: laneStandingOrder(text, environment, handed) }],
       // Only the Agent seating entry point marks its standing brief. Flow
       // assignments and delivered answers share this send path, but stay plain.
-      { recordAs: 'notice', ...(noticeKind ? { noticeKind } : {}) },
+      // The signal goes on into the send, which looks at it after its own waits.
+      { recordAs: 'notice', ...(noticeKind ? { noticeKind } : {}), ...(signal ? { signal } : {}) },
     )
   }
 

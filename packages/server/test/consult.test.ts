@@ -738,3 +738,16 @@ test('round 4: a corpus that replays $0.10 before the $0.20 final strands nothin
   assert.deepEqual({ settled: budget.settled, reservedMicros: budget.reservedMicros }, { settled: true, reservedMicros: 0 })
   assert.equal(d.host.intakePlane.budgets.unsettled().includes(goal), false, 'only settling takes it off the list')
 })
+
+test('round 5: the ask’s signal goes on into the agent’s own send, which looks at it after its own waits', E2E, async (t) => {
+  const a = await asking(t)
+  let signal: AbortSignal | undefined
+  a.holds.onSend = (session, text, opts) => {
+    if (!text.includes(CONSULT_PROMPT)) return
+    signal = opts?.signal
+    setImmediate(() => (session as HoldSession).finish('4'))
+  }
+  assert.equal((await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'q', context: null }, a.caller)).text, '4')
+  assert.ok(signal instanceof AbortSignal, 'the send was given the ask’s signal')
+  assert.equal(signal.aborted, false, 'and it was not withdrawn')
+})

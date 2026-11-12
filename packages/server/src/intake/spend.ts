@@ -15,8 +15,9 @@ import type { UsageSample } from '../ledger/insight.js'
  * - **Counted once.** A cumulative session total is read as a delta from the
  *   Seat's own baseline, and moves only forward; a per-call sample counts
  *   once by its key. A replay is nothing — a session reading taken before the
- *   one already counted included, so a corpus that hands back what it found
- *   last time never reads as a total that went down; a session's two kinds of
+ *   one already counted, at or below it, included, so a corpus that hands
+ *   back what it found last time never reads as a total that went down; an
+ *   older one above it is a total that went down. A session's two kinds of
  *   total are never added together.
  * - **Unknown is not zero.** No USD cost, a floor rather than a total, an
  *   unknown money basis, a list-price total whose model changed inside one
@@ -130,9 +131,12 @@ export function meterSample(meter: SessionMeter, sample: UsageSample): SessionMe
     }
     if (meter.baselineMicros === null) return unknown('This session was not new when it was seated, and no starting total was captured.')
     // A reading taken before the one already counted — the corpus replaying what it found last
-    // time, or an older record found late — says nothing new: never a reset, never a total.
+    // time, or an older record found late — at or below that total says nothing new. One above
+    // it is evidence the total once stood higher than what was counted after: a reset, unknown.
     const lastAt = meter.lastAt ?? null
-    if (meter.lastMicros !== null && lastAt !== null && sample.to !== null && sample.to < lastAt) return meter
+    if (meter.lastMicros !== null && lastAt !== null && sample.to !== null && sample.to < lastAt) {
+      return value <= meter.lastMicros ? meter : unknown('This session’s total went down, so what it spent is no longer known.')
+    }
     if (meter.lastMicros !== null && value < meter.lastMicros) return unknown('This session’s total went down, so what it spent is no longer known.')
     return {
       ...meter, scope: 'session', provenance: sample.moneyBasis, model: sample.model,

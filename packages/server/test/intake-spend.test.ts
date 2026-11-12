@@ -173,6 +173,25 @@ test('round 4: a corpus that replays $0.10 after $0.12 latches nothing, and the 
   assert.match(meterSample(third, sample({ key: 'r4', usd: exact(0.15), to: 140 })).unknown ?? '', /went down/)
 })
 
+test('round 5: an older reading above the counted total is a reset — $0.12@120 counted, then $0.30@110 found — and a $0.20 cap refuses', () => {
+  const counted = meterSample(meter(), sample({ key: 'r2', usd: exact(0.12), to: 120 }))
+  assert.equal(meterTotal(counted, 200).micros, 120_000)
+  // The next read finds the older, higher record, and hands back the one already counted.
+  const found = fold(counted, [sample({ key: 'r1', usd: exact(0.3), to: 110 }), sample({ key: 'r2', usd: exact(0.12), to: 120 })])
+  assert.match(found.unknown ?? '', /went down/, 'the total once stood at $0.30: $0.12 is not what it spent')
+  assert.equal(goalSpend([found], 200).spentMicros, null)
+  assert.match(capCheck(200_000, goalSpend([found], 200).spentMicros) ?? '', /Spend is unknown/)
+  // The same on a consult whose final reading is missing: the older, higher record is no repair.
+  const consult = meterTurn(settleConsult(meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 }), null), { ended: 130 })
+  const waiting = meterSample(consult, sample({ key: 'r2', usd: exact(0.12), to: 120 }))
+  assert.equal(waiting.unknown, CONSULT_USAGE_UNKNOWN)
+  const later = fold(waiting, [sample({ key: 'r1', usd: exact(0.3), to: 110 }), sample({ key: 'r3', usd: exact(0.31), to: 130 })])
+  assert.match(later.unknown ?? '', /went down/, 'unknown for good, not repaired by the final')
+  // An older one at or below the count stays a harmless replay.
+  assert.deepEqual(meterSample(counted, sample({ key: 'r0', usd: exact(0.12), to: 105 })), counted)
+  assert.deepEqual(meterSample(counted, sample({ key: 'r0', usd: exact(0.05), to: 105 })), counted)
+})
+
 test('a consult’s unknown spend is repaired by a later valid reading, and a question never sent is a known zero', () => {
   const consult = meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 })
   const unknown = meterTurn(settleConsult(consult, null), { ended: 130 })

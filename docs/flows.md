@@ -679,7 +679,8 @@ the live conversation before it is deleted and reconciled with whatever the
 recorded usage already counted — the final reading stands, never the sum, and
 a final reading below one taken earlier (a total that reset) leaves the spend
 unknown; a recorded reading older than one already counted, which the record
-hands back at every read, is nothing. An agent that reported none leaves the Goal's spend unknown, and the
+hands back at every read, is nothing when it is at or below that count, and
+leaves the spend unknown when it is above it — the total once stood higher. An agent that reported none leaves the Goal's spend unknown, and the
 next ask is refused with that reason until a recorded reading taken at or
 after the consult's turn ended repairs it — one from part-way through repairs
 nothing; a Goal stopped meanwhile is still read for it — every Goal is read
