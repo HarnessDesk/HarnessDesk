@@ -14,4 +14,10 @@ export const useLeadName = () => {
   return state?.settings?.name ?? null
 }
 
+/** The Lead's name as the person chose it in settings ("Dex"), or null before it is read or with no Lead on this desk. */
+export const useLeadLabel = (): string | null => {
+  const name = useLeadName()
+  return name ? leadDisplayName(name) : null
+}
+
 export const LEAD_NAME_CHOICES = [{ name: 'dex', label: leadDisplayName('dex') }, { name: 'lex', label: leadDisplayName('lex') }] as const

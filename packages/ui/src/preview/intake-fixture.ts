@@ -78,6 +78,31 @@ export const mentionDefinition = (over: Partial<TriggerDefinition> = {}): Trigge
   ...over,
 })
 
+/** A request trigger: a comment on a pull request whose first line starts with @harnessdesk, handed to the Lead. */
+export const requestDefinition = (over: Partial<TriggerDefinition> = {}): TriggerDefinition => ({
+  id: 'ask-desk',
+  on: { kind: 'pull-request', events: ['mentioned'] },
+  opens: { lead: true },
+  goal: ['pr'],
+  again: null,
+  dedupe: ['pr', 'head', 'event'],
+  concurrency: 1,
+  forks: 'never',
+  budget: DEFAULT_TRIGGER_BUDGET,
+  from: 'me',
+  ...over,
+})
+
+/** What became of requests on a pull request: one handed to the Lead, one from someone who cannot write, one read twice. */
+export const requestHistoryPage = (): TriggerHistoryPage => ({
+  items: [
+    triggerFiring({ id: 'request-1', trigger: 'ask-desk', subject: '12', outcome: 'fired', goal: null, run: null, round: null }),
+    triggerFiring({ id: 'request-2', trigger: 'ask-desk', subject: '12', outcome: 'skipped', reason: 'Only comments by people who can write to the repository fire this trigger, and this one’s author cannot.', goal: null, run: null, round: null }),
+    triggerFiring({ id: 'request-3', trigger: 'ask-desk', subject: '12', outcome: 'duplicate', reason: null, goal: null, run: null, round: null }),
+  ],
+  next: null,
+})
+
 export const triggerDecision = (over: Partial<TriggerDecision> = {}): TriggerDecision => ({
   id: 'd-0123456789abcdef0123',
   trigger: 'ask-dex',
@@ -220,7 +245,7 @@ export const triggerArmPreview = (over: Partial<TriggerArmPreview> = {}): Trigge
   ...over,
 })
 
-export const TRIGGER_ARM_SCENES = ['ready', 'refused', 'commands', 'fork', 'changed', 'unheld'] as const
+export const TRIGGER_ARM_SCENES = ['ready', 'refused', 'commands', 'fork', 'changed', 'unheld', 'request'] as const
 export type TriggerArmScene = (typeof TRIGGER_ARM_SCENES)[number]
 
 export const sceneArmPreview = (scene: TriggerArmScene): TriggerArmPreview => {
@@ -243,6 +268,10 @@ export const sceneArmPreview = (scene: TriggerArmScene): TriggerArmPreview => {
   }
   if (scene === 'unheld') {
     return triggerArmPreview()
+  }
+  if (scene === 'request') {
+    return triggerArmPreview({ id: 'ask-desk', definition: requestDefinition(), flow: null,
+      lead: { summary: 'Drafts a plan for your approval; nothing starts until you approve it.', approvalRequired: true } })
   }
   return triggerArmPreview()
 }

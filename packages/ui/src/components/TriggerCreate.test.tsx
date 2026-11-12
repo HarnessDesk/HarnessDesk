@@ -212,3 +212,51 @@ it('a mention trigger asks who may ask — the arming account or collaborators, 
   await settle()
   expect(rendered.at(-1)?.people).toEqual(['jane-doe', 'a-teammate'])
 })
+
+it('“When someone asks @harnessdesk” hands the trigger to the Lead, reads requests alone, and says why the other events are off', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { leadAvailable: true })
+  const drafted: unknown[] = [], rendered: TriggerDefinition[] = []
+  fakeHost(store, {
+    'authoring/triggers/draft': (params) => {
+      drafted.push(params)
+      const { id, opens } = params as { id: string; opens: TriggerDefinition['opens'] }
+      return { ...DRAFT(id, { kind: 'pull-request', events: ['opened', 'pushed'] }), opens }
+    },
+    'authoring/triggers/render': (params) => {
+      const { definitions } = params as { definitions: readonly TriggerDefinition[] }
+      rendered.push(definitions[0]!)
+      return { source: JSON.stringify(definitions), issues: [] }
+    },
+  })
+  render(store)
+  await settle()
+  const ask = document.body.querySelector('[aria-label="Fire when someone asks @harnessdesk"]') as HTMLElement
+  expect(ask).not.toBeNull()
+  act(() => ask.click())
+  await settle()
+  expect(drafted.at(-1)).toMatchObject({ on: 'pull-request', opens: { lead: true } })
+  expect(rendered.at(-1)).toMatchObject({ on: { kind: 'pull-request', events: ['mentioned'] }, opens: { lead: true }, from: 'me', again: null })
+  expect(document.body.textContent).toContain('When you write @harnessdesk … on a pull request, hand it to the Lead as a request')
+  const opened = document.body.querySelector('[aria-label="Fire when a pull request is opened"]') as HTMLButtonElement
+  expect(opened.hasAttribute('disabled') || opened.getAttribute('aria-disabled') === 'true').toBe(true)
+  expect(opened.closest('[data-slot="row"]')!.getAttribute('title')).toMatch(/reads only requests/)
+  expect(document.body.textContent).not.toContain('Continue an open Goal')
+  expect(document.body.textContent).toContain('Who may ask')
+
+  // Off again: the trigger opens what this composer was opened for.
+  act(() => ask.click())
+  await settle()
+  expect(drafted.at(-1)).toMatchObject({ on: 'pull-request', opens: { flow: 'review-pr' } })
+  expect(rendered.at(-1)?.on).toEqual({ kind: 'pull-request', events: ['opened', 'pushed'] })
+})
+
+it('with no Lead on this desk, asking is offered but cannot be chosen, and says why', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+  const ask = document.body.querySelector('[aria-label="Fire when someone asks @harnessdesk"]') as HTMLButtonElement
+  expect(ask.hasAttribute('disabled') || ask.getAttribute('aria-disabled') === 'true').toBe(true)
+  expect(ask.closest('[data-slot="row"]')!.getAttribute('title')).toBe('The Lead is off on this desk, and only the Lead takes requests.')
+})
