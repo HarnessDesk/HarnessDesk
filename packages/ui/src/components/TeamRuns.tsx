@@ -3,7 +3,7 @@ import type { FindingRunView, FlowExecution, TriggerGoalStatus, TriggerPreferenc
 import { ActionError, Button, Chip, EmptyState, Menu, MenuLabel, MenuToggle, SummaryItem, SummaryList, PanelFilter, PanelFooter, PaneColumn, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
 import { elapsedSince } from '../lib/clock'
 import { formatMeterUsd, originSubject, triggerGroupingWords } from '../lib/intake'
-import { sanitizeHtml } from '../lib/sanitize'
+import { sanitizeHtml, sanitizeText } from '../lib/sanitize'
 import { formatAge } from '../lib/usage'
 import type { FindingsListState } from '../lib/findings'
 import { usePane, useSnapshot, useStore } from '../state/context'
@@ -82,11 +82,13 @@ const stateOf = (run: FlowExecution) => run.state === 'stalled' || run.end?.kind
   ? 'Needs you' : run.state === 'settled' ? 'Settled' : run.state === 'stopped' ? 'Stopped' : 'Running'
 
 /** The Team's recorded Runs; opening one retains this page and its filters. */
-export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onOpen, onEdit, onRunVisibility, active }: {
+export const TeamRuns = ({ runs, findings, ledger, origin, triggerTeam, trigger, problem, onOpen, onEdit, onRunVisibility, active }: {
   runs: readonly FlowExecution[]
   findings: ReadonlyMap<string, FindingRunView>
   ledger: FindingsListState | undefined
   origin: TriggerGoalStatus | null
+  /** Whether a trigger made this Team: its persisted origin, never whether its status or Runs have loaded. */
+  triggerTeam: boolean
   trigger: ReturnType<typeof useTeamTrigger>
   problem: string | null
   onOpen: (run: string) => void
@@ -163,8 +165,12 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
   const today = new Date(now).toISOString().slice(0, 10)
   const todayCount = runs.filter(run => run.startedAt != null && new Date(run.startedAt).toISOString().slice(0, 10) === today).length
   const prefs = trigger.prefs
-  const daily = prefs ? `${prefs.chargedUsd === null || prefs.day !== today ? 'Unknown spend' : formatMeterUsd(prefs.chargedUsd)} of ${formatMeterUsd(prefs.dailyUsd)} daily cap` : 'Daily cap unavailable'
-  const facts = `${runs.length} ${runs.length === 1 ? 'Run' : 'Runs'} · ${todayCount} today (UTC) · ${daily}${ordered[0] ? ` · Last started ${started(ordered[0])}` : ''}`
+  // The daily cap, pausing and the trigger itself belong to a Team a trigger
+  // made; a Team started by hand or by an MCP client has none of them. A
+  // trigger Team whose status read failed, or with no Runs yet, still has them.
+  const triggered = triggerTeam
+  const daily = !triggered ? null : prefs ? `${prefs.chargedUsd === null || prefs.day !== today ? 'Unknown spend' : formatMeterUsd(prefs.chargedUsd)} of ${formatMeterUsd(prefs.dailyUsd)} daily cap` : 'Daily cap unavailable'
+  const facts = `${runs.length} ${runs.length === 1 ? 'Run' : 'Runs'} · ${todayCount} today (UTC)${daily ? ` · ${daily}` : ''}${ordered[0] ? ` · Last started ${started(ordered[0])}` : ''}`
   const owner = usePane()?.paneId ?? ''
   useTopBarView(owner, {
     view: { narrowed: filter !== 'All' || query.trim() !== '', content: close => <Menu close={close}>
@@ -174,14 +180,14 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
         label={state} checked={filter === state} value={state === 'All' ? runs.length : runs.filter(run => stateOf(run) === state).length}
         onChange={() => { setFilter(state); close() }} />)}
     </Menu> },
-    more: [
+    more: triggered ? [
       { label: prefs?.paused ? 'Resume every trigger' : 'Pause every trigger', disabled: !prefs ? 'Trigger preferences are unavailable' : trigger.busy ? 'A trigger change is in progress' : false, run: () => { void trigger.pause() } },
       { label: 'Edit the trigger', run: onEdit },
-    ],
+    ] : [],
   }, active && Boolean(owner))
   return <PaneColumn ref={viewport} inset="reading" page data-slot="team-runs" className="@container/runs flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
     <SummaryList aria-label="Runs summary"><SummaryItem label="Runs">{facts}</SummaryItem></SummaryList>
-    <Text role="meta" as="p">Pausing stops watching every source and holds all work started by triggers on this Mac, interrupting its turns and checks. Resuming continues that work and reads what arrived meanwhile; interrupted checks wait for you to run them again.</Text>
+    {triggered && <Text role="meta" as="p">Pausing stops watching every source and holds all work started by triggers on this Mac, interrupting its turns and checks. Resuming continues that work and reads what arrived meanwhile; interrupted checks wait for you to run them again.</Text>}
     {(problem || trigger.problem) && <ActionError>{problem ?? trigger.problem}</ActionError>}
     <div className="min-w-0">
       <Table variant="framed" inset="row" aria-label="Runs" className="table-auto">
@@ -198,7 +204,11 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
           <TableCell className="max-w-0"><div className="min-w-0">
             <Button variant="row" size="content-min" bordered={false} hoverFill={false} stretched className="block min-w-0 max-w-full"
               aria-label={`Open Run ${runs.findIndex(one => one.id === run.id) + 1}: ${title(run)}`} onClick={() => onOpen(run.id)}>
-              <Text role="subject" as="span" className="block" truncate title={title(run)}>{title(run)}</Text>
+              <Text role="subject" as="span" className="block" truncate title={title(run)}>
+                {/* Who started it is a state that fits in a word: a chip at the head of the title's own line, kept whole as the title gives way. */}
+                {run.startedBy?.via === 'mcp' && <><Chip tone="neutral" title={`Started by ${sanitizeText(run.startedBy.client)} through an MCP client`}>MCP</Chip>{' '}</>}
+                {title(run)}
+              </Text>
             </Button>
             <Text role="meta" as="div" className="whitespace-normal [overflow-wrap:anywhere]">{detail(run)}</Text>
             <Text role="meta" as="div" className="@[740px]/runs:hidden whitespace-normal">

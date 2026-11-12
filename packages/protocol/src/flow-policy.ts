@@ -277,6 +277,13 @@ export interface FlowExecution {
   /** The declared brief input, frozen at start; null when the Flow declares none. */
   readonly brief?: string | null
   readonly startedAt?: number
+  /**
+   * Who started the run when it came through the client door: the command
+   * line, or an MCP client, and the name it stated. Stamped by the host,
+   * never taken from a request; absent on older runs and on runs started in
+   * the window, by a trigger or by the Lead.
+   */
+  readonly startedBy?: { readonly via: 'cli' | 'mcp'; readonly client: string } | null
   /** First departure from running, stamped once; null until then. Absent on older records. */
   readonly endedAt?: number | null
   /** Current departure from running; cleared on resume. Absent on older records. */

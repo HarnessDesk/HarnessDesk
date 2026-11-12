@@ -10,6 +10,7 @@ import type { TriggerBudget, TriggerCommentFrom, TriggerDefinition, TriggerField
 import { QUESTION_WAIT_PREFERENCE, QUESTION_WAITS } from './question-wait.js'
 import { CEILING_LEVELS } from './ceiling.js'
 import { INSIGHT_GOALS_LIMIT } from './insight.js'
+import { MCP_DAILY_STARTS_MAX } from './client-surface.js'
 import type {
   ClientToHost,
   GitWorktreeCheckout,
@@ -415,7 +416,7 @@ const goalCitation = goalShape({
 })
 
 const goalValidators = {
-  'client/hello': goalShape({ client: goalShape({ name: atMost(64, isFilled), version: atMost(64, isFilled) }), protocol: isNumber, pid: optional(isNumber) }),
+  'client/hello': goalShape({ client: goalShape({ name: atMost(64, isFilled), version: atMost(64, isFilled) }), protocol: isNumber, pid: optional(isNumber), surface: optional(literalUnion('mcp')) }),
   'client/subscribe': goalShape({ topics: arrayOf(literalUnion('runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews', 'chats')), scope: optional(goalShape({ team: optional(goalId), run: optional(isFilled), project: optional(atMost(4096, isFilled)) })) }),
   'flow/executions': goalShape({ team: optional(goalId), project: optional(atMost(4096, isFilled)), active: optional(isBoolean) }),
   'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
@@ -933,11 +934,19 @@ const windowPreferences: Validator<Record<string, unknown>> = (value, path = '')
     if (/^trigger/i.test(key) || /^intake/i.test(key)) {
       throw new ValidationError(`${path}.${key}`, 'trigger arms, pause and daily cap are set through their own controls')
     }
+    if (/^mcp/i.test(key)) throw new ValidationError(`${path}.${key}`, 'MCP client starts are set through their own control')
     if (key === QUESTION_WAIT_PREFERENCE && !(QUESTION_WAITS as readonly unknown[]).includes(patch[key])) {
       throw new ValidationError(`${path}.${key}`, `expected one of: ${QUESTION_WAITS.join(', ')}`)
     }
   }
   return patch
+}
+
+/** How many starts a day an MCP client may be allowed: a whole number, 1 through the cap. */
+const mcpDailyStarts: Validator<number> = (value, path = '') => {
+  const number = goalInteger(1)(value, path)
+  if (number > MCP_DAILY_STARTS_MAX) throw new ValidationError(path, `expected at most ${MCP_DAILY_STARTS_MAX}`)
+  return number
 }
 
 /** Read-only Insight accepts selectors, never values the host is responsible for measuring. */
@@ -1753,6 +1762,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
   'app/state/set': shape({ patch: windowPreferences, noticeBase: optional(shape({ inbox: optional(arrayOf(isObject)), noticePolicy: optional(isObject) })) }),
   'app/browsers': isObject,
+  'app/mcpStarts/get': isObject,
+  'app/mcpStarts/set': goalShape({ revision: goalInteger(0), mayStart: optional(isBoolean), dailyStarts: optional(mcpDailyStarts) }),
   'phone/triage/list': phoneShape({ limit: optional(phoneTriageLimit) }),
   'lead/work/list': parseLeadWorkList,
   'lead/work/read': parseLeadWorkRead,

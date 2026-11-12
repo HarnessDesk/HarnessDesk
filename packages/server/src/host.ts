@@ -183,8 +183,8 @@ import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, l
 import { initialLeadMemoryCore, leadMemoryStatus, leadSettingsStatus } from '@harnessdesk/lead'
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
-import type { LeadProject } from '@harnessdesk/protocol'
-import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
+import type { FlowExecution, LeadProject } from '@harnessdesk/protocol'
+import { ExecutionFiles, FlowExecutions, sourceDigest } from './flow-execution.js'
 import { FlowReview, PERSON_REVIEWER_ID } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
 import { seatOptionsProblem } from './seat-options.js'
@@ -199,6 +199,7 @@ import { GatedRegistry, CeilingGate, type Conversation, type HeldQuestion } from
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog, type ClientAuditEntry } from './audit.js'
+import { McpStarts } from './mcp-starts.js'
 import { CatalogRefresher } from './catalog-refresher.js'
 import { isProgramFailure, RuntimeCache, type CachedRuntime } from './runtime-cache.js'
 import {
@@ -286,6 +287,7 @@ import type { UsageSample } from './ledger/insight.js'
 import { InsightContexts } from './insight/context.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
+import { startGoal } from './methods/flows.js'
 import { seatAgent } from './methods/agents.js'
 
 /**
@@ -921,6 +923,8 @@ export class Host {
   readonly #credentials: CredentialBroker
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
+  /** Whether MCP clients may start work, and today's count (`client-starts.json`). */
+  readonly #mcpStarts: McpStarts
   /** Sidebar metadata; the transcript store continues to own conversation bodies. */
   readonly #historyImport: HistoryImport
   #cacheEvictionTimer: ReturnType<typeof setTimeout> | undefined
@@ -1256,6 +1260,7 @@ export class Host {
       log: (message, error) => this.#logger.warn(message, { error: String(error) }),
     })
     this.#audit = new AuditLog(join(this.#state.directory, 'audit.ndjson'))
+    this.#mcpStarts = new McpStarts(join(this.#state.directory, 'client-starts.json'))
     this.#transcripts = new TranscriptStore(join(this.#state.directory, 'transcripts'), (message, details) =>
       this.#logger.warn(message, details),
       () => this.#scheduleCacheEviction(),
@@ -4810,7 +4815,7 @@ export class Host {
 
   /** The client's name is stated attribution, not authority. The door's live
    * action tier is checked again here; wire params cannot spoof provenance. */
-  async clientIntent(params: HostParams<'team/intent'>, client: string): Promise<HostResult<'team/intent'>> {
+  async clientIntent(params: HostParams<'team/intent'>, client: string, surface?: 'mcp'): Promise<HostResult<'team/intent'>> {
     if (params.action !== 'done' && params.action !== 'abandon') throw Object.assign(new Error('This action is not on the client surface.'), { wireCode: 'notOnClientSurface' })
     if (params.action === 'done' && !this.clientTiers().includes('answer')) throw Object.assign(new Error('This desk has not granted client answers.'), { wireCode: 'tierNotGranted' })
     const before = this.#flows.executionsFor(params.room).find(run => run.rounds.some(round => round.cards.includes(params.id)))
@@ -4826,7 +4831,7 @@ export class Host {
       if (run.state !== 'running' || run.rounds.some(one => one.n > (round?.n ?? Infinity) && one.cards.length > 0)) routed()
     }) : () => {}
     try {
-      await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client)
+      await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client, undefined, undefined, surface)
       await this.#team.flush()
       if (params.action === 'done') return null
       if (before) await Promise.race([this.#flows.cardContinuation(before.id), routing])
@@ -4838,6 +4843,56 @@ export class Host {
       const next = after?.rounds.find(one => one.n > (round?.n ?? Infinity) && one.cards.some(id => board.intents.some(card => card.id === id)))
       return { role: round?.role ?? null, nextRole: next?.role ?? null }
     } finally { detach() }
+  }
+
+  /**
+   * A flow start that came through the client door, stamped with where it came
+   * from. The origin is the host's: the door passes what the connection
+   * stated, and no wire param can carry or change it.
+   */
+  clientFlowStart(params: HostParams<'flow/start-goal'>, client: string, via: 'cli' | 'mcp'): Promise<FlowExecution> {
+    return startGoal(this.#context, params, { via, client })
+  }
+
+  /**
+   * A flow start from an MCP client. Off until the person turns it on, then
+   * counted against today's number; a start that fails is refunded. It never
+   * raises a ceiling: only attended work, and only a Flow saved where the
+   * catalogue finds it, so every grant a run from MCP holds is one the person
+   * saved. Seat overrides carry no ceiling, so they cannot raise one.
+   */
+  async clientStart(params: HostParams<'flow/start-goal'>, client: string): Promise<FlowExecution> {
+    const admission = await this.#mcpStarts.admit()
+    if (!admission.ok) throw Object.assign(new Error(admission.detail), { wireCode: admission.code })
+    try {
+      if (params.attended === false) {
+        throw Object.assign(new Error('An MCP client starts attended work only, so a ceiling a seat cannot hold asks you. Start unattended work in the app.'), { wireCode: 'mcpUnattended' })
+      }
+      // A front-door Goal is the window's to reuse, and Run again continues an
+      // earlier Run in its Team and checkout: both are work on an existing Team.
+      if (params.goal !== undefined || (params.continues !== undefined && params.continues !== null)) {
+        throw Object.assign(new Error('An MCP client cannot start work on an existing Team.'), { wireCode: 'refused' })
+      }
+      if (!await this.#savedFlowSource(params.root, params.source)) {
+        throw Object.assign(new Error('Start a Flow saved in this project; an MCP client cannot start an edited copy.'), { wireCode: 'mcpUnsavedFlow' })
+      }
+      return await this.clientFlowStart(params, client, 'mcp')
+    } catch (error) {
+      await this.#mcpStarts.refund(admission.ticket)
+      throw error
+    }
+  }
+
+  /** Whether this exact text is a Flow the project's catalogue holds, as `flow/source` would read it. */
+  async #savedFlowSource(root: string, source: string): Promise<boolean> {
+    const digest = sourceDigest(source)
+    for (const entry of await this.#flows.catalog(root)) {
+      let saved: string
+      try { saved = await this.#flows.catalogSource(root, entry.id, entry.origin) }
+      catch { continue }
+      if (sourceDigest(saved) === digest) return true
+    }
+    return false
   }
 
   recordClientAudit(entry: Omit<ClientAuditEntry, 'at' | 'via'>): void {
@@ -5881,6 +5936,7 @@ export class Host {
       credentials: this.#credentials,
       harnessDeskAccount: this.#harnessDeskAccount,
       audit: this.#audit,
+      mcpStarts: this.#mcpStarts,
       transcripts: this.#transcripts,
       archive: this.#archive,
       sessionIndex: {

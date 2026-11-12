@@ -126,6 +126,12 @@ export const frameDestinationStore = (fixture: AppStore, { workspaceOutsideGit =
     }
     if (method === 'app/state/get') return {}
     if (method === 'app/state/set') return {}
+    // MCP client starts are host state, answered by the fixture's own stub.
+    if (method === 'app/mcpStarts/get') return fixture.loadMcpStarts()
+    if (method === 'app/mcpStarts/set') {
+      const { revision, ...patch } = params as HostParams<'app/mcpStarts/set'>
+      return fixture.setMcpStarts(revision, patch)
+    }
     const query = params as { runtime: RuntimeId; root: string; project: string; account: string; plan?: string|null }
     if (method === 'runtime/account') return store.getSnapshot().accountsByRuntime[query.runtime] ?? seed.accountsByRuntime[query.runtime] ?? {accounts:[],signInMethods:[]}
     if (method === 'runtime/resources') return fixture.runtimeResources()

@@ -66,6 +66,8 @@ export interface ClientAuditEntry {
   readonly tier?: ClientTier
   readonly outcome?: 'ok' | 'refused' | 'failed'
   readonly code?: string
+  /** What the connection stated it serves on its hello: `mcp` for an MCP client. Stated, never proof. */
+  readonly surface?: 'mcp'
 }
 
 export type AuditEntry = SessionAuditEntry | ClientAuditEntry

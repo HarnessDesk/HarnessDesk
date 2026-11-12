@@ -41,7 +41,7 @@ interface Command {
   readonly tier: ClientTier
   readonly methods: readonly ClientMethodName[]
   readonly flags: readonly string[]
-  readonly execute: (args: Arguments) => Promise<number>
+  readonly execute: (args: Arguments, io: CommandIo) => Promise<number>
   /**
    * The rest is what `docs/cli.md` says about the command, and the reference
    * generator writes it out verbatim. It is written for a person driving
@@ -400,28 +400,82 @@ export function errorExit(error: unknown): number {
   if (error.code === 'ambiguous') return 2
   if (error.code === 'noDesk') return 3
   if (['incompatible', 'deskTooOld'].includes(error.code)) return 6
-  if (['unsafeDirectory', 'unsafeSocket', 'unsafePointer', 'tierNotGranted', 'notOnClientSurface', 'helloFirst', 'badRequest', 'refused', 'alreadyAnswered', 'cardMissing', 'clientDoorOnly'].includes(error.code)) return 4
+  if (['unsafeDirectory', 'unsafeSocket', 'unsafePointer', 'tierNotGranted', 'notOnClientSurface', 'helloFirst', 'badRequest', 'refused', 'alreadyAnswered', 'cardMissing', 'clientDoorOnly', 'mcpStartsOff', 'mcpDailyCap', 'mcpUnattended', 'mcpUnsavedFlow'].includes(error.code)) return 4
   return 1
 }
 
-const line = (parts: readonly unknown[]) => process.stdout.write(parts.filter(part => part !== undefined && part !== null).map(part => sanitizeHuman(typeof part === 'string' ? part : JSON.stringify(part))).join('  ') + '\n')
+/**
+ * Where a command writes, and what it may ask of the person running it.
+ *
+ * The command line passes `processIo`: standard output and error, and a
+ * terminal when there is one. `harnessdesk mcp` runs several commands at once
+ * in one process, so each call gets its own: its output is captured, it never
+ * asks, it is cancelled through `signal` rather than a process signal, and it
+ * says to the desk that it came from an MCP client.
+ */
+export interface CommandIo {
+  /** Standard output in the command line; captured for the call in MCP. */
+  readonly out: (text: string) => void
+  /** Standard error in the command line; captured for the call in MCP. */
+  readonly err: (text: string) => void
+  /** Whether a person can be asked on a terminal. Never in MCP. */
+  readonly interactive: boolean
+  /** Cancels the command as Ctrl-C would. The command line uses its own SIGINT and SIGTERM instead. */
+  readonly signal?: AbortSignal
+  /** Stated to the desk on `client/hello`: the desk gates starting work on it. */
+  readonly surface?: 'mcp'
+  /** The MCP client's own name and version, stated, never trusted. */
+  readonly peer?: { readonly name: string; readonly version: string }
+  /** `run wait` only: called as the run is seen, so a long wait can report progress. */
+  readonly onProgress?: (state: string, elapsedMs: number) => void
+}
+
+/** The command line's own: the process's streams, and its terminal when it has one. */
+export const processIo: CommandIo = {
+  out: text => { process.stdout.write(text) },
+  err: text => { process.stderr.write(text) },
+  get interactive() { return Boolean(process.stdin.isTTY) && !process.stdin.readableEnded },
+}
+
+/** Ends a command as Ctrl-C or SIGTERM would: from the process's signals, or from the call's own `signal`. */
+function onInterrupt(io: CommandIo, interrupt: () => void, terminate: () => void): () => void {
+  const signal = io.signal
+  if (signal) {
+    signal.addEventListener('abort', interrupt, { once: true })
+    if (signal.aborted) interrupt()
+    return () => signal.removeEventListener('abort', interrupt)
+  }
+  process.on('SIGINT', interrupt); process.on('SIGTERM', terminate)
+  return () => { process.off('SIGINT', interrupt); process.off('SIGTERM', terminate) }
+}
+
+const line = (io: CommandIo, parts: readonly unknown[]) => io.out(parts.filter(part => part !== undefined && part !== null).map(part => sanitizeHuman(typeof part === 'string' ? part : JSON.stringify(part))).join('  ') + '\n')
 // JSON.stringify escapes C0; explicitly escape DEL/C1 while preserving parsed data.
 const encodeJson = (value: unknown) => JSON.stringify(value).replace(/[\x7f-\x9f]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
-const jsonLine = (value: unknown) => process.stdout.write(encodeJson(value) + '\n')
-const output = (args: Arguments, value: object, human: () => void) => { if (args.json) jsonLine(value); else human() }
-const teamLine = (team: GoalView) => line([team.goal.id, team.activity ?? team.goal.state, team.goal.sentence])
+const jsonLine = (io: CommandIo, value: unknown) => io.out(encodeJson(value) + '\n')
+const output = (io: CommandIo, args: Arguments, value: object, human: () => void) => { if (args.json) jsonLine(io, value); else human() }
+const teamLine = (io: CommandIo, team: GoalView) => line(io, [team.goal.id, team.activity ?? team.goal.state, team.goal.sentence])
 
-async function open(args: Arguments, desk?: DeskPointer, subscribe?: HostParams<'client/subscribe'>, onTransport?: (transport: ClientTransport) => void): Promise<Client> {
+async function open(args: Arguments, io: CommandIo, desk?: DeskPointer, subscribe?: HostParams<'client/subscribe'>, onTransport?: (transport: ClientTransport) => void,
+  policy: { outliveRestart?: boolean } = {}): Promise<Client> {
+  // The command line keeps the desk it found for the whole invocation. An MCP
+  // call finds it again on every reconnect: a desk restarted under a waiting
+  // call has a new socket, and the old pointer would only ever say noDesk.
   const pointer = desk ?? await resolveDesk({ home: args.home })
+  const refind = io.surface === 'mcp' && !desk
   return connect({
     rawNotifications: true,
-    client: { name: 'harnessdesk', version: '0.1.0' },
+    client: io.peer ?? { name: 'harnessdesk', version: '0.1.0' },
+    ...(io.surface ? { surface: io.surface } : {}),
+    // A wait an MCP client holds outlives a graceful desk restart: it keeps
+    // reconnecting, to the desk found again, until its own deadline.
+    ...(refind && policy.outliveRestart ? { reconnectOnShutdown: true } : {}),
     subscribe,
     transport: async () => {
-      const transport = await localTransport(pointer)
+      const transport = await localTransport(refind ? await resolveDesk({ home: args.home }) : pointer)
       onTransport?.(transport)
       if (!args.traceWire) return transport
-      const trace = (direction: string, message: unknown) => process.stderr.write(encodeJson({ direction, message }) + '\n')
+      const trace = (direction: string, message: unknown) => io.err(encodeJson({ direction, message }) + '\n')
       return {
         ...transport,
         send: message => { trace('send', message); transport.send(message) },
@@ -431,15 +485,15 @@ async function open(args: Arguments, desk?: DeskPointer, subscribe?: HostParams<
   })
 }
 
-async function desks(args: Arguments): Promise<number> {
+async function desks(args: Arguments, io: CommandIo): Promise<number> {
   const found: HostResult<'client/hello'>[] = []
   for (const pointer of await findDesks()) {
-    const client = await open(args, pointer)
+    const client = await open(args, io, pointer)
     try { found.push(client.hello) } finally { client.close() }
   }
-  output(args, { desks: found }, () => {
-    if (!found.length) line(['No running desks.'])
-    for (const hello of found) line([hello.desk.home, hello.hostVersion, new Date(hello.desk.startedAt).toISOString()])
+  output(io, args, { desks: found }, () => {
+    if (!found.length) line(io, ['No running desks.'])
+    for (const hello of found) line(io, [hello.desk.home, hello.hostVersion, new Date(hello.desk.startedAt).toISOString()])
   })
   return 0
 }
@@ -454,8 +508,8 @@ function relativeSince(since: number | null): string {
   return `${Math.floor(seconds / 86400)}d ago`
 }
 
-async function status(args: Arguments): Promise<number> {
-  const client = await open(args, undefined, { topics: ['runs', 'cards', 'teams', 'seats', 'waiting'], ...(args.team ? { scope: { team: args.team } } : {}) })
+async function status(args: Arguments, io: CommandIo): Promise<number> {
+  const client = await open(args, io, undefined, { topics: ['runs', 'cards', 'teams', 'seats', 'waiting'], ...(args.team ? { scope: { team: args.team } } : {}) })
   try {
     await client.synced()
     const snapshot = client.snapshot()
@@ -470,79 +524,79 @@ async function status(args: Arguments): Promise<number> {
       team: team.goal.id,
       overview: teamOverviewOf(snapshot, team.goal.id, { report: await client.call('insight/goal', { goal: team.goal.id }), runtimes: client.hello.runtimes }),
     })))
-    output(args, { hello: client.hello, teams, runs, overviews }, () => {
-      line([client.hello.desk.home, client.hello.hostVersion])
+    output(io, args, { hello: client.hello, teams, runs, overviews }, () => {
+      line(io, [client.hello.desk.home, client.hello.hostVersion])
       for (const runtime of client.hello.runtimes) {
         const health = runtime.health
-        line([runtime.name, health.state, ...(health.state === 'unavailable' ? [health.reason, health.message, health.remediation] : [])])
+        line(io, [runtime.name, health.state, ...(health.state === 'unavailable' ? [health.reason, health.message, health.remediation] : [])])
       }
       for (const { team, overview } of overviews) {
-        teamLine(teams.find(one => one.goal.id === team)!)
+        teamLine(io, teams.find(one => one.goal.id === team)!)
         const run = overview.run
-        if (run) line([run.run, run.state, `round ${run.round ?? 'unknown'}`, `role ${run.role ?? 'unknown'}`,
+        if (run) line(io, [run.run, run.state, `round ${run.round ?? 'unknown'}`, `role ${run.role ?? 'unknown'}`,
           run.reviewRounds ? `reviews ${run.reviewRounds.used} of ${run.reviewRounds.of}` : 'reviews unknown',
           `cost ${[run.total.money === null ? null : `$${run.total.money.toFixed(2)}`, run.total.turns === null ? null : `${run.total.turns} turns`].filter(value => value !== null).join(', ') || 'unknown'}`,
         ])
-        for (const need of overview.needsYou) line(['needs-you', need.kind, need.seat, need.card === null ? null : `#${need.card}`, need.summary])
-        for (const seat of overview.seats) line([seat.name, seat.role, seat.card ? `#${seat.card.id} ${seat.card.title}` : null, seat.state, seat.doing, `since ${relativeSince(seat.since)}`])
+        for (const need of overview.needsYou) line(io, ['needs-you', need.kind, need.seat, need.card === null ? null : `#${need.card}`, need.summary])
+        for (const seat of overview.seats) line(io, [seat.name, seat.role, seat.card ? `#${seat.card.id} ${seat.card.title}` : null, seat.state, seat.doing, `since ${relativeSince(seat.since)}`])
       }
     })
     return 0
   } finally { client.close() }
 }
 
-async function teams(args: Arguments): Promise<number> {
+async function teams(args: Arguments, io: CommandIo): Promise<number> {
   const project = args.project ? await canonicalProject(args.project) : undefined
-  const client = await open(args)
+  const client = await open(args, io)
   try {
     // goal/list's root filter is lexical; apply the host's canonical path identity here.
     const found = await client.call('goal/list', {})
     const selected: GoalView[] = []
     for (const team of found) if (!project || await canonicalProject(team.goal.root) === project) selected.push(team)
-    output(args, { teams: selected }, () => { for (const team of selected) teamLine(team) })
+    output(io, args, { teams: selected }, () => { for (const team of selected) teamLine(io, team) })
     return 0
   } finally { client.close() }
 }
 
-async function runs(args: Arguments): Promise<number> {
+async function runs(args: Arguments, io: CommandIo): Promise<number> {
   const project = args.project ? await canonicalProject(args.project) : undefined
-  const client = await open(args)
+  const client = await open(args, io)
   try {
     const found = await client.call('flow/executions', { team: args.team, project, active: !args.all })
-    output(args, { runs: found }, () => { for (const run of found) line([run.id, run.team, run.state, run.flow, run.round, run.reason]) })
+    output(io, args, { runs: found }, () => { for (const run of found) line(io, [run.id, run.team, run.state, run.flow, run.round, run.reason]) })
     return 0
   } finally { client.close() }
 }
 
-function eventLine(event: ClientEvent): void {
+function eventLine(io: CommandIo, event: ClientEvent): void {
   switch (event.type) {
-    case 'hello': line(['hello', event.desk.home, event.hostVersion]); break
-    case 'run.changed': line([event.type, event.run, event.state, event.round, event.reason]); break
-    case 'card.changed': line([event.type, event.team, event.card, event.state, event.title, event.outcome]); break
-    case 'seat.changed': line([event.type, event.team, event.seat, event.role, event.card, event.state, event.doing ? doingSentence(event.doing) : undefined]); break
-    case 'review.changed': line([event.type, event.team, event.run, event.round, event.cards, event.state, event.reason, event.pr]); break
-    case 'team.changed': line([event.type, event.team, event.activity, event.sentence]); break
-    case 'waiting': case 'waiting.cleared': line([event.type, event.id, event.summary]); break
-    case 'notice': line([event.type, event.team, event.text]); break
-    case 'gap': case 'end': line([event.type, event.reason]); break
+    case 'hello': line(io, ['hello', event.desk.home, event.hostVersion]); break
+    case 'run.changed': line(io, [event.type, event.run, event.state, event.round, event.reason]); break
+    case 'card.changed': line(io, [event.type, event.team, event.card, event.state, event.title, event.outcome]); break
+    case 'seat.changed': line(io, [event.type, event.team, event.seat, event.role, event.card, event.state, event.doing ? doingSentence(event.doing) : undefined]); break
+    case 'review.changed': line(io, [event.type, event.team, event.run, event.round, event.cards, event.state, event.reason, event.pr]); break
+    case 'team.changed': line(io, [event.type, event.team, event.activity, event.sentence]); break
+    case 'waiting': case 'waiting.cleared': line(io, [event.type, event.id, event.summary]); break
+    case 'notice': line(io, [event.type, event.team, event.text]); break
+    case 'gap': case 'end': line(io, [event.type, event.reason]); break
   }
 }
 
-async function watch(args: Arguments): Promise<number> {
+async function watch(args: Arguments, io: CommandIo): Promise<number> {
   const topics: ClientTopic[] = ['runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews']
   let client: Client | undefined, signalCode = 0, reachedUntil = false
   let pendingTransport: ClientTransport | undefined
   const cancel = () => { if (client) client.close(); else pendingTransport?.close() }
   const interrupt = () => { signalCode ||= 130; cancel() }
   const terminate = () => { signalCode ||= 143; cancel() }
-  process.on('SIGINT', interrupt); process.on('SIGTERM', terminate)
+  const release = onInterrupt(io, interrupt, terminate)
   let ending: Extract<ClientEvent, { type: 'end' }> | undefined, failure: unknown, rawFailure: unknown
   let raw: Promise<void> | undefined
-  const write = (event: ClientEvent) => { if (args.json || args.raw) jsonLine(event); else eventLine(event) }
+  const write = (event: ClientEvent) => { if (args.json || args.raw) jsonLine(io, event); else eventLine(io, event) }
   try {
     const project = args.project ? await canonicalProject(args.project) : undefined
     const scope = args.team ? { team: args.team } : args.run ? { run: args.run } : project ? { project } : undefined
-    client = await open(args, undefined, { topics, scope }, transport => {
+    client = await open(args, io, undefined, { topics, scope }, transport => {
       pendingTransport = transport
       if (signalCode) transport.close()
     })
@@ -553,7 +607,7 @@ async function watch(args: Arguments): Promise<number> {
         if (!args.raw || event.type === 'hello') write(event)
         if (event.type === 'hello') {
           const current = client
-          raw = (async () => { for await (const notification of current.notifications()) if (args.raw) jsonLine(notification) })().catch(error => { rawFailure = error })
+          raw = (async () => { for await (const notification of current.notifications()) if (args.raw) jsonLine(io, notification) })().catch(error => { rawFailure = error })
         }
         if (args.until && event.type === 'run.changed' && event.run === args.run && ['settled', 'stopped', 'stalled'].includes(event.state)) {
           reachedUntil = true
@@ -573,18 +627,25 @@ async function watch(args: Arguments): Promise<number> {
     return signalCode
   } finally {
     client?.close()
-    process.off('SIGINT', interrupt); process.off('SIGTERM', terminate)
+    release()
+  }
+}
+
+/** Runs one command line, writing through `io`, and says how it ended. A failure is printed on `io.err`. */
+export async function runCommand(argv: readonly string[], io: CommandIo): Promise<number> {
+  try {
+    const args = parseArgs(argv)
+    // An MCP server's standard input is its client's channel, not a file.
+    if (io.surface === 'mcp' && (args.briefFile === '-' || args.contextFile === '-')) usage('stdin is the MCP channel; give a file path')
+    return await COMMANDS.find(command => command.name === args.command)!.execute(args, io)
+  } catch (error) {
+    io.err(errorText(error) + '\n')
+    return errorExit(error)
   }
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
-  try {
-    const args = parseArgs(argv)
-    return await COMMANDS.find(command => command.name === args.command)!.execute(args)
-  } catch (error) {
-    process.stderr.write(errorText(error) + '\n')
-    return errorExit(error)
-  }
+  return runCommand(argv, processIo)
 }
 
 async function projectOf(args: Arguments): Promise<string> {
@@ -594,21 +655,21 @@ async function projectOf(args: Arguments): Promise<string> {
   } catch { return usage('Outside a repository, give --project PATH') }
 }
 
-async function openProject(args: Arguments): Promise<number> {
-  const client = await open(args)
+async function openProject(args: Arguments, io: CommandIo): Promise<number> {
+  const client = await open(args, io)
   try {
     const project = await client.call('workspace/open', { path: await canonicalProject(args.target!) })
-    output(args, project, () => line([project.path, project.name]))
+    output(io, args, project, () => line(io, [project.path, project.name]))
     return 0
   } finally { client.close() }
 }
 
-async function flows(args: Arguments): Promise<number> {
+async function flows(args: Arguments, io: CommandIo): Promise<number> {
   const root = await projectOf(args)
-  const client = await open(args)
+  const client = await open(args, io)
   try {
     const entries = await client.call('flow/catalog', { root })
-    output(args, { flows: entries }, () => { for (const flow of entries) line([flow.id, flow.origin, flow.problem]) })
+    output(io, args, { flows: entries }, () => { for (const flow of entries) line(io, [flow.id, flow.origin, flow.problem]) })
     return 0
   } finally { client.close() }
 }
@@ -627,19 +688,19 @@ function libraryReachSummary(entry: LibraryEntry, runtimes: Library['runtimes'])
   return differs ? `${summary} · ${differs} differs` : summary
 }
 
-async function libraryList(args: Arguments): Promise<number> {
+async function libraryList(args: Arguments, io: CommandIo): Promise<number> {
   const cwd = await libraryProjectOf(args)
-  const client = await open(args)
+  const client = await open(args, io)
   try {
     const library = await client.call('library/read', cwd === undefined ? {} : { cwd })
     const entries = library.entries.filter(entry =>
       (args.kind === undefined || entry.kind === args.kind) &&
       (!args.issues || entryHasProblem(entry)),
     )
-    output(args, { home: library.home, runtimes: library.runtimes, entries }, () => {
-      if (cwd === undefined) line(['User scope only', 'this folder is outside a Git repository'])
+    output(io, args, { home: library.home, runtimes: library.runtimes, entries }, () => {
+      if (cwd === undefined) line(io, ['User scope only', 'this folder is outside a Git repository'])
       for (const entry of entries) {
-        line([entry.kind, entry.name, libraryReachSummary(entry, library.runtimes), entryHasProblem(entry) ? 'issue' : undefined])
+        line(io, [entry.kind, entry.name, libraryReachSummary(entry, library.runtimes), entryHasProblem(entry) ? 'issue' : undefined])
       }
     })
     return 0
@@ -659,14 +720,14 @@ async function firstLibraryDefinition(client: Client, entry: LibraryEntry, cwd: 
   return null
 }
 
-async function libraryShow(args: Arguments): Promise<number> {
+async function libraryShow(args: Arguments, io: CommandIo): Promise<number> {
   const cwd = await libraryProjectOf(args)
-  const client = await open(args)
+  const client = await open(args, io)
   try {
     const library = await client.call('library/read', cwd === undefined ? {} : { cwd })
     const matches = library.entries.filter(entry => entry.name === args.target && (args.kind === undefined || entry.kind === args.kind))
     if (matches.length === 0) {
-      process.stderr.write(sanitizeHuman(`No skill or server called ${args.target} here.`) + '\n')
+      io.err(sanitizeHuman(`No skill or server called ${args.target} here.`) + '\n')
       return 1
     }
     if (matches.length > 1) usage(`${args.target} is both a skill and an MCP server; pass --kind skill or --kind mcp`)
@@ -674,14 +735,14 @@ async function libraryShow(args: Arguments): Promise<number> {
     const definition = await firstLibraryDefinition(client, entry, cwd)
     if (args.text) {
       if (!definition) {
-        process.stderr.write(sanitizeHuman(`No readable definition for ${args.target} here.`) + '\n')
+        io.err(sanitizeHuman(`No readable definition for ${args.target} here.`) + '\n')
         return 1
       }
       if (definition.truncated) {
-        process.stderr.write(sanitizeHuman(`Definition for ${args.target} is truncated; --text requires a complete definition.`) + '\n')
+        io.err(sanitizeHuman(`Definition for ${args.target} is truncated; --text requires a complete definition.`) + '\n')
         return 1
       }
-      process.stdout.write(definition.text.split('\n').map(sanitizeHuman).join('\n'))
+      io.out(definition.text.split('\n').map(sanitizeHuman).join('\n'))
       return 0
     }
 
@@ -689,38 +750,38 @@ async function libraryShow(args: Arguments): Promise<number> {
     const skillUsage = libraryUsage?.skills[entry.name] ?? null
     const runtimeNames = new Map(client.hello.runtimes.map(runtime => [runtime.id, runtime.name]))
     const agentName = (id: string) => runtimeNames.get(id as typeof client.hello.runtimes[number]['id']) ?? 'Unknown agent'
-    output(args, { home: library.home, runtimes: library.runtimes, entry, usage: skillUsage, definition }, () => {
-      if (cwd === undefined) line(['User scope only', 'this folder is outside a Git repository'])
-      line([entry.kind, entry.name])
-      line(['Description', entry.description || 'none'])
-      line(['Copies'])
+    output(io, args, { home: library.home, runtimes: library.runtimes, entry, usage: skillUsage, definition }, () => {
+      if (cwd === undefined) line(io, ['User scope only', 'this folder is outside a Git repository'])
+      line(io, [entry.kind, entry.name])
+      line(io, ['Description', entry.description || 'none'])
+      line(io, ['Copies'])
       for (const copy of entry.copies) {
         const readers = copy.readBy.map(agentName)
-        line([
+        line(io, [
           shortPath(copy.path, library.home), copy.scope, copy.digest ?? 'no digest',
           'read by', readers.length ? readers.join(', ') : 'none',
           copy.hollow ? 'hollow' : undefined,
           copy.readOnly ? 'read-only' : undefined,
         ])
       }
-      line(['Agents'])
+      line(io, ['Agents'])
       for (const reach of entry.reach) {
-        line([agentName(reach.runtime), reach.state, reach.basis === 'reported' ? 'asked' : 'on disk', reach.note])
+        line(io, [agentName(reach.runtime), reach.state, reach.basis === 'reported' ? 'asked' : 'on disk', reach.note])
       }
       if (entry.kind === 'skill') {
         const last = skillUsage?.lastAt ? new Date(skillUsage.lastAt).toISOString() : skillUsage?.activations ? 'unknown' : 'never'
-        line(['Usage', `${skillUsage?.sessions ?? 0} stored conversations`, `${skillUsage?.activations ?? 0} activations`, `last ${last}`])
-        line(['counted in conversations this desk stored'])
+        line(io, ['Usage', `${skillUsage?.sessions ?? 0} stored conversations`, `${skillUsage?.activations ?? 0} activations`, `last ${last}`])
+        line(io, ['counted in conversations this desk stored'])
       } else {
-        line(['Usage', 'not tracked for MCP servers'])
+        line(io, ['Usage', 'not tracked for MCP servers'])
       }
       if (definition) {
-        line(['Files', shortPath(definition.path, library.home)])
-        for (const file of definition.files) line([file.path, `${file.bytes} bytes`])
-        if (definition.moreFiles) line([`${definition.moreFiles} more files`])
-        if (definition.truncated) line(['Definition text is truncated'])
+        line(io, ['Files', shortPath(definition.path, library.home)])
+        for (const file of definition.files) line(io, [file.path, `${file.bytes} bytes`])
+        if (definition.moreFiles) line(io, [`${definition.moreFiles} more files`])
+        if (definition.truncated) line(io, ['Definition text is truncated'])
       } else {
-        line(['Definition', 'no readable copy'])
+        line(io, ['Definition', 'no readable copy'])
       }
     })
     return 0
@@ -782,7 +843,7 @@ async function flowRequest(args: Arguments, client: Client) {
   return { root, source, vars, ...options, preview }
 }
 
-export function printPreview(preview: FlowPreview, stream: NodeJS.WritableStream = process.stdout): void {
+export function printPreview(preview: FlowPreview, stream: { write(text: string): unknown } = process.stdout): void {
   const write = (parts: readonly unknown[]) => stream.write(parts.filter(part => part !== undefined && part !== null).map(part => sanitizeHuman(String(part))).join('  ') + '\n')
   write([preview.compiled.document.flow.name, preview.attended === false ? 'unattended' : 'attended', 'preview spends nothing'])
   for (const [role, seats] of Object.entries(preview.overrides ?? {})) write([role, 'override', seats.run.map(seatSpec).join(', '), 'file:', seats.file.map(seatSpec).join(', ')])
@@ -809,29 +870,29 @@ export function printPreview(preview: FlowPreview, stream: NodeJS.WritableStream
   for (const problem of preview.problems) write(['problem', problem.at, problem.text])
 }
 
-async function previewFlow(args: Arguments): Promise<number> {
-  const client = await open(args)
+async function previewFlow(args: Arguments, io: CommandIo): Promise<number> {
+  const client = await open(args, io)
   try {
     const { preview } = await flowRequest(args, client)
-    output(args, preview, () => printPreview(preview))
+    output(io, args, preview, () => printPreview(preview, { write: io.out }))
     return preview.problems.some(problem => problem.level === 'error') || !preview.token ? 4 : 0
   } finally { client.close() }
 }
 
-async function startFlow(args: Arguments): Promise<number> {
-  const client = await open(args)
+async function startFlow(args: Arguments, io: CommandIo): Promise<number> {
+  const client = await open(args, io)
   try {
     const { preview, ...request } = await flowRequest(args, client)
     // --yes acknowledges this preview; a pipe never implies approval to
     // spend. JSON keeps stdout to the start result, even during confirmation.
-    printPreview(preview, args.json ? process.stderr : process.stdout)
+    printPreview(preview, { write: args.json ? io.err : io.out })
     if (preview.problems.some(problem => problem.level === 'error') || !preview.token) return 4
     if (!args.yes) {
-      if (!process.stdin.isTTY || process.stdin.readableEnded) usage('Without terminal input, flow start requires --yes')
+      if (!io.interactive) usage('Without terminal input, flow start requires --yes')
       if (!/^y(?:es)?$/i.test((await readConfirmation('Start this Flow? [y/N] ')).trim())) return 4
     }
     const run = await client.call('flow/start-goal', { ...request, token: preview.token, sentence: args.title ?? preview.compiled.document.flow.name })
-    output(args, { run: run.id, team: run.goal }, () => line([run.id, run.goal]))
+    output(io, args, { run: run.id, team: run.goal }, () => line(io, [run.id, run.goal]))
     return 0
   } finally { client.close() }
 }
@@ -847,7 +908,7 @@ function loadoutSummary(latest: ConversationLoadout, name: typeof LOADOUT_PARTS[
 }
 const loadoutTokens = (value: number): string => value >= 1000 ? `${(value / 1000).toFixed(1).replace(/\.0$/, '')}K` : String(value)
 
-export function printLoadout(records: ConversationLoadouts, name: string, args: { all?: boolean; epochs?: boolean }, seat: { role: string | null; run: string | null } | null = null, stream: NodeJS.WritableStream = process.stdout): void {
+export function printLoadout(records: ConversationLoadouts, name: string, args: { all?: boolean; epochs?: boolean }, seat: { role: string | null; run: string | null } | null = null, stream: { write(text: string): unknown } = process.stdout): void {
   const write = (parts: readonly (string | null | undefined)[]) => stream.write(parts.filter(part => part !== undefined && part !== null).map(part => sanitizeHuman(part!)).join('  ') + '\n')
   const latest = records.epochs.at(-1)
   write([name, records.session, records.seat ? `Seat ${records.seat}` : null, seat?.role ? `role ${seat.role}` : null, seat?.run ? `run ${seat.run}` : null])
@@ -874,11 +935,11 @@ export function printLoadout(records: ConversationLoadouts, name: string, args: 
   }
 }
 
-async function showSession(args: Arguments): Promise<number> {
-  const client = await open(args)
+async function showSession(args: Arguments, io: CommandIo): Promise<number> {
+  const client = await open(args, io)
   try {
     const records = await client.call('session/loadout', { session: args.target!, ...(args.runtime ? { runtime: args.runtime as HostParams<'session/loadout'>['runtime'] } : {}) })
-    if (args.json) { jsonLine(records); return 0 }
+    if (args.json) { jsonLine(io, records); return 0 }
     let seat: { role: string | null; run: string | null } | null = null
     if (records.seat) {
       const recorded = await client.call('evidence/seat', { runtime: records.runtime, sessionId: records.session })
@@ -892,16 +953,16 @@ async function showSession(args: Arguments): Promise<number> {
         }
       }
     }
-    printLoadout(records, client.hello.runtimes.find(runtime => runtime.id === records.runtime)?.name ?? 'Unknown agent', args, seat)
+    printLoadout(records, client.hello.runtimes.find(runtime => runtime.id === records.runtime)?.name ?? 'Unknown agent', args, seat, { write: io.out })
     return 0
   } finally { client.close() }
 }
 
-async function showRun(args: Arguments): Promise<number> {
-  const client = await open(args, undefined, args.json ? undefined : { topics: ['cards', 'teams'], scope: { run: args.target! } })
+async function showRun(args: Arguments, io: CommandIo): Promise<number> {
+  const client = await open(args, io, undefined, args.json ? undefined : { topics: ['cards', 'teams'], scope: { run: args.target! } })
   try {
     if (args.json) {
-      output(args, await client.call('flow/execution', { run: args.target! }), () => {})
+      output(io, args, await client.call('flow/execution', { run: args.target! }), () => {})
       return 0
     }
     await client.synced()
@@ -919,35 +980,35 @@ async function showRun(args: Arguments): Promise<number> {
     const findingRun = await client.call('finding/run', { goal: run.goal, run: run.id })
     const timeline = runTimelineOf(snapshot, run, { evidence, findings, findingRun })
     const header = timeline.header
-    line([header.run, header.flow, header.state, run.attended === false ? 'unattended' : 'attended',
+    line(io, [header.run, header.flow, header.state, run.attended === false ? 'unattended' : 'attended',
       header.revision ? `revision ${header.revision}` : null, header.continues ? `continues ${header.continues}` : null,
       header.publication?.label, header.needsYou ? 'Needs you' : null])
-    for (const row of timeline.rows) line([row.title, row.status, row.publication?.label, row.detail,
+    for (const row of timeline.rows) line(io, [row.title, row.status, row.publication?.label, row.detail,
       row.durationMs === null ? null : `${row.durationMs}ms`])
-    for (const [role, seats] of Object.entries(run.overrides ?? {})) line([role, 'override', seats.map(seatSpec).join(', ')])
+    for (const [role, seats] of Object.entries(run.overrides ?? {})) line(io, [role, 'override', seats.map(seatSpec).join(', ')])
     const seats = [...new Set(run.operations.flatMap(operation => operation.kind === 'seat' && operation.seat !== null ? [operation.seat] : []))]
     if (seats.length) {
       const goal = await client.call('goal/read', { goal: run.goal })
       for (const id of seats) {
         const seat = goal.members.find(one => one.id === id) ?? goal.pastMembers?.find(one => one.id === id)
-        line([seat?.role, `Seat ${id}`, seat?.agent?.name ?? client.hello.runtimes.find(one => one.id === seat?.session.runtime)?.name])
-        if (!seat) line(['not recorded'])
+        line(io, [seat?.role, `Seat ${id}`, seat?.agent?.name ?? client.hello.runtimes.find(one => one.id === seat?.session.runtime)?.name])
+        if (!seat) line(io, ['not recorded'])
         else {
           try {
             const records = await client.call('session/loadout', { runtime: seat.session.runtime as HostParams<'session/loadout'>['runtime'], session: seat.session.sessionId })
             const latest = records.epochs.at(-1)
-            if (!latest) line(['not recorded'])
-            else for (const part of LOADOUT_PARTS) line([part, loadoutSummary(latest, part)])
+            if (!latest) line(io, ['not recorded'])
+            else for (const part of LOADOUT_PARTS) line(io, [part, loadoutSummary(latest, part)])
           } catch (error) {
             if (!(error instanceof WireCallError) || error.code !== 'notFound') throw error
-            line(['not recorded'])
+            line(io, ['not recorded'])
           }
         }
         const attachments = await client.call('attachment/seat', { seat: id as HostParams<'attachment/seat'>['seat'] })
         if (attachments && (attachments.skillsMode === 'allowlist' || attachments.mcpMode === 'allowlist')) {
           const missing = attachments.results.filter(one => one.status === 'not-loaded')
-          line([`${attachments.results.filter(one => one.status === 'loaded').length} loaded · ${missing.length} not loaded`])
-          for (const one of missing) line([`  ${one.identity.name}`, one.reason])
+          line(io, [`${attachments.results.filter(one => one.status === 'loaded').length} loaded · ${missing.length} not loaded`])
+          for (const one of missing) line(io, [`  ${one.identity.name}`, one.reason])
         }
       }
     }
@@ -955,7 +1016,7 @@ async function showRun(args: Arguments): Promise<number> {
   } finally { client.close() }
 }
 
-async function waitRun(args: Arguments): Promise<number> {
+async function waitRun(args: Arguments, io: CommandIo): Promise<number> {
   let client: Client | undefined, pendingTransport: ClientTransport | undefined
   let code: number | undefined, reason: string | null = null
   let raw: Promise<void> | undefined, rawFailure: unknown
@@ -963,11 +1024,13 @@ async function waitRun(args: Arguments): Promise<number> {
   const interrupt = () => { code ??= 130; reason ??= 'interrupted'; cancel() }
   const terminate = () => { code ??= 143; reason ??= 'interrupted'; cancel() }
   const timeout = args.timeout === undefined ? undefined : setTimeout(() => { code ??= 8; reason ??= 'timeout'; cancel() }, Number(args.timeout) * 1000)
-  process.on('SIGINT', interrupt); process.on('SIGTERM', terminate)
+  const release = onInterrupt(io, interrupt, terminate)
+  const begun = Date.now()
   const decide = () => {
     if (code !== undefined || !client) return
     const snapshot = client.snapshot(), run = snapshot.runs.find(run => run.id === args.target)
     if (!run) return
+    io.onProgress?.(run.state, Date.now() - begun)
     if (run.state !== 'running') {
       code = run.state === 'settled' ? 0 : 7
       reason = run.reason
@@ -987,10 +1050,10 @@ async function waitRun(args: Arguments): Promise<number> {
     if (person || question) { code = 5; reason = person ? 'waiting for a person card' : 'waiting for an answer' }
   }
   try {
-    client = await open(args, undefined, { topics: ['runs', 'cards', 'teams', 'waiting'], scope: { run: args.target! } }, transport => {
+    client = await open(args, io, undefined, { topics: ['runs', 'cards', 'teams', 'waiting'], scope: { run: args.target! } }, transport => {
       pendingTransport = transport
       if (code !== undefined) transport.close()
-    })
+    }, { outliveRestart: true })
     // Both queues are independent; discarded raw messages must still drain.
     raw = (async () => { for await (const _ of client!.notifications()) {} })().catch(error => { rawFailure = error })
     if (code !== undefined) client.close()
@@ -1007,28 +1070,28 @@ async function waitRun(args: Arguments): Promise<number> {
   finally {
     client?.close(); pendingTransport?.close()
     if (timeout !== undefined) clearTimeout(timeout)
-    process.off('SIGINT', interrupt); process.off('SIGTERM', terminate)
+    release()
     await raw
   }
   if (rawFailure && code === undefined) throw rawFailure
   const state = client?.snapshot().runs.find(run => run.id === args.target)?.state ?? null
-  output(args, { run: args.target, state, reason }, () => line([args.target, state, reason]))
+  output(io, args, { run: args.target, state, reason }, () => line(io, [args.target, state, reason]))
   return code!
 }
 
 
-async function confirmAction(args: Arguments, prompt: string): Promise<boolean> {
+async function confirmAction(args: Arguments, io: CommandIo, prompt: string): Promise<boolean> {
   if (args.yes) return true
-  if (!process.stdin.isTTY || process.stdin.readableEnded) usage(`Without terminal input, ${args.command} requires --yes`)
+  if (!io.interactive) usage(`Without terminal input, ${args.command} requires --yes`)
   return /^y(?:es)?$/i.test((await readConfirmation(prompt)).trim())
 }
 
-async function stopRun(args: Arguments): Promise<number> {
-  if (!await confirmAction(args, 'Stop this run? [y/N] ')) return 4
-  const client = await open(args)
+async function stopRun(args: Arguments, io: CommandIo): Promise<number> {
+  if (!await confirmAction(args, io, 'Stop this run? [y/N] ')) return 4
+  const client = await open(args, io)
   try {
     const run = await client.call('flow/execution/stop', { run: args.target!, reason: args.reason! })
-    output(args, run, () => line([run.id, run.state, run.reason]))
+    output(io, args, run, () => line(io, [run.id, run.state, run.reason]))
     return 0
   } finally { client.close() }
 }
@@ -1042,43 +1105,43 @@ async function readCard(args: Arguments, client: Client) {
 }
 
 function handoffText(text: string): string { return text.split('\n').map(sanitizeHuman).join('\n') }
-function printHandoff(text: string): void { process.stdout.write(handoffText(text) + (text.endsWith('\n') ? '' : '\n')) }
+function printHandoff(io: CommandIo, text: string): void { io.out(handoffText(text) + (text.endsWith('\n') ? '' : '\n')) }
 
-async function showCard(args: Arguments): Promise<number> {
-  const client = await open(args)
+async function showCard(args: Arguments, io: CommandIo): Promise<number> {
+  const client = await open(args, io)
   try {
     const card = await readCard(args, client)
-    output(args, card, () => {
-      line([card.id, card.role, card.state, card.title])
-      line(['outcome', card.outcome ?? '(none)']); line(['note', card.note ?? '(none)'])
-      line(['handoff']); if (card.handoff) printHandoff(card.handoff); else line(['(none)'])
+    output(io, args, card, () => {
+      line(io, [card.id, card.role, card.state, card.title])
+      line(io, ['outcome', card.outcome ?? '(none)']); line(io, ['note', card.note ?? '(none)'])
+      line(io, ['handoff']); if (card.handoff) printHandoff(io, card.handoff); else line(io, ['(none)'])
     })
     return 0
   } finally { client.close() }
 }
 
-async function handoffCard(args: Arguments): Promise<number> {
-  const client = await open(args)
+async function handoffCard(args: Arguments, io: CommandIo): Promise<number> {
+  const client = await open(args, io)
   try {
     const card = await readCard(args, client)
-    if (!card.handoff) { process.stderr.write('This card has no handoff.\n'); return 1 }
-    if (args.json) jsonLine({ handoff: card.handoff }); else printHandoff(card.handoff)
+    if (!card.handoff) { io.err('This card has no handoff.\n'); return 1 }
+    if (args.json) jsonLine(io, { handoff: card.handoff }); else printHandoff(io, card.handoff)
     return 0
   } finally { client.close() }
 }
 
-async function answerCard(args: Arguments): Promise<number> {
+async function answerCard(args: Arguments, io: CommandIo): Promise<number> {
   const context = args.contextFile === undefined ? undefined : args.contextFile === '-' ? await stdinText() : await readTextFile(args.contextFile)
-  const client = await open(args)
+  const client = await open(args, io)
   try {
     await client.call('team/intent', { room: args.team!, id: Number(args.card), action: 'done', outcome: args.outcome!, ...(context === undefined ? {} : { context }) })
-    output(args, { team: args.team, card: Number(args.card), outcome: args.outcome }, () => line([args.team, args.card, 'answered', args.outcome]))
+    output(io, args, { team: args.team, card: Number(args.card), outcome: args.outcome }, () => line(io, [args.team, args.card, 'answered', args.outcome]))
     return 0
   } finally { client.close() }
 }
 
-async function abandonCard(args: Arguments): Promise<number> {
-  const client = await open(args)
+async function abandonCard(args: Arguments, io: CommandIo): Promise<number> {
+  const client = await open(args, io)
   try {
     const card = await readCard(args, client)
     const runs = await client.call('flow/executions', { team: args.team, active: true })
@@ -1087,35 +1150,35 @@ async function abandonCard(args: Arguments): Promise<number> {
     const rules = execution?.document.flow.rules.filter(rule => rule.on === card.role) ?? []
     const targets = rules.map(rule => `${rule.then.role}${rule.when ? ' (if its conditions match)' : ''}`)
     const message = `Abandoning ${card.role ?? 'this role'} finishes this card. Once every card in the round has finished, the run follows the first matching rule after the role. If no rule matches, the run ends without opening another role. ${targets.length ? `Possible next roles: ${targets.join(', ')}.` : 'No next role is declared.'} To end the work, use run stop${execution ? ` ${execution.id}` : ' <run>'} --reason TEXT.`
-    process.stderr.write(sanitizeHuman(message) + '\n')
-    if (!await confirmAction(args, 'Abandon this card? [y/N] ')) return 4
+    io.err(sanitizeHuman(message) + '\n')
+    if (!await confirmAction(args, io, 'Abandon this card? [y/N] ')) return 4
     const result = await client.call('team/intent', { room: args.team!, id: Number(args.card), action: 'abandon', reason: args.reason! })
-    output(args, result ?? { role: card.role ?? null, nextRole: null }, () => line([args.card, 'abandoned', 'role', result?.role ?? card.role, 'next role', result?.nextRole ?? '(none)']))
+    output(io, args, result ?? { role: card.role ?? null, nextRole: null }, () => line(io, [args.card, 'abandoned', 'role', result?.role ?? card.role, 'next role', result?.nextRole ?? '(none)']))
     return 0
   } finally { client.close() }
 }
 
-async function waiting(args: Arguments): Promise<number> {
+async function waiting(args: Arguments, io: CommandIo): Promise<number> {
   let client: Client | undefined, pending: ClientTransport | undefined, signalCode = 0
   const cancel = () => { client?.close(); pending?.close() }
   const interrupt = () => { signalCode ||= 130; cancel() }
   const terminate = () => { signalCode ||= 143; cancel() }
-  process.on('SIGINT', interrupt); process.on('SIGTERM', terminate)
+  const release = onInterrupt(io, interrupt, terminate)
   let drain: Promise<void> | undefined
   try {
-    client = await open(args, undefined, { topics: ['waiting'] }, transport => { pending = transport; if (signalCode) transport.close() })
+    client = await open(args, io, undefined, { topics: ['waiting'] }, transport => { pending = transport; if (signalCode) transport.close() })
     if (signalCode) client.close()
     drain = (async () => { for await (const ignored of client!.notifications()) { void ignored } })()
     await client.synced()
     if (!args.watch) {
       const items = client.snapshot().waiting ?? []
-      output(args, { waiting: items }, () => { for (const item of items) line([item.id, item.kind, item.team, item.card, item.summary]) })
+      output(io, args, { waiting: items }, () => { for (const item of items) line(io, [item.id, item.kind, item.team, item.card, item.summary]) })
     } else {
       for await (const event of client.events()) {
-        if (['hello', 'waiting', 'waiting.cleared', 'gap', 'notice', 'end'].includes(event.type)) { if (args.json) jsonLine(event); else eventLine(event) }
+        if (['hello', 'waiting', 'waiting.cleared', 'gap', 'notice', 'end'].includes(event.type)) { if (args.json) jsonLine(io, event); else eventLine(io, event) }
       }
     }
     return signalCode
   } catch (error) { if (signalCode) return signalCode; throw error }
-  finally { client?.close(); await drain; process.off('SIGINT', interrupt); process.off('SIGTERM', terminate) }
+  finally { client?.close(); await drain; release() }
 }
