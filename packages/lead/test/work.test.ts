@@ -79,3 +79,13 @@ test('a reminder or a stopped try alone still carries the block; a dropped item 
   assert.equal(leadWorkCards(board([{ ...stopped, outcome: 'dropped' }]), now), null, 'what the person dropped is not offered again')
   assert.equal(leadWorkCards(board([{ ...stopped, closedAt: now - DAY - 1 }]), now), null)
 })
+
+// #2107: a fired reminder means the Lead was woken, never that the person was told; the line says only what the desk recorded.
+test('a fired reminder for the person says whether the Lead told them, from the desk\'s record only', () => {
+  const fired = (id: string, delivery?: 'said' | 'missed') => ({ id, text: 'Send the changelog', for: 'person' as const, dueAt: now - 5 * 60_000, createdAt: now - DAY,
+    state: 'fired' as const, firedAt: now - 5 * 60_000, ...(delivery ? { delivery, deliveredAt: now - 4 * 60_000 } : {}) })
+  const text = leadWorkCards({ version: 1, items: [], more: 0, reminders: [fired('remind-1', 'said'), fired('remind-2', 'missed'), fired('remind-3')] as never }, now)!
+  assert.match(text, /- remind-1 for the person "Send the changelog" said to the person 4m ago/)
+  assert.match(text, /- remind-2 for the person "Send the changelog" missed 4m ago: your message about it was never written, so the person was not reminded; tell them now/)
+  assert.match(text, /- remind-3 for the person "Send the changelog" fired 5m ago, not yet said to the person/)
+})

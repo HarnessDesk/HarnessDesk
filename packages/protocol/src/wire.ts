@@ -9,7 +9,7 @@ import type { LeadChatControlList, LeadRepeatControl, LeadBudgetRaise, LeadSpend
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
-import type { ClientTier, ClientTopic, FlowExecutionSummary } from './client-surface.js'
+import type { ClientTier, ClientTopic, FlowExecutionSummary, McpStartsView } from './client-surface.js'
 import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
@@ -889,7 +889,8 @@ export interface HostMethods {
   /** How full the Lead's conversation is, as one figure: read by the Lead about itself and by a phone. */
   'lead/context/use': { params: Record<string, never>; result: LeadContextUse }
   'client/hello': {
-    params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }
+    /** `surface` is stated, like `client`: `mcp` says the caller is serving an MCP client, which the desk gates starting work on. */
+    params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number; readonly surface?: 'mcp' }
     result: {
       readonly protocolVersion: number
       readonly hostVersion: string
@@ -2952,6 +2953,13 @@ export interface HostMethods {
    * installs Brave the week after they chose Chrome.
    */
   'app/browsers': { params: Record<string, never>; result: readonly InstalledBrowser[] }
+  /** Window only. Whether MCP clients may start work, and today's count; never on the client surface. */
+  'app/mcpStarts/get': { params: Record<string, never>; result: McpStartsView }
+  /** Window only. Turns starting work from MCP clients on or off, or sets the daily number; a stale revision is refused. */
+  'app/mcpStarts/set': {
+    params: { readonly revision: number; readonly mayStart?: boolean; readonly dailyStarts?: number }
+    result: McpStartsView
+  }
   /** What a paired phone reads of mention triage: every decision, newest first, read only. */
   'phone/triage/list': { params: { readonly limit?: number }; result: PhoneTriageList }
 
@@ -2992,6 +3000,12 @@ export interface HostMethods {
   'lead/reminder/set': { params: import('./lead-work.js').LeadReminderSet; result: import('./lead-work.js').LeadReminder }
   /** Cancels a reminder that has not fired, from the Lead, the window or the phone. */
   'lead/reminder/cancel': { params: { readonly id: string }; result: import('./lead-work.js').LeadWorkBoard }
+  /** The Lead proposes a mode for one kind of unasked work. A card for the person; nothing changes until they Apply. */
+  'lead/autonomy/propose': { params: import('./lead-autonomy.js').LeadAutonomyPropose; result: import('./lead-autonomy.js').LeadSettingsProposeResult }
+  /** The Lead proposes words for a rule section. A card for the person; nothing changes until they Apply. */
+  'lead/rules/propose': { params: import('./lead-autonomy.js').LeadRulesPropose; result: import('./lead-autonomy.js').LeadSettingsProposeResult }
+  /** The person's Apply or No on a proposal card, from the window or a phone. Never on the Lead's door. */
+  'lead/settings/decide': { params: import('./lead-autonomy.js').LeadSettingsDecide; result: import('./lead-autonomy.js').LeadAutonomyView }
 }
 
 /** One browser HarnessDesk found, and can start with remote debugging. */
@@ -3321,6 +3335,8 @@ export type WireNotification =
   | { readonly method: 'lead/presence/changed'; readonly params: { readonly notice?: import('./lead-presence.js').LeadPushNotice } }
   /** The Lead's memory changed: an entry, a proposal or a version. Clients read `lead/memory/view` again. */
   | { readonly method: 'lead/memory/changed'; readonly params: { readonly revision: number } }
+  /** The Lead's settings moved: a mode, a rule section, a deadline, or a proposal the Lead made or the person answered. Clients read `lead/autonomy/read` again. */
+  | { readonly method: 'lead/autonomy/changed'; readonly params: Record<string, never> }
 
 export type ClientToHost = WireRequest
 export type HostToClient = WireResponse | WireNotification

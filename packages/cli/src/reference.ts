@@ -36,7 +36,7 @@ export const EXIT_CODES: Readonly<Record<number, string>> = {
   1: 'The desk answered with an error not covered below, or the command failed for another reason.',
   2: 'An ambiguous conversation id, or usage: an unknown command or flag, a missing argument, or a spend without a terminal and without `--yes`.',
   3: 'No desk: none is running for this home.',
-  4: 'Refused: the desk refused the request (a flow with problems, a tier this desk does not grant, a card not addressed to a person), or its socket failed the ownership check. The desk\'s error code is printed on stderr.',
+  4: 'Refused: the desk refused the request (a flow with problems, a tier this desk does not grant, a card not addressed to a person, or a start from an MCP client the person has not allowed or with no starts left for the day), or its socket failed the ownership check. The desk\'s error code is printed on stderr.',
   5: 'Waiting for a person: `run wait` ended on a person card or a question.',
   6: 'Incompatible: the desk speaks a different protocol version, or is older than this command line and lacks a method the command needs.',
   7: '`run wait`: the run ended stopped or stalled.',

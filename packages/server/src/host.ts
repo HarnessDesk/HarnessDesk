@@ -181,11 +181,11 @@ import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRe
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadClockLine, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
-import { initialLeadMemoryCore, leadMemoryStatus } from '@harnessdesk/lead'
+import { initialLeadMemoryCore, leadMemoryStatus, leadSettingsStatus } from '@harnessdesk/lead'
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
-import type { LeadProject } from '@harnessdesk/protocol'
-import { ExecutionFiles, FlowExecutions, type SeatReplacement } from './flow-execution.js'
+import type { FlowExecution, LeadProject } from '@harnessdesk/protocol'
+import { ExecutionFiles, FlowExecutions, sourceDigest, type SeatReplacement } from './flow-execution.js'
 import { FlowReview, PERSON_REVIEWER_ID } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
 import { seatOptionsProblem } from './seat-options.js'
@@ -200,6 +200,7 @@ import { GatedRegistry, CeilingGate, type Conversation, type HeldQuestion } from
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog, type ClientAuditEntry } from './audit.js'
+import { McpStarts } from './mcp-starts.js'
 import { CatalogRefresher } from './catalog-refresher.js'
 import { isProgramFailure, RuntimeCache, type CachedRuntime } from './runtime-cache.js'
 import {
@@ -302,6 +303,7 @@ import type { UsageSample } from './ledger/insight.js'
 import { InsightContexts } from './insight/context.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
+import { startGoal } from './methods/flows.js'
 import { seatAgent } from './methods/agents.js'
 
 /**
@@ -937,6 +939,8 @@ export class Host {
   readonly #credentials: CredentialBroker
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
+  /** Whether MCP clients may start work, and today's count (`client-starts.json`). */
+  readonly #mcpStarts: McpStarts
   /** Sidebar metadata; the transcript store continues to own conversation bodies. */
   readonly #historyImport: HistoryImport
   #cacheEvictionTimer: ReturnType<typeof setTimeout> | undefined
@@ -1276,6 +1280,7 @@ export class Host {
       log: (message, error) => this.#logger.warn(message, { error: String(error) }),
     })
     this.#audit = new AuditLog(join(this.#state.directory, 'audit.ndjson'))
+    this.#mcpStarts = new McpStarts(join(this.#state.directory, 'client-starts.json'))
     this.#transcripts = new TranscriptStore(join(this.#state.directory, 'transcripts'), (message, details) =>
       this.#logger.warn(message, details),
       () => this.#scheduleCacheEviction(),
@@ -4057,7 +4062,9 @@ export class Host {
     const autonomy = new LeadAutonomyStore({ file: join(this.#state.directory, 'lead', 'autonomy.json'), now: () => Date.now(), journal,
       goal: () => { const budget = journal.state.budget; return budget ? { id: budget.logicalGoalId, open: !['accepted', 'declined', 'stopped'].includes(journal.state.phase) } : null },
       report: text => journal.appendReply(text),
-      changed: () => this.#push({ method: 'lead/presence/changed', params: {} }) })
+      changed: () => { this.#push({ method: 'lead/presence/changed', params: {} }); this.#push({ method: 'lead/autonomy/changed', params: {} }) },
+      // Where a proposal card sits (under the Lead's next reply), and whether the person has written since a No.
+      seq: () => journal.state.seq, personSeq: () => this.#leadPersonSeq() })
     this.#leadAutonomy = autonomy
     void autonomy.attach().catch(() => { this.#logger.warn('The Lead autonomy settings could not be read') })
     this.onDispose(() => { if (this.#leadAutonomy === autonomy) this.#leadAutonomy = null })
@@ -4696,7 +4703,11 @@ export class Host {
   async #leadMemoryContext(): Promise<string | null> {
     const journal = this.#leadJournal
     if (!journal) return null
-    return leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
+    const memory = leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
+    // Its own settings and what became of its proposals to change them ride the same note: a settings file that cannot
+    // be read leaves them out rather than the memory status.
+    const settings = this.#leadAutonomy ? await this.#leadAutonomy.view().then(leadSettingsStatus, () => null) : null
+    return settings ? `${memory}\n${settings}` : memory
   }
   /** The status a desk wake carries: null when the memory store cannot be read, or takes longer than
    * `LEAD_WAKE_MEMORY_STATUS_MS` to open, so a corrupt file or a slow first open never stalls or stops a wake. */
@@ -4837,7 +4848,7 @@ export class Host {
 
   /** The client's name is stated attribution, not authority. The door's live
    * action tier is checked again here; wire params cannot spoof provenance. */
-  async clientIntent(params: HostParams<'team/intent'>, client: string): Promise<HostResult<'team/intent'>> {
+  async clientIntent(params: HostParams<'team/intent'>, client: string, surface?: 'mcp'): Promise<HostResult<'team/intent'>> {
     if (params.action !== 'done' && params.action !== 'abandon') throw Object.assign(new Error('This action is not on the client surface.'), { wireCode: 'notOnClientSurface' })
     if (params.action === 'done' && !this.clientTiers().includes('answer')) throw Object.assign(new Error('This desk has not granted client answers.'), { wireCode: 'tierNotGranted' })
     const before = this.#flows.executionsFor(params.room).find(run => run.rounds.some(round => round.cards.includes(params.id)))
@@ -4853,7 +4864,7 @@ export class Host {
       if (run.state !== 'running' || run.rounds.some(one => one.n > (round?.n ?? Infinity) && one.cards.length > 0)) routed()
     }) : () => {}
     try {
-      await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client)
+      await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client, undefined, undefined, surface)
       await this.#team.flush()
       if (params.action === 'done') return null
       if (before) await Promise.race([this.#flows.cardContinuation(before.id), routing])
@@ -4865,6 +4876,56 @@ export class Host {
       const next = after?.rounds.find(one => one.n > (round?.n ?? Infinity) && one.cards.some(id => board.intents.some(card => card.id === id)))
       return { role: round?.role ?? null, nextRole: next?.role ?? null }
     } finally { detach() }
+  }
+
+  /**
+   * A flow start that came through the client door, stamped with where it came
+   * from. The origin is the host's: the door passes what the connection
+   * stated, and no wire param can carry or change it.
+   */
+  clientFlowStart(params: HostParams<'flow/start-goal'>, client: string, via: 'cli' | 'mcp'): Promise<FlowExecution> {
+    return startGoal(this.#context, params, { via, client })
+  }
+
+  /**
+   * A flow start from an MCP client. Off until the person turns it on, then
+   * counted against today's number; a start that fails is refunded. It never
+   * raises a ceiling: only attended work, and only a Flow saved where the
+   * catalogue finds it, so every grant a run from MCP holds is one the person
+   * saved. Seat overrides carry no ceiling, so they cannot raise one.
+   */
+  async clientStart(params: HostParams<'flow/start-goal'>, client: string): Promise<FlowExecution> {
+    const admission = await this.#mcpStarts.admit()
+    if (!admission.ok) throw Object.assign(new Error(admission.detail), { wireCode: admission.code })
+    try {
+      if (params.attended === false) {
+        throw Object.assign(new Error('An MCP client starts attended work only, so a ceiling a seat cannot hold asks you. Start unattended work in the app.'), { wireCode: 'mcpUnattended' })
+      }
+      // A front-door Goal is the window's to reuse, and Run again continues an
+      // earlier Run in its Team and checkout: both are work on an existing Team.
+      if (params.goal !== undefined || (params.continues !== undefined && params.continues !== null)) {
+        throw Object.assign(new Error('An MCP client cannot start work on an existing Team.'), { wireCode: 'refused' })
+      }
+      if (!await this.#savedFlowSource(params.root, params.source)) {
+        throw Object.assign(new Error('Start a Flow saved in this project; an MCP client cannot start an edited copy.'), { wireCode: 'mcpUnsavedFlow' })
+      }
+      return await this.clientFlowStart(params, client, 'mcp')
+    } catch (error) {
+      await this.#mcpStarts.refund(admission.ticket)
+      throw error
+    }
+  }
+
+  /** Whether this exact text is a Flow the project's catalogue holds, as `flow/source` would read it. */
+  async #savedFlowSource(root: string, source: string): Promise<boolean> {
+    const digest = sourceDigest(source)
+    for (const entry of await this.#flows.catalog(root)) {
+      let saved: string
+      try { saved = await this.#flows.catalogSource(root, entry.id, entry.origin) }
+      catch { continue }
+      if (sourceDigest(saved) === digest) return true
+    }
+    return false
   }
 
   recordClientAudit(entry: Omit<ClientAuditEntry, 'at' | 'via'>): void {
@@ -6214,6 +6275,7 @@ export class Host {
       credentials: this.#credentials,
       harnessDeskAccount: this.#harnessDeskAccount,
       audit: this.#audit,
+      mcpStarts: this.#mcpStarts,
       transcripts: this.#transcripts,
       archive: this.#archive,
       sessionIndex: {
@@ -6346,7 +6408,8 @@ export class Host {
       leadChats: { list: params => this.leadChats.list(params), read: params => this.leadChats.read(params),
         start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
       leadAutonomy: { view: () => this.leadAutonomy.view(), set: set => this.leadAutonomy.set(set), rules: () => this.leadAutonomy.rules(),
-        updateRules: update => this.leadAutonomy.updateRules(update), setDeadline: set => this.leadAutonomy.setDeadline(set) },
+        updateRules: update => this.leadAutonomy.updateRules(update), setDeadline: set => this.leadAutonomy.setDeadline(set),
+        proposeMode: params => this.leadAutonomy.proposeMode(params), proposeRules: params => this.leadAutonomy.proposeRules(params), decide: params => this.leadAutonomy.decide(params) },
       leadPresence: { read: (device, options) => this.leadPresence.read(device, options), dismiss: (device, digest) => this.leadPresence.dismiss(device, digest),
         brief: () => this.leadPresence.brief(), updateBrief: update => this.leadPresence.updateBrief(update) },
       leadWork: { board: state => this.leadWork.board(state), read: params => this.leadWork.read(params),

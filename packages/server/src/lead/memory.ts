@@ -38,7 +38,11 @@ interface StoredProposal {
   readonly entry?: string
   /** When it was last proposed or decided. */
   readonly at: number
+  /** What happened to it, oldest first, the newest `HISTORY_KEPT`: what the Lead may say about its past, and no more. */
+  readonly history?: readonly ProposalEvent[]
 }
+type ProposalEvent = { readonly what: 'proposed' | 'asked-again' | 'kept' | 'edited' | 'declined' | 'forgotten'; readonly at: number }
+const HISTORY_KEPT = 8
 /** A No, by the proposal's normalised words and the Lead's journal position when the person said it. */
 interface StoredDecline { readonly key: string; readonly seq: number }
 interface StoreState {
@@ -122,7 +126,9 @@ const parseProposal = (value: unknown): StoredProposal[] => {
   if (!item || typeof item !== 'object' || typeof item.id !== 'string' || !PROPOSAL_STATES.includes(item.state) || !Number.isSafeInteger(item.at)) return []
   if (item.text !== null && (typeof item.text !== 'string' || item.text.length > LEAD_MEMORY_LIMITS.textChars)) return []
   const kind = (['preference', 'fact', 'lesson', 'rule'] as const).find(one => one === item.kind) ?? 'preference'
-  return [{ id: item.id, kind, text: item.text, state: item.state, at: item.at, ...(typeof item.entry === 'string' ? { entry: item.entry } : {}) }]
+  const history = Array.isArray(item.history) ? item.history.filter(event => event && ['proposed', 'asked-again', 'kept', 'edited', 'declined', 'forgotten'].includes(event.what) &&
+    Number.isSafeInteger(event.at)).map(event => ({ what: event.what, at: event.at })).slice(-HISTORY_KEPT) : []
+  return [{ id: item.id, kind, text: item.text, state: item.state, at: item.at, ...(typeof item.entry === 'string' ? { entry: item.entry } : {}), ...(history.length ? { history } : {}) }]
 }
 /** A No written before the desk kept its position reads as position 0: the next thing the person writes reopens it. */
 const parseDecline = (value: unknown): StoredDecline[] => {
@@ -250,7 +256,13 @@ export class LeadMemoryStore {
 
   /** The proposal records with this one put last, as the newest, within their bound. */
   #recorded(record: StoredProposal, list: readonly StoredProposal[] = this.#state.proposals): StoredProposal[] {
-    return [...list.filter(one => one.id !== record.id), record].slice(-LEAD_MEMORY_LIMITS.proposals)
+    // Each record adds what happened to the proposal's history: the first pending is the proposal, a later one is the
+    // Lead asking again; a decision is named by its state. Re-recording the same state at the same time adds nothing.
+    const old = list.find(one => one.id === record.id), before = old?.history ?? []
+    const what: ProposalEvent['what'] = record.state === 'pending' ? (old ? 'asked-again' : 'proposed') : record.state
+    const last = before.at(-1)
+    const history = last && last.what === what && last.at === record.at ? before : [...before, { what, at: record.at }].slice(-HISTORY_KEPT)
+    return [...list.filter(one => one.id !== record.id), { ...record, history }].slice(-LEAD_MEMORY_LIMITS.proposals)
   }
   /** The record of a proposal the person just decided: from the one kept at proposing, or from the candidate itself
    * when it reached the inbox another way (carried over from the earlier lines). */
@@ -318,6 +330,7 @@ export class LeadMemoryStore {
    * writing the list without it).
    */
   status(): LeadMemoryStatus {
+    const seen = (record: StoredProposal) => record.history?.length ? { history: record.history.map(event => ({ ...event })) } : {}
     const { entries, inbox } = this.#state, byId = new Map(entries.map(entry => [entry.id, entry]))
     const waiting = new Set(inbox.map(candidate => candidate.id))
     const live = (id: string | undefined): LeadMemoryEntry | undefined => {
@@ -329,18 +342,18 @@ export class LeadMemoryStore {
       return undefined
     }
     const proposals = [...this.#state.proposals].reverse().flatMap((record): LeadMemoryProposalStatus[] => {
-      if (record.state === 'pending') return waiting.has(record.id) ? [{ id: record.id, state: 'pending' as const, text: record.text, at: record.at }] : []
-      if (record.state !== 'kept' && record.state !== 'edited') return [{ id: record.id, state: record.state, text: record.text, at: record.at }]
+      if (record.state === 'pending') return waiting.has(record.id) ? [{ id: record.id, state: 'pending' as const, text: record.text, at: record.at, ...seen(record) }] : []
+      if (record.state !== 'kept' && record.state !== 'edited') return [{ id: record.id, state: record.state, text: record.text, at: record.at, ...seen(record) }]
       const entry = live(record.entry)
       if (!entry) {
         // Forget marks its own records; an entry gone any other way was undone or replaced, and says which.
         const undone = this.#state.versions.some(version => version.by === 'undo' && version.changes.some(change => change.before?.id === record.entry && !change.after))
-        return [{ id: record.id, state: undone ? 'undone' as const : 'removed' as const, text: record.text, at: record.at }]
+        return [{ id: record.id, state: undone ? 'undone' as const : 'removed' as const, text: record.text, at: record.at, ...seen(record) }]
       }
       // A tidy's merge is still the note kept; the person's own edit makes it theirs. Either way the words are the
       // entry's as they stand now, never the ones it replaced.
       const state: LeadMemoryProposalState = record.state === 'edited' || (entry.id === record.entry && entry.text !== record.text) ? 'edited' : 'kept'
-      return [{ id: record.id, state, text: entry.text, entry: entry.id, at: record.at }]
+      return [{ id: record.id, state, text: entry.text, entry: entry.id, at: record.at, ...seen(record) }]
     })
     return { revision: this.#state.revision, proposals, core: leadMemoryCoreOrder(entries).map(entry => ({ id: entry.id, text: entry.text })),
       entries: entries.map(entry => entry.id), clearedAt: this.#state.clearedAt }

@@ -3,17 +3,18 @@ import { LEAD_MEMORY_LIMITS, type LeadCard, type LeadMemoryCandidate, type LeadM
 import { Banner, Button, Chip, ConfirmDialog, InlineParts, Input, Row, Rows, Section, SectionHead, Switch, Text } from '../design'
 import { useDestinationActive } from '../panels/destination-page'
 import { useStore } from '../state/context'
+import { sanitizeText } from '../lib/sanitize'
 import { leadRefusalText } from './lead-refusals'
 
 /**
  * Where each proposal waiting for the person sits in the Lead's thread: under the first Lead reply after the journal
  * position it was proposed at, or under the latest reply when none came after it. Proposed again while it waits, the
  * desk moves that position forward, so the same chip shows under the newer reply instead of a second copy. With no Lead reply at all it sits
- * nowhere in the thread; Settings › Lead › Memory still lists it.
+ * nowhere in the thread; Settings › Lead › Memory still lists it. The Lead's settings proposals are placed the same way.
  */
-export const leadMemoryPlacement = (messages: readonly LeadMessage[], inbox: readonly LeadMemoryCandidate[]): ReadonlyMap<string, readonly LeadMemoryCandidate[]> => {
+export const leadMemoryPlacement = <T extends { readonly afterSeq: number } = LeadMemoryCandidate>(messages: readonly LeadMessage[], inbox: readonly T[]): ReadonlyMap<string, readonly T[]> => {
   const replies = messages.filter(message => message.role === 'assistant')
-  const placed = new Map<string, LeadMemoryCandidate[]>()
+  const placed = new Map<string, T[]>()
   if (!replies.length) return placed
   for (const candidate of inbox) {
     const reply = replies.find(message => message.revision > candidate.afterSeq) ?? replies.at(-1)!
@@ -39,7 +40,7 @@ const ProposalRow = ({ candidate, pending, change }: { readonly candidate: LeadM
         <Button disabled={pending || !editing.trim()} onClick={() => { change({ action: 'keep', id: candidate.id, text: editing.trim() }); setEditing(null) }}>Keep</Button>
         <Button variant="quiet" onClick={() => setEditing(null)}>Cancel</Button>
       </InlineParts>} />
-    : <Row title={candidate.text} titleChip={<InlineParts><Chip variant="quiet" tone="neutral">{KIND[candidate.kind]}</Chip>
+    : <Row title={sanitizeText(candidate.text)} titleChip={<InlineParts><Chip variant="quiet" tone="neutral">{KIND[candidate.kind]}</Chip>
         {candidate.askedAgainAt !== undefined && <Chip variant="quiet" tone="neutral" title="Proposed again while it waited for you; still one note">Asked again</Chip>}</InlineParts>}
       control={<InlineParts>
         <Button variant="outline" disabled={pending} title="Keep this note in memory" onClick={() => change({ action: 'keep', id: candidate.id })}>Keep</Button>

@@ -27,6 +27,9 @@ export const PRIVATE_CLIENT_METHODS = {
   // A reminder the person asked for: an entry on the work board the person can cancel. It starts, sends and spends nothing.
   'lead/reminder/set': 'read',
   'lead/reminder/cancel': 'read',
+  // A proposal to change its own settings: a card the person applies or declines. It changes nothing by itself.
+  'lead/autonomy/propose': 'read',
+  'lead/rules/propose': 'read',
 } as const satisfies Partial<Record<HostMethodName, ClientTier>>
 
 /** The methods the client door answers, each with the tier it needs. */
@@ -79,6 +82,28 @@ export type ClientMethodName = keyof typeof CLIENT_METHODS
  * Answering remains a separate, ungranted capability. */
 export const CLIENT_TIERS_GRANTED_BY_DEFAULT: readonly ClientTier[] = ['read', 'run']
 export const CLIENT_PROTOCOL = 1
+
+/**
+ * Whether an MCP client may start work on this desk, and how much of today's
+ * allowance it has used. Host-owned state, set only from the window: no method
+ * on the client surface reads or changes it. The day is the desk's local
+ * calendar day; `remaining` is what is left of it.
+ */
+export interface McpStartsView {
+  readonly version: 1
+  readonly revision: number
+  readonly mayStart: boolean
+  readonly dailyStarts: number
+  /** The local day `started` counts, as `YYYY-MM-DD`. */
+  readonly day: string
+  readonly started: number
+  readonly remaining: number
+  /** `environment`: a scripted desk set `HARNESSDESK_MCP_MAY_START=1`, and the switch cannot turn it off. */
+  readonly source: 'stored' | 'environment'
+}
+
+/** The most starts a day an MCP client can be allowed. */
+export const MCP_DAILY_STARTS_MAX = 50
 
 export interface FlowExecutionSummary {
   readonly id: string
