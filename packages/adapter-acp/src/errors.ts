@@ -41,14 +41,15 @@ const PROCESS_GONE = /^(?:the agent is not running|agent failed to start|the age
 
 /**
  * Words that name one kind of failure and nothing else. Read in this order:
- * an upstream "429 quota exceeded" is a spent allowance before it is a rate,
- * and either way the remedy is the same usage window.
+ * an explicit 429 or rate limit wins over the word "quota", because a
+ * provider's per-minute request quota is a throttle that clears by waiting,
+ * not a spent allowance to carry the conversation away from.
  */
 const SNIFFED: readonly (readonly [RegExp, AgentError['code']])[] = [
   [/requires a newer version/i, 'versionGate'],
   [/\b401\b|unauthori[sz]ed|invalid api key|not logged in/i, 'auth'],
-  [/out of credits|insufficient (?:credits?|balance|funds)|credit balance|billing|quota|usage limit|spend cap/i, 'credits'],
   [/\b429\b|rate[- ]?limit|too many requests/i, 'rateLimit'],
+  [/out of credits|insufficient (?:credits?|balance|funds)|credit balance|billing|quota|usage limit|spend cap/i, 'credits'],
   [/econnrefused|econnreset|enotfound|etimedout|eai_again|network (?:error|is unreachable)|fetch failed|socket hang up/i, 'network'],
 ]
 

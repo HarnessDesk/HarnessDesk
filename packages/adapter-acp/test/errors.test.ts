@@ -24,6 +24,8 @@ const cases: readonly (readonly [string, unknown, AgentError['code']])[] = [
   ['an upstream 429', new AcpError('Internal error', -32603, 'API Error: 429 Too Many Requests'), 'rateLimit'],
   ['a rate limit in words', new Error('Rate limit reached, try again shortly'), 'rateLimit'],
   ['a quota', new Error('Quota exceeded for quota metric generate_content_requests'), 'credits'],
+  ['a per-minute request quota sent with 429', new Error('429 Too Many Requests: Quota exceeded for quota metric generate_content_requests per minute'), 'rateLimit'],
+  ['a rate limit worded as a quota', new Error('Rate limit reached: request quota exceeded'), 'rateLimit'],
   ['a usage limit', new Error('Usage limit reached. Your limit resets at 5pm.'), 'credits'],
   ['a credit balance', new Error('Your credit balance is too low to access the API.'), 'credits'],
   ['a billing problem', new Error('Billing details required'), 'credits'],
