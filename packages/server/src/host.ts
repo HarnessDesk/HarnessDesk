@@ -4063,10 +4063,24 @@ export class Host {
       replies: () => journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0),
       asked: () => journal.state.messages.reduce((mark, message) => message.role === 'user' && (message.source === undefined || message.source === 'person') ? Math.max(mark, message.revision) : mark, 0),
       noted: text => this.#logger.warn(text),
+      revision: () => journal.state.seq,
       publish: board => { this.#push({ method: 'lead/work/changed', params: board }); void reminderTimer?.arm() },
     })
     this.#leadWork = work
     this.onDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
+    // #2144: each reply the Lead writes says the reminders its turn's cards called owed, so they are marked said once,
+    // on the board both surfaces read and in the cards of every later turn. The turn is the newest user message before
+    // the reply (the person's, a wake's or a trigger's); a reminder that fired after it began waits for the next reply.
+    let repliedAt = journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0)
+    this.onDispose(journal.onChange(() => {
+      const messages = journal.state.messages
+      for (const [index, message] of messages.entries()) {
+        if (message.role !== 'assistant' || message.revision <= repliedAt) continue
+        repliedAt = message.revision
+        const turn = messages.slice(0, index).findLast(earlier => earlier.role === 'user')
+        if (turn) void work.saidInReply(turn.revision).catch(() => { this.#logger.warn('The Lead work ledger could not mark a reminder said') })
+      }
+    }))
     // Presence: seen marks per device, the away digest, the morning brief and the state of each ask. Built from the
     // ledger and the journal; only the optional paragraph reaches the smaller model, and its cost is counted.
     const observe = createLeadDigestObserver({ prices: options.prices, transport: options.messagesTransport ?? leadProviderTransport,
@@ -4526,7 +4540,7 @@ export class Host {
         // The person's own message under a goal whose time ran out is answered, and told so.
         const note = [expiry, turn.proactive ? undefined : this.#leadAutonomy?.deadlineNote()].filter(Boolean).join(' ') || undefined
         let cards: string | null = null
-        try { cards = leadWorkCards(await work.board(), Date.now()) } catch (error) { if (!note || turn.proactive) throw error }
+        try { await work.refresh().catch(() => {}); cards = leadWorkCards(await work.board(), Date.now()) } catch (error) { if (!note || turn.proactive) throw error }
         return leadTurnContext(cards, note, turn.proactive)
       },
       readMemoryContext: () => this.#leadMemoryContext(),
@@ -6434,10 +6448,12 @@ export class Host {
         proposeMode: params => this.leadAutonomy.proposeMode(params), proposeRules: params => this.leadAutonomy.proposeRules(params), decide: params => this.leadAutonomy.decide(params) },
       leadPresence: { read: (device, options) => this.leadPresence.read(device, options), dismiss: (device, digest) => this.leadPresence.dismiss(device, digest),
         brief: () => this.leadPresence.brief(), updateBrief: update => this.leadPresence.updateBrief(update) },
-      leadWork: { board: state => this.leadWork.board(state), read: params => this.leadWork.read(params),
+      // A read of the board is current: a stop that landed a moment ago is on it, named, before the debounced refresh
+      // would have run, so the wake that stop causes never reads the chat as still working (#2145).
+      leadWork: { board: async state => { const work = this.leadWork; await work.refresh().catch(() => {}); return work.board(state) }, read: params => this.leadWork.read(params),
         note: async params => { const card = await this.leadWork.note(params); void this.leadWork.refresh(); return card },
         close: params => this.leadWork.close(params), setReminder: params => this.leadWork.setReminder(params),
-        cancelReminder: params => this.leadWork.cancelReminder(params) },
+        cancelReminder: params => this.leadWork.cancelReminder(params), clearReminder: params => this.leadWork.clearReminder(params) },
       personStopping: chat => { try { return this.#leadWork?.stopping(chat, 'person') ?? (() => {}) } catch { return () => {} } },
       carryOn: { list: () => this.#carryOn.list(), decide: decision => this.#carryOn.decide(decision) },
       // Cache only: an allowance question never starts a meter/API refresh or ledger scan.

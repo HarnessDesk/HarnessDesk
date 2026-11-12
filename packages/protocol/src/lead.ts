@@ -216,7 +216,13 @@ export interface LeadChatIncidentObservation extends LeadChatIncident {
   readonly candidates: readonly LeadChatCandidate[]
 }
 
-export interface LeadAskOption { readonly id: string; readonly label: string }
+export interface LeadAskOption {
+  readonly id: string
+  readonly label: string
+  /** Choosing it starts or restarts a chat. An answer that picked an option without it starts none: the host refuses
+   * the start, so an answer never begins what the question said it would not. Left out on every other option. */
+  readonly starts?: true
+}
 export interface LeadAsk {
   readonly question: string
   readonly options: readonly LeadAskOption[]
@@ -768,10 +774,10 @@ const askExpiry: Validator<number> = (value, path = '') =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 5 && value <= 7 * 24 * 60 ? value : fail(path, 'expected 5 to 10080 minutes')
 const askOptionId: Validator<string> = (value, path = '') =>
   typeof value === 'string' && /^[a-z0-9-]{1,32}$/.test(value) ? value : fail(path, 'expected a short option slug')
-const askOptions = list(object<LeadAskOption>({ id: askOptionId, label: (value, path = '') => {
+const askOptions = list(omitUnset(object<LeadAskOption>({ id: askOptionId, label: (value, path = '') => {
   const label = text(60)(value, path)
   return label !== label.trim() || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label) ? fail(path, 'expected one trimmed plain-text label') : label
-} }), 4, 2, option => option.id)
+}, starts: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['starts']), 4, 2, option => option.id)
 export const parseLeadAsk: Validator<LeadAsk> = (value, path = '') => {
   const ask = omitUnset(object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId, expiresInMinutes: optional(askExpiry) }), ['expiresInMinutes'])(value, path)
   if (new Set(ask.options.map(option => option.label.trim().replace(/\s+/gu, ' ').toLowerCase())).size !== ask.options.length) fail(path, 'duplicate option label')

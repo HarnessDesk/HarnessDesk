@@ -57,7 +57,10 @@ test('#2108: a stop from the window or the phone on a later attempt under the sa
   assert.equal(found.stoppedBy, 'person', 'the window\'s stop is the person\'s')
   assert.equal(found.fact, 'Stopped: the person stopped its chat')
 
-  // Another attempt under the same item, which the person stops from the phone's work list.
+  // Another attempt under the same item, once the host asked and the person said to start it (#2145), which they stop
+  // from the phone's work list.
+  assert.ok(((await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })).value as { problem?: string }).problem)
+  await r.personWrites('Start it fresh')
   const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })
   assert.equal(second.outcome, 'succeeded', JSON.stringify(second.value))
   const two = (second.value as { id: string }).id
@@ -78,6 +81,9 @@ const twiceStopped = async (r: Rig): Promise<{ item: string, last: string }> => 
   const { id: one, ledgerItem: item } = first.value as { id: string, ledgerItem: string }
   await windowStop(r, one)
   await card(r, item, stopped)
+  // One stop already asks first (#2145): the host refuses once, then the person says to start again.
+  assert.ok(((await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })).value as { problem?: string }).problem)
+  await r.personWrites('Start it fresh')
   const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })
   const last = (second.value as { id: string }).id
   await card(r, item, found => found.stage !== 'stopped')
@@ -160,4 +166,57 @@ test('#2117 review 4: a stop after the person answered asks again; their earlier
   await r.personWrites('Start it fresh')
   const after = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (fresh)', ledgerItem: item } })
   assert.equal(typeof (after.value as { id?: string }).id, 'string', JSON.stringify(after.value))
+})
+
+test('#2145: a second attempt at work the person stopped once is refused until the person answers, even under ledgerItem after they asked for it', async t => {
+  const r = await rig(t)
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id: one, ledgerItem: item } = first.value as { id: string, ledgerItem: string }
+  await windowStop(r, one)
+  await card(r, item, stopped)
+  // The person asks for another chat; the Lead names the stopped item, as the r4 sitting's desktop turn did.
+  await r.personWrites('Open another chat to fix build a game')
+  const chats = r.runtime.sessions.size
+  const refused = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })
+  const problem = (refused.value as { problem?: string }).problem ?? ''
+  assert.match(problem, /Nothing was started/, JSON.stringify(refused.value))
+  assert.match(problem, /stopped once/)
+  assert.match(problem, new RegExp(one.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'it names the last chat, to continue')
+  assert.equal(r.runtime.sessions.size, chats, 'no chat was started')
+  // The same request under a fresh title is the same work, and refused the same way.
+  const renamed = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task', cause: 'person' } })
+  assert.match((renamed.value as { problem?: string }).problem ?? '', /stopped once/, JSON.stringify(renamed.value))
+  await r.personWrites('Start it fresh')
+  const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })
+  assert.equal(typeof (second.value as { id?: string }).id, 'string', JSON.stringify(second.value))
+})
+
+test('#2145: the Lead\'s work list, read the moment the window\'s Stop lands, already says the person stopped it', async t => {
+  const r = await rig(t)
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id: one, ledgerItem: item } = first.value as { id: string, ledgerItem: string }
+  await card(r, item, found => found.stage !== 'queued')
+  await windowStop(r, one)
+  // No polling: the chat-changed wake reads the list at once, before any debounced refresh of the ledger.
+  const block = leadWorkCards(await r.host.call('lead/work/list', {}), Date.now())!
+  assert.match(block, new RegExp(`${item} \\[stopped\\][^\\n]*stopped by the person`), block)
+})
+
+test('#2145: an answer that picked a way without a new chat never starts one; an option marked starts does', async t => {
+  const r = await rig(t)
+  await r.personWrites('Why did the build a game run stall?')
+  const ask = () => ({ question: 'The fix was stopped. How do you want to go on?', recommended: 'read',
+    options: [{ id: 'again', label: 'Open a new chat and try again', starts: true as const }, { id: 'read', label: 'Only read the full reason, change nothing' }] })
+  await r.journal.appendReply('The fix was stopped. How do you want to go on?', undefined, ask())
+  await r.personWrites('Only read the full reason, change nothing')
+  const chats = r.runtime.sessions.size
+  const refused = await r.execute({ method: 'lead/chat/start', params: { text: 'Read the full stall reason, read-only' } })
+  const problem = (refused.value as { problem?: string }).problem ?? ''
+  assert.match(problem, /Nothing was started/, JSON.stringify(refused.value))
+  assert.match(problem, /Only read the full reason, change nothing/)
+  assert.equal(r.runtime.sessions.size, chats, 'no chat was started')
+  await r.journal.appendReply('The fix was stopped. How do you want to go on?', undefined, ask())
+  await r.personWrites('Open a new chat and try again')
+  const started = await r.execute({ method: 'lead/chat/start', params: { text: 'Read the full stall reason, read-only' } })
+  assert.equal(typeof (started.value as { id?: string }).id, 'string', JSON.stringify(started.value))
 })

@@ -151,13 +151,28 @@ it('lists each reminder with when it is due or fired, and Cancel removes one thr
   // A person's reminder the Lead told them about says Said once, with its time, never Fired, and has nothing left to cancel.
   expect(fired.textContent?.match(/Said /g)).toHaveLength(1)
   expect(fired.textContent).not.toContain('Fired')
-  expect(fired.querySelector('button')).toBeNull()
+  expect(fired.querySelector('button[aria-label^="Cancel reminder"]')).toBeNull()
   const calls: { method: string; params: unknown }[] = []
   const request = store.transport.request.bind(store.transport)
   store.transport.request = (async (method: string, params: unknown) => { calls.push({ method, params }); return request(method as never, params as never) }) as typeof store.transport.request
   await act(async () => { set.querySelector<HTMLButtonElement>('button[aria-label^="Cancel reminder"]')!.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
   expect(calls).toEqual([{ method: 'lead/reminder/cancel', params: { id: 'remind-2' } }])
   expect(reminders(box)).toEqual(['remind-3', 'remind-1'])
+})
+
+it('#2144: a fired reminder has Clear, which takes it off the card through the host for good', async () => {
+  const { box, store } = await mount('work-ledger')
+  const fired = box.querySelector<HTMLElement>('[data-work-reminder="remind-1"]')!
+  const set = box.querySelector<HTMLElement>('[data-work-reminder="remind-2"]')!
+  expect(set.querySelector('button[aria-label^="Clear reminder"]'), 'a set one is cancelled, not cleared').toBeNull()
+  const clear = fired.querySelector<HTMLButtonElement>('button[aria-label^="Clear reminder"]')!
+  expect(clear.getAttribute('title')).toBe('Clear reminder')
+  const calls: { method: string; params: unknown }[] = []
+  const request = store.transport.request.bind(store.transport)
+  store.transport.request = (async (method: string, params: unknown) => { calls.push({ method, params }); return request(method as never, params as never) }) as typeof store.transport.request
+  await act(async () => { clear.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(calls).toEqual([{ method: 'lead/reminder/clear', params: { id: 'remind-1' } }])
+  expect(reminders(box)).toEqual(['remind-2', 'remind-3'])
 })
 
 it('a reminder alone draws the card, so a reminder is never set where the person cannot see it', async () => {

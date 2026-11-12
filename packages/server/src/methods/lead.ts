@@ -59,6 +59,7 @@ export const leadMethods = {
   // A reminder is a scheduled entry on the same board: listed, cancellable from every surface, fired by the minute timer.
   'lead/reminder/set': (ctx, params) => ctx.leadWork.setReminder(params),
   'lead/reminder/cancel': (ctx, params) => ctx.leadWork.cancelReminder(params),
+  'lead/reminder/clear': (ctx, params) => ctx.leadWork.clearReminder(params),
   // The Lead's proposals to its own settings are cards; only the person's decision, on any surface, applies one.
   'lead/autonomy/propose': (ctx, params) => ctx.leadAutonomy.proposeMode(params),
   'lead/rules/propose': (ctx, params) => ctx.leadAutonomy.proposeRules(params),

@@ -392,3 +392,50 @@ test('a reminder the Lead sets through its door is listed on the board the windo
   assert.throws(() => parseLeadReminderSet({ text: 'Never', inMinutes: 0 }), /1 to 43200/)
 })
 const DAY = 24 * 60 * 60 * 1000
+
+test('#2144: the reply to a turn that carried a fired reminder marks it said, so later turns stop repeating it; the person clears one from either surface', async t => {
+  const r = await workRig(t)
+  const set = await r.execute({ method: 'lead/reminder/set', params: { text: 'Look at the build CI', inMinutes: 20, cause: 'person' } })
+  const entry = set.value as { id: string; dueAt: number }
+  // A reminder that fired with no wake of its own to say it, as one from an earlier sitting did.
+  await r.host.leadWork.reminded(entry.id, entry.dueAt)
+  const sent: (readonly MessagesTurn[])[] = []
+  const controls = r.controls(async messages => { sent.push(messages); return { status: 'completed', text: sent.length === 1 ? 'The chat is running. Also: your reminder to look at the build CI is due.' : 'Still running.' } })
+  const words = (turns: readonly MessagesTurn[]) => turns.flatMap(turn => Array.isArray(turn.content) ? turn.content : []).map(part => 'text' in part ? part.text : '').join('\n')
+  await controls.send({ idempotencyKey: 'person-1', text: 'How is the build going?' }); await controls.idle()
+  assert.match(words(sent[0]!), /remind-1 for the person "Look at the build CI" fired \d+m ago, not yet said to the person/)
+  let delivery: string | undefined
+  for (let tries = 0; tries < 100 && delivery !== 'said'; tries++) {
+    delivery = (await r.host.call('lead/work/list', {})).reminders?.find(found => found.id === entry.id)?.delivery
+    if (delivery !== 'said') await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.equal(delivery, 'said', 'the reply that carried it said it')
+  await controls.send({ idempotencyKey: 'person-2', text: 'And now?' }); await controls.idle()
+  assert.doesNotMatch(words(sent[1]!), /not yet said to the person|tell them now/, 'the next turn is not told to say it again')
+  assert.match(words(sent[1]!), /remind-1 for the person "Look at the build CI" said to the person/)
+
+  // Clearing is the person's, on the window and the phone; the Lead has no door to it.
+  assert.equal(PHONE_POLICY.methods['lead/reminder/clear'], 'run', 'the phone may clear a reminder')
+  const lead = await r.execute({ method: 'lead/reminder/clear' as never, params: { id: entry.id } as never })
+  assert.equal(lead.outcome, 'denied', 'the Lead cannot clear one: the method is off its door')
+  const cleared = await r.host.call('lead/reminder/clear', { id: entry.id })
+  assert.equal(cleared.reminders?.some(found => found.id === entry.id) ?? false, false)
+  assert.equal((await r.host.call('workspace/read', {})).work?.reminders?.some(found => found.id === entry.id) ?? false, false, 'the phone reads it gone too')
+})
+
+test('#2146: each person turn tells the Lead which device the person wrote from, and that every card works there', async t => {
+  const r = await workRig(t)
+  const sent: (readonly MessagesTurn[])[] = []
+  const controls = r.controls(async messages => { sent.push(messages); return { status: 'completed', text: 'Done.' } })
+  const words = (turns: readonly MessagesTurn[]) => turns.flatMap(turn => Array.isArray(turn.content) ? turn.content : []).map(part => 'text' in part ? part.text : '').join('\n')
+  await controls.send({ idempotencyKey: 'phone-1', text: 'Did my change apply?', device: { id: 'phone:p1', label: 'Jane\'s phone <b>' } }); await controls.idle()
+  const phone = words(sent[0]!)
+  assert.match(phone, /<person-device>The person wrote this message on their phone "Jane's phone \\u003cb>"/)
+  assert.match(phone, /Apply, Keep, Edit, No and an ask's options work on the phone as they do on the desktop/)
+  assert.match(phone, /never tell them to go to the desktop/)
+  await controls.send({ idempotencyKey: 'window-1', text: 'And now?', device: { id: 'window:w1', label: 'Desktop' } }); await controls.idle()
+  assert.match(words(sent[1]!), /<person-device>The person wrote this message in the desktop window/)
+  assert.doesNotMatch(words(sent[1]!), /on their phone/)
+  await controls.send({ idempotencyKey: 'unknown-1', text: 'One more' }); await controls.idle()
+  assert.doesNotMatch(words(sent[2]!), /<person-device>/, 'a send that names no device says nothing about one')
+})

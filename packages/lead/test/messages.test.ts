@@ -640,6 +640,30 @@ test('an embedded envelope that does not validate is left for the host to strip,
   assert.deepEqual(lead.stripLeadOutput('Plain words with {braces} only.'), { text: 'Plain words with {braces} only.', dropped: false })
 })
 
+test('tool-call markup the model wrote as text is never in a reply: the r4 leak, a stray tag, and a whole call written as words (#2148)', async () => {
+  // The round-4 phone reply began with these lines before the envelope that answered.
+  const ask = { question: '你想怎么继续？', options: [{ id: 'again', label: '重新开一个会话再试一次' }, { id: 'read', label: '只读完整原因' }], recommended: 'read' }
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: '结论： 这次我先不开新会话，要你先定一下。', ask })
+  const leaked = `</parameter>\n</invoke>\nWait — the envelope must be the whole reply. Correcting below.\n\n${envelope}`
+  const s = await setup([message([{ type: 'text', text: leaked }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.deepEqual(result.ask, ask)
+  assert.equal(result.text, '结论： 这次我先不开新会话，要你先定一下。', 'the misfired call and the note about it are not the reply')
+  // Without an envelope the markup goes and the words stay.
+  for (const [text, expected] of [
+    ['</parameter></invoke>\nThe chat is running.', 'The chat is running.'],
+    ['I will start it.\n<invoke name="lead_chat_start">\n<parameter name="prompt">Fix the build</parameter>\n</invoke>\nIt is starting.', 'I will start it.\nIt is starting.'],
+    ['Done.</function_calls>', 'Done.'],
+    ['The tag `</parameter>` closes a parameter.', 'The tag `</parameter>` closes a parameter.'],
+    ['Plain words, no markup.', 'Plain words, no markup.'],
+  ] as const) {
+    const plain = await setup([message([{ type: 'text', text }])])
+    assert.equal((await plain.client.request(input, new AbortController().signal)).text, expected, text)
+  }
+  assert.deepEqual(lead.stripLeadToolMarkup('</parameter>\n</invoke>\nHello.'), { text: 'Hello.', dropped: true })
+})
+
 test('a clipped envelope mid-reply loses only its own line, quote block or inline fragment, and the words after it stay', () => {
   // (i) Quoted from a worker that stopped mid-envelope, with the Lead's recommendation after it.
   assert.deepEqual(lead.stripLeadOutput('The worker printed this before it stopped:\n> {"version":1,"type":"lead-output","text":"Merging now\n> and pushing\n\nI recommend we stop the worker and look at its branch.'),

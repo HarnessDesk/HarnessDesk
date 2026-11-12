@@ -1,6 +1,6 @@
 import { leadStage, quoteLeadWorkText, type LeadStage, type LeadStartCause } from '@harnessdesk/protocol'
 import type { DispatchAdmission } from '../dispatch-admission.js'
-import { LEAD_LIMITS, deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, deskContextContent, leadDisplayName, leadMessageAsk, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
 import { LeadChatHeldError, type LeadChatControlStore } from './chat-control.js'
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
@@ -12,6 +12,7 @@ import { scrub } from '../phone-redact.js'
 import { LeadChatIncidents } from './incidents.js'
 import type { AgentError, LeadChatCandidate, LeadChatIncidentObservation, RateLimits, Turn } from '@harnessdesk/protocol'
 import { boundLeadChatRead } from './chat-read.js'
+import { leadAskOption } from './presence.js'
 import type { LeadWorkLedger, LeadWorkLinkState } from './work.js'
 
 export class LeadChatBusyError extends Error { constructor() { super('That chat is busy; defer the recovery retry.') } }
@@ -413,6 +414,21 @@ export class LeadChats {
     if (this.ports.project.path !== root) refuse('Lead project scope changed.')
     return boundLeadChatRead(result)
   }
+  /**
+   * The person's newest message, when it picked an option of the Lead's question just before it and that option is
+   * not marked `starts`: the question and the label. Null for anything else, including a message that is not an option.
+   */
+  #answerWithoutStart(): { readonly question: string; readonly label: string } | null {
+    const messages = this.ports.state().messages
+    const person = (one: (typeof messages)[number]) => one.role === 'user' && !one.wake && (one.source === undefined || one.source === 'person')
+    const at = messages.findLastIndex(person)
+    if (at < 0) return null
+    const since = messages.slice(0, at).findLastIndex(person)
+    const asked = messages.slice(since + 1, at).findLast(one => one.role === 'assistant' && leadMessageAsk(one) !== undefined)
+    const ask = asked ? leadMessageAsk(asked) : undefined
+    const option = ask ? leadAskOption(ask.options, messages[at]!.text) : undefined
+    return ask && option && !option.starts ? { question: ask.question, label: option.label } : null
+  }
   #envelope(text: string): string { return leadMessageEnvelope(leadDisplayName(this.ports.state().name), text) }
   /** The person messages a start comes from: the ones it quotes, or the latest that was not an option's answer. */
   #quoteIds(params: HostParams<'lead/chat/start'>): readonly string[] {
@@ -483,6 +499,13 @@ export class LeadChats {
       if (open) {
         this.ports.noteDispatchNotStarted(attemptId)
         return { id: '', problem: `Your question ${quoteLeadWorkText(open.question, 200)} is still open and the person has not picked an option. Do not start the work it decides, and do not pick for them: point the person to the question and its options (${open.options.map(option => quoteLeadWorkText(option, 60)).join(', ')}).` }
+      }
+      // An answer is what it says: an option the Lead did not mark as starting a chat starts none, whichever words the
+      // turn after it would have used. The r4 sitting started a chat on "only read the full reason" (#2145).
+      const chose = params.moveFrom === undefined ? this.#answerWithoutStart() : null
+      if (chose) {
+        this.ports.noteDispatchNotStarted(attemptId)
+        return { id: '', problem: `Nothing was started: the person answered your question ${quoteLeadWorkText(chose.question, 200)} with ${quoteLeadWorkText(chose.label, 60)}, an option that starts no chat. Do what that option says without a new chat, and tell the person what you did. If it cannot be done without one, say so and ask again, with the option that starts a chat marked "starts".` }
       }
       // The person's own start is never refused here. Anything else is automatic work: it stops when the goal's time has
       // run out, and it waits at the cap, for a reason the Lead is handed back as the tool result.

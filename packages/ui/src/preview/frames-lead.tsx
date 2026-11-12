@@ -176,6 +176,13 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       if (!work.reminders?.some(entry => entry.id === params.id)) throw { code: 'notFound' }
       return work = { ...work, reminders: work.reminders.map(entry => entry.id === params.id && entry.state === 'set' ? { ...entry, state: 'cancelled' as const, cancelledAt: Date.now(), why: 'Cancelled' } : entry) }
     }
+    if (method === 'lead/reminder/clear') {
+      // As on the desk: a fired or cancelled reminder leaves the board for good; a set one must be cancelled instead.
+      const entry = work.reminders?.find(found => found.id === params.id)
+      if (!entry) throw { code: 'notFound' }
+      if (entry.state === 'set') throw { code: 'invalidParams' }
+      return work = { ...work, reminders: work.reminders!.filter(found => found.id !== params.id) }
+    }
     if (method === 'lead/wakes/read') return { revision: current.revision, wakes: scene === 'wake-ledger' ? leadWakeFixture : [] }
     if (method === 'lead/budget/raise') {
       if (params.expectedRevision !== current.revision) throw { code: 'lead-revision-stale' }

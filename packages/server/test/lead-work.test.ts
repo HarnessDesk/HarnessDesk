@@ -15,7 +15,7 @@ const rig = async (t: TestContext) => {
   const teams = new Map<string, LeadWorkLinkState & { readonly done: boolean }>()
   const prs: { ref: string; state: 'open' | 'merged' | 'closed'; failing: boolean }[] = []
   const published: LeadWorkBoard[] = []
-  let now = 1_000_000, replies = 0, asked = 0, project = 'acme-app'
+  let now = 1_000_000, replies = 0, asked = 0, project = 'acme-app', revision = 0
   const notes: string[] = []
   const ports = {
     file: join(home, 'lead', 'work.json'), now: () => now, project: () => project,
@@ -24,13 +24,14 @@ const rig = async (t: TestContext) => {
     pullRequests: () => prs,
     replies: () => replies,
     asked: () => asked,
+    revision: () => revision,
     noted: (text: string) => { notes.push(text) },
     publish: (board: LeadWorkBoard) => { published.push(board) },
   }
   const ledger = await LeadWorkLedger.open(ports)
   const chat = (id: string, stage: LeadStage, reason = stage === 'idle' ? 'idle' : stage === 'working' ? 'running' : 'worker-approval', turn?: string) => { chats.set(id, { stage, reason, ...(turn ? { turn } : {}) }) }
   return { ledger, ports, chats, teams, prs, published, chat, file: ports.file, home, notes,
-    tick: (ms: number) => { now += ms }, now: () => now, reply: () => { replies++ }, ask: () => { asked++ },
+    tick: (ms: number) => { now += ms }, now: () => now, reply: () => { replies++ }, ask: () => { asked++ }, turn: () => ++revision,
     inProject: (name: string) => { project = name }, reopen: () => LeadWorkLedger.open(ports) }
 }
 const start = async (r: Awaited<ReturnType<typeof rig>>, title: string, quotes: readonly string[], chatId: string, ledgerItem?: string) => {
@@ -620,10 +621,14 @@ test('another go at work the host closed is refused with that item named, and le
     if (title.startsWith('Another attempt')) { if (!('problem' in again)) r.ledger.release(again); continue }
     assert.ok('problem' in again, `"${title}" is the same work as the stopped try`)
     assert.equal(again.item, 'work-1')
-    assert.match(again.problem, /tried 10 minutes ago/); assert.match(again.problem, /its chat was stopped/); assert.match(again.problem, /ask whether to start another attempt/)
+    // One stop the desk could not attribute may have been the person's: the host asks first (#2145).
+    assert.match(again.problem, /stopped once/); assert.match(again.problem, /10 minutes ago/); assert.match(again.problem, /ask which they want/)
   }
+  const unasked = await r.ledger.claim({ title: 'Fix the login redirect', quotes: ['m-3'], ledgerItem: 'work-1' })
+  assert.ok('problem' in unasked && /stopped once/.test(unasked.problem), 'ledgerItem is no way around the question')
+  r.ask()
   const attempt = await start(r, 'Fix the login redirect', ['m-3'], 'fixture:b', 'work-1')
-  assert.deepEqual(attempt, { item: 'work-1' }, 'the person asked again: the attempt joins the same item')
+  assert.deepEqual(attempt, { item: 'work-1' }, 'the person answered: the attempt joins the same item')
   const item = await r.ledger.read({ id: 'work-1' })
   assert.equal(item.closedAt, undefined); assert.deepEqual(item.links.chats, ['fixture:a', 'fixture:b'])
   assert.ok(item.timeline.some(fact => fact.text === 'Another attempt started'))
@@ -851,6 +856,8 @@ test('a retry under a reopened item ends by its own chat, not by the stopped try
   r.chat('fixture:a', 'working'); await r.ledger.refresh()
   r.chat('fixture:a', 'idle', 'stopped'); await r.ledger.refresh()
   assert.equal((await r.ledger.read({ id: 'work-1' })).stage, 'stopped')
+  assert.ok('problem' in await r.ledger.claim({ title: 'Fix the login redirect', quotes: ['m-2'], ledgerItem: 'work-1' }), 'the host asks first')
+  r.ask()
   assert.deepEqual(await start(r, 'Fix the login redirect', ['m-2'], 'fixture:b', 'work-1'), { item: 'work-1' })
   r.chat('fixture:b', 'working'); await r.ledger.refresh()
   assert.equal((await r.ledger.read({ id: 'work-1' })).stage, 'working', 'the earlier stop does not close the new attempt')
@@ -1027,3 +1034,59 @@ test('a second wake the Lead cannot take now leaves the reminder waiting, not mi
   assert.equal((await r.ledger.board()).reminders?.find(found => found.id === two.id)?.delivery, 'missed')
 })
 
+
+test('#2144: a fired reminder the Lead has said is marked said once and never owed again; one fired before the turn began is', async t => {
+  const r = await rig(t)
+  const entry = await r.ledger.setReminder({ text: 'Look at the build CI', inMinutes: 20, cause: 'person' })
+  r.tick(20 * 60_000)
+  const before = r.turn()
+  await r.ledger.reminded(entry.id, entry.dueAt)
+  let board = await r.ledger.board()
+  const owed = () => leadWorkCards(board, r.now())
+  assert.match(owed()!, /fired 0m ago, not yet said to the person/)
+  // A reply to a turn that began before the reminder fired could not have carried it.
+  await r.ledger.saidInReply(before)
+  board = await r.ledger.board()
+  assert.equal(board.reminders?.find(found => found.id === entry.id)?.delivery, undefined)
+  // The next turn carries it, and its reply says it: said, once, and never owed on a later turn.
+  await r.ledger.saidInReply(r.turn())
+  board = await r.ledger.board()
+  const said = board.reminders?.find(found => found.id === entry.id)
+  assert.equal(said?.delivery, 'said'); assert.equal(said?.deliveredAt, r.now())
+  assert.match(owed()!, /said to the person 0m ago/)
+  assert.doesNotMatch(owed()!, /not yet said|tell them now/)
+  r.tick(60_000)
+  await r.ledger.saidInReply(r.turn())
+  assert.equal((await r.ledger.board()).reminders?.find(found => found.id === entry.id)?.deliveredAt, r.now() - 60_000, 'said once')
+  // A reminder an earlier wake marked missed is said by the next reply too, so it stops being owed.
+  const late = await r.ledger.setReminder({ text: 'Send the notes', inMinutes: 20, cause: 'person' })
+  r.tick(20 * 60_000)
+  await r.ledger.reminded(late.id, late.dueAt, 'wake-late')
+  await r.ledger.delivered(late.id, 'missed')
+  await r.ledger.saidInReply(r.turn())
+  assert.equal((await r.ledger.board()).reminders?.find(found => found.id === late.id)?.delivery, 'said')
+  // The Lead's own reminders are not the person's to be told.
+  const own = await r.ledger.setReminder({ text: 'Check the Team', inMinutes: 20 })
+  r.tick(20 * 60_000)
+  await r.ledger.reminded(own.id, own.dueAt)
+  await r.ledger.saidInReply(r.turn())
+  assert.equal((await r.ledger.board()).reminders?.find(found => found.id === own.id)?.delivery, undefined)
+})
+
+test('#2144: the person clears a fired or cancelled reminder; it leaves the board and the Lead\'s cards, and a set one is cancelled instead', async t => {
+  const r = await rig(t)
+  const fired = await r.ledger.setReminder({ text: 'Look at the build CI', inMinutes: 20, cause: 'person' })
+  const later = await r.ledger.setReminder({ text: 'Send the notes', inMinutes: 600, cause: 'person' })
+  r.tick(20 * 60_000)
+  await r.ledger.reminded(fired.id, fired.dueAt, 'wake-1')
+  await assert.rejects(r.ledger.clearReminder({ id: later.id }), /not fired yet.*cancel/i)
+  const board = await r.ledger.clearReminder({ id: fired.id })
+  assert.deepEqual(board.reminders?.map(found => found.id), [later.id])
+  assert.doesNotMatch(leadWorkCards(board, r.now())!, /Look at the build CI/)
+  assert.deepEqual(await r.ledger.awaitingDelivery(), [], 'a cleared reminder is not delivered later either')
+  await assert.rejects(r.ledger.clearReminder({ id: fired.id }), /no reminder/)
+  await r.ledger.cancelReminder({ id: later.id })
+  assert.equal((await r.ledger.clearReminder({ id: later.id })).reminders, undefined, 'a cancelled one clears too')
+  assert.equal((await (await r.reopen()).board()).reminders, undefined, 'and stays cleared after a restart')
+  await assert.rejects(r.ledger.clearReminder({ id: 'remind-99' }), /no reminder/)
+})
