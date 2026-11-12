@@ -1,7 +1,7 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
 import { isDeepStrictEqual } from 'node:util'
 import { firstAsk, leadMessageWords, isLeadMessageSource, leadDisplayName, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
-import { canonicalTranscriptBody, PendingTranscript, type LeadMemoryView } from '@harnessdesk/protocol'
+import { canonicalTranscriptBody, LEAD_MEMORY_KIND_LABELS, PendingTranscript, type LeadMemoryView, type LeadWorkBoard } from '@harnessdesk/protocol'
 import { DescriptorCache, PendingSessionOverlay, recoveryDescriptor } from './recovery-descriptor.js'
 import { LeadChatControlStore, LeadChatHeldError } from './lead/chat-control.js'
 import { leadOwnedTeams } from './lead/owned-teams.js'
@@ -67,6 +67,7 @@ import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
+  brandForRuntime,
   browserProfileStorageName,
   sessionBrowserProfile,
   browserProfileSession,
@@ -185,7 +186,7 @@ import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRe
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadClockLine, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
-import { initialLeadMemoryCore, leadMemoryStatus, leadSettingsStatus } from '@harnessdesk/lead'
+import { initialLeadMemoryCore, leadMemoryStatus, leadRulesHeld, leadSettingsStatus } from '@harnessdesk/lead'
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { FlowExecution, LeadProject } from '@harnessdesk/protocol'
@@ -4063,10 +4064,26 @@ export class Host {
       replies: () => journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0),
       asked: () => journal.state.messages.reduce((mark, message) => message.role === 'user' && (message.source === undefined || message.source === 'person') ? Math.max(mark, message.revision) : mark, 0),
       noted: text => this.#logger.warn(text),
+      revision: () => journal.state.seq,
       publish: board => { this.#push({ method: 'lead/work/changed', params: board }); void reminderTimer?.arm() },
     })
     this.#leadWork = work
     this.onDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
+    // #2144: each reply the Lead writes says the reminders its turn's cards called owed, so they are marked said once,
+    // on the board both surfaces read and in the cards of every later turn. The turn is the newest user message before
+    // the reply (the person's, a wake's or a trigger's); a reminder that fired after it began waits for the next reply.
+    // Only the Lead model's own reply counts: a notice the host writes meanwhile (a takeover, a refused repeat) told
+    // the person nothing about the reminder.
+    let repliedAt = journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0)
+    this.onDispose(journal.onChange(() => {
+      const messages = journal.state.messages
+      for (const [index, message] of messages.entries()) {
+        if (message.role !== 'assistant' || message.revision <= repliedAt) continue
+        repliedAt = message.revision
+        const turn = messages.slice(0, index).findLast(earlier => earlier.role === 'user')
+        if (turn && journal.isModelReply(message.id)) void work.saidInReply(turn.revision).catch(() => { this.#logger.warn('The Lead work ledger could not mark a reminder said') })
+      }
+    }))
     // Presence: seen marks per device, the away digest, the morning brief and the state of each ask. Built from the
     // ledger and the journal; only the optional paragraph reaches the smaller model, and its cost is counted.
     const observe = createLeadDigestObserver({ prices: options.prices, transport: options.messagesTransport ?? leadProviderTransport,
@@ -4085,7 +4102,7 @@ export class Host {
       report: text => journal.appendReply(text),
       changed: () => { this.#push({ method: 'lead/presence/changed', params: {} }); this.#push({ method: 'lead/autonomy/changed', params: {} }) },
       // Where a proposal card sits (under the Lead's next reply), and whether the person has written since a No.
-      seq: () => journal.state.seq, personSeq: () => this.#leadPersonSeq() })
+      seq: () => journal.state.seq, personSeq: () => this.#leadPersonSeq(), receipt: text => this.#leadReceipt(text) })
     this.#leadAutonomy = autonomy
     void autonomy.attach().catch(() => { this.#logger.warn('The Lead autonomy settings could not be read') })
     this.onDispose(() => { if (this.#leadAutonomy === autonomy) this.#leadAutonomy = null })
@@ -4094,6 +4111,7 @@ export class Host {
     this.onDispose(() => { if (this.#leadPresence === presence) this.#leadPresence = null })
     let workTimer: ReturnType<typeof setTimeout> | null = null
     const pokeWork = () => {
+      work.stale()
       if (workTimer || this.#disposed) return
       workTimer = setTimeout(() => { workTimer = null; void work.refresh().catch(() => { this.#logger.warn('The Lead work ledger could not refresh') }) }, 250)
       workTimer.unref?.()
@@ -4137,7 +4155,7 @@ export class Host {
     this.#leadPacing = pacing
     this.#leadChats = new LeadChats({ project, state: () => journal.state, slots: this.#leadSlots(journal), now: options.recovery?.now ?? Date.now, pacing,
       deadlinePassed: async () => { const goal = journal.state.budget?.logicalGoalId; return goal !== undefined && await this.#leadAutonomy?.deadlineElapsed(goal) === true },
-      unansweredAsk: () => this.#leadPresence?.unansweredAsk() ?? null,
+      askHoldingChatStart: () => this.#leadPresence?.askHoldingChatStart() ?? null,
       managementAvailable: () => this.#leadService?.managementAvailable === true,
       queuedSends: () => this.registry.all().some(record => record.queue.messages.some(message => {
         const admission = this.registry.queuedAdmission(record, message.id)
@@ -4518,18 +4536,21 @@ export class Host {
       screen: async text => { await this.#leadService!.assertPublic(text) },
       // The desk as it stands when the checkpoint is written, so a summary never keeps a fact the ledger has moved past.
       deskNow: async () => [leadClockLine(Date.now()),
-        leadWorkCards(await work.board(), Date.now()) ?? '<work-ledger>\nNo open work, no reminders and nothing stopped in the last day.\n</work-ledger>'].join('\n'),
+        leadWorkCards(this.#withLeadAsk(await work.board()), Date.now()) ?? '<work-ledger>\nNo open work, no reminders and nothing stopped in the last day.\n</work-ledger>'].join('\n'),
     }).catch(() => {})
     this.#leadControls = new LeadControls({ journal,
       readWorkContext: async turn => {
         const expiry = presence.takeExpiryNote(turn.proactive)
         // The person's own message under a goal whose time ran out is answered, and told so.
-        const note = [expiry, turn.proactive ? undefined : this.#leadAutonomy?.deadlineNote()].filter(Boolean).join(' ') || undefined
+        // Soon after the person comes back, their turn carries the real away window and what moved in it (#2147).
+        const away = turn.proactive ? undefined : await presence.awayNote().catch(() => undefined)
+        const note = [expiry, turn.proactive ? undefined : this.#leadAutonomy?.deadlineNote(), away].filter(Boolean).join(' ') || undefined
         let cards: string | null = null
-        try { cards = leadWorkCards(await work.board(), Date.now()) } catch (error) { if (!note || turn.proactive) throw error }
+        try { await work.refresh().catch(() => {}); cards = leadWorkCards(this.#withLeadAsk(await work.board()), Date.now()) } catch (error) { if (!note || turn.proactive) throw error }
         return leadTurnContext(cards, note, turn.proactive)
       },
       readMemoryContext: () => this.#leadMemoryContext(),
+      settingsShown: async at => { await this.#leadAutonomy?.markSettingsShown(at) },
       approveRepeat: async (id, contract, reactivate) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now(), reactivate) },
       freezeRepeat: async contract => ({ ...contract, digest: leadContractDigest(contract) }),
       validateRepeat: async contract => {
@@ -4720,22 +4741,26 @@ export class Host {
     return 0
   }
   /** What each request tells the Lead about memory now: what became of its proposals, and what changed since the
-   * Core its standing instructions hold. */
-  async #leadMemoryContext(): Promise<string | null> {
+   * Core its standing instructions hold. `settingsShownAt` is when the settings were read: once the Lead's reply to the
+   * person is stored, the controls keep it, and a settings change before it is no longer marked as news (#2165). A
+   * failed request, a wake or a proactive turn answers nobody, so nothing is kept for them. */
+  async #leadMemoryContext(): Promise<{ readonly text: string; readonly settingsShownAt?: number } | null> {
     const journal = this.#leadJournal
     if (!journal) return null
     const memory = leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
     // Its own settings and what became of its proposals to change them ride the same note: a settings file that cannot
     // be read leaves them out rather than the memory status.
-    const settings = this.#leadAutonomy ? await this.#leadAutonomy.view().then(leadSettingsStatus, () => null) : null
-    return settings ? `${memory}\n${settings}` : memory
+    const autonomy = this.#leadAutonomy, shownAt = Date.now()
+    const read = autonomy ? await Promise.all([autonomy.view(), autonomy.settingsShownAt()]).then(([view, since]) =>
+      ({ settings: leadSettingsStatus(view, undefined, since, leadRulesHeld(journal.state)) }), () => null) : null
+    return { text: read?.settings ? `${memory}\n${read.settings}` : memory, ...(read ? { settingsShownAt: shownAt } : {}) }
   }
   /** The status a desk wake carries: null when the memory store cannot be read, or takes longer than
    * `LEAD_WAKE_MEMORY_STATUS_MS` to open, so a corrupt file or a slow first open never stalls or stops a wake. */
   async #leadMemoryStatusForWake(): Promise<string | null> {
     let timer: ReturnType<typeof setTimeout> | undefined
     const late = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), LEAD_WAKE_MEMORY_STATUS_MS); timer.unref?.() })
-    try { return await Promise.race([this.#leadMemoryContext().catch(() => null), late]) }
+    try { return await Promise.race([this.#leadMemoryContext().then(note => note?.text ?? null, () => null), late]) }
     finally { clearTimeout(timer) }
   }
   /** The Lead's memory: Core, Archive, the inbox and their versions, beside the journal. Opened once; the first open
@@ -4749,6 +4774,23 @@ export class Host {
       this.onDispose(store.onChange(revision => this.#push({ method: 'lead/memory/changed', params: { revision } })))
       return store
     }, error => { this.#leadMemoryOpen = null; throw error })
+  }
+
+  /**
+   * One host notice in the Lead's thread for a change the person's own press made: a kept memory, an applied settings
+   * proposal (#2176). Both surfaces draw it as a host notice. A thread that cannot take it leaves the change as it is.
+   */
+  async #leadReceipt(text: string): Promise<void> {
+    const journal = this.#leadJournal
+    if (!journal) return
+    await journal.receipt(text.length > 600 ? `${text.slice(0, 599)}…` : text).catch(error => { this.#logger.warn(`lead receipt not written: ${(error as Error).message}`) })
+  }
+
+  /** The board with the Lead's open question on it, by the desk's ask states; the board as it is when none is open. */
+  #withLeadAsk(board: LeadWorkBoard): LeadWorkBoard {
+    const open = this.#leadPresence?.openAsk()
+    if (!open) return board
+    return { ...board, ask: { id: open.id, question: open.question, at: open.at, ...(open.expiresAt === undefined ? {} : { expiresAt: open.expiresAt }) } }
   }
 
   #leadMemoryShown(view: LeadMemoryView): LeadMemoryView { return this.#leadMemoryFault ? { ...view, fault: this.#leadMemoryFault } : view }
@@ -6434,10 +6476,13 @@ export class Host {
         proposeMode: params => this.leadAutonomy.proposeMode(params), proposeRules: params => this.leadAutonomy.proposeRules(params), decide: params => this.leadAutonomy.decide(params) },
       leadPresence: { read: (device, options) => this.leadPresence.read(device, options), dismiss: (device, digest) => this.leadPresence.dismiss(device, digest),
         brief: () => this.leadPresence.brief(), updateBrief: update => this.leadPresence.updateBrief(update) },
-      leadWork: { board: state => this.leadWork.board(state), read: params => this.leadWork.read(params),
+      // A read of the board is current: a stop that landed a moment ago is on it, named, before the debounced refresh
+      // would have run, so the wake that stop causes never reads the chat as still working (#2145).
+      // The board carries the Lead's open question, by the desk's ask states, so a wake reads it as a person's turn does (#2173).
+      leadWork: { board: async state => { const work = this.leadWork; await work.current().catch(() => {}); return this.#withLeadAsk(await work.board(state)) }, read: params => this.leadWork.read(params),
         note: async params => { const card = await this.leadWork.note(params); void this.leadWork.refresh(); return card },
         close: params => this.leadWork.close(params), setReminder: params => this.leadWork.setReminder(params),
-        cancelReminder: params => this.leadWork.cancelReminder(params) },
+        cancelReminder: params => this.leadWork.cancelReminder(params), clearReminder: params => this.leadWork.clearReminder(params) },
       personStopping: chat => { try { return this.#leadWork?.stopping(chat, 'person') ?? (() => {}) } catch { return () => {} } },
       carryOn: { list: () => this.#carryOn.list(), decide: decision => this.#carryOn.decide(decision) },
       // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
@@ -6480,7 +6525,14 @@ export class Host {
       leadMemoryRead: async () => (await this.#leadMemory()).legacy(),
       leadMemoryUpdate: async params => (await this.#leadMemory()).replaceLegacy(params.memory, this.#leadJournal?.state.seq ?? 0),
       leadMemoryView: async () => this.#leadMemoryShown((await this.#leadMemory()).view()),
-      leadMemoryChange: async params => this.#leadMemoryShown(await (await this.#leadMemory()).change(params, this.#leadJournal?.state.seq ?? 0)),
+      leadMemoryChange: async params => {
+        // Keep says what it kept in the thread, in the words and kind it was kept with (#2176). No leaves no receipt. The
+        // store names the entry this Keep made, so two Keeps at once never both name the same one.
+        let kept = undefined as { readonly kind: keyof typeof LEAD_MEMORY_KIND_LABELS; readonly text: string } | undefined
+        const view = await (await this.#leadMemory()).change(params, this.#leadJournal?.state.seq ?? 0, entry => { kept = entry })
+        if (kept) await this.#leadReceipt(`Kept · ${LEAD_MEMORY_KIND_LABELS[kept.kind]}: ${kept.text}`)
+        return this.#leadMemoryShown(view)
+      },
       leadMemoryPropose: async params => (await this.#leadMemory()).propose(params, this.#leadJournal?.state.seq ?? 0, this.#leadPersonSeq()),
       leadMemorySearch: async params => this.#leadMemorySearch(params.query, params.limit),
       leadContextRead: async () => (await this.#leadWindow()).readContext(),
@@ -12129,7 +12181,7 @@ export class Host {
       window: await this.#leadWindow().then(window => window.readThread()).catch(() => null),
       desk: await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
       kept: this.#currentNotices(), now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id),
-      ask: this.#leadPresence?.unansweredAsk() ?? null,
+      ask: this.#leadPresence?.openAsk() ?? null,
     })
   }
 
@@ -12180,6 +12232,11 @@ export class Host {
       seatName: (runtime) => {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
+      },
+      // The mark the desktop draws for this agent, decided by the same function (#2150).
+      seatBrand: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? brandForRuntime(this.#infoOf(known)) : null
       },
       canDelete: runtime => this.#runtimes.get(runtime)?.info.capabilities.deleteHistory === 'trash',
       knowsStart: (runtime) => {
@@ -12465,6 +12522,11 @@ export class Host {
       seatName: (runtime) => {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
+      },
+      // The mark the desktop draws for this agent, decided by the same function (#2150).
+      seatBrand: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? brandForRuntime(this.#infoOf(known)) : null
       },
       isOwn: (runtime, id, includeArchived) => this.#sessionIndex.isOwn(runtime, id, includeArchived),
       summary: (runtime, id) => this.#sessionIndex.get(runtime, id),

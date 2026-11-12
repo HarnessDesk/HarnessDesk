@@ -134,3 +134,11 @@ it('#2106 review: a proposed note is the Lead\'s words, drawn as plain text with
   expect(row.textContent).not.toMatch(/[\x1b\x07]/)
   expect(box.querySelector('img')).toBeNull()
 })
+
+it('history after Forget says what was forgotten and what each change did, never only no change (#2152)', async () => {
+  const { box } = await mount(() => <LeadMemorySection label="Dex" />)
+  const rows = [...box.querySelectorAll('[data-slot="row"]')].map(row => row.textContent ?? '')
+  expect(rows.some(row => row.includes('You · 1 forgotten'))).toBe(true)
+  expect(rows, 'the change Forget emptied keeps its count and says it was forgotten').toContain('Dex · 1 addedForgotten')
+  expect(box.textContent).not.toContain('no change')
+})

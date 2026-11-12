@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
-const scenes = ['pending-plan', 'result-person-gate', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'autonomy-proposal', 'autonomy-proposal-words'] as const
+const scenes = ['pending-plan', 'result-person-gate', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'autonomy-proposal', 'autonomy-proposal-words', 'settings-autonomy', 'settings-memory', 'wake-ledger'] as const
 for (const theme of ['light', 'dark']) for (const scene of scenes) test(`Lead synthetic ${scene} in ${theme}`, async ({ page }, info) => {
   await page.setViewportSize({ width: 1100, height: 980 })
   await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' || new URL(route.request().url()).hostname === 'localhost' ? route.continue() : route.abort())
@@ -28,6 +28,34 @@ for (const theme of ['light', 'dark']) for (const scene of scenes) test(`Lead sy
     const thread = frame.getByRole('region', { name: / thread$/ })
     const [card, region, reply] = await Promise.all([cards.boundingBox(), thread.boundingBox(), frame.getByText('Those are settings, not notes').boundingBox()])
     expect(card && region && reply && Math.abs(card.x - reply.x) <= 1 && card.x + card.width <= region.x + region.width).toBe(true)
+    // An added line shows the words the section will hold, the line marked as the append it is (#2152).
+    await expect(cards.getByLabel('What changes in How to talk to me')).toContainText('+ Lead every report with the conclusion.')
+  }
+  else if (scene === 'settings-autonomy') {
+    // A first change can be rolled back: the shipped words close the section's history, with Restore (#2152).
+    await frame.getByRole('button', { name: 'Edit', exact: true }).first().click()
+    const versions = page.getByRole('dialog').getByLabel('Versions of How to talk to me')
+    await expect(versions.locator('[data-slot="row"]').filter({ hasText: 'Shipped words' }).getByRole('button', { name: 'Restore', exact: true })).toBeVisible()
+    await page.getByRole('dialog').screenshot({ path: join(process.env.LEAD_D_FRAMES_DIR ?? info.outputPath('frames'), `settings-rules-dialog-${theme}.png`), animations: 'disabled' })
+    await page.keyboard.press('Escape')
+    await frame.getByLabel('Autonomy changes').scrollIntoViewIfNeeded()
+  }
+  else if (scene === 'settings-memory') {
+    // After Forget, history says what was forgotten and what each change did (#2152).
+    const forgot = frame.locator('[data-slot="row"]').filter({ hasText: '1 forgotten' })
+    await forgot.scrollIntoViewIfNeeded()
+    await expect(forgot).toBeVisible()
+    await expect(frame.locator('[data-slot="row"]').filter({ hasText: 'Forgotten' }).filter({ hasText: '1 added' })).toBeVisible()
+    await expect(frame).not.toContainText('no change')
+  }
+  else if (scene === 'wake-ledger') {
+    // The ledger sits after the latest reply, not above the conversation (#2149).
+    const [ledger, reply] = await Promise.all([frame.getByRole('region', { name: 'Wake ledger' }).boundingBox(), frame.getByText('I will look at the nightly run').boundingBox()])
+    expect(ledger && reply && ledger.y > reply.y + reply.height).toBe(true)
+    // Collapsed, it shows the wake behind the reply, not the later desk change the Lead let pass (#2172).
+    const rows = frame.getByRole('region', { name: 'Wake ledger' }).locator('[data-wake-row]')
+    await expect(rows).toHaveCount(1)
+    await expect(rows).toContainText('schedule · asked')
   }
   else if (scene === 'autonomy-proposal-words') {
     const cards = frame.locator('[data-slot="lead-settings-proposals"]')
@@ -89,4 +117,21 @@ for (const theme of ['light', 'dark']) test(`the Lead's rail carries its goal, p
   await expect(frame.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-rail-open', 'false')
   await frame.getByRole('button', { name: 'Toggle rail' }).click()
   await frame.screenshot({ path: info.outputPath(`app-shell-rail-${theme}.png`), animations: 'disabled' })
+})
+
+for (const theme of ['light', 'dark']) test(`#2168: What happened? is one click in the Lead's top bar, never under the rail, in ${theme}`, async ({ page }, info) => {
+  // A window as narrow as the sitting's: the rail is drawn over the thread here, and it used to hold the Recap card.
+  await page.setViewportSize({ width: 820, height: 640 })
+  await page.goto(`/preview.html?lead-synthetic=app-shell&theme=${theme}`)
+  const frame = page.locator('[data-frame-id="lead-app-shell"]')
+  const recap = frame.getByRole('button', { name: 'What happened?', exact: true })
+  await expect(recap).toBeVisible()
+  await expect(frame.locator('[data-frame-region="rail"]').getByRole('button', { name: 'What happened?' })).toHaveCount(0)
+  if (await frame.locator('[data-slot="fixed-shell"]').getAttribute('data-rail-open') !== 'true') await frame.getByRole('button', { name: 'Toggle rail' }).click()
+  // With the rail open, nothing is drawn over the button: the point under its centre is the button itself.
+  const box = (await recap.boundingBox())!
+  expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x!, y!)?.closest('[data-lead-recap]'), [box.x + box.width / 2, box.y + box.height / 2])).toBe(true)
+  const directory = process.env.LEAD_D_FRAMES_DIR ?? info.outputPath('frames')
+  await mkdir(directory, { recursive: true })
+  await frame.screenshot({ path: join(directory, `recap-top-bar-${theme}.png`), animations: 'disabled' })
 })

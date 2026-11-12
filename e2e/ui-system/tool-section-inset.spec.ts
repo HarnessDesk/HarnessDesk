@@ -28,8 +28,8 @@ type Preview = {
 }
 
 const previews: readonly Preview[] = [
-  { url: '/preview.html?lead-synthetic=work-ledger', cards: ['Goal', 'Work', 'Recap', 'Spend'] },
-  { url: '/preview.html?lead-synthetic=app-shell', cards: ['Recap', 'Goal', 'Plan', 'Workers', 'Spend'] },
+  { url: '/preview.html?lead-synthetic=work-ledger', cards: ['Goal', 'Work', 'Spend'] },
+  { url: '/preview.html?lead-synthetic=app-shell', cards: ['Goal', 'Plan', 'Workers', 'Spend'] },
   { url: '/preview.html?team-frame=controls', cards: ['Run', 'Seats'] },
   { url: '/preview.html?flows-page=editor', cards: ['Step · fixer', 'Flow settings'] },
   { url: '/preview.html?inapplicable-actions=check', cards: ['#2 · Verify the change'] },

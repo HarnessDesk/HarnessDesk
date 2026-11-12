@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LEAD_DIGEST_ITEM_LABELS, leadDigestMore, type LeadAskState, type LeadDigest, type LeadDigestItem } from '@harnessdesk/protocol'
-import { Button, ListRow, ListRows, ToolBodyControls, ToolGroup, ToolProse, ToolSection } from '../design'
+import { Button, ListRow, ListRows, Spinner, ToolGroup, ToolProse, ToolSection, TopBarToolButton } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { useSnapshot, useStore } from '../state/context'
 import type { LeadState } from '../state/lead'
-import { ChevronIcon, CrossIcon, ExternalIcon } from './Icons'
+import { ChevronIcon, CrossIcon, ExternalIcon, HistoryIcon } from './Icons'
 import { leadDollars } from './LeadCards'
 import { leadDigestTarget, openLeadRefTarget } from './LeadRefs'
 
@@ -13,6 +13,44 @@ const zone = (at: number) => new Intl.DateTimeFormat(undefined, { timeZoneName: 
 
 /** How often an open window asks again, so a question that ran out of time stops offering answers. */
 export const LEAD_PRESENCE_REFRESH_MS = 60_000
+/** How long after the person last touched the window a read still says they looked. An open window nobody uses is not
+ * someone looking, or the desk would never see them away. */
+export const LEAD_PRESENCE_IDLE_MS = 2 * 60_000
+const LEAD_PRESENCE_INPUT = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'focus'] as const
+
+/** When the person last touched this window, on any page: the window is theirs, whichever page it shows. */
+let leadTouchedAt = Date.now()
+/** Marks a look now: the person's own input, bringing the window forward, or opening the Lead. */
+export const leadPresenceTouch = (at = Date.now()): void => { leadTouchedAt = at }
+/** Whether a read now says the person looked: they touched the window within the idle span. */
+export const leadPresenceLooking = (now = Date.now()): boolean => now - leadTouchedAt < LEAD_PRESENCE_IDLE_MS
+
+/**
+ * The window's presence for the whole app, mounted once beside every page: it follows the person's input and refreshes
+ * the host's record whichever page is showing, so an hour in chats or Settings is an hour looked at, not an absence the
+ * Lead is later told about. A refresh in a window nobody touches still reads (asks expire, digests arrive) but does not
+ * say they looked, so the desk can see them away; the first touch after reads at once, so the away digest comes with it.
+ */
+export const useLeadPresence = (enabled: boolean): void => {
+  const store = useStore()
+  useEffect(() => {
+    if (!enabled) return
+    const read = () => {
+      const state = store.lead.state
+      if (document.visibilityState === 'hidden' || state.revision < 0 || state.error) return
+      void store.lead.readAway({ active: leadPresenceLooking() }).catch(() => {})
+    }
+    const input = () => { const back = !leadPresenceLooking(); leadPresenceTouch(); if (back) read() }
+    const shown = () => { if (document.visibilityState !== 'hidden') leadPresenceTouch(); read() }
+    const timer = setInterval(read, LEAD_PRESENCE_REFRESH_MS)
+    document.addEventListener('visibilitychange', shown)
+    for (const name of LEAD_PRESENCE_INPUT) window.addEventListener(name, input, { passive: true, capture: true })
+    return () => {
+      clearInterval(timer); document.removeEventListener('visibilitychange', shown)
+      for (const name of LEAD_PRESENCE_INPUT) window.removeEventListener(name, input, { capture: true })
+    }
+  }, [store, enabled])
+}
 
 /** The digest's last line: what the list had no room for, then what was spent. */
 export const leadDigestNote = (digest: LeadDigest): string =>
@@ -53,10 +91,22 @@ export const useLeadAsks = (asks: readonly LeadAskState[]): readonly LeadAskStat
   return leadAsksAt(asks, Date.now())
 }
 
-/** The rail's way back to the digest: what changed in the last day, on demand and for this window only. */
+/**
+ * The way back to the digest: what changed in the last day, on demand and for this window only. It is a top-bar tool,
+ * one click from anywhere in the thread: at the foot of the rail it sat under the work list, and a narrow window draws
+ * that rail over the thread, so it covered the card the click brings (#2168).
+ */
 export const LeadRecap = () => {
   const store = useStore()
-  return <ToolSection label="Recap"><ToolBodyControls><Button variant="outline" onClick={() => { void store.lead.readAway({ active: true, recap: true }).catch(() => {}) }}>What happened?</Button></ToolBodyControls></ToolSection>
+  // Reading the ledger can take seconds: the button says so, so the first click is seen to work and is not repeated.
+  const [reading, setReading] = useState(false)
+  const recap = () => {
+    setReading(true)
+    void store.lead.readAway({ active: true, recap: true }).catch(() => {}).finally(() => setReading(false))
+  }
+  const label = reading ? 'Reading…' : 'What happened?'
+  return <TopBarToolButton data-lead-recap aria-label={label} title={label} disabled={reading} aria-busy={reading || undefined} onClick={recap}>
+    {reading ? <Spinner /> : <HistoryIcon />}</TopBarToolButton>
 }
 
 /**
@@ -67,18 +117,15 @@ export const LeadRecap = () => {
 export const LeadAway = ({ active, state, label }: { readonly active: boolean; readonly state: LeadState; readonly label?: string }) => {
   const store = useStore(), snapshot = useSnapshot()
   const ready = active && state.revision >= 0 && !state.error
-  // Looking at the Lead is what marks it seen; the same read hands back the digest after a long absence.
+  // Opening the Lead is a look, whatever the input clock says; a new reply after that reads with the clock, which
+  // useLeadPresence keeps for every page.
+  const opened = useRef(false)
   useEffect(() => {
-    if (!ready || document.visibilityState === 'hidden') return
-    void store.lead.readAway({ active: true }).catch(() => {})
+    if (!ready) { opened.current = false; return }
+    if (!opened.current) { opened.current = true; leadPresenceTouch() }
+    if (document.visibilityState === 'hidden') return
+    void store.lead.readAway({ active: leadPresenceLooking() }).catch(() => {})
   }, [store, ready, state.revision])
-  useEffect(() => {
-    if (!ready) return
-    const read = () => { if (document.visibilityState !== 'hidden') void store.lead.readAway({ active: true }).catch(() => {}) }
-    const timer = setInterval(read, LEAD_PRESENCE_REFRESH_MS)
-    document.addEventListener('visibilitychange', read)
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', read) }
-  }, [store, ready])
   const digest = state.error ? null : state.away?.digest
   if (!digest) return null
   const dismiss = () => { void store.lead.dismissDigest(digest.id).catch(() => {}) }

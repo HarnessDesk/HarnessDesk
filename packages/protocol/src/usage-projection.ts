@@ -1,5 +1,5 @@
 import type { RuntimeId } from './ids.js'
-import type { UsageReport } from './usage.js'
+import { usageStandingOf, type UsageReport } from './usage.js'
 
 
 /**
@@ -31,6 +31,36 @@ export const trackedUsage = (
 
 /** Whether an entry is the stand-in for a tracked agent nothing has read. */
 export const isSilentUsage = (report: UsageReport): boolean => report.notReporting === true
+
+/** The five shapes `UsageBilling.kinds` names, in the order a primary shape is chosen. */
+export type UsagePlanShape = 'windows' | 'allowance' | 'balance' | 'metered' | 'free'
+/** An account's shape, plus the one case no `UsageBilling` value can express: nothing to show. */
+export type UsageShape = UsagePlanShape | 'none'
+const SHAPE_ORDER: readonly UsagePlanShape[] = ['windows', 'allowance', 'balance', 'metered', 'free']
+
+/**
+ * An account's primary shape: the first of `billing.kinds` in the fixed order windows → allowance → balance →
+ * metered → free. A report with no `billing` but real lanes or a real balance still has a shape, the one those facts
+ * would have named. Only a report with none of `billing`, `lanes` or a finite balance is `'none'`.
+ */
+export const usageShapeOf = (report: UsageReport): UsageShape => {
+  const kinds = report.billing?.kinds ?? []
+  for (const shape of SHAPE_ORDER) if (kinds.includes(shape)) return shape
+  if (report.lanes.length > 0) return 'windows'
+  const remaining = report.credits?.remaining
+  if (typeof remaining === 'number' && Number.isFinite(remaining)) return 'balance'
+  return 'none'
+}
+
+/**
+ * An account that answered, but with nothing any surface can draw: no shape of its own, no other sign-in's figures
+ * beside it, and nothing failed or spent. The Plans table lists it as "plan usage unavailable · Not reporting", and
+ * the phone and the Lead say Not reporting for it too, never Unknown or Ready. A failed read with nothing kept is
+ * Unknown instead, as everywhere.
+ */
+export const answeredWithNothing = (report: UsageReport, now: number): boolean =>
+  !isSilentUsage(report) && usageShapeOf(report) === 'none' && (report.unverified?.lanes.length ?? 0) === 0 &&
+  usageStandingOf(report, now).status === 'ready'
 
 /** The kind an allowance-crossing notice is kept under in the inbox. */
 export const USAGE_CROSSING_KIND = 'usage:crossing'
