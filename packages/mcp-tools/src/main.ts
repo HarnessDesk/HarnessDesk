@@ -85,6 +85,8 @@ parentWatch.unref()
 
 let socket: Socket | null = null
 let nextId = 0
+/** Set once the agent sends `notifications/initialized`: MCP lets a server push only after that. */
+let initialized = false
 const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
 
 const gateway = (): Socket => {
@@ -99,7 +101,15 @@ const gateway = (): Socket => {
       const line = buffer.slice(0, newline)
       buffer = buffer.slice(newline + 1)
       try {
-        const message = JSON.parse(line) as { id: number; result?: unknown; error?: { message?: string } }
+        const message = JSON.parse(line) as { id?: number; method?: string; result?: unknown; error?: { message?: string } }
+        if (message.id === undefined) {
+          // The gateway speaking unprompted: the tool set changed. It is not
+          // a reply, so it never touches `pending`.
+          if (message.method === 'tools/changed' && initialized && !shuttingDown) {
+            process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' })}\n`)
+          }
+          continue
+        }
         const waiter = pending.get(message.id)
         if (!waiter) continue
         pending.delete(message.id)
@@ -214,17 +224,23 @@ const handleLine = async (line: string): Promise<void> => {
         } catch {
           // An older host without the verb: the tools still work, unbriefed.
         }
+        // The connection `server/info` just opened stays open for the life of
+        // the bridge: it is how the gateway's `tools/changed` push reaches us.
+        // If it drops, the next call reconnects and pushes resume from there;
+        // a change in the gap is seen at the agent's next `tools/list`.
         respond(id, {
           protocolVersion: (params?.['protocolVersion'] as string) ?? '2024-11-05',
-          capabilities: { tools: {} },
+          capabilities: { tools: { listChanged: true } },
           serverInfo: { name: 'harnessdesk', version: '0.1.0' },
           ...(typeof instructions === 'string' && instructions.trim() !== '' ? { instructions } : {}),
         })
         return
       }
       case 'notifications/initialized':
-      case 'notifications/cancelled':
+        initialized = true
         return // notifications take no reply
+      case 'notifications/cancelled':
+        return
       case 'ping':
         respond(id, {})
         return
