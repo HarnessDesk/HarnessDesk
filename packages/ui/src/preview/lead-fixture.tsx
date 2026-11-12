@@ -67,6 +67,9 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
   let projection = base
   if (!['loading', 'empty', 'goal-composer', 'opening-jobs', 'wake-ledger'].includes(scene) && !scene.startsWith('settings-')) thread.messages = [{ version: 1, id: 'goal', revision: 1, role: 'user', text: leadContract.goal }]
+  // The ledger of what woke the Lead sits after the latest reply, where it happened, never above the conversation (#2149).
+  if (scene === 'wake-ledger') thread.messages = [{ version: 1, id: 'wake-ask', revision: 1, role: 'user', text: 'Check in on the nightly run every morning.' },
+    { version: 1, id: 'wake-reply', revision: 2, role: 'assistant', text: 'I will look at the nightly run each morning and tell you only when something needs you.' }]
   if (['pending-plan', 'consent-expired', 'stale-card-replacement', 'narrow', 'app-shell'].includes(scene)) { thread.cards = [{ ...leadPlan, revision: scene === 'consent-expired' || scene === 'stale-card-replacement' ? 2 : 1 }]; thread.state = 'awaiting-plan'; thread.cardPositions = { plan: 2 } }
   // A reply that names work: the work items and the Team it names by its board become links, a Team this desk does not have does not.
   if (scene === 'work-ledger') thread.messages = [...thread.messages, { version: 1, id: 'work-reply', revision: 2, role: 'assistant', text: 'The keyboard work is running in its chat, and the retry list is waiting for review.',
