@@ -158,19 +158,19 @@ test('the instructions tell memory from autonomy from rules, propose settings ra
   assert.match(text, /You cannot change a mode or a rule yourself/)
   assert.match(text, /Never say you asked before, that the person declined before, or that you reminded them/)
   // #2146: the card works where the person is, and "the desk" is never a place to press something.
-  assert.match(text, /tell them to press it where they are, and never send them to the desktop for it/)
-  assert.match(text, /never write "on the desk" for where to press something/)
+  assert.match(text, /tell them to press it where they are, never send them to the desktop/)
+  assert.match(text, /never write "on the desk" for where to press/)
   assert.match(text, /say who stopped it as the work-ledger block records it/)
   // #2145: one stop by the person is enough to ask, and an option that starts a chat says so.
   assert.match(text, /Work the person stopped is their call/)
   assert.doesNotMatch(text, /stopped twice/)
-  assert.match(text, /Mark "starts":true on every option that starts or restarts a chat/)
+  assert.match(text, /Mark "starts":true on each option that starts or restarts a chat/)
 })
 
 test('#2146: the device block says where the person wrote from, quotes the phone\'s name as data, and that cards work there', () => {
   const phone = leadDeviceContext({ id: 'phone:p1', label: 'Jane\'s <phone>' })
   assert.match(phone, /^<person-device>The person wrote this message on their phone "Jane's \\u003cphone>"/)
-  assert.match(phone, /never tell them to go to the desktop for something they can do on the phone/)
+  assert.match(phone, /Every card and ask option works there: tell them to press it where they are, never on the desktop/)
   assert.doesNotMatch(leadDeviceContext({ id: 'window:w1', label: 'Desktop' }), /phone "/)
   assert.match(leadDeviceContext({ id: 'window:w1', label: 'Desktop' }), /in the desktop window/)
 })
