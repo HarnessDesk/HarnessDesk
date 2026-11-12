@@ -10,7 +10,7 @@ import { emptyShapePolicy } from '../shapes'
 import { withAttemptCheck } from '../team-start'
 import {
   createDocument, documentGraph, graphDocument, sourceRequest, documentPolicy, builderProblems,
-  addStep, moveStep, renameStep, deleteStep,
+  addStep, moveStep, renameStep, deleteStep, setSeat, setAgent,
 } from './index'
 
 const shipped = import.meta.glob('../../../../server/flows/*.yml', { eager: true, query: '?raw', import: 'default' })
@@ -228,6 +228,59 @@ describe('the builder document', () => {
     expect(documentGraph(edited).nodes[0]!.position).toEqual({ x: 500, y: 200 })
     expect(documentPolicy(edited)).toMatchObject({ description: 'Keep me', base: policy.base, budget: policy.budget })
     expect(() => graphDocument(document, { ...graph, nodes: [graph.nodes[0]!, graph.nodes[0]!] })).toThrow(/duplicate/i)
+  })
+})
+
+describe('a role\'s ask', () => {
+  const SOURCE = `version: 2
+name: Asking
+roles:
+  writer:
+    kind: agent
+    uses: [writer]
+    grant: edit
+    ask: { seats: [fake, fake-two=m1/high], times: 3, timeoutSeconds: 120 }
+  person:
+    kind: person
+    outcomes: [done]
+seed: { role: writer, title: Write }
+rules:
+  - { id: handoff, on: writer, when: { every: done }, then: { role: person, title: Review } }
+`
+  const ASK = { seats: [{ runtime: 'fake' }, { runtime: 'fake-two', model: 'm1', effort: 'high' }], times: 3, timeoutSeconds: 120 }
+  const askOf = (policy: FlowPolicy) => {
+    const role = policy.roles.find((one) => one.id === 'writer' || one.id === 'renamed')
+    return role?.kind === 'agent' ? role.ask : undefined
+  }
+
+  it('round-trips through the builder document and every edit the builder makes to that step', () => {
+    const policy = policyOf(SOURCE)
+    expect(askOf(policy)).toEqual(ASK)
+    const document = createDocument(policy, SOURCE)
+    expect(sourceRequest(graphDocument(document, documentGraph(document)))).toEqual({ kind: 'source', source: SOURCE })
+    const step = document.steps[0]!.id
+    const edited = [
+      moveStep(document, step, { x: 300, y: 40 }),
+      renameStep(document, step, 'renamed'),
+      setSeat(document, step, [{ runtime: 'fake' }]),
+      setAgent(document, step, ['writer', 'reviewer']),
+      addStep(document, 'person', 'Later'),
+    ]
+    for (const next of edited) {
+      expect(askOf(documentPolicy(next))).toEqual(ASK)
+      const written = writeShape(documentPolicy(next))
+      expect(askOf(policyOf(written))).toEqual(ASK)
+      expect(policyOf(written).roles).toEqual(documentPolicy(next).roles)
+    }
+  })
+
+  it('is a model field: a canvas sync that changes it is refused, not saved', () => {
+    const document = createDocument(policyOf(SOURCE), SOURCE)
+    const graph = documentGraph(document)
+    const node = graph.nodes[0]!
+    if (node.data.kind !== 'step' || node.data.role.kind !== 'agent') throw new Error('Expected the writer step')
+    const data: typeof node.data = { kind: 'step', view: node.data.view, role: { ...node.data.role, ask: { ...ASK, times: 20 } } }
+    expect(() => graphDocument(document, { ...graph, nodes: [{ ...node, data }, ...graph.nodes.slice(1)] })).toThrow(/step/i)
   })
 })
 

@@ -133,3 +133,13 @@ test('legacy command details keep the parent Runtimes navigation selected', () =
   expect(row('Skills')).toBeNull()
 })
 
+
+test('search finds the Lead page by the rows it holds', () => {
+  act(() => root.render(<StoreProvider store={previewStore({ leadAvailable: true })}>
+    <SettingsNavigation section="general" onSection={vi.fn()} onBack={vi.fn()} />
+  </StoreProvider>))
+  for (const word of ['mention', 'autonomy', 'memory', 'reminder', 'morning brief', 'quiet hours', 'scheduled', 'triggers', 'rules', 'stuck', 'deadline', 'spending limit', 'summarise']) {
+    filter(word)
+    expect(row('Lead'), word).not.toBeNull()
+  }
+})

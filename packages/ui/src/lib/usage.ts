@@ -5,6 +5,7 @@ import {
   isLaneKnown,
   pacingAdvice,
   reachedLaneOf,
+  type RuntimeId,
   remainingOf,
   type SpendSummary,
   type UsageLane,
@@ -630,8 +631,19 @@ export const STANDING_LABEL: Readonly<Record<UsageStandingStatus, string>> = {
   short: 'Short',
   out: 'Out',
   overdrawn: 'Overdrawn',
+  // A read that answered without figures it could use, or failed: it reported, so it is not "Not reporting".
   unknown: 'Unknown',
 }
+
+/** The word for a tracked agent nothing answered for (`isSilentUsage`): the same on every surface, the phone's included. */
+export const NOT_REPORTING_LABEL = 'Not reporting'
+
+/**
+ * Whether a usage read has finished for this agent, from the snapshot's `usageAsked`: only such an agent with no
+ * reading is Not reporting. An absent list is a fixture's snapshot, where every agent counts as asked.
+ */
+export const usageAskedOf = (asked: readonly RuntimeId[] | undefined) => (runtime: RuntimeId): boolean =>
+  asked === undefined || asked.includes(runtime)
 
 export const STANDING_TONE: Readonly<Record<UsageStandingStatus, 'success' | 'warning' | 'danger' | 'neutral'>> = {
   ready: 'success',

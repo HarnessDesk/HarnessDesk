@@ -55,8 +55,23 @@ describe('BrandMark', () => {
   })
 
   it('is not vacuous about that — these two marks really do carry ids', () => {
-    expect(renderToStaticMarkup(<BrandMark brand="openclaw" />)).toContain('id="brand-openclaw-a"')
+    expect(renderToStaticMarkup(<BrandMark brand="openclaw" />)).toMatch(/id="brand-openclaw-a-/)
     expect(renderToStaticMarkup(<BrandMark brand="poolside" />)).toMatch(/id="brand-poolside-/)
+  })
+
+  it('gives each copy of a mark its own ids, so a copy in a hidden page never takes another copy\'s gradient', () => {
+    // `url(#id)` resolves to the first element in the document with that id. When that first copy sits in a page
+    // the app keeps mounted but hidden (display: none), its gradient paints nothing, and a later copy whose paths
+    // point at the shared id drew nothing either (the Codex mark on Settings › Runtimes).
+    const host = document.createElement('div')
+    host.innerHTML = renderToStaticMarkup(<><BrandMark brand="codex" /><BrandMark brand="codex" /></>)
+    const [first, second] = [...host.querySelectorAll('svg')].map((svg) => ({
+      ids: [...svg.querySelectorAll('[id]')].map((node) => node.id),
+      refs: [...svg.innerHTML.matchAll(/url\(#([^)]*)\)/g)].map((match) => match[1]),
+    }))
+    expect(first!.ids.length).toBeGreaterThan(0)
+    expect(first!.ids.filter((id) => second!.ids.includes(id))).toEqual([])
+    for (const mark of [first!, second!]) for (const ref of mark.refs) expect(mark.ids).toContain(ref)
   })
 
   it('draws each mark on the box its own file declares', () => {
@@ -105,7 +120,7 @@ describe('BrandMark', () => {
 
   it('keeps the two drawings of one brand apart in their ids', () => {
     const markup = renderToStaticMarkup(<BrandMark brand="openclaw" />)
-    expect(markup).toContain('id="brand-openclaw-a"')
+    expect(markup).toMatch(/id="brand-openclaw-a-/)
     expect(markup).toMatch(/id="brand-openclaw-colour-/)
   })
 
@@ -120,5 +135,16 @@ describe('BrandMark', () => {
     expect(colourOf('codex')).not.toContain('#fff')
     expect(colourOf('kimi')).not.toContain('#fff')
     expect(colourOf('kimi')).toContain('fill="currentColor"')
+  })
+})
+
+describe('brand mark ids across React roots', () => {
+  it('keeps two roots\' copies of a mark apart, since the preview mounts fixtures as second roots', () => {
+    // Each renderToStaticMarkup call is a root of its own: useId would give both first marks the same suffix.
+    const first = renderToStaticMarkup(<BrandMark brand="codex" />)
+    const second = renderToStaticMarkup(<BrandMark brand="codex" />)
+    const ids = (markup: string) => [...markup.matchAll(/id="([^"]*)"/g)].map((match) => match[1])
+    expect(ids(first).length).toBeGreaterThan(0)
+    expect(ids(first).filter((id) => ids(second).includes(id))).toEqual([])
   })
 })

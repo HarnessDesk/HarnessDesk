@@ -460,6 +460,12 @@ export interface AgentSeatContext {
    * its brief and passed over.
    */
   requireHeld?: true
+  /**
+   * Set by the Goal plane when the running Flow's role lets this seat ask
+   * another agent (`ask:`), never by a wire caller: only then is the seat
+   * offered `ask_agent`. The tool's own call-time check is the second lock.
+   */
+  offersAsk?: true
 }
 
 /**
@@ -601,6 +607,7 @@ export async function seatAgent(
       ...(definition.runtimeServers !== undefined ? { runtimeServers: definition.runtimeServers } : {}),
       ...(context.environment ? { environment: context.environment } : {}),
       ...(attachmentsInput ? { attachments: attachmentsInput } : {}),
+      withheldTools: context.offersAsk ? [] : ['ask_agent'],
     }, words)
     if ('reason' in opened) {
       passed.push(opened)
@@ -1049,6 +1056,7 @@ const openAsAsked = async (
     readonly ceiling?: CeilingLevel
     readonly runtimeServers?: readonly string[]
     readonly attachments?: SessionAttachments
+    readonly withheldTools?: readonly string[]
   },
   words: SeatWords,
 ): Promise<OpenedSeat | PassedOver> => {

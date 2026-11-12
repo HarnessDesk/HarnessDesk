@@ -4986,11 +4986,13 @@ class AcpSession implements AgentSession {
    * disagree with it. `busy` is false while a loaded session's history is
    * being replayed, which is a turn re-read rather than one in flight.
    */
-  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId> {
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }): Promise<TurnId> {
     return this.#send(input, opts)
   }
 
-  async #send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }, control?: { method: string; params: Record<string, unknown> }): Promise<TurnId> {
+  async #send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }, control?: { method: string; params: Record<string, unknown> }): Promise<TurnId> {
+    // Nothing is awaited from here to the prompt going out: a send withdrawn before it starts sends nothing.
+    if (opts?.signal?.aborted) throw opts.signal.reason
     if (this.#openingProblem) throw new Error(this.#openingProblem)
     if (this.busy) {
       throw new Error(

@@ -20,6 +20,7 @@ import { gitPlugin } from './git.js'
 import { guardrailsPlugin } from './guardrails.js'
 import { searchPlugin } from './search.js'
 import { teamPlugin } from './team.js'
+import { consultPlugin } from './consult.js'
 import { todoPlugin } from './todo.js'
 import { webPlugin } from './web.js'
 import { simulatorPlugin } from './simulator.js'
@@ -34,6 +35,7 @@ export { callSignature, guardrailsPlugin } from './guardrails.js'
 export { searchPlugin } from './search.js'
 export { renderTodos, todoPlugin, type TodoItem, type TodoStatus } from './todo.js'
 export { teamPlugin } from './team.js'
+export { consultPlugin } from './consult.js'
 export { htmlToText, webPlugin } from './web.js'
 export { simulatorPlugin } from './simulator.js'
 export { androidPlugin } from './android.js'
@@ -46,6 +48,7 @@ export const builtinPlugins: readonly HarnessPlugin[] = [
   searchPlugin,
   todoPlugin,
   teamPlugin,
+  consultPlugin,
   checkpointPlugin,
   guardrailsPlugin,
   webPlugin,

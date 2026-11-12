@@ -517,10 +517,17 @@ export class CodexSession implements AgentSession {
     return this.#silentTurnIds.get(turnId)
   }
 
-  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId> {
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }): Promise<TurnId> {
+    const signal = opts?.signal
+    if (signal?.aborted) throw signal.reason
     const overrides = this.#pendingOverrides
     this.#pendingOverrides = {}
     const enriched = await this.#withContext(recordDeskInput(input))
+    // Withdrawn while its context resolved: nothing is written, and the overrides wait for the next turn.
+    if (signal?.aborted) {
+      this.#pendingOverrides = { ...overrides, ...this.#pendingOverrides }
+      throw signal.reason
+    }
     this.#pendingInputs.push(enriched)
     const silent = opts?.recordAs === 'notice'
     if (silent) {
@@ -545,6 +552,14 @@ export class CodexSession implements AgentSession {
       throw error
     }
     if (this.#turnRevision === revision) this.#currentTurnId = response.turn.id
+    // Withdrawn while the agent was accepting it: the turn it started is stopped, not left to run.
+    if (signal?.aborted) {
+      const stopping: Promise<unknown> = this.#currentTurnId === response.turn.id
+        ? this.interrupt()
+        : this.deps.server.request('turn/interrupt', { threadId: this.id, turnId: response.turn.id }, { timeoutMs: 2_000 })
+      await stopping.catch(() => undefined)
+      throw signal.reason
+    }
     if (!silent) {
       // What the person sent, not what the adapter put in front of it: a hand-off to Codex was called "Git" (review of #231).
       // Skipped for a standing order: it is not what opened this conversation for a person, and must not name the row after it.

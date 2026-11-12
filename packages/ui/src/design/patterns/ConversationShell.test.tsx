@@ -56,6 +56,26 @@ it('keeps its end in view when the dock over it grows, while the reader is at th
   expect(thread.scrollTop).toBe(1600)
 })
 
+it('keeps following when the scroll it made is reported only after the thread grew again', () => {
+  // A scroll event is delivered with the next frame, and a window in the background waits long for one: by then a
+  // reply may have grown the thread, so the scroll the thread made itself reads as "not at the end". It is not the
+  // reader leaving, and the next reply is still followed.
+  act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  const sizes = { scrollHeight: 1200, clientHeight: 800 }
+  box(thread, sizes)
+  thread.scrollTop = 400
+  act(() => thread.dispatchEvent(new Event('scroll')))
+
+  sizes.scrollHeight = 1600
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(1600)
+  sizes.scrollHeight = 2600
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(2600)
+})
+
 it('leaves a reader who scrolled up where they are', () => {
   act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
   const thread = container.firstElementChild as HTMLElement

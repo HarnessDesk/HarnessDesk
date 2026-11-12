@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it } from 'vitest'
-import { LEAD_WORK_GROUP_LABELS } from '@harnessdesk/protocol'
+import { LEAD_WORK_GROUP_LABELS, leadWorkOpenCount, leadWorkWaiting, type LeadInbox } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { createLeadFixtureStore } from '../preview/frames-lead'
 import { leadWorkFixture } from '../preview/lead-fixture'
@@ -29,19 +29,56 @@ it('groups the host board in the order the phone uses, Needs you first, and keep
 
 it('draws the Work card in the rail from the host board: four groups, the wait on the line that earns it', async () => {
   const { box } = await mount('work-ledger')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)) })
   const card = box.querySelector<HTMLElement>('section[aria-label="Work"]')!
   expect(card).not.toBeNull()
   expect(groups(box)).toEqual(['needs-you', 'working', 'in-review', 'done', 'reminders'])
   expect(items(box, 'needs-you')).toEqual(['work-4'])
   expect(items(box, 'working')).toEqual(['work-3', 'work-5'])
-  expect(card.textContent).toContain('Needs you · 1')
+  // The item that waits on an approval, and the Team the desk says needs you that no item holds.
+  expect(card.textContent).toContain('Needs you · 2')
   expect(box.querySelector('[data-work-item="work-4"]')!.textContent).toContain('An approval waits for you')
   expect(box.querySelector('[data-work-item="work-3"]')!.textContent).not.toContain('A chat is working')
-  expect(card.textContent).toContain('5')
+  // The badge is the open items, whichever group they sit in (a stopped item is open in Done until the person closes it),
+  // and the waiting rows beside them, each counted once.
+  const badge = card.querySelector('[data-slot="tool-section-value"]')!.textContent
+  const open = leadWorkFixture.items.filter(item => item.closedAt === undefined).length
+  const rows = box.querySelectorAll('[data-work-waiting]').length
+  expect([open, rows]).toEqual([5, 1])
+  expect(badge).toBe(String(open + rows))
+})
+
+it('counts a Team once when the board links it by its room and the inbox names it by its goal (#2110)', async () => {
+  const { box, store } = await mount('work-ledger')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)) })
+  // The same desk, with the open item holding the Team by the room its board is: game-room for the goal game-team.
+  const board = { ...leadWorkFixture, items: leadWorkFixture.items.map(item => item.id === 'work-4' ? { ...item, links: { ...item.links, teams: ['game-room'] } } : item) }
+  const request = store.transport.request.bind(store.transport)
+  store.transport.request = (async (method: string, params: unknown) => method === 'lead/work/list' ? board : request(method as never, params as never)) as typeof store.transport.request
+  await act(async () => { await store.lead.readWork() })
+  expect([...box.querySelectorAll('[data-work-waiting]')].map(row => row.getAttribute('data-work-waiting'))).toEqual([])
+  const inbox: LeadInbox = { version: 1, needsYou: 1, items: [{ id: 'team:game-team', kind: 'team', title: 'Build a small browser game', at: 1, needsYou: true, target: 'game-team' }] }
+  expect(leadWorkOpenCount(board, leadWorkWaiting(board, inbox))).toBe(6)
+  expect(box.querySelector('section[aria-label="Work"] [data-slot="tool-section-value"]')!.textContent).toBe('5')
+})
+
+it('lists under Needs you a Team the header counts that no item of the work holds, and opens it (#2110)', async () => {
+  const { box, store } = await mount('work-ledger')
+  // The desk's inbox is read a moment after the page settles, as the header reads it.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)) })
+  const waiting = [...box.querySelectorAll('[data-work-group="needs-you"] [data-work-waiting]')].map(row => row.getAttribute('data-work-waiting'))
+  expect(waiting).toEqual(['game-team'])
+  // The group counts what the header counts: the item that waits, and the Team nobody filed as work.
+  expect(box.querySelector('section[aria-label="Work"]')!.textContent).toContain('Needs you · 2')
+  const opened: string[] = []
+  store.openGoal = ((id: string) => { opened.push(id) }) as typeof store.openGoal
+  await act(async () => { box.querySelector<HTMLButtonElement>('[data-work-waiting="game-team"] button[aria-label="Open Build a small browser game"]')!.click() })
+  expect(opened).toEqual(['game-team'])
 })
 
 it('Done closes the item through the host and it moves to Done; nothing else on the desk is touched', async () => {
   const { box, store } = await mount('work-ledger')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)) })
   const calls: string[] = []
   const request = store.transport.request.bind(store.transport)
   store.transport.request = (async (method: string, params: unknown) => { calls.push(method); return request(method as never, params as never) }) as typeof store.transport.request
@@ -49,9 +86,11 @@ it('Done closes the item through the host and it moves to Done; nothing else on 
   const done = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.startsWith('Done'))!
   expect(document.body.textContent).toContain('Closing leaves its chats, Teams and pull requests as they are.')
   await act(async () => { done.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
-  expect(calls).toEqual(['lead/work/close'])
-  expect(groups(box)).toEqual(['working', 'in-review', 'done', 'reminders'])
+  expect(calls.filter(method => method !== 'lead/inbox/read')).toEqual(['lead/work/close'])
+  expect(items(box, 'needs-you')).toEqual([])
   expect(items(box, 'done')).toEqual(['work-4', 'work-6', 'work-1'])
+  // Closing the item does not answer its chat: the chat still waits on the person, so Needs you names it on its own.
+  expect([...box.querySelectorAll('[data-work-waiting]')].map(row => row.getAttribute('data-work-waiting'))).toEqual(['game-team', 'fixture:rename-column'])
 })
 
 it('a working item’s menu stops its chat with the same stop the chat sends, and an item the person stopped says so', async () => {
@@ -69,8 +108,9 @@ it('a working item’s menu stops its chat with the same stop the chat sends, an
   const stop = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.startsWith('Stop'))!
   expect(stop).toBeDefined()
   await act(async () => { stop.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
-  expect(calls.map(call => call.method)).toEqual(['turn/interrupt'])
-  expect(calls[0]!.params).toMatchObject({ runtime: 'fixture', sessionId: 'chat-3' })
+  // The desk's inbox is read on its own clock; only the stop is this menu's doing.
+  expect(calls.map(call => call.method).filter(method => method !== 'lead/inbox/read')).toEqual(['turn/interrupt'])
+  expect(calls.find(call => call.method === 'turn/interrupt')!.params).toMatchObject({ runtime: 'fixture', sessionId: 'chat-3' })
 })
 
 it('a reminder whose message was never written says Missed, and one still being said does not claim it was', async () => {

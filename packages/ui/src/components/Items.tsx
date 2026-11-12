@@ -106,6 +106,7 @@ import {
   type ToolSentenceDetail,
 } from '../lib/tool-names'
 import {
+  AskAgentIcon,
   SubagentIcon,
   AlertIcon,
   BrainIcon,
@@ -1104,6 +1105,57 @@ const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
   return <CodeBlock key={key} output={JSON.stringify(part.value, null, 2)} />
 }
 
+/** A string argument with words in it, or null. */
+const wordsOf = (value: unknown): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null)
+
+/**
+ * `ask_agent`, the desk's own tool: one question this agent put to another.
+ * It is not drawn as a tool call — no wire name, no server, no argument
+ * names — but as the exchange it was: "Asked <agent>", by the desk's own name
+ * for that agent (never a brand or a runtime id written here), opening onto
+ * the question, the context sent with it, and the answer. Every one of them
+ * is agent text, so each goes through `sanitizeText` before it is drawn.
+ */
+const AskAgentCall = ({ item }: { item: ToolCallItem }) => {
+  const snapshot = useSnapshot()
+  const key = useSessionKey()
+  const waiting = item.status === 'inProgress' && waitsForApproval(snapshot.approvals, key, [item])
+  const sentences = useMemo(() => toolSentences(snapshot.contributions), [snapshot.contributions])
+  const record = typeof item.args === 'object' && item.args !== null && !Array.isArray(item.args) ? (item.args as Record<string, unknown>) : null
+  const agent = snapshot.runtimes.find((runtime) => runtime.id === record?.['agent'])?.presentation.name ?? null
+  const said = toolSentence(item.tool, sentences, { kind: 'ask', agent, ...(item.status === 'inProgress' ? { running: true } : {}) })
+  const question = wordsOf(record?.['question'])
+  const context = wordsOf(record?.['context'])
+  const answer = wordsOf((item.result ?? []).flatMap((part) =>
+    part.type === 'text' ? [part.text] : part.type === 'json' && typeof part.value === 'string' ? [part.value] : []).join('\n\n'))
+  const pairs: readonly (readonly [string, string])[] = [
+    ...(question ? [['Question', question] as const] : []),
+    ...(context ? [['Context', context] as const] : []),
+    ...(item.error ? [['Error', item.error] as const] : answer ? [['Answer', answer] as const] : []),
+  ]
+  return (
+    <Row
+      icon={<AskAgentIcon size={14} />}
+      title={waiting ? `Waiting for approval · ${said}` : said}
+      meta={formatDuration(item.durationMs)}
+      status={waiting ? undefined : effectiveItemStatus(item)}
+      defaultOpen={item.status === 'inProgress'}
+    >
+      {pairs.length === 0 ? null : (
+        <KeyValue variant="panel" data-role="ask">
+          {pairs.map(([label, text]) => (
+            <KeyValueRow key={label} variant="panel" label={label}>
+              <CardViewport size="lines" maxHeight={132}>
+                <Text as="div" role="prose" className="whitespace-pre-wrap break-words">{sanitizeText(text)}</Text>
+              </CardViewport>
+            </KeyValueRow>
+          ))}
+        </KeyValue>
+      )}
+    </Row>
+  )
+}
+
 /** The glyph for what a tool call was, not which tool it went through. */
 const VERB_ICON: Record<ToolCallVerb, typeof ToolIcon> = {
   command: TerminalIcon,
@@ -1559,7 +1611,7 @@ export const ItemView = ({
       case 'fileChange':
         return <FileChange item={item} root={root} />
       case 'toolCall':
-        return <ToolCall item={item} root={root} />
+        return bareToolName(item.tool) === 'ask_agent' ? <AskAgentCall item={item} /> : <ToolCall item={item} root={root} />
       case 'subagent':
         return <Subagent item={item} />
       case 'webSearch':

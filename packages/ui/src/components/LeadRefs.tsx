@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import { LEAD_PULL_REQUEST_REF, runtimeId, sessionId, sessionKey, type LeadDigestRef, type LeadMessageRef, type LeadWorkBoard, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
+import { LEAD_PULL_REQUEST_REF, leadTeamKey, runtimeId, sessionId, sessionKey, type LeadDigestRef, type LeadMessageRef, type LeadWorkBoard, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
 import { Button, InlineParts } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/snapshot'
@@ -64,18 +64,30 @@ export const leadRefLinks = (refs: readonly LeadMessageRef[], desk: LeadRefDesk)
     if (ref.kind === 'chat' || ref.kind === 'session') {
       const found = chatTarget(ref.id, desk)
       if (found) add(ref, found.target, found.title ?? modelTitle(ref), 'Open the chat')
-    } else if (ref.kind === 'team') {
-      const team = desk.teams.get(ref.id)
-      if (team) add(ref, { kind: 'team', id: ref.id }, team.name?.trim() || modelTitle(ref), 'Open the Team')
-    } else if (ref.kind === 'goal') {
-      const goal = desk.goals.get(ref.id)
-      if (goal) add(ref, { kind: 'goal', id: ref.id }, goal.goal.sentence?.trim() || modelTitle(ref), 'Open the Team')
+    } else if (ref.kind === 'team' || ref.kind === 'goal') {
+      const found = teamTarget(ref.id, desk)
+      if (found) add(ref, found.target, found.name || modelTitle(ref), 'Open the Team')
     } else {
       const item = desk.work?.items.find(one => one.id === ref.id), found = item ? workTarget(ref.id, desk) : null
       if (item && found) add(ref, found.target, item.title, found.title)
     }
   }
   return links
+}
+
+/**
+ * The Team a ref names, by any id the desk knows it by: a goal's own id, the room its board is (what the Lead's tools
+ * call a Team, and what the phone also matches), or a room the desk holds with no goal. A goal opens by its goal id,
+ * so a reply naming one Team both ways is one link. The Team's own name comes before the goal's sentence.
+ */
+const teamTarget = (id: string, desk: LeadRefDesk): { target: LeadRefTarget; name: string | null } | null => {
+  const goal = desk.goals.get(leadTeamKey([...desk.goals.values()].map(view => ({ goal: view.goal.id, room: view.board?.id ?? null })))(id))
+  if (goal) {
+    const board = desk.teams.get(goal.goal.id) ?? goal.board
+    return { target: { kind: 'goal', id: goal.goal.id }, name: board?.name?.trim() || goal.goal.sentence?.trim() || null }
+  }
+  const team = desk.teams.get(id)
+  return team ? { target: { kind: 'team', id }, name: team.name?.trim() || null } : null
 }
 
 /** Where a work item opens: its newest chat, else its Team, else its pull request; null when the desk has none of them. */
@@ -85,7 +97,8 @@ const workTarget = (id: string, desk: LeadRefDesk): { target: LeadRefTarget; tit
   const chat = item.links.chats.at(-1), team = item.links.teams.at(-1), pr = item.links.prs.at(-1)?.match(LEAD_PULL_REQUEST_REF)
   const found = chat ? chatTarget(chat, { ...desk, chats: new Set([...desk.chats, chat]) }) : null
   if (found) return { target: found.target, title: 'Open its chat' }
-  if (team && desk.teams.has(team)) return { target: { kind: 'team', id: team }, title: 'Open its Team' }
+  const room = team ? teamTarget(team, desk) : null
+  if (room) return { target: room.target, title: 'Open its Team' }
   if (pr) return { target: { kind: 'pr', repository: `${pr[1]}/${pr[2]}`, number: pr[3]! }, title: `Open pull request ${pr[1]}/${pr[2]}#${pr[3]}` }
   return null
 }
@@ -98,8 +111,7 @@ const workTarget = (id: string, desk: LeadRefDesk): { target: LeadRefTarget; tit
 export const leadDigestTarget = (ref: LeadDigestRef | undefined, desk: LeadRefDesk): { readonly target: LeadRefTarget; readonly title: string } | null => {
   if (!ref) return null
   if (ref.kind === 'chat') { const found = chatTarget(ref.id, { ...desk, chats: new Set([...desk.chats, ref.id]) }); return found ? { target: found.target, title: 'Open the chat' } : null }
-  if (ref.kind === 'team') return desk.teams.has(ref.id) ? { target: { kind: 'team', id: ref.id }, title: 'Open the Team' }
-    : desk.goals.has(ref.id) ? { target: { kind: 'goal', id: ref.id }, title: 'Open the Team' } : null
+  if (ref.kind === 'team') { const room = teamTarget(ref.id, desk); return room ? { target: room.target, title: 'Open the Team' } : null }
   if (ref.kind === 'pr') { const pr = ref.id.match(LEAD_PULL_REQUEST_REF); return pr ? { target: { kind: 'pr', repository: `${pr[1]}/${pr[2]}`, number: pr[3]! }, title: `Open pull request ${pr[1]}/${pr[2]}#${pr[3]}` } : null }
   if (ref.kind === 'card') return { target: { kind: 'card', id: ref.id }, title: 'Show the decision' }
   return workTarget(ref.id, desk)

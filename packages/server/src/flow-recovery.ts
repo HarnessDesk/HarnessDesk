@@ -114,6 +114,9 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
       typeof answer['canContinue'] !== 'boolean' || !(answer['refusal'] === null || text(answer['refusal']))) bad('has a kept answer it cannot describe')
   }
   if (raw['attended'] !== undefined && typeof raw['attended'] !== 'boolean') bad('has unreadable attendance')
+  // Asks used with `ask_agent`, by seat id: absent on a run that never asked.
+  if (raw['asks'] !== undefined && (!object(raw['asks']) ||
+    !Object.entries(raw['asks']).every(([seat, used]) => seat !== '' && integer(used) && used >= 0))) bad('has an unreadable ask count')
   if (raw['overrides'] !== undefined) {
     if (!object(raw['overrides'])) bad('has unreadable seat overrides')
     try { parseClientMessage({ id: 1, method: 'flow/preview', params: { root: '', source: '', seats: raw['overrides'] } }) } catch { bad('has unreadable seat overrides') }

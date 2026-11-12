@@ -21,6 +21,7 @@ import type {
   FlowBasePin,
   FlowCheck,
   FlowCheckContext,
+  FlowAsk,
   FlowExecution,
   FlowExecutionEnd,
   FlowDocument,
@@ -568,6 +569,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   operations: run.operations,
   legacyRun: run.legacyRun,
   reason: run.reason,
+  ...(run.asks ? { asks: run.asks } : {}),
   ...(run.keptAnswer ? { keptAnswer: run.keptAnswer } : {}),
   ...(run.findings ? { findings: run.findings } : {}),
   ...(run.intake ? { intake: run.intake } : {}),
@@ -1624,6 +1626,74 @@ export class FlowExecutions {
       const seating = this.#seatingOf(run, runtime, sessionId)
       return seating?.seat !== null && seating?.seat !== undefined && this.#port.seatOf(seating.seat)?.closed === null
     })
+  }
+
+  /**
+   * The Flow seat a conversation holds on a running run, and what its role
+   * lets it ask with `ask_agent` — the gate the consult engine reads before
+   * anything opens. Null for a conversation no running run seats; `ask` is
+   * null for a seat whose role says nothing about asking.
+   */
+  askingSeat(runtime: string, sessionId: string): {
+    readonly run: string
+    readonly goal: string
+    readonly seat: string
+    readonly ask: FlowAsk | null
+    readonly trigger: boolean
+    readonly used: number
+  } | null {
+    for (const run of this.#runs.values()) {
+      if (run.state !== 'running') continue
+      const seating = this.#seatingOf(run, runtime, sessionId)
+      if (!seating?.seat || this.#port.seatOf(seating.seat)?.closed !== null) continue
+      const roleId = this.#port.seatOf(seating.seat)?.role ??
+        (run.rounds.find((one) => one.seats.includes(seating.seat!)) ?? run.rounds.find((one) => one.cards.includes(seating.card)))?.role
+      const role = roleId && run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === roleId) : undefined
+      return {
+        run: run.id, goal: run.goal, seat: seating.seat,
+        ask: role?.kind === 'agent' && role.ask ? role.ask : null,
+        trigger: run.intake !== undefined,
+        used: run.asks?.[seating.seat] ?? 0,
+      }
+    }
+    return null
+  }
+
+  /**
+   * Spends one of a seat's asks on its run, durably, before the consult opens:
+   * the count lives on the run so a restarted desk keeps it. Answers which ask
+   * this is (1-based), or null when the seat has none left or the run is no
+   * longer running.
+   */
+  async spendAsk(runId: string, seat: string, times: number): Promise<number | null> {
+    return this.#queue.within(runId, async () => {
+      const run = this.#runs.get(runId)
+      if (!run || run.state !== 'running') return null
+      const used = run.asks?.[seat] ?? 0
+      if (used >= times) return null
+      await this.#put({ ...run, asks: { ...run.asks, [seat]: used + 1 } })
+      return used + 1
+    })
+  }
+
+  /**
+   * Whether a seat about to open on this Goal for this role is offered
+   * `ask_agent`: a running run on the Goal whose role says `ask:`. Only the
+   * list is decided here; the call is checked again when it is made.
+   */
+  offersAsk(goal: string, roleId: string | null): boolean {
+    if (roleId === null) return false
+    for (const run of this.#runs.values()) {
+      if (run.state !== 'running' || run.goal !== goal || run.document.format !== 'agents') continue
+      const role = run.document.flow.roles.find((one) => one.id === roleId)
+      if (role?.kind === 'agent' && role.ask) return true
+    }
+    return false
+  }
+
+  /** Whether a run is still running — the consult engine's "the caller's run ended" race. */
+  running(runId: string): boolean {
+    return this.#runs.get(runId)?.state === 'running'
   }
 
   // ------------------------------------------------------------- reading

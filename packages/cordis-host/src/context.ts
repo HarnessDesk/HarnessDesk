@@ -171,6 +171,15 @@ export interface HarnessContext {
     /** Whether this invocation's conversation may put words on the forge now: asked before every forge mutation. */
     publicationAllowed(scope?: ScopeQuery): Promise<{ ok: true } | { ok: false; reason: string }>
   }
+  /**
+   * One read-only question to another agent, answered once. Requires
+   * `agents.invoke`. The host decides whether the calling conversation may
+   * ask, whom and how often, from the `ScopeQuery` its tool invocation
+   * carried; the answer's text is the other agent's, and untrusted.
+   */
+  readonly agents: {
+    ask(input: import('./agents.js').AskInput, scope?: ScopeQuery): Promise<import('./agents.js').AskAnswer>
+  }
   readonly team: {
     board(scope?: ScopeQuery): Promise<string>
     addIntent(

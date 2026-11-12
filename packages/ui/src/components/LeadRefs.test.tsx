@@ -60,3 +60,15 @@ it('a reply\'s refs open the chat they name on this desk', async () => {
   await act(async () => links[0]!.click())
   expect(open).toHaveBeenCalledWith('chat-3', { runtime: 'fixture' })
 })
+
+it('finds a Team the reply names by its room, the way the phone does, when the desk lists it by its goal', () => {
+  // The desk lists a goal's board under the goal's id; the Lead's tools name the Team by its room (the board's own id).
+  const listed: LeadRefDesk = { ...desk, teams: new Map([['goal-9', { id: 'room-build', name: 'build a game' } as never]]),
+    goals: new Map([['goal-9', { goal: { id: 'goal-9', sentence: 'Build a small game' }, board: { id: 'room-build', name: 'build a game' } } as never]]) }
+  expect(leadRefLinks([{ kind: 'team', id: 'room-build', title: 'Team' }], listed).map(link => [link.label, link.target])).toEqual([
+    ['build a game', { kind: 'goal', id: 'goal-9' }],
+  ])
+  expect(leadRefLinks([{ kind: 'goal', id: 'room-build' }], listed).map(link => link.target)).toEqual([{ kind: 'goal', id: 'goal-9' }])
+  // Named both ways in one reply, it is still one link.
+  expect(leadRefLinks([{ kind: 'team', id: 'room-build' }, { kind: 'goal', id: 'goal-9' }], listed)).toHaveLength(1)
+})

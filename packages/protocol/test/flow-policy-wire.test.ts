@@ -235,3 +235,37 @@ test('successful outcome declarations cross the shape wire and malformed lists d
     assert.throws(() => request('authoring/shape/render', { policy: {...policy, complete} }), ValidationError)
   }
 })
+
+test('an Agent role carries its ask through the wire, and every bound is refused at its own field', () => {
+  const role = (ask: unknown) => ({
+    id: 'reviewer', kind: 'agent', uses: ['reviewer'], seats: [], isolate: false, grant: 'read', independentOf: [],
+    ...(ask === undefined ? {} : { ask }),
+  })
+  const policy = (ask: unknown) => ({ ...checkPolicy({}), roles: [role(ask)], seed: { role: 'reviewer', title: 'Review' } })
+  const ask = { seats: [{ runtime: 'fake' }, { runtime: 'fake-two', model: 'm1' }], times: 2, timeoutSeconds: 120 }
+  const parsed = request('authoring/shape/render', { policy: policy(ask) }).params as HostParams<'authoring/shape/render'>
+  const agent = parsed.policy.roles[0]
+  assert.equal(agent?.kind, 'agent')
+  if (agent?.kind === 'agent') assert.deepEqual(JSON.parse(JSON.stringify(agent.ask)), ask)
+  assert.doesNotThrow(() => request('authoring/shape/render', { policy: policy({ seats: [{ runtime: 'fake' }], times: 1 }) }))
+  assert.doesNotThrow(() => request('authoring/shape/render', { policy: policy(undefined) }))
+  const refused: [unknown, string][] = [
+    [{ seats: [], times: 1 }, 'ask.seats'],
+    [{ seats: Array.from({ length: 5 }, () => ({ runtime: 'fake' })), times: 1 }, 'ask.seats'],
+    [{ seats: [{ runtime: 'fake' }], times: 0 }, 'ask.times'],
+    [{ seats: [{ runtime: 'fake' }], times: 21 }, 'ask.times'],
+    [{ seats: [{ runtime: 'fake' }], times: 1.5 }, 'ask.times'],
+    [{ seats: [{ runtime: 'fake' }], times: 1, timeoutSeconds: 29 }, 'ask.timeoutSeconds'],
+    [{ seats: [{ runtime: 'fake' }], times: 1, timeoutSeconds: 901 }, 'ask.timeoutSeconds'],
+    [{ seats: [{ runtime: 'fake' }], times: 1, depth: 2 }, 'ask.depth'],
+    [{ seats: [{ runtime: 'fake' }] }, 'ask.times'],
+    ['codex', 'ask'],
+  ]
+  for (const [bad, at] of refused) {
+    assert.throws(() => request('authoring/shape/render', { policy: policy(bad) }), (error: unknown) => {
+      assert.ok(error instanceof ValidationError, JSON.stringify(bad))
+      assert.ok(error.path.startsWith(`message.params.policy.roles[0].${at}`), `${JSON.stringify(bad)} → ${error.path}`)
+      return true
+    })
+  }
+})

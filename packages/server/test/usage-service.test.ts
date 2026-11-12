@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { runtimeId, type AgentRuntime, type RuntimeId, type SpendSummary, type UsageReport } from '@harnessdesk/protocol'
+import { isSilentUsage, runtimeId, trackedUsage, type AgentRuntime, type RuntimeId, type SpendSummary, type UsageReport } from '@harnessdesk/protocol'
 
 import { UsageService } from '../src/usage/service.js'
 import { MeterAuthError, type MeterReading, type UsageMeter } from '../src/usage/meter.js'
@@ -643,4 +643,110 @@ test('a stored plan folds into every report the overlay sees, including the onRe
   assert.equal(settled?.fetchedAt, first?.fetchedAt, 'settlement keeps the original meter reading')
   assert.deepEqual(usage.cached(METERED), settled, 'the cache and emitted report stay aligned')
   usage.dispose()
+})
+
+test('one agent whose read throws on a fresh start does not sink the others: it reads Unknown, and every agent asked is asked', async () => {
+  const BROKEN = runtimeId('broken')
+  const seen: UsageReport[] = []
+  // `spendFor` throwing escapes the runtime's own guards: the whole read of that one agent rejects.
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED), runtime(SILENT), runtime(BROKEN)],
+    meters: new Map([[METERED, meter]]),
+    spend: { spendFor: (id) => { if (id === BROKEN) throw new Error('ledger unreadable'); return null } },
+    onReport: (report) => seen.push(report),
+  })
+  try {
+    const reports = await usage.reports()
+    const byId = new Map(reports.map((report) => [report.runtime, report]))
+    assert.equal(byId.get(METERED)?.lanes[0]?.usedPercent, 40, 'the agent that answered still shows')
+    assert.equal(byId.has(SILENT), false, 'the silent agent has no reading, so the surfaces stand it in as Not reporting')
+    assert.equal(byId.get(BROKEN)?.error?.message, 'ledger unreadable', 'the failed read is its own error, which reads Unknown')
+    assert.deepEqual(byId.get(BROKEN)?.lanes, [])
+    for (const id of [METERED, SILENT, BROKEN]) assert.equal(usage.asked(id), true, `${id} was asked`)
+    assert.equal(usage.cached(BROKEN)?.error?.message, 'ledger unreadable', 'the host\'s cached view says the same')
+    // What every surface lists from that: the answer, the failure as its own card, and the silent agent's Not reporting.
+    const listed = trackedUsage([METERED, SILENT, BROKEN].map((id) => ({ id })), reports, [], Date.now(), (id) => usage.asked(id))
+    assert.deepEqual(listed.filter(isSilentUsage).map((report) => report.runtime), [SILENT])
+    assert.deepEqual(listed.filter((report) => !isSilentUsage(report)).map((report) => report.runtime).sort(), [BROKEN, METERED].sort())
+  } finally { usage.dispose() }
+})
+
+test('a read that throws after the meter said to sign in keeps needsSignIn, so a carried-on turn never picks that account', async () => {
+  // A throw says nothing about sign-in; the last thing the meter said about it still stands (review of the #2128 merge).
+  let ledger = true
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([new MeterAuthError('sign in, or check the API key'), new MeterAuthError('sign in, or check the API key')])]]),
+    spend: { spendFor: () => { if (!ledger) throw new Error('ledger unreadable'); return null } },
+    onReport: () => undefined,
+  })
+  try {
+    assert.equal((await usage.refresh(METERED))[0]?.error?.needsSignIn, true)
+    ledger = false
+    const [after] = await usage.refresh(METERED)
+    assert.equal(after?.error?.message, 'ledger unreadable')
+    assert.equal(after?.error?.needsSignIn, true, 'the failure keeps the sign-in fact it cannot speak to')
+    assert.equal(usage.cached(METERED)?.error?.needsSignIn, true)
+  } finally { usage.dispose() }
+})
+
+/* A failure that is not about sign-in says nothing about sign-in (#2141): the last report's needsSignIn stands until a
+   reading or a fresh answer from the source replaces it, since a carried-on turn reads it to pass over an account. */
+
+test('a plain meter failure after one that said to sign in keeps needsSignIn beside the kept reading, until a reading clears it (#2141)', async () => {
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([weekly(30, 1_000), new MeterAuthError('sign in, or check the API key'), 'the quota service is down', weekly(40, 2_000)])]]),
+    onReport: () => undefined,
+  })
+  try {
+    await usage.refresh(METERED)
+    assert.equal((await usage.refresh(METERED))[0]?.error?.needsSignIn, true)
+    const [down] = await usage.refresh(METERED)
+    assert.equal(down?.lanes[0]?.usedPercent, 30, 'the last good reading stands')
+    assert.equal(down?.error?.message, 'the quota service is down')
+    assert.equal(down?.error?.needsSignIn, true, 'an outage says nothing about sign-in')
+    const [read] = await usage.refresh(METERED)
+    assert.equal(read?.lanes[0]?.usedPercent, 40)
+    assert.equal(read?.error, null, 'a reading is what clears the mark')
+  } finally { usage.dispose() }
+})
+
+test('a plain meter failure after a sign-in card with no reading keeps the card and its needsSignIn, rather than dropping it (#2141)', async () => {
+  const removed: RuntimeId[] = []
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([new MeterAuthError('sign in, or check the API key'), 'the quota service is down'])]]),
+    onReport: () => undefined,
+    onRemoved: (id) => removed.push(id),
+  })
+  try {
+    assert.equal((await usage.refresh(METERED))[0]?.error?.needsSignIn, true)
+    const [down] = await usage.refresh(METERED)
+    assert.ok(down, 'still a card')
+    assert.equal(down?.error?.message, 'the quota service is down')
+    assert.equal(down?.error?.needsSignIn, true)
+    assert.equal(usage.cached(METERED)?.error?.needsSignIn, true)
+    assert.deepEqual(removed, [])
+  } finally { usage.dispose() }
+})
+
+test('a runtime whose own limits throw, with a meter that then fails plainly, keeps the needsSignIn the meter gave before (#2141)', async () => {
+  const agent = runtime(METERED)
+  const unreachable = {
+    ...agent,
+    info: { ...agent.info, capabilities: { ...agent.info.capabilities, metered: true } },
+    getRateLimits: async () => { throw new Error('limits unreachable') },
+  } as unknown as AgentRuntime
+  const usage = new UsageService({
+    runtimes: () => [unreachable],
+    meters: new Map([[METERED, scriptedMeter([new MeterAuthError('sign in, or check the API key'), 'the quota service is down'])]]),
+    onReport: () => undefined,
+  })
+  try {
+    assert.equal((await usage.refresh(METERED))[0]?.error?.needsSignIn, true)
+    const [down] = await usage.refresh(METERED)
+    assert.ok(down)
+    assert.equal(down?.error?.needsSignIn, true, 'neither failure was about sign-in')
+  } finally { usage.dispose() }
 })

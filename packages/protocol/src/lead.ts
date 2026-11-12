@@ -1077,6 +1077,11 @@ export interface LeadUsageSummary {
     readonly readAgeMinutes: number
     /** The latest refresh failed; the windows are the last good figures, read `readAgeMinutes` ago. Absent otherwise. */
     readonly refreshFailed?: true
+    /**
+     * A tracked agent nothing has read: no windows, and no reading to date. Every surface lists it as "Not reporting";
+     * it is never left out of a count. Absent otherwise.
+     */
+    readonly notReporting?: true
   }[]
   /**
    * Which account to use first, from fresh readings only (`pacingAdvice`): `use-first` when a window refills soon with
@@ -1094,6 +1099,11 @@ export interface LeadUsageSummary {
     /** The same time on the desk's own clock, as the person reads it ("Tue, Nov 17, 5:00 PM"). */
     readonly resetsAtLocal: string
     readonly readAgeMinutes: number
+    /**
+     * The advice as one plain sentence, to say as it stands. `use-first` is the note the Dashboard and the phone show;
+     * `resets-soonest` is no note on any surface, only the order of the accounts with room, and the sentence says so.
+     */
+    readonly said?: string
   } | null
 }
 
