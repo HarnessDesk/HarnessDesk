@@ -41,15 +41,18 @@ const PROCESS_GONE = /^(?:the agent is not running|agent failed to start|the age
 
 /**
  * Words that name one kind of failure and nothing else. Read in this order:
- * an explicit 429 or rate limit wins over the word "quota", because a
- * provider's per-minute request quota is a throttle that clears by waiting,
- * not a spent allowance to carry the conversation away from.
+ * words that can only mean a spent allowance come first, because a provider
+ * may send spent credit as a 429 ("429 You exceeded your current quota,
+ * please check your plan and billing details"), which waiting never clears;
+ * then an explicit 429 or rate limit wins over the bare word "quota", because
+ * a per-minute request quota is a throttle that clears by waiting.
  */
 const SNIFFED: readonly (readonly [RegExp, AgentError['code']])[] = [
   [/requires a newer version/i, 'versionGate'],
   [/\b401\b|unauthori[sz]ed|invalid api key|not logged in/i, 'auth'],
+  [/insufficient[_ ]quota|exceeded your current quota|out of credits|insufficient (?:credits?|balance|funds)|credit balance|billing/i, 'credits'],
   [/\b429\b|rate[- ]?limit|too many requests/i, 'rateLimit'],
-  [/out of credits|insufficient (?:credits?|balance|funds)|credit balance|billing|quota|usage limit|spend cap/i, 'credits'],
+  [/quota|usage limit|spend cap/i, 'credits'],
   [/econnrefused|econnreset|enotfound|etimedout|eai_again|network (?:error|is unreachable)|fetch failed|socket hang up/i, 'network'],
 ]
 
