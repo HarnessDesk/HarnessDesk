@@ -440,7 +440,11 @@ export const mapItem = (item: ThreadItem): AgentItem => {
         id,
         type: 'assistantMessage',
         text: item.text,
-        phase: item.phase === 'commentary' ? 'commentary' : 'final',
+        // 0.167's `partial_answer` is answer text the turn may not finish:
+        // shown as prose, but never marked final, so nothing that wants the
+        // turn's terminal answer (a consult, a summary) takes it for one.
+        // A missing phase stays final, as legacy models always were.
+        ...(item.phase === 'partial_answer' ? {} : { phase: item.phase === 'commentary' ? 'commentary' as const : 'final' as const }),
         ...(item.memoryCitation
           ? { citation: { label: describeCitation(item.memoryCitation) } }
           : {}),
@@ -527,7 +531,8 @@ export const mapItem = (item: ThreadItem): AgentItem => {
       return {
         id,
         type: 'image',
-        path: item.savedPath ?? item.result,
+        // 0.167 delivers the image either inline (`result`) or by `fileId`.
+        path: item.savedPath ?? ('result' in item ? item.result : item.fileId),
         generated: { prompt: item.revisedPrompt, status: item.status },
       }
 

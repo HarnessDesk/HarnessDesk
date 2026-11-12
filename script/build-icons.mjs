@@ -348,7 +348,7 @@ console.log('harnessdesk-icon-black-transparent.svg -> packages/desktop/electron
  * at the time of writing, and catches a block match that stopped early; lower
  * it only when the list is deliberately cut.
  */
-const AGENT_BRANDS = brandsIn(readFileSync(join(root, 'packages/ui/src/lib/brands.ts'), 'utf8'), 47)
+const AGENT_BRANDS = brandsIn(readFileSync(join(root, 'packages/protocol/src/brands.ts'), 'utf8'), 47)
 
 for (const brand of AGENT_BRANDS) {
   const source = readFileSync(uiRequire.resolve(`@lobehub/icons-static-svg/icons/${brand}.svg`), 'utf8')

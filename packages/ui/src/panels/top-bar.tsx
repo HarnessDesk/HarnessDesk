@@ -78,6 +78,12 @@ const RailHost = createContext(false)
 /** Set by the shell that draws page rails; a page mounted without one has no rail to toggle. */
 export const PageRailHost = RailHost.Provider
 export const usePageRailHost = (): boolean => useContext(RailHost)
+const RailLeave = createContext<() => void>(() => undefined)
+/** Set by the shell around the rail: puts a floating rail away, and does nothing for a rail standing beside the page. */
+export const RailLeaveProvider = RailLeave.Provider
+/** A rail row that takes the person somewhere else calls this after it opens it, so a floating rail does not stay over
+ * where they went (#2175). */
+export const useRailLeave = (): (() => void) => useContext(RailLeave)
 export const WorkDetailsOutlet = ({ owner }: { owner: string }) => {
   const source = useContext(Context)
   if (!source) throw new Error('WorkDetailsOutlet requires TopBarProvider')

@@ -76,6 +76,12 @@ export interface PhoneSessionRow {
   readonly startedBy: PhoneStartedBy
   /** What the session runs on, in the desk's words ("Codex Sol High"). */
   readonly seat: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   /** Dollars so far; null when the agent does not price its sessions. */
   readonly cost: number | null
   /** Epoch milliseconds. */
@@ -129,6 +135,12 @@ export type PhoneRange = 'today' | '7d' | '30d'
 export interface PhoneSeatUsage {
   /** The agent's presentation name, with a number when one agent is signed in more than once. Never an account. */
   readonly label: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   /** The short window's used percent, 0–100 and not clamped; null when the agent has no such window. */
   readonly windowPercent: number | null
   readonly resetsAt: number | null
@@ -203,6 +215,12 @@ export interface PhoneMoney {
 export interface PhoneAgentLabel {
   readonly name: string
   readonly model?: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
 }
 
 export type PhoneWorkPhase = 'running' | 'needsYou' | 'watching' | 'done'
@@ -279,6 +297,12 @@ export interface PhoneWorkAllowance {
   /** Unique per row: an agent signed in twice sends two ids. */
   readonly id: string
   readonly name: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   /** 0–1 of the short window used and not clamped; left out when the agent has no such window. */
   readonly used?: number
   /** Kept for phones that read only this; a newer phone counts down to `resetsAt`. */
@@ -332,8 +356,11 @@ export interface PhoneWorkAllowance {
    */
   readonly refreshFailed?: true
   /**
-   * A tracked agent nothing has read, listed so the phone shows the same accounts as the desk: `status` is
-   * "Not reporting", and there are no figures and no `readAt`. Left out otherwise, and by a desk older than this field.
+   * A tracked agent nothing has read, or an account that answered with nothing to show (no window, balance or billing
+   * shape, no other sign-in's figures, no failure): `isSilentUsage(report) || answeredWithNothing(report, now)`, the
+   * same test the desktop's Plans table uses for Not reporting. Listed so the phone shows the same accounts as the
+   * desk: `status` is "Not reporting", and there are no figures and no `readAt`. Left out otherwise, and by a desk
+   * older than this field.
    */
   readonly notReporting?: true
 }
@@ -417,6 +444,12 @@ export interface PhoneModelChoice {
 export interface PhoneAgentChoice {
   readonly id: string
   readonly name: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   readonly models: readonly PhoneModelChoice[]
   /** The desk's selected agent, which a start without `agent` uses. */
   readonly default?: true
@@ -445,6 +478,21 @@ export interface PhoneWorkSnapshot {
   /**
    * Off / Observe / Act per proactive kind, the words the person's rules add, and the goal's deadline. Left out while no
    * Lead runs here. The phone changes a mode through `lead/autonomy/set`; the rules are read-only on a phone.
+   *
+   * The history the phone draws for autonomy and rules is `changes`, newest first, the list the desktop's Recent
+   * changes reads (#2152): every mode change (`from → to`), every saved rule version (`version` and `how`: `edit` reads
+   * "version N saved", `reset` "reset to default", `rollback` "version N restored"), and every deadline set or cleared.
+   * `proposal` is set when the person applied one of the Lead's proposals: the row reads "Applied from <the Lead's
+   * name>'s proposal", as the desktop draws it (#2167). The value is the desk's own reference, never a word to show;
+   * without it the person changed it in Settings. `by` is always the person. A rule row's current `version` and `changedAt` are on `rules`; a section ever
+   * saved also carries `versions` (its newest five, newest first: `version`, `text`, `at`, `how`, and `from` for a
+   * restore) and `shipped`, the default words. That is the earlier wording, a diff between any two rows, and what a
+   * Restore would bring back, all without `lead/rules/read`, which stays a desk method. Restoring is done at the desk:
+   * the phone never writes rule words. Refreshed with the rest of the view when
+   * the desk publishes `lead/autonomy/changed`.
+   *
+   * Memory's history is on `lead/memory/view` (`history`, newest first): a Forget is its own row with `forgotten` (and
+   * zero counts), and a change whose words Forget took out keeps its counts with `erased` set.
    */
   readonly autonomy?: import('./lead-autonomy.js').LeadAutonomyView
   /** The Lead's memory as the thread needs it. Left out while no Lead runs on the desk. */
@@ -616,7 +664,10 @@ export interface PhoneTriageList {
  * through the host, with its own id (`remind-N`), its text, whom it is for (`person` or the Lead's own `lead`
  * check-back), the work item it belongs to, when it is due, and its state. `set` has not fired: show it with its due
  * time and a Cancel that calls `lead/reminder/cancel` with its id (tier `run`); a `lead` one is the Lead's own check-back,
- * which quiet hours and autonomy hold, so mark it as one. `fired` has reached its time: show it as fired with `firedAt`. `cancelled` is listed for a day with its reason and needs no control. Left out when there are none.
+ * which quiet hours and autonomy hold, so mark it as one. `fired` has reached its time: show it as fired with `firedAt`, and `delivery: 'said'` once the Lead's message about it
+ * is written. A `fired` or `cancelled` one (listed for a day, the cancelled with its reason) can be cleared: a Clear that
+ * calls `lead/reminder/clear` with its id (tier `run`) takes it off the board and out of the Lead's cards for good, and
+ * a `set` one answers that it must be cancelled instead. Left out when there are none.
  */
 export type PhoneLeadReminder = import('./lead-work.js').LeadReminder
 

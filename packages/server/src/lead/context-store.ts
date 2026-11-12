@@ -4,7 +4,7 @@ import {
   LEAD_CONTEXT, leadCheckpointInstruction, leadCheckpointMessages, leadCheckpointRefusal, leadCheckpointText, leadCheckpointTurn,
   leadContextBoundary, leadContextBytes, leadContextMarkOf, leadContextPressure, leadContextSplit, leadContextWindow, leadEstimatedTokens,
   leadCheckpointCompose, leadFallbackCheckpoint, leadFitTurns, leadHistory, leadMergedTurns, leadNextSoftShare, leadPairedTurns, leadPersonSection, leadPersonQuotes, leadCheckpointModelPart,
-  leadPruneContext, parseLeadContextTurns, LEAD_CONTEXT_UNCOUNTED,
+  leadPruneAndFold, parseLeadContextTurns, LEAD_CONTEXT_UNCOUNTED,
   type LeadCompactionTrigger, type LeadContextMark, type LeadContextRecordInput, type LeadJournal, type LeadMessagesRequest,
   type LeadMessagesResult, type MessagesText, type MessagesTurn, leadClip, LEAD_WAKE_REFERENCE
 } from '@harnessdesk/lead'
@@ -88,6 +88,8 @@ export class LeadContextStore {
   #softAt: number = LEAD_CONTEXT.softShare
   #measured: RecordLine['measured'] = null
   #checkpoints: LeadContextCheckpoint[] = []
+  /** Every summary applied, where `#checkpoints` keeps the latest eight: what Settings counts, as the thread marks them. */
+  #count = 0
   #compacting = false
   /** Pressure after a compaction that could not bring the conversation under the hard line; no compaction is due
    * again until it rises past this by the hysteresis. */
@@ -137,9 +139,10 @@ export class LeadContextStore {
     const current = await this.#load(FILE)
     if (current && current.header.epoch === settled) { this.#adopt(current.header, current.turns, current.measured); this.#fileBytes = current.bytes }
     else await this.#seed(settled)
-    const kept = await readBoundedJson(this.#path(CHECKPOINTS), 600_000) as { version?: unknown; checkpoints?: unknown } | undefined
+    const kept = await readBoundedJson(this.#path(CHECKPOINTS), 600_000) as { version?: unknown; checkpoints?: unknown; count?: unknown } | undefined
     if (kept?.version === 1 && Array.isArray(kept.checkpoints)) {
       this.#checkpoints = readableCheckpoints(kept.checkpoints.slice(-CHECKPOINT_LIST))
+      if (Number.isSafeInteger(kept.count) && (kept.count as number) >= 0) this.#count = kept.count as number
     }
     // The desk stopped between started and applied: the old conversation stands, and the run is not a failure.
     const pending = journal.state.context.pending
@@ -219,7 +222,7 @@ export class LeadContextStore {
   #bounded(turns: readonly MessagesTurn[]): readonly MessagesTurn[] {
     const room = LEAD_CONTEXT.diskBytes - 65_536
     if (leadContextBytes(turns) <= room) return turns
-    let kept = leadPruneContext(turns)
+    let kept = leadPruneAndFold(turns)
     while (leadContextBytes(kept) > room) {
       let cut = 1
       while (cut < kept.length && !leadContextBoundary(kept, cut)) cut++
@@ -367,26 +370,36 @@ export class LeadContextStore {
   async #compact(trigger: LeadCompactionTrigger, send: LeadContextSend): Promise<LeadCompactionOutcome> {
     const { journal, now, nextId } = this.options
     const id = nextId(), beforeTokens = this.tokens()
-    const pruned = leadPruneContext(this.#turns)
+    const pruned = leadPruneAndFold(this.#turns)
     let split = leadContextSplit(this.#turns, this.window)
-    if (pruned === this.#turns && split === null) { this.#softAt = Math.min(LEAD_CONTEXT.hardShare, this.pressure() + LEAD_CONTEXT.hysteresis); return 'nothing' }
+    const before = this.pressure()
+    // Nothing worth doing: wait until the conversation grows by the hysteresis before looking again, and never look
+    // sooner than the usual line.
+    const leave = () => { this.#softAt = leadNextSoftShare(before); return 'nothing' as const }
+    if (pruned === this.#turns && split === null) return leave()
     const share = (turns: readonly MessagesTurn[]) => leadContextPressure({ window: this.window, tokens: this.tokens(turns), bytes: leadContextBytes(turns), turns: turns.length })
     // A kept tail that stays past the hard line by itself would bring the next compaction straight back: keep the
     // smallest tail instead, its older tool results trimmed too.
     const room = leadCheckpointTurn(id, 'x'.repeat(LEAD_CONTEXT.checkpointChars), true)
     let smallest = false
-    if (split !== null && share([room, ...leadPruneContext(this.#turns.slice(split))]) >= LEAD_CONTEXT.hardShare) {
+    if (split !== null && share([room, ...leadPruneAndFold(this.#turns.slice(split))]) >= LEAD_CONTEXT.hardShare) {
       const fewer = leadContextSplit(this.#turns, this.window, true)
       if (fewer !== null) { split = fewer; smallest = true }
     }
+    // Every compaction starts an epoch, which costs the next requests their cache: an idle run that would barely lower
+    // the pressure is skipped, and the pressure comes straight back after it anyway (#2171). A prune is measured by
+    // what it leaves; a summary by the turns it folds less the checkpoint that replaces them, taken at its full length.
+    const idle = trigger === 'soft'
+    let prune = pruned !== this.#turns && (split === null || trigger !== 'manual' && share(pruned) < this.#softAt)
+    if (prune && idle && before - share(pruned) < LEAD_CONTEXT.minSaving) prune = false
+    const kept = (from: number) => smallest ? leadPruneAndFold(this.#turns.slice(from), 0) : this.#turns.slice(from)
+    if (!prune && (split === null || idle && before - share([room, ...kept(split)]) < LEAD_CONTEXT.minSaving)) return leave()
     await journal.contextCompactionStarted(id, now(), trigger)
     try {
-      if (pruned !== this.#turns) {
-        if (split === null || trigger !== 'manual' && share(pruned) < this.#softAt) {
-          const afterTokens = this.tokens(pruned)
-          await this.#replace(id, current => leadPruneContext(current), () => journal.contextPruned({ id, at: now(), beforeTokens, afterTokens }), share(pruned))
-          return 'pruned'
-        }
+      if (prune) {
+        const afterTokens = this.tokens(pruned)
+        await this.#replace(id, current => leadPruneAndFold(current), () => journal.contextPruned({ id, at: now(), beforeTokens, afterTokens }), share(pruned))
+        return 'pruned'
       }
       if (split === null) { await journal.contextCompactionFailed(id, 'blocked'); return 'nothing' }
       const from = split
@@ -436,7 +449,7 @@ export class LeadContextStore {
       const fallback = text === null
       text ??= leadFallbackCheckpoint({ region, previous, ledgerIds: requiredIds, person })
       const checkpoint = leadCheckpointTurn(id, text, fallback)
-      const tailOf = (current: readonly MessagesTurn[]) => smallest ? leadPruneContext(current.slice(from), 0) : current.slice(from)
+      const tailOf = (current: readonly MessagesTurn[]) => smallest ? leadPruneAndFold(current.slice(from), 0) : current.slice(from)
       const after = [checkpoint, ...tailOf(this.#turns)]
       const afterTokens = this.tokens(after), afterShare = share(after)
       const revisions = personIds(region).flatMap(person => journal.state.messages.find(message => message.id === person)?.revision ?? [])
@@ -452,7 +465,9 @@ export class LeadContextStore {
       try { await this.#connections.screen?.(shown) } catch { shown = null }
       this.#checkpoints = [...this.#checkpoints, { id, at: now(), fallback, beforeTokens, afterTokens, text: shown === null ? null : leadCheckpointModelPart(shown),
         ...(shown === null ? {} : { person: quotes }) }].slice(-CHECKPOINT_LIST)
-      await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, checkpoints: this.#checkpoints }, async () => {}).catch(() => {})
+      // The journal has already marked this one in the thread.
+      this.#count = Math.max(this.#count + 1, this.#counted())
+      await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, count: this.#count, checkpoints: this.#checkpoints }, async () => {}).catch(() => {})
       return 'applied'
     } catch (error) {
       if (journal.state.context.pending?.id === id) await journal.contextCompactionFailed(id, 'interrupted').catch(() => {})
@@ -480,11 +495,16 @@ export class LeadContextStore {
     })
   }
 
+  /** The kept count, or more if the thread marks more (a desk that kept no count, or stopped before writing it). */
+  #counted(): number {
+    const marked = this.options.journal.state.messages.reduce((sum, message) => sum + (message.checkpoint ? 1 : 0), 0)
+    return Math.max(this.#count, this.#checkpoints.length, marked)
+  }
   facts(): LeadContextFacts {
     const wakes = this.options.journal.state.wakes.flatMap(wake => wake.tokens ? [wake.tokens] : [])
     const total = wakes.reduce((sum, tokens) => sum + tokens.input + tokens.cacheRead + tokens.cacheWrite, 0)
     return parseLeadContextFacts({ version: 1, windowTokens: this.window, usedTokens: this.#turns.length ? Math.min(100_000_000, Math.round(this.tokens())) : null,
       cacheHitRate: total ? wakes.reduce((sum, tokens) => sum + tokens.cacheRead, 0) / total : null, compacting: this.#compacting, checkpoints: readableCheckpoints(this.#checkpoints),
-      ...(this.#fullAt !== null ? { full: true } : {}) })
+      count: this.#counted(), ...(this.#fullAt !== null ? { full: true } : {}) })
   }
 }

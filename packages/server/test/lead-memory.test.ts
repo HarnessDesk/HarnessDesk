@@ -238,6 +238,28 @@ test('Forget takes the text out of every version, and Forget all leaves nothing 
   assert.doesNotMatch(await readFile(join(dir, 'memory-store.json'), 'utf8'), /note/)
 })
 
+test('after Forget, history still says what each change did and that the note was forgotten, never only no change (#2152)', async () => {
+  const { store, dir } = await open()
+  await store.change({ action: 'add', text: 'The vault lives at the acme.dev office.', kind: 'fact' })
+  const id = store.entries()[0]!.id
+  await store.change({ action: 'edit', id, text: 'The vault lives at the acme.dev main office.' })
+  await store.change({ action: 'add', text: 'Another note.', kind: 'fact' })
+  const view = await store.change({ action: 'forget', id })
+  assert.doesNotMatch(await readFile(join(dir, 'memory-store.json'), 'utf8'), /vault/)
+  const rows = view.history.map(item => ({ version: item.version, added: item.added, changed: item.changed, removed: item.removed, forgotten: item.forgotten, erased: item.erased }))
+  assert.deepEqual(rows, [
+    { version: 4, added: 0, changed: 0, removed: 0, forgotten: 1, erased: undefined },
+    { version: 3, added: 1, changed: 0, removed: 0, forgotten: undefined, erased: undefined },
+    { version: 2, added: 0, changed: 1, removed: 0, forgotten: undefined, erased: true },
+    { version: 1, added: 1, changed: 0, removed: 0, forgotten: undefined, erased: true },
+  ])
+  assert.deepEqual(view.history.map(item => item.undoable), [false, true, false, false])
+  assert.deepEqual(parseLeadMemoryView(JSON.parse(JSON.stringify(view))).history, view.history, 'the wire carries the counts')
+  // A reopened store reads the same rows.
+  const again = await LeadMemoryStore.open({ dir })
+  assert.deepEqual(again.view().history, view.history)
+})
+
 test('a store file the desk cannot read is set aside, never written over', async () => {
   const dir = join(await home(), 'lead')
   await mkdir(dir, { recursive: true })

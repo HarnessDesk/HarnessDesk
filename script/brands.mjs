@@ -1,7 +1,7 @@
 /**
  * The brand list, read out of the interface's own source.
  *
- * `packages/ui/src/lib/brands.ts` is where a mark's key is decided, and the
+ * `packages/protocol/src/brands.ts` is where a mark's key is decided, and the
  * menu-bar rows have to draw the same set — so `build-icons.mjs` reads that
  * file rather than keeping a second copy of the list. The copy it used to keep
  * is what left the status item showing a generic robot beside a name the app
@@ -32,7 +32,7 @@ const BLOCK = /export const BRANDS = \[[\s\S]*?\n\] as const/
  * (like "don't") and quoted names in comments are not mistaken for brand
  * identifiers or duplicates.
  *
- * @param {string} source  the contents of `packages/ui/src/lib/brands.ts`
+ * @param {string} source  the contents of `packages/protocol/src/brands.ts`
  * @param {number} floor   the smallest believable list, to catch a block match
  *                         that stopped early and returned a plausible answer
  * @returns {string[]}
@@ -40,15 +40,15 @@ const BLOCK = /export const BRANDS = \[[\s\S]*?\n\] as const/
 export const brandsIn = (source, floor = 0) => {
   const stripped = withoutComments(source, 'brands.ts')
   const block = BLOCK.exec(stripped)?.[0]
-  if (!block) throw new Error('brands: cannot find the BRANDS list in lib/brands.ts')
+  if (!block) throw new Error('brands: cannot find the BRANDS list in protocol/src/brands.ts')
   const named = (block.match(/'[^']*'/g) ?? []).map((entry) => entry.slice(1, -1))
   const brands = [...new Set(named)]
   if (brands.length !== named.length) {
     const twice = named.filter((brand, at) => named.indexOf(brand) !== at)
-    throw new Error(`brands: lib/brands.ts names ${[...new Set(twice)].join(', ')} more than once`)
+    throw new Error(`brands: protocol/src/brands.ts names ${[...new Set(twice)].join(', ')} more than once`)
   }
   if (brands.length < floor) {
-    throw new Error(`brands: read only ${brands.length} brands from lib/brands.ts, expected at least ${floor}`)
+    throw new Error(`brands: read only ${brands.length} brands from protocol/src/brands.ts, expected at least ${floor}`)
   }
   return brands
 }

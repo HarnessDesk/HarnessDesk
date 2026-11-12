@@ -44,11 +44,13 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   let current = leadSceneProjection(scene), schedule = leadSchedule, memory = leadMemory
   let memoryView = scene === 'memory-proposal-again' ? leadMemoryAgainView : scene === 'memory-proposal' || scene === 'settings-memory' ? leadMemoryView : { ...leadMemoryView, revision: 0, core: [], archive: [], inbox: [], history: [], coreBytes: 0 }
   let work: LeadWorkBoard = scene === 'work-ledger' ? leadWorkFixture : { version: 1, items: [], more: 0 }
-  let presence = scene === 'presence' ? leadPresenceFixture() : { version: 1 as const, digest: null, asks: [], brief: { enabled: false, at: '07:30' } }
+  let presence = scene === 'presence' ? leadPresenceFixture() : { version: 1 as const, digest: null, brief: { enabled: false, at: '07:30' },
+    // The desk's record: the first question answered, the newest still open after the person wrote about something else.
+    asks: scene === 'ask-options' ? [{ id: 'ordinary-ask', status: 'answered' as const, answer: { option: 'Fix focus only', by: 'Desktop', at: Date.now() - 600_000 } }, { id: 'live-ask', status: 'open' as const }] : [] }
   // Autonomy and rules, as the host answers them: modes, versioned sections, and a would-have row to show.
   let modes: LeadAutonomyModes = scene === 'settings-autonomy' ? { ...LEAD_AUTONOMY_DEFAULTS, stuck: 'observe', mention: 'off' } : LEAD_AUTONOMY_DEFAULTS
   const versions: Record<string, LeadRuleVersion[]> = scene === 'settings-autonomy'
-    ? { talk: [{ version: 1, text: 'Plain words. One question at a time.', at: Date.UTC(2026, 10, 2, 17, 0), how: 'edit', base: LEAD_RULE_DEFAULTS.talk }],
+    ? { talk: [{ version: 1, text: 'Plain words. One question at a time.', at: Date.UTC(2026, 10, 2, 17, 0), how: 'edit', base: LEAD_RULE_DEFAULTS.talk, proposal: 's2' }],
         // Written against an older default, so the section shows what changed since: the real diff, Keep mine or Use new.
         delegate: [{ version: 1, text: 'Prefer the reviewer on another agent.', at: Date.UTC(2026, 10, 3, 17, 0), how: 'edit',
           base: { version: 0, text: `${LEAD_RULE_DEFAULTS.delegate.text.split('.')[0]}.\nOld line the shipped words no longer carry.` } }] } : {}
@@ -63,7 +65,8 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   // Who changed what, newest first: the host keeps them beside the versions.
   let changes: LeadAutonomyChange[] = scene === 'settings-autonomy' ? [
     { at: Date.UTC(2026, 10, 8, 17, 0), by: 'person', what: 'mode', kind: 'stuck', from: 'act', to: 'observe' },
-    { at: Date.UTC(2026, 10, 2, 17, 0), by: 'person', what: 'rules', section: 'talk', version: 1, how: 'edit' },
+    // Applied from the Lead's proposal: the ledger names the Lead, never the proposal's id (#2167).
+    { at: Date.UTC(2026, 10, 2, 17, 0), by: 'person', what: 'rules', section: 'talk', version: 1, how: 'edit', proposal: 's2' },
   ] : []
   // The Lead's proposals, as the desk keeps them: Apply makes the change the card shows and records it as the person's.
   let proposals: LeadSettingsProposal[] = scene === 'autonomy-proposal' ? [...leadSettingsProposals] : scene === 'autonomy-proposal-words' ? [leadSettingsWordsProposal] : []
@@ -115,6 +118,8 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
     if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
     if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }
+    // A recap reads the whole work ledger, which takes the desk seconds: the rail's button says it is reading meanwhile.
+    if (method === 'lead/presence/read' && params?.recap && scene === 'work-ledger') await new Promise(resolve => setTimeout(resolve, 4000))
     if (method === 'lead/presence/read') return presence
     // The desk's one inbox: in the app shell, the Lead's plan and a Team that wait on the person, listed under the bell as the phone lists it.
     if (method === 'lead/inbox/read') return scene === 'app-shell'
@@ -159,6 +164,8 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       else if (params.action === 'rollback') list.push({ ...make('rollback', list.find(one => one.version === params.to)!.text), from: params.to })
       const entry = list.at(-1)
       if (params.action !== 'keep' && entry) changes = [{ at: entry.at, by: 'person', what: 'rules', section: params.section, version: entry.version, how: entry.how }, ...changes]
+      // As on the desk: a saved section is an autonomy change, and the window is told to read it again.
+      queueMicrotask(() => store.lead.changed({ method: 'lead/autonomy/changed', params: {} }))
       return rulesView()
     }
     if (method === 'lead/work/list') return work
@@ -175,6 +182,13 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       // As on the desk: a reminder that has not fired is marked cancelled and leaves the lists; a fired one stays as it was.
       if (!work.reminders?.some(entry => entry.id === params.id)) throw { code: 'notFound' }
       return work = { ...work, reminders: work.reminders.map(entry => entry.id === params.id && entry.state === 'set' ? { ...entry, state: 'cancelled' as const, cancelledAt: Date.now(), why: 'Cancelled' } : entry) }
+    }
+    if (method === 'lead/reminder/clear') {
+      // As on the desk: a fired or cancelled reminder leaves the board for good; a set one must be cancelled instead.
+      const entry = work.reminders?.find(found => found.id === params.id)
+      if (!entry) throw { code: 'notFound' }
+      if (entry.state === 'set') throw { code: 'invalidParams' }
+      return work = { ...work, reminders: work.reminders!.filter(found => found.id !== params.id) }
     }
     if (method === 'lead/wakes/read') return { revision: current.revision, wakes: scene === 'wake-ledger' ? leadWakeFixture : [] }
     if (method === 'lead/budget/raise') {

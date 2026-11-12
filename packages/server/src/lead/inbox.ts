@@ -15,7 +15,7 @@ const noticeOf = (raw: unknown): LeadInboxItem | null => {
 /**
  * The Lead's own lines: the question it asked that is still open, and, when it also waits on the person, that it does.
  * An ask leaves the Lead's stage as it was, so the question is listed by the desk's own record of it (`open`), never by
- * the stage: answered, expired, replaced or talked past, it is gone.
+ * the stage: it stays while the person writes about something else, and goes once answered, expired or replaced.
  */
 const leadItems = (window: LeadWindowProjection | null, now: number, ask: LeadInboxAsk | null | undefined, askSeenAt?: (id: string) => number | undefined): LeadInboxItem[] => {
   const asked: LeadInboxItem[] = ask ? [{ id: `ask:${ask.id}`, kind: 'ask', title: scrub(ask.question, 160) || 'A question for you', at: askSeenAt?.(ask.id) ?? now, needsYou: true, target: ask.id }] : []
@@ -26,7 +26,7 @@ const leadItems = (window: LeadWindowProjection | null, now: number, ask: LeadIn
   const name = leadDisplayName(window.settings?.name ?? 'dex')
   return [...asked, { id: 'lead', kind: 'lead', title: `${name} is waiting for you`, ...(window.stageReason ? { detail: scrub(window.stageReason, 300) } : {}), at: now, needsYou: true, ...count }]
 }
-/** The Lead's open question as the desk's presence record holds it (`LeadPresenceStore.unansweredAsk`). */
+/** The Lead's open question as the desk's presence record holds it (`LeadPresenceStore.openAsk`, the ask states' `open`). */
 export interface LeadInboxAsk { readonly id: string; readonly question: string }
 
 /**

@@ -11,7 +11,7 @@ const presenceNames = ['lead/presence/read', 'lead/presence/dismiss', 'lead/brie
 const autonomyNames = ['lead/autonomy/read', 'lead/autonomy/set', 'lead/rules/read', 'lead/rules/update', 'lead/deadline/set']
 
 test('the closed Lead window controls validate and none is on the client surface', () => {
-  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames, ...presenceNames, ...autonomyNames, 'lead/memory/propose', 'lead/memory/search', 'lead/context/use', 'lead/inbox/read', 'lead/reminder/set', 'lead/reminder/cancel', 'lead/autonomy/propose', 'lead/rules/propose', 'lead/settings/decide'].sort())
+  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames, ...presenceNames, ...autonomyNames, 'lead/memory/propose', 'lead/memory/search', 'lead/context/use', 'lead/inbox/read', 'lead/reminder/set', 'lead/reminder/cancel', 'lead/reminder/clear', 'lead/autonomy/propose', 'lead/rules/propose', 'lead/settings/decide'].sort())
   for (const name of names) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false)
   // The Lead's own two memory methods are the only memory methods its client may call.
   for (const name of ['lead/memory/propose', 'lead/memory/search']) assert.equal(Object.hasOwn(CLIENT_METHODS, name), true)
@@ -24,6 +24,10 @@ test('the closed Lead window controls validate and none is on the client surface
   assert.doesNotThrow(() => request('lead/reminder/cancel', { id: 'remind-2' }))
   assert.throws(() => request('lead/reminder/set', { text: 'Send the notes' }))
   assert.throws(() => request('lead/reminder/cancel', { id: 'work-2' }))
+  // #2144: clearing a fired or cancelled reminder is the person's, from the window or the phone, never the Lead's.
+  assert.equal(Object.hasOwn(CLIENT_METHODS, 'lead/reminder/clear'), false)
+  assert.doesNotThrow(() => request('lead/reminder/clear', { id: 'remind-2' }))
+  assert.throws(() => request('lead/reminder/clear', { id: 'work-2' }))
   // #2106: the Lead proposes its own settings at the read tier; the person's decision is never on its door.
   for (const name of ['lead/autonomy/propose', 'lead/rules/propose']) assert.equal(CLIENT_METHODS[name as keyof typeof CLIENT_METHODS], 'read')
   assert.equal(Object.hasOwn(CLIENT_METHODS, 'lead/settings/decide'), false)
@@ -218,6 +222,14 @@ test('an ask may carry an expiry in minutes, and a send may name its device', ()
   assert.throws(() => parseLeadAsk({ ...ask, expiresAt: 5 }))
   assert.deepEqual(parseLeadThreadSend({ idempotencyKey: 'k', text: 'Start it', device: { id: 'phone:p1', label: 'iPhone' } }).device, { id: 'phone:p1', label: 'iPhone' })
   assert.equal(parseLeadThreadSend({ idempotencyKey: 'k', text: 'hi' }).device, undefined)
+})
+
+test('#2145: an ask option that starts a chat says so with starts: true, and nothing else', () => {
+  const options = [{ id: 'start', label: 'Start it', starts: true }, { id: 'read', label: 'Only read why it failed' }]
+  const parsed = parseLeadAsk({ question: 'Try it again?', options, recommended: 'read' })
+  assert.deepEqual(parsed.options, options)
+  assert.equal(Object.hasOwn(parsed.options[1]!, 'starts'), false, 'an option without the flag starts nothing')
+  for (const starts of [false, 'yes', 1]) assert.throws(() => parseLeadAsk({ question: 'Try it again?', options: [{ id: 'start', label: 'Start it', starts }, options[1]], recommended: 'read' }))
 })
 
 test('autonomy and rules take closed shapes: a kind with a mode, a section with a version, a deadline in whole milliseconds, and nothing else', () => {

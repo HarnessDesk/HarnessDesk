@@ -32,6 +32,11 @@ const fromErrorInfo = (info: CodexErrorInfo | null | undefined): AgentError['cod
       return 'rateLimit'
     case 'sandboxError':
       return 'sandboxDenied'
+    // 0.167: a model the provider does not know is terminal, and a capacity
+    // failure caused by policy is not a busy server — neither clears by
+    // waiting, so neither is read as a rate limit that would be retried.
+    case 'modelNotFound':
+    case 'policyCapacityUnavailable':
     case 'internalServerError':
     case 'badRequest':
     case 'contextWindowExceeded':

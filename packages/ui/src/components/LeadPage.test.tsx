@@ -907,6 +907,35 @@ it('keeps answered ordinary asks as inert records with the picked label marked a
   expect(button('Start it').disabled).toBe(true)
 })
 
+// #2173: the desk's ask states are the one rule. Words about something else leave the question open, so its options stay
+// live while the desk holds it open; the person's next message being one of them, or the desk closing it, ends it.
+it('keeps the latest ask live while the desk holds it open past words about something else, and ends it when the desk does (#2173)', async () => {
+  const base = leadProjection()
+  const ask = { version: 1 as const, id: 'ask', revision: 1, role: 'assistant' as const, text: 'A choice.', ask: askFixture }
+  const aside = [ask, { version: 1 as const, id: 'person', revision: 2, role: 'user' as const, text: 'Also, what is on the desk?' },
+    { version: 1 as const, id: 'reply', revision: 3, role: 'assistant' as const, text: 'Two chats are running.' }]
+  const { store, request, update } = await mount({ ...base, thread: { ...base.thread, messages: aside } })
+  const presence = (status: 'open' | 'answered' | 'expired', more: object = {}) => {
+    request.mockImplementation(async (method: string) => ({ version: 1, digest: null, brief: { enabled: false, at: '07:30' }, asks: [{ id: 'ask', status, ...more }] }) as never)
+    return act(async () => { await store.lead.readAway() })
+  }
+  // Until the desk has said, words after the question settle it, as they always did.
+  expect(button('Start it').disabled).toBe(true)
+  await presence('open')
+  expect(button('Start it').disabled, 'the desk holds it open, so a tap still answers it').toBe(false)
+  const send = vi.spyOn(store.lead, 'send').mockResolvedValue({ messageId: 'answer', revision: 4 })
+  await act(async () => button('Start it').click())
+  expect(send).toHaveBeenCalledWith('Start it', expect.any(String), 'ask')
+  // A newer question takes its place: the desk says so, and the old one goes inert.
+  await presence('expired', { replacedBy: 'newer' })
+  expect(button('Start it').disabled).toBe(true)
+  // The person's next message being one of the options is the answer, whatever the desk has read so far.
+  await presence('open')
+  await update({ thread: { ...base.thread, messages: [ask, { version: 1, id: 'typed', revision: 2, role: 'user', text: 'not now' }] } })
+  expect(button('Start it').disabled).toBe(true)
+  expect(document.querySelector('[data-picked="true"]')?.textContent).toContain('Not now')
+})
+
 it('sends an option label with its internal spacing unchanged', async () => {
   const base = leadProjection(), label = 'Start  it'
   const { store } = await mount({ ...base, thread: { ...base.thread, messages: [{ version: 1, id: 'ask-spaces', revision: 1, role: 'assistant', text: 'Choose.', ask: { ...askFixture, options: [{ id: 'start', label }, askFixture.options[1]!] } }] } })
@@ -1002,4 +1031,37 @@ it('names the step the host publishes on the live line, not only Thinking, and n
   expect(working().textContent).not.toContain('lead/chat/start')
   await update({ requestInFlight: true, thread, activity: { since: Date.now() - 7000, method: null, step: 'Writing the reply' } } as any)
   expect(working().textContent).toContain('Writing the reply')
+})
+it('puts the wake ledger at the end of the thread, after the latest reply, never above the conversation (#2149)', async () => {
+  const { box, update, store, request } = await mount()
+  const wakes = [{ id: 'silent-1', at: Date.now() - 60_000, source: 'desk-change' as const, decision: 'silent' as const, modelTurn: false, usdMicros: null }]
+  request.mockImplementation(async method => (method === 'lead/wakes/read' ? { revision: Number.MAX_SAFE_INTEGER, wakes } : store.lead.state) as never)
+  await update({ thread: { ...store.lead.state.thread!, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'assistant', text: 'The latest reply' }] } })
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  const ledger = box.querySelector('section[aria-label="Wake ledger"]')!
+  const reply = [...box.querySelectorAll('[aria-label="Dex thread"] *')].find(node => node.textContent === 'The latest reply')!
+  expect(ledger).not.toBeNull()
+  expect(reply.compareDocumentPosition(ledger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+it('#2168: "What happened?" is one click in the top bar, never at the foot of the rail a narrow window draws over the thread', async () => {
+  const base = leadProjection()
+  const { box, request } = await mount({ ...base, thread: { ...base.thread, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'assistant', text: 'First' }] } }, false, true)
+  const rail = box.querySelector('[data-testid="lead-rail"]')!
+  expect(rail.textContent).not.toContain('What happened?')
+  const recaps = [...box.querySelectorAll<HTMLButtonElement>('button[data-lead-recap]')]
+  expect(recaps, 'one button, nowhere else').toHaveLength(1)
+  const recap = recaps[0]!
+  const bar = box.querySelector('[data-slot="top-bar"]')
+  expect(bar, 'the page draws its top bar').not.toBeNull()
+  expect(bar!.contains(recap), 'the top bar carries it').toBe(true)
+  expect(recap.getAttribute('aria-label')).toBe('What happened?')
+  expect(rail.contains(recap)).toBe(false)
+  expect(recap!.title).toBe('What happened?')
+  await act(async () => { recap!.click() })
+  expect(request.mock.calls.some(([method, params]) => method === 'lead/presence/read' && (params as { recap?: boolean }).recap === true)).toBe(true)
+})
+it('#2168: an empty thread has nothing to recap, so the top bar offers no "What happened?"', async () => {
+  const base = leadProjection()
+  const { box } = await mount({ ...base, thread: { ...base.thread, messages: [] } }, false, true)
+  expect(box.querySelector('button[data-lead-recap]')).toBeNull()
 })

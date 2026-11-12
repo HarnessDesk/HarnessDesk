@@ -114,6 +114,15 @@ test('assistant phase distinguishes commentary from the final answer', () => {
   assert.equal(final.type === 'assistantMessage' && final.phase, 'final')
 })
 
+test('a partial answer is shown as prose but never marked final', () => {
+  const partial = map({ ...fixtures.agentFinal, phase: 'partial_answer' } as Parameters<typeof mapItem>[0])
+  assert.equal(partial.type, 'assistantMessage')
+  assert.equal(partial.type === 'assistantMessage' && partial.phase, undefined)
+  // Control: a message with no phase at all keeps the legacy reading.
+  const unphased = map({ ...fixtures.agentFinal, phase: null } as Parameters<typeof mapItem>[0])
+  assert.equal(unphased.type === 'assistantMessage' && unphased.phase, 'final')
+})
+
 test('reasoning keeps summary and detail separate', () => {
   const mapped = map(fixtures.reasoning)
   assert.equal(mapped.type, 'reasoning')

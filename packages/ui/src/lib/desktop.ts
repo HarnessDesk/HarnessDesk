@@ -21,7 +21,7 @@ export interface TrayAgent {
   readonly current: boolean
   /**
    * Whose mark to draw beside the name — a lobe-icons key, the same one
-   * `lib/brands.ts` gives every other surface. The shell keeps a rendered
+   * `brandForRuntime` (`@harnessdesk/protocol`) gives every other surface. The shell keeps a rendered
    * image per key, because a menu item's image is a raster and the shell has
    * no build step of its own. Null when the agent has no mark of ours.
    */
