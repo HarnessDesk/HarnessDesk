@@ -5,6 +5,7 @@ import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue, supersededUsageNotices, USAGE_CROSSING_KIND } from '@harnessdesk/protocol'
 import { createLeadState } from './lead'
 import { createPhoneState } from './phone'
+import { createSeatCarryOnState } from './seat-carry-on'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
@@ -177,7 +178,9 @@ import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
 import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
-import { openExternal, setDockIcon } from '../lib/desktop'
+import { openExternal, setDockIcon, type PromptLink } from '../lib/desktop'
+import { handOverToComposer } from '../lib/compose'
+import { matchPromptLinkProject, promptLinkContext, promptLinkRepoText } from '../lib/prompt-link'
 import { openingOfContent, splitContext, wrapContext } from '../lib/context-envelope'
 import {
   readEditorPrefs, editorConversation, updateEditorConversation, openEditorTab, keepEditorTab,
@@ -368,7 +371,7 @@ export type {
   SeatRefusal,
   StoredCredential,
 } from './snapshot'
-import { Drafts, UNSCOPED_RECOVERY_KEY, type NewRecoverableDraft, type RecoverableDraft } from './drafts'
+import { Drafts, NEW_SESSION_DRAFT_KEY, UNSCOPED_RECOVERY_KEY, type NewRecoverableDraft, type RecoverableDraft } from './drafts'
 export type { RecoverableDraft } from './drafts'
 export { emptySnapshot } from './snapshot'
 
@@ -680,6 +683,8 @@ export class AppStore {
   readonly transport: Transport
   readonly lead: ReturnType<typeof createLeadState>
   readonly phone: ReturnType<typeof createPhoneState>
+  /** Carry-on questions of Team and Flow seats, answered from the Team's `limit` notice. */
+  readonly seatCarryOn: ReturnType<typeof createSeatCarryOnState>
   #leadCapabilityEpoch = 0
   #chatRootsVersion: { epoch: string; revision: number } | null = null
   #chatConnectionGeneration = 0
@@ -1496,6 +1501,7 @@ export class AppStore {
         }
         this.lead.changed(notification)
         this.phone.changed(notification)
+        this.seatCarryOn.changed(notification)
         if (notification.method === 'provenance/changed') {
           const { project, revision, health } = notification.params
           if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
@@ -1881,12 +1887,14 @@ export class AppStore {
           this.#patch({ status, leadAvailable: false, captureHealth: new Map(), provenanceRevision: new Map() })
           this.lead.reset()
           this.phone.reset()
+          this.seatCarryOn.reset()
         } else {
           this.#patch({ status })
           if (previous === 'reconnecting') {
             const adjacent = this.#snapshot.adjacentSession
             if (adjacent) { const { runtime, id } = splitSessionKey(adjacent.key); void this.openAdjacentSession(id, runtime) }
             void this.#refreshLeadAvailability()
+            void this.seatCarryOn.refresh().catch(() => {})
             const generation = this.#chatConnectionGeneration
             void this.transport.request('app/state/get', {}).then(preferences => this.#applyChatsPreferences(preferences, generation)).catch(() => {})
           }
@@ -1898,6 +1906,8 @@ export class AppStore {
     this.lead = createLeadState(this.transport, () => this.#snapshot.leadAvailable)
     this.phone = createPhoneState(this.transport)
     this.phone.subscribe(() => { const phoneLink = this.phone.state.enabled; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
+    this.seatCarryOn = createSeatCarryOnState(this.transport)
+    this.seatCarryOn.subscribe(() => this.#patch({ seatCarryOn: this.seatCarryOn.state }))
     this.#watchWindowWidth()
     this.enableTranscriptCache()
   }
@@ -2009,6 +2019,8 @@ export class AppStore {
     // is loaded once here rather than on the first ⌘U. Cached readings answer
     // most of these without anyone being asked again.
     void this.loadUsage()
+    // A seat already waiting on a person when this window connected still shows its question.
+    void this.seatCarryOn.refresh().catch(() => {})
     // The editor plane is pushed the moment the socket opens, which is before
     // any of the above has run — so a plugin's file, marked while this window
     // was closed, arrived with no runtime to open it into. Projected again
@@ -2492,6 +2504,74 @@ export class AppStore {
     if (this.#libraryViews[section] === view) return
     this.#libraryViews[section] = view
     for (const listener of this.#libraryViewListeners) listener()
+  }
+
+  /**
+   * A prompt link (`harnessdesk://new`): a new chat's draft in the project it
+   * names, with the composer filled and marked as from a link. That is all it
+   * does — it never sends, never starts a run or a Flow, and never touches a
+   * permission or a setting. The person reads the draft and presses Send.
+   *
+   * The project must already be one the desk has: a link cannot make the
+   * desk open, clone or trust a folder. When none matches, a notice says
+   * which repository to open first. A draft already typed in the new-chat
+   * composer is set aside to restore, never overwritten.
+   */
+  async fillFromPromptLink(link: PromptLink): Promise<'filled' | 'unmatched' | 'not-opened' | 'not-taken' | 'superseded'> {
+    // The newest link wins: one still waiting on the host when another
+    // arrives must not, on its return, navigate or replace the newer draft.
+    const generation = ++this.#promptLinkGeneration
+    const current = (): boolean => generation === this.#promptLinkGeneration
+    const workspaces = await this.transport.request('workspace/recent', {}).catch(() => this.#snapshot.workspaces)
+    if (!current()) return 'superseded'
+    const project = matchPromptLinkProject(link.repo, workspaces)
+    if (!project) {
+      this.notice('warning', `Open this repository first: ${promptLinkRepoText(link.repo)}`)
+      return 'unmatched'
+    }
+    // Read before the pane turns into the draft (a conversation's composer
+    // leaving for it starts the draft empty) and again after (a new chat's
+    // composer already on screen keeps what it holds).
+    const before = this.drafts.live(NEW_SESSION_DRAFT_KEY)
+    if (this.#snapshot.workspace?.path !== project.path) {
+      // A link overtaken while its folder opens must not land that folder
+      // after a newer link (which may not have needed to open one at all).
+      const previous = this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+        ? this.#conversationWorkspaceSource : undefined
+      const navigation = ++this.#navigationEpoch
+      await this.#openWorkspace(project.path, () => current() && navigation === this.#navigationEpoch, undefined, previous)
+    }
+    if (!current()) return 'superseded'
+    this.newDraft()
+    if (this.#snapshot.workspace?.path !== project.path) return 'not-opened'
+    // Whatever the new chat's draft holds is set aside, not overwritten:
+    // its words unless they are the link's own, and its chips always.
+    const after = this.drafts.live(NEW_SESSION_DRAFT_KEY)
+    const setAside = new Set<string>()
+    for (const held of [before, after]) {
+      if (!held || (held.attachments.length === 0 && (held.text.trim() === '' || held.text === link.prompt))) continue
+      const identity = JSON.stringify([held.text, held.attachments.map((attachment) => attachment.path)])
+      if (setAside.has(identity)) continue
+      setAside.add(identity)
+      this.addRecoverableDraft(UNSCOPED_RECOVERY_KEY, {
+        text: held.text,
+        attachments: held.attachments,
+        reason: 'saved',
+        detail: 'Set aside for the draft a link opened. Restore it to the composer you choose.',
+      })
+    }
+    // Kept for a composer drawn later, and handed to the new draft on screen
+    // now — that pane's draft alone, once it is drawn.
+    this.drafts.setLive(NEW_SESSION_DRAFT_KEY, { text: link.prompt, attachments: [] })
+    this.#patch({ promptLinkDraft: { text: link.prompt, context: promptLinkContext(link) } })
+    const taken = await handOverToComposer({ text: link.prompt, paneId: this.#snapshot.layout.focused, newDraft: true }, { live: current })
+    if (!current()) return 'superseded'
+    return taken ? 'filled' : 'not-taken'
+  }
+
+  /** The draft a prompt link filled was edited or sent: it is the person's own now. */
+  endPromptLinkDraft(): void {
+    if (this.#snapshot.promptLinkDraft) this.#patch({ promptLinkDraft: null })
   }
 
   /** One click on a workspace group's +: that folder, a fresh draft. */
@@ -4226,6 +4306,8 @@ export class AppStore {
    * agent, one Enter from going to the very agent being left.
    */
   #parkedHandoff: DraftHandoff | null = null
+  /** Which prompt link is the newest: an older one still in flight stops where it is. */
+  #promptLinkGeneration = 0
 
   /**
    * The last reopen refusal toasted for a conversation that is not a gone
@@ -4317,7 +4399,7 @@ export class AppStore {
     this.#parkedHandoff = null
     // And it starts in the open folder: a worktree chosen for the last draft
     // is a decision about that one, and "New session" is asked to be empty.
-    this.#patch({ draftHandoff: parked, draftPlace: startsInChats ? { kind: 'chats' } : null, sidebarFloating: false })
+    this.#patch({ draftHandoff: parked, draftPlace: startsInChats ? { kind: 'chats' } : null, promptLinkDraft: null, sidebarFloating: false })
     // Hand the keyboard to the composer, the only thing to do in an empty pane.
     window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: '' }))
   }

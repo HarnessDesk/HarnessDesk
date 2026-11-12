@@ -173,7 +173,11 @@ export interface CarryOnRecord {
   /** The other conversation of a handoff. */
   readonly link?: { readonly runtime: string; readonly sessionId: string }
   /** The conversation whose next turn decides whether the move held. */
-  readonly watch?: { readonly runtime: string; readonly sessionId: string }
+  /**
+   * The conversation whose next turn says whether a move held. `pending` until the continuation is actually sent
+   * (a replacement Seat's packet waits behind its brief); `skip` the turns it already had then, never the continuation.
+   */
+  readonly watch?: { readonly runtime: string; readonly sessionId: string; readonly pending?: true; readonly skip?: readonly string[] }
   /** When the continuing turn was being sent; a restart after it never resends. */
   readonly turnStartedAt?: number
   readonly note?: string
@@ -203,6 +207,12 @@ const pointer = (value: unknown): boolean => {
   const v = value as Record<string, unknown> | null
   return !!v && typeof v === 'object' && short(v['runtime']) && short(v['sessionId'])
 }
+const WATCH_SKIP_LIMIT = 32
+const watchOk = (value: unknown): boolean => {
+  const v = value as Record<string, unknown> | null
+  return pointer(value) && (v!['pending'] === undefined || v!['pending'] === true) &&
+    (v!['skip'] === undefined || Array.isArray(v!['skip']) && (v!['skip'] as unknown[]).length <= WATCH_SKIP_LIMIT && (v!['skip'] as unknown[]).every(entry => short(entry)))
+}
 const unwritten = (value: unknown): boolean => {
   const v = value as Record<string, unknown> | null
   return pointer(v) && (CARRY_ON_PHASES as readonly unknown[]).includes(v!['phase']) && (v!['to'] === undefined || side(v!['to'])) &&
@@ -225,7 +235,7 @@ export const validCarryOnRecord = (value: unknown): value is CarryOnRecord => {
     (v['alwaysScope'] === 'desk' || v['alwaysScope'] === 'agent') &&
     (v['to'] === undefined || side(v['to'])) && optionalShort(v['toRuntime']) &&
     (v['mode'] === undefined || v['mode'] === 'sameThread' || v['mode'] === 'handoff') &&
-    (v['link'] === undefined || pointer(v['link'])) && (v['watch'] === undefined || pointer(v['watch'])) &&
+    (v['link'] === undefined || pointer(v['link'])) && (v['watch'] === undefined || watchOk(v['watch'])) &&
     (v['turnStartedAt'] === undefined || isTimestamp(v['turnStartedAt'])) && optionalShort(v['note'], 300) &&
     (v['handled'] === undefined || Array.isArray(v['handled']) && (v['handled'] as unknown[]).length <= HANDLED_LIMIT &&
       (v['handled'] as unknown[]).every(entry => short(entry, 1000))) &&
@@ -249,9 +259,13 @@ export class CarryOnIncidents {
     })
   }
 
+  #loading: Promise<void> | null = null
+  /** The ledger read from disk, once: what a reader outside the queue waits for, never the queue itself. */
+  loaded(): Promise<void> { return this.#loading ??= this.#ledger.load() }
+
   /** Runs `work` after every earlier write, so a read inside it sees them all. */
   serial<T>(work: () => Promise<T>): Promise<T> {
-    const task = this.#tail.then(async () => { await this.#ledger.load(); return work() })
+    const task = this.#tail.then(async () => { await this.loaded(); return work() })
     this.#tail = task.catch(() => {})
     return task
   }

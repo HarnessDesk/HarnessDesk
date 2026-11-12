@@ -7,6 +7,37 @@ the rule is the last line of its section.
 
 ---
 
+## A prompt link fills a draft and nothing else — 2026-11-11
+
+An OS `harnessdesk://` launch was only a focus hint: the shell read neither the URL nor argv, so nothing an OS launch supplies could authenticate the desk or act in it ("Desktop account sign-in uses explicit browser approval and host polling", 2026-10-24). That rule now has exactly one exception, `harnessdesk://new?repo=…&prompt=…` with optional `pr` and `flow`. It brings the app forward and fills a new chat's draft in the project it names. The person reads the draft and presses Send.
+
+- **Why one route is safe.** Its only effect is text in a composer, which is where a pasted prompt would have gone anyway. It never sends, starts a run or a Flow, attaches anything, or changes a permission ceiling, a setting or an account. The repository must already be a project on the desk; a link cannot open, clone or trust a folder, and an unknown one gets "Open this repository first" with the repo as text. The marker over the composer ("From a link — review before sending") stays until the first edit or the send. A draft already typed there, its words or any chip it carries, is set aside to Restore, never overwritten, and the link's draft replaces text and chips together. The words go to the new chat's own composer, never to the conversation the pane is leaving, and the newest link wins: one still waiting on the host when another arrives stops where it is.
+- **One strict parser, in the shell.** `packages/desktop/electron/prompt-link.mjs` accepts only scheme `harnessdesk:`, host `new`, an empty path or `/` as written (read before URL parsing resolves `/send/..` to `/`), and no credentials, port or fragment. It caps the URL at 16 KB and the prompt at 8000 characters, refusing a longer prompt rather than cutting it. It strips NUL, the other control characters except newline and tab, and bidirectional overrides, so the draft reads the way it will be sent. `pr` is a positive integer and `flow` a slug, and repeating one of the four refuses the link. Unknown parameters are ignored, never read: ignoring one cannot make the app do anything, and a newer link still fills a draft in an older app. Rejected: refusing links with unknown parameters (a refused link turns silently into a plain focus, which tells nobody more).
+- **Taken once, never pushed.** A link waits in one slot in main; the app window's renderer takes it over `harnessdesk:prompt-link-take` once it can resolve projects, and a nudge carries no data. A cold start (macOS `open-url` before the window, or the first instance's own argv on Windows and Linux) is kept until then; taking empties the slot, so a reload or a crossed nudge never delivers twice. On Windows and Linux only an argv element starting with `harnessdesk://new` is read, and only the first.
+- **`pr` and `flow` are words.** The composer has no way to attach a pull request or choose a Flow, so the marker says them as plain text and nothing acts on them.
+- **Not in the browser build.** A `?new=` query on the UI's own address was considered and left out: that address carries the desk token, so a shareable link would either carry a credential or not open at all.
+- **Still refused.** Every other host and path — `return` among them — and every other argv element remain a pure focus hint: never parsed, logged or passed on. No route reads a token or a code.
+
+**Rule:** a `harnessdesk://` launch may only fill a draft, through `parsePromptLink`; anything that would act on the desk is not a link's to do.
+
+## A seat that hits its usage limit is replaced, never moved — 2026-11-11
+
+Carry-on (continuing a conversation on another account or agent when a turn hits a usage limit) applies to Team and Flow seats as well as chats, with the same rule and the same `carryOn/decide`. A seat's question is never a card over a composer: it goes on the Team's own `usage limit` notice for that member, as Switch, Wait until reset and Stop.
+
+A `SeatRecord` is bound to its conversation and its label, and a run stalls a seat that comes back under a different label. So a switch opens a replacement seat for the same card, in the same checkout and lane, with the same role, card, blind setting and binding. Only the conversation and the label change. The round lists both seats in order, the old one closed with `limit`, and a review guard asks only the seat that is working now. A sibling account of the same agent resumes the same thread; any other agent is seated with its brief and gets the handoff packet as its first work message. A blind reviewer's packet leaves out the recent turns, so it reads nothing of the work it must judge independently.
+
+Each candidate goes through the independence check in both directions before it is opened: a reviewer cannot move onto the provider of the work it reviews, and a writer cannot move onto the provider of a seat that must be independent of it, or leave a step still to come with no independent candidate. A refused candidate is skipped, with its reason in the incident's note. When none passes, or the run is at its budget ("Run budget reached"), the seat stays stopped with its `limit` notice.
+
+While an incident is live, the seat's own recovery (re-arming the card, retrying a release) does not run, so the card is never handed back underneath the question. When the incident ends stopped, that recovery runs as it did before.
+
+Rejected:
+
+- **Changing the seat's conversation in place.** The run's journal, its evidence and the `#sameSeat` check all rely on a seat keeping its conversation; a moved seat would read as one that silently changed agents.
+- **A carry-on card in the Team view.** The notice already says the member stopped; a second surface would say it twice.
+- **Letting the seat's recovery run beside the question.** Both would hand the card out, once to the stuck account and once to the replacement.
+
+**Rule:** a seat is carried on by a replacement for the same card that passes the run's independence check; the old seat stays in the round, closed with `limit`; and nothing hands the card back while the question is open.
+
 ## The Lead's child and its host check one argument table, and a stop says where it happened — 2026-11-10
 
 The Lead's child asks the host to write to the journal over a framed pipe, one named operation at a time. Two places checked how many arguments each operation may carry: the frame decoder, with a cap of two for most operations, and the host's dispatch, with an exact count. When the child began journaling the memory Core each conversation epoch reads (three arguments), only the dispatch was taught the new count. The decoder refused the frame, the host stopped the child as a broken protocol, and because the record is written on the first request of every new epoch, every request after a summary failed before it was reserved. Each Resume started a child that stopped at the same place, and nothing anywhere said why.

@@ -318,7 +318,8 @@ sample.
   `HARNESSDESK_CLOUD_URL` selects an HTTPS origin (default
   `https://app.harnessdesk.app`; HTTP loopback is allowed for local rigs).
   Polling and metadata refresh stop with the host. Cancel fences queued and
-  in-flight approval work. The `harnessdesk://` protocol only focuses the app;
+  in-flight approval work. The `harnessdesk://` protocol only focuses the app,
+  except `harnessdesk://new`, which only fills a draft (docs/decisions.md);
   it never authenticates a desk. The account also hands the phone link what
   the relay needs — a desk session that names the relay and carries its own
   token, a signature of the relay's challenge, and one-time invites — without

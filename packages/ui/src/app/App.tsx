@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 
 import { useLeadName } from '../components/use-lead-name'
-import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setWindowTitle } from '../lib/desktop'
+import { desktop, isDesktop, onOpenGoal, onOpenSession, onPromptLink, onShortcut, setWindowTitle } from '../lib/desktop'
 import { windowTitleOf } from '../lib/window-title'
 import { startTrayUpdates } from '../lib/tray'
 import { shortcutFor } from '../lib/shortcuts'
@@ -265,6 +265,15 @@ export const App = () => {
     [store],
   )
   useEffect(() => onOpenGoal(({ goal }) => {store.openGoal(goal)}), [store])
+
+  // A prompt link the OS opened fills a new chat's draft, and nothing else.
+  // Taken only once the desk can say which projects it has, so a link that
+  // started the app waits in the shell rather than resolving against nothing.
+  const linksReady = snapshot.status === 'open' && snapshot.preferencesLoaded
+  useEffect(() => {
+    if (!linksReady) return
+    return onPromptLink((link) => { void store.fillFromPromptLink(link) })
+  }, [linksReady, store])
 
   /**
    * The menu bar's status item.
