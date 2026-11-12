@@ -1,17 +1,21 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { LEAD_WORK_GROUPS, LEAD_WORK_GROUP_LABELS, runtimeId, sessionId, sessionKey, type LeadReminder, type LeadWorkBoard, type LeadWorkCard, type LeadWorkGroup, type LeadWorkOutcome } from '@harnessdesk/protocol'
+import { LEAD_WORK_GROUPS, LEAD_WORK_GROUP_LABELS, leadTeamKey, leadWorkOpenCount, leadWorkWaiting, runtimeId, sessionId, sessionKey, type LeadReminder, type LeadWorkBoard, type LeadWorkCard, type LeadWorkGroup, type LeadWorkOutcome, type LeadWorkWaiting } from '@harnessdesk/protocol'
 import { Button, Chip, ListRow, ListRows, Menu, MenuItem, MenuNote, MenuSeparator, Popover, ToolGroup, ToolProse, ToolSection } from '../design'
 import { formatLeadRunTime } from '../lib/lead-time'
-import { useStore } from '../state/context'
+import { useSnapshot, useStore } from '../state/context'
+import { useLeadInbox } from './use-inbox-waiting'
 import { openExternal } from '../lib/desktop'
 import { sanitizeText } from '../lib/sanitize'
 import { leadRefusalText } from './lead-refusals'
 import { CheckIcon, CommentIcon, CrossIcon, MoreIcon, PullRequestIcon, StopIcon, TeamIcon } from './Icons'
 
-/** The board in its four groups, Needs you first; the phone draws the same groups from the same board. */
-export const leadWorkGroups = (board: LeadWorkBoard): readonly { readonly group: LeadWorkGroup; readonly label: string; readonly items: readonly LeadWorkCard[] }[] =>
-  LEAD_WORK_GROUPS.map(group => ({ group, label: LEAD_WORK_GROUP_LABELS[group], items: board.items.filter(item => item.group === group) }))
-    .filter(entry => entry.items.length > 0)
+/**
+ * The board in its four groups, Needs you first; the phone draws the same groups from the same board. Needs you also
+ * holds the Teams and chats the desk says wait on the person that no item stands for, so it counts what the header counts.
+ */
+export const leadWorkGroups = (board: LeadWorkBoard, waiting: readonly LeadWorkWaiting[] = []): readonly { readonly group: LeadWorkGroup; readonly label: string; readonly items: readonly LeadWorkCard[]; readonly waiting: readonly LeadWorkWaiting[] }[] =>
+  LEAD_WORK_GROUPS.map(group => ({ group, label: LEAD_WORK_GROUP_LABELS[group], items: board.items.filter(item => item.group === group), waiting: group === 'needs-you' ? waiting : [] }))
+    .filter(entry => entry.items.length + entry.waiting.length > 0)
 
 const PULL_REQUEST = /^([\w.-]+\/[\w.-]+)#(\d+)$/
 const chatKey = (id: string) => { const at = id.indexOf(':'); return at > 0 ? { runtime: runtimeId(id.slice(0, at)), session: sessionId(id.slice(at + 1)) } : null }
@@ -68,11 +72,18 @@ export const LeadWork = () => {
   const store = useStore(), state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => { void store.lead.readWork().catch(() => {}) }, [store, state.revision])
-  const board = state.work
+  const board = state.work, inbox = useLeadInbox(), goals = useSnapshot().goals
   const reminders = leadVisibleReminders(board)
+  // A Team is one Team whichever of its names the board and the inbox hold: its goal id or the room its board is.
+  const waiting = board ? leadWorkWaiting(board, inbox, leadTeamKey([...goals.values()].map(view => ({ goal: view.goal.id, room: view.board?.id ?? null })))) : []
   // Nothing tracked yet is not a card: the rail stays as it was until the Lead starts work or sets a reminder.
-  if (!board || board.items.length === 0 && reminders.length === 0) return null
-  const groups = leadWorkGroups(board), open = board.items.filter(item => item.closedAt === undefined).length
+  if (!board || board.items.length === 0 && reminders.length === 0 && waiting.length === 0) return null
+  const groups = leadWorkGroups(board, waiting), open = leadWorkOpenCount(board, waiting)
+  const openWaiting = (entry: LeadWorkWaiting) => {
+    if (entry.kind === 'team') { store.openGoal(entry.id); return }
+    const key = chatKey(entry.id)
+    if (key) void store.openSession(key.session, { runtime: key.runtime })
+  }
   const close = async (card: LeadWorkCard, outcome: LeadWorkOutcome) => {
     setError(null)
     try { await store.lead.closeWork(card.id, outcome) } catch (failure) { setError(leadRefusalText(failure)) }
@@ -82,8 +93,13 @@ export const LeadWork = () => {
     try { await store.lead.cancelReminder(entry.id) } catch (failure) { setError(leadRefusalText(failure)) }
   }
   return <ToolSection label="Work" fold value={open || undefined}>
-    {groups.map(({ group, label, items }) => <ToolGroup key={group} label={label} heading={`${label} · ${items.length}`} data-work-group={group}>
-      <ListRows surface="panel">{items.map(card => <ListRow key={card.id} size="sm" data-work-item={card.id}
+    {groups.map(({ group, label, items, waiting: others }) => <ToolGroup key={group} label={label} heading={`${label} · ${items.length + others.length}`} data-work-group={group}>
+      <ListRows surface="panel">{others.map(entry => <ListRow key={`${entry.kind}:${entry.id}`} size="sm" data-work-waiting={entry.id}
+        // Where it lives is on hover: the row says what waits, and its own page says why.
+        title={<span title={entry.project ? sanitizeText(entry.project) : undefined}>{sanitizeText(entry.title)}</span>} wrapTitle
+        trail={<Button variant="ghost" size="icon-sm" aria-label={`Open ${sanitizeText(entry.title)}`} title={entry.kind === 'team' ? 'Open Team' : 'Open chat'}
+          onClick={() => openWaiting(entry)}>{entry.kind === 'team' ? <TeamIcon size={16} /> : <CommentIcon size={16} />}</Button>} />)}
+      {items.map(card => <ListRow key={card.id} size="sm" data-work-item={card.id}
         title={<span title={card.fact ? sanitizeText(card.fact) : undefined}>{sanitizeText(card.title)}</span>} wrapTitle
         // A reason someone waits is a fact that varies, so it earns the line; everything else stays on hover.
         subtitle={group === 'needs-you' && card.blocker ? sanitizeText(card.blocker) : undefined} wrapSubtitle

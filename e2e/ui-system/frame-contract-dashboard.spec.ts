@@ -369,3 +369,50 @@ for (const theme of ['light', 'dark'] as const) test(`today ring fits inside the
     }
   }
 })
+
+{
+  // Every line inside a plan card starts its first ink on the card's text edge: the heading's mark (or its name when
+  // it has none), the figure row and the note. A mark that keeps its slot but paints nothing leaves the name hanging
+  // a mark's width in from everything under it, so the mark is also required to paint.
+  for (const [name, query] of [
+    ['a silent agent on its Settings page', 'frame-wall=settings-runtimes&frame-detail=runtime&frame-silent=Alpha'],
+    ['reporting agents on their Settings page', 'frame-wall=settings-runtimes&frame-detail=runtime'],
+    ['reporting accounts on the Dashboard', 'frame-wall=dashboard&frame-view=overview'],
+  ] as const) for (const theme of ['light', 'dark'] as const) test(`R4 plan card lines share the card's text edge and its mark paints: ${name} (${theme})`, async ({ page }) => {
+    await openFrame(page, query, theme, 1440)
+    const cards = page.locator('article:has([data-slot="account-foot"])')
+    await expect(cards.first()).toBeVisible()
+    for (const card of await cards.all()) {
+      const edges = await card.evaluate(node => {
+        const left = (el: Element | null) => el ? el.getBoundingClientRect().left : null
+        const head = node.querySelector('[data-slot="account-head"]')!
+        const mark = head.querySelector('[data-slot="account-mark"]')
+        const name = head.querySelector(':scope > [data-slot="text"]')
+        return { text: node.textContent?.slice(0, 40), head: left(head.firstElementChild), mark: left(mark), name: left(name),
+          markRight: mark ? mark.getBoundingClientRect().right : null,
+          figure: left(node.querySelector('[data-slot="account-figure"]')), note: left(node.querySelector('[data-slot="account-note"]')),
+          foot: left(node.querySelector('[data-slot="account-foot"]')) }
+      })
+      const edge = edges.foot!
+      expect(Math.abs(edges.head! - edge), `${edges.text}: the heading starts on the card's text edge`).toBeLessThanOrEqual(1)
+      if (edges.figure !== null) expect(Math.abs(edges.figure - edge), `${edges.text}: the figure row starts on the card's text edge`).toBeLessThanOrEqual(1)
+      if (edges.note !== null) expect(Math.abs(edges.note - edge), `${edges.text}: the note starts on the card's text edge`).toBeLessThanOrEqual(1)
+      if (edges.mark === null) {
+        expect(Math.abs(edges.name! - edge), `${edges.text}: with no mark the name is on the edge`).toBeLessThanOrEqual(1)
+        continue
+      }
+      // The mark paints: a screenshot of its box has more than its ground in it.
+      const png = (await card.locator('[data-slot="account-mark"]').screenshot()).toString('base64')
+      const inked = await page.evaluate(async data => {
+        const image = new Image(); image.src = `data:image/png;base64,${data}`; await image.decode()
+        const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height
+        const context = canvas.getContext('2d')!; context.drawImage(image, 0, 0)
+        const pixels = context.getImageData(0, 0, image.width, image.height).data
+        let differ = 0
+        for (let i = 0; i < pixels.length; i += 4) if (Math.abs(pixels[i]! - pixels[0]!) + Math.abs(pixels[i + 1]! - pixels[1]!) + Math.abs(pixels[i + 2]! - pixels[2]!) > 48) differ++
+        return differ / (pixels.length / 4)
+      }, png)
+      expect(inked, `${edges.text}: the heading's mark paints`).toBeGreaterThan(0.1)
+    }
+  })
+}

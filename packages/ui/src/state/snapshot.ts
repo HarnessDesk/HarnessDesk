@@ -616,6 +616,13 @@ export interface AppSnapshot {
    * account, ordered by the host; the screen sorts by urgency itself.
    */
   readonly usage: readonly UsageReport[]
+  /**
+   * The agents a usage read has finished for since this window connected: the host answers `usage/reports` and a full
+   * `usage/refresh` only once every agent's read has settled (the host's `UsageService.asked`), so each agent the
+   * window knew when it asked, and each the answer names, was asked. One of those with no reading is Not reporting;
+   * one added since, or never answered for, is not yet called anything. Absent: every agent (a fixture's snapshot).
+   */
+  readonly usageAsked?: readonly RuntimeId[]
   /** Progress of the transcript scan behind the money figures. */
   readonly scan: ScanProgress | null
 

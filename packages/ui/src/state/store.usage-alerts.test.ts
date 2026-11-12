@@ -56,6 +56,31 @@ describe('usage alerts from a refresh', () => {
   })
 })
 
+describe('an allowance notice a newer read superseded (#2111)', () => {
+  it('leaves the Inbox once a newer read puts the window back under the line', async () => {
+    answers['usage/refresh'] = [report('dev@example.com', 70)]
+    await store.refreshUsage()
+    answers['usage/refresh'] = [report('dev@example.com', 85)]
+    await store.refreshUsage()
+    expect(store.getSnapshot().inbox.map((notice) => notice.kind)).toEqual(['usage:crossing'])
+
+    // A later read of the same account in the same window, under 80% again: the notice no longer holds.
+    answers['usage/refresh'] = [{ ...report('dev@example.com', 40), fetchedAt: Date.now() + 1_000 }]
+    await store.refreshUsage()
+    expect(store.getSnapshot().inbox).toEqual([])
+  })
+
+  it('stays while a newer read still says what it said', async () => {
+    answers['usage/refresh'] = [report('dev@example.com', 70)]
+    await store.refreshUsage()
+    answers['usage/refresh'] = [report('dev@example.com', 85)]
+    await store.refreshUsage()
+    answers['usage/refresh'] = [{ ...report('dev@example.com', 88), fetchedAt: Date.now() + 1_000 }]
+    await store.refreshUsage()
+    expect(store.getSnapshot().inbox.map((notice) => notice.kind)).toEqual(['usage:crossing'])
+  })
+})
+
 describe('what the store keeps and says (review of #216)', () => {
   it('keeps one reading of an account whose none arrives spelled two ways', async () => {
     answers['usage/refresh'] = [report(null, 70)]
@@ -223,4 +248,72 @@ describe('usage reports that go silent', () => {
       expect(store.getSnapshot().usage).toEqual([current])
     })
   }
+})
+
+describe('which agents a usage read has finished for (#2111 review rounds 3 and 4)', () => {
+  const failingFirstRead = (): void => {
+    vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+      if (method === 'app/state/get') return {}
+      if (method === 'usage/reports') throw new Error('socket closed')
+      return answers[method] ?? null
+    }) as never)
+  }
+
+  it('counts the agents as asked once the host answers a refresh, even when the first read of the start failed', async () => {
+    failingFirstRead()
+    await store.loadUsage()
+    expect(store.getSnapshot().usageAsked).toEqual([])
+    // One agent's read failed on the host and came back as its own error; the other answered.
+    answers['usage/refresh'] = [report('dev@example.com', 40), { ...report(null, 0, 'cursor'), lanes: [], error: { message: 'ledger unreadable' } } as UsageReport]
+    await store.refreshUsage()
+    expect(store.getSnapshot().usageAsked).toEqual([runtimeId('codex'), runtimeId('cursor')])
+    expect(store.getSnapshot().usage.map((entry) => entry.runtime)).toEqual([runtimeId('codex'), runtimeId('cursor')])
+  })
+
+  it('counts one agent refreshed on its own as that agent asked, and no other', async () => {
+    failingFirstRead()
+    seatTwoAccounts()
+    await store.loadUsage()
+    answers['usage/refresh'] = [report('dev@example.com', 40)]
+    await store.refreshUsage(runtimeId('codex'))
+    expect(store.getSnapshot().usageAsked).toEqual([runtimeId('codex')])
+  })
+
+  it('counts every agent the window knew as asked once a full read answers, silent ones included', async () => {
+    seatTwoAccounts()
+    answers['usage/reports'] = [report('work', 40)]
+    await store.loadUsage()
+    expect(store.getSnapshot().usageAsked).toEqual([runtimeId('codex'), runtimeId('codex-2')])
+  })
+
+  it('asks an agent added after the first read, and counts it asked only once its own read is back', async () => {
+    answers['usage/reports'] = []
+    await store.loadUsage()
+    let answer: (reports: readonly UsageReport[]) => void = () => undefined
+    vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+      if (method === 'app/state/get') return {}
+      if (method === 'usage/reports') return new Promise((resolve) => { answer = resolve })
+      return answers[method] ?? null
+    }) as never)
+    push({ method: 'runtime/added', params: { info: { id: runtimeId('cursor'), name: 'cursor', presentation: { name: 'Cursor' } } } } as unknown as WireNotification)
+    // Added, and asked about, but nothing has come back: not yet an agent that does not report.
+    expect(store.getSnapshot().usageAsked).not.toContain(runtimeId('cursor'))
+    expect(store.transport.request).toHaveBeenCalledWith('usage/reports', {})
+    answer([])
+    await vi.waitFor(() => expect(store.getSnapshot().usageAsked).toContain(runtimeId('cursor')))
+  })
+})
+
+describe('a notice the first read of a window no longer bears out (#2111 review round 4)', () => {
+  it('leaves the Inbox when the reading usage/reports brings puts the window back under the line', async () => {
+    answers['usage/refresh'] = [report('dev@example.com', 70)]
+    await store.refreshUsage()
+    answers['usage/refresh'] = [report('dev@example.com', 85)]
+    await store.refreshUsage()
+    expect(store.getSnapshot().inbox.map((notice) => notice.kind)).toEqual(['usage:crossing'])
+
+    answers['usage/reports'] = [{ ...report('dev@example.com', 40), fetchedAt: Date.now() + 1_000 }]
+    await store.loadUsage()
+    expect(store.getSnapshot().inbox).toEqual([])
+  })
 })

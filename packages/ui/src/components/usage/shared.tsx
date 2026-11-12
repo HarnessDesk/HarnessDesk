@@ -1,7 +1,7 @@
 import { type ReactNode, useMemo } from 'react'
 
 import type { AccountStatus, LedgerReport, LedgerRow, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
-import { keptReading } from '@harnessdesk/protocol'
+import { isSilentUsage, keptReading } from '@harnessdesk/protocol'
 
 import { dashboardReadLabel } from '../../lib/dashboard-read'
 import { prefsForUsage, runtimeTint, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
@@ -43,6 +43,7 @@ import {
   standingSentence,
   formatWhen,
   STANDING_LABEL,
+  NOT_REPORTING_LABEL,
   STANDING_TONE,
   usageStandingOf,
   type Balance,
@@ -238,7 +239,9 @@ export const Card = ({
   const balance = balanceOf(report.credits)
   // The agent's own standing, read from its own report: a borrowed sign-in's
   // figures are drawn, never judged as this agent's.
-  const standing = usageStandingOf(report, now)
+  // A tracked agent nothing has read stands as not reporting, the word the Plans table and the phone use for it.
+  const silent = isSilentUsage(report)
+  const standing = silent ? { ...usageStandingOf(report, now), status: 'unknown' as const } : usageStandingOf(report, now)
   const own = borrowed ? usageStandingOf(drawn, now) : standing
   // When the balance decided (the source hit its credits), a healthy window's figure, meter and reset would
   // contradict the chip: the balance is the headline then, and the window stays a row below.
@@ -297,8 +300,11 @@ export const Card = ({
         : money
           ? `spent in ${spend?.windowDays ?? 0}d`
           : 'not metered'
-  const note =
-    borrowed && !drawn.error && view.blocked
+  // A silent agent's chip already says Not reporting: its one line says why, and is true whether it never reports
+  // or usually does and did not this time.
+  const note = silent
+    ? { text: 'Nothing came back when it was last asked.' }
+    : borrowed && !drawn.error && view.blocked
       ? {
           text: `Everything is spent on the ${account ?? 'other sign-in'} — ${agent} may be signed in as another account`,
           tone: 'warn' as const,
@@ -313,12 +319,13 @@ export const Card = ({
       {/* The canonical card inset holds the recorded heading and its state. */}
       <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
         name={agent} agent={account ?? undefined}
-        states={<>{shapeChip}{plan && <Chip tone="neutral" label={plan} title={report.plan ?? undefined} />}<Chip tone={STANDING_TONE[standing.status]} label={STANDING_LABEL[standing.status]} stale={kept} /></>} />
+        states={<>{shapeChip}{plan && <Chip tone="neutral" label={plan} title={report.plan ?? undefined} />}<Chip tone={STANDING_TONE[standing.status]} label={silent ? NOT_REPORTING_LABEL : STANDING_LABEL[standing.status]} stale={kept} /></>} />
 
       {moneyRow}
 
       <DashboardAccountBody>
-        <DashboardLanes>
+        {/* A silent agent has no figure: a dash and "not reporting" were its chip said again. */}
+        {!silent && <DashboardLanes>
           <DashboardFigure>
             <Text role="figure" tone={unread ? 'neutral' : hero ? usageReadingTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
             <Text role="muted" truncate>{word}</Text>
@@ -336,7 +343,7 @@ export const Card = ({
               {headlineReset && <Text as="div" role="meta">{headlineReset}</Text>}
             </>
           )}
-        </DashboardLanes>
+        </DashboardLanes>}
 
         {/* The rows are the lanes the headline does not already say: the
             promoted lane repeated as the first row was one fact twice. */}

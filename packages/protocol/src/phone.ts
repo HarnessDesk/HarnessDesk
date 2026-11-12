@@ -331,6 +331,11 @@ export interface PhoneWorkAllowance {
    * Left out when the latest refresh worked, and by a desk older than this field.
    */
   readonly refreshFailed?: true
+  /**
+   * A tracked agent nothing has read, listed so the phone shows the same accounts as the desk: `status` is
+   * "Not reporting", and there are no figures and no `readAt`. Left out otherwise, and by a desk older than this field.
+   */
+  readonly notReporting?: true
 }
 
 /**
@@ -444,6 +449,13 @@ export interface PhoneWorkSnapshot {
   readonly autonomy?: import('./lead-autonomy.js').LeadAutonomyView
   /** The Lead's memory as the thread needs it. Left out while no Lead runs on the desk. */
   readonly memory?: PhoneLeadMemory
+  /**
+   * Teams and chats the Inbox counts as needing the person that no item of `work` holds, newest first. The phone lists
+   * them under the Work list's Needs you, before the items, with an Open that opens the Team (by its id) or the chat
+   * (`runtime:session`); the group's count adds them, so it agrees with the Inbox. Left out when there are none or no
+   * Lead runs here.
+   */
+  readonly workWaiting?: readonly import('./lead-work-waiting.js').LeadWorkWaiting[]
 }
 
 /**

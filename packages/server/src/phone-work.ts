@@ -1,8 +1,8 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
-import type { LeadAutonomyView, LeadChatControl, LeadWorkBoard, PhoneLeadMemory, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
+import type { LeadAutonomyView, LeadChatControl, LeadInbox, LeadWorkBoard, PhoneLeadMemory, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
 import { LEAD_MEMORY_LIMITS, LEAD_RULE_LIMITS } from '@harnessdesk/protocol'
 import {
-  findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, wireCodeOf, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
+  findOption, leadTeamKey, leadWorkWaiting, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, wireCodeOf, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
 } from '@harnessdesk/protocol'
 import { assessApproval, buildThread, type PhoneApprovalTurn, type ThreadContext } from './phone-thread.js'
@@ -23,6 +23,10 @@ export interface PhoneWorkPorts {
   readonly workspace: Pick<PhoneWorkspace, 'workItems' | 'workUsage' | 'workSessions'>
   /** The Lead's work board, the same projection the window's right rail draws; null while no Lead runs here. */
   readonly leadWork?: () => Promise<LeadWorkBoard | null>
+  /** The desk's one inbox, the one the bell and the phone's Inbox list: what the Work list's Needs you must agree with. */
+  readonly leadInbox?: () => Promise<LeadInbox | null>
+  /** Each Team's goal id and the room its board is, so a Team the board and the inbox name differently is one Team. */
+  readonly leadTeams?: () => Promise<readonly { readonly goal: string; readonly room?: string | null }[]>
   /** Autonomy modes, rules and deadline for the phone's Lead settings; null while no Lead runs here. */
   readonly leadAutonomy?: () => Promise<LeadAutonomyView | null>
   /** The Lead's memory as the thread needs it: the proposals waiting and how much is kept; null while no Lead runs. */
@@ -296,10 +300,13 @@ export class PhoneWork {
     const reads = [...new Set(runtime ? [runtime, ...ids] : ids)]
     // Only the default agent is started for its models; a snapshot never starts any other agent.
     const read = (one: RuntimeId) => one === runtime ? this.#ports.models(one) : this.#knownModels(one)
-    const [items, usage, catalogues, work, autonomy, memory] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
+    const [items, usage, catalogues, work, autonomy, memory, inbox, teams] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
       Promise.all(reads.map(one => read(one).then(modelChoices).catch((): PhoneModelChoice[] => []))),
       this.#ports.leadWork?.().catch(() => null) ?? null, this.#ports.leadAutonomy?.().catch(() => null) ?? null,
-      this.#ports.leadMemory?.().catch(() => null) ?? null])
+      this.#ports.leadMemory?.().catch(() => null) ?? null, this.#ports.leadInbox?.().catch(() => null) ?? null,
+      this.#ports.leadTeams?.().catch(() => []) ?? []])
+    // The Inbox's needs-you Teams and chats no work item holds, so the phone's Work list counts what its Inbox counts.
+    const waiting = work ? leadWorkWaiting(work, inbox, leadTeamKey(teams)) : []
     const choices = new Map(reads.map((one, index) => [one, catalogues[index]!]))
     const models = runtime ? choices.get(runtime)! : []
     const agents: PhoneAgentChoice[] = ids.map(id => ({ id: String(id), name: scrub(this.#ports.seatName(id) ?? '', 60) || 'Agent', models: choices.get(id)!, ...(id === runtime ? { default: true as const } : {}) }))
@@ -312,6 +319,7 @@ export class PhoneWork {
       ...(work ? { work: phoneWorkBoard(work) } : {}),
       ...(autonomy ? { autonomy: phoneAutonomy(autonomy) } : {}),
       ...(memory ? { memory: phoneMemory(memory) } : {}),
+      ...(waiting.length ? { workWaiting: waiting.map(entry => ({ ...entry, title: scrub(entry.title, 120) || 'Untitled' })) } : {}),
       models, agents, flows: [], commands: [],
       capabilities: { ...CAPABILITIES, delete: this.#ports.readyRuntimes().some(id => this.#ports.canDelete?.(id) === true), chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
       threads: [],

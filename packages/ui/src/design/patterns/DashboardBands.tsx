@@ -29,17 +29,17 @@ export const DashboardColumns = ({ primary, secondary }: { readonly primary: Rea
 /** Plan readings share a responsive card grid. */
 export const DashboardAccounts = ({ accounts }: { readonly accounts: readonly ReactNode[] }) => <div className={styles.accounts}>{accounts}</div>
 export const DashboardAccountHead = ({ mark, name, agent, states }: { readonly mark?: ReactNode; readonly name: ReactNode; readonly agent?: ReactNode; readonly states: ReactNode }) =>
-  <CardContent><div className={styles.accountHead}>{mark && <span className={styles.mark}>{mark}</span>}<Text role="subject" truncate>{name}</Text>{agent && <Text role="meta" truncate>{agent}</Text>}<span className={styles.states}><ChipLook.Provider value="quiet">{states}</ChipLook.Provider></span></div></CardContent>
+  <CardContent><div data-slot="account-head" className={styles.accountHead}>{mark && <span data-slot="account-mark" className={styles.mark}>{mark}</span>}<Text role="subject" truncate>{name}</Text>{agent && <Text role="meta" truncate>{agent}</Text>}<span className={styles.states}><ChipLook.Provider value="quiet">{states}</ChipLook.Provider></span></div></CardContent>
 export const DashboardAccountBody = ({ children }: { readonly children: ReactNode }) => <CardContent><div className={styles.accountBody}>{children}</div></CardContent>
 /** Where a reading came from and how old it is, on the card's own inset like the heading and figures above it. */
 export const DashboardAccountFoot = ({ source, age, actions, stale }: { readonly source: ReactNode; readonly age?: ReactNode; readonly actions?: ReactNode; readonly stale?: boolean }) =>
   <CardContent data-stale={stale ? '' : undefined}><div data-slot="account-foot" className={styles.accountFoot}><Text role="meta" truncate>{source}</Text><span className={styles.footControl}>{age}{actions}</span></div></CardContent>
 /** A plan's measured figure and its qualifiers, never a new control. */
-export const DashboardFigure = ({ children }: { readonly children: ReactNode }) => <div className={styles.figure}>{children}</div>
+export const DashboardFigure = ({ children }: { readonly children: ReactNode }) => <div data-slot="account-figure" className={styles.figure}>{children}</div>
 /** Related meter rows inside one account. */
 export const DashboardLanes = ({ children }: { readonly children: ReactNode }) => <div className={styles.lanes}>{children}</div>
 /** A complete note next to its source glyph. */
-export const DashboardReadingNote = ({ glyph, text }: { readonly glyph: ReactNode; readonly text: ReactNode }) => <div className={styles.readingNote}>{glyph}{text}</div>
+export const DashboardReadingNote = ({ glyph, text }: { readonly glyph: ReactNode; readonly text: ReactNode }) => <div data-slot="account-note" className={styles.readingNote}>{glyph}{text}</div>
 /** A single quantitative fact; groups keep the same key column. */
 export const DashboardFact = ({ label, value }: { readonly label: ReactNode; readonly value: ReactNode }) =>
   <SummaryList><SummaryItem label={label}>{value}</SummaryItem></SummaryList>

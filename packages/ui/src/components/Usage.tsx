@@ -3,8 +3,9 @@ import type { ReactNode } from 'react'
 
 import type { MainPageInput } from '../app/main-page-entries'
 import type { InsightReport, LedgerReport, RuntimeId, UsageReport } from '@harnessdesk/protocol'
+import { trackedUsage } from '@harnessdesk/protocol'
 
-import { byUrgency, costClause, runway } from '../lib/usage'
+import { byUrgency, costClause, runway, usageAskedOf } from '../lib/usage'
 import { dashboardReadLabel } from '../lib/dashboard-read'
 import { useSnapshot, useStore } from '../state/context'
 import { Page, PageOptions, PageExplanation } from '../design'
@@ -188,26 +189,10 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
   const agentTints = useMemo(() => tintsForRoster(snapshot.runtimes), [snapshot.runtimes])
 
   // Every registered agent gets a card, whether or not it reported anything.
-  const everyReport = useMemo(() => {
-    const metered = snapshot.usage.filter((report) => !off.has(report.runtime))
-    const known = new Set(metered.map((report) => report.runtime))
-    const silent: UsageReport[] = tracked
-      .filter((info) => !known.has(info.id))
-      .map((info) => ({
-        runtime: info.id,
-        account: null,
-        plan: null,
-        lanes: [],
-        credits: null,
-        spend: null,
-        reached: null,
-        source: { kind: 'runtime', label: 'no source available' },
-        fetchedAt: now,
-        staleAfterMs: Number.POSITIVE_INFINITY,
-        error: null,
-      }))
-    return byUrgency([...metered, ...silent], now)
-  }, [snapshot.usage, tracked, off, now])
+  const everyReport = useMemo(
+    () => byUrgency([...trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now, usageAskedOf(snapshot.usageAsked))], now),
+    [snapshot.runtimes, snapshot.usage, snapshot.usageOff, snapshot.usageAsked, now],
+  )
 
   // Every view reads the same scope, applied here once.
   const reports = useMemo(
