@@ -1,4 +1,5 @@
 import type { SeatCandidate } from './agent.js'
+import type { CarryOnIncidentView } from './carry-on.js'
 import type { CheckUnseen } from './evidence.js'
 
 /**
@@ -208,3 +209,24 @@ export class CheckUnseenError extends Error {
 
 /** Host-side, like `isSeatRefused`: a renderer reads `error.code === 'checkUnseen'`. */
 export const isCheckUnseen = (error: unknown): boolean => wireCodeOf(error) === 'checkUnseen'
+
+/**
+ * A carry-on decision arrived for an incident that is no longer asking, or
+ * named a target that is no longer a candidate — another surface answered, the
+ * person used the conversation, or the account it named ran out too. Nothing
+ * was done. `wireData` carries the incident as it is now (null when it is
+ * over), so the card can redraw from it rather than guess.
+ */
+export class CarryOnStaleError extends Error {
+  readonly wireCode = 'carryOnStale'
+  constructor(
+    message: string,
+    readonly wireData: { readonly incident: CarryOnIncidentView | null },
+  ) {
+    super(message)
+    this.name = 'CarryOnStaleError'
+  }
+}
+
+/** Host-side, like `isSeatRefused`: a renderer reads `error.code === 'carryOnStale'`. */
+export const isCarryOnStale = (error: unknown): boolean => wireCodeOf(error) === 'carryOnStale'

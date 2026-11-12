@@ -1416,6 +1416,16 @@ For a scripted desk, `HARNESSDESK_CLIENTS_MAY_ANSWER=1` also grants that tier,
 regardless of the stored switch. The switch shows and changes the stored
 preference; disabling it does not remove that environment override.
 
+Beneath it, **MCP clients** has **Let MCP clients start work**, off by default,
+and **Starts a day** (1, 3, 5, 10, 20 or 50; 5 unless changed). While the switch
+is on, its row says how many of the day's starts are used, counted from local
+midnight; a start that fails is not counted. Both are host state
+(`app/mcpStarts/get` and `app/mcpStarts/set`, saved against a revision), so a
+second window or a client already connected sees the change on its next call.
+`HARNESSDESK_MCP_MAY_START=1` grants starts for a scripted desk and locks the
+switch, whose hover title names it. A run started this way carries an **MCP**
+chip before its title in a Team's Runs, whose hover title names the client.
+
 **Runtimes** lists every registered runtime with its accounts beneath it.
 Its Process cost section lists runtimes holding processes, with process count and
 resident memory, including descendants, refreshed every five seconds while the

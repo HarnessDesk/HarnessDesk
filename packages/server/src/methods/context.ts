@@ -1,6 +1,7 @@
 import type { DispatchAdmission } from '../dispatch-admission.js'
 import type { HarnessDeskAccount } from '../harnessdesk-account.js'
 import type { GitGateway } from '../git-gateway/index.js'
+import type { McpStarts } from '../mcp-starts.js'
 import type { ConversationLoadouts } from '@harnessdesk/protocol'
 import type { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import type {
@@ -114,6 +115,8 @@ export interface HostContext {
   readonly harnessDeskAccount: HarnessDeskAccount
   readonly credentials: CredentialBroker
   readonly audit: AuditLog
+  /** Whether MCP clients may start work, and today's count. The window sets it; the client door admits against it. */
+  readonly mcpStarts: McpStarts
   readonly loadouts: {
     observe(runtime: AgentRuntime, session: SessionId, cwd: string): void
     read(session: string, runtime?: RuntimeId): Promise<ConversationLoadouts>
@@ -172,10 +175,18 @@ export interface HostContext {
    * by the ledger. The returned function takes the record back when the interrupt fails. Does nothing while no Lead runs.
    */
   personStopping(chat: string): () => void
+  /**
+   * Conversations stuck at a usage limit: what is live, for a reconnecting window, and the person's answer to one.
+   * `decide` refuses with `CarryOnStaleError` when the incident is no longer asking or the target is no longer offered.
+   */
+  readonly carryOn: {
+    list(): readonly import('@harnessdesk/protocol').CarryOnIncidentView[]
+    decide(input: import('@harnessdesk/protocol').CarryOnDecision): Promise<import('@harnessdesk/protocol').CarryOnIncidentView>
+  }
   /** Seen marks, the away digest, the morning brief and the state of each ask; refuses while no Lead runs here. */
   readonly leadPresence: Pick<import('../lead/presence.js').LeadPresenceStore, 'read' | 'dismiss' | 'brief' | 'updateBrief'>
   /** Autonomy modes, the three rule sections with their versions, and goal deadlines; refuses while no Lead runs here. */
-  readonly leadAutonomy: Pick<import('../lead/autonomy.js').LeadAutonomyStore, 'view' | 'set' | 'rules' | 'updateRules' | 'setDeadline'>
+  readonly leadAutonomy: Pick<import('../lead/autonomy.js').LeadAutonomyStore, 'view' | 'set' | 'rules' | 'updateRules' | 'setDeadline' | 'proposeMode' | 'proposeRules' | 'decide'>
   leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
   leadUsageSummary(): Promise<HostResult<'lead/usage/summary'>>
   leadDeskSummary(params: HostParams<'lead/desk/summary'>): Promise<HostResult<'lead/desk/summary'>>

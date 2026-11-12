@@ -1,4 +1,4 @@
-import { LEAD_WORK_LIMITS, quoteLeadWorkText as quoted, type LeadReminder, type LeadWorkBoard, type LeadWorkCard } from '@harnessdesk/protocol'
+import { LEAD_WORK_LIMITS, leadStopTally, quoteLeadWorkText as quoted, type LeadReminder, type LeadWorkBoard, type LeadWorkCard } from '@harnessdesk/protocol'
 
 const bytes = (text: string): number => new TextEncoder().encode(text).byteLength
 const age = (ms: number): string => {
@@ -11,12 +11,19 @@ const until = (ms: number): string => {
   const minutes = Math.ceil(ms / 60_000)
   return `in ${minutes < 60 ? `${minutes}m` : minutes < 48 * 60 ? `${Math.ceil(minutes / 60)}h` : `${Math.ceil(minutes / 1440)}d`}`
 }
+/** Who stopped a stopped card, from the host's record only: the Lead never fills in who it was. */
+const STOPPED_BY = { person: 'stopped by the person', lead: 'stopped by you', unseen: 'stopped (the desk did not see by whom)' } as const
+/** Only a chat stop names who stopped it; work the host closed for being quiet already says why in its last fact. */
+const stoppedBy = (card: LeadWorkCard): string => card.stoppedBy ? ` ${STOPPED_BY[card.stoppedBy]}`
+  : card.stops?.length && card.stops.at(-1)!.at === card.closedAt ? ` ${STOPPED_BY.unseen}` : ''
 const line = (card: LeadWorkCard, now: number): string => [
   `- ${card.id} [${card.stage}] ${quoted(card.title, LEAD_WORK_LIMITS.titleChars)}`,
   card.project ? ` project ${quoted(card.project, 60)}` : '',
   card.blocker ? ` waits: ${quoted(card.blocker, 120)}` : '',
   card.after ? ` after ${card.after}` : '',
   card.fact ? ` last: ${quoted(card.fact, LEAD_WORK_LIMITS.factChars)}` : '',
+  card.stage === 'stopped' ? stoppedBy(card) : '',
+  (card.stops?.length ?? 0) > 1 ? ` ${card.stops!.length} attempts stopped (${leadStopTally(card.stops!)})` : '',
   card.remindAt ? ` check-back due ${until(card.remindAt - now)}, not fired yet` : '',
   card.closedAt !== undefined ? ` ended ${age(now - card.closedAt)} ago` : ` age ${age(now - card.createdAt)}`,
 ].join('')

@@ -104,6 +104,7 @@ import {
   type TriggerMode,
   type TriggerHistoryPage,
   type TriggerPreferences,
+  type McpStartsView,
   type TriggerProjectView,
   type TriggerView,
   type FlowDryRun,
@@ -601,6 +602,25 @@ export class AppStore {
 
   async setClientsMayAnswer(value: boolean): Promise<boolean> {
     return this.#writePreference({ clientsMayAnswer: value }, 'Letting local clients answer for you')
+  }
+
+  /** Whether MCP clients may start work on this desk, and how many starts today has left. `null` when the desk cannot say. */
+  async loadMcpStarts(): Promise<McpStartsView | null> {
+    try {
+      return await this.transport.request('app/mcpStarts/get', {})
+    } catch {
+      return null
+    }
+  }
+
+  /** Changes the MCP start switch or the daily number, from the revision last read. `null` when it was not saved, with a notice saying why. */
+  async setMcpStarts(revision: number, patch: { readonly mayStart?: boolean; readonly dailyStarts?: number }): Promise<McpStartsView | null> {
+    try {
+      return await this.transport.request('app/mcpStarts/set', { revision, ...patch })
+    } catch (error) {
+      this.resultNotice('error', `Letting MCP clients start work could not be saved. ${describe(error)}`)
+      return null
+    }
   }
 
   /** What happens when a Goal a trigger opened cannot hold a Seat's ceiling. Mirrors `loadUnheldCeilings`. */

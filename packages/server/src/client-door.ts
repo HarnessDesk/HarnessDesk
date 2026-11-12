@@ -282,6 +282,9 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
       sockets.emit('connection', ws, request)
       let hello = false
       let identity = policy?.identity ?? 'unknown'
+      /* What the connection says it serves, like its name: stated, never trusted.
+         A host-policy door (the Lead's) is its own surface and states none. */
+      let surface: 'mcp' | undefined
       let statedPid: number | null = null
       let subscription: Subscription = { topics: [] }
       let proposal: { snapshots: WireNotification[] } | null = null
@@ -298,7 +301,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
         }
         ws.send(JSON.stringify(message))
       }
-      const audit = (entry: Parameters<Host['recordClientAudit']>[0]) => options.host.recordClientAudit(entry)
+      const audit = (entry: Parameters<Host['recordClientAudit']>[0]) => options.host.recordClientAudit(surface ? { ...entry, surface } : entry)
       const topics = (selection = subscription) => new Set<ClientTopic>(selection.topics.includes('waiting') ? [...selection.topics, 'runs', 'cards'] : selection.topics)
       const enqueue = (work: () => Promise<void>) => {
         queue = queue.then(work).catch(error => logger.warn('client notification failed', { error: String(error) }))
@@ -368,6 +371,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
               health: await options.host.call('runtime/health', { runtime: runtime.id }),
             })))
             identity = policy?.identity ?? `${params.client.name}@${params.client.version}`
+            surface = policy ? undefined : params.surface
             statedPid = policy ? null : params.pid ?? null
             hello = true
             greeted.add(ws)
@@ -465,8 +469,13 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
               ? await filterAllowed(await options.host.call('goal/list', parsed.params as HostParams<'goal/list'>), goalRequest)
               : parsed.method === 'flow/executions'
               ? await filterAllowed(await options.host.call('flow/executions', parsed.params as HostParams<'flow/executions'>), runRequest)
+              : parsed.method === 'flow/start-goal' && surface === 'mcp'
+              ? await options.host.clientStart(parsed.params as HostParams<'flow/start-goal'>, identity)
+              // Any other start through this door says it came from the command line; the Lead's door stamps nothing.
+              : parsed.method === 'flow/start-goal' && !policy
+              ? await options.host.clientFlowStart(parsed.params as HostParams<'flow/start-goal'>, identity, 'cli')
               : parsed.method === 'team/intent'
-              ? await options.host.clientIntent(parsed.params as HostParams<'team/intent'>, identity)
+              ? await options.host.clientIntent(parsed.params as HostParams<'team/intent'>, identity, surface)
               : parsed.method === 'flow/preview' && policy?.preview
               ? await policy.preview(parsed.params as HostParams<'flow/preview'>)
               : await options.host.call(parsed.method, parsed.params as never)

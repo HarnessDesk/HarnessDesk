@@ -211,6 +211,8 @@ export interface FlowStartRequest {
   readonly goal?: { readonly id: string; readonly revision: number }
   /** From a strict preview token only: what the run works on, as the host resolved it. A head pins every Seat to it. */
   readonly target?: FlowStartTarget
+  /** Host-stamped for a start that came through the client door; never a request field. */
+  readonly startedBy?: NonNullable<FlowExecution['startedBy']>
 }
 
 /**
@@ -535,6 +537,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   ...(run.requireHeld ? { requireHeld: true as const } : {}),
   ...(run.target ? { target: run.target } : {}),
   ...(run.base ? { base: run.base } : {}),
+  ...(run.startedBy ? { startedBy: run.startedBy } : {}),
 })
 
 /** A new-format run's findings bookkeeping, frozen at its start: the budget its file named, or the default. */
@@ -2823,6 +2826,7 @@ export class FlowExecutions {
       ...(request.requireHeld ? { requireHeld: true as const } : {}),
       ...(request.goal ? { reserving: { goal: request.goal.id, revision: request.goal.revision } } : {}),
       ...(request.target ? { target: request.target } : {}),
+      ...(request.startedBy ? { startedBy: { via: request.startedBy.via, client: request.startedBy.client } } : {}),
     }
     try {
       if (policy.base) run = await this.#fetchBase(run, request.cwd ?? request.root, policy.base)

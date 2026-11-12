@@ -70,7 +70,8 @@ export interface LeadChatsPorts {
 }
 const refuse = (message: string): never => { throw new Error(message) }
 const MUTATIONS = new Set(['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'])
-const MOVE_TEXT_CHARS = 48 * 1024
+/** The longest move text, in characters; carry-on caps its handoff packet at the same size. */
+export const MOVE_TEXT_CHARS = 48 * 1024
 const MAX_SCAN = 200
 const CURSOR_TTL = 15 * 60 * 1000
 
@@ -183,6 +184,20 @@ export class LeadChats {
       return false
     }
     return await control?.holder(root, id) === 'person'
+  }
+  /**
+   * Whether this chat's recovery at a usage limit is the Lead's: it follows the chat and the person has not taken it
+   * over. Carry-on leaves such a chat alone, so the composer never shows a card for it.
+   */
+  async recovers(id: string): Promise<boolean> {
+    let tracked: readonly string[]
+    try {
+      await this.#ready
+      tracked = this.ports.watches ? await this.ports.watches.read(this.ports.project.path) : [...this.#watched]
+    } catch { return false }
+    if (!tracked.includes(id)) return false
+    // A chat the Lead follows stays the Lead's unless the person visibly holds it; a check that fails is not proof.
+    try { return !await this.#personHolds(id) } catch { return true }
   }
   /** Metadata-only authority for private chat notifications; no transcript is loaded. */
   async canRead(id: string): Promise<boolean> {

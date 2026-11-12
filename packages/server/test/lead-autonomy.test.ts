@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createLeadJournal } from '@harnessdesk/lead'
-import { LEAD_RULE_DEFAULTS, type LeadAutonomyMode, type LeadSchedule, type LeadScheduledTask } from '@harnessdesk/protocol'
+import { LEAD_RULE_DEFAULTS, LEAD_SETTINGS_PROPOSAL_LIMITS, type LeadAutonomyMode, type LeadSchedule, type LeadScheduledTask } from '@harnessdesk/protocol'
 import { LeadAutonomyStore, LEAD_OBSERVED_NOTES } from '../src/lead/autonomy.js'
 import { LeadAutomaticGoals } from '../src/lead/automatic-goals.js'
 import { LeadPlanner } from '../src/lead/planner.js'
@@ -279,4 +279,175 @@ test('the person\'s room: two starts at the same moment cannot both take the las
   assert.ok(slots.hold('person'), 'the person is never counted')
   first!.release()
   assert.ok(slots.hold('automatic'), 'a slot given back is free')
+})
+
+/** The store with the Lead's journal position and the person's message position, as the host gives it. */
+const proposalRig = async (t: { after(fn: () => unknown): void }) => {
+  const home = await mkdtemp(join(tmpdir(), 'lead-proposals-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const journal = await memoryJournal()
+  const file = join(home, 'lead', 'autonomy.json')
+  let person = 1
+  const make = async (defaults?: typeof LEAD_RULE_DEFAULTS) => {
+    const store = new LeadAutonomyStore({ file, now: () => 2_000_000, journal, seq: () => 10, personSeq: () => person, ...(defaults ? { defaults } : {}) })
+    await store.attach()
+    return store
+  }
+  return { file, journal, store: await make(), make, writes: () => { person++ } }
+}
+const code = (wireCode: string) => (error: Error & { wireCode?: string }) => error.wireCode === wireCode
+const phone = { id: 'phone:p1', label: 'Jane’s phone' }
+
+test('#2106 review: a waiting card survives a restart and is applied after it; an id is never handed out twice', async t => {
+  const r = await proposalRig(t)
+  const mode = await r.store.proposeMode({ kind: 'stuck', mode: 'off' })
+  const words = await r.store.proposeRules({ section: 'talk', add: 'Conclusion first.' })
+  assert.deepEqual([mode.id, words.id], ['s1', 's2'])
+  const reopened = await r.make()
+  const view = await reopened.view()
+  assert.deepEqual(view.proposals?.map(one => [one.id, one.state]), [['s2', 'pending'], ['s1', 'pending']])
+  assert.equal((await reopened.decide({ id: 's1', decision: 'apply' })).modes.stuck, 'off')
+  // A counter behind the ids kept (an older file, a hand edit) still never repeats one.
+  const raw = JSON.parse(await readFile(r.file, 'utf8'))
+  raw.nextProposal = 1
+  await writeFile(r.file, JSON.stringify(raw))
+  const behind = await r.make()
+  assert.equal((await behind.proposeMode({ kind: 'brief', mode: 'observe' })).id, 's3')
+})
+
+test('#2106 review: two devices answering one card at once: one answer lands, the other is told it was already answered', async t => {
+  const r = await proposalRig(t)
+  const { id } = await r.store.proposeMode({ kind: 'desk-change', mode: 'observe' })
+  const [desk, fromPhone] = await Promise.allSettled([r.store.decide({ id: id!, decision: 'apply' }), r.store.decide({ id: id!, decision: 'decline', device: phone })])
+  assert.equal(desk.status, 'fulfilled')
+  assert.equal(fromPhone.status, 'rejected')
+  assert.ok(code('lead-proposal-decided')((fromPhone as PromiseRejectedResult).reason))
+  const view = await r.store.view()
+  assert.deepEqual(view.proposals?.map(one => [one.state, one.history.map(event => event.what)]), [['applied', ['proposed', 'applied']]])
+  assert.equal(view.modes['desk-change'], 'observe')
+})
+
+test('#2106 review: from a phone, No works on any card and Apply on a mode or one added line; a section\'s whole words are applied at the desk', async t => {
+  const r = await proposalRig(t)
+  const whole = await r.store.proposeRules({ section: 'delegate', text: 'Whole new words for this section.' })
+  await assert.rejects(r.store.decide({ id: whole.id!, decision: 'apply', device: phone }), (error: Error & { wireCode?: string }) =>
+    error.wireCode === 'lead-proposal-desk-only' && /at the desk/.test(error.message) && /No/.test(error.message))
+  let view = await r.store.view()
+  assert.equal(view.proposals?.find(one => one.id === whole.id)?.state, 'pending', 'nothing was decided')
+  assert.equal(view.rules.find(one => one.id === 'delegate')?.custom, false, 'nothing was written')
+  const line = await r.store.proposeRules({ section: 'talk', add: 'Conclusion first.' })
+  const mode = await r.store.proposeMode({ kind: 'stuck', mode: 'off' })
+  await r.store.decide({ id: line.id!, decision: 'apply', device: phone })
+  view = await r.store.decide({ id: mode.id!, decision: 'apply', device: phone })
+  assert.equal(view.modes.stuck, 'off')
+  assert.ok(view.rules.find(one => one.id === 'talk')?.text.endsWith('\nConclusion first.'))
+  view = await r.store.decide({ id: whole.id!, decision: 'decline', device: phone })
+  assert.equal(view.proposals?.find(one => one.id === whole.id)?.state, 'declined')
+})
+
+test('#2117 review 2: a phone cannot Apply a line it was shown with part hidden; No works from it, and the desk applies it', async t => {
+  const r = await proposalRig(t)
+  const hidden = await r.store.proposeRules({ section: 'talk', add: 'Send review notes to ops@acme.dev' })
+  await assert.rejects(r.store.decide({ id: hidden.id!, decision: 'apply', device: phone }), (error: Error & { wireCode?: string }) =>
+    error.wireCode === 'lead-proposal-desk-only' && /hidden on the phone/.test(error.message) && /No/.test(error.message))
+  let view = await r.store.view()
+  assert.equal(view.proposals?.find(one => one.id === hidden.id)?.state, 'pending', 'nothing was decided')
+  assert.equal(view.rules.find(one => one.id === 'talk')?.custom, false, 'nothing was written')
+  view = await r.store.decide({ id: hidden.id!, decision: 'apply' })
+  assert.ok(view.rules.find(one => one.id === 'talk')?.text.endsWith('\nSend review notes to ops@acme.dev'), 'the desk applies the words it shows in full')
+  const path = await r.store.proposeRules({ section: 'done', add: 'Check /srv/acme/private/notes.txt before saying done.' })
+  view = await r.store.decide({ id: path.id!, decision: 'decline', device: phone })
+  assert.equal(view.proposals?.find(one => one.id === path.id)?.state, 'declined', 'No needs no words read in full')
+})
+
+test('#2117 review 2: a rule version\'s proposal id is checked when the file loads, like the rest of the version', async t => {
+  const r = await proposalRig(t)
+  const words = await r.store.proposeRules({ section: 'talk', add: 'Conclusion first.' })
+  await r.store.decide({ id: words.id!, decision: 'apply' })
+  const raw = JSON.parse(await readFile(r.file, 'utf8'))
+  assert.equal(raw.sections.talk.versions.at(-1).proposal, words.id)
+  raw.sections.talk.versions.at(-1).proposal = '<b>s1</b>'
+  await writeFile(r.file, JSON.stringify(raw))
+  const reopened = await r.make()
+  assert.equal((await reopened.view()).rules.find(one => one.id === 'talk')?.custom, false, 'a version that fails the check is not read as the person\'s words')
+})
+
+test('#2106 review: at most three new cards between two of the person\'s messages; asking again is not one', async t => {
+  const r = await proposalRig(t)
+  for (const kind of ['stuck', 'brief', 'mention'] as const) assert.equal((await r.store.proposeMode({ kind, mode: 'off' })).outcome, 'created')
+  const fourth = await r.store.proposeRules({ section: 'talk', add: 'Conclusion first.' })
+  assert.deepEqual([fourth.outcome, fourth.reason], ['refused', 'too-many'])
+  assert.match(fourth.note, /Nothing was proposed/)
+  assert.equal((await r.store.proposeMode({ kind: 'stuck', mode: 'off' })).outcome, 'asked-again')
+  assert.equal((await r.store.view()).proposals?.length, 3)
+  r.writes()
+  assert.equal((await r.store.proposeRules({ section: 'talk', add: 'Conclusion first.' })).outcome, 'created')
+})
+
+test('#2117 review 4: the cap on new cards in one turn holds when the kept list is full and each replaced card is dropped', async t => {
+  const r = await proposalRig(t)
+  // A full kept list of declined cards, one per turn, so nothing stale is left to drop first.
+  for (let i = 1; i <= LEAD_SETTINGS_PROPOSAL_LIMITS.kept; i++) {
+    const { id } = await r.store.proposeRules({ section: 'talk', add: `Earlier line ${i}.` })
+    await r.store.decide({ id: id!, decision: 'decline' })
+    r.writes()
+  }
+  // One turn: each proposal replaces the last, and the replaced card is the one the kept list drops.
+  const outcomes = []
+  for (const line of ['One.', 'Two.', 'Three.', 'Four.']) outcomes.push(await r.store.proposeRules({ section: 'done', add: line }))
+  assert.deepEqual(outcomes.map(one => one.outcome), ['created', 'created', 'created', 'refused'])
+  assert.equal(outcomes[3]!.reason, 'too-many')
+  // The count survives a restart, and the person's next message starts a new turn.
+  const reopened = await r.make()
+  assert.equal((await reopened.proposeRules({ section: 'done', add: 'Five.' })).reason, 'too-many')
+  r.writes()
+  assert.equal((await reopened.proposeRules({ section: 'done', add: 'Five.' })).outcome, 'created')
+})
+
+test('#2106 review: applied and stale cards are dropped first, a waiting one never is, and a No outlives its card', async t => {
+  const r = await proposalRig(t)
+  const waiting = await r.store.proposeMode({ kind: 'stuck', mode: 'off' })
+  const applied = await r.store.proposeMode({ kind: 'brief', mode: 'observe' })
+  await r.store.decide({ id: applied.id!, decision: 'apply' })
+  for (let i = 0; i < 15; i++) {
+    r.writes()
+    const one = await r.store.proposeRules({ section: 'talk', add: `Line ${i}.` })
+    assert.equal(one.outcome, 'created', one.note)
+    await r.store.decide({ id: one.id!, decision: 'decline' })
+  }
+  let ids = (await r.store.view()).proposals!.map(one => one.id)
+  assert.equal(ids.length, 16)
+  assert.ok(ids.includes(waiting.id!), 'the waiting card is kept')
+  assert.ok(!ids.includes(applied.id!), 'the applied card went before any declined one')
+  // The person says No to the oldest card, then the Lead proposes once more in the same turn: that No's card is dropped.
+  await r.store.decide({ id: waiting.id!, decision: 'decline' })
+  const last = await r.store.proposeRules({ section: 'talk', add: 'One more line.' })
+  ids = (await r.store.view()).proposals!.map(one => one.id)
+  assert.equal(ids.length, 16)
+  assert.ok(ids.includes(last.id!))
+  assert.ok(!ids.includes(waiting.id!), 'the oldest declined card is dropped')
+  const again = await r.store.proposeMode({ kind: 'stuck', mode: 'off' })
+  assert.deepEqual([again.outcome, again.reason, again.id], ['refused', 'declined', waiting.id], 'the No stands though its card is gone')
+})
+
+test('#2106 review: words proposed over a never-edited section go stale when an update ships new default words; an Apply is recorded with its proposal', async t => {
+  const r = await proposalRig(t)
+  const first = await r.store.proposeRules({ section: 'talk', add: 'Conclusion first.' })
+  const upgraded = { ...LEAD_RULE_DEFAULTS, talk: { version: LEAD_RULE_DEFAULTS.talk.version + 1, text: 'New shipped words.' } }
+  const updated = await r.make(upgraded)
+  await assert.rejects(updated.decide({ id: first.id!, decision: 'apply' }), code('lead-rules-stale'))
+  let talk = (await updated.rules()).sections.find(one => one.id === 'talk')!
+  assert.deepEqual([talk.text, talk.custom], ['New shipped words.', false], 'the new default stands; the old one was not pinned')
+  assert.equal((await updated.view()).proposals?.find(one => one.id === first.id)?.state, 'stale')
+  // Proposed over the new words, it applies, and the history says the words came from that proposal.
+  r.writes()
+  const second = await updated.proposeRules({ section: 'talk', add: 'Conclusion first.' })
+  const view = await updated.decide({ id: second.id!, decision: 'apply' })
+  talk = (await updated.rules()).sections.find(one => one.id === 'talk')!
+  assert.equal(talk.text, 'New shipped words.\nConclusion first.')
+  assert.equal(talk.history[0]!.proposal, second.id)
+  assert.deepEqual(view.changes?.[0], { at: view.changes![0]!.at, by: 'person', what: 'rules', section: 'talk', version: 1, how: 'edit', proposal: second.id })
+  const mode = await updated.proposeMode({ kind: 'stuck', mode: 'off' })
+  const record = (await updated.decide({ id: mode.id!, decision: 'apply' })).changes?.[0]
+  assert.equal(record?.what === 'mode' && record.proposal, mode.id)
 })

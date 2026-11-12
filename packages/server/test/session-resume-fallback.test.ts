@@ -80,7 +80,7 @@ const contextFor = (options: {
     sessionIndex: { refreshMissingFolder: async (cwd: string) => { options.refreshedFolders?.push(cwd) }, reopen: () => {}, record: (session: Session) => indexed.push(session) },
     sessionWorktrees: { prepare: async () => ({}) },
     runtimes: { resolve: () => runtime, ensureStarted: async () => {} },
-    registry: { forReopen: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
+    registry: { forReopen: () => undefined, opening: () => () => {}, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
     laneEnvironment: { forSession: async () => undefined },
     evidence: {
       seats: {

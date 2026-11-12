@@ -1,4 +1,4 @@
-import type { ItemId } from './ids.js'
+import type { ItemId, RuntimeId, SessionId } from './ids.js'
 import type { SessionCost, TokenUsage } from './session.js'
 import type { DeskContextRecord } from './context-envelope.js'
 import type { UserContext } from './user-context.js'
@@ -368,6 +368,50 @@ export interface PublicationItem extends ItemBase {
   readonly reference: ForgeReference
 }
 
+/** One side of a carry-on: the agent's display name, the model, and the account's nickname or ordinal — never an email. */
+export interface CarryOnSide {
+  readonly name: string
+  readonly model?: string
+  readonly account?: string
+}
+
+/** Why the conversation had to move: out of credits, a rate limit that outlasted its backoff, or a meter that reads blocked. */
+export type CarryOnCause = 'credits' | 'rateLimit' | 'blocked'
+
+/** The same thread resumed on a sibling account, or a new conversation given a handoff packet. */
+export type CarryOnMode = 'sameThread' | 'handoff'
+
+export const CARRY_ON_PHASES = ['switched', 'left', 'arrived', 'waiting', 'resumed', 'stopped', 'exhausted'] as const
+export type CarryOnPhase = (typeof CARRY_ON_PHASES)[number]
+
+/**
+ * A conversation carried on past a usage limit — or left stopped at one.
+ *
+ * Recorded by the host, never by an agent, between the failed turn and the
+ * one that continues it. An item rather than a `NoticeItem` because a notice
+ * kind can be muted, and a switch of account, agent or model must always
+ * show; and because it carries structured sides and a link.
+ *
+ * - `switched`: the same thread, now on `to` (recorded in that thread).
+ * - `left`: recorded in the old conversation, `link` naming the new one.
+ * - `arrived`: the first item of the new conversation, `link` naming the old one.
+ * - `waiting`: one retry on the same account is due at `resetsAt`.
+ * - `resumed`: that retry ran.
+ * - `stopped` / `exhausted`: left stopped, by choice or because nothing had room; `note` says why.
+ */
+export interface CarryOnItem extends ItemBase {
+  readonly type: 'carryOn'
+  readonly phase: CarryOnPhase
+  readonly cause: CarryOnCause
+  readonly from: CarryOnSide
+  readonly to?: CarryOnSide
+  readonly mode?: CarryOnMode
+  readonly resetsAt?: number
+  /** The other conversation of a handoff. The renderer turns it into a link; the agent never sees it. */
+  readonly link?: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+  readonly note?: string
+}
+
 export type AgentItem =
   | UserMessageItem
   | AssistantMessageItem
@@ -383,6 +427,7 @@ export type AgentItem =
   | NoticeItem
   | ReviewItem
   | PublicationItem
+  | CarryOnItem
   | ErrorItem
 
 export type AgentItemType = AgentItem['type']

@@ -38,6 +38,14 @@ const WorkActions = ({ card, onClose }: { readonly card: LeadWorkCard; readonly 
   </Popover>
 }
 
+/** How often its attempts were stopped, on hover: "Stopped 2 times, by you each time". Nothing for a single stop. */
+const stopsTitle = (card: LeadWorkCard): string | undefined => {
+  const stops = card.stops ?? []
+  if (stops.length < 2) return card.stoppedBy === 'lead' ? 'The Lead stopped its chat' : undefined
+  const mine = stops.filter(stop => stop.by === 'person').length
+  return `Stopped ${stops.length} times${mine === stops.length ? ', by you each time' : mine ? `, ${mine} by you` : ''}`
+}
+
 /** A reminder's line: when it is due, or what became of it. A fired reminder for the person is Said once the Lead's
  * message was written, Missed when it never was, and not said yet while the Lead is still writing it. */
 const reminderLine = (entry: LeadReminder): string => {
@@ -79,8 +87,9 @@ export const LeadWork = () => {
         title={<span title={card.fact ? sanitizeText(card.fact) : undefined}>{sanitizeText(card.title)}</span>} wrapTitle
         // A reason someone waits is a fact that varies, so it earns the line; everything else stays on hover.
         subtitle={group === 'needs-you' && card.blocker ? sanitizeText(card.blocker) : undefined} wrapSubtitle
-        // A chat the person stopped is not finished: its state is a word on the label's line, not a second line.
-        trail={<>{card.outcome === 'dropped' ? <Chip tone="neutral">Dropped</Chip> : card.stage === 'stopped' && <Chip tone="neutral">Stopped</Chip>}<WorkActions card={card} onClose={outcome => { void close(card, outcome) }} /></>} />)}</ListRows>
+        // A chat the person stopped is not finished: its state is a word on the label's line, not a second line. Who
+        // stopped it is the host's record, said in the reader's words, as the digest and the phone say it.
+        trail={<>{card.outcome === 'dropped' ? <Chip tone="neutral">Dropped</Chip> : card.stage === 'stopped' && <Chip tone="neutral" title={stopsTitle(card)}>{card.stoppedBy === 'person' ? 'You stopped it' : 'Stopped'}</Chip>}<WorkActions card={card} onClose={outcome => { void close(card, outcome) }} /></>} />)}</ListRows>
     </ToolGroup>)}
     {reminders.length > 0 && <ToolGroup label="Reminders" heading={`Reminders · ${reminders.length}`} data-work-group="reminders">
       <ListRows surface="panel">{reminders.map(entry => <ListRow key={entry.id} size="sm" data-work-reminder={entry.id}

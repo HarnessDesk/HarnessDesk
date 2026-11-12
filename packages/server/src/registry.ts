@@ -60,6 +60,11 @@ export interface SessionRecord {
   readonly runtime: RuntimeId
   /** Present only while the session is attached to a live runtime handle. */
   live: AgentSession | null
+  /**
+   * How many handles have been attached to this record, ever. An opener that saw it at n before its own await and
+   * n + 1 after knows the one attachment between was its own; more means somebody attached alongside.
+   */
+  readonly liveAttaches: number
   /** Picks held across a host-initiated quiet release, until reopen succeeds. */
   restedOptions?: Readonly<Record<string, OptionValue>>
   /**
@@ -279,6 +284,33 @@ export class SessionRegistry {
   onDetached(listener: (record: SessionRecord, previous: Session) => void): void { this.#detached = listener }
   readonly #records = new Map<SessionKey, SessionRecord>()
   readonly #removed = new Map<SessionKey, { record: SessionRecord; undoUntil: number }>()
+  /**
+   * Opens of each conversation, counted per call that asks for a handle — never per handle, which an adapter may
+   * hand to several callers at once. Kept past a record's removal, so a count never runs backwards.
+   */
+  readonly #opens = new Map<SessionKey, { readonly opened: number; readonly pending: number }>()
+
+  /**
+   * One caller is opening this conversation: counted at once, and outstanding until the release it returns. Each
+   * caller is its own lease, even when it is handed the same handle as another, or joins another's reopen.
+   */
+  opening(runtime: RuntimeId, id: SessionId): () => void {
+    const key = sessionKey(runtime, id)
+    const held = this.opens(runtime, id)
+    this.#opens.set(key, { opened: held.opened + 1, pending: held.pending + 1 })
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const now = this.opens(runtime, id)
+      this.#opens.set(key, { opened: now.opened, pending: Math.max(0, now.pending - 1) })
+    }
+  }
+
+  /** How many opens this conversation has had, and how many are still under way. */
+  opens(runtime: RuntimeId, id: SessionId): { readonly opened: number; readonly pending: number } {
+    return this.#opens.get(sessionKey(runtime, id)) ?? { opened: 0, pending: 0 }
+  }
   readonly #pendingNotices = new PendingConversationNotices()
   /**
    * Where a conversation seen for the first time learns which Agent it was
@@ -328,6 +360,7 @@ export class SessionRegistry {
     let bodyRevision = 0
     let bodyAuthorityEpoch = 0
     let heldLive = live
+    let liveAttaches = live ? 1 : 0
     let heldDetached = false
     let heldCacheClosed = false
     let heldQueue = emptyQueue()
@@ -346,7 +379,8 @@ export class SessionRegistry {
       set cacheClosed(next: boolean) { if (heldCacheClosed !== next) { heldCacheClosed = next; bodyRevision++; registry.#bodyChanged?.(record) } },
       runtime: session.runtime,
       get live() { return heldLive },
-      set live(next: AgentSession | null) { if (heldLive !== next || (next && heldCacheClosed)) { heldLive = next; if (next) heldCacheClosed = false; bodyRevision++; registry.#bodyChanged?.(record) } },
+      set live(next: AgentSession | null) { if (heldLive !== next || (next && heldCacheClosed)) { if (next && heldLive !== next) liveAttaches++; heldLive = next; if (next) heldCacheClosed = false; bodyRevision++; registry.#bodyChanged?.(record) } },
+      get liveAttaches() { return liveAttaches },
       get detached() { return heldDetached },
       set detached(next: boolean) { if (heldDetached !== next) { heldDetached = next; bodyRevision++; registry.#bodyChanged?.(record) } },
       reopenRefusals: 0,

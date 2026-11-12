@@ -1,4 +1,5 @@
 import { harnessDeskAccountMethods } from './account.js'
+import { carryOnMethods } from './carry-on.js'
 import { leadMethods } from './lead.js'
 import { phoneMethods } from './phone.js'
 import { phoneWorkspaceMethods } from './phone-workspace.js'
@@ -71,6 +72,7 @@ export const hostMethods: HostMethodTable = {
   ...harnessDeskAccountMethods,
   ...credentialMethods,
   ...usageMethods,
+  ...carryOnMethods,
   ...insightMethods,
   ...libraryMethods,
   ...laneMethods,
@@ -113,6 +115,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   harnessDeskAccountMethods,
   credentialMethods,
   usageMethods,
+  carryOnMethods,
   insightMethods,
   libraryMethods,
   laneMethods,
