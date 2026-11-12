@@ -91,6 +91,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Read another conversation on the right.** Open a conversation as a live, read-only transcript while keeping the current conversation and composer in place. Closing the reader leaves that conversation open.
 
+- **Stop ends a DeepSeek conversation's subagents too.** A subagent DeepSeek Harness started kept running after Stop, and its result reached the conversation after the stopped turn where nothing showed it. Stop now closes the conversation once the turn has stopped, which ends the subagents, and opens it again at once, so the next message carries on with the same history.
+
 ## 0.7.0 — 2026-11-08
 
 Every installed plugin runs in a process of its own and reaches only what you granted. The optional Lead becomes a conversation that starts, follows and wraps up work, with a right rail for its plan and spend, and your phone reaches this Mac away from home, reviews work and starts sessions. An agent's accounts take turns, usage reads one standing everywhere, and simulator tools no longer need the mouse.

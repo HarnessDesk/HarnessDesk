@@ -107,6 +107,19 @@ test('only the Gemini template declares per-tool MCP approval guidance', async (
   assert.ok(configs.filter((config) => config.id !== 'gemini').every((config) => config.perToolMcpApproval === undefined))
 })
 
+test('only the DeepSeek Harness template says its cancel leaves subagents running', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new AgentRegistryStore(join(dir, 'agents.json'))
+
+  for (const id of ['claude-code', 'cursor', 'dsh', 'gemini', 'hermes', 'openclaw']) {
+    store.add({ id, template: id })
+  }
+  const configs = store.configs()
+  assert.equal(configs.find((config) => config.id === 'dsh')?.cancelLeavesSubagents, true)
+  assert.ok(configs.filter((config) => config.id !== 'dsh').every((config) => config.cancelLeavesSubagents === undefined))
+})
+
 test('entries the store did not write survive an add and a remove untouched', async (t) => {
   const dir = await tempDir()
   t.after(() => rm(dir, { recursive: true, force: true }))
