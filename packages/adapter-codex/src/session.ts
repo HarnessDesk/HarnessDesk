@@ -109,6 +109,11 @@ export interface CodexSessionDeps {
    * always that one: a review's is its reviewer's (`ReviewTurns.interruptible`).
    */
   readonly interruptible?: (threadId: string, turnId: string) => string
+  /**
+   * Stops every in-progress turn below this thread — its sub-agents, theirs,
+   * and so on — leaving each subscribed. Never rejects; bounded by the runtime.
+   */
+  readonly stopDescendants?: (threadId: string) => Promise<void>
 }
 
 export class CodexSession implements AgentSession {
@@ -555,7 +560,7 @@ export class CodexSession implements AgentSession {
     // Withdrawn while the agent was accepting it: the turn it started is stopped, not left to run.
     if (signal?.aborted) {
       const stopping: Promise<unknown> = this.#currentTurnId === response.turn.id
-        ? this.interrupt()
+        ? this.interruptTurn()
         : this.deps.server.request('turn/interrupt', { threadId: this.id, turnId: response.turn.id }, { timeoutMs: 2_000 })
       await stopping.catch(() => undefined)
       throw signal.reason
@@ -635,7 +640,28 @@ export class CodexSession implements AgentSession {
   }
 
   /**
-   * Stops the turn running on this thread.
+   * Stop: ends the turn running on this thread and every sub-agent turn below
+   * it, so nothing this conversation started keeps working after a person
+   * presses Stop.
+   *
+   * Codex stops only the thread it is asked about (`Session::interrupt_task`
+   * aborts that thread's own turn, 0.167.1) and its sub-agents are threads of
+   * their own, so the runtime asks each of them in turn. The descendants are
+   * asked after this thread's own stop has been sent, and the call settles
+   * once each of them has been asked or has run out of time; only this
+   * thread's own answer can make it fail. Nothing is unsubscribed: the
+   * conversation stays open.
+   */
+  async interrupt(): Promise<void> {
+    this.#requireActiveTurn('interrupt')
+    const own = this.interruptTurn()
+    const tree = this.deps.stopDescendants?.(this.id) ?? Promise.resolve()
+    const [result] = await Promise.allSettled([own, tree])
+    if (result.status === 'rejected') throw result.reason
+  }
+
+  /**
+   * Stops the turn running on this thread, and only that one.
    *
    * Codex checks a stop against the turn it holds as running and, refusing
    * one that names another, says which it holds: "expected active turn id …
@@ -646,7 +672,7 @@ export class CodexSession implements AgentSession {
    * the one `interruptible` says, which for a review is already the one
    * Codex holds; the retry is for a Codex that holds another.
    */
-  async interrupt(): Promise<void> {
+  async interruptTurn(): Promise<void> {
     const turnId = this.#requireActiveTurn('interrupt')
     const prior = this.#interruptions.get(turnId)
     if (prior) return prior
@@ -856,7 +882,7 @@ export class CodexSession implements AgentSession {
     // carries completion and approvals back to the host. Other threads stay live.
     const turnId = this.#currentTurnId
     if (turnId !== null) {
-      try { await this.interrupt() } catch (error) {
+      try { await this.interruptTurn() } catch (error) {
         if (!(error instanceof CodexRpcError) || error.message !== 'no active turn to interrupt') throw error
         this.noteTurnEnded(turnId)
       }
