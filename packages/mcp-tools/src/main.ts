@@ -85,7 +85,7 @@ parentWatch.unref()
 
 let socket: Socket | null = null
 let nextId = 0
-/** Set once `initialize` is answered: an agent that has not asked is told nothing. */
+/** Set once the agent sends `notifications/initialized`: MCP lets a server push only after that. */
 let initialized = false
 const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
 
@@ -228,7 +228,6 @@ const handleLine = async (line: string): Promise<void> => {
         // the bridge: it is how the gateway's `tools/changed` push reaches us.
         // If it drops, the next call reconnects and pushes resume from there;
         // a change in the gap is seen at the agent's next `tools/list`.
-        initialized = true
         respond(id, {
           protocolVersion: (params?.['protocolVersion'] as string) ?? '2024-11-05',
           capabilities: { tools: { listChanged: true } },
@@ -238,8 +237,10 @@ const handleLine = async (line: string): Promise<void> => {
         return
       }
       case 'notifications/initialized':
-      case 'notifications/cancelled':
+        initialized = true
         return // notifications take no reply
+      case 'notifications/cancelled':
+        return
       case 'ping':
         respond(id, {})
         return

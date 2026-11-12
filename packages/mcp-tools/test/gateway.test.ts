@@ -257,9 +257,9 @@ test('an external MCP server’s tools are merged into tools/list, and a call fo
  * A change to the tool set reaches an agent whose conversation is already
  * open: the gateway pushes an id-less `tools/changed` line, and the bridge
  * turns it into MCP's `notifications/tools/list_changed` — but only once the
- * agent has initialized, and never as the answer to a request.
+ * agent has sent `notifications/initialized`, and never as the answer to a request.
  */
-test('the bridge advertises listChanged and forwards a gateway push only after initialize, never as a reply', async () => {
+test('the bridge advertises listChanged and forwards a gateway push only after notifications/initialized, never as a reply', async () => {
   const sockPath = join(tmpdir(), `hdt-${randomUUID().slice(0, 8)}.sock`)
   if (existsSync(sockPath)) unlinkSync(sockPath)
 
@@ -326,10 +326,17 @@ test('the bridge advertises listChanged and forwards a gateway push only after i
     await settle()
     assert.deepEqual(notifications, [], 'a push that arrives before initialize completes is not forwarded')
 
+    // Answered `initialize`, but the agent has not said it is ready yet.
+    held!.write(`${JSON.stringify({ method: 'tools/changed' })}\n`)
+    await settle()
+    assert.deepEqual(notifications, [], 'a push before notifications/initialized is not forwarded')
+
+    proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n')
+    await settle()
     // Control: with the feature absent (no forwarding) this stays empty.
     held!.write(`${JSON.stringify({ method: 'tools/changed' })}\n`)
     await settle()
-    assert.deepEqual(notifications, ['notifications/tools/list_changed'], 'a push after initialize reaches the agent')
+    assert.deepEqual(notifications, ['notifications/tools/list_changed'], 'a push after notifications/initialized reaches the agent')
 
     // A push mid-request neither resolves nor rejects it; the real reply does.
     const listed = await send({ id: 2, method: 'tools/list' })
