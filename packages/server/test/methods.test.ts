@@ -69,6 +69,7 @@ test('opening in a folder without runtime board tools sends a session-linked not
     },
     registry: {
       forReopen: () => null,
+      opening: () => () => {},
       upsert: (opened: unknown) => ({ session: opened }),
     },
     attachments: { carriesFilter: async () => false },

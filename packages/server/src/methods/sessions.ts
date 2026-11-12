@@ -113,7 +113,9 @@ export const archiveConversation = async (ctx: HostContext, params: { runtime: R
 }
 
 /** Shared allocation path; the optional receipt is host-only and marks the runtime effect. */
-export async function createConversation(ctx: HostContext, params: HostParams<'session/create'>, effectStarted?: () => void): Promise<HostResult<'session/create'>> {
+export async function createConversation(ctx: HostContext, params: HostParams<'session/create'>, effectStarted?: () => void,
+  /** The handle the creation attached, handed over the moment it is attached, before any later await. */
+  attached?: (live: AgentSession) => void): Promise<HostResult<'session/create'>> {
   // Before any runtime is handed it, here and in a reopen or a fork. The
   // adapters pass a cwd on as given, and an agent reads a relative one
   // against its own working directory, which it has from this process:
@@ -149,7 +151,9 @@ export async function createConversation(ctx: HostContext, params: HostParams<'s
     throw error
   }
   if (allocated) await rememberChatFolder(ctx.state, allocated)
-  const session = await ctx.sessions.attach(runtime, live.id, live)
+  const attaching = ctx.sessions.attach(runtime, live.id, live)
+  attached?.(live)
+  const session = await attaching
   await announceUnavailableTools(ctx, runtime, session)
   return session
 }
@@ -247,44 +251,49 @@ export const sessionMethods = {
       return resumeSeatSession(runtime, sessionId, { ...options, ...(environment ? { environment } : {}) },
         ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.checkout.cwd)
     }
-    let live: AgentSession
+    // Every resume is an open of its own, though the adapter may hand back a handle another caller holds too; the
+    // scoped path is counted where the host reopens.
+    const release = scoped ? undefined : ctx.registry.opening(runtime.info.id, sessionId)
     try {
-      live = await resolve()
-    } catch (error) {
-      // The scoped path reopens through the host, which has already worded the
-      // refusal and kept its code; wording it again says the sentence twice.
-      if (scoped) throw error
-      // A conversation held by another writer is not a failure to explain
-      // but a place to be sent; it keeps its own sentence and its code.
-      if (isSessionBusy(error)) {
-        throw await ctx.sessions.busyElsewhere(runtime, makeSessionId(params.sessionId), error)
+      let live: AgentSession
+      try {
+        live = await resolve()
+      } catch (error) {
+        // The scoped path reopens through the host, which has already worded the
+        // refusal and kept its code; wording it again says the sentence twice.
+        if (scoped) throw error
+        // A conversation held by another writer is not a failure to explain
+        // but a place to be sent; it keeps its own sentence and its code.
+        if (isSessionBusy(error)) {
+          throw await ctx.sessions.busyElsewhere(runtime, makeSessionId(params.sessionId), error)
+        }
+        const sentence = ctx.sessions.cannotReopen(runtime, error)
+        throw isFolderGone(error)
+          ? new SessionFolderGoneError(sentence, folderGoneOf(error))
+          : isSessionGone(error)
+            ? new SessionGoneError(sentence)
+            : new Error(sentence)
       }
-      const sentence = ctx.sessions.cannotReopen(runtime, error)
-      throw isFolderGone(error)
-        ? new SessionFolderGoneError(sentence, folderGoneOf(error))
-        : isSessionGone(error)
-          ? new SessionGoneError(sentence)
-          : new Error(sentence)
-    }
-    // Resume returns metadata only; the transcript comes from a full read so
-    // the user sees their history immediately rather than an empty pane.
-    // The read has no settings or options, though — those live on the
-    // handle — so both are carried across, or the composer has nothing to
-    // render.
-    const transcript = await ctx.sessions.read(runtime, live.id)
-    const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
-    ctx.sessionIndex.reopen(session)
-    const resumedRecord = ctx.registry.upsert(session, live)
-    ctx.sessions.noteReconciled(resumedRecord, transcript)
-    const resumed = resumedRecord.session
-    ctx.sessionIndex.record(resumed)
-    // A prior index miss is only retired by a new filesystem measurement.
-    await ctx.sessionIndex.refreshMissingFolder(resumed.cwd)
-    // Ordinary history resumes register directly above rather than through
-    // create/fork's attach; observe that handle without changing admission.
-    ctx.loadouts.observe(runtime, live.id, resumed.cwd)
-    await announceUnavailableTools(ctx, runtime, resumed)
-    return resumed
+      // Resume returns metadata only; the transcript comes from a full read so
+      // the user sees their history immediately rather than an empty pane.
+      // The read has no settings or options, though — those live on the
+      // handle — so both are carried across, or the composer has nothing to
+      // render.
+      const transcript = await ctx.sessions.read(runtime, live.id)
+      const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
+      ctx.sessionIndex.reopen(session)
+      const resumedRecord = ctx.registry.upsert(session, live)
+      ctx.sessions.noteReconciled(resumedRecord, transcript)
+      const resumed = resumedRecord.session
+      ctx.sessionIndex.record(resumed)
+      // A prior index miss is only retired by a new filesystem measurement.
+      await ctx.sessionIndex.refreshMissingFolder(resumed.cwd)
+      // Ordinary history resumes register directly above rather than through
+      // create/fork's attach; observe that handle without changing admission.
+      ctx.loadouts.observe(runtime, live.id, resumed.cwd)
+      await announceUnavailableTools(ctx, runtime, resumed)
+      return resumed
+    } finally { release?.() }
   },
 
   'session/fork': async (ctx, params) => {

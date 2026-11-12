@@ -8,6 +8,7 @@ import { lanePreferences } from './goal.js'
 import { TRIGGER_DAILY_USD_MAX, TRIGGER_ID } from './intake.js'
 import type { TriggerBudget, TriggerCommentFrom, TriggerDefinition, TriggerField, TriggerOn, TriggerSource } from './intake.js'
 import { QUESTION_WAIT_PREFERENCE, QUESTION_WAITS } from './question-wait.js'
+import { CARRY_ON_CHOICES, CARRY_ON_DECISIONS, CARRY_ON_PREFERENCE, type CarryOnDecision } from './carry-on.js'
 import { CEILING_LEVELS } from './ceiling.js'
 import { INSIGHT_GOALS_LIMIT } from './insight.js'
 import { MCP_DAILY_STARTS_MAX } from './client-surface.js'
@@ -923,6 +924,12 @@ const authoringValidators = {
   'authoring/triggers/render': goalShape({ definitions: triggerDefinitionsValidator }),
 }
 
+/** The carry-on rule, whole: both fields, nothing else. */
+const carryOnPolicyValidator = goalShape({
+  onLimit: literalUnion(...CARRY_ON_CHOICES),
+  otherAgents: isBoolean,
+})
+
 /**
  * A window's own preferences. Intake's machine state — its arms, its pause
  * and its cap — is never one of them: it has its own person-only methods,
@@ -938,6 +945,7 @@ const windowPreferences: Validator<Record<string, unknown>> = (value, path = '')
     if (key === QUESTION_WAIT_PREFERENCE && !(QUESTION_WAITS as readonly unknown[]).includes(patch[key])) {
       throw new ValidationError(`${path}.${key}`, `expected one of: ${QUESTION_WAITS.join(', ')}`)
     }
+    if (key === CARRY_ON_PREFERENCE) carryOnPolicyValidator(patch[key], `${path}.${key}`)
   }
   return patch
 }
@@ -1174,6 +1182,13 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
   'usage/scan': shape({ full: optional(isBoolean) }),
   'usage/plan/read': shape({ runtime: planRuntime, account: planAccount, plan: optionalNullable(isString) }),
+  'carryOn/list': goalShape({}),
+  'carryOn/decide': goalShape({
+    incidentId: atMost(300, isFilled),
+    choice: literalUnion(...CARRY_ON_DECISIONS),
+    target: optional(atMost(300, isFilled)),
+    always: isBoolean,
+  }) as Validator<CarryOnDecision>,
   'usage/plan/set': shape({
     runtime: planRuntime,
     account: planAccount,
