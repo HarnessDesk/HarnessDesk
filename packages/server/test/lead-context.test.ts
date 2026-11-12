@@ -284,8 +284,11 @@ test('a restart during a compaction keeps the old conversation, and one after th
     assert.equal(result?.status, 'completed')
   }
   const before = JSON.stringify(first.store.turns)
-  // The desk stops while the model is writing the checkpoint.
-  void first.store.compact('soft', () => new Promise(() => {}))
+  // On a window this small a checkpoint at its full length is about the size of what it folds: an idle summary is not
+  // worth its epoch (#2171), so the desk stops while the model writes one the person asked for.
+  assert.equal(await first.store.compact('soft', () => new Promise(() => {})), 'nothing')
+  assert.equal(first.store.epoch, 0); assert.equal(first.journal.state.context.pending, null)
+  void first.store.compact('manual', () => new Promise(() => {}))
   await new Promise(resolve => setImmediate(resolve))
   assert.ok(first.journal.state.context.pending)
   const second = await harness(t, { window: 20_000, records: first.records, home: first.home })
@@ -296,7 +299,7 @@ test('a restart during a compaction keeps the old conversation, and one after th
   // This time the desk stops right after the journal recorded the new epoch, before the file was moved into place.
   const commit = second.journal.contextCompactionApplied.bind(second.journal)
   second.journal.contextCompactionApplied = async applied => { await commit(applied); throw new Error('stopped') }
-  await assert.rejects(second.store.compact('soft', second.send))
+  await assert.rejects(second.store.compact('manual', second.send))
   const third = await harness(t, { window: 20_000, records: second.records, home: second.home })
   assert.equal(third.store.epoch, 1)
   assert.equal(third.journal.state.context.epoch, 1)

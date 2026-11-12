@@ -2409,9 +2409,10 @@ chats its words name, by the whole-word rule the phone uses
 what woke the Lead and whether it spoke, sits at the end of the thread after the
 latest reply, so the conversation reads in time order. Collapsed, it shows the
 wake behind the latest reply, not a later check that found nothing; expanded, it
-lists every wake. A wake is recorded only when something caused it: a desk
-event, a tool continuation, or a look that found something. The minute tick
-that lets a quiet run be called stuck leaves no row when it finds nothing. The thread follows its
+lists every wake. A wake is recorded only when the check found something: a
+tool continuation, a desk change the look woke for, a chat change, or evidence
+that arrived on its own. The minute tick, a prose notice and a Team change
+that wakes nothing leave no row. The thread follows its
 end while the reader is there, including when the browser moves the content down
 itself; only scrolling up stops it.
 
