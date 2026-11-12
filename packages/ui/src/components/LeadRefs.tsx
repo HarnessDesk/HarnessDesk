@@ -147,12 +147,14 @@ export const leadDigestTarget = (ref: LeadDigestRef | undefined, desk: LeadRefDe
   return workTarget(ref.id, desk)
 }
 
+/** Each click on a door into the Lead page is its own request, so a second click shows the row again. */
+let doorClicks = 0
 /** Opens what a link names: a chat, a Team, a pull request in the browser, or a decision card in the Lead conversation. */
 export const openLeadRefTarget = (store: Pick<AppStore, 'openSession' | 'openTeamRoom' | 'openGoal' | 'openDestination'>, target: LeadRefTarget): void => {
   if (target.kind === 'chat') void store.openSession(target.session, { runtime: target.runtime })
   else if (target.kind === 'team') store.openTeamRoom(target.id)
   else if (target.kind === 'goal') store.openGoal(target.id)
-  else if (target.kind === 'card' || target.kind === 'reminder') store.openDestination({ kind: 'lead', focus: target.id })
+  else if (target.kind === 'card' || target.kind === 'reminder') store.openDestination({ kind: 'lead', focus: target.id, nonce: ++doorClicks })
   else if (target.kind === 'settings') store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: target.focus } })
   else openExternal(`https://github.com/${target.repository}/pull/${target.number}`)
 }

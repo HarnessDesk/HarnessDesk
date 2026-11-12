@@ -9,6 +9,7 @@ import { leadBudget, leadPlan, leadProjection, leadWorkFixture } from '../previe
 import { pageRailOpen } from '../state/workbench'
 import { DestinationPageScope } from '../panels/destination-page'
 import { LeadSettingsSection } from './LeadSettings'
+import { openLeadRefTarget } from './LeadRefs'
 import { PageRailHost, TopBarOutlet, TopBarProvider, WorkDetailsOutlet } from '../panels/top-bar'
 import { formatLeadConsentTime } from './lead-consent-time'
 import leadSettingsSource from './LeadSettings.tsx?raw'
@@ -44,16 +45,19 @@ const mount = async (projection = leadProjection(), loading = false, hosted = fa
   const request = vi.spyOn(store.transport, 'request').mockImplementation(async () => loading ? new Promise<never>(() => {}) : projection as never)
   const root = createRoot(box)
   let navigate: (settings: boolean) => void = () => {}
-  let setFocus: (id: string | null) => void = () => {}
-  vi.spyOn(store, 'openDestination').mockImplementation(destination => navigate(destination.kind === 'settings'))
+  let setDoor: (door: { focus: string | null; nonce?: number }) => void = () => {}
+  vi.spyOn(store, 'openDestination').mockImplementation(destination => {
+    navigate(destination.kind === 'settings')
+    if (destination.kind === 'lead') setDoor({ focus: destination.focus ?? null, nonce: destination.nonce })
+  })
   const Surface = () => {
-    const [settings, setSettings] = useState(false), [focus, focusDecision] = useState<string | null>(null); navigate = setSettings; setFocus = focusDecision
-    return <TopBarProvider><TopBarOutlet owner="lead" fallback={{ place: null, more: () => null }} /><PageRailHost value={hosted}><DestinationPageScope owner="lead" active>{settings ? <><button onClick={() => setSettings(false)}>Back</button><LeadSettingsSection /></> : <LeadPage focus={focus} />}</DestinationPageScope></PageRailHost><aside data-testid="lead-rail"><WorkDetailsOutlet owner="lead" /></aside></TopBarProvider>
+    const [settings, setSettings] = useState(false), [door, door_] = useState<{ focus: string | null; nonce?: number }>({ focus: null }); navigate = setSettings; setDoor = door_
+    return <TopBarProvider><TopBarOutlet owner="lead" fallback={{ place: null, more: () => null }} /><PageRailHost value={hosted}><DestinationPageScope owner="lead" active>{settings ? <><button onClick={() => setSettings(false)}>Back</button><LeadSettingsSection /></> : <LeadPage focus={door.focus} nonce={door.nonce} />}</DestinationPageScope></PageRailHost><aside data-testid="lead-rail"><WorkDetailsOutlet owner="lead" /></aside></TopBarProvider>
   }
   await act(async () => root.render(<StoreProvider store={store}><Surface /></StoreProvider>))
   clean.push(() => { act(() => root.unmount()); box.remove() })
   const update = async (over: Partial<LeadWindowProjection>) => { projection = { ...projection, ...over, revision: projection.revision + 1 }; await act(async () => store.lead.changed({ method: 'lead/changed', params: projection })) }
-  return { store, box, request, update, focusDecision: async (id: string) => { await act(async () => setFocus(id)) } }
+  return { store, box, request, update, focusDecision: async (id: string) => { await act(async () => setDoor({ focus: id })) } }
 }
 const liveLine = (box: Element) => box.querySelector('[data-slot="lead-live-line"]')
 const goalMessage = { version: 1 as const, id: 'goal', revision: 1, role: 'user' as const, text: 'Repair the failing check' }
@@ -1079,4 +1083,22 @@ it('#2147: a reminder door opens the rail where reminders are listed and focuses
   const row = box.querySelector<HTMLElement>('[data-testid="lead-rail"] [data-work-reminder="remind-1"]')
   expect(row).not.toBeNull()
   expect(document.activeElement).toBe(row)
+})
+
+it('#2147: a reminder door works on every click: closing the rail and clicking again opens it and focuses the row again', async () => {
+  const projection = leadProjection(), { store, box, request } = await mount(projection, false, true)
+  request.mockImplementation(async (method: string) => (method === 'lead/work/list' ? leadWorkFixture : projection) as never)
+  await act(async () => { await store.lead.readWork() })
+  const click = async () => { await act(async () => openLeadRefTarget(store, { kind: 'reminder', id: 'remind-1' })); await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) }) }
+  const row = () => box.querySelector<HTMLElement>('[data-testid="lead-rail"] [data-work-reminder="remind-1"]')
+  await click()
+  expect(pageRailOpen(store.getSnapshot().workbench, 'lead')).toBe(true)
+  expect(document.activeElement).toBe(row())
+  await act(async () => store.togglePageRail('lead'))
+  await act(async () => { (document.activeElement as HTMLElement | null)?.blur() })
+  expect(pageRailOpen(store.getSnapshot().workbench, 'lead')).toBe(false)
+  await click()
+  expect(pageRailOpen(store.getSnapshot().workbench, 'lead'), 'the second click opens the rail again').toBe(true)
+  expect(row()).not.toBeNull()
+  expect(document.activeElement, 'and focuses the row again').toBe(row())
 })

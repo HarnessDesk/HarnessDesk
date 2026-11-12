@@ -99,7 +99,7 @@ const leadMessageNote = (refs: readonly LeadMessageRef[] | undefined, proposals:
   return <>{refs?.length || text?.trim() ? <LeadRefs refs={refs ?? NONE} text={text} /> : null}{proposals?.length ? <LeadMemoryProposals candidates={proposals} /> : null}{settings?.length ? <LeadSettingsProposals proposals={settings} /> : null}</>
 }
 
-export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
+export const LeadPage = ({ initialGoal = '', focus = null, nonce }: { readonly initialGoal?: string; readonly focus?: string | null; readonly nonce?: number }) => {
   const store = useStore(), snapshot = useSnapshot(), active = useDestinationActive()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const unavailable = state.settings?.unavailable === 'runtime'
@@ -258,23 +258,25 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const focusedDecision = useRef<string | null>(null)
   useEffect(() => {
     if (!active) { focusedDecision.current = null; return }
-    if (!focus || focusedDecision.current === focus) return
+    const door = `${focus}:${nonce ?? ''}`
+    if (!focus || focusedDecision.current === door) return
     const element = [...(thread.current?.querySelectorAll<HTMLElement>('[data-lead-card]') ?? [])].find(node => node.dataset.leadCard === focus)
     if (!element) return
-    focusedDecision.current = focus
+    focusedDecision.current = door
     requestedDecisionFocus.current = focus; setSelectedDecision(focus)
     element.scrollIntoView?.({ block: 'end' }); focusDock(focus)
-  }, [active, focus, state.revision])
+  }, [active, focus, nonce, state.revision])
   // A reminder's door is the Work list: the rail comes back if it was put away, and the reminder's row comes into view.
   const focusedReminder = useRef<string | null>(null)
   useEffect(() => {
     if (!active) { focusedReminder.current = null; return }
-    if (!focus || !/^remind-\d+$/.test(focus) || focusedReminder.current === focus) return
-    // Once per door: the rail opens, and the row is focused when the rail's contents arrive.
-    focusedReminder.current = focus
+    const door = `${focus}:${nonce ?? ''}`
+    if (!focus || !/^remind-\d+$/.test(focus) || focusedReminder.current === door) return
+    // Once per click: the rail opens, and the row is focused when the rail's contents arrive.
+    focusedReminder.current = door
     if (!pageRailOpen(store.getSnapshot().workbench, 'lead')) store.togglePageRail('lead')
     return focusWhenDrawn(`[data-work-reminder="${focus}"]`, () => {})
-  }, [active, focus, store])
+  }, [active, focus, nonce, store])
   useEffect(() => {
     if (!active || !requestedDecisionFocus.current) return
     if (!cards.some(card => card.id === requestedDecisionFocus.current)) { requestedDecisionFocus.current = null; return }
