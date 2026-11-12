@@ -21,3 +21,6 @@ export const useLeadLabel = (): string | null => {
 }
 
 export const LEAD_NAME_CHOICES = [{ name: 'dex', label: leadDisplayName('dex') }, { name: 'lex', label: leadDisplayName('lex') }] as const
+
+/** What a sentence calls the Lead: its chosen name (Dex or Lex), as the phone says it, or "the Lead" before one is read. */
+export const useLeadCalled = (): string => useLeadLabel() ?? 'the Lead'

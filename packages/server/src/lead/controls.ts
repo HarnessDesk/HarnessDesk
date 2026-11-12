@@ -1,5 +1,5 @@
 import { leadThreadStage } from './projection.js'
-import { LEAD_STEP_THINKING, boundLeadApprovalHistory, leadDisplayName, leadRequestFailure, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
+import { LEAD_STEP_THINKING, boundLeadApprovalHistory, leadSurfaceOf, leadDisplayName, leadRequestFailure, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
 import {
   parseLeadApprovalRevoke, parseLeadMessage, parseLeadAsk, parseLeadProactiveOutput, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
@@ -81,7 +81,9 @@ interface LeadControlsOptions {
   /** The open work cards, already bounded; they ride the end of each request and are never stored in the thread. */
   readonly readWorkContext?: (turn: { readonly proactive: boolean }) => Promise<string | null>
   /** What is in memory now and what became of the Lead's proposals, as desk context that closes each request. */
-  readonly readMemoryContext?: () => Promise<string | null>
+  readonly readMemoryContext?: () => Promise<string | { readonly text: string; readonly settingsShownAt?: number } | null>
+  /** Told once the Lead's reply to the person is stored, with the `settingsShownAt` the request that got it read. */
+  readonly settingsShown?: (at: number) => Promise<void>
   /** The stored conversation. Absent, each request is rebuilt from the words the person can read, as before. */
   readonly context?: Pick<LeadContextStore, 'request' | 'due' | 'compact' | 'facts' | 'compacting' | 'epoch'> & Partial<Pick<LeadContextStore, 'settle'>>
   /** Test seam for the idle check after a step was recorded. */
@@ -89,6 +91,12 @@ interface LeadControlsOptions {
   /** The Lead's current step in plain words, from the desk call in flight; null while it has named none. */
   readonly readActiveStep?: () => string | null
 }
+/** Whether the Lead model wrote a reply to the person after the journal stood at `seq`: one appended later (its id
+ * carries the seq it was written at, which a later revision of the message never changes), not proactive, and the
+ * model's own words rather than a host notice. */
+const leadAnsweredSince = (journal: LeadJournal, seq: number): boolean => journal.state.messages.some(message =>
+  message.role === 'assistant' && !message.proactive && Number(message.id.slice('message-'.length)) > seq && journal.isModelReply(message.id))
+
 /** One host owner, no transport or rendering. Child ports never contain these operations. */
 export class LeadControls {
   #tail: Promise<unknown> = Promise.resolve()
@@ -104,6 +112,7 @@ export class LeadControls {
   #automaticRequest = false
   /** Set only by a path the person took (their own message, their plan approval, their resume); read once by the next request. */
   #personRequest = false
+  /** The device the person's latest message came from, as its send named it: the next person turn says where (#2146). */
   #requestWaitReason: string | null = null
   /** The request in hand is a desk wake the schedule made (a reminder), whatever the thread's origin. */
   #scheduleRequest = false
@@ -341,7 +350,9 @@ export class LeadControls {
     if (journal.state.phase === 'waiting-for-user' && (journal.state.recoveryBlocked ||
       journal.state.consent && journal.state.consent.expiresAt <= this.options.now())) throw leadRefusal('lead-no-person-wait')
     return this.#commitRequest(async committed => {
-      const receipt = await journal.appendMessage(input.idempotencyKey, input.text, origin ? origin.source === 'schedule' ? 'schedule' : 'automatic' : 'person', committed)
+      // The surface stays with the person's message (#2166): a tool continuation and every later turn read it there.
+      const receipt = await journal.appendMessage(input.idempotencyKey, input.text, origin ? origin.source === 'schedule' ? 'schedule' : 'automatic' : 'person', committed,
+        undefined, !origin && input.device ? leadSurfaceOf(input.device) : undefined)
       if (resume) await journal.resume(undefined, true, committed)
       return receipt
     }, !!origin)
@@ -392,6 +403,8 @@ export class LeadControls {
       this.#requestWaitReason = null
       const { context } = this.options
       let persons: readonly string[] = []
+      // When the request that was sent read the settings; kept only once its reply to the person is stored.
+      let settingsShownAt: number | undefined
       const build = async () => {
         // With the context engine the request starts from the stored conversation, tool pairs and all; without it,
         // from the words the person can read. Either way no reasoning from an earlier request is carried.
@@ -430,7 +443,12 @@ export class LeadControls {
         // Memory as the desk holds it now: the Core in the standing instructions is frozen for the epoch, so a Keep, a No
         // or a Forget since then reaches the model here, every request, and it never calls a declined note recorded.
         let memory: string | null = null
-        try { memory = await this.options.readMemoryContext?.() ?? null } catch { /* A request without it still answers. */ }
+        settingsShownAt = undefined
+        try {
+          const note = await this.options.readMemoryContext?.() ?? null
+          memory = typeof note === 'string' ? note : note?.text ?? null
+          if (note && typeof note === 'object') settingsShownAt = note.settingsShownAt
+        } catch { /* A request without it still answers. */ }
         if (memory) desk.push({ type: 'text', text: memory })
         // One user turn: the person's words, the plan and the desk's context of this moment are never two turns in a row.
         messages = leadAppendUser(messages, desk)
@@ -443,6 +461,8 @@ export class LeadControls {
       // A compaction under way finishes first; past the hard line one runs now, whatever else is happening.
       await this.#contextWork
       if (context?.due() === 'hard') await this.#compactContext('hard')
+      // Where the journal stood when the request left: a reply of the Lead's stored past it answered this request.
+      const sentAt = journal.state.seq
       let result = await service.send(await build())
       // The provider counted more than the window: compact and try once more.
       if (context && result.status === 'failed' && result.reason === 'lead-messages-too-long') {
@@ -461,8 +481,10 @@ export class LeadControls {
         if (proactive) {
           const report = leadProactiveReport(parseLeadProactiveOutput(result.proactive!), 0, 1, false)
           await service.assertPublic(report)
-          await journal.appendReply([report.finding, report.caveat, report.ask].join('\n'), report)
-        } else await journal.appendReply(result.text ?? '', undefined, result.ask, result.refs)
+          await journal.appendModelReply([report.finding, report.caveat, report.ask].join('\n'), report)
+        } else {
+          await journal.appendModelReply(result.text ?? '', undefined, result.ask, result.refs)
+        }
       }
       else if (result.status === 'refused' && !['accepted', 'declined', 'stopped', 'waiting-for-user'].includes(journal.state.phase) && journal.state.budget &&
         leadBudgetProjection(journal.state.budget, this.options.now()).spend !== 'known') {
@@ -470,6 +492,10 @@ export class LeadControls {
         await journal.setManagementPhase('waiting-for-user', 'lead-budget-unknown')
       }
       else await journal.settingsChanged()
+      // The person read a reply from a request that carried the settings: they are no longer news to the Lead. Decided
+      // from the journal, since the child stores its reply itself and returns a result without the words (#2170).
+      if (person && !proactive && settingsShownAt !== undefined && leadAnsweredSince(journal, sentAt))
+        try { await this.options.settingsShown?.(settingsShownAt) } catch { /* The next reply keeps it. */ }
       this.contextChanged()
     } catch (failure) {
       try { this.options.onFailure?.('request', failure) } catch { /* A log never owns the request. */ }

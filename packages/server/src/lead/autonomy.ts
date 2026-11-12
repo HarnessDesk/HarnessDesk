@@ -45,7 +45,10 @@ export interface LeadAutonomyPorts {
   readonly seq?: () => number
   /** The position of the person's latest message: a No stands until the person writes again. */
   readonly personSeq?: () => number
+  /** One line in the Lead's thread saying what the person's Apply changed (#2176). */
+  readonly receipt?: (text: string) => Promise<void>
 }
+const MODE_WORDS: Readonly<Record<LeadAutonomyMode, string>> = { off: 'Off', observe: 'Observe', act: 'Act' }
 
 interface SectionFile { versions: LeadRuleVersion[]; acked?: number }
 interface Stored {
@@ -66,6 +69,11 @@ interface Stored {
    * since a card replaced in the same turn can be dropped from the kept list and must still count toward the cap.
    */
   turn?: { personSeq: number; created: number }
+  /**
+   * When the Lead last answered the person from a request that read the settings: a change after it is news, and the
+   * settings note marks it (#2165). Kept here, so a restart does not forget what the Lead was already told.
+   */
+  settingsShownAt?: number
 }
 type StoredProposal = { -readonly [K in keyof LeadSettingsProposal]: LeadSettingsProposal[K] } & { personSeq?: number }
 /** One No: which change (by key), on which card, and the person's message position when they said it. */
@@ -149,6 +157,7 @@ export class LeadAutonomyStore {
     const highest = Math.max(0, ...(out.proposals ?? []).map(one => Number(one.id.slice(1))), ...(out.declines ?? []).map(one => Number(one.id.slice(1))))
     const counter = Number.isSafeInteger(source.nextProposal) && source.nextProposal! > 0 ? source.nextProposal! : 1
     if (highest > 0 || counter > 1) out.nextProposal = Math.max(counter, highest + 1)
+    if (Number.isSafeInteger(source.settingsShownAt) && source.settingsShownAt! >= 0) out.settingsShownAt = source.settingsShownAt
     if (Array.isArray(source.automatic)) out.automatic = source.automatic.filter((id): id is string => typeof id === 'string' && id.length <= 300).slice(-MAX_AUTOMATIC_IDS)
     return out
   }
@@ -224,7 +233,11 @@ export class LeadAutonomyStore {
     return { version: 1, modes: this.#modes(), observed, deadline,
       rules: LEAD_RULE_SECTIONS.map(id => {
         const custom = this.#custom(id), latest = this.#latest(id)
-        return { id, title: LEAD_RULE_TITLES[id], text: custom?.text ?? this.#defaults[id].text, custom: !!custom, version: latest?.version ?? 0, ...(latest ? { changedAt: latest.at } : {}) }
+        // A section ever saved carries its newest words and the shipped ones: a phone's history, diff and Restore preview.
+        const versions = [...(this.#stored.sections[id]?.versions ?? [])].reverse().slice(0, LEAD_RULE_LIMITS.carried)
+          .map(({ version, text, at, how, from }) => ({ version, text, at, how, ...(from === undefined ? {} : { from }) }))
+        return { id, title: LEAD_RULE_TITLES[id], text: custom?.text ?? this.#defaults[id].text, custom: !!custom, version: latest?.version ?? 0, ...(latest ? { changedAt: latest.at } : {}),
+          ...(versions.length ? { versions, shipped: this.#defaults[id].text } : {}) }
       }),
       changes: [...(this.#stored.changes ?? [])].reverse().slice(0, 32),
       proposals: [...(this.#stored.proposals ?? [])].reverse().map(({ personSeq: _seq, ...one }) => structuredClone(one)) }
@@ -344,12 +357,12 @@ export class LeadAutonomyStore {
     const pending = list.find(one => one.state === 'pending' && slot(one.change))
     if (pending && alike(pending.change)) {
       pending.afterSeq = Math.max(pending.afterSeq, seq); pending.askedAgainAt = at; event(pending, 'asked-again')
-      return { outcome: 'asked-again', id: pending.id, note: `Your proposal ${pending.id} was already waiting for the person's Apply, first proposed ${clock(pending.proposedAt)}; its card moved under this reply. Nothing has changed yet.` }
+      return { outcome: 'asked-again', id: pending.id, note: `Your proposal of this was already waiting for the person's Apply, first proposed ${clock(pending.proposedAt)}; its card moved under this reply. Nothing has changed yet.` }
     }
     const key = declineKey(change), declined = (this.#stored.declines ?? []).filter(one => one.key === key)
     const standing = declined.findLast(one => personSeq <= one.personSeq)
     if (standing) return { outcome: 'refused', reason: 'declined', id: standing.id,
-      note: `The person said No to this (${standing.id}) ${clock(standing.at)} and has not written since. Nothing was proposed; do not propose it again unless they ask for it.` }
+      note: `The person said No to this ${clock(standing.at)} and has not written since. Nothing was proposed; do not propose it again unless they ask for it.` }
     const thisTurn = this.#stored.turn?.personSeq === personSeq ? this.#stored.turn.created : 0
     if (thisTurn >= LEAD_SETTINGS_PROPOSAL_LIMITS.perTurn) return { outcome: 'refused', reason: 'too-many',
       note: `You already proposed ${thisTurn} changes since the person last wrote. Nothing was proposed; wait for their answer on those before proposing more.` }
@@ -360,8 +373,8 @@ export class LeadAutonomyStore {
     this.#stored.turn = { personSeq, created: thisTurn + 1 }
     this.#stored.proposals = keep(list)
     return { outcome: 'created', id, ...(declined.length ? { declinedBefore: true as const } : {}),
-      note: `Proposed as ${id}${pending ? `, in place of ${pending.id}` : ''}. Nothing changes until the person presses Apply on its card, wherever they read this. ` +
-        `Say it waits for their Apply; never say it is set. ${change.kind === 'rules' ? 'Applied words reach you at your next epoch.' : 'An applied mode holds for what the desk does on its own from then on.'}` }
+      note: `Proposed${pending ? ', in place of your earlier proposal for the same setting' : ''}. Nothing changes until the person presses Apply on its card, wherever they read this. ` +
+        `Say it waits for their Apply; never say it is set. ${change.kind === 'rules' ? 'Once applied, the settings status shows the new words.' : 'An applied mode holds for what the desk does on its own from then on.'}` }
   }
   /**
    * The person's Apply or No on a proposal card, from the window or a phone. Apply makes exactly the change the card
@@ -372,6 +385,8 @@ export class LeadAutonomyStore {
    */
   async decide(params: LeadSettingsDecide): Promise<LeadAutonomyView> {
     const { id, decision, device } = parseLeadSettingsDecide(params)
+    // What the person's Apply changed, said once in the thread after it is written; a No and a stale card say nothing.
+    let applied: string | undefined
     const outcome = await this.#write(async () => {
       const one = this.#stored.proposals?.find(entry => entry.id === id)
       if (!one) throw refused('lead-proposal-missing', 'That proposal is no longer kept.')
@@ -397,15 +412,18 @@ export class LeadAutonomyStore {
           await this.ports.journal.setAutonomy(this.#record({ ...current, [change.autonomy]: change.to }), record)
         }
         close('applied')
+        applied = `Applied · ${LEAD_AUTONOMY_LABELS[change.autonomy].title}, ${MODE_WORDS[change.to]}`
         return 'applied' as const
       }
       if ((this.#latest(change.section)?.version ?? 0) !== change.fromVersion ||
         change.fromDefault !== undefined && change.fromDefault !== this.#defaults[change.section].version) { close('stale'); return 'stale' as const }
       await this.#rulesChange({ section: change.section, action: 'edit', text: change.text, expectedVersion: change.fromVersion }, one.id)
       close('applied')
+      applied = `Applied · ${LEAD_RULE_TITLES[change.section]}, version ${this.#latest(change.section)?.version ?? 0}`
       return 'applied' as const
     })
     this.ports.changed?.()
+    if (applied) await this.ports.receipt?.(applied)
     if (outcome === 'stale') throw refused('lead-rules-stale', 'These words changed after the Lead proposed this, so nothing was applied. Ask the Lead to propose it again.')
     return this.view()
   }
@@ -451,6 +469,12 @@ export class LeadAutonomyStore {
   async automaticIds(): Promise<ReadonlySet<string>> { await this.#ready().catch(() => {}); return new Set(this.#stored.automatic ?? []) }
   /** Whether the file has been read (or found unreadable and set aside), so what it remembers can be counted. */
   get loaded(): boolean { return this.#loaded || this.#unreadable }
+  /** When the Lead last answered the person with the settings in its request; null before it ever has. */
+  async settingsShownAt(): Promise<number | null> { await this.#ready(); return this.#stored.settingsShownAt ?? null }
+  /** Called once the Lead's reply to the person is stored: the settings its request read are no longer news. */
+  async markSettingsShown(at: number): Promise<void> {
+    await this.#write(() => { if ((this.#stored.settingsShownAt ?? -1) < at) this.#stored.settingsShownAt = at })
+  }
   automaticIdsNow(): ReadonlySet<string> { return new Set(this.#stored.automatic ?? []) }
   async markAutomatic(id: string): Promise<void> {
     if (this.#stored.automatic?.includes(id)) return

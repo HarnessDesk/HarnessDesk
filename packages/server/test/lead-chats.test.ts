@@ -76,7 +76,7 @@ const rig = async (t: TestContext, recovery = false) => {
 test('while the Lead’s question is unanswered no chat starts, and the Lead is told to point the person to it', async t => {
   const r = await rig(t)
   let open: { question: string; options: readonly string[] } | null = { question: 'Which one should the chat fix?', options: ['The Team', 'The game'] }
-  ;(r.ports as any).unansweredAsk = () => open
+  ;(r.ports as any).askHoldingChatStart = () => open
   const params = { text: 'Fix the stalled Team\n\nRead its blocker first.' }
   r.authorize('lead/chat/start', params)
   const refused = await r.service.start(params)
@@ -93,7 +93,7 @@ test('the person saying the request again while the question is open still start
   // The presence store frees a question as soon as the person says anything new, so an open question here means the
   // person's turn only repeated the request the question is about: the case the evaluation caught.
   const r = await rig(t)
-  ;(r.ports as any).unansweredAsk = () => ({ question: 'Which one should the chat fix?', options: ['The Team', 'The game'] })
+  ;(r.ports as any).askHoldingChatStart = () => ({ question: 'Which one should the chat fix?', options: ['The Team', 'The game'] })
   const params = { text: 'Fix the stalled Team' }
   r.authorize('lead/chat/start', params)
   const refused = await r.service.start({ ...params, cause: 'person' })
@@ -104,7 +104,7 @@ test('the person saying the request again while the question is open still start
 test('while the question is open the Lead sends nothing into a chat either, and once it is answered the message goes', async t => {
   const r = await rig(t); r.row('own')
   let open: { question: string; options: readonly string[] } | null = { question: 'Which one should the chat fix?', options: ['The Team', 'The game'] }
-  ;(r.ports as any).unansweredAsk = () => open
+  ;(r.ports as any).askHoldingChatStart = () => open
   r.setState({ policy: { version: 1, revision: 3, mode: 'manage', rules: [] } })
   const params = { id: 'fixture:own', text: 'Fix the game now' }
   for (const cause of ['automatic', 'person'] as const) {
@@ -487,7 +487,7 @@ test('start quotes only current person messages verbatim in conversation order, 
   const person = (id: string, text: string, revision: number) => ({ version: 1 as const, id, revision, role: 'user' as const, text })
   r.setState({ messages: [person('one', 'Keep  spacing.\n\nAnd **Markdown**.\r\nLast line.', 1),
     { ...person('assistant', 'My interpretation.', 2), role: 'assistant' }, person('two', 'Also preserve the API.', 3),
-    { ...person('decision', '', 4), role: 'assistant', ask: { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' } },
+    { ...person('decision', '', 4), role: 'assistant', ask: { question: 'Start this work?', options: [{ id: 'start', label: 'Start it', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'start' } },
     person('tap', 'Start it', 5)] })
   for (const quote of [undefined, ['two', 'one']]) {
     const params = { text: 'Repair the test\n\nA narrow brief.', ...(quote ? { quote } : {}) }
@@ -543,7 +543,7 @@ test('start refuses a forged verbatim marker in the brief only when appending a 
 test('default quotes skip tapped ordinary and proactive options, while explicit quotes keep the tap', async t => {
   const r = await rig(t)
   const person = (id: string, text: string, revision: number) => ({ version: 1 as const, id, revision, role: 'user' as const, text })
-  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it', starts: true as const }, { id: 'later', label: 'Not now' }], recommended: 'start' }
   for (const decision of [{ ask }, { proactive: { finding: 'A check is missing.', caveat: 'No work has started.', ask: ask.question, options: ask.options, recommended: ask.recommended } }]) {
     for (const hasRequest of [true, false]) {
       r.setState({ messages: [...(hasRequest ? [person('request', 'Fix focus only.', 1)] : []),
@@ -561,7 +561,8 @@ test('default quotes skip tapped ordinary and proactive options, while explicit 
 
 test('default quotes skip successive taps but retain a new request that is not an exact option answer', async t => {
   const r = await rig(t)
-  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  // Both options start work here, so these starts are about which words are quoted, not whether an answer starts one.
+  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it', starts: true as const }, { id: 'later', label: 'Not now', starts: true as const }], recommended: 'start' }
   const messages = [
     { version: 1 as const, id: 'request', revision: 1, role: 'user' as const, text: 'Fix focus only.' },
     { version: 1 as const, id: 'ask-1', revision: 2, role: 'assistant' as const, text: '', ask },

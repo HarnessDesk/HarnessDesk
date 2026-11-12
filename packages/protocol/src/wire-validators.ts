@@ -1808,6 +1808,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'lead/memory/search': parseLeadMemorySearch,
   'lead/reminder/set': parseLeadReminderSet,
   'lead/reminder/cancel': parseLeadReminderCancel,
+  'lead/reminder/clear': parseLeadReminderCancel,
   'lead/autonomy/propose': parseLeadAutonomyPropose,
   'lead/rules/propose': parseLeadRulesPropose,
   'lead/settings/decide': parseLeadSettingsDecide,

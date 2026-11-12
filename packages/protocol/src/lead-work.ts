@@ -43,7 +43,7 @@ export const LEAD_WORK_LIMITS = Object.freeze({
   /** Stopped attempts an item keeps, newest kept. */
   stopsKept: 8,
   /** Stopped attempts after which the host refuses another until the person answers the Lead's question. */
-  stopsBeforeAsking: 2,
+  stopsBeforeAsking: 1,
 } as const)
 
 /**
@@ -120,6 +120,21 @@ export interface LeadWorkBoard {
    * Left out when there are none.
    */
   readonly reminders?: readonly LeadReminder[]
+  /**
+   * The Lead's own question the desk holds open: the one ask the presence record says is `open`, a newer one replacing
+   * an older. The Lead's context and checkpoint read it, and `lead/work/list` returns it too, so a window or the phone
+   * may see it; LeadKit decodes the board with Codable and ignores the key. Their source for an ask's state stays
+   * `lead/presence/read`'s `asks`. Left out when none is open.
+   */
+  readonly ask?: LeadWorkAsk
+}
+/** The open question as the Lead is told it: the message that carries it, its words, when the desk first saw it. */
+export interface LeadWorkAsk {
+  readonly id: string
+  readonly question: string
+  readonly at: number
+  /** When it stops being answerable. Left out: it does not expire. */
+  readonly expiresAt?: number
 }
 export interface LeadWorkFact { readonly at: number; readonly text: string }
 export interface LeadWorkDetail extends LeadWorkCard {
@@ -193,13 +208,21 @@ const card = (source: Record<string, unknown>, path: string): LeadWorkCard => {
 }
 export const parseLeadWorkCard: Validator<LeadWorkCard> = (value, path = '') => card(only(cardFields)(value, path), path)
 export const parseLeadWorkBoard: Validator<LeadWorkBoard> = (value, path = '') => {
-  const source = only(['version', 'items', 'more', 'reminders'])(value, path), at = (key: string) => path ? `${path}.${key}` : key
+  const source = only(['version', 'items', 'more', 'reminders', 'ask'])(value, path), at = (key: string) => path ? `${path}.${key}` : key
   if (source.version !== 1) fail(at('version'), 'unsupported work board version')
+  const ask = source.ask === undefined ? undefined : parseLeadWorkAsk(source.ask, at('ask'))
   const items = arrayOf(parseLeadWorkCard)(source.items, at('items'))
   if (items.length > LEAD_WORK_LIMITS.items) fail(at('items'), 'too many work items')
   const reminders = source.reminders === undefined ? undefined : arrayOf(parseLeadReminder)(source.reminders, at('reminders'))
   if (reminders && reminders.length > LEAD_WORK_LIMITS.remindersSet * 2) fail(at('reminders'), 'too many reminders')
-  return { version: 1, items, more: time(source.more, at('more')), ...(reminders?.length ? { reminders } : {}) }
+  return { version: 1, items, more: time(source.more, at('more')), ...(reminders?.length ? { reminders } : {}), ...(ask ? { ask } : {}) }
+}
+const parseLeadWorkAsk: Validator<LeadWorkAsk> = (value, path = '') => {
+  const source = only(['id', 'question', 'at', 'expiresAt'])(value, path), at = (key: string) => `${path}.${key}`
+  const question = text(800)(source.question, at('question'))
+  if (/[\r\n]/.test(question)) fail(at('question'), 'expected one line')
+  const expiresAt = source.expiresAt === undefined ? undefined : time(source.expiresAt, at('expiresAt'))
+  return { id: text(256)(source.id, at('id')), question, at: time(source.at, at('at')), ...(expiresAt === undefined ? {} : { expiresAt }) }
 }
 export const parseLeadWorkDetail: Validator<LeadWorkDetail> = (value, path = '') => {
   const source = only([...cardFields, 'origin', 'timeline'])(value, path), at = (key: string) => path ? `${path}.${key}` : key
@@ -311,7 +334,7 @@ export const parseLeadReminderSet: Validator<LeadReminderSet> = (value, path = '
   return { text: text(LEAD_WORK_LIMITS.reminderChars)(source.text, at('text')), ...(when === undefined ? {} : { at: when }),
     ...(minutes === undefined ? {} : { inMinutes: minutes }), ...(item === undefined ? {} : { item }), ...(cause === undefined ? {} : { cause }) }
 }
-/** Wire params for `lead/reminder/cancel`, from the Lead, the window or the phone. */
+/** Wire params for `lead/reminder/cancel` (from the Lead, the window or the phone) and `lead/reminder/clear` (the person's). */
 export const parseLeadReminderCancel: Validator<{ readonly id: string }> = (value, path = '') =>
   ({ id: reminderId(only(['id'])(value, path).id, path ? `${path}.id` : 'id') })
 

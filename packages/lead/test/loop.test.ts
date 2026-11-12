@@ -1797,7 +1797,7 @@ test('a released branch never re-offers a result on green refresh while Needs-yo
   } finally { await loop.close() }
 })
 
-test('desk wakes journal silent gate checks without paying for another turn', async () => {
+test('desk checks that find nothing new pay for no turn and leave no ledger row (#2172)', async () => {
   const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message()])
   const loop = exported('createLeadLoop')(s.options)
   try {
@@ -1808,8 +1808,8 @@ test('desk wakes journal silent gate checks without paying for another turn', as
     }
     const wakes = s.journal.state.wakes
     assert.ok(wakes.some((wake: any) => wake.source === 'person' && wake.modelTurn))
-    assert.ok(wakes.some((wake: any) => wake.source === 'desk-change' && !wake.modelTurn && wake.decision === 'silent'))
-    assert.equal(wakes.length, 4, 'one row per wake, including three coalesced desk checks')
+    assert.equal(wakes.some((wake: any) => wake.source === 'desk-change'), false, 'three checks of a desk the model already saw are not wakes')
+    assert.equal(wakes.length, 2, 'the request and its tool continuation')
     assert.equal(s.fake.requests.length, 2)
   } finally { await loop.close() }
 })
@@ -1836,7 +1836,7 @@ for (const source of ['schedule', 'trigger'] as const) test(`a ${source} wake pr
   const loop = exported('createLeadLoop')(s.options)
   try {
     await loop.request({ ...input, proactive: true, wakeSource: source })
-    assert.deepEqual(s.journal.state.messages.at(-1)?.proactive, report)
+    assert.deepEqual(s.journal.state.messages.at(-1)?.proactive, { ...report, startsMarked: true })
     assert.equal(s.journal.state.messages.at(-1)?.text, [report.finding, report.caveat, report.ask].join('\n'))
     assert.equal(s.records.filter(record => record.type === 'wake').length, 1)
   } finally { await loop.close() }
@@ -1854,17 +1854,15 @@ test('an automatic wake without a proactive envelope stays silent', async () => 
   } finally { await loop.close() }
 })
 
-test('a desk notice outside the model-wake filter leaves a silent ledger row', async () => {
+test('a desk notice outside the model-wake filter costs no turn and leaves no ledger row (#2172)', async () => {
   const s = await fixture([message([{ type: 'text', text: 'I am reading the desk.' }])])
   const loop = exported('createLeadLoop')(s.options)
   try {
     await loop.request(input)
     s.emit({ type: 'notice', team: null, text: 'A desk notice' }); await s.drain(); await s.tick(); await loop.idle()
-    const wake = s.journal.state.wakes.at(-1)!
-    assert.equal(s.journal.state.wakes.length, 2)
-    assert.equal(wake.source, 'desk-change'); assert.equal(wake.decision, 'silent'); assert.equal(wake.modelTurn, false)
+    assert.equal(s.journal.state.wakes.length, 1, 'only the request')
     assert.equal(s.fake.requests.length, 1)
-    assert.equal(s.records.filter(record => record.type === 'wake').length, 2)
+    assert.equal(s.records.filter(record => record.type === 'wake').length, 1)
   } finally { await loop.close() }
 })
 
@@ -2363,7 +2361,7 @@ test('an ordinary ask is journaled once and counted as a decision without a ques
   const loop = exported('createLeadLoop')(s.options)
   try {
     await loop.request(input)
-    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, ask)
+    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, { ...ask, startsMarked: true })
     assert.equal(s.journal.state.wakes.at(-1)?.decision, 'asked')
   } finally { await loop.close() }
 })
@@ -2377,7 +2375,7 @@ test('an ask-only ordinary reply answers the person without a silent-turn retry'
     const result = await loop.request(input)
     assert.equal(result.status, 'completed')
     assert.equal(s.fake.requests.length, 1)
-    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, ask)
+    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, { ...ask, startsMarked: true })
   } finally { await loop.close() }
 })
 
@@ -2466,5 +2464,48 @@ test('a wake whose request was sent and lost is recorded as failed, not as silen
     assert.equal(s.journal.state.managementReason, 'lead-request-uncertain')
     const wake = s.journal.state.wakes.at(-1)!
     assert.equal(wake.decision, 'failed'); assert.equal(wake.modelTurn, true)
+  } finally { await loop.close() }
+})
+
+test('#2172: the minute tick over an unchanged desk records no wake, while a desk change the gate lets pass records one wake', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message(), message(), message()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request({ ...input, wakeSource: 'person' })
+    // The request's tool continuation runs first, and the first look at the started run: both are wakes with a cause.
+    await s.drain(); await s.tick(); await loop.idle()
+    loop.poke(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(loop.state.phase, 'running')
+    const before = s.journal.state.wakes.length
+    for (let minute = 1; minute <= 3; minute++) { loop.poke(); await s.drain(); await s.tick(); await loop.idle() }
+    assert.equal(s.journal.state.wakes.length, before, 'three ticks that found nothing left no row')
+    // The Team turns to the person: the look finds a change, and that wake is one row.
+    s.setSnapshot({ teams: [{ goal: { id: 'team-1' }, stage: 'you-answer' }], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] })
+    s.emit({ type: 'team.changed', team: 'team-1', stage: 'you-answer', activity: 'needs-you', sentence: 'Work' })
+    await s.drain(); await s.tick(); await loop.idle()
+    const added = s.journal.state.wakes.slice(before)
+    assert.equal(added.length, 1, 'the desk change is one row')
+    assert.equal(added[0]!.source, 'desk-change')
+    // Evidence that reached the desk with no run or card event (a check a person ran) keeps its one row on purpose: the
+    // host's publication walk waits on it as the sign the child read the desk again.
+    loop.refreshSoon(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.journal.state.wakes.length, before + 2, 'the evidence change is one row')
+  } finally { await loop.close() }
+})
+
+test('#2172: prose notices and a team change that wakes nothing add no row to the wake ledger', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message(), message(), message()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request({ ...input, wakeSource: 'person' })
+    await s.drain(); await s.tick(); await loop.idle()
+    loop.poke(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(loop.state.phase, 'running')
+    const before = s.journal.state.wakes.length
+    for (let n = 1; n <= 5; n++) {
+      s.emit({ type: 'notice', team: null, text: `Ordinary activity ${n}` }); await s.drain(); await s.tick(); await loop.idle()
+    }
+    s.emit({ type: 'team.changed', team: 'team-1', activity: 'working', sentence: 'Work', stage: 'working' }); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.journal.state.wakes.length, before, 'a chatty run leaves the ledger as it was')
   } finally { await loop.close() }
 })
