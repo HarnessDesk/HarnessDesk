@@ -76,7 +76,7 @@ const rig = async (t: TestContext, recovery = false) => {
 test('while the Lead’s question is unanswered no chat starts, and the Lead is told to point the person to it', async t => {
   const r = await rig(t)
   let open: { question: string; options: readonly string[] } | null = { question: 'Which one should the chat fix?', options: ['The Team', 'The game'] }
-  ;(r.ports as any).unansweredAsk = () => open
+  ;(r.ports as any).askHoldingChatStart = () => open
   const params = { text: 'Fix the stalled Team\n\nRead its blocker first.' }
   r.authorize('lead/chat/start', params)
   const refused = await r.service.start(params)
@@ -93,7 +93,7 @@ test('the person saying the request again while the question is open still start
   // The presence store frees a question as soon as the person says anything new, so an open question here means the
   // person's turn only repeated the request the question is about: the case the evaluation caught.
   const r = await rig(t)
-  ;(r.ports as any).unansweredAsk = () => ({ question: 'Which one should the chat fix?', options: ['The Team', 'The game'] })
+  ;(r.ports as any).askHoldingChatStart = () => ({ question: 'Which one should the chat fix?', options: ['The Team', 'The game'] })
   const params = { text: 'Fix the stalled Team' }
   r.authorize('lead/chat/start', params)
   const refused = await r.service.start({ ...params, cause: 'person' })
@@ -104,7 +104,7 @@ test('the person saying the request again while the question is open still start
 test('while the question is open the Lead sends nothing into a chat either, and once it is answered the message goes', async t => {
   const r = await rig(t); r.row('own')
   let open: { question: string; options: readonly string[] } | null = { question: 'Which one should the chat fix?', options: ['The Team', 'The game'] }
-  ;(r.ports as any).unansweredAsk = () => open
+  ;(r.ports as any).askHoldingChatStart = () => open
   r.setState({ policy: { version: 1, revision: 3, mode: 'manage', rules: [] } })
   const params = { id: 'fixture:own', text: 'Fix the game now' }
   for (const cause of ['automatic', 'person'] as const) {

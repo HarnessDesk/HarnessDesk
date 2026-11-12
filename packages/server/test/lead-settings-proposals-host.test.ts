@@ -202,3 +202,49 @@ test('#2165: a settings change stays marked as news through a failed request and
   replies.push('answer')
   assert.doesNotMatch(await said('person-c', 'Anything else?'), marked, 'once the Lead answered the person with it, it is no longer news')
 })
+
+// #2176: Keep and Apply leave a receipt in the thread, as a host line both surfaces already draw; No leaves none.
+// A receipt is a `system` line: the desktop draws it as a host notice and the phone as its grey line.
+const receipts = (r: { journal: { state: { messages: readonly { role: string; id: string; text: string }[] } } }) =>
+  r.journal.state.messages.filter(message => message.role === 'system' && message.id.startsWith('receipt-')).map(message => message.text)
+
+test('#2176: Keep on a memory proposal leaves one receipt naming what was kept; No leaves none', async t => {
+  const r = await rig(t)
+  await r.tool('memory_propose', { text: 'Deploys happen on Tuesdays.', kind: 'fact' })
+  await r.tool('memory_propose', { text: 'Reports go in Chinese.', kind: 'preference' })
+  const inbox = (await r.host.call('lead/memory/view', {})).inbox
+  const id = (text: string) => inbox.find(one => one.text === text)!.id
+  await r.host.call('lead/memory/change', { action: 'dismiss', id: id('Deploys happen on Tuesdays.') })
+  assert.deepEqual(receipts(r), [], 'No is its own answer: the card goes and nothing is said')
+  await r.host.call('lead/memory/change', { action: 'keep', id: id('Reports go in Chinese.') })
+  assert.deepEqual(receipts(r), ['Kept · Preference: Reports go in Chinese.'])
+  // The person's own wording is what was kept, so it is what the receipt says.
+  await r.tool('memory_propose', { text: 'The release train leaves on Fridays.', kind: 'fact' })
+  const third = (await r.host.call('lead/memory/view', {})).inbox.find(one => one.text.startsWith('The release train'))!.id
+  await r.host.call('lead/memory/change', { action: 'keep', id: third, text: 'The release train leaves on Thursdays.' })
+  assert.deepEqual(receipts(r), ['Kept · Preference: Reports go in Chinese.', 'Kept · Fact: The release train leaves on Thursdays.'])
+  // The phone draws the same notice from the same thread.
+  const thread = await r.host.call('lead/thread/read', {})
+  assert.deepEqual(thread.thread.messages.filter(message => message.role === 'system').map(message => message.text), receipts(r))
+})
+
+test('#2176: Apply on a settings proposal leaves one receipt with the section and its new version; No leaves none', async t => {
+  const r = await rig(t)
+  assert.equal(result(await r.tool('rules_propose', { section: 'talk', add: 'Report in Chinese, conclusion first.' })).outcome, 'created')
+  const first = (await r.host.call('lead/autonomy/read', {})).proposals![0]!.id
+  await r.host.call('lead/settings/decide', { id: first, decision: 'apply' })
+  assert.deepEqual(receipts(r), ['Applied · How to talk to me, version 1'])
+  assert.equal(result(await r.tool('autonomy_propose', { kind: 'stuck', mode: 'off' })).outcome, 'created')
+  const mode = (await r.host.call('lead/autonomy/read', {})).proposals!.find(one => one.state === 'pending')!.id
+  await r.host.call('lead/settings/decide', { id: mode, decision: 'decline' })
+  assert.deepEqual(receipts(r), ['Applied · How to talk to me, version 1'], 'a No adds nothing')
+  await r.personWrites('Fine, turn the stuck nudges off after all.')
+  assert.equal(result(await r.tool('autonomy_propose', { kind: 'stuck', mode: 'off' })).outcome, 'created')
+  const again = (await r.host.call('lead/autonomy/read', {})).proposals!.find(one => one.state === 'pending')!.id
+  await r.host.call('lead/settings/decide', { id: again, decision: 'apply' })
+  assert.deepEqual(receipts(r), ['Applied · How to talk to me, version 1', 'Applied · Stuck nudges, Off'])
+  assert.equal(result(await r.tool('rules_propose', { section: 'talk', add: 'Say what you need from me last.' })).outcome, 'created')
+  const second = (await r.host.call('lead/autonomy/read', {})).proposals!.find(one => one.state === 'pending')!.id
+  await r.host.call('lead/settings/decide', { id: second, decision: 'apply' })
+  assert.equal(receipts(r).at(-1), 'Applied · How to talk to me, version 2')
+})

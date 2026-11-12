@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore, type MouseEvent } from 'react'
 import { LEAD_WORK_GROUPS, LEAD_WORK_GROUP_LABELS, leadTeamKey, leadWorkOpenCount, leadWorkWaiting, runtimeId, sessionId, sessionKey, type LeadReminder, type LeadWorkBoard, type LeadWorkCard, type LeadWorkGroup, type LeadWorkOutcome, type LeadWorkWaiting } from '@harnessdesk/protocol'
 import { Button, Chip, ListRow, ListRows, Menu, MenuItem, MenuNote, MenuSeparator, Popover, ToolGroup, ToolProse, ToolSection } from '../design'
 import { formatLeadRunTime } from '../lib/lead-time'
@@ -42,6 +42,13 @@ const WorkActions = ({ card, onClose }: { readonly card: LeadWorkCard; readonly 
   </Popover>
 }
 
+/**
+ * A press on the row's own body: its name or its line. The trail's controls, and a menu they open (portalled, so its
+ * clicks still reach the row through React), answer for themselves.
+ */
+const fromRow = (event: MouseEvent<HTMLElement>): boolean =>
+  event.target instanceof Node && event.currentTarget.contains(event.target) && !(event.target instanceof Element && event.target.closest('[data-slot="list-row-trail"]'))
+
 /** How often its attempts were stopped, on hover: "Stopped 2 times, by you each time". Nothing for a single stop. */
 const stopsTitle = (card: LeadWorkCard): string | undefined => {
   const stops = card.stops ?? []
@@ -84,6 +91,13 @@ export const LeadWork = () => {
     const key = chatKey(entry.id)
     if (key) void store.openSession(key.session, { runtime: key.runtime })
   }
+  // An item opens what it stands for: its Team when it has one, else its latest chat. Nothing to open, nothing to press.
+  const itemDoor = (card: LeadWorkCard): (() => void) | undefined => {
+    const team = card.links.teams.at(-1), chat = card.links.chats.at(-1), key = chat ? chatKey(chat) : null
+    if (team) return () => store.openTeamRoom(team)
+    if (key) return () => { void store.openSession(key.session, { runtime: key.runtime }) }
+    return undefined
+  }
   const close = async (card: LeadWorkCard, outcome: LeadWorkOutcome) => {
     setError(null)
     try { await store.lead.closeWork(card.id, outcome) } catch (failure) { setError(leadRefusalText(failure)) }
@@ -99,17 +113,19 @@ export const LeadWork = () => {
   return <ToolSection label="Work" fold value={open || undefined}>
     {groups.map(({ group, label, items, waiting: others }) => <ToolGroup key={group} label={label} heading={`${label} · ${items.length + others.length}`} data-work-group={group}>
       <ListRows surface="panel">{others.map(entry => <ListRow key={`${entry.kind}:${entry.id}`} size="sm" data-work-waiting={entry.id}
+        interactive onClick={event => { if (fromRow(event)) openWaiting(entry) }}
         // Where it lives is on hover: the row says what waits, and its own page says why.
         title={<span title={entry.project ? sanitizeText(entry.project) : undefined}>{sanitizeText(entry.title)}</span>} wrapTitle
         trail={<Button variant="ghost" size="icon-sm" aria-label={`Open ${sanitizeText(entry.title)}`} title={entry.kind === 'team' ? 'Open Team' : 'Open chat'}
           onClick={() => openWaiting(entry)}>{entry.kind === 'team' ? <TeamIcon size={16} /> : <CommentIcon size={16} />}</Button>} />)}
-      {items.map(card => <ListRow key={card.id} size="sm" data-work-item={card.id}
+      {items.map(card => { const door = itemDoor(card); return <ListRow key={card.id} size="sm" data-work-item={card.id}
+        interactive={!!door} onClick={door && (event => { if (fromRow(event)) door() })}
         title={<span title={card.fact ? sanitizeText(card.fact) : undefined}>{sanitizeText(card.title)}</span>} wrapTitle
         // A reason someone waits is a fact that varies, so it earns the line; everything else stays on hover.
         subtitle={group === 'needs-you' && card.blocker ? sanitizeText(card.blocker) : undefined} wrapSubtitle
         // A chat the person stopped is not finished: its state is a word on the label's line, not a second line. Who
         // stopped it is the host's record, said in the reader's words, as the digest and the phone say it.
-        trail={<>{card.outcome === 'dropped' ? <Chip tone="neutral">Dropped</Chip> : card.stage === 'stopped' && <Chip tone="neutral" title={stopsTitle(card)}>{card.stoppedBy === 'person' ? 'You stopped it' : 'Stopped'}</Chip>}<WorkActions card={card} onClose={outcome => { void close(card, outcome) }} /></>} />)}</ListRows>
+        trail={<>{card.outcome === 'dropped' ? <Chip tone="neutral">Dropped</Chip> : card.stage === 'stopped' && <Chip tone="neutral" title={stopsTitle(card)}>{card.stoppedBy === 'person' ? 'You stopped it' : 'Stopped'}</Chip>}<WorkActions card={card} onClose={outcome => { void close(card, outcome) }} /></>} /> })}</ListRows>
     </ToolGroup>)}
     {reminders.length > 0 && <ToolGroup label="Reminders" heading={`Reminders · ${reminders.length}`} data-work-group="reminders">
       <ListRows surface="panel">{reminders.map(entry => <ListRow key={entry.id} size="sm" data-work-reminder={entry.id}

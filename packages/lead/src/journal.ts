@@ -135,7 +135,15 @@ export type LeadJournalEvent =
   /** The Core one epoch's standing instructions were built with, so a restart in that epoch builds them again byte
    * for byte. `goal` is the logical goal id, empty between goals. `rules` are the person's sections those instructions
    * hold, which the settings note compares against; absent in a record written before they were kept (#2165). */
+  /** Host only. A host notice in the thread that says what the person's own press changed: "Kept · Fact: …" when they
+   * keep a memory the Lead proposed, "Applied · <section>, version N" when they apply a settings proposal (#2176). */
+  | { readonly type: 'receipt'; readonly text: string }
   | { readonly type: 'memory-epoch'; readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore; readonly rules?: LeadAutonomyRecord['rules'] }
+/** A receipt is one line the host wrote, at most 600 characters. */
+export const leadReceiptText = (value: unknown): string => {
+  if (typeof value !== 'string' || !value.trim() || value.length > 600 || /[\u0000-\u001f\u007f-\u009f]/.test(value)) throw new Error('lead-journal-record')
+  return value
+}
 export type LeadCompactionTrigger = 'soft' | 'hard' | 'manual' | 'overflow'
 export type LeadJournalRecord = Base & LeadJournalEvent
 export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown, previous?: LeadState): LeadJournalRecord; checkpoint?(): LeadState | null; journalSecurity?(): LeadJournalSecurity }
@@ -227,6 +235,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'context-compaction-applied': ['id', 'at', 'fromSeq', 'toSeq', 'beforeTokens', 'afterTokens', 'model', 'usdMicros', 'fallback'],
     'context-pruned': ['id', 'at', 'beforeTokens', 'afterTokens'],
     'memory-core': ['memory'],
+    receipt: ['text'],
     'memory-epoch': ['goal', 'epoch', 'memory', ...(Object.hasOwn(source, 'rules') ? ['rules'] : [])],
   }
   const type = choice(source.type, Object.keys(keys))
@@ -320,6 +329,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     }
     case 'context-pruned': event = { type, id: identifier(source.id), at: integer(source.at), beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens) }; break
     case 'memory-core': event = { type, memory: parseLeadMemoryCore(source.memory) }; break
+    case 'receipt': event = { type, text: leadReceiptText(source.text) }; break
     case 'memory-epoch': event = { type, goal: leadMemoryEpochGoal(source.goal), epoch: integer(source.epoch), memory: parseLeadMemoryCore(source.memory),
       ...(Object.hasOwn(source, 'rules') ? { rules: parseLeadAutonomyRules(source.rules) } : {}) }; break
     default: throw new Error('lead-journal-type')
@@ -522,6 +532,8 @@ export class LeadJournal {
     if (this.#state.context.pending?.id !== pruned.id) throw new Error('lead-context-pending')
     return this.#append({ type: 'context-pruned', ...pruned })
   }) }
+  /** Host only. One receipt notice in the thread for something the person's own press changed. */
+  receipt(text: string): Promise<void> { return this.#queue(async () => this.#append({ type: 'receipt', text: leadReceiptText(text) })) }
   /** Host only. Core changed in the memory store; a revision already journaled is not written twice. */
   memoryCore(memory: LeadMemoryCore): Promise<void> { return this.#queue(async () => {
     const parsed = parseLeadMemoryCore(memory)

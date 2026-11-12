@@ -1400,3 +1400,43 @@ it('a page rail floats when the terminal pane the page keeps leaves the column t
     expect(shell.dataset.railFloats, String(terminal)).toBe(String(floats))
   }
 })
+
+it('a floating rail goes on a press outside it and on Escape, as the floating sidebar does, and stays for a press inside (#2175)', () => {
+  const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth: 900 })
+  // A proposal card's Apply in the thread the floating rail lies over, and a control inside the rail itself.
+  const Page = () => { useWorkDetails('destination:lead', <button type="button" data-testid="in-rail">Open</button>); return <><PageRailToggle page="lead" /><button type="button" data-testid="apply">Apply</button></> }
+  const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+  draw()
+  const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  const press = (element: Element) => act(() => { element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })) })
+  expect([shell().dataset.railFloats, shell().dataset.railOpen]).toEqual(['true', 'true'])
+  press(container.querySelector('[data-testid="in-rail"]')!)
+  draw()
+  expect(shell().dataset.railOpen, 'a press inside the rail is the rail\'s own').toBe('true')
+  // The rail's own toggle closes it by its click, never by a press that closes it only for the click to open it again.
+  press(container.querySelector('[data-work-rail-toggle]')!)
+  draw()
+  expect(shell().dataset.railOpen).toBe('true')
+  press(container.querySelector('[data-testid="apply"]')!)
+  draw()
+  expect(shell().dataset.railOpen, 'a press in the thread puts the rail away, so what it covered can be reached').toBe('false')
+  act(() => container.querySelector<HTMLButtonElement>('[data-work-rail-toggle]')!.click())
+  draw()
+  expect(shell().dataset.railOpen).toBe('true')
+  act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+  draw()
+  expect(shell().dataset.railOpen, 'Escape puts it away').toBe('false')
+})
+
+it('a rail that stands beside the page keeps out of the way of presses and Escape alike (#2175)', () => {
+  const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth: 1440 })
+  const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return <button type="button" data-testid="apply">Apply</button> }
+  const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+  draw()
+  const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  expect(shell().dataset.railFloats).toBe('false')
+  act(() => { container.querySelector('[data-testid="apply"]')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })) })
+  act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+  draw()
+  expect(shell().dataset.railOpen).toBe('true')
+})

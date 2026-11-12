@@ -567,8 +567,8 @@ export class LeadPresenceStore {
   }
   async observe(): Promise<void> { if (await this.#write(() => this.#observeAsks())) this.ports.changed?.() }
 
-  /** The newest question that nobody has answered and the person has not talked past, whatever the Lead said after it. */
-  #openAsk(): { id: string; ask: LeadAsk } | undefined {
+  /** The newest question with no message of the person's after it, whatever the Lead said after it: typed words answer it. */
+  #askSincePerson(): { id: string; ask: LeadAsk } | undefined {
     const messages = this.ports.messages()
     for (let index = messages.length - 1; index >= 0; index--) {
       const message = messages[index]!
@@ -578,14 +578,27 @@ export class LeadPresenceStore {
     }
     return undefined
   }
-  /**
-   * The Lead's newest question while the person has not answered it: not answered, not expired, and nothing the person
-   * said since is more than the request it asked about, said again. Work that question decides must not start yet; the
-   * person is pointed to it instead. Words that are not a repeat are the person moving on, and free the Lead to act.
-   */
   /** When the desk first saw the Lead ask this question; undefined for one it has not seen. */
   askSeenAt(id: string): number | undefined { return this.#stored.asks[id]?.seenAt }
-  unansweredAsk(): { readonly id: string; readonly question: string; readonly options: readonly string[] } | null {
+  /**
+   * The one question the desk holds open, by the ask states every surface reads (`asks` on `lead/presence/read`): not
+   * answered, not expired, and not replaced by a newer question of the Lead's. The person writing about something else
+   * leaves it open (#2173). The Inbox lists it and the Lead's work context names it; null when none is open.
+   */
+  openAsk(): { readonly id: string; readonly question: string; readonly options: readonly string[]; readonly at: number; readonly expiresAt?: number } | null {
+    const state = this.#askStates().findLast(entry => entry.status === 'open')
+    const message = state && this.ports.messages().find(one => one.id === state.id), ask = message && askOf(message)
+    const record = state && this.#stored.asks[state.id]
+    if (!state || !ask || !record) return null
+    return { id: state.id, question: ask.question, options: ask.options.map(option => option.label), at: record.seenAt, ...(record.expiresAt === undefined ? {} : { expiresAt: record.expiresAt }) }
+  }
+  /**
+   * The chat-start gate, and only that: the Lead's newest question while the person has not answered it, not expired,
+   * and nothing the person said since is more than the request it asked about, said again. Work that question decides
+   * must not start yet; the person is pointed to it instead. Words that are not a repeat are the person moving on, and
+   * free the Lead to act. Whether the question is open is `openAsk`, which the person writing on does not change.
+   */
+  askHoldingChatStart(): { readonly id: string; readonly question: string; readonly options: readonly string[] } | null {
     const messages = this.ports.messages(), now = this.ports.now()
     const at = messages.findLastIndex(message => askOf(message) !== undefined)
     if (at < 0) return null
@@ -654,9 +667,10 @@ export class LeadPresenceStore {
       this.#observeAsks()
       // A tap names the question it answers, so a later message in the thread cannot turn it into plain words. Typed
       // words without an id go to the newest question only.
-      // A question the person has only repeated their request under is still open: typed words can answer it.
-      const held = askId ? undefined : this.unansweredAsk()
-      const open = askId ? this.#askById(askId) : this.#openAsk() ?? (held ? this.#askById(held.id) : undefined)
+      // A question the person has only repeated their request under, or written past about something else, is still
+      // open: typed words that are one of its options answer it.
+      const held = askId ? undefined : this.askHoldingChatStart() ?? this.openAsk()
+      const open = askId ? this.#askById(askId) : this.#askSincePerson() ?? (held ? this.#askById(held.id) : undefined)
       if (askId && !open) throw refused()
       // Words that are an option of a question nobody can answer any more are not sent as a new request either.
       const stale = !open ? this.#newestAsk() : undefined

@@ -461,6 +461,15 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, context: { ...state.context, epoch: state.context.epoch + 1, pending: null } }
       break
     case 'memory-core': ensure(event.memory.revision > state.memory.revision); state = { ...state, memory: event.memory }; break
+    case 'receipt': {
+      // A host line, drawn as a notice on the desktop and as a grey line on the phone, which shows `system` lines and not
+      // every `notice`. It is neither the person's message nor the Lead's, so it never answers or closes a question.
+      const all = [...state.messages, { version: 1, id: `receipt-${event.seq}`, revision: event.seq, role: 'system', text: event.text } satisfies LeadMessage]
+      const thread = windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project: null,
+        messages: all.slice(Math.max(0, all.length - 256)), olderMessages: state.olderMessages + Math.max(0, all.length - 256), cards: [] }, 131072)
+      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages }
+      break
+    }
     case 'memory-epoch': state = { ...state, memoryEpoch: { goal: event.goal, epoch: event.epoch, memory: event.memory, ...(event.rules ? { rules: event.rules } : {}) } }; break
     case 'wake': state = { ...state, wakes: [...state.wakes.filter(wake => wake.id !== event.wake.id), event.wake].sort((a, b) => a.at - b.at).slice(-128) }; break
     case 'settings-changed': state = { ...state, ...(event.name === undefined ? {} : { name: event.name, nameChosen: true }), ...(event.follow === undefined ? {} : { follow: event.follow }) }; break

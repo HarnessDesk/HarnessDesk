@@ -120,6 +120,11 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
     { version: 1, id: 'live-ask', revision: 4, role: 'assistant', text: 'A nearby label has no accessible name. I have not changed it. Start a separate fix?',
       proactive: { finding: 'A nearby label has no accessible name.', caveat: 'I have not changed it.', ask: 'Start a separate fix?',
         options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' } },
+    // Words about something else leave the question open: the desk still holds it, so its options stay live (#2173).
+    { version: 1, id: 'aside', revision: 5, role: 'user', text: 'Also, keep the release notes short.' },
+    { version: 1, id: 'aside-reply', revision: 6, role: 'assistant', text: 'Noted. The separate fix above is still yours to start or leave.' },
+    // Keep on a proposal leaves one line in the thread saying what was kept (#2176).
+    { version: 1, id: 'receipt-7', revision: 7, role: 'system', text: 'Kept · Preference: Release notes stay short.' },
   ]
   if (scene === 'proactive' || scene === 'away-digest') thread.messages = [{ version: 1, id: 'proactive', revision: 2, role: 'assistant', text: 'The review is ready.\nChecks still need you.\nOpen changes', proactive: { finding: 'The review is ready.', caveat: 'Checks still need you.', ask: 'Open changes', action: 'changes' } }]
   if (scene === 'presence') thread.messages = [

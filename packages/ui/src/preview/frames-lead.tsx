@@ -44,7 +44,9 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   let current = leadSceneProjection(scene), schedule = leadSchedule, memory = leadMemory
   let memoryView = scene === 'memory-proposal-again' ? leadMemoryAgainView : scene === 'memory-proposal' || scene === 'settings-memory' ? leadMemoryView : { ...leadMemoryView, revision: 0, core: [], archive: [], inbox: [], history: [], coreBytes: 0 }
   let work: LeadWorkBoard = scene === 'work-ledger' ? leadWorkFixture : { version: 1, items: [], more: 0 }
-  let presence = scene === 'presence' ? leadPresenceFixture() : { version: 1 as const, digest: null, asks: [], brief: { enabled: false, at: '07:30' } }
+  let presence = scene === 'presence' ? leadPresenceFixture() : { version: 1 as const, digest: null, brief: { enabled: false, at: '07:30' },
+    // The desk's record: the first question answered, the newest still open after the person wrote about something else.
+    asks: scene === 'ask-options' ? [{ id: 'ordinary-ask', status: 'answered' as const, answer: { option: 'Fix focus only', by: 'Desktop', at: Date.now() - 600_000 } }, { id: 'live-ask', status: 'open' as const }] : [] }
   // Autonomy and rules, as the host answers them: modes, versioned sections, and a would-have row to show.
   let modes: LeadAutonomyModes = scene === 'settings-autonomy' ? { ...LEAD_AUTONOMY_DEFAULTS, stuck: 'observe', mention: 'off' } : LEAD_AUTONOMY_DEFAULTS
   const versions: Record<string, LeadRuleVersion[]> = scene === 'settings-autonomy'

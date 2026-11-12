@@ -181,3 +181,31 @@ it('a reminder alone draws the card, so a reminder is never set where the person
   expect(box.querySelector('section[aria-label="Work"]')).not.toBeNull()
   expect(reminders(box)).toEqual(['remind-2'])
 })
+
+it('a Work row opens its Team or chat from the row itself, and its menu stays its own (#2175)', async () => {
+  const { box, store } = await mount('work-ledger')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)) })
+  const opened: string[] = []
+  store.openGoal = ((id: string) => { opened.push(`goal:${id}`) }) as typeof store.openGoal
+  store.openTeamRoom = ((id: string) => { opened.push(`team:${id}`) }) as typeof store.openTeamRoom
+  store.openSession = (async (session: string, options?: { runtime?: string }) => { opened.push(`chat:${options?.runtime}:${session}`); return true }) as unknown as typeof store.openSession
+  const title = (selector: string) => box.querySelector<HTMLElement>(`${selector} [data-slot="list-row-title"]`)!
+  // The Team the desk says needs the person, from its name rather than only the small icon at its end.
+  await act(async () => { title('[data-work-waiting="game-team"]').click() })
+  // An item opens what it stands for: its Team when it has one, else its latest chat.
+  await act(async () => { title('[data-work-item="work-4"]').click() })
+  await act(async () => { title('[data-work-item="work-3"]').click() })
+  expect(opened).toEqual(['goal:game-team', 'chat:fixture:rename-column', 'team:demo-team'])
+  // A row that opens something is drawn as something to press.
+  expect(box.querySelector('[data-work-item="work-4"]')!.className).toContain('cursor-pointer')
+  expect(box.querySelector('[data-work-waiting="game-team"]')!.className).toContain('cursor-pointer')
+  // The actions button and its menu answer for themselves: pressing them opens nothing behind them.
+  opened.length = 0
+  await act(async () => { box.querySelector<HTMLButtonElement>('[aria-label="Actions for Rename the status column"]')!.click() })
+  expect(opened).toEqual([])
+  const done = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.startsWith('Done'))!
+  const request = store.transport.request.bind(store.transport)
+  store.transport.request = (async (method: string, params: unknown) => method === 'lead/work/close' ? leadWorkFixture : request(method as never, params as never)) as typeof store.transport.request
+  await act(async () => { done.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(opened).toEqual([])
+})

@@ -245,6 +245,8 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
   // A page that keeps its terminal pane gives the rail only the column beside that pane, as a session does.
   const railFloating = pageActive ? railOpen && railFloatsBeside(snapshot.windowWidth - standingSidebar - (paneActive && rightPanelDrawn(workbench) && !rightPanelOverlay ? rightWidth : 0))
     : workRailFloats(workbench, snapshot.windowWidth, standingSidebar)
+  // A rail floating over the thread goes the way the floating sidebar does: on Escape, and on a press outside it.
+  useFloatingRail(railOpen && railFloating, shell, () => { if (pageActive) store.togglePageRail(pageKind); else store.toggleWorkRail() })
   const retainedRight = Math.min(workbench.right.size, Math.max(0, snapshot.windowWidth - FRAME.page.canvasGutter))
   const frameStyle = {
     '--frame-left-size': `${standingSidebar}px`, '--frame-left': 'var(--frame-left-drag, var(--frame-left-size))',
@@ -501,6 +503,29 @@ const BottomPanel = ({ drawn }: { drawn: boolean }) => {
       </DockPanelBody>
     </FixedPanelFrame>
   </>
+}
+
+/**
+ * A rail floating over the page is on top of what it covers, as the floating sidebar is, so it goes the same ways:
+ * Escape puts it away (one surface on the shared stack, so a menu above it takes the key first), and so does a press
+ * anywhere in the shell outside it, so the card or button it lay over answers the next press (#2175). A press inside the
+ * rail is the rail's own, and its toggle closes it by its own click. A menu drawn from the rail is portalled out of the
+ * shell, so a press in it is not outside. A rail standing beside the page covers nothing and never takes either.
+ */
+const useFloatingRail = (floating: boolean, shell: RefObject<HTMLDivElement | null>, close: () => void): void => {
+  useEscapeSurface(floating, close)
+  const held = useRef(close)
+  held.current = close
+  useEffect(() => {
+    const element = shell.current
+    if (!floating || !element) return
+    const press = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || event.target.closest('[data-frame-region="rail"], [data-work-rail-toggle]')) return
+      held.current()
+    }
+    element.addEventListener('pointerdown', press)
+    return () => element.removeEventListener('pointerdown', press)
+  }, [floating, shell])
 }
 
 /**

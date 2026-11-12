@@ -340,23 +340,23 @@ test('an unanswered ask holds work while the person only repeats the request; an
   const r = await rig(t)
   const asked = { id: 'message-1', role: 'user', text: '再帮我开一个修 build a game 的 chat' }
   const question = { id: 'message-2', role: 'assistant', text: 'Which one?', ask: ask(30) }
-  assert.equal(r.store.unansweredAsk(), null, 'no question, nothing held')
+  assert.equal(r.store.askHoldingChatStart(), null, 'no question, nothing held')
   r.setMessages([asked, question])
   await r.store.observe()
-  assert.deepEqual(r.store.unansweredAsk(), { id: 'message-2', question: 'Start it?', options: ['Start it', 'Not now'] })
+  assert.deepEqual(r.store.askHoldingChatStart(), { id: 'message-2', question: 'Start it?', options: ['Start it', 'Not now'] })
   r.setMessages([asked, question, { id: 'message-3', role: 'user', text: '  再帮我开一个修 build a game 的 chat ' }])
-  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'the same request again is not an answer')
+  assert.equal(r.store.askHoldingChatStart()?.id, 'message-2', 'the same request again is not an answer')
   r.setMessages([asked, question, { id: 'message-3', role: 'user', text: 'Fix the game itself' }])
-  assert.equal(r.store.unansweredAsk(), null, 'new words move on')
+  assert.equal(r.store.askHoldingChatStart(), null, 'new words move on')
   r.setMessages([asked, question])
   const answer = await r.store.beforeSend(desktop, 'Start it')
   await answer!(true)
   r.setMessages([asked, question, { id: 'message-3', role: 'user', text: 'Start it' }])
-  assert.equal(r.store.unansweredAsk(), null, 'an answered question holds nothing')
+  assert.equal(r.store.askHoldingChatStart(), null, 'an answered question holds nothing')
   r.setMessages([{ id: 'message-5', role: 'assistant', text: 'Start it?', ask: ask(30) }])
   await r.store.observe()
   r.tick(31 * MIN)
-  assert.equal(r.store.unansweredAsk(), null, 'an expired question holds nothing')
+  assert.equal(r.store.askHoldingChatStart(), null, 'an expired question holds nothing')
 })
 
 test('a near-repeat of the request is still a repeat: punctuation, a polite word, one dropped 再, or the request inside a longer line', async t => {
@@ -368,17 +368,17 @@ test('a near-repeat of the request is still a repeat: punctuation, a polite word
   for (const again of ['再帮我开一个修 build a game 的 chat。', '再帮我开一个修 build a game 的 chat?', 'please 再帮我开一个修 build a game 的 chat', '帮我开一个修 build a game 的 chat',
     '请再帮我开一个修 build a game 的 chat！', '麻烦 帮我开一个修 build-a-game 的 chat', 'Dex, 再帮我开一个修 build a game 的 chat 吧', '开一个修 build a game 的 chat']) {
     r.setMessages([asked, question, { id: 'message-3', role: 'user', text: again }])
-    assert.equal(r.store.unansweredAsk()?.id, 'message-2', `"${again}" only repeats the request`)
+    assert.equal(r.store.askHoldingChatStart()?.id, 'message-2', `"${again}" only repeats the request`)
   }
   const english = { id: 'message-1', role: 'user', text: 'Open a chat to fix build a game' }
   r.setMessages([english, question])
   for (const again of ['Open a chat to fix build a game?', 'please open a chat to fix build a game.', 'Can you open a chat to fix "build a game"!', 'open chat to fix build a game']) {
     r.setMessages([english, question, { id: 'message-3', role: 'user', text: again }])
-    assert.equal(r.store.unansweredAsk()?.id, 'message-2', `"${again}" only repeats the request`)
+    assert.equal(r.store.askHoldingChatStart()?.id, 'message-2', `"${again}" only repeats the request`)
   }
   for (const moved of ['Fix the game itself', 'Pick the Team one', 'Neither, stop for today']) {
     r.setMessages([english, question, { id: 'message-3', role: 'user', text: moved }])
-    assert.equal(r.store.unansweredAsk(), null, `"${moved}" is the person moving on`)
+    assert.equal(r.store.askHoldingChatStart(), null, `"${moved}" is the person moving on`)
   }
 })
 
@@ -402,12 +402,12 @@ test('a typed answer that names one option closes the question as that answer, f
     const r = await rig(t)
     r.setMessages([asked, question, ...before])
     await r.store.observe()
-    assert.equal(r.store.unansweredAsk()?.id, 'message-2')
+    assert.equal(r.store.askHoldingChatStart()?.id, 'message-2')
     const step = await r.store.beforeSend(desktop, typed)
     assert.ok(step, typed)
     await step!(true)
     r.setMessages([asked, question, ...before, { id: 'message-4', role: 'user', text: typed }])
-    assert.equal(r.store.unansweredAsk(), null, `"${typed}" answers the question`)
+    assert.equal(r.store.askHoldingChatStart(), null, `"${typed}" answers the question`)
     assert.equal((await r.store.read(desktop, { active: true })).asks.find(one => one.id === 'message-2')?.answer?.option, 'Game', typed)
   }
   for (const notAnswer of ['Team or game?', 'Not the game']) {
@@ -437,7 +437,7 @@ test('a repeat sent from the phone answers nothing: the hold stays, and the pers
   const step = await r.store.beforeSend(phone, asked.text)
   await step?.(true, 'message-3')
   r.setMessages([asked, question, { id: 'message-3', role: 'user', text: asked.text, source: 'person' as const }])
-  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'the repeat leaves the question holding the work')
+  assert.equal(r.store.askHoldingChatStart()?.id, 'message-2', 'the repeat leaves the question holding the work')
   assert.equal((await r.store.read(desktop, { active: true })).asks.find(one => one.id === 'message-2')?.answer, undefined, 'nobody answered it')
   const tap = await r.store.beforeSend(desktop, 'team', 'message-2')
   assert.ok(tap, 'the tap on team is taken')
@@ -487,14 +487,14 @@ test('a schedule or automatic message never closes the open question; only the p
   r.setMessages([asked, question])
   await r.store.observe()
   r.setMessages([asked, question, { id: 'message-3', role: 'user', text: 'Run the morning check', source: 'schedule' as const }])
-  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'a scheduled message is not the person answering')
+  assert.equal(r.store.askHoldingChatStart()?.id, 'message-2', 'a scheduled message is not the person answering')
   r.setMessages([asked, question, { id: 'message-3', role: 'user', text: 'A work item has gone quiet', source: 'automatic' as const }])
-  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'an automatic message is not the person answering')
+  assert.equal(r.store.askHoldingChatStart()?.id, 'message-2', 'an automatic message is not the person answering')
   // The request the question is about is the person's, never an automatic message just before it.
   r.setMessages([asked, { id: 'message-1b', role: 'user', text: 'Check the desk', source: 'automatic' as const }, question, { id: 'message-3', role: 'user', text: 'Open a chat to fix the game', source: 'person' as const }])
-  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'the person saying the same request again still waits')
+  assert.equal(r.store.askHoldingChatStart()?.id, 'message-2', 'the person saying the same request again still waits')
   r.setMessages([asked, question, { id: 'message-3', role: 'user', text: 'Something else entirely' }])
-  assert.equal(r.store.unansweredAsk(), null, 'a legacy message without a source is the person')
+  assert.equal(r.store.askHoldingChatStart(), null, 'a legacy message without a source is the person')
 })
 
 test('an ask with no expiry stays open; the host, not the model, sets the clock', async t => {
@@ -860,7 +860,7 @@ test('a question an automatic report asks is a question: tracked, answerable by 
   await r.store.observe()
   assert.equal(changed, 1, 'every device is told a new question is open')
   assert.deepEqual((await r.store.read(desktop, { active: true })).asks, [{ id: 'message-7', status: 'open' }])
-  assert.deepEqual(r.store.unansweredAsk(), { id: 'message-7', question: report.ask, options: ['Read the reason', 'Not now'] })
+  assert.deepEqual(r.store.askHoldingChatStart(), { id: 'message-7', question: report.ask, options: ['Read the reason', 'Not now'] })
   r.tick(14_000)
   const answeredAt = r.now()
   const settle = await r.store.beforeSend(phone, 'Not now', 'message-7')
@@ -905,7 +905,7 @@ test('a newer question replaces an older open one: the older reads replaced, ref
   assert.deepEqual(view.asks, [{ id: 'message-3', status: 'expired', replacedBy: 'message-5' }, { id: 'message-5', status: 'open' }])
   parseLeadPresenceView(view)
   await assert.rejects(r.store.beforeSend(phone, 'Start it', 'message-3'), code('lead-ask-replaced'))
-  assert.equal(r.store.unansweredAsk()?.id, 'message-5')
+  assert.equal(r.store.askHoldingChatStart()?.id, 'message-5')
   // An answered question stays answered when a newer one comes; only an open one is replaced.
   await (await r.store.beforeSend(phone, 'Not now', 'message-5'))!(true)
   r.setMessages([first, { id: 'message-5', role: 'assistant', text: 'Which one?', proactive: report } as never, { id: 'message-6', role: 'user', text: 'Not now' }, { id: 'message-8', role: 'assistant', text: 'Start it?', ask: ask() }])
@@ -919,7 +919,7 @@ test('a question with no expiry of its own holds until it is answered or replace
   r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, { id: 'message-2', role: 'assistant', text: 'Start it?', ask: ask() }])
   await r.store.observe()
   r.tick(3 * 24 * 60 * MIN)
-  assert.equal(r.store.unansweredAsk()?.id, 'message-2', 'three days on, nothing has answered it')
+  assert.equal(r.store.askHoldingChatStart()?.id, 'message-2', 'three days on, nothing has answered it')
   assert.equal((await r.store.read(desktop, { active: true })).asks[0]!.status, 'open')
 })
 
@@ -935,8 +935,8 @@ test('an upgrade settles the reports already in the thread: an old unanswered re
   const upgraded = r.reopen()
   const view = await upgraded.read(desktop, { active: true })
   assert.deepEqual(view.asks, [{ id: 'message-4', status: 'expired', expiresAt: r.now() }], 'settled as expired: nothing was done')
-  assert.equal(upgraded.unansweredAsk(), null, 'no open question, so no inbox row and nothing held')
-  assert.equal(leadInbox({ window: null, desk: null, kept: [], now: r.now(), ask: upgraded.unansweredAsk() }).items.length, 0)
+  assert.equal(upgraded.askHoldingChatStart(), null, 'no open question, so no inbox row and nothing held')
+  assert.equal(leadInbox({ window: null, desk: null, kept: [], now: r.now(), ask: upgraded.askHoldingChatStart() }).items.length, 0)
   await assert.rejects(upgraded.beforeSend(phone, 'Read the reason', 'message-4'), code('lead-ask-expired'))
   // What was settled is written, so a later restart reads it rather than settling it again.
   assert.deepEqual(JSON.parse(await readFile(r.file, 'utf8')).asks['message-4'], { seenAt: r.now(), expiresAt: r.now() })
@@ -944,13 +944,13 @@ test('an upgrade settles the reports already in the thread: an old unanswered re
   r.tick(MIN)
   r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix the stalled game task' }, old, { id: 'message-9', role: 'assistant', text: report.ask, proactive: report } as never])
   await upgraded.observe()
-  assert.equal(upgraded.unansweredAsk()?.id, 'message-9')
-  assert.equal(leadInbox({ window: null, desk: null, kept: [], now: r.now(), ask: upgraded.unansweredAsk() }).items[0]?.id, 'ask:message-9')
+  assert.equal(upgraded.askHoldingChatStart()?.id, 'message-9')
+  assert.equal(leadInbox({ window: null, desk: null, kept: [], now: r.now(), ask: upgraded.askHoldingChatStart() }).items[0]?.id, 'ask:message-9')
   // A store with no file at all settles the same way.
   await rm(r.file)
   const fresh = r.reopen()
   await fresh.read(desktop, { active: true })
-  assert.equal(fresh.unansweredAsk(), null, 'no record at all: every report in the thread predates it')
+  assert.equal(fresh.askHoldingChatStart(), null, 'no record at all: every report in the thread predates it')
 })
 
 test('an open report question survives a restart: still open, and answerable by its tap', async t => {
@@ -960,7 +960,7 @@ test('an open report question survives a restart: still open, and answerable by 
   r.tick(6 * 60 * MIN)
   const restarted = r.reopen()
   assert.deepEqual((await restarted.read(desktop, { active: true })).asks, [{ id: 'message-7', status: 'open' }])
-  assert.equal(restarted.unansweredAsk()?.id, 'message-7')
+  assert.equal(restarted.askHoldingChatStart()?.id, 'message-7')
   const at = r.now()
   await (await restarted.beforeSend(phone, 'Read the reason', 'message-7'))!(true)
   assert.deepEqual((await restarted.read(desktop, { active: true })).asks[0]!.answer, { option: 'Read the reason', by: 'Jane’s iPhone', at })
@@ -1033,7 +1033,7 @@ test('a report an older desk build appended while this one was away is settled o
   r.setMessages([{ id: 'message-1', role: 'user', text: 'Fix it' }, first, { id: 'message-4', role: 'user', text: 'Not now' }, { id: 'message-6', role: 'assistant', text: report.ask, proactive: report } as never])
   const back = r.reopen()
   await back.observe()
-  assert.equal(back.unansweredAsk(), null, 'the report the older build saw is not open')
+  assert.equal(back.askHoldingChatStart(), null, 'the report the older build saw is not open')
   assert.deepEqual((await back.read(desktop, { active: true })).asks.map(one => [one.id, one.status]), [['message-3', 'answered'], ['message-6', 'expired']])
 })
 
