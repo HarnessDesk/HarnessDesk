@@ -718,6 +718,13 @@ export type McpTestTarget =
       readonly args: readonly string[]
       /** The folder the command runs in. */
       readonly cwd: string
+      /**
+       * Its variables that decide which program starts or what it loads first
+       * (`PATH`, `NODE_OPTIONS`, `LD_*`, `PYTHON*` and the like), with their
+       * values — a user name and password inside a URL value shown as `•••`.
+       */
+      readonly launchEnv: readonly { readonly name: string; readonly value: string }[]
+      /** Every other variable it sets, by name only. */
       readonly envNames: readonly string[]
     }
   | {
@@ -730,7 +737,8 @@ export type McpTestTarget =
 /**
  * Why a connection test did not connect.
  *
- * `busy` — a test of this same declaration is already running.
+ * `busy` — a test of this same declaration is already running, the desk is
+ * already running as many tests as it allows, or it is stopping.
  * `needsSignIn` — the server answered 401; a test never signs in.
  */
 export type McpTestFailure =

@@ -34,6 +34,8 @@ const MESSAGE_LIMIT = 4 * 1024 * 1024
 const MAX_PAGES = 100
 /** How long a server has after SIGTERM before its whole group is killed outright. */
 const KILL_GRACE_MS = 500
+/** Most tests one desk runs at once, across every server. */
+export const MCP_TEST_MAX_IN_FLIGHT = 4
 /** Recent and widely spoken; a server answers with the version it speaks instead. */
 const PROTOCOL_VERSION = '2025-06-18'
 const CLIENT_INFO = { name: 'harnessdesk-test', version: '1' }
@@ -51,48 +53,110 @@ const plain = (text: string): string =>
     '',
   )
 
+/** A URL's user name and password, wherever it sits in a value: `http://jane:pw@host` → `http://host`. */
+const USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)?[^/?#\s]*@/i
+
+/** The value with any user name and password before its host taken out, the scheme kept. */
+export const withoutUserinfo = (value: string, replacement = ''): string => value.replace(USERINFO, `$1${replacement}`)
+
 /**
  * Every configured value that could be a secret, and the masking that keeps
  * them in the host. A server that prints its own token on a crash, or an
  * HTTP error page that reflects a header, says it here as `•••`.
+ *
+ * Variable and header values, and a URL's user name and password, are
+ * masked from four characters up. Arguments, the URL itself and its query
+ * values only from eight: a short argument such as `.` or `-y` is everywhere
+ * in ordinary output, and masking it would leave nothing readable.
  */
-const secretMask = (spec: McpServerSpec): ((text: string) => string) => {
+export const mcpSecretMask = (spec: McpServerSpec): ((text: string) => string) => {
   const values = new Set<string>()
-  for (const value of [...Object.values(spec.env ?? {}), ...Object.values(spec.headers ?? {})]) {
-    if (value.length >= 4) values.add(value)
+  const add = (value: string, whole: number): void => {
+    if (value.length >= whole) values.add(value)
     // `Bearer abc…` is masked whole and by its token, which is what a server echoes.
     for (const part of value.split(/\s+/)) if (part.length >= 8) values.add(part)
+  }
+  for (const value of [...Object.values(spec.env ?? {}), ...Object.values(spec.headers ?? {})]) add(value, 4)
+  for (const arg of spec.args ?? []) {
+    add(arg, 8)
+    // `--token=…`: the value alone is what a server repeats.
+    const assigned = /^[^=]+=(.+)$/.exec(arg)?.[1]
+    if (assigned !== undefined) add(assigned, 8)
+  }
+  if (spec.url) {
+    add(spec.url, 8)
+    try {
+      const url = new URL(spec.url)
+      for (const part of [url.username, url.password]) {
+        if (part === '') continue
+        add(part, 4)
+        try {
+          add(decodeURIComponent(part), 4)
+        } catch {
+          // Not percent-encoded text; the raw form is masked already.
+        }
+      }
+      for (const value of url.searchParams.values()) add(value, 8)
+    } catch {
+      // Not a URL: masked whole above, and the test will say it cannot use it.
+    }
   }
   const ordered = [...values].sort((a, b) => b.length - a.length)
   return (text) => ordered.reduce((out, value) => out.split(value).join('•••'), text)
 }
 
-/** The target as a person is shown it: the exact command or URL, variable and header names only. */
-export const mcpTestTarget = (spec: McpServerSpec, scope: 'user' | 'project', cwd: string): McpTestTarget =>
-  spec.transport === 'stdio'
-    ? {
-        transport: 'stdio',
-        scope,
-        command: spec.command ?? '',
-        args: [...(spec.args ?? [])],
-        cwd,
-        envNames: Object.keys(spec.env ?? {}).sort(),
-      }
-    : { transport: spec.transport, scope, url: spec.url ?? '', headerNames: Object.keys(spec.headers ?? {}).sort() }
+/**
+ * Variables that decide which program a command line starts, or what that
+ * program loads before its own code: the search path, a shell's or a
+ * runtime's startup file, options and preloads, and where a package runner
+ * fetches from. A confirmation shows these with their values.
+ */
+const LAUNCH_VARIABLE =
+  /^(?:PATH|HOME|SHELL|ENV|BASH_ENV|ZDOTDIR|IFS|LD_\w*|DYLD_\w*|NODE_OPTIONS|NODE_PATH|NODE_EXTRA_CA_CERTS|NPM_CONFIG_\w*|COREPACK_\w*|BUN_\w*|DENO_\w*|PYTHON\w*|PIP_\w*|UV_\w*|VIRTUAL_ENV|CONDA_\w*|RUBYOPT|RUBYLIB|GEM_\w*|BUNDLE_\w*|PERL5OPT|PERL5LIB|PERLLIB|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|JDK_JAVA_OPTIONS|JAVA_HOME|CLASSPATH|GOFLAGS|GOPROXY|GIT_\w*)$/i
+
+export const isLaunchVariable = (name: string): boolean => LAUNCH_VARIABLE.test(name)
+
+/**
+ * The target as a person is shown it: the exact command or URL; the
+ * variables that change what starts, with their values; every other variable
+ * and every header by name only.
+ */
+export const mcpTestTarget = (spec: McpServerSpec, scope: 'user' | 'project', cwd: string): McpTestTarget => {
+  if (spec.transport !== 'stdio') {
+    return { transport: spec.transport, scope, url: spec.url ?? '', headerNames: Object.keys(spec.headers ?? {}).sort() }
+  }
+  const names = Object.keys(spec.env ?? {}).sort()
+  return {
+    transport: 'stdio',
+    scope,
+    command: spec.command ?? '',
+    args: [...(spec.args ?? [])],
+    cwd,
+    launchEnv: names.filter(isLaunchVariable).map((name) => ({ name, value: withoutUserinfo(spec.env?.[name] ?? '', '•••@') })),
+    envNames: names.filter((name) => !isLaunchVariable(name)),
+  }
+}
 
 /** What a confirmation vouches for: the whole declaration and where it runs, values included, digested. */
 const targetDigest = (spec: McpServerSpec, cwd: string): string => digestOf(`${canonicalMcp(spec)}\n${cwd}`)
+
+const PROXY_VARIABLE = /^(?:http|https|all)_proxy$/i
 
 /**
  * The child's environment: the small set of names a check gets from the desk
  * (`checkEnvironment` — where tools are, whose account, locale, proxy), then
  * the server's own configured variables on top. Nothing else of the desk's —
- * no `HARNESSDESK_*`, no `HD_*`, no token — reaches it.
+ * no `HARNESSDESK_*`, no `HD_*`, no token — reaches it. A proxy the desk
+ * passes on goes without the user name and password in its URL; a proxy the
+ * declaration sets itself is its own and is passed as written.
  */
-export const mcpTestEnvironment = (
-  spec: McpServerSpec,
-  from: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv => ({ ...checkEnvironment(from), ...(spec.env ?? {}) })
+export const mcpTestEnvironment = (spec: McpServerSpec, from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => {
+  const inherited = checkEnvironment(from)
+  for (const [name, value] of Object.entries(inherited)) {
+    if (value !== undefined && PROXY_VARIABLE.test(name)) inherited[name] = withoutUserinfo(value)
+  }
+  return { ...inherited, ...(spec.env ?? {}) }
+}
 
 interface Handshake {
   readonly serverName?: string
@@ -175,6 +239,7 @@ const runStdio = async (
   env: NodeJS.ProcessEnv,
   deadline: AbortSignal,
   stderr: { text: string },
+  track: ((child: ChildProcess) => () => void) | undefined,
 ): Promise<Handshake & { tools: number }> => {
   const command = spec.command
   if (!command) throw new TestFailure('notFound', 'This declaration names no command.')
@@ -194,6 +259,7 @@ const runStdio = async (
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   })
+  const untrack = track?.(child)
   const pending = new Map<number, { method: string; resolve: (value: unknown) => void; reject: (error: Error) => void }>()
   let nextId = 1
   let failure: TestFailure | null = null
@@ -299,6 +365,7 @@ const runStdio = async (
       groupKill(child, 'SIGKILL')
       await Promise.race([exited(child), new Promise((resolve) => setTimeout(resolve, 1_000))])
     }
+    untrack?.()
   }
 }
 
@@ -589,19 +656,24 @@ export interface McpTestRunOptions {
   /** Where the minimal environment's names are read from; the desk's own by default. */
   readonly baseEnv?: NodeJS.ProcessEnv
   readonly fetch?: typeof fetch
+  /** Ends the test early, as its deadline would. */
+  readonly signal?: AbortSignal
+  /** Told of the server process once it is started; what it returns is called once the process is stopped. */
+  readonly track?: (child: ChildProcess) => () => void
 }
 
 /** Run one test against one declaration. Never throws; every failure is an answer. */
 export const runMcpTest = async (spec: McpServerSpec, options: McpTestRunOptions): Promise<McpTestResult> => {
   const started = Date.now()
-  const mask = secretMask(spec)
-  const deadline = AbortSignal.timeout(options.timeoutMs ?? MCP_TEST_TIMEOUT_MS)
+  const mask = mcpSecretMask(spec)
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? MCP_TEST_TIMEOUT_MS)
+  const deadline = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout
   const stderr = { text: '' }
   const fetcher = options.fetch ?? fetch
   try {
     const result =
       spec.transport === 'stdio'
-        ? await runStdio(spec, options.cwd, mcpTestEnvironment(spec, options.baseEnv), deadline, stderr)
+        ? await runStdio(spec, options.cwd, mcpTestEnvironment(spec, options.baseEnv), deadline, stderr, options.track)
         : spec.transport === 'http'
           ? await runHttp(spec, deadline, mask, fetcher)
           : await runSse(spec, deadline, mask, fetcher)
@@ -642,10 +714,16 @@ const describeNetwork = (error: unknown): string => {
 
 /**
  * The host's side: one declaration, looked up by identity; confirmation for
- * a project's own servers; and never two tests of the same declaration at once.
+ * a project's own servers; never two tests of the same declaration at once,
+ * never more than `MCP_TEST_MAX_IN_FLIGHT` in all; and every server it
+ * started stopped when the desk stops.
  */
 export class McpConnectionTests {
   readonly #running = new Set<string>()
+  /** The server processes of tests in flight, each in its own group. */
+  readonly #children = new Set<ChildProcess>()
+  readonly #stop = new AbortController()
+  #disposed = false
   readonly #home: string
   readonly #timeoutMs: number | undefined
   readonly #baseEnv: NodeJS.ProcessEnv | undefined
@@ -672,19 +750,45 @@ export class McpConnectionTests {
         digest,
       }
     }
+    if (this.#disposed) return { ok: false, reason: 'busy', detail: 'The desk is stopping.', ms: 0 }
     const key = `${found.file}\0${params.name}`
     if (this.#running.has(key)) {
       return { ok: false, reason: 'busy', detail: 'A test of this server is already running.', ms: 0 }
+    }
+    if (this.#running.size >= MCP_TEST_MAX_IN_FLIGHT) {
+      return {
+        ok: false,
+        reason: 'busy',
+        detail: `${MCP_TEST_MAX_IN_FLIGHT} tests are already running. Try again when one finishes.`,
+        ms: 0,
+      }
     }
     this.#running.add(key)
     try {
       return await runMcpTest(found.spec, {
         cwd,
+        signal: this.#stop.signal,
+        track: (child) => {
+          this.#children.add(child)
+          return () => this.#children.delete(child)
+        },
         ...(this.#timeoutMs !== undefined ? { timeoutMs: this.#timeoutMs } : {}),
         ...(this.#baseEnv !== undefined ? { baseEnv: this.#baseEnv } : {}),
       })
     } finally {
       this.#running.delete(key)
     }
+  }
+
+  /**
+   * The desk is stopping: every server a test started is killed with its
+   * whole group now, not after its grace period, and no test starts again.
+   * Requests in flight end as the deadline would end them.
+   */
+  dispose(): void {
+    this.#disposed = true
+    for (const child of this.#children) groupKill(child, 'SIGKILL')
+    this.#children.clear()
+    this.#stop.abort()
   }
 }

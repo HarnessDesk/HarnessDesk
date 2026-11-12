@@ -9,14 +9,15 @@ import { existsSync, writeFileSync } from 'node:fs'
  *
  *  - ok (default): answers; `PROBE_TOOLS` tools per page over `PROBE_PAGES` pages.
  *  - hang: never answers `initialize`.
- *  - crash: writes `PROBE_SECRET` to stderr, then exits 3.
+ *  - crash: writes `PROBE_SECRET` and its own arguments to stderr, then exits 3.
  *  - badjson: writes a line that is not JSON.
  *  - error: answers `initialize` with an error that carries `PROBE_SECRET`.
  *  - grandchild: starts a child, in this process's group, that ignores
  *    SIGTERM and writes its pid to `PROBE_PID_FILE`; then answers as ok.
  *
  * `PROBE_ENV_FILE`, when set, receives the names of every variable it was
- * started with; `PROBE_CWD_FILE` the folder it runs in.
+ * started with; `PROBE_CWD_FILE` the folder it runs in; `PROBE_SELF_PID_FILE`
+ * its own pid.
  */
 const mode = process.env['PROBE_MODE'] ?? 'ok'
 const perPage = Number(process.env['PROBE_TOOLS'] ?? '3')
@@ -24,9 +25,10 @@ const pages = Number(process.env['PROBE_PAGES'] ?? '1')
 
 if (process.env['PROBE_ENV_FILE']) writeFileSync(process.env['PROBE_ENV_FILE'], Object.keys(process.env).sort().join('\n'))
 if (process.env['PROBE_CWD_FILE']) writeFileSync(process.env['PROBE_CWD_FILE'], process.cwd())
+if (process.env['PROBE_SELF_PID_FILE']) writeFileSync(process.env['PROBE_SELF_PID_FILE'], String(process.pid))
 
 if (mode === 'crash') {
-  process.stderr.write(`fatal: token ${process.env['PROBE_SECRET'] ?? ''} rejected\n`, () => process.exit(3))
+  process.stderr.write(`fatal: token ${process.env['PROBE_SECRET'] ?? ''} rejected\nargv: ${process.argv.slice(2).join(' ')}\n`, () => process.exit(3))
 }
 // The grandchild writes its own pid once SIGTERM is ignored, and nothing is
 // answered before then, so a test knows only SIGKILL can end it.

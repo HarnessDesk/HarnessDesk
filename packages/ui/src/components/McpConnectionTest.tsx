@@ -17,13 +17,62 @@ const FAILURE_WORD: Record<Exclude<Failure['reason'], 'confirm'> | 'error', stri
   needsSignIn: 'Needs sign-in',
   protocol: 'Protocol error',
   httpError: 'HTTP error',
-  busy: 'Already testing',
+  busy: 'Busy',
   error: 'Not tested',
 }
 
 /** A command line as a person would type it: arguments with spaces or quotes are quoted. */
 export const commandLine = (command: string, args: readonly string[]): string =>
   [command, ...args].map(part => /^[\w@%+=:,./-]+$/.test(part) ? part : `'${part.replace(/'/g, `'\\''`)}'`).join(' ')
+
+/**
+ * Characters a confirmation must not draw as they are: controls (line breaks
+ * and tabs included — none belongs in a command line, a URL or a variable),
+ * soft hyphens, marks that reorder text (U+202A–U+202E, U+2066–U+2069,
+ * U+200E, U+200F, U+061C) and characters that draw nothing (U+200B–U+200D,
+ * U+2060–U+2064, U+FEFF and the like). Each is shown as its code point.
+ */
+const UNSHOWN = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff0-\ufffb]/g
+
+/** The most of one value a confirmation draws; the rest is counted, not drawn. */
+const SHOWN_LIMIT = { line: 2_000, value: 400, names: 1_000 } as const
+
+/**
+ * One value as a confirmation draws it: every character it would not draw
+ * as itself written as `⟨U+202E⟩`, sanitised, and cut at `limit` with the
+ * count of what was cut.
+ */
+export const shownValue = (value: string, limit: number): { text: string; cut: number; marked: boolean } => {
+  let marked = false
+  const spelled = value.replace(UNSHOWN, char => {
+    marked = true
+    return `⟨U+${(char.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}⟩`
+  })
+  const text = sanitizeText(spelled)
+  return text.length <= limit ? { text, cut: 0, marked } : { text: `${text.slice(0, limit)}…`, cut: text.length - limit, marked }
+}
+
+/** What a confirmation draws of a target, every value through `shownValue`, and what that left out or spelled. */
+const shownTarget = (target: McpTestTarget, cwd: string, home: string | undefined) => {
+  const parts: ReturnType<typeof shownValue>[] = []
+  const show = (value: string, limit: number): string => {
+    const shown = shownValue(value, limit)
+    parts.push(shown)
+    return shown.text
+  }
+  const plate = show(target.transport === 'stdio' ? commandLine(target.command, target.args) : target.url, SHOWN_LIMIT.line)
+  const launch = target.transport === 'stdio'
+    ? target.launchEnv.map(({ name, value }) => `${show(name, SHOWN_LIMIT.value)}=${show(value, SHOWN_LIMIT.value)}`).join('\n')
+    : ''
+  const names = show((target.transport === 'stdio' ? target.envNames : target.headerNames).join(', '), SHOWN_LIMIT.names)
+  const folder = show(shortPath(cwd, home), SHOWN_LIMIT.value)
+  const cut = parts.reduce((sum, part) => sum + part.cut, 0)
+  const notes = [
+    cut > 0 ? `${cut.toLocaleString('en-US')} more ${cut === 1 ? 'character is' : 'characters are'} not shown.` : '',
+    parts.some(part => part.marked) ? 'A ⟨U+…⟩ is a character that draws nothing or changes the order of the text around it.' : '',
+  ].filter(Boolean).join(' ')
+  return { plate, launch, names, folder, notes }
+}
 
 /**
  * Test connection for one declared MCP server — one copy, in one file.
@@ -75,6 +124,7 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
   const failure = answer && !answer.ok && answer.reason !== 'confirm' ? answer : null
   const detail = failure ? sanitizeText(failure.detail) : null
   const stderr = failure && 'stderr' in failure && failure.stderr ? sanitizeText(failure.stderr) : null
+  const shown = asking ? shownTarget(asking.target, asking.target.transport === 'stdio' ? asking.target.cwd : '', home) : null
 
   return <DescLines>
     <InlineParts data-slot="mcp-test">
@@ -94,14 +144,14 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
         {signIn.length === 1 ? 'Sign in' : `Sign in · ${runtime.presentation.name}`}
       </Button>)}
     </InlineParts>
-    {detail && failure?.reason !== 'busy' && <Text role="meta" tone={failure?.reason === 'needsSignIn' ? 'warning' : undefined}>
+    {detail && <Text role="meta" tone={failure?.reason === 'needsSignIn' ? 'warning' : undefined}>
       {failure?.reason === 'needsSignIn' && signIn.length === 0 ? `${detail} Its agent signs in to it, not this page.` : detail}
     </Text>}
     {stderr && <details>
       <Text as="summary" role="meta">Server output</Text>
       <CodeText as="pre" block ground="muted" wrap>{stderr}</CodeText>
     </details>}
-    {asking && <ConfirmDialog
+    {asking && shown && <ConfirmDialog
       title={asking.target.transport === 'stdio' ? 'Run this project’s server?' : 'Connect to this project’s server?'}
       confirmLabel={asking.target.transport === 'stdio' ? 'Run test' : 'Connect'}
       cancelLabel="Cancel"
@@ -109,16 +159,17 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
       onCancel={() => setAsking(null)}
     >
       <Text as="p">
-        {shortPath(path, home)} comes with the project, so whoever wrote the repository chose what it {asking.target.transport === 'stdio' ? 'runs' : 'connects to'}.
-        {asking.target.transport === 'stdio' ? ` The test runs this in ${shortPath(asking.target.cwd, home)}, then stops it:` : ' The test sends its first two requests here, then disconnects:'}
+        {sanitizeText(shortPath(path, home))} comes with the project, so whoever wrote the repository chose what it {asking.target.transport === 'stdio' ? 'runs' : 'connects to'}.
+        {asking.target.transport === 'stdio' ? ` The test runs this in ${shown.folder}, then stops it:` : ' The test sends its first two requests here, then disconnects:'}
       </Text>
-      <CodeText as="pre" block ground="muted" wrap>
-        {asking.target.transport === 'stdio' ? commandLine(asking.target.command, asking.target.args) : asking.target.url}
-      </CodeText>
-      {(asking.target.transport === 'stdio' ? asking.target.envNames : asking.target.headerNames).length > 0 && <Text as="p" role="meta">
-        {asking.target.transport === 'stdio' ? 'With its variables: ' : 'With its headers: '}
-        {(asking.target.transport === 'stdio' ? asking.target.envNames : asking.target.headerNames).join(', ')}
+      <CodeText as="pre" block ground="muted" wrap>{shown.plate}</CodeText>
+      {shown.launch && <Text as="p" role="meta">With these variables, which change what starts and what it loads first:</Text>}
+      {shown.launch && <CodeText as="pre" block ground="muted" wrap>{shown.launch}</CodeText>}
+      {shown.names && <Text as="p" role="meta">
+        {asking.target.transport === 'stdio' ? (shown.launch ? 'And its other variables: ' : 'With its variables: ') : 'With its headers: '}
+        {shown.names}
       </Text>}
+      {shown.notes && <Text as="p" role="meta" tone="warning">{shown.notes}</Text>}
     </ConfirmDialog>}
   </DescLines>
 }

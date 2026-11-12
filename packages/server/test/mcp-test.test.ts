@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 
 import type { McpTestResult } from '@harnessdesk/protocol'
 
-import { McpConnectionTests } from '../src/mcp-test.js'
+import { MCP_TEST_MAX_IN_FLIGHT, McpConnectionTests, mcpSecretMask, mcpTestEnvironment } from '../src/mcp-test.js'
 import { libraryMethods } from '../src/methods/library.js'
 import type { HostContext } from '../src/methods/context.js'
 
@@ -73,6 +73,7 @@ test('a project server is shown before it runs, and runs in the project once con
     command: process.execPath,
     args: [PROBE],
     cwd: f.project,
+    launchEnv: [],
     envNames: ['PROBE_CWD_FILE', 'PROBE_SECRET'],
   })
   assert.ok(!JSON.stringify(asked).includes(SECRET), 'a variable value is never in the answer')
@@ -91,6 +92,32 @@ test('a project server is shown before it runs, and runs in the project once con
   assert.equal(failed(await tests.test({ name: 'probe', path: f.projectFile, cwd: f.project, confirmed: asked.digest })).reason, 'confirm')
 })
 
+test('a project server’s launch variables are shown with their values, every other variable by name', async (t) => {
+  const f = await fixture(t)
+  await f.shared({
+    probe: probe({
+      PATH: '/opt/tools/bin:/usr/bin',
+      NODE_OPTIONS: '--require ./preload.js',
+      LD_PRELOAD: './libhook.so',
+      pythonpath: './vendor',
+      PIP_INDEX_URL: 'https://jane:index-pass-0123@pypi.example.com/simple',
+      PROBE_SECRET: SECRET,
+    }),
+  })
+  const asked = failed(await new McpConnectionTests({ home: f.home }).test({ name: 'probe', path: f.projectFile, cwd: f.project }))
+  assert.ok(asked.reason === 'confirm' && asked.target.transport === 'stdio')
+  assert.deepEqual(asked.target.launchEnv, [
+    { name: 'LD_PRELOAD', value: './libhook.so' },
+    { name: 'NODE_OPTIONS', value: '--require ./preload.js' },
+    { name: 'PATH', value: '/opt/tools/bin:/usr/bin' },
+    { name: 'PIP_INDEX_URL', value: 'https://•••@pypi.example.com/simple' },
+    { name: 'pythonpath', value: './vendor' },
+  ])
+  assert.deepEqual(asked.target.envNames, ['PROBE_SECRET'])
+  assert.ok(!JSON.stringify(asked).includes(SECRET))
+  assert.ok(!JSON.stringify(asked).includes('index-pass-0123'))
+})
+
 test('a server that never answers times out', async (t) => {
   const f = await fixture(t)
   await f.user({ probe: probe({ PROBE_MODE: 'hang' }) })
@@ -98,6 +125,49 @@ test('a server that never answers times out', async (t) => {
   const result = failed(await tests.test({ name: 'probe', path: f.userFile }))
   assert.equal(result.reason, 'timeout')
   assert.match(result.detail, /initialize/)
+})
+
+test('an argument is masked in what the server prints; a short one is not', async (t) => {
+  const f = await fixture(t)
+  await f.user({ probe: { command: process.execPath, args: [PROBE, '-y', '.', '--token=arg-value-0123456789'], env: { PROBE_MODE: 'crash' } } })
+  const result = failed(await new McpConnectionTests({ home: f.home }).test({ name: 'probe', path: f.userFile }))
+  assert.equal(result.reason, 'spawnFailed')
+  assert.match(result.stderr ?? '', /argv: -y \. •••/)
+  assert.ok(!JSON.stringify(result).includes('arg-value-0123456789'))
+})
+
+test('the mask covers variable and header values, arguments, the URL, its user name, password and query values', () => {
+  const mask = mcpSecretMask({
+    name: 'web',
+    transport: 'http',
+    url: 'https://jane:url-pw-1@mcp.example.com/v1?key=query-value-0123&mode=full', // hd-secrets-ok: a placeholder the mask test plants
+    headers: { authorization: 'Bearer header-token-0123456789' },
+    env: { SHORT: 'abcd' },
+  })
+  const said = mask('jane url-pw-1 query-value-0123 header-token-0123456789 abcd full https://jane:url-pw-1@mcp.example.com/v1?key=query-value-0123&mode=full') // hd-secrets-ok: a placeholder the mask test plants
+  assert.equal(said, '••• ••• ••• ••• ••• full •••')
+  // Arguments: from eight characters, and a `--flag=value` by its value too; never `.` or `-y`.
+  const args = mcpSecretMask({ name: 'srv', transport: 'stdio', command: 'npx', args: ['-y', '.', 'srv', '--key=arg-value-0123'] })
+  assert.equal(args('npx -y . srv --key=arg-value-0123 / arg-value-0123'), 'npx -y . srv ••• / •••')
+})
+
+test('a proxy the desk passes on loses its user name and password; the server’s own proxy is passed as written', () => {
+  const env = mcpTestEnvironment(
+    { name: 'x', transport: 'stdio', command: 'x', env: { ALL_PROXY: 'socks5://own:own-pass@proxy.example.com:1080' } },
+    {
+      PATH: '/usr/bin',
+      HTTP_PROXY: 'http://jane:proxy-pass@proxy.example.com:8080',
+      https_proxy: 'jane:proxy-pass@proxy.example.com:3128', // hd-secrets-ok: a placeholder the mask test plants
+      HTTPS_PROXY: 'http://proxy.example.com:3128',
+      NO_PROXY: 'localhost',
+    },
+  )
+  assert.equal(env['HTTP_PROXY'], 'http://proxy.example.com:8080')
+  assert.equal(env['https_proxy'], 'proxy.example.com:3128')
+  assert.equal(env['HTTPS_PROXY'], 'http://proxy.example.com:3128')
+  assert.equal(env['NO_PROXY'], 'localhost')
+  assert.equal(env['ALL_PROXY'], 'socks5://own:own-pass@proxy.example.com:1080')
+  assert.ok(!Object.values(env).some((value) => value?.includes('proxy-pass')))
 })
 
 test('a crash is spawnFailed, with its stderr tail and the secret masked', async (t) => {
@@ -191,6 +261,50 @@ test('one test per server at a time', async (t) => {
   const second = failed(await tests.test({ name: 'probe', path: f.userFile }))
   assert.equal(second.reason, 'busy')
   assert.equal(failed(await first).reason, 'timeout')
+})
+
+test('no more than the cap run at once, across servers', async (t) => {
+  const f = await fixture(t)
+  const names = Array.from({ length: MCP_TEST_MAX_IN_FLIGHT + 1 }, (_, i) => `probe${i}`)
+  await f.user(Object.fromEntries(names.map((name) => [name, probe({ PROBE_MODE: 'hang' })])))
+  const tests = new McpConnectionTests({ home: f.home, timeoutMs: 800 })
+  const started = names.slice(0, MCP_TEST_MAX_IN_FLIGHT).map((name) => tests.test({ name, path: f.userFile }))
+  const refused = failed(await tests.test({ name: names.at(-1) ?? '', path: f.userFile }))
+  assert.equal(refused.reason, 'busy')
+  assert.match(refused.detail, new RegExp(`${MCP_TEST_MAX_IN_FLIGHT} tests are already running`))
+  for (const result of await Promise.all(started)) assert.equal(failed(result).reason, 'timeout')
+  // One finished, so one more may start.
+  assert.equal(failed(await tests.test({ name: names.at(-1) ?? '', path: f.userFile })).reason, 'timeout')
+})
+
+test('dispose stops a running server’s group at once, and no test starts after it', async (t) => {
+  const f = await fixture(t)
+  const pidFile = join(f.root, 'self.txt')
+  await f.user({ probe: probe({ PROBE_MODE: 'hang', PROBE_SELF_PID_FILE: pidFile }) })
+  const tests = new McpConnectionTests({ home: f.home, timeoutMs: 20_000 })
+  const running = tests.test({ name: 'probe', path: f.userFile })
+  for (let waited = 0; !existsSync(pidFile) && waited < 5_000; waited += 20) await new Promise((resolve) => setTimeout(resolve, 20))
+  const pid = Number(await readFile(pidFile, 'utf8'))
+  assert.ok(pid > 0)
+  const before = Date.now()
+  tests.dispose()
+  const result = failed(await running)
+  assert.ok(Date.now() - before < 5_000, 'the test ended with the desk, not at its deadline')
+  assert.notEqual(result.reason, 'busy')
+  const alive = () => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+  for (let waited = 0; alive() && waited < 2_000; waited += 50) await new Promise((resolve) => setTimeout(resolve, 50))
+  if (alive()) process.kill(pid, 'SIGKILL')
+  assert.equal(alive(), false, 'the server outlived dispose')
+  const after = failed(await tests.test({ name: 'probe', path: f.userFile }))
+  assert.equal(after.reason, 'busy')
+  assert.match(after.detail, /stopping/)
 })
 
 test('the wire method takes an identity, never a command', async (t) => {

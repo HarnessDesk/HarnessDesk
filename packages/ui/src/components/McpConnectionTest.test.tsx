@@ -6,7 +6,7 @@ import { runtimeId, type McpTestResult, type RuntimeInfo } from '@harnessdesk/pr
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { commandLine, McpConnectionTest } from './McpConnectionTest'
+import { commandLine, McpConnectionTest, shownValue } from './McpConnectionTest'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -67,7 +67,7 @@ it('shows a project server’s exact command before running it, and sends back t
   const { request } = mount([
     {
       ok: false, reason: 'confirm', detail: 'Check it.', ms: 0, digest: 'd1',
-      target: { transport: 'stdio', scope: 'project', command: 'npx', args: ['-y', 'tools server'], cwd: '/work/app', envNames: ['API_KEY'] },
+      target: { transport: 'stdio', scope: 'project', command: 'npx', args: ['-y', 'tools server'], cwd: '/work/app', launchEnv: [], envNames: ['API_KEY'] },
     },
     { ok: true, tools: 1, ms: 5 },
   ], { path: '/work/app/.mcp.json', cwd: '/work/app' })
@@ -80,6 +80,55 @@ it('shows a project server’s exact command before running it, and sends back t
   await act(async () => button('Run test')!.click())
   expect(request).toHaveBeenLastCalledWith('library/mcp/test', { name: 'tools', path: '/work/app/.mcp.json', cwd: '/work/app', confirmed: 'd1' })
   expect(container.textContent).toContain('Connected · 1 tool')
+})
+
+it('shows the variables that change what starts with their values, the rest by name', async () => {
+  mount([{
+    ok: false, reason: 'confirm', detail: 'Check it.', ms: 0, digest: 'd1',
+    target: {
+      transport: 'stdio', scope: 'project', command: 'node', args: ['server.js'], cwd: '/work/app',
+      launchEnv: [{ name: 'NODE_OPTIONS', value: '--require ./preload.js' }, { name: 'PATH', value: './bin:/usr/bin' }],
+      envNames: ['API_KEY'],
+    },
+  }], { path: '/work/app/.mcp.json', cwd: '/work/app' })
+  await act(async () => button('Test connection')!.click())
+  const dialog = document.querySelector('[role="alertdialog"]')!
+  const plates = [...dialog.querySelectorAll('pre')].map(node => node.textContent)
+  expect(plates).toEqual(['node server.js', 'NODE_OPTIONS=--require ./preload.js\nPATH=./bin:/usr/bin'])
+  expect(dialog.textContent).toContain('And its other variables: API_KEY')
+  expect(dialog.textContent).not.toContain('API_KEY=')
+})
+
+it('spells out characters that reorder or hide text, and cuts a long value with a count', async () => {
+  mount([{
+    ok: false, reason: 'confirm', detail: 'Check it.', ms: 0, digest: 'd1',
+    target: {
+      transport: 'stdio', scope: 'project', command: 'node', cwd: '/work/app', launchEnv: [], envNames: [],
+      args: ['run\u202Esj.txt', 'a\u200Bb', 'x'.repeat(2_500)],
+    },
+  }], { path: '/work/app/.mcp.json', cwd: '/work/app' })
+  await act(async () => button('Test connection')!.click())
+  const dialog = document.querySelector('[role="alertdialog"]')!
+  const plate = dialog.querySelector('pre')!.textContent ?? ''
+  expect(plate).toContain('run⟨U+202E⟩sj.txt')
+  expect(plate).toContain('a⟨U+200B⟩b')
+  expect(plate).not.toMatch(/[\u202E\u200B]/)
+  expect(plate.endsWith('…')).toBe(true)
+  expect(dialog.textContent).toMatch(/[\d,]+ more characters are not shown\./)
+  expect(dialog.textContent).toContain('changes the order of the text')
+})
+
+it('a value is shown sanitised, its controls spelled, and cut at its limit', () => {
+  expect(shownValue('a\nb\u202Ec', 100)).toEqual({ text: 'a⟨U+000A⟩b⟨U+202E⟩c', cut: 0, marked: true })
+  expect(shownValue('<b>x</b>', 100).text).toBe('<b>x</b>')
+  expect(shownValue('abcdef', 4)).toEqual({ text: 'abcd…', cut: 2, marked: false })
+})
+
+it('busy says why', async () => {
+  mount([{ ok: false, reason: 'busy', detail: '4 tests are already running. Try again when one finishes.', ms: 0 }])
+  await act(async () => button('Test connection')!.click())
+  expect(container.textContent).toContain('Busy')
+  expect(container.textContent).toContain('4 tests are already running.')
 })
 
 it('Cancel runs nothing', async () => {

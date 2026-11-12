@@ -3895,6 +3895,8 @@ export class Host {
     this.#harnessDeskAccount.close()
     this.#attachments.revokeAll()
     this.#attachmentAbort.abort()
+    // A server a connection test started stops with the desk, its whole group.
+    this.#mcpConnectionTests?.dispose()
     this.#catalogs.stop()
     this.#agentWatch?.dispose()
     // Cancels every v2 release still waiting on a Seat's turn to end: no
