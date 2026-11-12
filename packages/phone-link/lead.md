@@ -69,6 +69,10 @@ the phone's Inbox tab lists the same one. It answers `LeadInbox`:
   past the desk summary's cap, so it can be larger than the number of listed
   `needsYou: true` items. Do not count the list again.
 - An `ask` row's `at` is when the desk first saw the question, not the read.
+  The row is listed exactly while that question's state in
+  `lead/presence/read`'s `asks` is `open`: the person writing about something
+  else leaves it, and an answer, its expiry or a newer question of the Lead's
+  takes it away.
 - Titles are untrusted text the desk has scrubbed; draw them as plain text.
 - Read it when the Inbox opens and when a `presence` or `notices` push arrives.
 
@@ -550,9 +554,14 @@ controls). The recommendation names an option id. Questions are one line up to
 legacy journal reports may have neither.
 
 Render the recommended option as primary and the others as secondary. Only the
-latest assistant ask with no person message after it is live. Older and answered
-asks are quiet, non-interactive records; mark the picked label when it matches
-the next person message. Disable live choices whenever sending is unavailable
+latest assistant ask is live, and only while its state in `lead/presence/read`'s
+`asks` is `open` (see "What changed while you were away"): a person message
+about something else leaves it live, and it closes when it is answered, expires
+or a newer question replaces it (`replacedBy`), or when the person's next
+message is one of its option labels. Before the first presence read, a person
+message after it settles it. Older and answered asks are quiet,
+non-interactive records; mark the picked label when it matches the next person
+message. Disable live choices whenever sending is unavailable
 or in flight. Keep the composer for another answer; there is no Other button.
 
 Answer through the existing send method, using the exact option label as text:
@@ -655,6 +664,8 @@ The workspace snapshot carries `memory` (`PhoneLeadMemory`) when the desk has a 
 | --- | --- | --- | --- |
 | `lead/memory/view` | `read` | `{}` | `LeadMemoryView` |
 | `lead/memory/change` | `answer` | a `LeadMemoryChange` with `action` `keep`, `dismiss` or `forget` | `LeadMemoryView` |
+
+A Keep, from either surface, also writes one line in the Lead's thread: a `system` message (id `receipt-<n>`) reading `Kept · <kind>: <text>`, the kind as the desk names it (Preference, Fact, Lesson, Rule) and the words as kept. An Apply on a settings proposal (`lead/settings/decide`) writes `Applied · <section title>, version <n>` for a rule section, or `Applied · <mode title>, <Off|Observe|Act>` for a mode. No and a stale card write nothing. Draw it as the grey `system` line the thread already draws; it arrives through `lead/thread/read` and `lead/changed` like any message and never answers or closes a question.
 
 `keep` with `text` keeps the person's edited wording, which then counts as the person's note; limit that text to 400 UTF-16 code units, as the desk does. Every other action (`edit`, `move`, `forget-all`, `auto`, `undo`, `add`) is refused from a phone with `notOnPhoneSurface` and a sentence to show as it is. The phone never gets `lead/memory/propose` or `lead/memory/search`, which are the Lead's own.
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { leadTeamKey, leadWorkOpenCount, leadWorkWaiting, type LeadInbox, type LeadWorkBoard, type LeadWorkCard } from '../src/index.js'
+import { leadTeamKey, leadWorkOpenCount, leadWorkWaiting, parseLeadWorkBoard, type LeadInbox, type LeadWorkBoard, type LeadWorkCard } from '../src/index.js'
 
 const card = (id: string, patch: Partial<LeadWorkCard> = {}): LeadWorkCard => ({
   id, title: id, project: 'acme-api', stage: 'done', group: 'done', links: { chats: [], teams: [], prs: [], issues: [] },
@@ -49,4 +49,13 @@ test('a Team the board links by its room and the inbox names by its goal is one 
   assert.deepEqual(leadWorkWaiting(byGoal, byRoom, teamOf), [])
   // Without the resolver the two names would be two Teams, and the count one too high: what the resolver is for.
   assert.equal(leadWorkOpenCount(board, leadWorkWaiting(board, inbox)), 2)
+})
+
+// #2173: the board the Lead reads may name its open question; the parser keeps it and refuses anything else there.
+test('a work board may carry the open question the desk holds, and nothing else beside it', () => {
+  const ask = { id: 'message-7', question: 'Start the label fix?', at: 1767225600000, expiresAt: 1767227400000 }
+  assert.deepEqual(parseLeadWorkBoard({ version: 1, items: [], more: 0, ask }).ask, ask)
+  assert.equal(parseLeadWorkBoard({ version: 1, items: [], more: 0 }).ask, undefined)
+  assert.throws(() => parseLeadWorkBoard({ version: 1, items: [], more: 0, ask: { ...ask, options: [] } }), /unexpected field options/)
+  assert.throws(() => parseLeadWorkBoard({ version: 1, items: [], more: 0, ask: { ...ask, question: '' } }))
 })

@@ -5309,7 +5309,7 @@ class AcpSession implements AgentSession {
       }
       case 'agent_message_chunk': {
         if (!turn) return
-        const item = this.#appendText(turn, 'assistantMessage', textOf(update.content))
+        const item = this.#appendText(turn, 'assistantMessage', textOf(update.content), update.messageId)
         this.#emit({
           type: 'item/delta',
           sessionId: this.id,
@@ -5321,7 +5321,7 @@ class AcpSession implements AgentSession {
       }
       case 'agent_thought_chunk': {
         if (!turn) return
-        const item = this.#appendText(turn, 'reasoning', textOf(update.content))
+        const item = this.#appendText(turn, 'reasoning', textOf(update.content), update.messageId)
         this.#emit({
           type: 'item/delta',
           sessionId: this.id,
@@ -5825,13 +5825,26 @@ class AcpSession implements AgentSession {
     this.#pendingPermissions.clear()
   }
 
+  /**
+   * A chunk continues the item before it when that item is the same kind of
+   * text and, where the agent names its messages, the same message. An agent
+   * that answers twice in one prompt — DeepSeek Harness says it is waiting
+   * on a subagent, then answers again when the subagent reports — sends two
+   * messages back to back with nothing between them but their ids; read
+   * without the ids they were one item, "…waiting.Here is…", spliced with no
+   * separator.
+   */
   #appendText(
     turn: MutableTurn,
     type: 'assistantMessage' | 'reasoning',
     text: string,
+    messageId?: string | null,
   ): AgentItem {
     const last = turn.items[turn.items.length - 1]
-    if (last && last.type === type) {
+    const named = typeof messageId === 'string' && messageId.length > 0 ? messageId : null
+    const sameMessage = named === null || turn.textMessage === undefined || turn.textMessage.itemId !== last?.id || turn.textMessage.messageId === named
+    if (last && last.type === type && sameMessage) {
+      if (named !== null) turn.textMessage = { itemId: last.id, messageId: named }
       const updated: AgentItem =
         type === 'assistantMessage'
           ? { ...(last as Extract<AgentItem, { type: 'assistantMessage' }>), text: (last as Extract<AgentItem, { type: 'assistantMessage' }>).text + text }
@@ -5847,6 +5860,7 @@ class AcpSession implements AgentSession {
         ? { id: itemId(`${turn.id}-a${turn.items.length}`), type, text, startedAt: Date.now() }
         : { id: itemId(`${turn.id}-r${turn.items.length}`), type, summary: [], content: [text], startedAt: Date.now() }
     turn.items.push(item)
+    turn.textMessage = named === null ? undefined : { itemId: item.id, messageId: named }
     // The started item goes out empty: the chunk that created it follows as
     // the first delta, and sending the text both ways doubles it on screen.
     const bare: AgentItem =
@@ -5924,6 +5938,8 @@ interface MutableTurn {
   controls?: Set<Promise<unknown>>
   items: AgentItem[]
   tools?: Map<string, ToolItemState>
+  /** The message id the agent gave the text item last written, when it gave one (`#appendText`). */
+  textMessage?: { readonly itemId: ItemId; readonly messageId: string }
   /**
    * `null` only for a turn opened while replaying stored history
    * (`#replaying`): the desk already knows when it really started, and

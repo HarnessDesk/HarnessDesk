@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
-import { runtimeId, type LeadMessageRef } from '@harnessdesk/protocol'
+import { runtimeId, sessionKey, type LeadMessageRef } from '@harnessdesk/protocol'
 import { createLeadFixtureStore } from '../preview/frames-lead'
 import { leadRuntime, leadWorkFixture } from '../preview/lead-fixture'
 import { StoreProvider } from '../state/context'
@@ -71,4 +71,16 @@ it('finds a Team the reply names by its room, the way the phone does, when the d
   expect(leadRefLinks([{ kind: 'goal', id: 'room-build' }], listed).map(link => link.target)).toEqual([{ kind: 'goal', id: 'goal-9' }])
   // Named both ways in one reply, it is still one link.
   expect(leadRefLinks([{ kind: 'team', id: 'room-build' }, { kind: 'goal', id: 'goal-9' }], listed)).toHaveLength(1)
+})
+
+it('a reply with no refs links the Team and chat its words name, as the phone does (#2149)', () => {
+  const sessions = new Map([[sessionKey('fixture', 'chat-7'), { id: 'chat-7', runtime: runtimeId('fixture'), title: 'Tidy the release notes' }]]) as never
+  const named = { ...desk, sessions }
+  const text = '"Restore keyboard focus" 团队任务：状态是需要你处理。 I also finished Tidy the release notes.'
+  expect(leadRefLinks([], named, text).map(link => [link.label, link.target])).toEqual([
+    ['Restore keyboard focus', { kind: 'goal', id: 'goal-1' }],
+    ['Tidy the release notes', { kind: 'chat', runtime: runtimeId('fixture'), session: 'chat-7' }],
+  ])
+  // A reply that carries refs is linked by them alone, never by its words as well.
+  expect(leadRefLinks([{ kind: 'team', id: 'room-docs' }], named, text).map(link => link.label)).toEqual(['Docs for Jane Doe'])
 })

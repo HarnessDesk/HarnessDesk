@@ -1,4 +1,7 @@
+import type { LeadSettingsProposeResult } from '@harnessdesk/protocol'
 import type { MethodsUnder } from './context.js'
+
+const withoutProposalId = ({ id: _id, ...result }: LeadSettingsProposeResult): LeadSettingsProposeResult => result
 
 /** Person controls stay on the window wire; narrow project-pinned chat tools also serve the private Lead client. */
 export const leadMethods = {
@@ -59,8 +62,10 @@ export const leadMethods = {
   // A reminder is a scheduled entry on the same board: listed, cancellable from every surface, fired by the minute timer.
   'lead/reminder/set': (ctx, params) => ctx.leadWork.setReminder(params),
   'lead/reminder/cancel': (ctx, params) => ctx.leadWork.cancelReminder(params),
+  'lead/reminder/clear': (ctx, params) => ctx.leadWork.clearReminder(params),
   // The Lead's proposals to its own settings are cards; only the person's decision, on any surface, applies one.
-  'lead/autonomy/propose': (ctx, params) => ctx.leadAutonomy.proposeMode(params),
-  'lead/rules/propose': (ctx, params) => ctx.leadAutonomy.proposeRules(params),
+  // The Lead reads the outcome and the note, never the proposal's id: an id is no word for it to say to the person (#2167).
+  'lead/autonomy/propose': async (ctx, params) => withoutProposalId(await ctx.leadAutonomy.proposeMode(params)),
+  'lead/rules/propose': async (ctx, params) => withoutProposalId(await ctx.leadAutonomy.proposeRules(params)),
   'lead/settings/decide': (ctx, params) => ctx.leadAutonomy.decide(params),
 } satisfies MethodsUnder<'lead/'>

@@ -186,3 +186,26 @@ export const stripLeadOutput = (text: string): { readonly text: string; readonly
   }
   return dropped ? { text: current.trim(), dropped } : { text, dropped }
 }
+
+/** The tags of a tool call, with or without a namespace prefix: what a model writes when it means to call a tool and
+ * prints the call as words instead (#2148). */
+const CALL_TAG = /<\/?(?:[a-z]+:)?(?:function_calls|function_results|invoke|parameter)\b[^>]*>/gi
+/** A whole call written out as words: an opened call through its own close. */
+const CALL_BLOCK = /<((?:[a-z]+:)?(?:function_calls|function_results|invoke))\b[^>]*>[\s\S]*?<\/\1>/gi
+/** Code the reply shows on purpose: a fence (closed or cut short) or an inline span. Markup there is the subject. */
+const CODE = /```[\s\S]*?(?:```|$)|`[^`\n]+`/g
+const GONE = '\u0001'
+
+/** Removes tool-call markup a model wrote into its words, so a misfired call never reaches either surface: a whole call
+ * goes with what it held, a stray opening or closing tag goes alone, and a line left with nothing on it goes too. Code
+ * the reply quotes on purpose, a fence or an inline span, stays as written. `dropped` says whether any was there. */
+export const stripLeadToolMarkup = (text: string): { readonly text: string; readonly dropped: boolean } => {
+  const kept: string[] = []
+  // Code is put aside first, under placeholders the model cannot have written, and put back last.
+  const shielded = text.replace(CODE, code => `\u0002${kept.push(code) - 1}\u0003`)
+  const marked = shielded.replace(CALL_BLOCK, GONE).replace(CALL_TAG, GONE)
+  if (!marked.includes(GONE)) return { text, dropped: false }
+  const lines = marked.split('\n').flatMap(line => !line.includes(GONE) ? [line] : line.split(GONE).join('').trim() === '' ? [] : [line.split(GONE).join('')])
+  const restored = lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\u0002(\d+)\u0003/g, (_whole, index: string) => kept[Number(index)]!)
+  return { text: restored.trim(), dropped: true }
+}

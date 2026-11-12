@@ -1,4 +1,4 @@
-import { parseLeadApprovalAudit, parseLeadAutonomyChange, parseLeadMessageRefs, type LeadMessageRef, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyChange, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadApprovalAudit, parseLeadAutonomyChange, parseLeadAutonomyRules, parseLeadMessageRefs, type LeadMessageRef, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyChange, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import {
   parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_LIMITS, LEAD_MANAGEMENT_REASONS, leadNoSpendLimit, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
@@ -132,9 +132,21 @@ export type LeadJournalEvent =
   | { readonly type: 'context-pruned'; readonly id: string; readonly at: number; readonly beforeTokens: number; readonly afterTokens: number }
   /** The host's memory store changed Core: the Lead reads this at its next epoch. */
   | { readonly type: 'memory-core'; readonly memory: LeadMemoryCore }
+  /** Host only. A host notice in the thread that says what the person's own press changed: "Kept · Fact: …" when they
+   * keep a memory the Lead proposed, "Applied · <section>, version N" when they apply a settings proposal (#2176). */
+  | { readonly type: 'receipt'; readonly text: string }
   /** The Core one epoch's standing instructions were built with, so a restart in that epoch builds them again byte
-   * for byte. `goal` is the logical goal id, empty between goals. */
-  | { readonly type: 'memory-epoch'; readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore }
+   * for byte. `goal` is the logical goal id, empty between goals. `rules` are the person's sections those instructions
+   * hold, which the settings note compares against; absent in a record written before they were kept (#2165). */
+  | { readonly type: 'memory-epoch'; readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore; readonly rules?: LeadAutonomyRecord['rules'] }
+/** A receipt is one line the host wrote, at most 600 characters. Line breaks and tabs in what was kept fold to single
+ * spaces first, so a kept memory written over two lines still gets its receipt; any other control character refuses. */
+export const leadReceiptText = (value: unknown): string => {
+  if (typeof value !== 'string') throw new Error('lead-journal-record')
+  const line = value.replace(/[\t\n\v\f\r\u0085\u2028\u2029 ]+/g, ' ').trim()
+  if (!line || line.length > 600 || /[\u0000-\u001f\u007f-\u009f]/.test(line)) throw new Error('lead-journal-record')
+  return line
+}
 export type LeadCompactionTrigger = 'soft' | 'hard' | 'manual' | 'overflow'
 export type LeadJournalRecord = Base & LeadJournalEvent
 export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown, previous?: LeadState): LeadJournalRecord; checkpoint?(): LeadState | null; journalSecurity?(): LeadJournalSecurity }
@@ -226,7 +238,8 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'context-compaction-applied': ['id', 'at', 'fromSeq', 'toSeq', 'beforeTokens', 'afterTokens', 'model', 'usdMicros', 'fallback'],
     'context-pruned': ['id', 'at', 'beforeTokens', 'afterTokens'],
     'memory-core': ['memory'],
-    'memory-epoch': ['goal', 'epoch', 'memory'],
+    receipt: ['text'],
+    'memory-epoch': ['goal', 'epoch', 'memory', ...(Object.hasOwn(source, 'rules') ? ['rules'] : [])],
   }
   const type = choice(source.type, Object.keys(keys))
   object(source, ['version', 'seq', 'type', ...keys[type]!])
@@ -319,7 +332,9 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     }
     case 'context-pruned': event = { type, id: identifier(source.id), at: integer(source.at), beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens) }; break
     case 'memory-core': event = { type, memory: parseLeadMemoryCore(source.memory) }; break
-    case 'memory-epoch': event = { type, goal: leadMemoryEpochGoal(source.goal), epoch: integer(source.epoch), memory: parseLeadMemoryCore(source.memory) }; break
+    case 'receipt': event = { type, text: leadReceiptText(source.text) }; break
+    case 'memory-epoch': event = { type, goal: leadMemoryEpochGoal(source.goal), epoch: integer(source.epoch), memory: parseLeadMemoryCore(source.memory),
+      ...(Object.hasOwn(source, 'rules') ? { rules: parseLeadAutonomyRules(source.rules) } : {}) }; break
     default: throw new Error('lead-journal-type')
   }
   const record = { version: 1 as const, seq, ...event }
@@ -520,16 +535,18 @@ export class LeadJournal {
     if (this.#state.context.pending?.id !== pruned.id) throw new Error('lead-context-pending')
     return this.#append({ type: 'context-pruned', ...pruned })
   }) }
+  /** Host only. One receipt notice in the thread for something the person's own press changed. */
+  receipt(text: string): Promise<void> { return this.#queue(async () => this.#append({ type: 'receipt', text: leadReceiptText(text) })) }
   /** Host only. Core changed in the memory store; a revision already journaled is not written twice. */
   memoryCore(memory: LeadMemoryCore): Promise<void> { return this.#queue(async () => {
     const parsed = parseLeadMemoryCore(memory)
     if (parsed.revision <= this.#state.memory.revision) return
     return this.#append({ type: 'memory-core', memory: parsed })
   }) }
-  /** The Core an epoch's instructions were first built with. Written once per goal and epoch; a later call for the
-   * same pair is a no-op, so the first build is the one a restart repeats. */
-  memoryEpoch(goal: string, epoch: number, memory: LeadMemoryCore): Promise<void> { return this.#queue(async () => {
-    const at = { goal: leadMemoryEpochGoal(goal), epoch: integer(epoch), memory: parseLeadMemoryCore(memory) }
+  /** The Core and the person's rule sections an epoch's instructions were first built with. Written once per goal and
+   * epoch; a later call for the same pair is a no-op, so the first build is the one a restart repeats. */
+  memoryEpoch(goal: string, epoch: number, memory: LeadMemoryCore, rules?: LeadAutonomyRecord['rules']): Promise<void> { return this.#queue(async () => {
+    const at = { goal: leadMemoryEpochGoal(goal), epoch: integer(epoch), memory: parseLeadMemoryCore(memory), ...(rules === undefined ? {} : { rules: parseLeadAutonomyRules(rules) }) }
     const held = this.#state.memoryEpoch
     if (held && held.goal === at.goal && held.epoch === at.epoch) return
     return this.#append({ type: 'memory-epoch', ...at })
@@ -559,8 +576,9 @@ export class LeadJournal {
   setOrigin(origin: LeadOrigin, key?: string): Promise<void> { return this.#queue(() => this.#append({ type: 'origin', origin, ...(key ? { key } : {}) })) }
   ownedPush(operation: LeadOwnedPush): Promise<void> { return this.#queue(() => this.#append({ type: 'owned-push', operation })) }
   observePr(pr: LeadPullRequest): Promise<void> { return this.#queue(() => this.#append({ type: 'pr-observed', pr })) }
-  /** `wake` marks a desk wake (a reminder that came due): the model's user turn, never the person's message. */
-  appendMessage(idempotencyKey: string, text: string, source: NonNullable<LeadMessage['source']>, committed?: () => void, wake?: LeadMessage['wake']): Promise<LeadSendReceipt> {
+  /** `wake` marks a desk wake (a reminder that came due): the model's user turn, never the person's message. `surface` is
+   * the device that sent a person's message (#2166), kept with it so every later request reads where it came from. */
+  appendMessage(idempotencyKey: string, text: string, source: NonNullable<LeadMessage['source']>, committed?: () => void, wake?: LeadMessage['wake'], surface?: LeadMessage['surface']): Promise<LeadSendReceipt> {
     if (!['person', 'automatic', 'schedule'].includes(source)) return Promise.reject(new Error('Lead message source is required.'))
     const input = parseLeadThreadSend({ idempotencyKey, text })
     return this.#queue(async () => {
@@ -568,7 +586,7 @@ export class LeadJournal {
       if (previous) return { messageId: previous.messageId, revision: previous.revision }
       const revision = this.#state.seq + 1, messageId = `message-${revision}`
       await this.#append({ type: 'message', idempotencyKey: input.idempotencyKey,
-        message: { version: 1, id: messageId, revision, role: 'user', text: input.text, source, ...(wake ? { wake } : {}) } }, committed)
+        message: { version: 1, id: messageId, revision, role: 'user', text: input.text, source, ...(wake ? { wake } : {}), ...(surface && source === 'person' && !wake ? { surface } : {}) } }, committed)
       return { messageId, revision }
     })
   }
@@ -613,12 +631,27 @@ export class LeadJournal {
     }
     return true
   }) }
+  /** The latest messages the Lead model wrote itself, as opposed to notices the host wrote (#2144). Held in memory only:
+   * an observer reads them for messages appended in this sitting, and a restart starts past every earlier reply. */
+  readonly #modelReplies: string[] = []
+  /** Whether the message of this id is a reply the Lead model wrote, appended through `appendModelReply`. */
+  isModelReply(id: string): boolean { return this.#modelReplies.includes(id) }
+  /** The Lead model's own reply to a turn. A host notice goes through `appendReply` and never counts as the Lead's words. */
+  appendModelReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[]): Promise<void> {
+    return this.#appendReply(text, proactive, ask, refs, undefined, true)
+  }
   /** `reminded` marks a line the desk wrote to say the person's reminder of that id, never a model's reply. */
-  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[], reminded?: string): Promise<void> { return this.#queue(() => {
-    const revision = this.#state.seq + 1
+  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[], reminded?: string): Promise<void> {
+    return this.#appendReply(text, proactive, ask, refs, reminded, false)
+  }
+  #appendReply(text: string, proactive: LeadProactive | undefined, ask: LeadAsk | undefined, refs: readonly LeadMessageRef[] | undefined, reminded: string | undefined, model: boolean): Promise<void> { return this.#queue(() => {
+    const revision = this.#state.seq + 1, id = `message-${revision}`
+    // Kept once the write is durable and before the observers it notifies run, so they read it as the model's; a reply
+    // that does not parse or is not written keeps nothing, and the host notice that takes its number next is not it.
+    const committed = model ? () => { this.#modelReplies.push(id); this.#modelReplies.splice(0, this.#modelReplies.length - 16) } : undefined
     return this.#append({ type: 'message', idempotencyKey: null,
-      message: parseLeadMessage({ version: 1, id: `message-${revision}`, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}),
-        ...(refs?.length ? { refs: parseLeadMessageRefs(refs) } : {}), ...(reminded !== undefined ? { reminded } : {}) }) })
+      message: parseLeadMessage({ version: 1, id, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}),
+        ...(refs?.length ? { refs: parseLeadMessageRefs(refs) } : {}), ...(reminded !== undefined ? { reminded } : {}) }) }, committed)
   }) }
   #policyChange(state: LeadState, policy: LeadPermissionPolicy, id: string): LeadJournalEvent | null {
     if (!state.policy) throw new Error('lead-policy-unavailable')

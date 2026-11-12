@@ -5,6 +5,7 @@ import { useDestinationActive } from '../panels/destination-page'
 import { useStore } from '../state/context'
 import { leadRefusalText } from './lead-refusals'
 import { leadRuleDiff } from './lead-rules-diff'
+import { useLeadCalled } from './use-lead-name'
 
 const when = (at: number) => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 const HOW = { edit: 'Edited', reset: 'Reset to default', rollback: 'Restored' } as const
@@ -13,6 +14,7 @@ const RuleDialog = ({ section, prompt, save, close }: {
   readonly section: LeadRuleSectionView; readonly prompt: string
   readonly save: (update: LeadRulesUpdate) => Promise<void>; readonly close: () => void
 }) => {
+  const called = useLeadCalled()
   const [text, setText] = useState(section.text), [busy, setBusy] = useState(false), [full, setFull] = useState(false)
   useEffect(() => setText(section.text), [section.text])
   const run = async (update: LeadRulesUpdate) => { setBusy(true); try { await save(update) } finally { setBusy(false) } }
@@ -31,13 +33,16 @@ const RuleDialog = ({ section, prompt, save, close }: {
         <CodeText as="pre" aria-label="What changed in the default">{leadRuleDiff(section.defaultUpdated.from, section.defaultUpdated.to)}</CodeText>
       </Banner>}
       <Textarea aria-label={section.title} value={text} maxLength={LEAD_RULE_LIMITS.chars} rows={8} onChange={event => setText(event.target.value)} />
-      <Text role="meta">Takes effect at the Lead's next epoch, never in the middle of a turn. It cannot widen what the Lead is allowed to do.</Text>
+      <Text role="meta">{`Takes effect at ${called}'s next epoch, never in the middle of a turn. It cannot widen what ${called} is allowed to do.`}</Text>
       <Button variant="link" onClick={() => setFull(open => !open)}>{full ? 'Hide full prompt' : 'View full prompt'}</Button>
-      {full && <CodeText as="pre">{prompt || 'Nothing edited. The Lead uses the shipped words.'}</CodeText>}
-      {section.history.length > 0 && <Rows>
-        {section.history.map(entry => <Row key={entry.version} title={`Version ${entry.version}`} desc={entry.how === 'rollback' && entry.from ? `Restored from version ${entry.from}` : entry.proposal ? `Applied from proposal ${entry.proposal}` : HOW[entry.how]}
+      {full && <CodeText as="pre">{prompt || `Nothing edited. ${called[0]!.toUpperCase()}${called.slice(1)} uses the shipped words.`}</CodeText>}
+      {section.history.length > 0 && <Rows aria-label={`Versions of ${section.title}`}>
+        {section.history.map(entry => <Row key={entry.version} title={`Version ${entry.version}`} desc={entry.how === 'rollback' && entry.from ? `Restored from version ${entry.from}` : entry.proposal ? `Applied from ${called}'s proposal` : HOW[entry.how]}
           control={<><Text role="meta">{when(entry.at)}</Text>{entry.version !== section.version && <Button variant="secondary" disabled={busy}
             onClick={() => void run({ section: section.id, action: 'rollback', to: entry.version, expectedVersion })}>Restore</Button>}</>} />)}
+        {/* The words before the first change are a version too: restoring them saves a new version, as Reset does (#2152). */}
+        {section.custom && <Row title="Shipped words" tooltip={section.default.text}
+          control={<Button variant="secondary" disabled={busy} onClick={() => void run({ section: section.id, action: 'reset', expectedVersion })}>Restore</Button>} />}
       </Rows>}
     </FormStack>
   </Dialog>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import * as protocol from '@harnessdesk/protocol'
 import { runtimeId, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import {
@@ -734,6 +735,11 @@ describe('formatting', () => {
     expect(formatAge(NOON - 2 * MINUTE, NOON)).toBe('2m ago')
   })
 
+  it('rounds an age down, as the phone does, so 14h 50m reads 14h ago (#2150)', () => {
+    expect(formatAge(NOON - (14 * 60 + 50) * MINUTE, NOON)).toBe('14h ago')
+    expect(formatAge(NOON - 50 * MINUTE, NOON)).toBe('50m ago')
+  })
+
   it('reads a plan the same on every badge, without rewriting what the source wrote', () => {
     // Codex reports its login method, in lower case; Cursor already title-cases.
     expect(planLabel('team')).toBe('Team')
@@ -1021,5 +1027,14 @@ describe('pacingNote', () => {
 
   it('has no first to name with one account', () => {
     expect(pacingNote([report({ lanes: [weekly(30, NOON + 20 * HOUR)] })], name, NOON)).toBeNull()
+  })
+})
+
+describe('the countdown the Lead is told (#2174)', () => {
+  it('is the Dashboard\'s own formatter, from the protocol, so the host and the UI say the same words', () => {
+    expect(formatCountdown).toBe(protocol.formatCountdown)
+    expect(formatResetCountdown).toBe(protocol.formatResetCountdown)
+    expect(formatCountdownShort).toBe(protocol.formatCountdownShort)
+    expect(formatResetCountdown(21.14 * DAY)).toBe(`in ${protocol.formatResetIn(21.14 * DAY)}`)
   })
 })
