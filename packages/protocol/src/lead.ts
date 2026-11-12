@@ -1079,9 +1079,21 @@ export interface LeadUsageSummary {
     readonly refreshFailed?: true
     /**
      * A tracked agent nothing has read: no windows, and no reading to date. Every surface lists it as "Not reporting";
-     * it is never left out of a count. Absent otherwise.
+     * it is never left out of a count. An account that answered with no window, balance or billing shape at all is
+     * Not reporting too, as the Plans table and the phone say it ("plan usage unavailable"). Absent otherwise.
      */
     readonly notReporting?: true
+    /**
+     * Figures read through another sign-in (`UsageReport.unverified`): the desk cannot tie them to this agent's own
+     * account, so they are never `windows`, but they are what the Dashboard draws for it. `whose` names the sign-in.
+     * Absent when there are none.
+     */
+    readonly unverified?: {
+      readonly whose: string
+      readonly windows: readonly LeadUsageWindow[]
+      readonly readAgeMinutes: number
+      readonly stale: boolean
+    }
   }[]
   /**
    * Which account to use first, from fresh readings only (`pacingAdvice`): `use-first` when a window refills soon with

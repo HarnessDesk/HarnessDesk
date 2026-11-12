@@ -1,4 +1,4 @@
-import { burn, remainingOf, leadStage, isWaitingOnYou, isSilentUsage } from '@harnessdesk/protocol'
+import { answeredWithNothing, burn, elapsedMinutes, remainingOf, leadStage, isWaitingOnYou, isSilentUsage } from '@harnessdesk/protocol'
 import { teamLeadStage } from './work-stage.js'
 import {
   sessionIndexCursorOf, sessionLabel,
@@ -166,7 +166,13 @@ export class PhoneWorkspace {
     return leadStage({ kind: 'session', archived, waiting: one?.waiting ?? false, failed: one?.failed ?? false, queuePaused: one?.queuePaused ?? false, running: one?.running ?? false, queued: one?.queued ?? false, stopped: one?.stopped ?? false })
   }
 
-  #counts(live: readonly PhoneLiveSession[]): PhoneSessionsList['counts'] {
+  /**
+   * The person's own sessions by state. Live ones are filtered to their own, as `deskSummary` filters them: a Team's
+   * seat waiting on the person is the Team's, and counted here it moved one of their sessions from done to needs-you,
+   * so the phone and the Lead said different numbers for the same desk (#2150).
+   */
+  #counts(all: readonly PhoneLiveSession[]): PhoneSessionsList['counts'] {
+    const live = all.filter(one => this.#ports.sessions.isOwn(one.runtime, one.id))
     const { active, archived } = this.#ownCounts()
     const running = live.filter(one => this.#sessionStage(one).stage === 'working').length
     const queued = live.filter(one => this.#sessionStage(one).stage === 'queued').length
@@ -305,8 +311,8 @@ export class PhoneWorkspace {
       const runtime = nameOf(report.runtime), ordinal = (ordinals.get(runtime) ?? 0) + 1
       ordinals.set(runtime, ordinal)
       const plan = report.planLabel ?? report.plan
-      const windows: LeadUsageWindow[] = report.lanes.map(lane => {
-        const view = report.error ? null : burn(lane, now)
+      const windowsOf = (lanes: readonly UsageLane[], failed: boolean, hit: string | null): LeadUsageWindow[] => lanes.map(lane => {
+        const view = failed ? null : burn(lane, now)
         const projection: LeadUsageWindow['projection'] = view?.forecast && lane.placeholder !== true ? {
           kind: view.runsOut ? 'runs-out' : 'lasts-to-reset',
           at: view.runsOut ? now + (view.etaMs ?? 0) : view.resetsAt,
@@ -321,19 +327,29 @@ export class PhoneWorkspace {
           windowMinutes: minutes, remainingPercent: lane.placeholder === true ? null : remainingOf(lane),
           remaining: lane.usageKnown !== false && lane.placeholder !== true && lane.used != null && lane.limit != null ? Math.max(0, lane.limit - lane.used) : null,
           unit: lane.unit ? safe(lane.unit) : null, resetsAt: lane.resetsAt,
-          reached: lane.placeholder !== true && (report.reached === lane.id || report.reached === lane.label || remainingOf(lane) === 0), projection,
+          reached: lane.placeholder !== true && (hit === lane.id || hit === lane.label || remainingOf(lane) === 0), projection,
         }
       })
+      const windows = windowsOf(report.lanes, report.error !== null, report.reached)
+      // Another sign-in's figures, as the Dashboard draws them for this agent: said as that sign-in's, never as its own.
+      const other = report.unverified
+      const borrowed = other && other.lanes.length > 0 ? {
+        whose: safe(other.whose), windows: windowsOf(other.lanes, Boolean(other.error), other.reached),
+        readAgeMinutes: ageMinutes(other.fetchedAt, now), stale: Boolean(other.error) || now - other.fetchedAt > other.staleAfterMs,
+      } : null
       if (report.credits) windows.push({ label: 'Balance', kind: 'balance', unlimited: report.credits.unlimited === true, windowMinutes: null,
         remainingPercent: null, remaining: report.credits.remaining, unit: safe(report.credits.unit), resetsAt: null,
         reached: report.reached === 'credits' || report.credits.unlimited !== true && report.credits.remaining !== null && report.credits.remaining <= 0, projection: null })
       const silent = isSilentUsage(report)
+      // The Plans table's "plan usage unavailable · Not reporting": an answer with nothing to show is said the same way.
+      const nothing = silent || answeredWithNothing(report, now)
       return {
         runtime, label: `${runtime}${plan ? ` · ${safe(plan)}` : ''}${totals.get(runtime)! > 1 ? ` · account ${ordinal}` : ''}`,
         plan: plan === null ? null : safe(plan), runningSessions: running.get(runtime) ?? 0, windows,
         reached: report.reached !== null, fetchedAt: report.fetchedAt,
         stale: !silent && now - report.fetchedAt > report.staleAfterMs,
-        ...(silent ? { notReporting: true as const } : {}),
+        ...(nothing ? { notReporting: true as const } : {}),
+        ...(borrowed ? { unverified: borrowed } : {}),
         ...(useFirstNote(report, now) ? { useFirst: true as const } : {}),
         error: report.error ? report.error.needsSignIn === true ? 'sign-in needed' as const : 'reading failed' as const : null,
         spend: report.spend ? { currency: safe(report.spend.currency), today: report.spend.todayCost,
@@ -610,7 +626,8 @@ const STANDING_WORD: Record<UsageStandingStatus, string> = {
 const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
   const { report } = seat
   // A tracked agent nothing has read: listed, as the desk lists it, with no figures and no reading to date.
-  if (isSilentUsage(report)) return { id: seat.id, name: seat.label, models: [], running: [], last7: [], status: 'Not reporting', standing: 'unknown', notReporting: true }
+  // An account that answered with nothing to show reads the same: the Plans table's "plan usage unavailable · Not reporting".
+  if (isSilentUsage(report) || answeredWithNothing(report, now)) return { id: seat.id, name: seat.label, models: [], running: [], last7: [], status: 'Not reporting', standing: 'unknown', notReporting: true }
   const standing = usageStandingOf(report, now)
   // A failed refresh that kept its last good figures: they stand, as a stale reading, never as Unknown (#2094).
   const refreshFailed = keptReading(report)
@@ -684,8 +701,8 @@ const pacingSaid = (account: string, reason: 'use-first' | 'resets-soonest', win
     ? `Use ${account} first: its ${window} has ${left}% left and resets ${at}, so the rest would go unused.`
     : `Nothing is about to go unused. Of the accounts with room, ${account} resets soonest (its ${window}, ${left}% left, resets ${at}), so it is the one to use next.`
 
-/** Whole minutes since a reading, never negative. */
-const ageMinutes = (at: number, now: number): number => Math.max(0, Math.round((now - at) / 60_000))
+/** Whole minutes since a reading, rounded down and never negative: the protocol's one elapsed rule (#2150). */
+const ageMinutes = (at: number, now: number): number => elapsedMinutes(at, now)
 
 /**
  * A time on the desk's own clock, as a person reads it, with its zone: "Tue, Nov 17, 5:00 PM PST". The zone is the

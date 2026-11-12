@@ -1,4 +1,5 @@
 import {
+  formatElapsed,
   type AccountActivity,
   bindingLane,
   isBlocked,
@@ -372,13 +373,11 @@ export const pace = (lane: UsageLane, now: number): PaceView | null => {
   }
 }
 
-/** How old a reading is, in words: "just now", "2m ago", "1h ago". */
-export const formatAge = (fetchedAt: number, now: number): string => {
-  const ms = Math.max(0, now - fetchedAt)
-  if (ms < 45_000) return 'just now'
-  const unit = formatCountdownShort(ms)
-  return unit === null ? 'just now' : `${unit} ago`
-}
+/**
+ * How old a reading is, in words: "just now", "2m ago", "14h ago". Rounded down by the protocol's one rule
+ * (`formatElapsed`), as the phone and the Lead are given it: an age never reads longer than it is (#2150).
+ */
+export const formatAge = (fetchedAt: number, now: number): string => formatElapsed(fetchedAt, now)
 
 /**
  * What the Dashboard draws for a report — and only the Dashboard.

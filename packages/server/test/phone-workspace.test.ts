@@ -661,10 +661,30 @@ test('queued sessions count as neither running nor done', async () => {
     assert.deepEqual(f.workspace.sessionsList({}).counts, { running: 1, needsYou: 1, done: 1, archived: 0 })
     f.live.push({ runtime: agent, id: sessionId('no-longer-indexed'), running: false, waiting: false, queued: true, cost: null })
     f.live.push({ runtime: agent, id: sessionId('also-no-longer-indexed'), running: false, waiting: false, queued: true, cost: null })
-    assert.equal(f.workspace.sessionsList({}).counts.done, 0, 'a changed index cannot make done negative')
+    assert.deepEqual(f.workspace.sessionsList({}).counts, { running: 1, needsYou: 1, done: 1, archived: 0 },
+      'a live session the index no longer lists is no one of the person\'s, so it moves no count')
   } finally { await f.done() }
 })
 
+
+test('the phone’s session counts and the Lead’s desk summary count the same own sessions (#2150)', async () => {
+  const f = await fixture()
+  try {
+    for (const id of ['working', 'waiting', 'idle-1', 'idle-2']) f.index.upsert(summary(id))
+    // A Team's seat is listed under its Team, not as one of the person's sessions, wherever it is counted.
+    f.index.upsert(summary('team-seat'), { archived: false, teamId: 'team-1' })
+    f.live = [
+      { runtime: agent, id: sessionId('working'), running: true, waiting: false, cost: null },
+      { runtime: agent, id: sessionId('waiting'), running: false, waiting: true, cost: null },
+      { runtime: agent, id: sessionId('team-seat'), running: false, waiting: true, cost: null },
+    ]
+    const phone = f.workspace.sessionsList({}).counts
+    const desk = (await f.workspace.deskSummary({})).totals.chats
+    assert.deepEqual(phone, { running: 1, needsYou: 1, done: 2, archived: 0 })
+    assert.deepEqual(desk, { running: 1, needsYou: 1, idle: 2 })
+    assert.equal(phone.running + phone.needsYou + phone.done, desk.running + desk.needsYou + desk.idle)
+  } finally { await f.done() }
+})
 
 test('Lead summary counts every project, keeps old attention items, and bounds only recents', async () => {
   const f = await fixture()
@@ -1047,5 +1067,42 @@ test('another sign-in\'s figures reach the phone apart from the agent\'s own, un
     assert.equal(rows[1]!.unverified?.stale, true)
     assert.equal(rows[2]!.unverified, undefined)
     assert.ok(!JSON.stringify(rows).includes('@'), 'no account leaves the desk')
+  } finally { await f.done() }
+})
+
+test('the Lead reads another sign-in’s figures where the Dashboard draws them, never as no data (#2150)', async () => {
+  const f = await fixture()
+  try {
+    // The agent's own sign-in reports nothing; a separate CLI sign-in has a fresh, full weekly window per model group.
+    const borrowed = report('dev@example.com', { plan: null, lanes: [], unverified: {
+      whose: 'CLI sign-in', reached: null, fetchedAt: NOW - 60_000, staleAfterMs: 5 * 60_000, lanes: [
+        { id: 'gemini:weekly', label: 'Weekly', scope: 'Gemini Models', usedPercent: 0, windowMinutes: 10_080, resetsAt: null },
+        { id: 'other:weekly', label: 'Weekly', scope: 'Other models', usedPercent: 25, windowMinutes: 10_080, resetsAt: NOW + 30 * HOUR },
+      ] } })
+    const [account] = (await f.workspace.usageSummary([borrowed])).accounts
+    assert.equal(account!.notReporting, undefined)
+    assert.deepEqual(account!.windows, [], 'the agent’s own account is still not claimed to have figures')
+    assert.deepEqual(account!.unverified, {
+      whose: 'CLI sign-in', readAgeMinutes: 1, stale: false, windows: [
+        { label: 'Weekly · Gemini Models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 100, remaining: null, unit: null, resetsAt: null, reached: false, projection: null },
+        { label: 'Weekly · Other models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 75, remaining: null, unit: null, resetsAt: NOW + 30 * HOUR, reached: false,
+          // The Dashboard's own projection, as for the agent's own windows.
+          projection: { kind: 'lasts-to-reset', at: NOW + 30 * HOUR, basis: 'average consumption since window start', since: NOW + 30 * HOUR - 10_080 * 60_000, asOf: NOW } },
+      ],
+    })
+  } finally { await f.done() }
+})
+
+test('an account that answered with nothing to show reads Not reporting to the Lead and the phone, as on the Plans table (#2150)', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    // Spend alone, no window, balance or billing shape: the desktop Plans row says "plan usage unavailable · Not reporting".
+    f.reports = [report('dev@example.com', { plan: null, lanes: [], spend: { currency: 'USD', todayCost: 1, windowCost: 4, windowDays: 30, provenance: 'ledger' } } as never)]
+    const [row] = (await f.workspace.workUsage())!.runtimes
+    assert.deepEqual([row!.status, row!.standing, row!.notReporting], ['Not reporting', 'unknown', true])
+    const [account] = (await f.workspace.usageSummary(f.reports)).accounts
+    assert.equal(account!.notReporting, true)
+    assert.equal(account!.spend?.today, 1, 'what it spent is still said')
   } finally { await f.done() }
 })

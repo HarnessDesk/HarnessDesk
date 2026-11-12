@@ -1,5 +1,5 @@
-import type { UsageLane, UsagePreference, UsageReport } from '@harnessdesk/protocol'
-import { bindingLane, isSilentUsage } from '@harnessdesk/protocol'
+import type { UsageLane, UsagePlanShape, UsagePreference, UsageReport, UsageShape } from '@harnessdesk/protocol'
+import { bindingLane, isSilentUsage, usageShapeOf } from '@harnessdesk/protocol'
 
 import { paidForAccount, cycleStartFromLanes, periodBounds } from './paid'
 import { paidRatio } from './overview-strip'
@@ -15,12 +15,10 @@ import { paletteTone, type Tone } from './limits'
  */
 
 /** The five shapes `UsageBilling.kinds` names, in the order a primary shape is chosen. */
-export type PlanShape = 'windows' | 'allowance' | 'balance' | 'metered' | 'free'
+export type PlanShape = UsagePlanShape
 
 /** A row's shape, plus the one case no `UsageBilling` value can express. */
-export type RowShape = PlanShape | 'none'
-
-const SHAPE_ORDER: readonly PlanShape[] = ['windows', 'allowance', 'balance', 'metered', 'free']
+export type RowShape = UsageShape
 
 /** A card's own word for each shape — the "Key" body, the "Balance" body. */
 export const SHAPE_LABEL: Readonly<Record<PlanShape, string>> = {
@@ -49,17 +47,10 @@ export const SHAPE_CHIP_LABEL: Readonly<Record<RowShape, string>> = {
  * a shape — a source that predates `billing` reported nothing else — so the
  * fallback reads the same facts `billing.kinds` would have named. Only a
  * report with none of `billing`, `lanes` or a balance is `'none'`: "not
- * reporting."
+ * reporting." The rule is the protocol's `usageShapeOf`, so the phone and the
+ * Lead call the same accounts Not reporting (`answeredWithNothing`).
  */
-export const primaryShapeOf = (report: UsageReport): RowShape => {
-  const kinds = report.billing?.kinds ?? []
-  for (const shape of SHAPE_ORDER) {
-    if (kinds.includes(shape)) return shape
-  }
-  if (report.lanes.length > 0) return 'windows'
-  if (balanceOf(report.credits) !== null) return 'balance'
-  return 'none'
-}
+export const primaryShapeOf = (report: UsageReport): RowShape => usageShapeOf(report)
 
 export interface ShapeCounts {
   readonly all: number
