@@ -1,7 +1,8 @@
 import { LEAD_AUTONOMY_DEFAULTS, LEAD_RULE_LIMITS, LEAD_RULE_SECTIONS, LEAD_RULE_TITLES, type LeadAutonomyRecord } from '@harnessdesk/protocol'
 import type { MessagesText, MessagesToolResult, MessagesTurn } from './messages-types.js'
 import type { LeadState } from './state.js'
-import { leadMemorySnapshot, type LeadMemoryCore } from './memory.js'
+import { LEAD_MEMORY_STATUS_CLOSE, LEAD_MEMORY_STATUS_OPEN, leadMemorySnapshot, type LeadMemoryCore } from './memory.js'
+import { LEAD_SETTINGS_STATUS_CLOSE, LEAD_SETTINGS_STATUS_OPEN } from './settings.js'
 import { leadCleanUntrusted } from './untrusted.js'
 
 /**
@@ -135,6 +136,30 @@ export const leadTurnDesk = (messages: readonly MessagesTurn[], kept: LeadContex
   if (!turn || turn.role !== 'user' || index < end.turns - 1) return []
   const from = index === end.turns - 1 ? end.blocks : 0
   return turn.content.flatMap((block, position) => position >= from && block.type === 'text' && !isStub(block) ? [{ type: 'text' as const, text: block.text }] : [])
+}
+
+const WORK_LEDGER = { open: '<work-ledger>', close: '</work-ledger>' }
+/** `text` without its section from `open` to `close`, and the blank space after it; the same text when it has none. */
+const withoutSection = (text: string, { open, close }: { readonly open: string; readonly close: string }): string => {
+  const from = text.indexOf(open), to = from < 0 ? -1 : text.indexOf(close, from)
+  return to < 0 ? text : (text.slice(0, from) + text.slice(to + close.length).replace(/^\s+/, '')).trimEnd()
+}
+/**
+ * A turn's desk blocks brought up to date for a step that read the desk again: a fresh work ledger replaces the turn's,
+ * a fresh memory status replaces only the turn's memory section, and the turn's settings status stays unless the fresh
+ * read carries one of its own. What the turn read and nothing replaced is carried as it was (#2180).
+ */
+export const leadRefreshedDesk = (turn: readonly MessagesText[], fresh: { readonly work: string | null; readonly memory: string | null }): MessagesText[] => {
+  const sections = [
+    ...(fresh.work ? [WORK_LEDGER] : []),
+    ...(fresh.memory ? [{ open: LEAD_MEMORY_STATUS_OPEN, close: LEAD_MEMORY_STATUS_CLOSE }] : []),
+    ...(fresh.memory?.includes(LEAD_SETTINGS_STATUS_OPEN) ? [{ open: LEAD_SETTINGS_STATUS_OPEN, close: LEAD_SETTINGS_STATUS_CLOSE }] : []),
+  ]
+  const carried = turn.flatMap(block => {
+    const left = sections.reduce(withoutSection, block.text)
+    return left === block.text ? [{ type: 'text' as const, text: left }] : left.trim() ? [{ type: 'text' as const, text: left.trim() }] : []
+  })
+  return [...carried, ...(fresh.work ? [{ type: 'text' as const, text: fresh.work }] : []), ...(fresh.memory ? [{ type: 'text' as const, text: fresh.memory }] : [])]
 }
 
 /**

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test, { type TestContext } from 'node:test'
-import { LEAD_PRESENCE_LIMITS, capLeadPushText, isLeadDigestRefId, parseLeadPresenceView, type LeadAsk, type LeadDeviceRef, type LeadReminder, type LeadWorkCard } from '@harnessdesk/protocol'
+import { LEAD_PRESENCE_LIMITS, capLeadPushText, formatLeadDollars, isLeadDigestRefId, parseLeadPresenceView, type LeadAsk, type LeadDeviceRef, type LeadReminder, type LeadWorkCard } from '@harnessdesk/protocol'
 import { leadInbox } from '../src/lead/inbox.js'
 import { LEAD_DIGEST_OBSERVER_DAILY_MICROS, LeadPresenceStore, leadRepeatsRequest, leadTurnContext, type LeadPresencePorts } from '../src/lead/presence.js'
 
@@ -1162,15 +1162,35 @@ test('#2147: the away note gives the window and spend the card shows, the fired 
   const digest = (await r.store.read(desktop, { active: true })).digest!
   assert.equal(digest.kind, 'away')
   const note = (await r.store.awayNote())!
-  const clock = (at: number) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
-  assert.ok(note.includes(`While you were away · ${clock(digest.from)}–${clock(digest.to)}`), `the card's window, as it titles it: ${note}`)
-  assert.ok(note.includes('$0.42 spent while away'), `the card's spend, in its words: ${note}`)
+  const deskTime = (at: number) => new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
+  assert.ok(note.includes(`away from ${deskTime(digest.from)} to ${deskTime(digest.to)}, desk time`), `the card's window, as facts in desk time: ${note}`)
   assert.equal(digest.spentUsdMicros, 420_000)
+  assert.ok(note.includes(`${formatLeadDollars(digest.spentUsdMicros)} was spent in that span.`), `the card's spend, by the card's rule: ${note}`)
+  assert.match(note, /what the person's away card shows/, 'the note says these are the card\'s figures')
+  assert.ok(!note.includes('While you were away') && !note.includes('spent while away'), 'never the card\'s own labels')
   assert.ok(note.includes('(team goal-game)'), `a Team names the id its link takes: ${note}`)
   assert.ok(note.includes('(chat fixture:s-7)'), note)
-  assert.match(note, /Reminders that fired in that span:\n- remind-2 "Check the release notes" fired \d\d:\d\d, about work-2 \(work work-2\)/)
+  assert.match(note, /Reminders that fired in that span:\n- "Check the release notes" fired \d\d:\d\d, about a work item \(work work-2\)/)
+  assert.ok(!note.includes('remind-2'), 'a reminder id is no ref, so it is not printed')
   assert.ok(!note.includes('Earlier check'), 'a reminder that fired before they left is not in the window')
-  assert.match(note, /add it to refs/, 'the note says how a named thing becomes a link')
+  assert.match(note, /can be used as a ref: to link that item, add it to refs with that kind and id/, 'the note says its ids are refs')
+})
+
+test('#2147: a pull request or a decision card in the away note is named by what it is, never by an id no ref can take', async t => {
+  let items: LeadWorkCard[] = []
+  const r = await rig(t, { board: async () => ({ version: 1, items, more: 0 }) })
+  await r.store.read(desktop, { active: true })
+  r.tick(12 * MIN)
+  items = [work('work-4', 'done', r.now(), { title: 'Ship the fix', links: { chats: [], teams: [], prs: ['acme/game#12'], issues: [] } })]
+  r.spend(10_000); await r.store.observe()
+  r.tick(20 * MIN)
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  const note = (await r.store.awayNote())!
+  assert.ok(digest.items.some(item => item.ref?.kind === 'pr'), `the card links the pull request: ${JSON.stringify(digest.items)}`)
+  for (const item of digest.items) if (item.ref?.kind === 'pr' || item.ref?.kind === 'card') {
+    assert.ok(!note.includes(item.ref.id), `no ${item.ref.kind} id: ${note}`)
+    assert.ok(note.includes(item.ref.kind === 'pr' ? '(a pull request)' : '(a decision card in the conversation)'), note)
+  }
 })
 
 // #2173: `openAsk` is the Inbox's and the Lead's rule, so it holds a question exactly while its state is `open`.

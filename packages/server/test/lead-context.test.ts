@@ -927,6 +927,36 @@ test('#2170: the settings stop being news once the child stored the Lead\'s repl
   assert.deepEqual(kept, [2000], 'the reply the child stored keeps the time its own request read the settings')
 })
 
+test('#2180: the settings mark waits for this request\'s own reply: a reminder\'s reply in between answers the reminder, not the person', async () => {
+  const kept: number[] = []
+  // The child returns with a tool continuation still to come, and stores no reply yet.
+  const s = await controlsRig([async () => ({ status: 'completed' })], {
+    readMemoryContext: async () => ({ text: '<desk-memory-status>\nNothing.\n</desk-memory-status>', settingsShownAt: 1000 }),
+    settingsShown: async (at: number) => { kept.push(at) } })
+  await s.controls.send({ idempotencyKey: 'send-a', text: 'How should you write to me?' })
+  await s.controls.idle()
+  // A reminder comes due: a turn of its own, which the Lead answers.
+  await s.journal.appendMessage('reminder-1', 'Check the build', 'schedule', undefined, { kind: 'reminder', reminder: 'reminder-1', text: 'Check the build' })
+  await s.journal.appendModelReply('The build passed.')
+  await s.controls.idle()
+  assert.deepEqual(kept, [], 'the person\'s request was never answered, so its settings are still news')
+})
+
+test('#2180: a request waits for the settings mark still being written before it reads the settings, so the news is said once', async () => {
+  const order: string[] = []
+  let read = 0
+  const s = await controlsRig([{ status: 'completed', text: 'Noted.' }, { status: 'completed', text: 'Again.' }], {
+    readMemoryContext: async () => { order.push(`read ${++read}`); return { text: '<desk-memory-status>\nNothing.\n</desk-memory-status>', settingsShownAt: read * 1000 } },
+    settingsShown: async (at: number) => { order.push(`mark ${at}`); await new Promise(resolve => setTimeout(resolve, 30)); order.push(`kept ${at}`) } })
+  await s.controls.send({ idempotencyKey: 'send-phone', text: 'How should you write to me?' })
+  await s.controls.idle()
+  // The other device writes while the first reply's mark is still being written.
+  await s.controls.send({ idempotencyKey: 'send-window', text: 'And what changed?' })
+  await s.controls.idle()
+  await new Promise(resolve => setTimeout(resolve, 60))
+  assert.deepEqual(order.slice(0, 4), ['read 1', 'mark 1000', 'kept 1000', 'read 2'], order.join(', '))
+})
+
 test('#2171: a conversation of many short exchanges summarises once, then four more turns leave it be and keep the epoch', async t => {
   const s = await bareStore(t, 200_000)
   // About 470 tokens an exchange: a tail of the window's tokens would keep well over a hundred turns, so turns, not

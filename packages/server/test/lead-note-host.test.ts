@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { evidenceDesk } from './fixtures/evidence-desk.js'
+import { formatLeadDollars } from '@harnessdesk/protocol'
 
 // The Lead's own turn runs through the real host, so this file is in the Lead group, which runs on the runtime the Lead's child needs.
 
@@ -71,7 +72,9 @@ test('after half an hour with no window or phone looked at, the next person turn
   assert.doesNotMatch(requests[0]!, /The person was away/)
   assert.match(requests.at(-1)!, /<host-note>[^<]*The person was away from/, 'the turn after the absence is told the window')
   // The first reply's spend is metered after the person's last look, so their away card shows it; the note gives the
-  // window and the spend as that card reads them, never a figure of its own (#2147).
-  assert.match(requests.at(-1)!, /Their away card reads \\"While you were away · \d\d:\d\d–\d\d:\d\d\\" and \\"[^"\\]+ spent while away\\"/)
+  // window and the spend that card shows, by the card's rule, never a figure of its own (#2147).
+  const presence = await desk.host.call('lead/presence/read', { device, active: true } as never) as unknown as { digest?: { kind: string; spentUsdMicros: number } }
+  assert.equal(presence.digest?.kind, 'away', 'the card the person sees')
+  assert.ok(requests.at(-1)!.includes(`${formatLeadDollars(presence.digest!.spentUsdMicros)} was spent in that span.`), 'the card\'s spend, by the card\'s rule')
   assert.doesNotMatch(requests.at(-1)!, /no away digest was shown/)
 })

@@ -1,5 +1,5 @@
 import type { LeadState } from '@harnessdesk/lead'
-import { LEAD_DIGEST_ITEM_LABELS, LEAD_PRESENCE_LIMITS, capLeadPushText, leadMessageAsk, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
+import { LEAD_DIGEST_ITEM_LABELS, LEAD_PRESENCE_LIMITS, capLeadPushText, formatLeadDollars, leadMessageAsk, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
   type LeadAsk, type LeadAskState, type LeadProactive, type LeadBriefSettings, type LeadBriefUpdate, type LeadDeviceRef, type LeadDigest, type LeadDigestItem,
   type LeadDigestKind, type LeadDigestRef, type LeadPresenceView, type LeadWorkBoard, type LeadWorkCard } from '@harnessdesk/protocol'
 import { rename } from 'node:fs/promises'
@@ -107,12 +107,12 @@ const digestRef = (card: LeadWorkCard): LeadDigestRef => {
 }
 /** An hour and minute in the desk's zone, as the away card titles its window: "09:27". */
 const hourMinute = (at: number) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
-const cents = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
-/** Money as the away card says it: whole cents, and an amount above zero that rounds to $0.00 in words. */
-const awayDollars = (micros: number) => { const text = cents.format(micros / 1_000_000); return micros > 0 && text === '$0.00' ? 'less than $0.01' : text }
-/** What a named thing opens by, for the Lead's refs: a Team, chat or work item by kind and id; a pull request by name. */
-const awayRef = (ref: LeadDigestRef | undefined): string => !ref ? '' : ref.kind === 'pr' ? ` (pull request ${ref.id})`
-  : ref.kind === 'card' ? ' (a decision card in your conversation)' : ` (${ref.kind} ${ref.id})`
+/** What a named thing opens by: a Team, chat or work item by the kind and id a ref takes; a pull request or a decision
+ * card, which no ref can link, by what it is and never by an id. */
+const awayRef = (ref: LeadDigestRef | undefined): string => !ref ? '' : ref.kind === 'pr' ? ' (a pull request)'
+  : ref.kind === 'card' ? ' (a decision card in the conversation)' : ` (${ref.kind} ${ref.id})`
+/** The zone desk times are said in, by name when the host knows it. */
+const deskZone = (): string => { try { const zone = Intl.DateTimeFormat().resolvedOptions().timeZone; return zone ? ` (${zone})` : '' } catch { return '' } }
 const stored = (value: unknown): LeadDigest | undefined => { if (value === undefined) return undefined; try { return parseStoredLeadDigest(value) } catch { return undefined } }
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const validEnd = (value: unknown): value is { revision: number; spent: number } => !!value && finite((value as { revision: unknown }).revision) && finite((value as { spent: unknown }).spent)
@@ -571,19 +571,21 @@ export class LeadPresenceStore {
       // A ledger item is dated; a decision card is not, so it counts only when it waited by the revision at the return.
       const found = card ? card.items : (await this.#items(away.from, away.revision, away.until ?? away.revision)).filter(entry => entry.at === undefined || entry.at <= away.to)
       const shown = found.slice(0, LEAD_PRESENCE_LIMITS.items), more = card ? card.more : found.length - shown.length
-      const spent = card ? card.spentUsdMicros : this.#spentBetween(away.from, away.to), dollars = awayDollars(spent)
+      const spent = card ? card.spentUsdMicros : this.#spentBetween(away.from, away.to), dollars = formatLeadDollars(spent)
       const lines = shown.map(entry => `- ${LEAD_DIGEST_ITEM_LABELS[entry.kind]}: ${quoteLeadWorkText(entry.title, LEAD_PRESENCE_LIMITS.titleChars)}${awayRef(entry.ref)}`)
       if (more > 0) lines.push(`- and ${more} more`)
       // Reminders that fired inside the window, with the work item each is about.
       const board = await this.ports.board().catch(() => null)
       const fired = (board?.reminders ?? []).filter(entry => entry.firedAt !== undefined && entry.firedAt >= from && entry.firedAt <= to).slice(0, LEAD_PRESENCE_LIMITS.items)
-        .map(entry => `- ${entry.id} ${quoteLeadWorkText(entry.text, LEAD_PRESENCE_LIMITS.titleChars)} fired ${hourMinute(entry.firedAt!)}${entry.item ? `, about ${entry.item}${awayRef({ kind: 'work', id: entry.item })}` : ''}`)
+        .map(entry => `- ${quoteLeadWorkText(entry.text, LEAD_PRESENCE_LIMITS.titleChars)} fired ${hourMinute(entry.firedAt!)}${entry.item ? `, about a work item${awayRef({ kind: 'work', id: entry.item })}` : ''}`)
       const moved = lines.length ? `In that span, on the work ledger:\n${lines.join('\n')}\n` : 'In that span nothing on the work ledger finished, stopped or came to need them. '
       const reminded = fired.length ? `Reminders that fired in that span:\n${fired.join('\n')}\n` : ''
-      const said = card ? `Their away card reads "While you were away · ${hourMinute(from)}–${hourMinute(to)}" and "${dollars} spent while away": give that window and that spend as the card does. `
+      const said = card ? `${dollars} was spent in that span. That window, those items and that spend are what the person's away card shows: say them as given here. `
         : lines.length || spent > 0 ? `${dollars} was spent in it. ` : 'Nothing was spent, so no away digest was shown. '
-      return `The person was away from ${deskTime(from)} to ${deskTime(to)} (desk time): no window or phone of theirs was looked at in between. ${moved}${reminded}${said}` +
-        'To link a Team, chat or work item named here, add it to refs with the kind and id in its brackets. ' +
+      const linked = shown.some(entry => entry.ref && entry.ref.kind !== 'pr' && entry.ref.kind !== 'card') || fired.some(line => line.includes('(work '))
+      // The desk does not know a device's time zone: its times are the desk's, and named so.
+      return `The person was away from ${deskTime(from)} to ${deskTime(to)}, desk time${deskZone()}: no window or phone of theirs was looked at in between. ${moved}${reminded}${said}` +
+        (linked ? 'An id in brackets after a kind (team, chat or work) can be used as a ref: to link that item, add it to refs with that kind and id. ' : '') +
         `Anything from before ${deskTime(from)} happened before they left: never report it as happening while they were away.`
     })
   }
