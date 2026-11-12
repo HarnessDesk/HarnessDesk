@@ -81,12 +81,15 @@ it('disconnect clears health and rejects stale response application; reconnect r
     if (method === 'host/hello') return {}
     if (method === 'app/state/get') return { chatsFolder: '/work/chats', chatsFolderRootsSnapshot: { epoch: 'reconnected-host', revision: 1, roots: ['/work/chats/one'] } }
     if (method === 'provenance/status') return [health({ revision: 1 })]
+    if (method === 'carryOn/list') return { incidents: [] }
     throw new Error(`Unexpected reconnect request: ${method}`)
   })
   const before = request.mock.calls.length; handlers().onStatus('open'); handlers().onStatus('open'); await Promise.resolve()
   const reconnected = request.mock.calls.slice(before)
   expect(reconnected).toEqual([
     ['host/hello', { clientVersion: '0.1.0' }],
+    // The seats' carry-on questions were dropped at the disconnect; one read brings back any still open.
+    ['carryOn/list', {}],
     ['app/state/get', {}],
     ['provenance/status', {}],
   ])

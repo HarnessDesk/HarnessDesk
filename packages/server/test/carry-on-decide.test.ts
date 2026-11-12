@@ -170,3 +170,22 @@ test('a person’s pick that has since run out is not taken', () => {
   const asked = decide(input({ choice: 'ask', candidates: [out, other()] }), NOW)
   assert.ok(asked.kind === 'ask' && !asked.others.some(one => one.runtime === 'codex-2') && asked.target?.runtime !== 'codex-2')
 })
+
+test('18: a seat skips a candidate its run refuses for independence, and takes the next', () => {
+  const clash = sibling({ refused: 'it shares a provider with the work this seat must be independent of' })
+  const next = other()
+  const action = decide(input({ candidates: [clash, next] }), NOW)
+  assert.ok(action.kind === 'move' && action.target.runtime === next.runtime, 'the refused sibling is passed over')
+  // A card never offers a refused candidate either.
+  const asked = decide(input({ choice: 'ask', candidates: [clash, next] }), NOW)
+  assert.ok(asked.kind === 'ask' && asked.target?.runtime === next.runtime && !asked.others.some(one => one.runtime === clash.runtime))
+  // Nobody left: the seat stays stopped.
+  assert.equal(decide(input({ candidates: [clash] }), NOW).kind, 'stop')
+})
+
+test('19: a seat whose run is at its budget gets no switch, whatever the rule', () => {
+  for (const choice of ['switch', 'ask', 'wait'] as const) {
+    assert.deepEqual(decide(input({ choice, overBudget: true, candidates: [sibling()], resetsAt: NOW + HOUR }), NOW),
+      { kind: 'stop', phase: 'stopped', note: 'Run budget reached' })
+  }
+})

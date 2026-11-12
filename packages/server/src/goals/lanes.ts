@@ -94,6 +94,15 @@ export class LaneAllocator {
     await this.port.save({ ...lane, seat })
   }) }
 
+  /** A lane passes from a Seat to its replacement (carry-on): only from the Seat that holds it, to one that holds none. */
+  rebind(id: string, from: string, to: string): Promise<void> { return this.#serial.run(async () => {
+    const lane = this.#read(id); if (lane.seat === to) return
+    if (lane.seat !== from) throw new Error('This lane belongs to another Seat.')
+    if (lane.state !== 'active') throw new Error('Only a ready lane can pass to another Seat.')
+    if (this.port.list().some((one) => one.seat === to)) throw new Error('This Seat already has a lane.')
+    await this.port.save({ ...lane, seat: to })
+  }) }
+
   retain(id: string): Promise<void> { return this.#serial.run(async () => {
     const lane = this.#read(id); if (lane.state === 'retained' || lane.state === 'released') return
     await this.port.save({ ...lane, state: 'retained' })
