@@ -1,12 +1,13 @@
 import { TopBarProvider } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { useEffect, useMemo, useRef } from 'react'
-import { reduceSession, type AgentEvent } from '@harnessdesk/protocol'
+import { reduceSession, type AgentEvent, type Session } from '@harnessdesk/protocol'
 import { AppStore, type AppSnapshot } from '../state/store'
 import { StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { Notices } from '../components/Notices'
 import { NotificationsSection } from '../components/SettingsYou'
+import { CarryOnSection } from '../components/SettingsCarryOn'
 import { PaneColumn, Toaster } from '../design'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
@@ -22,7 +23,8 @@ const compacted: AgentEvent = { type: 'notice', level: 'info', sessionId: 's1', 
 export const NoticesFrame = () => {
   useTheme()
   const scene = new URLSearchParams(window.location.search).get('notices') ?? 'startup'
-  const conversationScene = scene.startsWith('conversation-')
+  const carryOnScene = scene.startsWith('carry-on')
+  const conversationScene = scene.startsWith('conversation-') || carryOnScene
   const store = useMemo(() => {
     const own = new AppStore('ws://localhost:0/')
     const base = fixture.getSnapshot()
@@ -42,7 +44,34 @@ export const NoticesFrame = () => {
           itemsLoaded: true,
         }
       : original
-    const session = conversationScene && afterScene
+    // The card is about a turn that stopped at the limit, so its scene has one:
+    // a finished exchange, then a request the account had no room left to answer.
+    const stuckConversation: Session = {
+      ...emptyConversation,
+      title: 'Retry the checkout call',
+      updatedAt: original.createdAt + 120_000,
+      turns: [
+        {
+          id: 'carry-on-turn-1' as never,
+          status: 'completed',
+          items: [
+            { id: 'carry-on-user-1' as never, type: 'userMessage', content: [{ type: 'text', text: 'Add a retry with backoff to the checkout call.' }] },
+            { id: 'carry-on-answer-1' as never, type: 'assistantMessage', phase: 'final', text: 'Added a retry with exponential backoff to the checkout call, capped at three attempts. The checkout tests pass.' },
+          ],
+        },
+        {
+          id: 'carry-on-turn-2' as never,
+          status: 'failed',
+          error: { message: 'You have reached your usage limit.', code: 'credits' },
+          items: [
+            { id: 'carry-on-user-2' as never, type: 'userMessage', content: [{ type: 'text', text: 'Now cover the timeout path with a test.' }] },
+          ],
+        },
+      ],
+    }
+    const session = carryOnScene
+      ? stuckConversation
+      : conversationScene && afterScene
       ? reduceSession(emptyConversation, { type: 'notice', sessionId: original.id, class: 'conversation', level: 'warning', message: 'A tool was unavailable when this conversation opened.', id: 'notice-preview-1' })
       : emptyConversation
     Object.assign(own.getSnapshot(), { ...base, home: conversationScene ? '/workspace' : '/workspace', inbox: [], agentNotices: [], notices: [], health: { state: 'ready' }, workbench, layout: workbench.main, sessions: new Map([[PREVIEW_SESSION_KEY, session]]), activeSessionKey: PREVIEW_SESSION_KEY, preferencesLoaded: false } satisfies Partial<AppSnapshot>)
@@ -68,6 +97,22 @@ export const NoticesFrame = () => {
     void store.loadPreferences().then(() => {
       const workbench = { ...emptyWorkbench(), main: { root: { kind: 'pane' as const, id: 'notice-conversation', view: { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY } }, focused: 'notice-conversation', expanded: null } }
       Object.assign(store.getSnapshot(), { workbench, layout: workbench.main, activeSessionKey: PREVIEW_SESSION_KEY })
+      if (carryOnScene && scene !== 'carry-on-settings') {
+        // A conversation that reached its limit and asks; placeholder accounts only.
+        const reset = scene === 'carry-on-noreset' ? {} : { resetsAt: Date.now() + 2 * 3_600_000 }
+        handlers.onNotification({ method: 'carryOn/changed', params: { key: { runtime: 'codex', sessionId: 's1' }, incident: {
+          incidentId: 'preview-carry-on', runtime: 'codex', sessionId: 's1', owner: 'chat', state: 'asked', cause: 'credits',
+          from: { name: 'Alpha', account: 'work' }, ...reset, openedAt: Date.now(),
+          choices: { target: { runtime: 'codex-2', name: 'Alpha', account: 'personal', mode: 'sameThread', tier: 0 }, wait: scene !== 'carry-on-noreset' },
+          // Gamma is signed out: the card leaves it out, as it would any candidate that cannot take the work.
+          others: [
+            { runtime: 'codex-3', name: 'Alpha', account: 'team', mode: 'sameThread', tier: 2, state: 'nearlyOut' },
+            { runtime: 'claude', name: 'Beta', mode: 'handoff', tier: 1 },
+            { runtime: 'cursor', name: 'Gamma', mode: 'handoff', tier: 1, state: 'signedOut' },
+          ],
+          alwaysScope: scene === 'carry-on-noreset' ? 'agent' : 'desk',
+        } } })
+      }
       if (!conversationScene) {
         handlers.onEvent('codex', config)
         handlers.onEvent('codex', config)
@@ -82,7 +127,8 @@ export const NoticesFrame = () => {
   return <StoreProvider store={store}>
     <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
       <div data-frame-id={`notices-${scene}`} className="h-screen bg-background">
-        {scene === 'settings' ? <div className="min-h-full overflow-y-auto"><PaneColumn inset="reading"><NotificationsSection /></PaneColumn></div> : <TopBarProvider><ShellHostsProvider><Workbench sidebar={<Sidebar onOpenSettings={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>}
+        {scene === 'settings' ? <div className="min-h-full overflow-y-auto"><PaneColumn inset="reading"><NotificationsSection /></PaneColumn></div>
+          : scene === 'carry-on-settings' ? <div className="min-h-full overflow-y-auto"><PaneColumn inset="reading"><CarryOnSection /></PaneColumn></div> : <TopBarProvider><ShellHostsProvider><Workbench sidebar={<Sidebar onOpenSettings={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>}
         <Notices />
         <Toaster />
       </div>

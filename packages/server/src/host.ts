@@ -86,6 +86,7 @@ import {
   folderGoneOf,
   SessionFolderGoneError,
   type CeilingLevel,
+  type Goal,
   type ApprovalDecision,
   type NoticeItem,
   type SeatCeiling,
@@ -184,7 +185,7 @@ import { initialLeadMemoryCore, leadMemoryStatus, leadSettingsStatus } from '@ha
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { FlowExecution, LeadProject } from '@harnessdesk/protocol'
-import { ExecutionFiles, FlowExecutions, sourceDigest } from './flow-execution.js'
+import { ExecutionFiles, FlowExecutions, sourceDigest, type SeatReplacement } from './flow-execution.js'
 import { FlowReview, PERSON_REVIEWER_ID } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
 import { seatOptionsProblem } from './seat-options.js'
@@ -251,7 +252,8 @@ import { SeatHeldCards } from './seat-held-cards.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
-import { CarryOnService } from './carry-on/service.js'
+import { CarryOnService, carryOnMayTake } from './carry-on/service.js'
+import { carryOnKey } from './carry-on/incidents.js'
 import { carryOnPacket } from './carry-on/handoff.js'
 import { CONTINUE_SOURCE } from './carry-on/decide.js'
 import {
@@ -272,7 +274,7 @@ import { Flows, runCheck } from './flows.js'
 import { goalViewForWire } from './goals/wire.js'
 import { dispatchAfter, Serial } from './goals/assignments.js'
 import { goalMembers } from './goals/members.js'
-import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
+import { GoalPlane, SeatMovedError, type GoalPlanePort } from './goals/plane.js'
 import { exportMemory, importMemory, type MemoryBackupPort } from './memory/backup.js'
 import { availablePorts, laneOf, LaneAllocator, LaneStore } from './goals/lanes.js'
 import {
@@ -1169,6 +1171,8 @@ export class Host {
   #plans: PlanStore | null = null
   /** Conversations stuck at a usage limit, carried on by the person's rule. Built in the constructor, restored in `start()`. */
   readonly #carryOn: CarryOnService
+  /** Conversations whose turn may have ended on a limit, while carry-on decides whether it takes them (§9.3). */
+  readonly #carryOnDeciding = new Set<string>()
   /** What the wire methods may reach; see `HostContext`. Built once the fields above exist. */
   readonly #context: HostContext
 
@@ -1906,6 +1910,13 @@ export class Host {
         await this.#applySeatPicks(live, seat.seat)
         return this.#labelOf(seat.seat.runtime, live.options())
       },
+      replaceSeat: (seat, target) => this.#replaceSeat(seat, target),
+      // Carry-on's incidents are read from disk lazily: a restart's own resume waits for them, never for its queue.
+      carryOnHolds: async (runtime, sessionId) => {
+        if (this.#carryOnDeciding.has(carryOnKey(runtime, sessionId))) return true
+        await this.#carryOn.loaded()
+        return this.#carryOn.live(runtime, sessionId)
+      },
       // Tells windows only: a run's own journal moved, not the Goal's board,
       // and a view read here could predate the board's own pending write.
       // Each run goes out whole, so a run status on screen never waits to be asked.
@@ -2444,6 +2455,7 @@ export class Host {
       claim: async (goal: string, card: number, opening: SeatOpening) => {
         await this.#claimGoalCard(goal, card, opening)
       },
+      moveClaim: (goal: string, card: number, from: SeatRecord, to: SeatRecord) => this.#moveGoalClaim(goal, card, from, to),
       releaseClaim: async (goal: string, seat: SeatId, until: string | null) => {
         await this.#releaseGoalCard(goal, seat, until)
       },
@@ -5662,6 +5674,89 @@ export class Host {
   }
 
   /**
+   * Carry-on (piece D): a card's claim passes from a Seat to its replacement.
+   * Only the claim's holder changes; where the checkout stood when the card was
+   * taken stays, because the replacement works in the same checkout.
+   */
+  async #moveGoalClaim(goal: string, card: number, from: SeatRecord, to: SeatRecord): Promise<void> {
+    await this.#goalPlaneWrite(goal, (intents) => {
+      const current = intents.find((one) => one.id === card)
+      if (!current) throw new Error('Choose an existing card.')
+      if (current.claim?.runtime === to.session.runtime && current.claim.sessionId === to.session.sessionId) return intents
+      // A card its Seat had not claimed (it was finished, say) has no claim to move.
+      if (current.state !== 'claimed' || current.claim?.runtime !== from.session.runtime || current.claim.sessionId !== from.session.sessionId) return intents
+      const at = Date.now()
+      return intents.map((intent) => intent.id === card && intent.claim ? {
+        ...intent, claim: { ...intent.claim, runtime: to.session.runtime as RuntimeId, sessionId: to.session.sessionId }, updatedAt: at,
+      } : intent)
+    })
+  }
+
+  /**
+   * Carry-on (piece D): a replacement Seat for one that reached a usage limit
+   * (§9.2). A sibling account of the same agent reopens the same thread under
+   * the new Seat; anything else is the same Agent seated again in the same
+   * checkout, whose first work message is the handoff packet. Never a
+   * mutation: the old Seat is closed with `limit` by the Goal plane once the
+   * new one holds the lane and the claim.
+   */
+  async #replaceSeat(seat: SeatRecord, target: SeatReplacement): Promise<SeatRecord | { readonly refused: string }> {
+    const opened: { record: SeatRecord | null } = { record: null }
+    const level: CeilingLevel = seat.ceiling?.level ?? (seat.standing.kind === 'ceiling' ? seat.standing.level
+      : seat.standing.kind === 'permission' ? ceilingOfPermission(seat.standing.permission) : 'read')
+    try {
+      const record = await this.#goals.replaceSeat(seat, target.card, async (where) => {
+        opened.record = target.mode === 'sameThread'
+          ? await this.#reopenSeatOn(seat, where.cwd, target, level)
+          : await this.#seatAgainOn(seat, where, target, level)
+        return opened.record
+      })
+      this.#membershipChanged(record.session.runtime as RuntimeId, record.session.sessionId)
+      return record
+    } catch (error) {
+      // Past the move, the replacement holds the work: it stays, and the run finishes the move from where it went.
+      if (opened.record && !(error instanceof SeatMovedError)) await this.#retireSeat(opened.record.session.runtime, opened.record.session.sessionId).catch(() => {})
+      else if (opened.record) this.#membershipChanged(opened.record.session.runtime as RuntimeId, opened.record.session.sessionId)
+      return { refused: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  /** The same thread, reopened by a sibling account: one live writer per thread, so the stuck account lets go first. */
+  async #reopenSeatOn(seat: SeatRecord, cwd: string, target: SeatReplacement, level: CeilingLevel): Promise<SeatRecord> {
+    const from = { runtime: runtimeId(seat.session.runtime), sessionId: makeSessionId(seat.session.sessionId) }
+    // What an Agent's attachments were approved for is one runtime's load set: it does not carry to another account.
+    // Read from the declarations the Seat actually froze, never from the record every Agent Seat writes: one that
+    // declared nothing moves on the same thread. A filter lost, or an Agent that declares (or cannot be read), refuses.
+    if (await this.#attachments.filters(seat.id) || await this.#attachments.lostFilter(seat.id) || (await this.#agentDeclaresAttachments(seat)) !== false) {
+      throw new Error('Its attachments do not carry over to another account.')
+    }
+    await this.call('session/close', from).catch(() => undefined)
+    await this.call('session/resume', { runtime: runtimeId(target.runtime), sessionId: from.sessionId, ...(target.model ? { options: { model: target.model } } : {}) })
+    const held = await this.#holdSeat(target.runtime, seat.session.sessionId, level)
+    const live = await this.#teamLive(runtimeId(target.runtime), seat.session.sessionId)
+    const { model: _model, ...picks } = seat.seat
+    return this.#evidence.seats.opened({
+      agent: seat.agent, briefDigest: seat.briefDigest,
+      ...(seat.runtimeServers !== undefined ? { runtimeServers: seat.runtimeServers } : {}),
+      seat: { ...picks, runtime: target.runtime, ...(target.model ? { model: target.model } : {}) },
+      seatLabel: this.#labelOf(target.runtime, live.options()),
+      passedOver: [], standing: seat.standing, ceiling: held.ceiling,
+      cwd, ...(seat.checkout.project ? { project: seat.checkout.project } : {}),
+      session: { runtime: target.runtime, sessionId: seat.session.sessionId },
+      board: seat.board, role: seat.role,
+    })
+  }
+
+  /** The same Agent, seated again on `target` in the same checkout, with the same ceiling and role. */
+  async #seatAgainOn(seat: SeatRecord, where: Goal, target: SeatReplacement, level: CeilingLevel): Promise<SeatRecord> {
+    if (!seat.agent) throw new Error('This seat was opened without an Agent, so it cannot be seated again elsewhere.')
+    return (await seatAgent(this.#context, {
+      id: seat.agent.id, cwd: where.cwd, project: where.root,
+      seats: [{ runtime: target.runtime, ...(target.model ? { model: target.model } : {}) }],
+    }, { board: where.id, role: target.role, grant: { kind: 'ceiling', level } })).record
+  }
+
+  /**
    * `until` is where the checkout stood, read by `GoalPlane.release` before
    * it ever closed this Seat (issue #1042 P1) — carried into this same patch
    * rather than a second write after the fact, which would have to queue
@@ -5956,6 +6051,14 @@ export class Host {
    * over this host's own state, so a method module never sees the class —
    * only what it was given — and can be run against a hand-built context.
    */
+  /** A seat's own recovery when its turn ends: its card handed back, and a release waiting on it answered. */
+  #recoverSeat(runtime: RuntimeId, sessionId: string): void {
+    void this.#flows.reArm(runtime, sessionId)
+    // The same turn-ended signal answers a v2 release still waiting on this
+    // Seat, rather than a poll of its own guessing when to ask again (#1027).
+    this.#flows.retryRelease(runtime, sessionId)
+  }
+
   /**
    * The carry-on service, wired to the host. Every name it reads is the
    * runtime's presentation and an account ordinal or the gateway's own name —
@@ -6093,13 +6196,30 @@ export class Host {
         // shows them as something the person typed. The packet is already enveloped; the continue is wrapped here.
         // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
         // last await: a person who writes while the host is resolving the handle wins there too.
-        send: async (runtime, sessionId, text, kind, stillOurs, admitted) => {
-          const admission = Object.assign(async () => {}, {
-            assertDispatch: () => { if (!stillOurs()) throw new Error('You sent a message first.') },
-            // Past the boundary: carry-on's marker goes in now, never for a send the person overtook.
-            ...(admitted ? { dispatchStarted: admitted } : {}),
+        send: async (runtime, sessionId, text, kind, stillOurs, admitted, seat) => {
+          const at = key(runtime, sessionId)
+          // Into a Flow's Seat, the run's own gate rides the same admission: its budget is read when the send goes
+          // (a queued packet's when it drains), and its stop at the boundary itself (§9.4). A Seat's send with no gate
+          // to pass — its run stalled or gone while the send was being made — is refused, never let through ungated.
+          const gate = (): { readonly admit: () => Promise<void>; readonly assert: () => void } | null => {
+            const run = this.#flows.carriedAdmission(runtime, sessionId, seat === true)
+            if (!run && seat) throw new Error('This seat no longer belongs to a running run.')
+            return run
+          }
+          gate()
+          const admission = Object.assign(async () => { await gate()?.admit() }, {
+            assertDispatch: () => { if (!stillOurs()) throw new Error('You sent a message first.'); gate()?.assert() },
+            // Past the boundary: carry-on's marker goes in now, never for a send the person overtook. With the turns the
+            // conversation already had, so carry-on watches the turn this send starts and nothing before it.
+            ...(admitted ? { dispatchStarted: () => admitted((this.registry.get(at.runtime, at.sessionId)?.session.turns ?? []).map((turn) => String(turn.id))) } : {}),
           })
-          await sendTurn(this.#context, { ...key(runtime, sessionId), input: [deskContextContent(kind === 'packet' ? text : wrapContext(CONTINUE_SOURCE, text))] }, admission)
+          // The continue goes as desk context too, under its own label, so the transcript never draws it as the person's.
+          const input = [deskContextContent(kind === 'packet' ? text : wrapContext(CONTINUE_SOURCE, text))]
+          // A packet waits its turn behind whatever the conversation is doing: a replacement Seat is still reading
+          // its brief. Under the same admission, so the person writing first still wins when it is drained.
+          const record = this.registry.get(at.runtime, at.sessionId)
+          if (kind === 'packet' && record && (record.running.size > 0 || this.#queueBusy(record))) await queueTurn(this.#context, { ...at, input }, undefined, admission)
+          else await sendTurn(this.#context, { ...at, input }, admission)
         },
       create: async (runtime, from, model) => {
         const source = key(from.runtime, from.sessionId)
@@ -6123,6 +6243,16 @@ export class Host {
         const at = key(from.runtime, from.sessionId)
         const transcript = await this.#readTranscript(this.#runtime({ runtime: at.runtime }), at.sessionId, false)
         return carryOnPacket(transcript.turns, { ...meta, title: transcript.title ?? 'Conversation' })
+      },
+      // A Team or Flow seat: the flow engine answers for its run, opens its replacement, and takes it back.
+      seat: {
+        of: (runtime, sessionId) => this.#flows.seatCarry(runtime, sessionId),
+        refuse: (runtime, sessionId, target) => this.#flows.refuseSeatTarget(runtime, sessionId, target),
+        replace: async (from, to) => {
+          const opened = await this.#flows.replaceSeat(from.runtime, from.sessionId, to)
+          return 'refused' in opened ? opened : { runtime: opened.session.runtime, sessionId: opened.session.sessionId }
+        },
+        recover: (runtime, sessionId) => { if (!this.#disposed) this.#recoverSeat(runtime as RuntimeId, sessionId) },
       },
       record: (runtime, sessionId, item) => this.#recordCarryOn(runtime, sessionId, item),
       publish: (at, incident) => this.#push({ method: 'carryOn/changed', params: { incident, key: at } }),
@@ -10582,18 +10712,28 @@ export class Host {
          handed its order again. Unfinished turns and self-block hand-backs
          have separate hourly allowances, so neither can re-arm forever. */
       // While a carry-on incident holds the conversation it is the one recovery: a re-arm would retry the same
-      // exhausted account behind its back.
-      if (!this.#carryOn.live(String(runtime), String(event.sessionId))) {
-        void this.#flows.reArm(runtime, String(event.sessionId))
-        // The same turn-ended signal answers a v2 release still waiting on this
-        // Seat, rather than a poll of its own guessing when to ask again (#1027).
-        this.#flows.retryRelease(runtime, String(event.sessionId))
+      // exhausted account behind its back. A turn that may have ended on a limit waits for carry-on to say whether
+      // it took it — the incident opens only after a meter read, and the idle signal that trails the turn must not
+      // re-arm in that gap (§9.3).
+      const waiting = this.#carryOnDeciding.has(carryOnKey(String(runtime), String(event.sessionId)))
+      if (!waiting && !(event.type === 'turn/completed' && carryOnMayTake(event.turn)) && !this.#carryOn.live(String(runtime), String(event.sessionId))) {
+        this.#recoverSeat(runtime, String(event.sessionId))
       }
     }
     // A turn that ended on a usage limit opens a carry-on incident; one that continued a move settles it.
     if (event.type === 'turn/completed' && !this.#disposed) {
-      void this.#carryOn.ended(String(runtime), String(event.sessionId), { id: String(event.turn.id), status: event.turn.status, error: event.turn.error ?? null })
-        .catch((error: unknown) => { this.#logger.warn('a carry-on incident could not be handled', { error: error instanceof Error ? error.message : String(error) }) })
+      const at = { runtime: String(runtime), sessionId: String(event.sessionId) }
+      const mayTake = carryOnMayTake(event.turn)
+      const deciding = carryOnKey(at.runtime, at.sessionId)
+      if (mayTake) this.#carryOnDeciding.add(deciding)
+      void this.#carryOn.ended(at.runtime, at.sessionId, { id: String(event.turn.id), status: event.turn.status, error: event.turn.error ?? null })
+        .catch((error: unknown) => { this.#logger.warn('a carry-on incident could not be handled', { error: error instanceof Error ? error.message : String(error) }); return false })
+        .then((took) => {
+          if (!mayTake) return
+          this.#carryOnDeciding.delete(deciding)
+          // Not a limit carry-on takes: the seat's own recovery runs, as it would have at the turn's end.
+          if (!took && !this.#disposed && !this.#carryOn.live(at.runtime, at.sessionId)) this.#recoverSeat(runtime, at.sessionId)
+        })
     }
     // A conversation that can take a transcript marker again gets the ones carry-on had to keep for it.
     if ((event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'session/started') && !this.#disposed) {

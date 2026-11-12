@@ -1,4 +1,4 @@
-import { splitSessionKey } from '@harnessdesk/protocol'
+import { carryOnMarker, splitSessionKey } from '@harnessdesk/protocol'
 import {
   Fragment,
   createContext,
@@ -15,6 +15,7 @@ import {
 import type {
   AgentItem,
   AssistantMessageItem,
+  CarryOnItem,
   CommandItem,
   CompactionItem,
   ErrorItem,
@@ -74,6 +75,7 @@ import {
 } from '../design'
 import { instant } from '../lib/clock'
 import { sanitizeText } from '../lib/sanitize'
+import { formatReset } from '../lib/limits'
 import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
 import { countFileChange, wholeFileOf, DiffView } from '../editor'
@@ -111,6 +113,8 @@ import {
   DiffIcon,
   ExternalIcon,
   FileIcon,
+  HandoffIcon,
+  ClockIcon,
   GlobeIcon,
   ImageIcon,
   InfoIcon,
@@ -1412,13 +1416,59 @@ const Plan = ({ item }: { item: PlanItem }) => {
  * summarised, where a review began or ended. The rules are the system's
  * separator, the one the work fold's own head runs out to.
  */
-const Marker = ({ children }: { children: ReactNode }) => (
+const Marker = ({ children, icon, strong = false }: { children: ReactNode; icon?: ReactNode; strong?: boolean }) => (
   <div className={styles.marker}>
     <Separator className={styles.markerLine} />
-    <Text role="meta">{children}</Text>
+    {icon}
+    {strong ? <Text role="row" align="center">{children}</Text> : <Text role="meta">{children}</Text>}
     <Separator className={styles.markerLine} />
   </div>
 )
+
+/**
+ * Where a conversation carried on past a usage limit — or stopped at one.
+ *
+ * The same divider as a summary or a review, said at the row's step rather
+ * than the meta one, because a change of account, agent or model has to read
+ * as an event in the conversation and never as housekeeping. The line names
+ * both sides; under it, why (the account that ran out) and when its limit
+ * resets, and the link to the other conversation of a handoff. The words are
+ * `CARRY_ON_MARKER`'s, which the phone says too.
+ */
+const CarryOn = ({ item }: { item: CarryOnItem }) => {
+  const store = useStore()
+  const readOnly = useContext(ReadOnlyTranscriptContext)
+  const text = carryOnMarker(item, (at) => formatReset(at) ?? '')
+  const link = item.link && text.link && !readOnly ? item.link : null
+  const icon = item.phase === 'waiting' || item.phase === 'resumed'
+    ? <ClockIcon size={14} />
+    : item.phase === 'stopped' || item.phase === 'exhausted'
+      ? <AlertIcon size={14} />
+      : <HandoffIcon size={14} />
+  return (
+    <div data-carry-on={item.phase}>
+      <Marker icon={icon} strong>{sanitizeText(text.headline)}</Marker>
+      {(text.detail || link) && (
+        <Text as="div" role="meta" align="center">
+          {text.detail && sanitizeText(text.detail)}
+          {text.detail && link && ' '}
+          {link && (
+            <Button
+              variant="link"
+              size="inline-link"
+              title={item.phase === 'arrived' ? 'Open the conversation this one continued from'
+                : item.phase === 'stopped' ? 'Open the conversation where it is also open'
+                  : 'Open the conversation this one continued in'}
+              onClick={() => void store.openSession(link.sessionId, { runtime: link.runtime })}
+            >
+              {text.link}
+            </Button>
+          )}
+        </Text>
+      )}
+    </div>
+  )
+}
 
 const Compaction = (_: { item: CompactionItem }) => (
   <Marker>Earlier messages were summarised to free up context</Marker>
@@ -1526,6 +1576,8 @@ export const ItemView = ({
         return <Review item={item} />
       case 'publication':
         return <Publication item={item as PublicationItem} root={readOnly ? undefined : root} />
+      case 'carryOn':
+        return <CarryOn item={item} />
       case 'error':
         return <ErrorRow item={item} />
     }

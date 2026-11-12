@@ -18,7 +18,7 @@ import { describedTitle, editedPathOf, isDescribed, isSilentReasoning, toolCallV
  */
 
 export interface TurnView {
-  /** What the person sent: the user message(s) that opened the turn. */
+  /** What the person sent: the user message(s) that opened the turn, under a carry-on marker that opens it. */
   readonly prompt: readonly AgentItem[]
   /** Narration, reasoning and steps, in order. Empty for a plain answer. */
   readonly work: readonly AgentItem[]
@@ -26,6 +26,11 @@ export interface TurnView {
   readonly answer: readonly AgentItem[]
   /** Errors and other things that belong after the answer. */
   readonly trailing: readonly AgentItem[]
+  /**
+   * What closes the turn, below its failure line: a carry-on marker recorded
+   * into the turn that hit the limit (see `closesTurn`).
+   */
+  readonly closing: readonly AgentItem[]
   /** Every file change the turn reported, in order. */
   readonly changes: readonly FileChange[]
 }
@@ -64,11 +69,32 @@ export const effectiveItemStatus = (item: AgentItem): ItemStatus | undefined => 
 const opensTurn = (item: AgentItem): boolean =>
   item.type === 'userMessage' || item.type === 'notice' || (item.type === 'review' && item.phase === 'entered')
 
+/**
+ * A carry-on marker is hoisted out of the run of the turn it was recorded
+ * into, so it always stands between the turn that stopped and the one that
+ * carried on. Where it goes follows what it says, because the host records
+ * each phase into a known turn:
+ *
+ * - `switched`, `resumed` and `arrived` are recorded into the turn that
+ *   continues — on the new account, after the reset, or as the first turn of
+ *   the conversation a handoff made — so they open it, above its prompt.
+ * - `left`, `waiting`, `stopped` and `exhausted` are recorded into the turn
+ *   that hit the limit, with nothing running after it, so they close it,
+ *   below its failure line.
+ *
+ * Read by phase rather than by the turn's status: a continuing turn can fail
+ * at a limit of its own, and its `switched` still belongs on top.
+ */
+const closesTurn = (item: Extract<AgentItem, { type: 'carryOn' }>): boolean =>
+  item.phase === 'left' || item.phase === 'waiting' || item.phase === 'stopped' || item.phase === 'exhausted'
+
 export const splitTurn = (turn: Turn): TurnView => {
   const prompt: AgentItem[] = []
   const work: AgentItem[] = []
   const answer: AgentItem[] = []
   const trailing: AgentItem[] = []
+  const closing: AgentItem[] = []
+  const opening: AgentItem[] = []
   const changes: FileChange[] = []
   // The answer is the run of final-phase messages the turn ends on — not
   // every final-phase message in it. An agent that narrates between tool
@@ -80,11 +106,15 @@ export const splitTurn = (turn: Turn): TurnView => {
   let boundary = turn.items.length
   for (let index = turn.items.length - 1; index >= 0; index -= 1) {
     const item = turn.items[index] as AgentItem
-    if (item.type === 'error' || item.type === 'publication' || (item.type === 'notice' && item.kind) || isSilentReasoning(item)) continue
+    if (item.type === 'error' || item.type === 'publication' || item.type === 'carryOn' || (item.type === 'notice' && item.kind) || isSilentReasoning(item)) continue
     if (!isAnswer(item)) break
     boundary = index
   }
   turn.items.forEach((item, index) => {
+    if (item.type === 'carryOn') {
+      ;(closesTurn(item) ? closing : opening).push(item)
+      return
+    }
     if (item.type === 'publication' || item.type === 'notice' && item.kind) {
       trailing.push(item)
       return
@@ -104,8 +134,17 @@ export const splitTurn = (turn: Turn): TurnView => {
     }
     work.push(item)
   })
-  return { prompt, work, answer, trailing, changes }
+  return { prompt: [...opening, ...prompt], work, answer, trailing, closing, changes }
 }
+
+/**
+ * Whether the boundary above a turn already carries a carry-on marker's rule:
+ * the turn opens with one, or the turn before it closed with one. The marker
+ * is then the only rule there; a turn separator beside it would stack two.
+ */
+export const carryOnAtBoundary = (previous: Turn | undefined, turn: Turn): boolean =>
+  turn.items.some((item) => item.type === 'carryOn' && !closesTurn(item)) ||
+  (previous?.items.some((item) => item.type === 'carryOn' && closesTurn(item)) ?? false)
 
 /** The per-file totals of a turn, one row per path, last change wins the kind. */
 export interface FileTotal {

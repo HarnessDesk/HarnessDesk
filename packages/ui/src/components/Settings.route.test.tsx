@@ -113,6 +113,8 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
     setUnattendedCeilings: vi.fn(async () => {}),
     // How long an unattended question waits: a machine setting on the same page.
     loadQuestionWait: vi.fn(async () => '5m'),
+    loadCarryOnPolicy: vi.fn(async () => ({ onLimit: 'ask', otherAgents: true })),
+    readCarryOnRules: async () => true,
     setQuestionWait: vi.fn(async () => true),
     // The Library page's own Agent filter roster read.
     loadAgents: vi.fn(async () => {}),

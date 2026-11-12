@@ -64,6 +64,7 @@ import type { Carry } from '../lib/handoff'
 import { emptyNoticePolicy, type NoticePolicy } from '../lib/notice-policy'
 import type { InboxEntry } from '../lib/inbox'
 import type { PersonNotice } from '@harnessdesk/protocol'
+import { DEFAULT_CARRY_ON, type CarryOnIncidentView, type CarryOnPolicy } from '@harnessdesk/protocol'
 
 import type { PlanEdit } from '../lib/plan-edits'
 
@@ -272,6 +273,11 @@ export interface AppSnapshot {
   readonly leadAvailable: boolean
   /** The desk was started with the phone link on; the Phone page and its command exist only then. */
   readonly phoneLink: boolean
+  /**
+   * Carry-on incidents of Team and Flow seats, by the seat's session key. The
+   * Team's own `limit` notice carries the question; nothing else reads these.
+   */
+  readonly seatCarryOn: ReadonlyMap<string, CarryOnIncidentView>
   readonly teamFrameRequests: Readonly<Record<string, TeamFrameRequest>>
   /** Per-project state of local, opt-in commit-to-Seat capture. */
   readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
@@ -340,6 +346,18 @@ export interface AppSnapshot {
    * `lib/account-pool.ts`.
    */
   readonly accountPools: AccountPoolMap
+  /**
+   * What the desk does when a conversation reaches a usage limit, and whether
+   * it may continue with another agent. An agent's own `whenOut` overrides
+   * the first; see `@harnessdesk/protocol`'s `carry-on.ts`.
+   */
+  readonly carryOnPolicy: CarryOnPolicy
+  /**
+   * The host's live carry-on incidents, by `sessionKey`: a conversation at
+   * its limit while the desk decides, asks or waits. Loaded with
+   * `carryOn/list` on every connect and kept by `carryOn/changed`.
+   */
+  readonly carryOnIncidents: ReadonlyMap<string, CarryOnIncidentView>
   /**
    * Account names only, wherever an account is drawn: the address waits for
    * a hover. For recording a screen or sharing one without anybody's email
@@ -614,6 +632,13 @@ export interface AppSnapshot {
   /** The conversation handed to the open draft, if any. */
   readonly draftHandoff: DraftHandoff | null
   /**
+   * The open draft's words came from a prompt link (`harnessdesk://new`).
+   * The composer marks the draft while its text is still exactly `text`;
+   * an edit or a send ends it. `context` is what else the link asked for,
+   * as plain words — a pull request, a Flow — never acted on.
+   */
+  readonly promptLinkDraft: { readonly text: string; readonly context: string | null } | null
+  /**
    * Where the draft will start — see `DraftPlace`. Cleared the moment a
    * conversation is in front, and when the workspace changes under it: a
    * worktree chosen for one repository is not a choice about the next.
@@ -883,6 +908,7 @@ export const withClosedTurnFiles = (closed: ReadonlySet<string>, session: string
 const EMPTY: AppSnapshot = {
   leadAvailable: false,
   phoneLink: false,
+  seatCarryOn: new Map(),
   teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),
@@ -907,6 +933,8 @@ const EMPTY: AppSnapshot = {
   accountsByRuntime: {},
   accountPrefs: {},
   accountPools: {},
+  carryOnPolicy: DEFAULT_CARRY_ON,
+  carryOnIncidents: new Map(),
   hideAccountAddresses: false,
   harnessDeskAccount: null,
   profile: {},
@@ -984,6 +1012,7 @@ const EMPTY: AppSnapshot = {
   navCanBack: false,
   navCanForward: false,
   draftHandoff: null,
+  promptLinkDraft: null,
   draftPlace: null,
   sidebarCollapsed: false,
   windowWidth: typeof window === 'undefined' ? 1440 : window.innerWidth,
@@ -1055,4 +1084,6 @@ export const emptySnapshot = (): AppSnapshot => ({
   seatActivities: new Map(),
   findings: new Map(),
   findingRuns: new Map(),
+  carryOnIncidents: new Map(),
+  seatCarryOn: new Map(),
 })

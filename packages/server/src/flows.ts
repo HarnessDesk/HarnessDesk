@@ -34,7 +34,7 @@ import type {
 import { runCommand } from './evidence/run.js'
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { FlowCatalog } from './flow-catalog.js'
-import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type CheckRetry, type FlowStartRequest, type RunDecisionOps, type StoredFlowExecution, type TriggerStartRequest } from './flow-execution.js'
+import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type CheckRetry, type FlowStartRequest, type RunDecisionOps, type SeatCarry, type StoredFlowExecution, type TriggerStartRequest } from './flow-execution.js'
 import type { FlowReview } from './flow-evidence.js'
 import type { FindingJournal } from './findings/journal.js'
 import type { PublicationJournal } from './findings/publication.js'
@@ -1197,6 +1197,26 @@ export class Flows implements TeamFlows {
       }),
     )
     this.#turning.set(run.id, queued)
+  }
+
+  /** Carry-on (piece D): what it reads of a v2 Seat; null for a legacy flow Seat, which is never carried on. */
+  seatCarry(runtime: string, sessionId: string): Promise<SeatCarry | null> {
+    return this.#executions?.seatCarry(runtime, sessionId) ?? Promise.resolve(null)
+  }
+
+  /** Why `target` may not take this Seat under its run's independence rules, or null. */
+  refuseSeatTarget(runtime: string, sessionId: string, target: string): Promise<string | null> {
+    return this.#executions?.refuseSeatTarget(runtime, sessionId, target) ?? Promise.resolve('This seat no longer belongs to a running run.')
+  }
+
+  /** The run's own gate a carry-on send into this Seat passes when it actually goes; null for a conversation no run holds. */
+  carriedAdmission(runtime: string, sessionId: string, seat = false): { readonly admit: () => Promise<void>; readonly assert: () => void } | null {
+    return this.#executions?.carriedAdmission(runtime, sessionId, seat) ?? null
+  }
+
+  /** A replacement Seat for the card this conversation holds, on `target`. */
+  replaceSeat(runtime: string, sessionId: string, target: { readonly runtime: string; readonly mode: 'sameThread' | 'handoff'; readonly model?: string }): Promise<SeatRecord | { readonly refused: string }> {
+    return this.#executions?.replaceSeat(runtime, sessionId, target) ?? Promise.resolve({ refused: 'This seat no longer belongs to a running run.' })
   }
 
   /**

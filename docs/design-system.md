@@ -1323,6 +1323,14 @@ because the difference between "still reading" and "ran out of its window
 forty minutes ago" is the whole reason the row exists, and a grey sentence
 in a busy channel is not that difference.
 
+When the stop waits on the person, the same row carries the decision:
+`choices` as a line of buttons under the sentence, the first one the
+filled act the composer's own decision card draws, `always` as the box that
+turns the answer into the rule from now on (its label states its scope, and
+it is unticked each time the question is shown), and `note` for the one
+fact that varies (a candidate that was skipped and why). A Team never gets a second card for it — the notice is where the
+room already says the member stopped.
+
 ### `Checklist`
 
 `packages/ui/src/design/patterns/Checklist.tsx`
@@ -2194,6 +2202,26 @@ composer's own width: the tone is in the tile, the words wrap, and the
 action sits at the right as a small button, moving below the copy in a
 narrow container. An optional secondary action keeps the primary choice
 prominent while retaining a distinct alternative in the same action group.
+
+### `DecisionNotice`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+A question about the conversation it sits over, with several answers and
+a way to stop being asked: a usage limit reached, where the person picks
+Switch, Wait or Stop, once or for good.
+
+`ComposerNotice` holds at most two actions; a decision needs more, and a
+box that turns the answer into the rule. So the sentence leads, as in
+every composer notice, and the answers sit under it, recommended first,
+with the box after them. Its label states its scope ("Always do this for
+Agent") because the rule it writes is the person's to find again in
+Settings. Not an overlay — the conversation stays readable and usable, and
+using it is an answer too — so it is a `group`, never a `dialog`.
+
+`alternatives` are the answers that are not the first one: other accounts
+or agents, behind a quiet link that opens a menu of them — each kind under
+its own heading when the menu holds both.
 
 ### `ComposerNoticeStack`
 

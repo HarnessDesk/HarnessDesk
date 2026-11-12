@@ -1,4 +1,5 @@
 import { isRecordConversation, RECORD_REASON } from '../lib/team-record'
+import { PromptLinkMarker } from './PromptLinkMarker'
 import {
   useCallback,
   useContext,
@@ -40,6 +41,7 @@ import {
   Text,
 } from '../design'
 import { LeadChatNotice } from './LeadChatNotice'
+import { CarryOnNotice } from './CarryOnNotice'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { HoldingMessagesChip, RoomMessagesHeld } from './RoomMessaging'
 import { ComposerNoticeStack } from '../design'
@@ -193,6 +195,8 @@ interface ComposeDetail {
   readonly paneId?: string
   readonly sessionKey?: string
   readonly replace?: boolean
+  /** Only a new chat's draft takes it, and it replaces the whole draft — see `lib/compose`. */
+  readonly newDraft?: boolean
   readonly attachments?: readonly {
     readonly name: string
     readonly path: string
@@ -1028,9 +1032,22 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
       if (!detail || typeof detail.text !== 'string') return
       if (detail.paneId !== undefined && detail.paneId !== pane?.paneId) return
       if (detail.sessionKey !== undefined && detail.sessionKey !== key) return
+      // A conversation's composer still drawn while its pane turns into a
+      // new draft must not take the draft's words: its switch to the draft
+      // would then clear them.
+      if (detail.newDraft === true && key !== null) return
       // The receipt, first: a sender retrying each frame stops the moment
       // this composer says it has the message.
       detail.onReceived?.()
+      if (detail.newDraft === true) {
+        // The whole draft, at once: chips left from before must not ride
+        // along with words they were never attached to.
+        setText(detail.text)
+        setAttachments((detail.attachments ?? []).map((entry) => ({ id: nextAttachmentId(), ...entry })))
+        setImageReloadWarning(false)
+        textarea.current?.focus()
+        return
+      }
       // An empty detail is only a request for focus — a new draft pane
       // handing over the keyboard — and must not disturb a typed draft.
       // "Edit" on a sent message replaces the draft: that message is the draft.
@@ -1117,6 +1134,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
         <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`composer:${mount?.id ?? 'unmounted'}`} />
         <ComposerNotices />
         {session && key && <LeadChatNotice runtime={session.runtime} sessionId={session.id} />}
+        {session && key && <CarryOnNotice runtime={session.runtime} sessionId={session.id} />}
+        {!key && <PromptLinkMarker text={text} />}
         {storedRecoverable.map(({ key: ownerKey, item }) => (
           <ComposerNotice
             key={`stored-${ownerKey}-${item.id}`}

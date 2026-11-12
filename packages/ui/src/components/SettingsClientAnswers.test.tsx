@@ -31,6 +31,8 @@ const mount = (load?: () => Promise<boolean>, save?: (value: boolean) => Promise
     loadUnheldCeilings: vi.fn(async () => 'seat'),
     loadUnattendedCeilings: vi.fn(async () => 'refuse'),
     loadQuestionWait: vi.fn(async () => '5m'),
+    loadCarryOnPolicy: vi.fn(async () => ({ onLimit: 'ask', otherAgents: true })),
+    readCarryOnRules: async () => true,
     ...(load ? { loadClientsMayAnswer: load } : {}),
     ...(save ? { setClientsMayAnswer: save } : {}),
   } as unknown as AppStore
@@ -154,6 +156,8 @@ const mountMcp = (load: () => Promise<McpStartsView | null>, save: (revision: nu
     loadUnheldCeilings: vi.fn(async () => 'seat'),
     loadUnattendedCeilings: vi.fn(async () => 'refuse'),
     loadQuestionWait: vi.fn(async () => '5m'),
+    loadCarryOnPolicy: vi.fn(async () => ({ onLimit: 'ask', otherAgents: true })),
+    readCarryOnRules: async () => true,
     loadClientsMayAnswer: vi.fn(async () => false),
     setClientsMayAnswer: vi.fn(async () => true),
     loadMcpStarts: load,

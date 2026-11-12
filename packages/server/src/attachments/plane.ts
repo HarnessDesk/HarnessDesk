@@ -466,6 +466,17 @@ export class AttachmentsPlane {
   }
 
   /**
+   * Whether what this Seat froze actually narrows what a runtime loads: a
+   * declaration, or an allowlist. Every Agent Seat freezes a record, so one
+   * that declared nothing — runtime defaults for both — narrows nothing, and
+   * moving its conversation to another account carries no filter (§9.2).
+   */
+  async filters(seat: SeatId): Promise<boolean> {
+    const frozen = await this.#readFrozen(seat)
+    return frozen !== null && (frozen.declarations.length > 0 || frozen.skillsMode === 'allowlist' || frozen.mcpMode === 'allowlist')
+  }
+
+  /**
    * One decision per declaration, in the proven order — approval, ceiling,
    * runtime support — then the content itself (`stage`), which is the step
    * that turns an identity into something a runtime may load. A declaration

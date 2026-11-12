@@ -26,6 +26,12 @@ export interface ComposeRequest {
   /** Fence a delayed handoff when the main pane has navigated elsewhere. */
   readonly sessionKey?: string
   readonly replace?: boolean
+  /**
+   * Only a new chat's draft takes it — never the conversation the pane is
+   * leaving — and it is the whole draft: its text and its chips replace
+   * what the composer held.
+   */
+  readonly newDraft?: boolean
   readonly attachments?: readonly ComposeAttachment[]
 }
 
@@ -36,12 +42,18 @@ const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimation
 
 /**
  * Dispatches the request until a composer acknowledges it. Resolves `true`
- * on receipt, `false` when nobody was listening for `frames` frames.
+ * on receipt, `false` when nobody was listening for `frames` frames or
+ * `live` said the request no longer stands.
  */
-export const handOverToComposer = async (request: ComposeRequest, { frames = HAND_OVER_FRAMES } = {}): Promise<boolean> => {
+export const handOverToComposer = async (
+  request: ComposeRequest,
+  { frames = HAND_OVER_FRAMES, live = () => true }: { readonly frames?: number; readonly live?: () => boolean } = {},
+): Promise<boolean> => {
   let received = false
   const detail = { ...request, onReceived: () => { received = true } }
   for (let attempt = 0; attempt < frames && !received; attempt += 1) {
+    // A sender whose request has been overtaken stops offering it.
+    if (!live()) return false
     window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail }))
     if (received) break
     await nextFrame()
