@@ -43,7 +43,7 @@ export const LEAD_WORK_LIMITS = Object.freeze({
   /** Stopped attempts an item keeps, newest kept. */
   stopsKept: 8,
   /** Stopped attempts after which the host refuses another until the person answers the Lead's question. */
-  stopsBeforeAsking: 2,
+  stopsBeforeAsking: 1,
 } as const)
 
 /**
@@ -311,7 +311,7 @@ export const parseLeadReminderSet: Validator<LeadReminderSet> = (value, path = '
   return { text: text(LEAD_WORK_LIMITS.reminderChars)(source.text, at('text')), ...(when === undefined ? {} : { at: when }),
     ...(minutes === undefined ? {} : { inMinutes: minutes }), ...(item === undefined ? {} : { item }), ...(cause === undefined ? {} : { cause }) }
 }
-/** Wire params for `lead/reminder/cancel`, from the Lead, the window or the phone. */
+/** Wire params for `lead/reminder/cancel` (from the Lead, the window or the phone) and `lead/reminder/clear` (the person's). */
 export const parseLeadReminderCancel: Validator<{ readonly id: string }> = (value, path = '') =>
   ({ id: reminderId(only(['id'])(value, path).id, path ? `${path}.id` : 'id') })
 

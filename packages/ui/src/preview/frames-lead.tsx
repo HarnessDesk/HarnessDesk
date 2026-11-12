@@ -115,6 +115,8 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
     if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
     if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }
+    // A recap reads the whole work ledger, which takes the desk seconds: the rail's button says it is reading meanwhile.
+    if (method === 'lead/presence/read' && params?.recap && scene === 'work-ledger') await new Promise(resolve => setTimeout(resolve, 4000))
     if (method === 'lead/presence/read') return presence
     // The desk's one inbox: in the app shell, the Lead's plan and a Team that wait on the person, listed under the bell as the phone lists it.
     if (method === 'lead/inbox/read') return scene === 'app-shell'
@@ -177,6 +179,13 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       // As on the desk: a reminder that has not fired is marked cancelled and leaves the lists; a fired one stays as it was.
       if (!work.reminders?.some(entry => entry.id === params.id)) throw { code: 'notFound' }
       return work = { ...work, reminders: work.reminders.map(entry => entry.id === params.id && entry.state === 'set' ? { ...entry, state: 'cancelled' as const, cancelledAt: Date.now(), why: 'Cancelled' } : entry) }
+    }
+    if (method === 'lead/reminder/clear') {
+      // As on the desk: a fired or cancelled reminder leaves the board for good; a set one must be cancelled instead.
+      const entry = work.reminders?.find(found => found.id === params.id)
+      if (!entry) throw { code: 'notFound' }
+      if (entry.state === 'set') throw { code: 'invalidParams' }
+      return work = { ...work, reminders: work.reminders!.filter(found => found.id !== params.id) }
     }
     if (method === 'lead/wakes/read') return { revision: current.revision, wakes: scene === 'wake-ledger' ? leadWakeFixture : [] }
     if (method === 'lead/budget/raise') {

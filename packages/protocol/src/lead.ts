@@ -216,13 +216,22 @@ export interface LeadChatIncidentObservation extends LeadChatIncident {
   readonly candidates: readonly LeadChatCandidate[]
 }
 
-export interface LeadAskOption { readonly id: string; readonly label: string }
+export interface LeadAskOption {
+  readonly id: string
+  readonly label: string
+  /** Choosing it starts or restarts a chat. An answer that picked an option without it starts none: the host refuses
+   * the start, so an answer never begins what the question said it would not. Left out on every other option. */
+  readonly starts?: true
+}
 export interface LeadAsk {
   readonly question: string
   readonly options: readonly LeadAskOption[]
   readonly recommended: string
   /** Minutes the question stays answerable, from when the host first saw it. Left out: it does not expire. */
   readonly expiresInMinutes?: number
+  /** The host read this question from the Lead under the rule that marks an option `starts` (#2145). Only then does an
+   * answer without a `starts` option refuse a chat start; a question stored before the rule keeps the old behaviour. */
+  readonly startsMarked?: true
 }
 /** One host-rendered unprompted finding. Actions navigate existing surfaces; they never grant authority. */
 export interface LeadProactive {
@@ -232,6 +241,8 @@ export interface LeadProactive {
   readonly options?: readonly LeadAskOption[]
   readonly recommended?: string
   readonly action?: 'plan' | 'changes' | 'approvals'
+  /** As on `LeadAsk`: the options were written under the `starts` rule. */
+  readonly startsMarked?: true
 }
 export interface LeadApprovalAudit { readonly ruleId: string; readonly target: string; readonly diff?: string }
 /** What a reply's work item is: a Team (or its goal), a conversation (a session or a chat the Lead runs), or a work-ledger item. */
@@ -768,19 +779,20 @@ const askExpiry: Validator<number> = (value, path = '') =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 5 && value <= 7 * 24 * 60 ? value : fail(path, 'expected 5 to 10080 minutes')
 const askOptionId: Validator<string> = (value, path = '') =>
   typeof value === 'string' && /^[a-z0-9-]{1,32}$/.test(value) ? value : fail(path, 'expected a short option slug')
-const askOptions = list(object<LeadAskOption>({ id: askOptionId, label: (value, path = '') => {
+const askOptions = list(omitUnset(object<LeadAskOption>({ id: askOptionId, label: (value, path = '') => {
   const label = text(60)(value, path)
   return label !== label.trim() || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label) ? fail(path, 'expected one trimmed plain-text label') : label
-} }), 4, 2, option => option.id)
+}, starts: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['starts']), 4, 2, option => option.id)
+const startsMarked = optional((value, path = '') => value === true ? true as const : fail(path, 'expected true'))
 export const parseLeadAsk: Validator<LeadAsk> = (value, path = '') => {
-  const ask = omitUnset(object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId, expiresInMinutes: optional(askExpiry) }), ['expiresInMinutes'])(value, path)
+  const ask = omitUnset(object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId, expiresInMinutes: optional(askExpiry), startsMarked }), ['expiresInMinutes', 'startsMarked'])(value, path)
   if (new Set(ask.options.map(option => option.label.trim().replace(/\s+/gu, ' ').toLowerCase())).size !== ask.options.length) fail(path, 'duplicate option label')
   if (!ask.options.some(option => option.id === ask.recommended)) fail(path, 'recommendation must name an option')
   return ask
 }
 export const parseLeadProactive: Validator<LeadProactive> = (value, path = '') => {
   const report = omitUnset(object<LeadProactive>({ finding: proactiveLine, caveat: proactiveLine, ask: proactiveLine,
-    options: optional(askOptions), recommended: optional(askOptionId), action: optional(literalUnion('plan', 'changes', 'approvals')) }), ['options', 'recommended'])(value, path)
+    options: optional(askOptions), recommended: optional(askOptionId), action: optional(literalUnion('plan', 'changes', 'approvals')), startsMarked }), ['options', 'recommended', 'startsMarked'])(value, path)
   if (report.options !== undefined || report.recommended !== undefined)
     parseLeadAsk({ question: report.ask, options: report.options, recommended: report.recommended }, path)
   return report
@@ -1166,6 +1178,9 @@ export interface LeadContextFacts {
   readonly compacting: boolean
   /** Oldest first, at most eight. */
   readonly checkpoints: readonly LeadContextCheckpoint[]
+  /** Every summary the conversation has had, as the thread marks them; `checkpoints` keeps only the latest eight.
+   * Absent from a desk that does not count them, where the list's length stands in. */
+  readonly count?: number
   /** The latest compaction could not bring the conversation under the hard line, even keeping the fewest recent
    * turns: no compaction runs until it grows further. Absent otherwise. */
   readonly full?: true
@@ -1200,7 +1215,8 @@ const parseLeadContextCheckpoint: Validator<LeadContextCheckpoint> = omitUnset(o
   person: optional(parseLeadCheckpointPerson) }), ['person'])
 export const parseLeadContextFacts: Validator<LeadContextFacts> = omitUnset(object({ version, windowTokens: integer(1, 100_000_000), usedTokens: nullable(wakeTokens),
   cacheHitRate: nullable((value, path = '') => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : fail(path, 'expected a ratio')),
-  compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id), full: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['full'])
+  compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id), count: optional(integer(0, Number.MAX_SAFE_INTEGER)),
+  full: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['full', 'count'])
 /**
  * The question a Lead message puts to the person, wherever it carries it: an ordinary reply's `ask`, or the options of
  * a report it wrote on an automatic wake. Every surface draws both as the same buttons, so the desk tracks, answers,
@@ -1208,4 +1224,4 @@ export const parseLeadContextFacts: Validator<LeadContextFacts> = omitUnset(obje
  */
 export const leadMessageAsk = (message: { readonly ask?: LeadAsk; readonly proactive?: LeadProactive }): LeadAsk | undefined =>
   message.ask ?? (message.proactive?.options?.length && message.proactive.recommended
-    ? { question: message.proactive.ask, options: message.proactive.options, recommended: message.proactive.recommended } : undefined)
+    ? { question: message.proactive.ask, options: message.proactive.options, recommended: message.proactive.recommended, ...(message.proactive.startsMarked ? { startsMarked: true as const } : {}) } : undefined)

@@ -92,6 +92,10 @@ export const LeadWork = () => {
     setError(null)
     try { await store.lead.cancelReminder(entry.id) } catch (failure) { setError(leadRefusalText(failure)) }
   }
+  const clear = async (entry: LeadReminder) => {
+    setError(null)
+    try { await store.lead.clearReminder(entry.id) } catch (failure) { setError(leadRefusalText(failure)) }
+  }
   return <ToolSection label="Work" fold value={open || undefined}>
     {groups.map(({ group, label, items, waiting: others }) => <ToolGroup key={group} label={label} heading={`${label} · ${items.length + others.length}`} data-work-group={group}>
       <ListRows surface="panel">{others.map(entry => <ListRow key={`${entry.kind}:${entry.id}`} size="sm" data-work-waiting={entry.id}
@@ -114,8 +118,10 @@ export const LeadWork = () => {
         // Said only once the Lead's message was written; one the Lead never wrote says Missed, never Fired as if said.
         subtitle={reminderLine(entry)}
         // The Lead's own check-back is a kind, so it is a word on the label's line: quiet hours and autonomy hold it.
-        trail={entry.state === 'set' && <>{entry.for === 'lead' && <Chip tone="neutral" title="The Lead's own check-back: quiet hours and your autonomy settings hold it">Check-back</Chip>}
-          <Button variant="ghost" size="icon-sm" aria-label={`Cancel reminder: ${sanitizeText(entry.text)}`} title="Cancel reminder" onClick={() => { void cancel(entry) }}><CrossIcon size={16} /></Button></>} />)}</ListRows>
+        // A set one is cancelled; one that fired is cleared, which takes it off this card and out of what the Lead is told.
+        trail={entry.state === 'set' ? <>{entry.for === 'lead' && <Chip tone="neutral" title="The Lead's own check-back: quiet hours and your autonomy settings hold it">Check-back</Chip>}
+          <Button variant="ghost" size="icon-sm" aria-label={`Cancel reminder: ${sanitizeText(entry.text)}`} title="Cancel reminder" onClick={() => { void cancel(entry) }}><CrossIcon size={16} /></Button></>
+          : <Button variant="ghost" size="icon-sm" aria-label={`Clear reminder: ${sanitizeText(entry.text)}`} title="Clear reminder" onClick={() => { void clear(entry) }}><CrossIcon size={16} /></Button>} />)}</ListRows>
     </ToolGroup>}
     {board.more > 0 && <ToolProse variant="note">{board.more} older closed {board.more === 1 ? 'item' : 'items'} not shown</ToolProse>}
     {error && <ToolProse variant="note">{error}</ToolProse>}

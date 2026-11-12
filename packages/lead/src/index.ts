@@ -20,7 +20,7 @@ export type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesRequest, Lead
   MessagesTransport, MessagesHttpRequest, MessagesHttpResponse, MessagesPrice, MessagesUsage, MessagesToolScope,
   MessagesTurn, MessagesText, MessagesThinking, MessagesRedactedThinking, MessagesToolUse, MessagesToolResult } from './messages-types.js'
 export { createLeadLoop } from './loop.js'
-export { LEAD_ENVELOPE_CLOSING_MAX, splitLeadOutput, stripLeadOutput, type LeadEnvelopeSplit } from './envelope.js'
+export { LEAD_ENVELOPE_CLOSING_MAX, splitLeadOutput, stripLeadOutput, stripLeadToolMarkup, type LeadEnvelopeSplit } from './envelope.js'
 export { classifyLeadRuns, createLeadWakeGate, leadChatFingerprint, leadDeskFingerprint, LEAD_STUCK_MS, type LeadRunClass, type LeadRunReading, type LeadWakeCounts } from './wake.js'
 export { LEAD_QUIET, LEAD_REMEMBER, isLeadQuiet, leadRememberLines } from './instructions.js'
 export type { LeadLoop, LeadLoopOptions, LeadLoopState, LeadLoopClock, LeadContextPort, LeadContextRecordInput } from './loop.js'
@@ -29,14 +29,14 @@ export type { LeadTools, LeadToolsOptions, LeadResolvedTool } from './tools.js'
 export { evaluateLeadAcceptance, leadPublicationEvidenceRevision, leadResultSummary, leadVerifyLine, LEAD_HEDGE_PHRASES, LEAD_REPAIR_INSTRUCTIONS, leadAssertionsToRerun, leadRepairInput, leadRepairDetail, leadAcceptanceObservation } from './acceptance.js'
 export type { LeadAcceptanceEvidence, LeadAcceptanceResult } from './acceptance.js'
 export { LEAD_REVIEWED_RESULT, leadReviewedResultSource, leadReviewedResultSourceFor } from './recipes/reviewed-result.js'
-export { leadInstructions, leadContinuation, leadApprovedPlan, leadPlanMoment, leadObservation, parseLeadSeatChoices, LEAD_SEATS_PER_ROLE } from './instructions.js'
+export { leadInstructions, leadContinuation, leadApprovedPlan, leadPlanMoment, leadDeviceContext, leadObservation, parseLeadSeatChoices, LEAD_SEATS_PER_ROLE } from './instructions.js'
 export type { LeadSeatChoices, LeadInstructionFacts, LeadContinuationFacts } from './instructions.js'
 
 export { leadDataContainsCredential } from './journal-security.js'
 export { leadContainsSecret, leadMessagesContainSecret, leadWithholdCredentials, leadWithholdCredentialsReport, LEAD_WITHHELD_TEXT, type LeadWithheldPiece } from './credential-screen.js'
 export { leadWorkCards } from './work.js'
 export { LEAD_CONTEXT, LEAD_CONTEXT_WINDOWS, LEAD_DESK_STUB_PREFIX, leadContextWindow, leadContextBytes, leadEstimatedTokens, leadContextPressure, leadNextSoftShare,
-  leadDeskStub, leadContextMarkOf, leadStubVolatile, leadContextRecord, leadWithoutReasoning, leadPruneContext, leadContextBoundary, leadContextSplit, leadCloseOpenLoop, leadPairedTurns, leadMergedTurns, leadAppendUser, leadWithPlan, LEAD_EPOCH_ADDENDA, leadEpochAddendum, leadClip } from './context.js'
+  leadDeskStub, leadContextMarkOf, leadStubVolatile, leadContextRecord, leadWithoutReasoning, leadPruneContext, leadFoldToolExchanges, leadPruneAndFold, LEAD_FOLDED_READS_PREFIX, leadContextBoundary, leadContextSplit, leadCloseOpenLoop, leadPairedTurns, leadMergedTurns, leadAppendUser, leadWithPlan, LEAD_EPOCH_ADDENDA, leadEpochAddendum, leadClip } from './context.js'
 export type { LeadContextMark, LeadContextRecord, LeadContextPressureInput } from './context.js'
 export { LEAD_CHECKPOINT_SECTIONS, LEAD_CHECKPOINT_OPEN, leadCheckpointInstruction, leadCheckpointRefusal, leadCheckpointTurn, leadCheckpointText, leadPersonWords,
   leadFallbackCheckpoint, leadCheckpointMessages, leadRegionBytes, leadPersonSection, leadPersonQuotes, leadCheckpointCompose, leadCheckpointModelPart, leadFitTurns } from './compaction.js'

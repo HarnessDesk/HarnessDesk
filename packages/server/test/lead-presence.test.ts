@@ -1036,3 +1036,107 @@ test('a report an older desk build appended while this one was away is settled o
   assert.equal(back.unansweredAsk(), null, 'the report the older build saw is not open')
   assert.deepEqual((await back.read(desktop, { active: true })).asks.map(one => [one.id, one.status]), [['message-3', 'answered'], ['message-6', 'expired']])
 })
+
+// #2147: the recap button, its spend, and the away window the Lead is told about.
+test('two clicks on "What happened?" show the same day, not an empty card in place of the first (#2147)', async t => {
+  let release: () => void = () => {}
+  let gate: Promise<void> | null = null
+  const r = await rig(t, { board: async () => { if (gate) await gate; return { version: 1, items: cards, more: 0 } } })
+  const cards = [work('work-3', 'stopped', r.now() - 40 * MIN, { stoppedBy: 'person' })]
+  await r.store.read(desktop, { active: true })
+  r.tick(MIN)
+  // The first click reads a slow ledger; the second click comes while it is still reading.
+  gate = new Promise(resolve => { release = resolve })
+  const first = r.store.read(desktop, { active: true, recap: true })
+  await new Promise(resolve => setImmediate(resolve))
+  r.tick(6_000)
+  const second = r.store.read(desktop, { active: true, recap: true })
+  release(); gate = null
+  const views = [await first, await second]
+  for (const view of views) assert.deepEqual(view.digest?.items.map(item => item.id), ['work-3'], 'each answer says what happened in the day')
+  // A third click later on says the same day again.
+  r.tick(5_000)
+  assert.deepEqual((await r.store.read(desktop, { active: true, recap: true })).digest?.items.map(item => item.id), ['work-3'])
+})
+
+test('"What happened?" counts what was spent in its day, not from the moment of the click (#2147)', async t => {
+  const r = await rig(t)
+  r.spend(1_000_000)
+  await r.store.read(phone, { active: true })
+  r.tick(20 * MIN); r.spend(2_000_000); await r.store.observe()
+  r.tick(20 * MIN); r.spend(500_000); await r.store.observe()
+  r.tick(MIN)
+  // A window that never asked before: the whole span the desk knows is counted, $2.50 since the record began.
+  const recap = (await r.store.read(desktop, { active: true, recap: true })).digest!
+  assert.equal(recap.kind, 'recap')
+  assert.equal(recap.spentUsdMicros, 2_500_000)
+})
+
+test('the Lead is told the real away window, and that nothing moved in it when nothing did (#2147)', async t => {
+  const r = await rig(t)
+  const left = r.now()
+  // Work stopped before the person left: it belongs before the window.
+  r.setItems([work('work-6', 'stopped', left - 25 * MIN, { stoppedBy: 'person', title: 'Fix the stalled task' })])
+  await r.store.read(desktop, { active: true })
+  await r.store.read(phone, { active: true })
+  r.tick(31 * MIN)
+  const back = r.now()
+  const view = await r.store.read(desktop, { active: true })
+  assert.equal(view.digest, null, 'nothing moved, so no digest')
+  const note = await r.store.awayNote()
+  assert.ok(note, 'a person turn after the absence carries the window')
+  const clock = (at: number) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
+  assert.ok(note.includes(clock(left)) && note.includes(clock(back)), note)
+  assert.match(note, /nothing on the work ledger/i)
+  assert.match(note, /no away digest/i)
+  assert.ok(!note.includes('Fix the stalled task'), 'work from before the window is not in it')
+  assert.match(note, /before they left/)
+  assert.match(leadTurnContext(null, note, false)!, /^<host-note>The person was away/)
+  // An hour later, the person here all along, it is no longer news.
+  for (let n = 0; n < 4; n++) { r.tick(16 * MIN); await r.store.read(desktop, { active: true }) }
+  assert.equal(await r.store.awayNote(), undefined)
+})
+
+test('the away window lists what moved in it and what was spent, the same as the digest (#2147)', async t => {
+  const r = await rig(t)
+  await r.store.read(desktop, { active: true })
+  r.tick(10 * MIN)
+  r.setItems([work('work-8', 'done', r.now(), { closedAt: r.now(), outcome: 'done', title: 'Ship the "export" fix' })])
+  r.spend(750_000); await r.store.observe()
+  r.tick(25 * MIN)
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  assert.deepEqual(digest.items.map(item => item.id), ['work-8'])
+  const note = (await r.store.awayNote())!
+  assert.ok(note.includes('Done') && note.includes('export'), note)
+  assert.ok(note.includes('$0.75'), note)
+  assert.ok(!/no away digest/i.test(note))
+})
+
+test('a spend that starts again inside a minute keeps its fall: $1.00, then $0, then $0.50 is $1.50 spent (#2147)', async t => {
+  let current = 0
+  const r = await rig(t, { spent: () => current })
+  await r.store.read(desktop, { active: true })
+  r.tick(2 * MIN); current = 1_000_000; await r.store.observe()
+  // A new goal's budget starts again from zero, and spends half a dollar, all inside the same minute.
+  r.tick(10_000); current = 0; await r.store.observe()
+  r.tick(10_000); current = 500_000; await r.store.observe()
+  r.tick(MIN)
+  const recap = (await r.store.read(desktop, { active: true, recap: true })).digest!
+  assert.equal(recap.spentUsdMicros, 1_500_000)
+})
+
+test('a decision that begins waiting after the return is not told as one that came while away (#2147)', async t => {
+  const waiting: { id: string; title: string; position: number }[] = []
+  const r = await rig(t, { waiting: () => waiting })
+  await r.store.read(desktop, { active: true })
+  r.tick(10 * MIN)
+  // A plan comes to wait for the person while they are away.
+  r.bump(); waiting.push({ id: 'plan-away', title: 'Approve the export plan', position: 11 })
+  r.tick(25 * MIN)
+  await r.store.read(desktop, { active: true })
+  // After they are back, before their next message, a permission change starts waiting too.
+  r.tick(MIN); r.bump(); waiting.push({ id: 'perm-after', title: 'Allow pushing to the release branch', position: 12 })
+  const note = (await r.store.awayNote())!
+  assert.ok(note.includes('export plan'), note)
+  assert.ok(!note.includes('release branch'), note)
+})

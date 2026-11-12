@@ -2183,3 +2183,13 @@ test('settings-changed names what changed, and an older record without it still 
   assert.doesNotThrow(() => lead.parseLeadJournalRecord({ version: 1, seq: 9, type: 'settings-changed' }))
   assert.throws(() => lead.parseLeadJournalRecord({ version: 1, seq: 9, type: 'settings-changed', what: 'the words' }))
 })
+
+test('#2144: only a model reply that was written counts as the model\'s; one refused before the write leaves its number to the next notice', async () => {
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {} })
+  const seen: boolean[] = []
+  journal.onChange(() => { const last = journal.state.messages.at(-1); if (last) seen.push(journal.isModelReply(last.id)) })
+  await journal.appendModelReply('Shall I?', undefined, { question: 'Shall I?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }], recommended: 'missing' }).catch(() => {})
+  await journal.appendReply('Host notice: a queued message was not delivered.')
+  await journal.appendModelReply('Done.')
+  assert.deepEqual(seen, [false, true], 'the notice that took the refused reply\'s number is the host\'s; the written reply is the model\'s')
+})

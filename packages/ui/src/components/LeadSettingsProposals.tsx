@@ -1,22 +1,21 @@
 import { useMemo, useState, useSyncExternalStore } from 'react'
-import { LEAD_AUTONOMY_LABELS, LEAD_RULE_TITLES, type LeadAutonomyMode, type LeadRuleSectionId, type LeadSettingsProposal } from '@harnessdesk/protocol'
+import { LEAD_AUTONOMY_LABELS, LEAD_RULE_TITLES, leadDisplayName, type LeadAutonomyMode, type LeadName, type LeadRuleSectionId, type LeadSettingsProposal } from '@harnessdesk/protocol'
 import { Button, Chip, CodeText, InlineParts, Row, Rows, Text } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { useStore } from '../state/context'
 import { leadRefusalText } from './lead-refusals'
 import { leadRuleDiff } from './lead-rules-diff'
-import { useLeadCalled } from './use-lead-name'
 
 const MODE: Record<LeadAutonomyMode, string> = { off: 'Off', observe: 'Observe', act: 'Act' }
 
 /**
- * When an applied change holds, said on the card because a mode and a rule section take effect differently. `name` is
- * what the Lead is called (`useLeadCalled`), Dex or Lex, the words the phone uses for the same card (#2146).
+ * When an applied change holds, said on the card because a mode and a rule section take effect differently. The card
+ * names the Lead by the name the person chose, as the phone's card does (#2146); "the Lead" only before one is read.
  */
-export const leadSettingsEffect = (name: string) => ({
-  autonomy: `Takes effect at once, for what ${name} does without being asked.`,
-  rules: `Takes effect at ${name}'s next epoch, never in the middle of a turn.`,
-}) as const
+export const leadSettingsEffect = (kind: LeadSettingsProposal['change']['kind'], name: LeadName | null | undefined): string => {
+  const who = name ? leadDisplayName(name) : 'the Lead'
+  return kind === 'autonomy' ? `Takes effect at once, for what ${who} does without being asked.` : `Takes effect at ${who}'s next epoch, never in the middle of a turn.`
+}
 
 /** What one proposal changes, in the words Settings uses for the same row. The Lead wrote an added line, so it is drawn as plain text. */
 export const leadSettingsProposalTitle = (proposal: LeadSettingsProposal): string => {
@@ -43,8 +42,9 @@ const WholeWords = ({ section, current, text }: { readonly section: LeadRuleSect
 }
 
 export const LeadSettingsProposals = ({ proposals }: { readonly proposals: readonly LeadSettingsProposal[] }) => {
-  const store = useStore(), effect = leadSettingsEffect(useLeadCalled())
+  const store = useStore()
   const rules = useSyncExternalStore(store.lead.subscribe, () => store.lead.state.autonomy?.rules)
+  const name = useSyncExternalStore(store.lead.subscribe, () => store.lead.state.settings?.name)
   const [pending, setPending] = useState(false), [error, setError] = useState<string | null>(null)
   const decide = (id: string, decision: 'apply' | 'decline') => {
     setPending(true); setError(null)
@@ -58,7 +58,7 @@ export const LeadSettingsProposals = ({ proposals }: { readonly proposals: reado
       const whole = change.kind === 'rules'
         ? <WholeWords section={change.section} current={rules?.find(one => one.id === change.section)?.text} text={change.text} /> : null
       return <Row key={proposal.id} title={leadSettingsProposalTitle(proposal)}
-        desc={whole ? <>{effect[change.kind]}{whole}</> : effect[change.kind]}
+        desc={whole ? <>{leadSettingsEffect(change.kind, name)}{whole}</> : leadSettingsEffect(change.kind, name)}
         titleChip={<InlineParts>
           <Chip variant="quiet" tone="neutral">{change.kind === 'autonomy' ? 'Autonomy' : LEAD_RULE_TITLES[change.section]}</Chip>
           {proposal.askedAgainAt !== undefined && <Chip variant="quiet" tone="neutral" title="Proposed again while it waited for you; still one card">Asked again</Chip>}

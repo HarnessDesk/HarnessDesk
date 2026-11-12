@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { createLeadFixtureStore } from '../preview/frames-lead'
 import { LeadPage } from './LeadPage'
-import { LeadRecap, leadAsksAt, useLeadAsks, leadDigestLine, leadDigestNote, leadDigestSections, leadDigestTitle } from './LeadAway'
+import { LeadRecap, useLeadPresence, leadAsksAt, useLeadAsks, leadDigestLine, leadDigestNote, leadDigestSections, leadDigestTitle } from './LeadAway'
 import { openExternal } from '../lib/desktop'
 import { leadDigestTarget } from './LeadRefs'
 import { leadDigestMore } from '@harnessdesk/protocol'
@@ -16,16 +16,21 @@ import { DestinationPageScope } from '../panels/destination-page'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const clean: (() => void)[] = []
 afterEach(() => { clean.splice(0).forEach(fn => fn()); localStorage.clear() })
-const mount = async () => {
+// The app mounts the window's presence once, beside every page.
+const Presence = () => { useLeadPresence(true); return null }
+const mount = async ({ page = true }: { readonly page?: boolean } = {}) => {
   const store = createLeadFixtureStore('presence'), box = document.createElement('div'); document.body.append(box)
   const calls: { method: string; params: any }[] = []
   const request = store.transport.request.bind(store.transport)
   store.transport.request = (async (method: string, params: unknown) => { calls.push({ method, params }); return request(method as never, params as never) }) as typeof store.transport.request
   const root = createRoot(box)
-  await act(async () => root.render(<StoreProvider store={store}><DestinationPageScope owner="lead" active><LeadPage focus={null} /></DestinationPageScope></StoreProvider>))
+  // The Lead page is unmounted while another page shows (its dock renders only when the page is active).
+  const render = (shown: boolean) => root.render(<StoreProvider store={store}><Presence />{shown && <DestinationPageScope owner="lead" active><LeadPage focus={null} /></DestinationPageScope>}</StoreProvider>)
+  await act(async () => render(page))
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
   clean.push(() => { act(() => root.unmount()); box.remove() })
-  return { box, store, calls }
+  const show = async (shown: boolean) => { await act(async () => render(shown)) }
+  return { box, store, calls, show }
 }
 
 it('orders a digest by what the person acts on: Needs you, then Stopped or stuck, then Done', () => {
@@ -189,4 +194,65 @@ it('the buttons of a question go the moment it expires, with no refresh', async 
     expect(box.textContent).toBe('expired')
     act(() => root.unmount()); box.remove()
   } finally { vi.useRealTimers() }
+})
+
+it('#2147: "What happened?" shows it is reading until the host answers, so the first click is seen to work', async () => {
+  const store = createLeadFixtureStore('presence'), box = document.createElement('div'); document.body.append(box)
+  let answer: () => void = () => {}
+  const request = store.transport.request.bind(store.transport)
+  store.transport.request = (async (method: string, params: any) => {
+    if (method === 'lead/presence/read' && params.recap) await new Promise<void>(resolve => { answer = resolve })
+    return request(method as never, params as never)
+  }) as typeof store.transport.request
+  const root = createRoot(box)
+  await act(async () => root.render(<StoreProvider store={store}><LeadRecap /></StoreProvider>))
+  clean.push(() => { act(() => root.unmount()); box.remove() })
+  const button = () => box.querySelector('button')!
+  await act(async () => { button().click() })
+  expect(button().getAttribute('aria-busy')).toBe('true')
+  expect(button().disabled).toBe(true)
+  expect(button().textContent).toBe('Reading…')
+  await act(async () => { answer(); await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(button().getAttribute('aria-busy')).not.toBe('true')
+  expect(button().textContent).toBe('What happened?')
+})
+
+it('#2147: an open window nobody touches stops marking itself seen, and the first touch after reads as a return', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+  clean.push(() => vi.useRealTimers())
+  const { calls } = await mount()
+  const reads = () => calls.filter(call => call.method === 'lead/presence/read' && !call.params.recap)
+  expect(reads().at(-1)!.params.active).toBe(true)
+  // Five minutes with nobody at the window: the refreshes still read, but do not say the person looked.
+  await act(async () => { vi.advanceTimersByTime(5 * 60_000) })
+  expect(reads().length).toBeGreaterThan(2)
+  expect(reads().at(-1)!.params.active).toBe(false)
+  // The person comes back: the first touch reads at once, as a look.
+  const before = reads().length
+  await act(async () => { window.dispatchEvent(new Event('pointerdown')) })
+  expect(reads().length).toBe(before + 1)
+  expect(reads().at(-1)!.params.active).toBe(true)
+})
+
+it('#2147: an hour in other pages is an hour looked at, and opening the Lead again is a look', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+  clean.push(() => vi.useRealTimers())
+  const { calls, show } = await mount()
+  const reads = () => calls.filter(call => call.method === 'lead/presence/read' && !call.params.recap)
+  // The person leaves the Lead for chats and Settings and works there for an hour, touching the window every minute.
+  await show(false)
+  const before = reads().length
+  for (let minute = 0; minute < 60; minute++) {
+    await act(async () => { window.dispatchEvent(new Event('pointermove')); vi.advanceTimersByTime(60_000) })
+  }
+  const away = reads().slice(before)
+  // The window kept telling the host it was looked at, so the desk never sees an absence in that hour.
+  expect(away.length).toBeGreaterThanOrEqual(59)
+  expect(away.every(call => call.params.active === true)).toBe(true)
+  // Five idle minutes on another page, then the click that opens the Lead: that opening is a look, before any input.
+  await act(async () => { vi.advanceTimersByTime(5 * 60_000) })
+  expect(reads().at(-1)!.params.active).toBe(false)
+  await show(true)
+  await act(async () => { await Promise.resolve() })
+  expect(reads().at(-1)!.params.active).toBe(true)
 })
