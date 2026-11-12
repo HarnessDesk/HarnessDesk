@@ -67,6 +67,9 @@ test('a definition carries no command, environment, ceiling or free-form templat
 
 
 test('the allowed PR event vocabulary includes opt-ins while defaults remain opened and pushed', () => {
-  assert.deepEqual(TRIGGER_EVENTS['pull-request'], ['opened', 'pushed', 'checks-failed', 'review-commented'])
+  assert.deepEqual(TRIGGER_EVENTS['pull-request'], ['opened', 'pushed', 'checks-failed', 'review-commented', 'mentioned'])
   assert.deepEqual(TRIGGER_DEFAULTS['pull-request'].events, ['opened', 'pushed'])
+  // A request is opted into by name on either source, never a default.
+  assert.ok(TRIGGER_EVENTS.issue.includes('mentioned'))
+  assert.ok(!TRIGGER_DEFAULTS.issue.events.includes('mentioned'))
 })

@@ -2276,6 +2276,13 @@ class PreviewStore {
         return { data: [{ id: `archived-${runtime}`, runtime, title: 'Review the workspace settings', preview: null, cwd: PREVIEW_ROOT, status: { type: 'notLoaded' }, createdAt: now - 86_400_000, updatedAt: now - 3_600_000, archived: true }], nextCursor: null }
       }
       if (method === 'library/read') return LIBRARY
+      // Test connection, scripted: the reading sheet's server answers; any other is waiting on sign-in.
+      if (method === 'library/mcp/test') {
+        const name = (params as { name?: string } | undefined)?.name
+        return name === 'workspace-tools'
+          ? { ok: true, tools: 12, serverName: 'workspace-tools', serverVersion: '1.4.0', ms: 840 }
+          : { ok: false, reason: 'needsSignIn', detail: 'It asks for sign-in. A test never signs in; sign in through the agent first.', ms: 120 }
+      }
       if (method === 'library/definition') {
         const name = (params as { name?: string } | undefined)?.name ?? ''
         const text = DEFINITIONS[name]

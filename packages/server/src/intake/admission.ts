@@ -186,11 +186,14 @@ export interface OfferAnswer {
 export const SKIP_FORK = 'This pull request comes from another repository, and this trigger does not allow forks.'
 export const SKIP_CHANGED = 'The trigger or what it runs changed since it was armed, so this did not fire. Arm it again to watch from now.'
 export const SKIP_MISMATCH = 'This trigger does not read this kind of fact.'
+export const SKIP_BEFORE_ARMED = 'This happened before the trigger was armed, so it did not fire.'
 export const SKIP_DESK = 'This comment was posted by this desk, so it does not fire a trigger.'
 export const SKIP_AUTHOR_UNREAD = 'Who wrote this comment could not be read, so it did not fire.'
 export const SKIP_NOT_ME = 'Only comments by the forge account this trigger was armed with fire it, and someone else wrote this one.'
 export const SKIP_WRITES_UNREAD = 'Whether this comment’s author can write to the repository could not be read, so it did not fire.'
 export const SKIP_NOT_COLLABORATOR = 'Only comments by people who can write to the repository fire this trigger, and this one’s author cannot.'
+export const SKIP_EDITED = 'This request was edited after it was written, and an edit may be anyone’s who can write, so it did not fire.'
+export const SKIP_EDIT_UNREAD = 'Whether this request was edited could not be read, so it did not fire.'
 
 /**
  * Whether a comment may fire this trigger, by its `from` and stable account
@@ -203,8 +206,11 @@ export const commentRefusal = (definition: TriggerDefinition, fact: TriggerFact,
     if (typeof fact.author !== 'string') return SKIP_AUTHOR_UNREAD
     return fact.authorWrites === true ? null : fact.authorWrites === false ? SKIP_NOT_COLLABORATOR : SKIP_WRITES_UNREAD
   }
-  if (fact.source !== 'issue' || fact.action !== 'commented') return null
+  // `from` reads an issue's comments and a request on either source alike.
+  if (fact.action !== 'mentioned' && (fact.source !== 'issue' || fact.action !== 'commented')) return null
   if (fact.desk === true) return SKIP_DESK
+  // A request asks only as first written, whoever's name it carries — and only on the forge's word that it was never edited.
+  if (fact.action === 'mentioned' && fact.unedited !== true) return fact.unedited === false ? SKIP_EDITED : SKIP_EDIT_UNREAD
   const from = definition.from ?? 'me'
   if (from === 'anyone') return null
   if (typeof fact.author !== 'string') return SKIP_AUTHOR_UNREAD
@@ -229,7 +235,7 @@ export const faultSetAside = (reason: string): string =>
 
 /** `again` compares changed PR heads, or the distinct check/review/issue event; nothing for a schedule. */
 const comparison = (fact: TriggerFact): string | null =>
-  fact.source === 'pull-request' ? (fact.action === 'checks-failed' || fact.action === 'review-commented' ? fact.event : fact.head) : fact.source === 'issue' || fact.source === 'mention' ? fact.event : null
+  fact.source === 'pull-request' ? (fact.action === 'checks-failed' || fact.action === 'review-commented' || fact.action === 'mentioned' ? fact.event : fact.head) : fact.source === 'issue' || fact.source === 'mention' ? fact.event : null
 
 /** What a firing's history row keeps of its fact: validated scalars, never prose. */
 const historyOf = (fact: TriggerFact): Pick<IntakeFiring, 'source' | 'subject' | 'head' | 'repository'> => ({
@@ -342,6 +348,8 @@ export class Admission {
       if (!acceptsFact(definition, fact) || (fact.trigger !== null && fact.trigger !== definition.id) || fact.project !== arm.project) {
         return this.#skip(arm, key, SKIP_MISMATCH, fact)
       }
+      // From before this arm was armed: never its to fire, whatever read offered it.
+      if (fact.at < arm.baseline) return this.#skip(arm, key, SKIP_BEFORE_ARMED, fact)
       if (fact.fork && definition.forks !== 'allow') return this.#skip(arm, key, SKIP_FORK, fact)
       // Throws when the arm cannot be read now: no answer, so the fact is kept and offered again.
       const binding = await (options.binding ? options.binding() : this.#port.binding(arm))

@@ -1305,13 +1305,23 @@ flow works. A webhook or an inbound message source is still undecided: Intake
 reads only host-validated facts it polled itself, and any future source enters
 that same boundary rather than a listener of its own.
 
+A project can also take requests in words from its threads: a trigger on
+`issue` or `pull-request` with `events: [mentioned]` and `opens: { lead: true }`
+hands a comment whose first line starts with `@harnessdesk` to the Lead, which
+drafts a plan for the person to approve. It never starts a flow directly —
+a triggered flow receives no outside text, so it could not know what was
+asked. `docs/multi-agent.md` says exactly which comments ask.
+
 ### Every time
 
 *Every time…*, on a shape (from the front door) or an Agent (from its page),
 composes exactly that declaration rather than a person hand-writing YAML: the
 source (pull request, issue or schedule), its finite fields, the Goal grouping
 and dedupe keys, budget, and — for a pull request or an issue — whether a
-later firing continues an open Goal's round or only records the fact. A
+later firing continues an open Goal's round or only records the fact. For
+an issue or a pull request, *When someone asks @harnessdesk* drafts a request
+trigger instead: the Lead is its only target and the other events turn off,
+each saying why on hover, and *Who may ask* picks `from`. A
 schedule draft starts at 60 minutes, visibly editable; nothing here invents a
 field `triggers.yml` cannot already carry. *Save* writes the working tree
 alone, through the same guarded transaction a shape or an Agent field uses,

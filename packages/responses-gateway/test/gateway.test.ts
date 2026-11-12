@@ -217,6 +217,41 @@ test('a pinned model rewrites the request body; the caller cannot override it', 
   }
 })
 
+test('tool declarations carried in the input history pass through untouched, pinned model or not', async () => {
+  // Codex 0.167.1's opt-in `incremental_tools_legacy` puts tool declarations
+  // inside `input` instead of the top-level `tools` list. The gateway reads
+  // only `model`, so those items must arrive byte-for-byte as sent.
+  const upstream = await upstreamServer()
+  const supervisor = new GatewaySupervisor()
+  try {
+    const input = [
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] },
+      { type: 'tool_declarations', tools: [{ type: 'function', name: 'shell', parameters: { type: 'object' } }] },
+      { type: 'future_item_kind', payload: { nested: [1, 2, { deep: true }] } },
+    ]
+    for (const [route, model] of [['r4', undefined], ['r5', 'pinned-model']] as const) {
+      const gateway = await supervisor.ensure(route, {
+        upstream: `http://127.0.0.1:${upstream.port}/v1`,
+        ...(model ? { model } : {}),
+        resolveKey: async () => 'k',
+      })
+      const answer = await fetch(`${gateway.endpoint}/responses`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'gpt-5.5', input, tools: [] }),
+      })
+      assert.equal(answer.status, 200)
+      await answer.arrayBuffer()
+      const sent = JSON.parse(upstream.seen.at(-1)!.body) as { model: string; input: unknown }
+      assert.deepEqual(sent.input, input)
+      assert.equal(sent.model, model ?? 'gpt-5.5')
+    }
+  } finally {
+    await supervisor.dispose()
+    await new Promise<void>((resolve, reject) => upstream.server.close(error => error ? reject(error) : resolve()))
+  }
+})
+
 test('an unreachable upstream answers with a clean 502, never a hang', async () => {
   const supervisor = new GatewaySupervisor()
   try {

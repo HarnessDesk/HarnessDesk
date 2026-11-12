@@ -354,7 +354,7 @@ ${extra}`)
     ['  from: everyone\n', '[commented]', /from is me, collaborators or anyone/],
     ['  from: jane-doe\n', '[commented]', /from is me, collaborators or anyone/],
     ['  from: [me]\n', '[commented]', /from is me, collaborators or anyone/],
-    ['  from: anyone\n', '[labelled]', /Only an issue trigger that reads comments/],
+    ['  from: anyone\n', '[labelled]', /Only a trigger that reads comments/],
   ] as const) {
     const document = read(extra, events)
     assert.equal(runnable(document), 0, extra)
@@ -367,7 +367,7 @@ ${extra}`)
   from: me
   opens: { flow: review-pr }
 `)
-  assert.match(texts(pr), /\[0\]\.from: Only an issue trigger that reads comments/)
+  assert.match(texts(pr), /\[0\]\.from: Only a trigger that reads comments/)
 })
 
 
@@ -383,4 +383,45 @@ ${events}  opens: { flow: review-pr }
   for (const events of ['checks-failed, checks-failed', 'review-commented, unknown']) {
     assert.equal(read(`  events: [${events}]\n`).definitions.length, 0)
   }
+})
+
+test('a @harnessdesk request opens only the Lead, says whose comments ask, and never merges two comments', () => {
+  const read = (source: string, opens: string, extra = '', events = '[mentioned]') => parseTriggers(`- id: ask-desk
+  on: ${source}
+  events: ${events}
+  opens: ${opens}
+${extra}`)
+  for (const source of ['issue', 'pull-request']) {
+    const lead = read(source, '{ lead: true }')
+    assert.deepEqual(lead.problems, [], source)
+    assert.deepEqual(lead.definitions[0]?.on.events, ['mentioned'])
+    assert.equal(lead.definitions[0]?.from, 'me', 'the default is the armed account alone')
+    assert.deepEqual(lead.definitions[0]?.opens, { lead: true })
+    for (const from of ['collaborators', 'anyone'] as const) {
+      assert.equal(read(source, '{ lead: true }', `  from: ${from}\n`).definitions[0]?.from, from, `${source} ${from}`)
+    }
+    // A Flow or an Agent started by a trigger never reads outside words, so a request cannot go to one.
+    for (const opens of ['{ flow: review-pr }', '{ agent: triager }']) {
+      const refused = read(source, opens)
+      assert.equal(runnable(refused), 0, `${source} ${opens}`)
+      const problem = refused.problems.find((one) => one.at === '[0].opens')
+      assert.equal(problem?.text, 'A mention is a request in words, and only the Lead reads words from outside.')
+      assert.equal(problem?.fix, 'Write opens: { lead: true }.')
+    }
+    // again is already refused for a Lead target.
+    assert.match(texts(read(source, '{ lead: true }', '  again: { role: reviewer }\n')), /cannot name again/)
+  }
+  // Not in either source's defaults: a project opts in by naming it.
+  assert.ok(!parseTriggers('- id: prs\n  on: pull-request\n  opens: { flow: review-pr }\n').definitions[0]?.on.events.includes('mentioned' as never))
+  assert.ok(!parseTriggers('- id: issues\n  on: issue\n  opens: { flow: triage }\n').definitions[0]?.on.events.includes('mentioned' as never))
+  // Mixed with other events on a Lead target it parses; mixed on a Flow target it is still refused.
+  assert.deepEqual(read('pull-request', '{ lead: true }', '', '[opened, mentioned]').problems, [])
+  assert.equal(runnable(read('pull-request', '{ flow: review-pr }', '', '[opened, mentioned]')), 0)
+  // One request per comment: a pull-request dedupe that leaves out event would merge two comments at one head.
+  const merged = read('pull-request', '{ lead: true }', '  dedupe: [pr, head]\n')
+  assert.equal(runnable(merged), 0)
+  assert.match(texts(merged), /dedupe must include pr and head and event/)
+  assert.deepEqual(read('pull-request', '{ lead: true }', '  dedupe: [pr, head, event]\n').problems, [])
+  // The mention source keeps its own vocabulary.
+  assert.equal(runnable(read('mention', '{ lead: true }')), 0)
 })

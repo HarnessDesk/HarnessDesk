@@ -549,3 +549,36 @@ for (const phase of ['running', 'waiting-for-user'] as const) test(`an open PR f
   assert.deepEqual(await s.budgets.gate(run), { ok: false, reason: 'lead-budget-stopped' })
   assert.equal(s.journal.state.budget?.rounds.length, before)
 })
+
+test('a request’s Team dispatches nothing once its consent runs out or its plan is offered again, after a reopen too', async t => {
+  const s = await leadRig(t, undefined, { origin: { source: 'pull-request', event: 'mentioned', subject: 'acme/widgets#7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } })
+  const run = await s.start()
+  await s.observe(0)
+  const stored = s.rig.flows.leadRuns().find(item => item.id === run.id)!
+  assert.deepEqual(await s.budgets.gate(stored), { ok: true }, 'an approved request plan dispatches')
+  // The rig's approval holds until 1000: past it, the request's Team waits for the person again.
+  s.setNow(2000)
+  // A fresh spend reading, so nothing but the plan can stop it.
+  await s.observe(0)
+  assert.deepEqual(await s.budgets.gate(stored), { ok: false, reason: 'lead-plan-not-approved' })
+  await s.journal.renewPlan(2000)
+  assert.equal(s.journal.state.phase, 'awaiting-plan')
+  assert.deepEqual(await s.budgets.gate(stored), { ok: false, reason: 'lead-plan-not-approved' })
+  const reopened = await reopenJournal(s.storage)
+  const budgets = new LeadBudgets({ ...s.budgets.port })
+  const unregister = budgets.register(reopened); t.after(unregister)
+  assert.deepEqual(await budgets.gate(stored), { ok: false, reason: 'lead-plan-not-approved' })
+})
+
+test('a request’s Team dispatches nothing while a revised plan waits for the person, and again once it is approved', async t => {
+  const s = await leadRig(t, undefined, { origin: { source: 'issue', event: 'mentioned', subject: 'acme/widgets#8', url: 'https://github.com/acme/widgets/issues/8#issuecomment-2' } })
+  const run = await s.start()
+  await s.observe(0)
+  const stored = s.rig.flows.leadRuns().find(item => item.id === run.id)!
+  assert.deepEqual(await s.budgets.gate(stored), { ok: true })
+  const contract = { ...s.contract, revision: 2, digest: 'b'.repeat(64), goal: 'Revised repair goal' }
+  await s.journal.offerCard({ version: 1, id: 'revision', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+  assert.deepEqual(await s.budgets.gate(stored), { ok: false, reason: 'lead-plan-not-approved' }, 'its consent has not run out, but a plan waits')
+  await s.journal.decideCard({ version: 1, cardId: 'revision', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, 1000)
+  assert.deepEqual(await s.budgets.gate(stored), { ok: true })
+})

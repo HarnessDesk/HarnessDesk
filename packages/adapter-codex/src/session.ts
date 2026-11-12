@@ -67,6 +67,9 @@ import { CODEX_RUNTIME_ID, mapSummary, mapUsage, nameFromMessage, stripContext }
  */
 const SETTLE_MS = 5_000
 
+/** How long a Stop waits on its sub-agents' stops before it settles; the sweep runs on. */
+const TREE_WAIT_MS = 3_000
+
 export interface CodexSessionDeps {
   /** Which Codex account owns this thread — the runtime it was started on. */
   readonly runtime?: RuntimeId
@@ -109,6 +112,11 @@ export interface CodexSessionDeps {
    * always that one: a review's is its reviewer's (`ReviewTurns.interruptible`).
    */
   readonly interruptible?: (threadId: string, turnId: string) => string
+  /**
+   * Stops every in-progress turn below this thread — its sub-agents, theirs,
+   * and so on — leaving each subscribed. Never rejects; bounded by the runtime.
+   */
+  readonly stopDescendants?: (threadId: string) => Promise<void>
 }
 
 export class CodexSession implements AgentSession {
@@ -555,7 +563,7 @@ export class CodexSession implements AgentSession {
     // Withdrawn while the agent was accepting it: the turn it started is stopped, not left to run.
     if (signal?.aborted) {
       const stopping: Promise<unknown> = this.#currentTurnId === response.turn.id
-        ? this.interrupt()
+        ? this.interruptTurn()
         : this.deps.server.request('turn/interrupt', { threadId: this.id, turnId: response.turn.id }, { timeoutMs: 2_000 })
       await stopping.catch(() => undefined)
       throw signal.reason
@@ -635,7 +643,33 @@ export class CodexSession implements AgentSession {
   }
 
   /**
-   * Stops the turn running on this thread.
+   * Stop: ends the turn running on this thread and every sub-agent turn below
+   * it, so nothing this conversation started keeps working after a person
+   * presses Stop.
+   *
+   * Codex stops only the thread it is asked about (`Session::interrupt_task`
+   * aborts that thread's own turn, 0.167.1) and its sub-agents are threads of
+   * their own, so the runtime asks each of them in turn. This thread's own
+   * stop is written first and the descendants are asked in the same tick.
+   * The call settles once this thread has answered and the tree has been
+   * asked, or after `TREE_WAIT_MS` of the tree at most, so a stalled process
+   * cannot hold a Stop for the sum of its per-request bounds; the sweep goes
+   * on in the background. Only this thread's own answer can make it fail.
+   * Nothing is unsubscribed: the conversation stays open.
+   */
+  async interrupt(): Promise<void> {
+    this.#requireActiveTurn('interrupt')
+    const own = this.interruptTurn()
+    const tree = this.deps.stopDescendants?.(this.id) ?? Promise.resolve()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const capped = Promise.race([tree, new Promise<void>(resolve => { timer = setTimeout(resolve, TREE_WAIT_MS) })])
+      .finally(() => clearTimeout(timer))
+    const [result] = await Promise.allSettled([own, capped])
+    if (result.status === 'rejected') throw result.reason
+  }
+
+  /**
+   * Stops the turn running on this thread, and only that one.
    *
    * Codex checks a stop against the turn it holds as running and, refusing
    * one that names another, says which it holds: "expected active turn id …
@@ -646,7 +680,7 @@ export class CodexSession implements AgentSession {
    * the one `interruptible` says, which for a review is already the one
    * Codex holds; the retry is for a Codex that holds another.
    */
-  async interrupt(): Promise<void> {
+  async interruptTurn(): Promise<void> {
     const turnId = this.#requireActiveTurn('interrupt')
     const prior = this.#interruptions.get(turnId)
     if (prior) return prior
@@ -856,7 +890,7 @@ export class CodexSession implements AgentSession {
     // carries completion and approvals back to the host. Other threads stay live.
     const turnId = this.#currentTurnId
     if (turnId !== null) {
-      try { await this.interrupt() } catch (error) {
+      try { await this.interruptTurn() } catch (error) {
         if (!(error instanceof CodexRpcError) || error.message !== 'no active turn to interrupt') throw error
         this.noteTurnEnded(turnId)
       }

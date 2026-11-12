@@ -719,6 +719,18 @@ export const createDefaultHost = (
   // Closed when the desk quits, like everything else it owns: no bridge
   // reaches a Seat's server through a socket the desk has left behind.
   host.onDispose(() => gateway.stop())
+  // A plugin enabled, disabled, reloaded or updated while a conversation is
+  // open: tell its bridge, which tells the agent (MCP `tools/list_changed`).
+  // `extension/log` is chatter, not a change to the tool set. The Seat
+  // external-MCP backend has no change signal of its own to hook, so a Seat's
+  // approval change still reaches an open conversation only at its next list.
+  const unsubscribeToolsChanged = extensions.subscribe((event) => {
+    if (
+      event.type === 'plugin/added' || event.type === 'plugin/updated' ||
+      event.type === 'plugin/removed' || event.type === 'contributions/changed'
+    ) gateway.toolsChanged()
+  })
+  host.onDispose(() => unsubscribeToolsChanged())
   host.bindUsage(runtimeId('codex'), { corpus: 'codex' })
 
   host.register(

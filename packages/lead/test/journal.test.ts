@@ -2185,6 +2185,53 @@ test('settings-changed names what changed, and an older record without it still 
   assert.throws(() => lead.parseLeadJournalRecord({ version: 1, seq: 9, type: 'settings-changed', what: 'the words' }))
 })
 
+test('a request from an issue or pull request starts and sends nothing until its plan is approved, whatever the mode', async () => {
+  const chat = (method: string) => ({ ...request, method, params: method.endsWith('/start') ? { text: 'Inspect' } : method.endsWith('/send') ? { id: 'fixture:chat', text: 'Inspect' } : { id: 'fixture:chat' }, start: null })
+  const origin = (event: string) => ({ source: 'pull-request' as const, event, subject: 'acme/widgets#7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' })
+  const goal = async (event: string) => {
+    const storage = memory(), journal = await open(storage)
+    await journal.setPolicy(policy)
+    await journal.setOrigin(origin(event), `key-${event}`)
+    await initializeBudget(journal)
+    return { storage, journal }
+  }
+  // An ordinary trigger under manage mode may start a chat without a plan; a request may not.
+  const ordinary = await goal('commented')
+  assert.equal((await ordinary.journal.execute({ id: 'start', request: chat('lead/chat/start'), context }, async () => ({ value: {}, identity: null }))).outcome, 'succeeded')
+  const { storage, journal } = await goal('mentioned')
+  assert.equal(lead.leadRequestAwaitsPlan(journal.state), true)
+  let dispatched = 0
+  const run = async (id: string, method: string) => journal.execute({ id, request: chat(method), context }, async () => { dispatched++; return { value: {}, identity: null } })
+  for (const method of ['lead/chat/start', 'lead/chat/send']) {
+    const result = await run(`draft-${method}`, method)
+    assert.equal(result.outcome, 'denied')
+    assert.equal(result.decision.floor, 'unapproved')
+  }
+  // A plan offered but not yet decided still holds every start.
+  await journal.offerCard(plan)
+  assert.equal((await run('offered', 'lead/chat/start')).outcome, 'denied')
+  assert.equal(dispatched, 0)
+  // A stop narrows authority, so it is never held.
+  assert.equal((await run('stop', 'lead/chat/stop')).outcome, 'succeeded')
+  assert.equal(dispatched, 1)
+  await journal.decideCard(click, 200)
+  assert.equal(lead.leadRequestAwaitsPlan(journal.state), false)
+  assert.equal((await run('approved', 'lead/chat/start')).outcome, 'succeeded')
+  // Once that approval runs out, with no renewal offered yet, the plan no longer reads as waiting, yet the shared
+  // fence still holds every start and send; a stop still passes.
+  const expiry = journal.state.consent!.expiresAt
+  assert.equal(lead.leadRequestFenced(journal.state, expiry - 1), false)
+  assert.equal(lead.leadRequestFenced(journal.state, expiry), true)
+  const late = async (id: string, method: string) => journal.execute({ id, request: chat(method), context: { ...context, now: expiry } }, async () => { dispatched++; return { value: {}, identity: null } })
+  for (const method of ['lead/chat/start', 'lead/chat/send']) {
+    const result = await late(`expired-${method}`, method)
+    assert.equal(result.outcome, 'denied')
+    assert.equal(result.decision.floor, 'unapproved')
+  }
+  assert.equal((await late('expired-stop', 'lead/chat/stop')).outcome, 'succeeded')
+  assert.deepEqual((await open(storage)).state, journal.state)
+})
+
 test('#2144: only a model reply that was written counts as the model\'s; one refused before the write leaves its number to the next notice', async () => {
   const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {} })
   const seen: boolean[] = []

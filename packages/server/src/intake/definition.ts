@@ -11,6 +11,8 @@ import {
   TRIGGER_SOURCES,
   type FlowBudget,
   type FlowThen,
+  type IssueEvent,
+  type PullRequestEvent,
   type TriggerBudget,
   type TriggerCommentFrom,
   type TriggerDefinition,
@@ -349,9 +351,9 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
     }
     if (events) {
       on = source === 'pull-request'
-        ? { kind: 'pull-request', events: events as readonly ('opened' | 'pushed')[] }
+        ? { kind: 'pull-request', events: events as readonly PullRequestEvent[] }
         : source === 'mention' ? { kind: 'mention', events: ['commented'] }
-        : { kind: 'issue', events: events as readonly ('labelled' | 'closed' | 'commented')[] }
+        : { kind: 'issue', events: events as readonly IssueEvent[] }
     }
   }
 
@@ -370,6 +372,12 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
     if (agent) opens = { agent }
   }
 
+  // A request is in words, and only the Lead reads words from outside: a Flow or an Agent started by a trigger never sees them.
+  const mentions = (events ?? []).includes('mentioned')
+  if (mentions && opens && !('lead' in opens)) {
+    problems.push({ at: `${at}.opens`, text: 'A mention is a request in words, and only the Lead reads words from outside.', fix: 'Write opens: { lead: true }.' })
+  }
+
   const subject = SUBJECT[source]
   let goal: readonly TriggerField[] | null = defaults.goal
   if (raw['goal'] !== undefined) {
@@ -382,7 +390,8 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
   let dedupe: readonly TriggerField[] | null = defaults.dedupe
   if (raw['dedupe'] !== undefined) {
     dedupe = fieldList(raw['dedupe'], `${at}.dedupe`, defaults.fields, problems, 'dedupe')
-    const floor = DEDUPE_FLOOR[source]
+    // A request is one comment: a trigger that reads them never merges two, whatever else it reads.
+    const floor = mentions && !DEDUPE_FLOOR[source].includes('event') ? [...DEDUPE_FLOOR[source], 'event' as const] : DEDUPE_FLOOR[source]
     if (dedupe && !floor.every((field) => dedupe!.includes(field))) {
       problems.push({ at: `${at}.dedupe`, text: `dedupe must include ${floor.join(' and ')}, or two different facts would be one firing.`, fix: `Add ${floor.filter((field) => !dedupe!.includes(field)).join(' and ')} to dedupe.` })
       dedupe = null
@@ -414,11 +423,11 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
   }
 
   // Whose comments fire it: only a trigger that reads comments says, and it is `me` unless the file chooses otherwise.
-  const comments = on?.kind === 'mention' || on?.kind === 'issue' && (on.events as readonly string[]).includes('commented')
+  const comments = on?.kind === 'mention' || mentions || on?.kind === 'issue' && (on.events as readonly string[]).includes('commented')
   let from: TriggerCommentFrom | undefined = comments ? 'me' : undefined
   if (raw['from'] !== undefined) {
     if (!comments) {
-      problems.push({ at: `${at}.from`, text: 'Only an issue trigger that reads comments says whose comments fire it.', fix: 'Remove from, or add commented to this issue trigger’s events.' })
+      problems.push({ at: `${at}.from`, text: 'Only a trigger that reads comments says whose comments fire it.', fix: 'Remove from, or add commented or mentioned to this trigger’s events.' })
     } else if (source === 'mention' && raw['from'] === 'anyone') {
       // Asking the desk for work is an allowed list's to grant: never a stranger's.
       problems.push({ at: `${at}.from`, text: 'A mention trigger takes requests from a list: me or collaborators, plus named people and bots.', fix: 'Write from: me or from: collaborators, and name others under people or bots.' })

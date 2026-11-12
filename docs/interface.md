@@ -1346,6 +1346,9 @@ Empty-directory cleanup and runtime catalogue banners appear only under Needs at
 
 MCP servers retain List and Matrix, their PageOptions and their existing
 filters. An empty MCP region says No MCP servers yet with no description.
+Each copy of a server on disk has Test connection, whose answer stays on the
+row as one chip; a copy the project's own file declares shows its command or
+address before it runs.
 The List compares Server, State and Loaded by in three labelled columns.
 Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
 the generic plugin glyph is omitted only when the list has no mapped glyphs.
@@ -2036,6 +2039,19 @@ working tree and disarmed. *Saved. Commit this file before arming* is the
 whole of what a save does — the existing Triggers section's own preview and
 explicit **Arm**, bound to the committed bytes, are still what consents to
 anything running unattended.
+
+For an issue or a pull request the composer also offers **When someone asks
+@harnessdesk**. Turning it on makes the Lead the only target: the other event
+switches and *Continue an open Goal* step aside, the disabled ones saying why
+in their `title`, and a **Who may ask** select sets `from`. With no Lead on
+this desk the switch is disabled and says so. The row and the arming review
+read "When you write @harnessdesk … on a pull request, hand it to Dex as a
+request" — the Lead's name from Settings › Lead, "the Lead" before it is read —
+with "you or a collaborator write" or "anyone writes" for the wider `from`, and
+the review's **Who may ask** row says that only a first line starting with
+@harnessdesk asks, and that an edit, a bot or the desk's own post never does.
+A request reaches the Lead as its plan card, with *From: a request on …* on
+the item.
 
 ### The Teams page
 

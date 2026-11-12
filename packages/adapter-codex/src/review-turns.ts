@@ -85,6 +85,7 @@ export class ReviewTurns {
             threadId,
             turn: {
               id: turnId,
+              rootTurnId: null,
               items: [],
               itemsView: 'notLoaded',
               status: 'inProgress',
@@ -135,6 +136,7 @@ export class ReviewTurns {
           threadId,
           turn: {
             id: open.early,
+            rootTurnId: null,
             items: [],
             itemsView: 'notLoaded',
             status: 'completed',

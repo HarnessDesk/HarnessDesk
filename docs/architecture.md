@@ -715,6 +715,12 @@ rather than aspirational:
 > Interactive: [`diagrams/plugin-tools.html`](diagrams/plugin-tools.html) — open it
 > locally; GitHub shows a committed `.html` as source.
 
+A change to the tool set while a conversation is open reaches it too: the
+registry's plugin events make the gateway push one coalesced `tools/changed`
+line to every connected bridge, and the bridge relays it to its agent as MCP's
+`notifications/tools/list_changed`, so the agent asks for the list again
+instead of keeping the one it fetched at start.
+
 Three rules the live runs taught, all load-bearing:
 
 1. **Resolve by name at call time, never by a pinned id.** Reloading a plugin

@@ -4,7 +4,7 @@ import type { TriggerBudgetState, TriggerGoalStatus } from '@harnessdesk/protoco
 
 import { prDefinition, issueDefinition, scheduleDefinition } from '../preview/intake-fixture'
 
-import { budgetMeterWords, formatMeterUsd, originHoverWords, originSubject, triggerRowWords } from './intake'
+import { budgetMeterWords, formatMeterUsd, isRequestTrigger, originHoverWords, originSubject, triggerRowWords } from './intake'
 
 const status = (over: Partial<TriggerGoalStatus>): TriggerGoalStatus => ({
   goal: 'g1',
@@ -142,6 +142,20 @@ describe('triggerRowWords', () => {
     expect(triggerRowWords(prDefinition({ id: 'fork-review' }))).toEqual({ title: 'When a pull request opens or is pushed, review it (review-pr)', facts: 'fork-review · at most 4 at once' })
     expect(triggerRowWords(issueDefinition())).toEqual({ title: 'When an issue is labelled, triage it (triager)', facts: 'triage-issue · once at a time' })
     expect(triggerRowWords(scheduleDefinition())).toEqual({ title: 'Every 24 hours, run a sweep (sweep)', facts: 'nightly-sweep · once at a time' })
+  })
+  it('says a request trigger hands the words to the Lead by the name the person chose, and whose words count', () => {
+    const issue = issueDefinition({ id: 'ask-desk', on: { kind: 'issue', events: ['mentioned'] }, opens: { lead: true }, again: null })
+    expect(isRequestTrigger(issue)).toBe(true)
+    expect(triggerRowWords(issue, 'Dex')).toEqual({ title: 'When you write @harnessdesk … on an issue, hand it to Dex as a request', facts: 'ask-desk · once at a time' })
+    expect(triggerRowWords({ ...issue, from: 'collaborators' }, 'Lex').title).toBe('When you or a collaborator write @harnessdesk … on an issue, hand it to Lex as a request')
+    expect(triggerRowWords({ ...issue, from: 'anyone' }, null).title).toBe('When anyone writes @harnessdesk … on an issue, hand it to the Lead as a request')
+    const pull = prDefinition({ on: { kind: 'pull-request', events: ['mentioned'] }, opens: { lead: true }, again: null })
+    expect(triggerRowWords(pull, 'Dex').title).toBe('When you write @harnessdesk … on a pull request, hand it to Dex as a request')
+  })
+  it('names a request beside other events as one more event, never as the request sentence', () => {
+    const mixed = prDefinition({ on: { kind: 'pull-request', events: ['opened', 'mentioned'] }, opens: { lead: true }, again: null })
+    expect(isRequestTrigger(mixed)).toBe(false)
+    expect(triggerRowWords(mixed, 'Dex').title).toBe('When a pull request opens or is asked with @harnessdesk, open a plan for approval')
   })
   it('names an arbitrary declared shape honestly without inventing what it does', () => {
     expect(triggerRowWords(prDefinition({ opens: { flow: 'custom-work' } })).title).toBe('When a pull request opens or is pushed, open custom-work')
