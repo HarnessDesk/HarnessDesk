@@ -21,14 +21,34 @@ const END_SLACK = 24
  * dock. A reader who scrolled up stays where they are. A screen that already
  * follows its own transcript leaves `keepEnd` off.
  */
+/**
+ * Whether each thread follows its end, and the scrollTop it last put itself at. A scroll event arrives with the next
+ * frame, which a window in the background can wait a long time for; by then a reply may have grown the thread, so a
+ * scroll the thread made itself would read as the reader leaving the end. Only a scroll that is not the one the thread
+ * made, and does not reach the end, lets go of it.
+ */
+const ends = new WeakMap<Element, { readonly atEnd: boolean; readonly written: number | null }>()
+/** Moves a thread to its end and keeps it following there, as when the person sends a message. */
+export const scrollThreadToEnd = (element: HTMLElement): void => {
+  element.scrollTop = element.scrollHeight
+  ends.set(element, { atEnd: true, written: element.scrollTop })
+}
+/** Whether a thread is following its end: true until the reader scrolls away from it. */
+export const threadFollowsEnd = (element: HTMLElement): boolean => ends.get(element)?.atEnd ?? true
+const readScroll = (element: HTMLElement): void => {
+  const last = ends.get(element), top = element.scrollTop
+  const own = last?.written !== null && last?.written !== undefined && Math.abs(top - last.written) < 1
+  const atEnd = element.scrollHeight - top - element.clientHeight <= END_SLACK || own && last.atEnd
+  ends.set(element, { atEnd, written: own ? last.written : null })
+}
+
 export const ConversationThread = forwardRef<HTMLDivElement, ComponentProps<'div'> & { readonly keepEnd?: boolean }>(({ className, keepEnd = false, onScroll, ...props }, ref) => {
   const node = useRef<HTMLDivElement>(null)
-  const atEnd = useRef(true)
   useImperativeHandle(ref, () => node.current!, [])
   useLayoutEffect(() => {
     const element = node.current
     if (!keepEnd || !element) return
-    const follow = (): void => { if (atEnd.current) element.scrollTop = element.scrollHeight }
+    const follow = (): void => { if (threadFollowsEnd(element)) scrollThreadToEnd(element) }
     const resize = new ResizeObserver(follow)
     const watch = (): void => { resize.disconnect(); resize.observe(element); for (const child of element.children) resize.observe(child) }
     watch()
@@ -38,7 +58,7 @@ export const ConversationThread = forwardRef<HTMLDivElement, ComponentProps<'div
     return () => { resize.disconnect(); children.disconnect() }
   }, [keepEnd])
   return <PaneColumn inset="reading" clearComposer ref={node} data-slot="conversation-thread" className={`${styles.thread} ${className ?? ''}`}
-    onScroll={event => { const element = event.currentTarget; atEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight <= END_SLACK; onScroll?.(event) }} {...props} />
+    onScroll={event => { readScroll(event.currentTarget); onScroll?.(event) }} {...props} />
 })
 /** The same floating composer and approval dock in every conversation. */
 export const ConversationDock = forwardRef<HTMLDivElement, ComponentProps<'div'>>(({ className, ...props }, ref) => <ComposerDock floating ref={ref} data-slot="conversation-dock" className={`${styles.dock} ${className ?? ''}`} {...props} />)

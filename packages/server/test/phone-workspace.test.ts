@@ -991,7 +991,9 @@ test('the phone and the Lead are told which account to use first, with its reset
     assert.deepEqual(leaks(usage.pacing), [])
 
     const summary = await f.workspace.usageSummary(f.reports)
-    const { resetsAtLocal, ...pacing } = summary.pacing!
+    const { resetsAtLocal, said, ...pacing } = summary.pacing!
+    // The Lead repeats a sentence the desk wrote, so the reason reads the same wherever it is said.
+    assert.equal(said, `Use Fake Agent · Pro · account 2 first: its Weekly has 70% left and resets ${resetsAtLocal}, so the rest would go unused.`)
     assert.deepEqual(pacing, {
       account: 'Fake Agent · Pro · account 2', reason: 'use-first', window: 'Weekly', remainingPercent: 70,
       resetsAt: NOW + 20 * HOUR, readAgeMinutes: 3,
@@ -1010,6 +1012,11 @@ test('the phone and the Lead are told which account to use first, with its reset
       const quiet = await calm.workspace.usageSummary(calm.reports)
       assert.equal(quiet.pacing?.reason, 'resets-soonest')
       assert.equal(quiet.pacing?.account, 'Fake Agent · Pro · account 2')
+      // Resetting soonest is only an order to use accounts in: the sentence says so, rather than reading as a note
+      // some screen is hiding.
+      assert.match(quiet.pacing?.said ?? '', /^Nothing is about to go unused\. Of the accounts with room, Fake Agent · Pro · account 2 resets soonest/)
+      // Said to the person as it stands, so it says nothing about screens or notes.
+      assert.doesNotMatch(quiet.pacing?.said ?? '', /screen|note|suggest/i)
     } finally { await calm.done() }
 
     // With one account there is no "first": neither the phone nor the Lead names one, as on the desktop.

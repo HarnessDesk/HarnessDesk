@@ -163,6 +163,10 @@ import {
   type AttachmentSupport,
   runtimeId,
   sessionModel,
+  supersededUsageNotices,
+  trackedUsage,
+  type LeadInbox,
+  type UsageReport,
 } from '@harnessdesk/protocol'
 
 import { packagedPath, type AgentDirectory } from './agent-registry.js'
@@ -6419,18 +6423,12 @@ export class Host {
       personStopping: chat => { try { return this.#leadWork?.stopping(chat, 'person') ?? (() => {}) } catch { return () => {} } },
       carryOn: { list: () => this.#carryOn.list(), decide: decision => this.#carryOn.decide(decision) },
       // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
-      leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary([...this.#runtimes.values()].flatMap(runtime => {
-        const report = this.#usageService.cached(runtime.info.id)
-        return report ? [report] : []
-      })),
+      // The accounts the Dashboard lists, from the same cache: an allowance question never starts a refresh.
+      leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary(this.#trackedUsage(this.#cachedUsage())),
       leadDeskSummary: params => this.#phoneWorkspaceView().deskSummary(params),
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       // One inbox for the bell and the phone: the Lead's window, the desk's needs-you work, and the kept notices.
-      leadInbox: async () => leadInbox({
-        window: await this.#leadWindow().then(window => window.readThread()).catch(() => null),
-        desk: await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
-        kept: this.#state.state.preferences['inbox'], now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id), ask: this.#leadPresence?.unansweredAsk() ?? null,
-      }),
+      leadInbox: () => this.#leadInboxRead(),
       leadThreadSend: async (params) => {
         // A text that answers the question just asked is checked against its expiry first, and its receipt names this device.
         const answered = await this.leadPresence.beforeSend(params.device, params.text, params.ask)
@@ -11698,6 +11696,54 @@ export class Host {
     this.#push({ method: 'runtime/healthChanged', params: { runtime, health } })
   }
 
+  /** The readings already taken, one per runtime, without asking any agent: what the Dashboard last drew. */
+  #cachedUsage(): readonly UsageReport[] {
+    return [...this.#runtimes.values()].flatMap(runtime => {
+      const report = this.#usageService.cached(runtime.info.id)
+      return report ? [report] : []
+    })
+  }
+
+  /**
+   * The accounts every usage surface lists, from readings already taken: each reading of an agent the person tracks,
+   * and one Not reporting entry for a tracked agent a read has finished for and nothing came back from; an agent no
+   * read has finished for since this host started is not called Not reporting yet. The Dashboard and the Runtimes page
+   * draw the same list from the same rule (`trackedUsage`), so the phone and the Lead never count a different set.
+   */
+  #trackedUsage(reports: readonly UsageReport[]): readonly UsageReport[] {
+    const off = this.#state.state.preferences['usageOff']
+    return trackedUsage([...this.#runtimes.values()].map(runtime => runtime.info), reports,
+      Array.isArray(off) ? off.filter((id): id is RuntimeId => typeof id === 'string') : [], Date.now(), id => this.#usageService.asked(id))
+  }
+
+  /** One inbox for the bell, the phone and the Work list: the Lead's window, the desk's needs-you work, the kept notices. */
+  async #leadInboxRead(): Promise<LeadInbox> {
+    return leadInbox({
+      window: await this.#leadWindow().then(window => window.readThread()).catch(() => null),
+      desk: await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
+      kept: this.#currentNotices(), now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id),
+      ask: this.#leadPresence?.unansweredAsk() ?? null,
+    })
+  }
+
+  /**
+   * The kept notices less any allowance notice a newer read superseded (#2111): the bell and the phone read the same
+   * list, and a notice about a window that has since reset or fallen back under its line no longer says what is so.
+   */
+  #currentNotices(): unknown {
+    const kept = this.#state.state.preferences['inbox']
+    if (!Array.isArray(kept)) return kept
+    const rows = kept.filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+    const entries = rows.flatMap(row => typeof row['id'] === 'string' ? [{
+      id: row['id'], kind: typeof row['kind'] === 'string' ? row['kind'] : undefined,
+      contentKey: typeof row['contentKey'] === 'string' ? row['contentKey'] : undefined, at: typeof row['at'] === 'number' ? row['at'] : 0,
+      title: typeof row['title'] === 'string' ? row['title'] : undefined,
+    }] : [])
+    const names = new Map([...this.#runtimes.values()].map(runtime => [runtime.info.id, runtime.info.presentation.name] as const))
+    const gone = supersededUsageNotices(entries, this.#trackedUsage(this.#cachedUsage()), Date.now(), names)
+    return gone.size === 0 ? kept : kept.filter(row => !(typeof row === 'object' && row !== null && gone.has((row as Record<string, unknown>)['id'] as string)))
+  }
+
   /** The LAN phone link starts after the host does; the window learns of every change through `phone/changed`. */
   /** What a paired phone reads of the desk's work, built on first use from the planes it projects. */
   #phoneWorkspaceView(): PhoneWorkspace {
@@ -11769,7 +11815,7 @@ export class Host {
           }),
         }
       }),
-      reports: () => this.#usageService.reports(),
+      reports: async () => this.#trackedUsage(await this.#usageService.reports()),
       ledger: async (query) => {
         const ledger = this.#ledgerService
         // The same first-read rule `usage/ledger` follows: prices load when someone asks for money, and a machine
@@ -11981,6 +12027,8 @@ export class Host {
     return this.#phoneWork ??= new PhoneWork({
       workspace: this.#phoneWorkspaceView(),
       leadWork: async () => this.#leadWork && !this.#disposed ? await this.#leadWork.board() : null,
+      leadInbox: async () => this.#leadWork && !this.#disposed ? await this.#leadInboxRead() : null,
+      leadTeams: async () => (await this.#goals.list()).map(view => ({ goal: view.goal.id as string, room: view.board?.id ?? null })),
       leadAutonomy: async () => this.#leadAutonomy && !this.#disposed ? await this.#leadAutonomy.view() : null,
       leadMemory: async () => {
         if (!this.#leadWork || this.#disposed) return null

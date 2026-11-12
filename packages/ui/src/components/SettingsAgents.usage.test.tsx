@@ -87,7 +87,7 @@ const fableSpent = report(
 /** A second account whose own weekly really is gone. */
 const reallySpent = report('work@acme.dev', [lane({ id: 'weekly', usedPercent: 100 })], 'weekly')
 
-const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = null): Promise<AppStore> => {
+const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = null, extra: Partial<AppSnapshot> = {}): Promise<AppStore> => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -96,6 +96,7 @@ const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = 
     accountsByRuntime: { [CLAUDE]: status },
     healthByRuntime: { [CLAUDE]: { state: 'ready' } },
     usage,
+    ...extra,
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -228,5 +229,37 @@ describe('the agent page in Settings › Runtimes', () => {
     expect(usage!.textContent).toContain(said!)
     expect(usage!.textContent).toContain('60%')
     expect(usage!.textContent).toContain('work@acme.dev')
+  })
+})
+
+describe('the Runtimes page lists the accounts the Dashboard lists', () => {
+  it('leaves out an account whose usage the person stopped tracking, as the Dashboard does', async () => {
+    const payg = { ...report('olivia@acme.dev', []), plan: null, spend: { currency: 'USD', todayCost: 4, windowCost: 2115, windowDays: 30, provenance: 'reported' } } as unknown as UsageReport
+    await mount([payg], null, { usageOff: [CLAUDE] })
+    expect(container.querySelector('[aria-label="Usage by account"]')).toBeNull()
+    expect(container.textContent).not.toContain('Pay as you go')
+  })
+
+  it('says a tracked agent with no reading is not reporting, as the Dashboard and the phone do', async () => {
+    await mount([])
+    const region = container.querySelector('[aria-label="Usage by account"]')
+    // Said once, in the chip, the word the Dashboard and the phone use.
+    expect(region?.textContent?.match(/not reporting/gi)).toHaveLength(1)
+    expect(region?.textContent).toContain('Not reporting')
+  })
+
+  it('calls no agent not reporting before the host has answered a usage read (#2111 review)', async () => {
+    await mount([], null, { usageAsked: [] })
+    expect(container.textContent?.toLowerCase()).not.toContain('not reporting')
+  })
+
+  it("waits for this agent's own read, not any read, before calling it not reporting (#2111 review round 4)", async () => {
+    // Another agent's read finished; this one was added since and has not been read yet.
+    await mount([], null, { usageAsked: [runtimeId('codex')] })
+    expect(container.textContent?.toLowerCase()).not.toContain('not reporting')
+    act(() => root.unmount())
+    root = createRoot(container)
+    await mount([], null, { usageAsked: [CLAUDE] })
+    expect(container.textContent).toContain('Not reporting')
   })
 })

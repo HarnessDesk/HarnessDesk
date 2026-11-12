@@ -1,4 +1,4 @@
-import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
+import { usageCrossingKey, type Account, type RuntimeId, type RuntimeInfo, type UsageReport } from '@harnessdesk/protocol'
 
 import {
   bindingLane,
@@ -34,6 +34,11 @@ export interface UsageAlert {
   readonly key: string
   readonly runtime: RuntimeId
   readonly message: string
+  /**
+   * The key the notice is kept under in the inbox. It carries whose window, which cycle and which line, so a newer
+   * read can retire the notice once it no longer holds (#2111): the phone kept a three-day-old one.
+   */
+  readonly contentKey: string
 }
 
 const cycleOf = (resetsAt: number | null): string => (resetsAt === null ? 'none' : String(resetsAt))
@@ -118,6 +123,7 @@ export const crossings = (
         alerts.push({
           key: `${key}:${threshold}`,
           runtime: report.runtime,
+          contentKey: usageCrossingKey({ runtime: report.runtime, account: usageAccount(report) || null, lane: lane.id, resetsAt: lane.resetsAt, threshold }),
           // Named by account as well as agent when the agent has two: two
           // accounts crossing one line said the same sentence, and the toasts
           // dedupe on it (#179).

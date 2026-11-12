@@ -18,6 +18,7 @@ import {
   shapeCountsOf,
   sortRows,
   statusOf,
+  statusPresentation,
   type PlanRow,
 } from './plans-table'
 import { describeReport } from './usage'
@@ -503,6 +504,15 @@ describe('statusOf', () => {
   it('is "not reporting" for a shape-less report — never "no limit"', () => {
     const subject = report({})
     expect(statusOf(subject, 'none', describeReport(subject, { now: NOON }), NOON)).toBe('notReporting')
+  })
+
+  // Not reporting is the word for an agent nothing answered for; a read that failed, or came back with nothing usable,
+  // reported, and says Unknown beside its error (#2111 review).
+  it('says Not reporting only for the stand-in of a silent agent, and Unknown for a read that failed', () => {
+    const failed = report({ lanes: [lane({ id: 'weekly', usedPercent: 10, usageKnown: false })], error: { message: 'HTTP 503' } as never })
+    expect(statusPresentation(statusOf(failed, 'windows', describeReport(failed, { now: NOON }), NOON)).label).toBe('Unknown')
+    const silent = report({ notReporting: true })
+    expect(statusPresentation(statusOf(silent, 'none', describeReport(silent, { now: NOON }), NOON)).label).toBe('Not reporting')
   })
 
   it('otherwise reads "ready"', () => {

@@ -111,6 +111,8 @@ export class UsageService {
   readonly #options: UsageServiceOptions
   readonly #cache = new Map<RuntimeId, UsageReport>()
   readonly #inFlight = new Map<RuntimeId, Promise<UsageReport | null>>()
+  /** The agents a read has finished for since this service started, whether or not anything answered. */
+  readonly #asked = new Set<RuntimeId>()
   readonly #watchers: FSWatcher[] = []
   #disposed = false
 
@@ -170,6 +172,14 @@ export class UsageService {
         : {}),
       source: report.source,
     }
+  }
+
+  /**
+   * Whether a read of this agent has finished since the desk started. Until one has, an agent with no reading has not
+   * been asked, which is not the same as having nothing to say: the cache is simply empty after a start.
+   */
+  asked(runtime: RuntimeId): boolean {
+    return this.#asked.has(runtime)
   }
 
   /** The last reading for one agent, without asking anyone. */
@@ -267,9 +277,40 @@ export class UsageService {
     const running = this.#inFlight.get(id)
     if (running) return running
 
-    const work = this.#build(runtime).finally(() => this.#inFlight.delete(id))
+    // A read that throws past the runtime's own guards is that agent's failure, never every agent's: `reports()`
+    // gathers with Promise.all, and one rejection there left the screen with no readings and nothing asked.
+    const work = this.#build(runtime)
+      .catch((cause: unknown) => this.#failed(id, cause))
+      .then((report) => { this.#asked.add(id); return report })
+      .finally(() => this.#inFlight.delete(id))
     this.#inFlight.set(id, work)
     return work
+  }
+
+  /**
+   * One agent's read that threw: its last good figures with the failure beside them, as a failed refresh keeps them,
+   * or a report with nothing but the failure, which every surface reads as Unknown. Cached and pushed directly, not
+   * through `#finish`, since the overlay there may be what threw.
+   */
+  #failed(id: RuntimeId, cause: unknown): UsageReport {
+    const previous = this.#cache.get(id) ?? null
+    // A throw says nothing about sign-in, so the last thing the meter said about it stands: a carried-on turn reads needsSignIn to pass over an account.
+    const error = {
+      message: cause instanceof Error ? cause.message : String(cause),
+      ...(previous?.error?.needsSignIn === true ? { needsSignIn: true } : {}),
+    }
+    this.#options.log?.('a usage read failed', { runtime: id, error: error.message })
+    const report: UsageReport = previous && (previous.lanes.length > 0 || hasReading(previous) || previous.unverified)
+      ? { ...previous, error }
+      : {
+          runtime: id, account: previous?.account ?? null, plan: null, lanes: [], credits: null, spend: null,
+          reached: null, source: RUNTIME_SOURCE, fetchedAt: this.#now(), staleAfterMs: DEFAULT_STALE_AFTER_MS, error,
+        }
+    this.#cache.set(id, report)
+    if (!this.#disposed) {
+      try { this.#options.onReport(report) } catch { /* a listener failing is not this agent's read failing */ }
+    }
+    return report
   }
 
   async #build(runtime: AgentRuntime): Promise<UsageReport | null> {
