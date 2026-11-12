@@ -356,8 +356,11 @@ export interface PhoneWorkAllowance {
    */
   readonly refreshFailed?: true
   /**
-   * A tracked agent nothing has read, listed so the phone shows the same accounts as the desk: `status` is
-   * "Not reporting", and there are no figures and no `readAt`. Left out otherwise, and by a desk older than this field.
+   * A tracked agent nothing has read, or an account that answered with nothing to show (no window, balance or billing
+   * shape, no other sign-in's figures, no failure): `isSilentUsage(report) || answeredWithNothing(report, now)`, the
+   * same test the desktop's Plans table uses for Not reporting. Listed so the phone shows the same accounts as the
+   * desk: `status` is "Not reporting", and there are no figures and no `readAt`. Left out otherwise, and by a desk
+   * older than this field.
    */
   readonly notReporting?: true
 }
