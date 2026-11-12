@@ -5922,3 +5922,59 @@ A sitting saw the header say "1 needs you" over a Work list with nothing under N
 - **The Lead repeats the desk's sentence.** `pacing.said` is written by the desk; for the account that resets soonest it says that this is only an order to use them in. Rejected: letting the model phrase the reason (it called an ordering a system suggestion no screen shows).
 - **A usage notice carries its figures in its key and leaves once they are wrong.** A crossing is kept under the agent, account, window, reset and line it crossed, so a newer reading alone shows whether it still holds; a crossing kept before this, which carries none, leaves only when the agent its title names has been read again and every reading of it is newer; when the title fits no agent, or more than one, it stays. Rejected: expiring notices after a fixed time (a notice that still holds would go, and a wrong one would stay until then), dropping an old notice on any newer reading (a reading of another agent says nothing about it), and parsing the figures out of the sentence for every notice (the key carries them for every notice from now on).
 - **The window title follows Settings.** Settings is a page of its own, so the window says Settings rather than the last chat's title. Rejected: titling every page by kind in this change (Dashboard, Agents and Teams still title by the chat; they are listed for a later change).
+
+## DeepSeek Harness 0.2.2 over ACP, measured — 2026-11-11
+
+0.2.2-rc.2 (npm `next`) and 0.2.2-rc.1 (npm `latest`) were run the way the
+2026-10-14 key measurement ran them: `dsh --profile acp` with its own
+`DSH_HOME` and `HOME` per run, `DEEPSEEK_BASE_URL` at a fake Messages endpoint
+on loopback that records every request and answers from a script, telemetry
+off, and no real key anywhere. A small ACP client spoke the stdio protocol; the
+subagent and stop cases were then repeated through `AcpRuntime` itself. Only
+loopback sockets were seen open on the agent during a run.
+
+| Measured | rc.2 | rc.1 |
+|---|---|---|
+| `session/new` with a stdio `mcpServers` entry | mounted; `mcp__desk__desk_echo` offered to the root agent, called, result returned | same |
+| Session tool server offered to a subagent | no: a child is offered 24 tools, the root's 28 less the desk tool and the three MCP-resource tools | same |
+| Text-only prompt | one `agent_message_chunk`, one `usage_update`, `end_turn` 159 ms after the prompt | same |
+| Desk tool prompt | `usage_update`, `tool_call` (title = tool name, `rawInput` = arguments), `tool_call_update` completed, `agent_message_chunk`, `end_turn` | same |
+| `subagent` prompt, child answers after 2 s | `tool_call subagent` → completed ("started subagent probe"), first message ("waiting"), 2.1 s of silence, a second message with a **new `messageId`**, then `end_turn`: the prompt lasts as long as the child | same; result names the child by id, not name |
+| `session/cancel` while a child runs | prompt settles `cancelled` within 10 ms; the child keeps running (its `sleep 90` alive 10 s later); when it finishes the root answers again, unprompted, 5 s after the cancel; `session/close` ends the child, and nothing outlives the process | same |
+| `session/cancel` during the root's own `bash` | `tool_call_update` failed ("tool call aborted"), `cancelled`, the command's process gone | — |
+| Key: store and launch environment | store | store |
+| Key: launch environment and home `.env` | environment | environment |
+| Key: store and home `.env`; each alone; none | store; that one; missing-credential error | same |
+
+Tools the `acp` profile offers the root on rc.2: `bash`, `create_goal`, `edit`,
+`get_goal`, `glob`, `grep`, `job_kill`, `job_list`, `job_output`,
+`list_agents`, `list_mcp_resource_templates`, `list_mcp_resources`,
+`read`, `read_image`, `read_mcp_resource`, `send_message`, `skill`,
+`subagent`, `subagent_fork`, `todo_write`, `update_goal`, `wait_agent`,
+`web_fetch`, `web_search`, `workflow`, `working_directory`, `write`, plus each
+session tool server's tools. No document, shared-session, computer-use,
+worktree or Team-task tool. rc.1 offers `interrupt_agent` where rc.2 offers
+`wait_agent`.
+
+What changed here: ACP chunks carry `messageId`, and the adapter now starts a
+new item when it changes, so the two answers of a delegating prompt read as two
+messages, not one spliced "…waiting.Here is…". An agent that names no message
+is read as before. Nothing else moved: `DSH_STORE_FIRST_FROM` holds on both
+builds, `session/prompt` has no deadline in the adapter, and the host's idle
+stop does not count a running turn as idle, so a prompt that lasts as long as
+its subagents is not cut short.
+
+**Not changed, and why.** A stop does not stop DeepSeek's subagents — ACP's
+cancel reaches the root only, as DSH's own reference says — and the root's
+unprompted answer when one finishes arrives with no turn open, which the
+adapter drops as it drops any update outside a turn. The child works on until
+the next prompt takes in its result, the conversation closes, or the idle stop
+ends the agent. Closing the session on stop would end it, but turns a stop into
+a reopen; showing unprompted turns is a host decision for every agent. Both are
+left for that decision.
+
+**Not measured.** A real DeepSeek endpoint; the `workflow` tool; a subagent that
+asks for permission; resume after a close that ended a running child.
+
+**The rule:** an agent's message is the unit it names, not the run of chunks
+that happens to arrive together.

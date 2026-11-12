@@ -94,6 +94,41 @@ test('a prompt streams chunks, a plan, and completes', async () => {
   }
 })
 
+test('a change of message id starts a new item, so two answers in one prompt are not spliced', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'two messages by id' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const items = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn.items
+    const said = items.flatMap((item) =>
+      item.type === 'assistantMessage' ? [`message: ${item.text}`]
+        : item.type === 'reasoning' ? [`thought: ${item.content.join('')}`]
+          : [])
+    assert.deepEqual(said, [
+      'thought: pondering',
+      'message: Started a helper; waiting.',
+      // A chunk that names no message continues the one before it, as before.
+      'message: The helper reported. Done.',
+      'thought: first',
+      'thought: second',
+    ])
+    // Each new item is announced once, and every delta lands on the item it belongs to.
+    const started = tape.events.filter((event) => event.type === 'item/started').map((event) => (event as Extract<AgentEvent, { type: 'item/started' }>).item.id)
+    assert.equal(new Set(started).size, started.length)
+    const ids = items.filter((item) => item.type === 'assistantMessage').map((item) => item.id)
+    const deltas = tape.events.flatMap((event) => event.type === 'item/delta' && event.delta.kind === 'assistantText' ? [[event.itemId, event.delta.text]] : [])
+    assert.deepEqual(deltas, [
+      [ids[0], 'Started a helper; '], [ids[0], 'waiting.'],
+      [ids[1], 'The helper reported.'], [ids[1], ' Done.'],
+    ])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a live ACP user message peels the shared desk envelope around its typed sentence', async () => {
   const runtime = make()
   await runtime.start()
