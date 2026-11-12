@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import type { TriggerAction, TriggerCheck, TriggerFact, TriggerReview, TriggerSource } from '@harnessdesk/protocol'
 
 import { spawnGh, type GhApiRunner } from '../findings/forge.js'
-import { isDeskPost } from '../findings/publication.js'
+import { isDeskPost, summonsOf } from '../findings/publication.js'
 import { labelName } from './definition.js'
 import { eventKey } from './keys.js'
 import { factOf } from './store.js'
@@ -46,7 +46,35 @@ export interface SourceCursor {
   readonly pulls?: Readonly<Record<string, PullWatchState>>
   /** The next watched PR, so a source deadline cannot starve later PRs. */
   readonly pullNext?: number
+  /**
+   * Optional in version 1: per pull request, the highest conversation-comment
+   * and review ids read for `@harnessdesk` requests, and the update they were
+   * read at — so an unchanged pull request is never read again.
+   */
+  readonly requests?: Readonly<Record<string, RequestMarks>>
 }
+
+/** One pull request's request watermarks: comment id, review id, and the forge update they cover. */
+export interface RequestMarks { readonly c: number; readonly r: number; readonly u: number }
+
+/** Closed parser for the optional request watermarks; older cursors omit them. */
+export const requestMarksOf = (value: unknown): Record<string, RequestMarks> | null => {
+  if (!isMap(value) || Object.keys(value).length > SUBJECT_LIMIT) return null
+  const parsed: Record<string, RequestMarks> = {}
+  for (const [number, entry] of Object.entries(value)) {
+    if (!/^[1-9][0-9]{0,15}$/.test(number) || !isMap(entry) || Object.keys(entry).length !== 3) return null
+    for (const field of ['c', 'r', 'u']) if (!Number.isSafeInteger(entry[field]) || (entry[field] as number) < 0) return null
+    parsed[number] = { c: entry['c'] as number, r: entry['r'] as number, u: entry['u'] as number }
+  }
+  return parsed
+}
+
+/**
+ * What a poll reads for `@harnessdesk` requests, present only when an arm on
+ * the source names `mentioned`: `permissions` when one of those lets
+ * collaborators ask, so a command comment's author is asked about once.
+ */
+export interface RequestReading { readonly permissions: boolean }
 
 /** Omit number for every open PR; explicit numbers also observe closed/merged PRs. */
 export interface PullWatch {
@@ -495,9 +523,11 @@ export class ForgeSource {
    * read per comment, never for a desk post or an unreadable author. PR
    * `watches` opt into supplemental reads and always verify review authors.
    */
-  async poll(project: string, cursor: SourceCursor, signal: AbortSignal, options: { readonly permissions?: boolean; readonly watches?: readonly PullWatch[] } = {}): Promise<PollBatch> {
-    if (cursor.source === 'pull-request') return this.#pulls(project, cursor, signal, options.watches ?? [])
-    if (cursor.source === 'issue') return this.#issues(project, cursor, signal, options.permissions === true)
+  async poll(project: string, cursor: SourceCursor, signal: AbortSignal, options: {
+    readonly permissions?: boolean; readonly watches?: readonly PullWatch[]; readonly requests?: RequestReading
+  } = {}): Promise<PollBatch> {
+    if (cursor.source === 'pull-request') return this.#pulls(project, cursor, signal, options.watches ?? [], options.requests ?? null)
+    if (cursor.source === 'issue') return this.#issues(project, cursor, signal, options.permissions === true, options.requests ?? null)
     if (cursor.source === 'mention') return this.#mentions(project, cursor, signal)
     throw unreadable()
   }
@@ -616,7 +646,7 @@ export class ForgeSource {
     return { facts, next, complete: true, problem: null, skipped }
   }
 
-  async #pulls(project: string, cursor: SourceCursor, signal: AbortSignal, watches: readonly PullWatch[]): Promise<PollBatch> {
+  async #pulls(project: string, cursor: SourceCursor, signal: AbortSignal, watches: readonly PullWatch[], requests: RequestReading | null): Promise<PollBatch> {
     const repository = this.#repo(cursor)
     const deadline = Date.now() + this.#timeoutMs
     const floor = cursor.observedThrough - OVERLAP_MS
@@ -675,7 +705,15 @@ export class ForgeSource {
     for (const observation of watched.observations) {
       if (observation.state !== 'open') delete subjects[String(observation.number)]
     }
-    const next = { ...cursor, observedThrough: through, continuation: null, subjects, pulls: watched.pulls, pullNext: watched.next }
+    let marks = cursor.requests
+    if (requests !== null) {
+      const asked = await this.#requests(project, repository, cursor, rows, requests, deadline, signal, facts)
+      if (typeof asked === 'string') return this.#gap(cursor, asked)
+      marks = asked.marks
+      // Out of time part-way: the next read starts again at the first pull request not read for requests.
+      if (asked.stopped !== null) through = Math.max(cursor.observedThrough, Math.min(through, asked.stopped - 1))
+    }
+    const next = { ...cursor, observedThrough: through, continuation: null, subjects, pulls: watched.pulls, pullNext: watched.next, ...(marks === undefined ? {} : { requests: marks }) }
     if (Buffer.byteLength(JSON.stringify([facts, watched.observations, watched.pulls]), 'utf8') > BATCH_BYTES) return this.#gap(cursor, 'More changed than one read can hold.')
     const batch = this.#bounded(cursor, facts, next, skipped)
     return batch.complete ? { ...batch, observations: watched.observations } : batch
@@ -905,6 +943,91 @@ export class ForgeSource {
     return { pulls, observations, next }
   }
 
+  /**
+   * `@harnessdesk` requests on pull requests: their conversation comments
+   * and their reviews' bodies, read only for a pull request this read already
+   * listed whose update is past its own mark — never a list of its own, and
+   * never a read for one that has not changed. Oldest update first, so a read
+   * that runs out of time keeps a prefix: `stopped` is the update of the
+   * first pull request it did not finish, and nothing finished is a gap.
+   * A pull request with more comments or reviews than one read can cover, or
+   * more changed than one read may read, is a gap too. One request per
+   * comment and one per review, keyed apart; inline review comments are not
+   * read.
+   */
+  async #requests(
+    project: string, repository: string, cursor: SourceCursor, rows: readonly PullRow[], requests: RequestReading,
+    deadline: number, signal: AbortSignal, facts: TriggerFact[],
+  ): Promise<{ marks: Record<string, RequestMarks>; stopped: number | null } | string> {
+    const burst = 'More pull request comments changed than one read can cover.'
+    const marks: Record<string, RequestMarks> = { ...cursor.requests }
+    const changed = rows
+      .filter((row) => row.baseRepo === repository && row.updated > cursor.baseline && row.updated > (marks[String(row.number)]?.u ?? -1))
+      .sort((a, b) => a.updated - b.updated || a.number - b.number)
+    if (changed.length > ISSUE_LIMIT) return burst
+    // One permission answer per author within one read.
+    const writers = new Map<string, boolean | null>()
+    for (const [index, row] of changed.entries()) {
+      const subject = String(row.number)
+      const known = marks[subject]
+      const found: TriggerFact[] = []
+      let comments = known?.c ?? 0
+      let reviews = known?.r ?? 0
+      const fresh = (id: number, created: number, mark: number): boolean => created > cursor.baseline && id > mark
+      const ask = async (raw: Record<string, unknown>, id: number, created: number, key: readonly (string | number)[], hash: string): Promise<void> => {
+        const user = isMap(raw['user']) ? raw['user'] : null
+        const words = typeof raw['body'] === 'string' && !isBot(user) ? summonsOf(raw['body']) : null
+        if (words === null) return
+        const authorId = user && Number.isSafeInteger(user['id']) && (user['id'] as number) >= 1 ? user['id'] as number : null
+        const login = user && typeof user['login'] === 'string' ? user['login'] : null
+        let writes: boolean | null = null
+        if (requests.permissions && authorId !== null && login !== null) {
+          const cached = `${login}\u0000${authorId}`
+          if (!writers.has(cached)) writers.set(cached, await this.#writes(project, repository, login, authorId, deadline, signal))
+          writes = writers.get(cached) ?? null
+        }
+        found.push({
+          source: 'pull-request', project, repository, subject, event: eventKey([repository, row.number, 'mentioned', ...key]), action: 'mentioned',
+          at: created, head: row.head, fork: row.headRepo !== repository, title: row.title, body: prose(words),
+          url: confined(raw['html_url'], `/${repository}/pull/${row.number}`, hash), trigger: null,
+          author: authorId === null ? null : accountDigest(authorId), authorWrites: writes, desk: false,
+        })
+      }
+      try {
+        // Since this pull request's own last read (less the overlap), or since the source began watching.
+        const since = new Date(Math.max(0, known !== undefined ? known.u - OVERLAP_MS : cursor.baseline)).toISOString()
+        const replies = await this.#all(project, `repos/${repository}/issues/${row.number}/comments?since=${since}`, deadline, signal)
+        if (replies === null) return 'A pull request has more comments than one read can cover.'
+        for (const raw of replies) {
+          if (!isMap(raw)) throw unreadable()
+          const id = positive(raw['id'])
+          const created = time(raw['created_at'])
+          // An edit never fires: a comment is new only by its id.
+          if (fresh(id, created, known?.c ?? 0)) await ask(raw, id, created, [id], `#issuecomment-${id}`)
+          comments = Math.max(comments, id)
+        }
+        const submitted = await this.#all(project, `repos/${repository}/pulls/${row.number}/reviews`, deadline, signal)
+        if (submitted === null) return 'A pull request has more reviews than one read can cover.'
+        for (const raw of submitted) {
+          if (!isMap(raw)) throw unreadable()
+          const id = positive(raw['id'])
+          // A pending review has not been submitted: nobody has said it yet.
+          if (raw['submitted_at'] === null || raw['submitted_at'] === undefined) continue
+          const created = time(raw['submitted_at'])
+          if (fresh(id, created, known?.r ?? 0)) await ask(raw, id, created, ['review', id], `#pullrequestreview-${id}`)
+          reviews = Math.max(reviews, id)
+        }
+      } catch (error) {
+        if (!(error instanceof ForgeReadError) || !error.budget || signal.aborted) throw error
+        if (index === 0) return burst
+        return { marks: pruneMarks(marks), stopped: row.updated }
+      }
+      facts.push(...found)
+      marks[subject] = { c: comments, r: reviews, u: row.updated }
+    }
+    return { marks: pruneMarks(marks), stopped: null }
+  }
+
   /** Every page of one issue's list, or a gap: never a short list read as the whole. */
   async #all(project: string, path: string, deadline: number, signal: AbortSignal): Promise<readonly unknown[] | null> {
     const all: unknown[] = []
@@ -925,7 +1048,7 @@ export class ForgeSource {
    * from there. Only a read that could cover nothing at all, or a burst
    * past what one read may ever hold, is a gap a person resumes from now.
    */
-  async #issues(project: string, cursor: SourceCursor, signal: AbortSignal, permissions: boolean): Promise<PollBatch> {
+  async #issues(project: string, cursor: SourceCursor, signal: AbortSignal, permissions: boolean, requests: RequestReading | null): Promise<PollBatch> {
     const repository = this.#repo(cursor)
     const deadline = Date.now() + this.#timeoutMs
     const floor = cursor.observedThrough - OVERLAP_MS
@@ -1009,8 +1132,10 @@ export class ForgeSource {
             const authorId = user && Number.isSafeInteger(user['id']) && (user['id'] as number) >= 1 ? user['id'] as number : null
             const desk = typeof raw['body'] === 'string' && isDeskPost(raw['body'])
             const login = user && typeof user['login'] === 'string' ? user['login'] : null
+            // A request is a comment that starts with the command word, from a person: a bot never asks.
+            const words = requests !== null && typeof raw['body'] === 'string' && !isBot(user) ? summonsOf(raw['body']) : null
             let writes: boolean | null = null
-            if (permissions && !desk && authorId !== null && login !== null) {
+            if ((permissions || (words !== null && requests?.permissions === true)) && !desk && authorId !== null && login !== null) {
               const cached = `${login}\u0000${authorId}`
               if (!writers.has(cached)) writers.set(cached, await this.#writes(project, repository, login, authorId, deadline, signal))
               writes = writers.get(cached) ?? null
@@ -1021,6 +1146,15 @@ export class ForgeSource {
               url: confined(raw['html_url'], `/${repository}/issues/${issue.number}`, `#issuecomment-${id}`), trigger: null,
               author: authorId === null ? null : accountDigest(authorId), authorWrites: writes, desk,
             })
+            // The same comment as a request, under its own key: the two dedupe apart.
+            if (words !== null) {
+              found.push({
+                source: 'issue', project, repository, subject, event: eventKey([repository, issue.number, 'mentioned', id]), action: 'mentioned',
+                at: created, head: null, fork: false, title: issue.title, body: prose(words),
+                url: confined(raw['html_url'], `/${repository}/issues/${issue.number}`, `#issuecomment-${id}`), trigger: null,
+                author: authorId === null ? null : accountDigest(authorId), authorWrites: writes, desk,
+              })
+            }
           }
           comments = Math.max(comments, id)
         }
@@ -1126,6 +1260,18 @@ const marksOf = (event: string | undefined): { readonly e: number; readonly c: n
   } catch {
     return null
   }
+}
+
+/** The forge says an account is a bot: by its type, or an app's `name[bot]` login. */
+const isBot = (user: Record<string, unknown> | null): boolean =>
+  user?.['type'] === 'Bot' || (typeof user?.['login'] === 'string' && user['login'].endsWith('[bot]'))
+
+/** At most 5,000 pull requests' request marks are remembered: the least recently updated are forgotten. */
+const pruneMarks = (marks: Record<string, RequestMarks>): Record<string, RequestMarks> => {
+  const entries = Object.entries(marks)
+  if (entries.length <= SUBJECT_LIMIT) return marks
+  entries.sort((a, b) => b[1].u - a[1].u)
+  return Object.fromEntries(entries.slice(0, SUBJECT_LIMIT))
 }
 
 /** At most 5,000 issues are remembered: the least recently updated are forgotten, and read by time if they return. */

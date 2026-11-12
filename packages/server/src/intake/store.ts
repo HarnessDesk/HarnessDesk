@@ -211,7 +211,7 @@ export const factOf = (value: unknown): TriggerFact | null => {
   if (!isMap(value) || !TRIGGER_SOURCES.includes(value['source'] as never) || !filled(value['project'])) return null
   if (!(value['repository'] === null || (text(value['repository'], 200) && REPO.test(value['repository'] as string)))) return null
   if (typeof value['subject'] !== 'string' || !/^[1-9][0-9]{0,15}$/.test(value['subject']) || !HEX.test(String(value['event']))) return null
-  if (!['opened', 'pushed', 'checks-failed', 'review-commented', 'labelled', 'closed', 'commented', 'tick'].includes(value['action'] as string) || !time(value['at'])) return null
+  if (!['opened', 'pushed', 'checks-failed', 'review-commented', 'labelled', 'closed', 'commented', 'mentioned', 'tick'].includes(value['action'] as string) || !time(value['at'])) return null
   if (!(value['head'] === null || SHA.test(String(value['head']))) || typeof value['fork'] !== 'boolean') return null
   if (!text(value['title'], 4096 * 4) || !text(value['body'], 16384 * 4 + 64) || !(value['url'] === null || text(value['url']))) return null
   if (!(value['trigger'] === null || slug(value['trigger']))) return null
@@ -238,6 +238,7 @@ export const factOf = (value: unknown): TriggerFact | null => {
   }
   if (value['action'] === 'checks-failed' && (value['source'] !== 'pull-request' || !isMap(value['check']) || value['check']['state'] !== 'failed')) return null
   if (value['action'] === 'review-commented' && (value['source'] !== 'pull-request' || value['review'] === undefined)) return null
+  if (value['action'] === 'mentioned' && value['source'] !== 'issue' && value['source'] !== 'pull-request') return null
   return value as unknown as TriggerFact
 }
 

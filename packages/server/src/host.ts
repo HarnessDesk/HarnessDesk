@@ -2544,11 +2544,12 @@ export class Host {
       lead: async operation => {
         if (!this.options.leadEnabled || !this.#leadReady) return { delivered: false, reason: 'Lead is disabled; this firing waits.' }
         if (!operation.payload) return { delivered: false, reason: 'The firing payload is unavailable; this firing waits.' }
-        await this.#leadAssembly?.ensure(operation.project)
+        // Built once, on the first firing; a Lead already running is the one it is handed to.
+        if (!this.#leadAutomatic) await this.#leadAssembly?.ensure(operation.project)
         const automatic = this.#leadAutomatic
         if (!automatic) return { delivered: false, reason: 'Lead is unavailable; this firing waits.' }
-        const { fact, sentence } = operation.payload
-        return automatic.owner.offerTrigger({ project: operation.project, key: `trigger-${operation.key}`, sentence, fact })
+        const { fact, sentence, binding } = operation.payload
+        return automatic.owner.offerTrigger({ project: operation.project, key: `trigger-${operation.key}`, sentence, fact, account: binding.account })
       },
       cipher: options.credentialCipher ?? plainCipher,
       confine: (root) => this.#confineGitRoot(root),

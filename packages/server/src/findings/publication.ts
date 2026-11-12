@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import {
-  DESK_POST_MARKER, type EvidenceRecord, type EvidenceView, type FindingAnchor, type FindingId, type FindingPost, type FindingRoundPublication, type FindingView, type SeatRecord,
+  DESK_POST_MARKER, SUMMONS_WORD, type EvidenceRecord, type EvidenceView, type FindingAnchor, type FindingId, type FindingPost, type FindingRoundPublication, type FindingView, type SeatRecord,
 } from '@harnessdesk/protocol'
 import { renderSignature } from '@harnessdesk/plugins'
 
@@ -331,6 +331,35 @@ export const isDeskPost = (body: string): boolean => {
   // A first line that arrived with CRLF endings is the same line.
   const first = (body.split('\n')[0] ?? '').replace(/\r$/, '')
   return first === DESK_POST_MARKER || DESK_MARKER.test(first)
+}
+/** The command word, then the end of the line, whitespace, `:` or `,`: never a longer name, a team (`/`) or a sentence's middle. */
+const SUMMONS = new RegExp(`^${SUMMONS_WORD}(?:$|[\\s:,])`, 'i')
+/**
+ * The request a comment makes of the desk, or null when it makes none. A
+ * comment is a request only when its first line — leading blank lines and
+ * CRLF endings aside — starts with `@harnessdesk`, in any case, followed by
+ * the end of the line, whitespace, `:` or `,`. What comes back is every word
+ * after the command word, later lines included, trimmed: the asker's words,
+ * still untrusted. Not a request:
+ * - a quoted line (`> @harnessdesk`), or a first line that opens a code fence;
+ * - an indented code block (a tab, or four spaces or more, before the word);
+ * - a longer name (`@harnessdesktop`, `@harnessdesk-bot`, `@harnessdesk_x`)
+ *   or a team (`@harnessdesk/reviewers`);
+ * - the word in the middle of the first line, or on a later line;
+ * - a comment the desk posted itself (`isDeskPost`).
+ * A pure function of the body: whether a comment was edited, or who wrote
+ * it, is the reader's to decide.
+ */
+export const summonsOf = (body: string): string | null => {
+  if (isDeskPost(body)) return null
+  const lines = body.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n')
+  const first = lines.findIndex((line) => line.trim() !== '')
+  if (first < 0) return null
+  const line = /^ {0,3}(\S.*)$/.exec(lines[first]!)?.[1]
+  const word = line === undefined ? null : SUMMONS.exec(line)
+  if (!line || !word) return null
+  const separator = word[0].length > SUMMONS_WORD.length ? 1 : 0
+  return [line.slice(SUMMONS_WORD.length + separator), ...lines.slice(first + 1)].join('\n').trim()
 }
 export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex')
 

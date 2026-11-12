@@ -29,7 +29,9 @@ export interface FakePull {
   merged?: boolean
   checks?: { id: number; head_sha: string; name: string; status: string; conclusion: string | null; completed_at?: string }[]
   statuses?: { id: number; context: string; state: string; updated_at?: string }[]
-  reviews?: { id: number; commit_id: string; body: string; state: string; submitted_at: string; user: { id: number; login: string } | null }[]
+  reviews?: { id: number; commit_id: string; body: string; state: string; submitted_at: string | null; user: { id: number; login: string; type?: 'User' | 'Bot' } | null }[]
+  /** The pull request's conversation comments, as `issues/{n}/comments` answers them. */
+  comments?: FakeIssue['comments']
   extra?: Record<string, unknown>
 }
 
@@ -152,7 +154,8 @@ export class FakeForge {
     }
     if (parts[3] === 'pulls' && parts[5] === 'reviews') {
       if (parts[6]) return this.pulls.find((row) => row.number === Number(parts[4]))?.reviews?.find((one) => one.id === Number(parts[6]))
-      return slice(this.pulls.find((row) => row.number === Number(parts[4]))?.reviews ?? [])
+      return slice((this.pulls.find((row) => row.number === Number(parts[4]))?.reviews ?? [])
+        .map((one) => ({ html_url: `https://github.com/${this.repo}/pull/${parts[4]}#pullrequestreview-${one.id}`, ...one })))
     }
     if (parts[3] === 'commits') {
       const one = this.pulls.find((row) => row.head === parts[4])
@@ -204,13 +207,13 @@ export class FakeForge {
       return { permission: one.permission, role_name: one.permission, user: { id: one.id, login: parts[4] } }
     }
     if (parts[3] === 'issues' && parts[5] === 'comments') {
+      // One thread's comments: an issue's, or a pull request's conversation, which the forge serves from the same endpoint.
       const since = Date.parse(url.searchParams.get('since') ?? iso(0))
-      const issue = this.issues.find((one) => one.number === Number(parts[4]))
-      return slice((issue?.comments ?? []).filter((one) => one.updated >= since)).map((one) => ({
-        id: one.id, body: one.body, created_at: iso(one.created), updated_at: iso(one.updated),
-        ...(one.user === null ? {} : { user: one.user ?? this.user }),
-        html_url: `https://github.com/${this.repo}/issues/${parts[4]}#issuecomment-${one.id}`,
-      }))
+      const number = Number(parts[4])
+      const pull = this.pulls.find((one) => one.number === number)
+      const thread: FakeIssue = this.issues.find((one) => one.number === number)
+        ?? { number, state: 'open', created: 0, updated: 0, events: [], comments: pull?.comments ?? [], pullRequest: pull !== undefined }
+      return slice(thread.comments.filter((one) => one.updated >= since)).map((one) => this.commentJson(thread, one))
     }
     throw new Error(`unexpected path ${path}`)
   }

@@ -834,10 +834,10 @@ const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
     return { kind: 'schedule', events: ['tick'] as const, everyMinutes }
   }
   if (kind === 'pull-request') {
-    return { kind: 'pull-request', events: flowWordList(4, literalUnion('opened', 'pushed', 'checks-failed', 'review-commented'))(record['events'], `${path}.events`) }
+    return { kind: 'pull-request', events: flowWordList(5, literalUnion('opened', 'pushed', 'checks-failed', 'review-commented', 'mentioned'))(record['events'], `${path}.events`) }
   }
   if (kind === 'issue') {
-    return { kind: 'issue', events: flowWordList(3, literalUnion('labelled', 'closed', 'commented'))(record['events'], `${path}.events`) }
+    return { kind: 'issue', events: flowWordList(4, literalUnion('labelled', 'closed', 'commented', 'mentioned'))(record['events'], `${path}.events`) }
   }
   if (kind === 'mention') {
     flowWordList(1, literalUnion('commented'))(record['events'], `${path}.events`)

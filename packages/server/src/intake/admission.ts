@@ -203,7 +203,8 @@ export const commentRefusal = (definition: TriggerDefinition, fact: TriggerFact,
     if (typeof fact.author !== 'string') return SKIP_AUTHOR_UNREAD
     return fact.authorWrites === true ? null : fact.authorWrites === false ? SKIP_NOT_COLLABORATOR : SKIP_WRITES_UNREAD
   }
-  if (fact.source !== 'issue' || fact.action !== 'commented') return null
+  // `from` reads an issue's comments and a request on either source alike.
+  if (fact.action !== 'mentioned' && (fact.source !== 'issue' || fact.action !== 'commented')) return null
   if (fact.desk === true) return SKIP_DESK
   const from = definition.from ?? 'me'
   if (from === 'anyone') return null
@@ -229,7 +230,7 @@ export const faultSetAside = (reason: string): string =>
 
 /** `again` compares changed PR heads, or the distinct check/review/issue event; nothing for a schedule. */
 const comparison = (fact: TriggerFact): string | null =>
-  fact.source === 'pull-request' ? (fact.action === 'checks-failed' || fact.action === 'review-commented' ? fact.event : fact.head) : fact.source === 'issue' || fact.source === 'mention' ? fact.event : null
+  fact.source === 'pull-request' ? (fact.action === 'checks-failed' || fact.action === 'review-commented' || fact.action === 'mentioned' ? fact.event : fact.head) : fact.source === 'issue' || fact.source === 'mention' ? fact.event : null
 
 /** What a firing's history row keeps of its fact: validated scalars, never prose. */
 const historyOf = (fact: TriggerFact): Pick<IntakeFiring, 'source' | 'subject' | 'head' | 'repository'> => ({
