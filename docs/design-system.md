@@ -2202,6 +2202,26 @@ action sits at the right as a small button, moving below the copy in a
 narrow container. An optional secondary action keeps the primary choice
 prominent while retaining a distinct alternative in the same action group.
 
+### `DecisionNotice`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+A question about the conversation it sits over, with several answers and
+a way to stop being asked: a usage limit reached, where the person picks
+Switch, Wait or Stop, once or for good.
+
+`ComposerNotice` holds at most two actions; a decision needs more, and a
+box that turns the answer into the rule. So the sentence leads, as in
+every composer notice, and the answers sit under it, recommended first,
+with the box after them. Its label states its scope ("Always do this for
+Agent") because the rule it writes is the person's to find again in
+Settings. Not an overlay — the conversation stays readable and usable, and
+using it is an answer too — so it is a `group`, never a `dialog`.
+
+`alternatives` are the answers that are not the first one: other accounts
+or agents, behind a quiet link that opens a menu of them — each kind under
+its own heading when the menu holds both.
+
 ### `ComposerNoticeStack`
 
 `packages/ui/src/design/patterns/Notices.tsx`

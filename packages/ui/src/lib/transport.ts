@@ -40,6 +40,7 @@ interface Pending {
 interface QueuedRequest {
   id: number
   frame: string
+  onSend?: () => void
 }
 
 const MAX_BACKOFF_MS = 10_000
@@ -87,7 +88,14 @@ export class Transport {
   request<M extends HostMethodName>(
     method: M,
     params: HostParams<M>,
-    options: { signal?: AbortSignal } = {},
+    /**
+     * `onSend` is told when the frame is written to the socket: at once on an
+     * open connection, or when a reconnect flushes the queue. That, not the
+     * call, is the request's place in the host's order — a reconnect announces
+     * Open before it flushes, so a request made on Open goes out ahead of
+     * every one queued while the link was down.
+     */
+    options: { signal?: AbortSignal; onSend?: () => void } = {},
   ): Promise<HostResult<M>> {
     const id = ++this.#nextId
     const release = this.handlers.onRequest?.(method, params) || undefined
@@ -113,7 +121,8 @@ export class Transport {
       options.signal?.addEventListener('abort', abort, { once: true })
       if (this.#socket?.readyState === WebSocket.OPEN) {
         try { this.#socket.send(frame) }
-        catch (error) { this.#pending.delete(id); this.#removeAbortListener(pending); reject(error) }
+        catch (error) { this.#pending.delete(id); this.#removeAbortListener(pending); reject(error); return }
+        options.onSend?.()
         return
       }
       if (this.#queue.length >= QUEUE_LIMIT) {
@@ -122,7 +131,7 @@ export class Transport {
         reject(new Error('Too many requests are queued while the host is unreachable.'))
         return
       }
-      this.#queue.push({ id, frame })
+      this.#queue.push({ id, frame, ...(options.onSend ? { onSend: options.onSend } : {}) })
     })
   }
 
@@ -142,7 +151,9 @@ export class Transport {
         catch (error) {
           const pending = this.#pending.get(entry.id)
           if (pending) { this.#pending.delete(entry.id); this.#removeAbortListener(pending); pending.reject(error instanceof Error ? error : new Error(String(error))) }
+          continue
         }
+        entry.onSend?.()
       }
     })
 

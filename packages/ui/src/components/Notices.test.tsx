@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { PersonNotice, RuntimeHealth, RuntimeInfo, TeamState, UsageReport } from '@harnessdesk/protocol'
 import { sessionKey } from '@harnessdesk/protocol'
@@ -1123,4 +1123,86 @@ it('leaves sign-in to the empty conversation page, but keeps it for a transcript
     </PaneProvider>
   </StoreProvider>))
   expect(container.textContent).toContain('is not signed in')
+})
+
+describe('the out-of-quota banner under the carry-on rule', () => {
+  const spent = (id: string): UsageReport => {
+    const report = racing(id)
+    return { ...report, lanes: report.lanes.map(lane => ({ ...lane, usedPercent: 100 })) } as UsageReport
+  }
+  const roomy = (id: string): UsageReport => {
+    const report = racing(id)
+    return { ...report, lanes: report.lanes.map(lane => ({ ...lane, usedPercent: 10 })) } as UsageReport
+  }
+  const SESSION = sessionKey('a' as never, 's1' as never)
+  const scene = (over: Partial<AppSnapshot> = {}) => mount({
+    runtimes: [runtime('a', 'Agent A'), runtime('b', 'Agent B')],
+    accountsByRuntime: { a: { accounts: [{ kind: 'oauth', label: 'Jane Doe' }] }, b: { accounts: [{ kind: 'oauth', label: 'Jane Doe' }] } } as never,
+    usage: [spent('a'), roomy('b')],
+    activeSessionKey: SESSION,
+    ...over,
+  })
+  const action = () => [...container.querySelectorAll<HTMLButtonElement>('[data-slot="composer-notice"] button')].find(one => /Continue with|Switch to/.test(one.textContent ?? ''))
+
+  it('offers another agent when the desk asks and lets other agents carry on', () => {
+    scene()
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(action()?.textContent).toBe('Continue with Agent B')
+  })
+
+  it('follows the saved desk rule: Stop offers nothing', () => {
+    scene({ carryOnPolicy: { onLimit: 'stop', otherAgents: true } })
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(action()).toBeUndefined()
+  })
+
+  it('an agent’s own rule wins over the desk’s', () => {
+    scene({ carryOnPolicy: { onLimit: 'stop', otherAgents: true }, accountPools: { a: { whenOut: 'next' } } })
+    expect(action()?.textContent).toBe('Continue with Agent B')
+  })
+
+  it('offers no other agent when the desk keeps a switch inside the agent', () => {
+    scene({ carryOnPolicy: { onLimit: 'ask', otherAgents: false } })
+    expect(action()).toBeUndefined()
+  })
+
+  it('offers no way out of its own while a carry-on incident owns the answer', () => {
+    const incident = { incidentId: 'i-1', runtime: 'a', sessionId: 's1', owner: 'chat', state: 'asked', cause: 'credits', from: { name: 'Agent A' }, openedAt: 1, choices: { wait: false }, others: [], alwaysScope: 'desk' }
+    scene({ carryOnIncidents: new Map([[SESSION, incident as never]]) })
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(action()).toBeUndefined()
+  })
+
+  it('asks its own pane’s conversation whether an incident owns the answer, not the focused one', () => {
+    const incident = { incidentId: 'i-1', runtime: 'a', sessionId: 's1', owner: 'chat', state: 'asked', cause: 'credits', from: { name: 'Agent A' }, openedAt: 1, choices: { wait: false }, others: [], alwaysScope: 'desk' }
+    const OTHER = sessionKey('a' as never, 's2' as never)
+    const inPane = (pane: typeof SESSION, active: typeof SESSION) => {
+      const store = makeStore({
+        runtimes: [runtime('a', 'Agent A'), runtime('b', 'Agent B')],
+        accountsByRuntime: { a: { accounts: [{ kind: 'oauth', label: 'Jane Doe' }] }, b: { accounts: [{ kind: 'oauth', label: 'Jane Doe' }] } } as never,
+        usage: [spent('a'), roomy('b')],
+        activeSessionKey: active,
+        carryOnIncidents: new Map([[SESSION, incident as never]]),
+      })
+      act(() => {
+        root.render(
+          <StoreProvider store={store}>
+            <PaneProvider scope={{ paneId: 'p1' as never, view: { kind: 'conversation', session: pane }, sessionKey: pane }}>
+              <StatusBanner onSignIn={() => {}} />
+            </PaneProvider>
+          </StoreProvider>,
+        )
+      })
+    }
+    // Wherever this mount puts the banner, its own way out is the one button that names somewhere to go.
+    const wayOut = () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => /Continue with|Switch to/.test(one.textContent ?? ''))
+    // Focus is on the conversation the card is asking in; this pane's own has no incident.
+    inPane(OTHER, SESSION)
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(wayOut()?.textContent).toBe('Continue with Agent B')
+    // This pane's conversation is the one asking, while focus is elsewhere.
+    inPane(SESSION, OTHER)
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(wayOut()).toBeUndefined()
+  })
 })

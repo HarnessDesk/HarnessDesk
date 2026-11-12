@@ -1,35 +1,51 @@
-import { pacedOrder, type RuntimeId, type RuntimeInfo, type UsageReport } from '@harnessdesk/protocol'
+import {
+  DEFAULT_CARRY_ON,
+  pacedOrder,
+  whenOutForChoice,
+  WHEN_OUT,
+  WHEN_OUT_LABEL,
+  type CarryOnPolicy,
+  type RuntimeId,
+  type RuntimeInfo,
+  type UsageReport,
+  type WhenOut,
+} from '@harnessdesk/protocol'
 
 import { isBlocked } from './usage'
 
 /**
- * The order an agent's accounts are used in, and what happens when the one
- * new sessions run as is out of quota.
+ * The order an agent's accounts are used in, and what happens when one of
+ * them is out of quota.
  *
  * An agent with several accounts used to have exactly one answer: the banner
  * over the conversation offered the roomiest agent of any kind, and nothing
  * remembered which of your own accounts should be next. The pool is that
- * memory. It is per agent (`agentKey`), it names runtimes because every extra
- * account is a runtime of its own, and it only ever moves *new* sessions —
- * a conversation already running stays on the account it started with,
- * because its thread lives in that account's history.
+ * memory. It is per agent (`agentKey`), and it names runtimes because every
+ * extra account is a runtime of its own.
  *
- * - `next`: move new sessions to the next account in the order that still has
- *   room, and say so once.
- * - `ask`: say that it is out and offer the next account (the default, and
- *   what the desk did before there was an order).
- * - `stop`: say that it is out and offer nothing.
+ * `whenOut` is the agent's own answer to the desk's carry-on rule
+ * (`carryOn` in the host's preferences, Settings › Approvals): it applies to a
+ * conversation that is running as well as to the pick for new sessions, and
+ * absent means "follow the desk". The vocabulary is the protocol's, so the
+ * host reads the same words:
+ *
+ * - `next`: carry on on the next account in the order that still has room,
+ *   and say so.
+ * - `ask`: say that it is out and ask what to do.
+ * - `wait`: retry once when the account resets; with no reset known, stop.
+ * - `stop`: say that it is out and do nothing more.
  *
  * `pace: 'soonest'` replaces the person's own order with the one the usage
  * reports give: the account whose window refills soonest, and still has room,
  * goes first, so allowance about to expire is spent before the one that keeps.
  * The person's order stays stored and comes back when the setting is cleared.
  */
-export type WhenOut = 'next' | 'ask' | 'stop'
+export { WHEN_OUT, WHEN_OUT_LABEL, type WhenOut }
 
 export interface AccountPool {
   /** Runtime ids, first used first. Siblings it does not name follow, in the catalogue's order. */
   readonly order?: readonly RuntimeId[]
+  /** The agent's own rule; absent follows the desk's. */
   readonly whenOut?: WhenOut
   readonly pace?: 'soonest'
 }
@@ -37,15 +53,9 @@ export interface AccountPool {
 /** Keyed by `agentKey`. */
 export type AccountPoolMap = Readonly<Record<string, AccountPool>>
 
-export const WHEN_OUT: readonly WhenOut[] = ['next', 'ask', 'stop']
-
-export const WHEN_OUT_LABEL: Readonly<Record<WhenOut, string>> = {
-  next: 'Use the next account',
-  ask: 'Ask me',
-  stop: 'Stop',
-}
-
-export const whenOutOf = (pool: AccountPool | undefined): WhenOut => pool?.whenOut ?? 'ask'
+/** The rule in force for one agent: its own, or the desk's in the agent's spelling. */
+export const whenOutOf = (pool: AccountPool | undefined, desk: CarryOnPolicy = DEFAULT_CARRY_ON): WhenOut =>
+  pool?.whenOut ?? whenOutForChoice(desk.onLimit)
 
 /** What the host kept, with anything it cannot be dropped rather than trusted. */
 export const readAccountPools = (raw: unknown): AccountPoolMap => {

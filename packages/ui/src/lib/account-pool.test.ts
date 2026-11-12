@@ -19,6 +19,13 @@ describe('the account pool', () => {
     expect(whenOutOf(undefined)).toBe('ask')
   })
 
+  it('follows the desk where an agent sets no rule of its own, and its own rule where it does', () => {
+    expect(whenOutOf(undefined, { onLimit: 'switch', otherAgents: true })).toBe('next')
+    expect(whenOutOf({}, { onLimit: 'wait', otherAgents: true })).toBe('wait')
+    expect(whenOutOf({ whenOut: 'stop' }, { onLimit: 'switch', otherAgents: true })).toBe('stop')
+    expect(readAccountPools({ alpha: { whenOut: 'wait' } })).toEqual({ alpha: { whenOut: 'wait' } })
+  })
+
   it('orders siblings by the pool, with an account it has not heard of last', () => {
     const siblings = [info('codex'), info('codex-2'), info('codex-3')]
     expect(inPoolOrder(siblings, { order: [id('codex-2'), id('codex')] }).map((entry) => entry.id))

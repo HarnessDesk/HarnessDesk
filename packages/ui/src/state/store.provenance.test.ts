@@ -88,10 +88,12 @@ it('disconnect clears health and rejects stale response application; reconnect r
   const reconnected = request.mock.calls.slice(before)
   expect(reconnected).toEqual([
     ['host/hello', { clientVersion: '0.1.0' }],
-    // The seats' carry-on questions were dropped at the disconnect; one read brings back any still open.
-    ['carryOn/list', {}],
     ['app/state/get', {}],
     ['provenance/status', {}],
+    // Live carry-on incidents, chats' and seats' in one read, so a card or a
+    // seat's question a dropped link took away comes back, stamped when the
+    // request goes out.
+    ['carryOn/list', {}, { onSend: expect.any(Function) }],
   ])
   expect(store.getSnapshot().provenanceRevision.get(ROOT)).toBe(1)
   expect(store.getSnapshot().chatsFolderRoots).toEqual(['/work/chats/one'])

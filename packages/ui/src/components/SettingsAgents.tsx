@@ -56,7 +56,7 @@ import { trackedUsage, useFirstNote } from '@harnessdesk/protocol'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
 import { Card as UsageCard } from './usage/shared'
-import { firstInPool, inPoolOrder, isPaced, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, whenOutOf, type WhenOut } from '../lib/account-pool'
+import { firstInPool, inPoolOrder, isPaced, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, type WhenOut } from '../lib/account-pool'
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { copyReason, describeCopy, describeFallback, installSummary, standingChip, pinHolds } from '../lib/installs'
 import { useSnapshot, useStore } from '../state/context'
@@ -360,6 +360,9 @@ export const PlanSection = ({
   )
 }
 
+/** The select's value for an agent that sets no rule of its own and follows the desk's. */
+const FOLLOW_DESK = 'desk'
+
 /** The account's own colour, as five circles wearing the agent's mark. */
 const RingPicker = ({
   info,
@@ -635,6 +638,25 @@ const AgentAccounts = ({
   const status = snapshot.accountsByRuntime[info.id]
   const agent = agentKey(info)
   const pool = snapshot.accountPools[agent]
+  // The pools are read again on each visit: an "Always do this for <agent>"
+  // the host wrote from a card elsewhere would otherwise be undone by the
+  // next order change here, which writes the whole map. Until a read has
+  // been applied, nothing on this page writes the pools — a move made
+  // against the old map would write it back over the rule the read is
+  // bringing. One that could not be read stays held, and says so.
+  const [pools, setPools] = useState<'reading' | 'read' | 'unread'>('reading')
+  const poolsRead = useRef(0)
+  useEffect(() => {
+    if (!destinationActive) return
+    const read = ++poolsRead.current
+    setPools('reading')
+    void store.readCarryOnRules().then((applied) => {
+      if (read === poolsRead.current) setPools(applied ? 'read' : 'unread')
+    }, () => {
+      if (read === poolsRead.current) setPools('unread')
+    })
+  }, [destinationActive, store])
+  const poolsReading = pools !== 'read'
   // In the order new sessions use them, so the list is the queue.
   const queue = inPoolOrder(siblings, pool, { reports: snapshot.usage, now: Date.now() })
   const order = queue.map((entry) => entry.id)
@@ -652,14 +674,15 @@ const AgentAccounts = ({
   // screen; runtimes not drawn here keep their places behind it.
   const listed = queue.filter((entry) => entry.slot?.gateway || rows.some((row) => row.entry === entry))
   const listedOrder = listed.map((entry) => entry.id)
-  // An order and a rule for running out mean something only once there is a
-  // second runtime to run on. Two identities one runtime reports (an agent
-  // identity and its key) are one place in the queue, not two.
+  // An order means something only once there is a second runtime to run on.
+  // Two identities one runtime reports (an agent identity and its key) are
+  // one place in the queue, not two.
   const ordered = listed.length > 1
   // With the soonest-reset order on, the usage reports set the order, so a
   // move by hand would change nothing and is not offered.
   const paced = isPaced(pool)
   const movesFor = (runtime: RuntimeId) => {
+    if (poolsReading) return {}
     const at = listedOrder.indexOf(runtime)
     const move = (delta: number) => () => store.setAccountPool(agent, {
       order: [...movedInPool(listedOrder, runtime, delta), ...order.filter((id) => !listedOrder.includes(id))],
@@ -981,15 +1004,22 @@ const AgentAccounts = ({
         )}
       </Rows>
 
-      {/* The queue's rule, beside the queue. Only new sessions move: a
-          conversation's thread lives in the account it started on. */}
-      {ordered && (
-        <Rows>
+      {/* The queue's rule, beside the queue. "When an account runs out" is
+          this agent's answer to the desk's usage-limit rule (Settings ›
+          Permissions) and reaches a running conversation too; its first
+          option follows the desk. It is shown with one account as well: a
+          rule set while there were two still applies, and this is the only
+          place to change it. The order needs two accounts to mean anything.
+          The order is the one sentence true of the whole group, so it is
+          said once, under it, rather than on a row. */}
+      <Rows>
+        {ordered && (
           <Row
             title="Order"
             control={
               <NativeSelect
                 aria-label="Order"
+                disabled={poolsReading}
                 value={paced ? 'soonest' : 'mine'}
                 onChange={(event) => store.setAccountPool(agent, { pace: event.target.value === 'soonest' ? 'soonest' : undefined })}
               >
@@ -998,21 +1028,25 @@ const AgentAccounts = ({
               </NativeSelect>
             }
           />
-          <Row
-            title="When an account runs out"
-            desc="New sessions follow the order above. A conversation already running stays on its account."
-            control={
-              <NativeSelect
-                aria-label="When an account runs out"
-                value={whenOutOf(pool)}
-                onChange={(event) => store.setAccountPool(agent, { whenOut: event.target.value as WhenOut })}
-              >
-                {WHEN_OUT.map((rule) => <option key={rule} value={rule}>{WHEN_OUT_LABEL[rule]}</option>)}
-              </NativeSelect>
-            }
-          />
-        </Rows>
-      )}
+        )}
+        <Row
+          title="When an account runs out"
+          control={
+            <NativeSelect
+              aria-label="When an account runs out"
+              disabled={poolsReading}
+              value={pool?.whenOut ?? FOLLOW_DESK}
+              onChange={(event) => store.setAccountPool(agent, { whenOut: event.target.value === FOLLOW_DESK ? undefined : event.target.value as WhenOut })}
+            >
+              <option value={FOLLOW_DESK}>Follow the desk setting</option>
+              {WHEN_OUT.map((rule) => <option key={rule} value={rule}>{WHEN_OUT_LABEL[rule]}</option>)}
+            </NativeSelect>
+          }
+        />
+      </Rows>
+      {pools === 'unread'
+        ? <Note ink="muted">The saved order and rule could not be read, so they cannot be changed here. Open this page again to try once more.</Note>
+        : ordered && <Note ink="muted">New sessions follow the order above.</Note>}
 
       {destinationActive && namingAccount && <AccountNameDialog info={info} adding={adding}
         onAdd={addAccount} onClose={() => setNamingAccount(false)} />}

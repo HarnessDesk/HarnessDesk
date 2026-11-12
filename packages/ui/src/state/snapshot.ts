@@ -1,7 +1,6 @@
 import { DEFAULT_DIFF_PREFS, type DiffPrefs } from '../editor'
 import type { BrowserTileMount } from '../lib/browser-tiles'
 import type {
-  CarryOnIncidentView,
   HarnessDeskAccountStatus,
   HistoryImportState,
   AccountStatus,
@@ -65,6 +64,7 @@ import type { Carry } from '../lib/handoff'
 import { emptyNoticePolicy, type NoticePolicy } from '../lib/notice-policy'
 import type { InboxEntry } from '../lib/inbox'
 import type { PersonNotice } from '@harnessdesk/protocol'
+import { DEFAULT_CARRY_ON, type CarryOnIncidentView, type CarryOnPolicy } from '@harnessdesk/protocol'
 
 import type { PlanEdit } from '../lib/plan-edits'
 
@@ -346,6 +346,18 @@ export interface AppSnapshot {
    * `lib/account-pool.ts`.
    */
   readonly accountPools: AccountPoolMap
+  /**
+   * What the desk does when a conversation reaches a usage limit, and whether
+   * it may continue with another agent. An agent's own `whenOut` overrides
+   * the first; see `@harnessdesk/protocol`'s `carry-on.ts`.
+   */
+  readonly carryOnPolicy: CarryOnPolicy
+  /**
+   * The host's live carry-on incidents, by `sessionKey`: a conversation at
+   * its limit while the desk decides, asks or waits. Loaded with
+   * `carryOn/list` on every connect and kept by `carryOn/changed`.
+   */
+  readonly carryOnIncidents: ReadonlyMap<string, CarryOnIncidentView>
   /**
    * Account names only, wherever an account is drawn: the address waits for
    * a hover. For recording a screen or sharing one without anybody's email
@@ -928,6 +940,8 @@ const EMPTY: AppSnapshot = {
   accountsByRuntime: {},
   accountPrefs: {},
   accountPools: {},
+  carryOnPolicy: DEFAULT_CARRY_ON,
+  carryOnIncidents: new Map(),
   hideAccountAddresses: false,
   harnessDeskAccount: null,
   profile: {},
@@ -1077,5 +1091,6 @@ export const emptySnapshot = (): AppSnapshot => ({
   seatActivities: new Map(),
   findings: new Map(),
   findingRuns: new Map(),
+  carryOnIncidents: new Map(),
   seatCarryOn: new Map(),
 })

@@ -21,6 +21,8 @@ const mount = async (settings: boolean) => {
     healthFor: vi.fn(async () => snapshot.healthByRuntime.Two), optionsFor: vi.fn(async () => snapshot.healthByRuntime.Two.state === 'ready' ? [{ type: 'boolean', id: 'live', label: 'Live option', currentValue: true }] : []),
     loadDraftOptions: vi.fn(async () => {}), newSessionDefaultsFor: vi.fn(async () => snapshot.healthByRuntime.Two.state === 'ready' ? [{ type: 'boolean', id: 'draft', label: 'Draft option', currentValue: true }] : []), setNewSessionDefault: vi.fn(async () => []),
     runtimeResources: vi.fn(async () => []), describeInstalls: vi.fn(async () => null),
+    // The agent page reads the saved account order and carry-on rule on entry.
+    readCarryOnRules: vi.fn(async () => true),
   } as unknown as AppStore
   const container = document.createElement('div')
   document.body.append(container)

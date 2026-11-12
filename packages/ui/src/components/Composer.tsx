@@ -41,6 +41,7 @@ import {
   Text,
 } from '../design'
 import { LeadChatNotice } from './LeadChatNotice'
+import { CarryOnNotice } from './CarryOnNotice'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { HoldingMessagesChip, RoomMessagesHeld } from './RoomMessaging'
 import { ComposerNoticeStack } from '../design'
@@ -1133,6 +1134,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
         <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`composer:${mount?.id ?? 'unmounted'}`} />
         <ComposerNotices />
         {session && key && <LeadChatNotice runtime={session.runtime} sessionId={session.id} />}
+        {session && key && <CarryOnNotice runtime={session.runtime} sessionId={session.id} />}
         {!key && <PromptLinkMarker text={text} />}
         {storedRecoverable.map(({ key: ownerKey, item }) => (
           <ComposerNotice
