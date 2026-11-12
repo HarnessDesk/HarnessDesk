@@ -141,6 +141,8 @@
    ring around them is drawn whole. */
 .composerStack {
   --composer-notices-bleed: calc(var(--hd-ring-width) + var(--hd-ring-offset));
+  /* A pinned card head (ToolSection's pinHead) stops at the box's edge, over the bleed, so nothing scrolls past above it. */
+  --tool-pin-top: calc(-1 * var(--composer-notices-bleed));
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-1-5);
