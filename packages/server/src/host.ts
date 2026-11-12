@@ -4524,7 +4524,9 @@ export class Host {
       readWorkContext: async turn => {
         const expiry = presence.takeExpiryNote(turn.proactive)
         // The person's own message under a goal whose time ran out is answered, and told so.
-        const note = [expiry, turn.proactive ? undefined : this.#leadAutonomy?.deadlineNote()].filter(Boolean).join(' ') || undefined
+        // Soon after the person comes back, their turn carries the real away window and what moved in it (#2147).
+        const away = turn.proactive ? undefined : await presence.awayNote().catch(() => undefined)
+        const note = [expiry, turn.proactive ? undefined : this.#leadAutonomy?.deadlineNote(), away].filter(Boolean).join(' ') || undefined
         let cards: string | null = null
         try { cards = leadWorkCards(await work.board(), Date.now()) } catch (error) { if (!note || turn.proactive) throw error }
         return leadTurnContext(cards, note, turn.proactive)

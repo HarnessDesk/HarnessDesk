@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LEAD_DIGEST_ITEM_LABELS, leadDigestMore, type LeadAskState, type LeadDigest, type LeadDigestItem } from '@harnessdesk/protocol'
 import { Button, ListRow, ListRows, ToolBodyControls, ToolGroup, ToolProse, ToolSection } from '../design'
 import { sanitizeText } from '../lib/sanitize'
@@ -13,6 +13,10 @@ const zone = (at: number) => new Intl.DateTimeFormat(undefined, { timeZoneName: 
 
 /** How often an open window asks again, so a question that ran out of time stops offering answers. */
 export const LEAD_PRESENCE_REFRESH_MS = 60_000
+/** How long after the person last touched the window a read still says they looked. An open window nobody uses is not
+ * someone looking, or the desk would never see them away. */
+export const LEAD_PRESENCE_IDLE_MS = 2 * 60_000
+const LEAD_PRESENCE_INPUT = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'focus'] as const
 
 /** The digest's last line: what the list had no room for, then what was spent. */
 export const leadDigestNote = (digest: LeadDigest): string =>
@@ -56,7 +60,14 @@ export const useLeadAsks = (asks: readonly LeadAskState[]): readonly LeadAskStat
 /** The rail's way back to the digest: what changed in the last day, on demand and for this window only. */
 export const LeadRecap = () => {
   const store = useStore()
-  return <ToolSection label="Recap"><ToolBodyControls><Button variant="outline" onClick={() => { void store.lead.readAway({ active: true, recap: true }).catch(() => {}) }}>What happened?</Button></ToolBodyControls></ToolSection>
+  // Reading the ledger can take seconds: the button says so, so the first click is seen to work and is not repeated.
+  const [reading, setReading] = useState(false)
+  const recap = () => {
+    setReading(true)
+    void store.lead.readAway({ active: true, recap: true }).catch(() => {}).finally(() => setReading(false))
+  }
+  return <ToolSection label="Recap"><ToolBodyControls><Button variant="outline" disabled={reading} aria-busy={reading || undefined} onClick={recap}>
+    {reading ? 'Reading…' : 'What happened?'}</Button></ToolBodyControls></ToolSection>
 }
 
 /**
@@ -67,17 +78,27 @@ export const LeadRecap = () => {
 export const LeadAway = ({ active, state, label }: { readonly active: boolean; readonly state: LeadState; readonly label?: string }) => {
   const store = useStore(), snapshot = useSnapshot()
   const ready = active && state.revision >= 0 && !state.error
-  // Looking at the Lead is what marks it seen; the same read hands back the digest after a long absence.
+  // Opening the Lead is a look; after that, only the person's own input is. A refresh or a new reply in a window nobody
+  // touches still reads (asks expire, digests arrive) but does not say they looked, so the desk can see them away.
+  const touched = useRef(Date.now())
+  const looking = () => Date.now() - touched.current < LEAD_PRESENCE_IDLE_MS
   useEffect(() => {
     if (!ready || document.visibilityState === 'hidden') return
-    void store.lead.readAway({ active: true }).catch(() => {})
+    void store.lead.readAway({ active: looking() }).catch(() => {})
   }, [store, ready, state.revision])
   useEffect(() => {
     if (!ready) return
-    const read = () => { if (document.visibilityState !== 'hidden') void store.lead.readAway({ active: true }).catch(() => {}) }
+    const read = () => { if (document.visibilityState !== 'hidden') void store.lead.readAway({ active: looking() }).catch(() => {}) }
+    // The first touch after a while away is a return: read at once, so the away digest comes with it.
+    const input = () => { const back = !looking(); touched.current = Date.now(); if (back) read() }
+    const shown = () => { if (document.visibilityState !== 'hidden') touched.current = Date.now(); read() }
     const timer = setInterval(read, LEAD_PRESENCE_REFRESH_MS)
-    document.addEventListener('visibilitychange', read)
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', read) }
+    document.addEventListener('visibilitychange', shown)
+    for (const name of LEAD_PRESENCE_INPUT) window.addEventListener(name, input, { passive: true, capture: true })
+    return () => {
+      clearInterval(timer); document.removeEventListener('visibilitychange', shown)
+      for (const name of LEAD_PRESENCE_INPUT) window.removeEventListener(name, input, { capture: true })
+    }
   }, [store, ready])
   const digest = state.error ? null : state.away?.digest
   if (!digest) return null

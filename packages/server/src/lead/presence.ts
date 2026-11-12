@@ -1,5 +1,5 @@
 import type { LeadState } from '@harnessdesk/lead'
-import { LEAD_PRESENCE_LIMITS, capLeadPushText, leadMessageAsk, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
+import { LEAD_DIGEST_ITEM_LABELS, LEAD_PRESENCE_LIMITS, capLeadPushText, leadMessageAsk, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
   type LeadAsk, type LeadAskState, type LeadProactive, type LeadBriefSettings, type LeadBriefUpdate, type LeadDeviceRef, type LeadDigest, type LeadDigestItem,
   type LeadDigestKind, type LeadDigestRef, type LeadPresenceView, type LeadWorkBoard, type LeadWorkCard } from '@harnessdesk/protocol'
 import { rename } from 'node:fs/promises'
@@ -44,7 +44,7 @@ interface Mark {
   /** The digest this device has not dismissed, and the journal revision and spend where it ends. */
   pending?: LeadDigest
   pendingEnd?: { revision: number; spent: number }
-  /** Where the latest digest began, for "What happened?" and its spend. */
+  /** Where the pending away digest began, so a second absence rebuilds it from there. */
   last?: { from: number; spent: number; revision: number }
   /** The id of the brief this device dismissed, from before a dismissal was the desk's. */
   briefDone?: string
@@ -74,7 +74,23 @@ interface Stored {
   seen?: Seen[]
   /** The id of the brief the person dismissed, on any device. */
   briefDone?: string
+  /** The spend as it moved, oldest first, at most one entry a minute: what any span spent, read back for a recap and the
+   * away note. A spend that falls (a new goal's budget) starts again from zero. */
+  spend?: { at: number; spent: number }[]
+  /** The desk's latest absence: no window or phone was looked at from `from` to `to`; the journal revision at `from`. */
+  away?: { from: number; to: number; revision: number }
 }
+/** How long after the person comes back their turns carry the away window. */
+export const LEAD_AWAY_NOTE_MS = 60 * 60_000
+
+const spendSamples = (value: unknown): { at: number; spent: number }[] => Array.isArray(value)
+  ? value.flatMap(one => one && finite(one.at) && finite(one.spent) ? [{ at: one.at, spent: one.spent }] : []) : []
+const awaySpan = (value: unknown): Stored['away'] => {
+  const span = value as Stored['away']
+  return span && finite(span.from) && finite(span.to) && finite(span.revision) && span.from <= span.to ? { from: span.from, to: span.to, revision: span.revision } : undefined
+}
+/** A time in the desk's own zone, the zone the desk clock line names. */
+const deskTime = (at: number) => new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
 const fresh = (): Stored => ({ version: 1, devices: {}, asks: {}, brief: { enabled: false, at: '07:30' }, observer: { day: '', usdMicros: 0 } })
 const dayOf = (at: number) => { const date = new Date(at); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` }
 /** What a work item opens: what is done opens its evidence (pull request, then Team, then chat); anything else opens where it is happening. */
@@ -215,10 +231,11 @@ export class LeadPresenceStore {
           const kept = stored(pending)
           devices[id] = { ...rest, ...(kept ? { pending: kept } : {}), ...(kept && validEnd(pendingEnd) ? { pendingEnd } : {}) }
         }
-        const { briefDigest, seen, ...rest } = value
-        const briefKept = stored(briefDigest)
+        const { briefDigest, seen, spend, away, ...rest } = value
+        const briefKept = stored(briefDigest), samples = spendSamples(spend), absence = awaySpan(away)
         this.#stored = { ...fresh(), ...rest, devices, brief, asks: value.asks && typeof value.asks === 'object' ? value.asks : {},
-          ...(briefKept ? { briefDigest: briefKept } : {}), ...(seenSpans(seen).length ? { seen: seenSpans(seen) } : {}) }
+          ...(briefKept ? { briefDigest: briefKept } : {}), ...(seenSpans(seen).length ? { seen: seenSpans(seen) } : {}),
+          ...(samples.length ? { spend: samples } : {}), ...(absence ? { away: absence } : {}) }
       } catch { await this.#setAside(); this.#stored = fresh() }
     } else if (read.kind === 'io') return
     this.#settleOldReports()
@@ -238,12 +255,39 @@ export class LeadPresenceStore {
     this.#stored = fresh()
     try { await rename(this.ports.file, `${this.ports.file}.corrupt-${this.ports.now()}`) } catch { this.#unreadable = true }
   }
+  /** Keeps the spend as it moves: a new entry when it changed, folded into the last one inside the same minute. */
+  #sampleSpend(): void {
+    const now = this.ports.now(), spent = this.ports.spent(), list = this.#stored.spend ?? []
+    const last = list[list.length - 1]
+    if (last && last.spent === spent) return
+    if (last && now >= last.at && now - last.at < 60_000) last.spent = spent
+    else list.push({ at: now, spent })
+    // A day and a bit is all a recap or an absence reads; the newest entry before that keeps where the spend starts.
+    const cutoff = now - LEAD_PRESENCE_LIMITS.recapMs - LEAD_PRESENCE_LIMITS.awayMs
+    const first = list.findIndex(one => one.at >= cutoff)
+    this.#stored.spend = (first === -1 ? list.slice(-1) : list.slice(Math.max(0, first - 1))).slice(-2_000)
+  }
+  /** What was spent from `from` to `to`, read from the kept entries; a spend that fell started again from zero. */
+  #spentBetween(from: number, to: number): number {
+    const list = this.#stored.spend ?? []
+    if (!list.length) return 0
+    // Nothing kept from before `from`: the desk knows the spend only from its first entry on.
+    const start = Math.max(0, list.findLastIndex(one => one.at <= from))
+    let total = 0, previous = list[start]!.spent
+    for (const one of list.slice(start + 1)) {
+      if (one.at > to) break
+      total += one.spent >= previous ? one.spent - previous : one.spent
+      previous = one.spent
+    }
+    return total
+  }
   #write<T>(work: () => Promise<T> | T): Promise<T> {
     const run = this.#tail.then(async () => {
       // A read that failed just now (not a bad file) is tried again before anything is written over it.
       if (!this.#loaded && !this.#unreadable) await this.#load().catch(() => {})
       if (!this.#loaded || this.#unreadable) throw unreadable()
       if (!this.#stored.origin) this.#stored.origin = { at: this.ports.now(), spent: this.ports.spent() }
+      this.#sampleSpend()
       const before = JSON.stringify(this.#stored)
       try {
         const out = await work()
@@ -378,6 +422,7 @@ export class LeadPresenceStore {
     const step = await this.#write(async () => {
       this.#observeAsks()
       const now = this.ports.now(), revision = this.ports.revision(), spent = this.ports.spent()
+      if (options.active) this.#noteAbsence(now)
       let mark = this.#stored.devices[device.id]
       if (!mark) {
         mark = this.#stored.devices[device.id] = { label: device.label, seenAt: now, revision, spent }
@@ -388,9 +433,11 @@ export class LeadPresenceStore {
       let plan: Plan | undefined
       const pendingBefore = mark.pending?.id
       if (options.recap) {
-        const from = Math.min(mark.last?.from ?? now - LEAD_PRESENCE_LIMITS.recapMs, now)
-        plan = await this.#plan('recap', from, { spent: mark.last?.spent ?? spent, revision: mark.last?.revision ?? 0 })
-        mark.last = { from: now, spent, revision }
+        // Always the last day: a second click while the first is still reading, or just after it, says the same day
+        // again rather than the seconds between the clicks. Its spend is what that day spent.
+        const from = now - LEAD_PRESENCE_LIMITS.recapMs
+        plan = await this.#plan('recap', from, { spent, revision: 0 })
+        plan.spent = this.#spentBetween(from, now)
       } else if (options.active && now - mark.seenAt >= LEAD_PRESENCE_LIMITS.awayMs) {
         const earlier = mark.pending?.kind === 'away' && mark.last ? mark.last : { from: mark.seenAt, spent: mark.spent, revision: mark.revision }
         plan = await this.#plan('away', earlier.from, earlier)
@@ -417,6 +464,13 @@ export class LeadPresenceStore {
       }
       return this.#view(mark)
     })
+  }
+  /** A look after no window or phone was looked at for the away threshold records that absence, for the Lead's turns. */
+  #noteAbsence(now: number): void {
+    const marks = Object.values(this.#stored.devices)
+    if (!marks.length) return
+    const latest = marks.reduce((best, one) => one.seenAt > best.seenAt ? one : best)
+    if (now - latest.seenAt >= LEAD_PRESENCE_LIMITS.awayMs) this.#stored.away = { from: latest.seenAt, to: now, revision: latest.revision }
   }
   #evict(): void {
     const ids = Object.keys(this.#stored.devices)
@@ -482,6 +536,27 @@ export class LeadPresenceStore {
    * Every ask the host holds gets its clock the moment it is appended, not when someone first looks. A new one is news
    * for every device: it is now the open question, and the one before it, if still open, was replaced.
    */
+  /**
+   * The person's latest absence, for their turns soon after they came back: when it began and ended, what moved on the
+   * work ledger in it and what it spent, the facts the away digest is built from. So the Lead's answer to "what happened
+   * while I was away" names the real window, says nothing moved when nothing did (and so no digest was shown), and never
+   * puts earlier work inside it.
+   */
+  async awayNote(): Promise<string | undefined> {
+    return this.#write(async () => {
+      const away = this.#stored.away, now = this.ports.now()
+      if (!away || now < away.to || now - away.to > LEAD_AWAY_NOTE_MS) return undefined
+      const found = (await this.#items(away.from, away.revision)).filter(entry => entry.at === undefined || entry.at <= away.to)
+      const spent = this.#spentBetween(away.from, away.to), dollars = `$${(spent / 1_000_000).toFixed(2)}`
+      const lines = found.slice(0, LEAD_PRESENCE_LIMITS.items).map(entry => `- ${LEAD_DIGEST_ITEM_LABELS[entry.kind]}: ${quoteLeadWorkText(entry.title, LEAD_PRESENCE_LIMITS.titleChars)}`)
+      if (found.length > lines.length) lines.push(`- and ${found.length - lines.length} more`)
+      const moved = lines.length ? `In that span, on the work ledger:\n${lines.join('\n')}\n${dollars} was spent in it. `
+        : spent > 0 ? `In that span nothing on the work ledger finished, stopped or came to need them; ${dollars} was spent. `
+        : 'In that span nothing on the work ledger finished, stopped or came to need them, and nothing was spent, so no away digest was shown. '
+      return `The person was away from ${deskTime(away.from)} to ${deskTime(away.to)} (desk time): no window or phone of theirs was looked at in between. ${moved}` +
+        `Anything from before ${deskTime(away.from)} happened before they left: never report it as happening while they were away.`
+    })
+  }
   async observe(): Promise<void> { if (await this.#write(() => this.#observeAsks())) this.ports.changed?.() }
 
   /** The newest question that nobody has answered and the person has not talked past, whatever the Lead said after it. */

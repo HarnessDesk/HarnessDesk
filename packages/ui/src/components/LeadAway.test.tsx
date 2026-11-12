@@ -190,3 +190,41 @@ it('the buttons of a question go the moment it expires, with no refresh', async 
     act(() => root.unmount()); box.remove()
   } finally { vi.useRealTimers() }
 })
+
+it('#2147: "What happened?" shows it is reading until the host answers, so the first click is seen to work', async () => {
+  const store = createLeadFixtureStore('presence'), box = document.createElement('div'); document.body.append(box)
+  let answer: () => void = () => {}
+  const request = store.transport.request.bind(store.transport)
+  store.transport.request = (async (method: string, params: any) => {
+    if (method === 'lead/presence/read' && params.recap) await new Promise<void>(resolve => { answer = resolve })
+    return request(method as never, params as never)
+  }) as typeof store.transport.request
+  const root = createRoot(box)
+  await act(async () => root.render(<StoreProvider store={store}><LeadRecap /></StoreProvider>))
+  clean.push(() => { act(() => root.unmount()); box.remove() })
+  const button = () => box.querySelector('button')!
+  await act(async () => { button().click() })
+  expect(button().getAttribute('aria-busy')).toBe('true')
+  expect(button().disabled).toBe(true)
+  expect(button().textContent).toBe('Reading…')
+  await act(async () => { answer(); await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(button().getAttribute('aria-busy')).not.toBe('true')
+  expect(button().textContent).toBe('What happened?')
+})
+
+it('#2147: an open window nobody touches stops marking itself seen, and the first touch after reads as a return', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+  clean.push(() => vi.useRealTimers())
+  const { calls } = await mount()
+  const reads = () => calls.filter(call => call.method === 'lead/presence/read' && !call.params.recap)
+  expect(reads().at(-1)!.params.active).toBe(true)
+  // Five minutes with nobody at the window: the refreshes still read, but do not say the person looked.
+  await act(async () => { vi.advanceTimersByTime(5 * 60_000) })
+  expect(reads().length).toBeGreaterThan(2)
+  expect(reads().at(-1)!.params.active).toBe(false)
+  // The person comes back: the first touch reads at once, as a look.
+  const before = reads().length
+  await act(async () => { window.dispatchEvent(new Event('pointerdown')) })
+  expect(reads().length).toBe(before + 1)
+  expect(reads().at(-1)!.params.active).toBe(true)
+})
