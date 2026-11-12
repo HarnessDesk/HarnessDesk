@@ -8,6 +8,7 @@ import { parseLeadDeviceRef } from './lead-presence.js'
 import { LEAD_AUTONOMY_KINDS } from './lead-autonomy.js'
 import { LEAD_REQUEST_FAILURES, type LeadRequestFailure } from './lead-recovery.js'
 import { isBoolean, isObject, literalUnion, optional, optionalNullable, ValidationError, type Validator } from './validate.js'
+import { formatElapsed } from './elapsed.js'
 
 /** Versioned plain data only. Provider credentials and transport descriptors are private to the child bootstrap. */
 export const LEAD_VERSION = 1
@@ -1052,7 +1053,21 @@ export interface LeadDeskSummary {
   readonly needsYouMore: number
   /** Items outside the recent window, including any also listed in needsYou. */
   readonly olderCount: number
+  /** What waits on the person, from the one Inbox the bell and the phone show: its count, and the rows that count,
+   * the Lead's open question included. Present on the Lead's read (#2182). */
+  readonly waiting?: LeadDeskWaiting
 }
+/** One thing that waits on the person: the Lead's open question (`ask`, its message id), the Lead itself (`lead`, with
+ * `count` when it waits on more than one thing), or a chat or Team (`id` as a ref takes it). Titles are untrusted. */
+export interface LeadDeskWaitingItem {
+  readonly kind: 'ask' | 'lead' | 'chat' | 'team'
+  readonly id: string
+  readonly title: string
+  readonly project?: string
+  readonly count?: number
+}
+/** `count` is the rows' own counts added up, plus `more` needs-you work past the list. */
+export interface LeadDeskWaiting { readonly count: number; readonly items: readonly LeadDeskWaitingItem[]; readonly more: number }
 
 /** Allowance only, projected field by field from cached Dashboard reports. No account identifiers. */
 export interface LeadUsageWindow {
@@ -1216,15 +1231,22 @@ export interface LeadContextUse {
   readonly percent: number | null
   /** When the earlier conversation was last summarised, or null when it never was. */
   readonly lastSummaryAt: number | null
+  /** How long ago that was in the desk's own words (`formatElapsed`: "just now", "2h ago"), to be said as written; null
+   * when it never was. Present when the host read it with its clock (#2182). */
+  readonly lastSummaryAge?: string | null
   readonly compacting: boolean
   readonly full?: true
 }
-export const leadContextUse = (facts: LeadContextFacts): LeadContextUse => ({
-  version: 1, windowTokens: facts.windowTokens, usedTokens: facts.usedTokens,
-  percent: facts.usedTokens === null || facts.windowTokens <= 0 ? null : Math.round(facts.usedTokens / facts.windowTokens * 100),
-  lastSummaryAt: facts.checkpoints.reduce<number | null>((latest, one) => latest === null || one.at > latest ? one.at : latest, null),
-  compacting: facts.compacting, ...(facts.full ? { full: true as const } : {}),
-})
+/** The figure from the facts; with `now`, also how long ago the last summary was, so an old one never reads as just now. */
+export const leadContextUse = (facts: LeadContextFacts, now?: number): LeadContextUse => {
+  const lastSummaryAt = facts.checkpoints.reduce<number | null>((latest, one) => latest === null || one.at > latest ? one.at : latest, null)
+  return {
+    version: 1, windowTokens: facts.windowTokens, usedTokens: facts.usedTokens,
+    percent: facts.usedTokens === null || facts.windowTokens <= 0 ? null : Math.round(facts.usedTokens / facts.windowTokens * 100),
+    lastSummaryAt, ...(now === undefined ? {} : { lastSummaryAge: lastSummaryAt === null ? null : formatElapsed(lastSummaryAt, now) }),
+    compacting: facts.compacting, ...(facts.full ? { full: true as const } : {}),
+  }
+}
 export const LEAD_CONTEXT_CHECKPOINT_CHARS = 32_768
 const parseLeadCheckpointPerson: Validator<LeadCheckpointPerson> = object({
   messages: list(object({ id, text: boundedText(LEAD_CHECKPOINT_PERSON.messageChars, true, /[\u0000-\u001f\u007f-\u009f]/) }), LEAD_CHECKPOINT_PERSON.messages),

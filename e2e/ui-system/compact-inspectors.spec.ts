@@ -126,9 +126,10 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(checks).toHaveCount(4)
     expect(await checks.locator('[data-slot="list-row-trail"]').allTextContents()).toEqual(['Approved', 'Changed', 'Not approved', 'Not offered'])
     const triggers = page.locator('[data-frame-id="project-triggers"]')
-    // Six forge and schedule triggers, and the armed mention trigger that still observes.
-    await expect(triggers.locator('[role="switch"]')).toHaveCount(7)
+    // Six forge and schedule triggers, the armed mention trigger that still observes, and the armed request trigger.
+    await expect(triggers.locator('[role="switch"]')).toHaveCount(8)
     await expect(triggers.getByRole('switch', { name: 'Arm ask-dex' })).toBeChecked()
+    await expect(triggers.getByRole('switch', { name: 'Arm ask-desk' })).toBeChecked()
     for (const title of await triggers.locator('[data-slot="list-row-title"]').all()) {
       const reading = await title.evaluate(node => {
         const box = node.getBoundingClientRect()
@@ -162,7 +163,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(triggers.locator('[data-slot="list-row-subtitle"]').filter({ hasText: 'triage-issue' })).toContainText('triage-issue · once at a time · Out of budget for today.')
     const observing = triggers.locator('[data-slot="list-row"]').filter({ has: page.getByRole('switch', { name: 'Arm ask-dex', exact: true }) })
     await expect(observing.getByRole('button', { name: 'Switch to act', exact: true })).toHaveCount(1)
-    await expect(triggers.getByRole('button', { name: 'History', exact: true })).toHaveCount(7)
+    await expect(triggers.getByRole('button', { name: 'History', exact: true })).toHaveCount(8)
     const emptyCells = page.locator('[data-frame-id="plugin-panel-table"] tbody td').filter({ hasText: '—' })
     await expect(emptyCells).toHaveCount(3)
   })

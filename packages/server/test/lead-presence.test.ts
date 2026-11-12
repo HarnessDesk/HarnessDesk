@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test, { type TestContext } from 'node:test'
-import { LEAD_PRESENCE_LIMITS, capLeadPushText, isLeadDigestRefId, leadDigestPushParts, leadDigestPushText, parseLeadPresenceView, parseStoredLeadDigest, type LeadAsk, type LeadAutonomyChange, type LeadDeskItem, type LeadDeskSummary, type LeadDeviceRef,
+import { LEAD_PRESENCE_LIMITS, capLeadPushText, formatLeadDollars, isLeadDigestRefId, leadDigestPushParts, leadDigestPushText, parseLeadPresenceView, parseStoredLeadDigest, type LeadAsk, type LeadAutonomyChange, type LeadDeskItem, type LeadDeskSummary, type LeadDeviceRef,
   type LeadMemoryEntry, type LeadReminder, type LeadWorkCard } from '@harnessdesk/protocol'
 import { leadInbox } from '../src/lead/inbox.js'
 import { LEAD_DIGEST_OBSERVER_DAILY_MICROS, LeadPresenceStore, leadRepeatsRequest, leadTurnContext, type LeadPresencePorts } from '../src/lead/presence.js'
@@ -1195,9 +1195,9 @@ test('the away card and "What happened?" tell one list: reminders, Teams and cha
   assert.deepEqual([recap.items.length, recap.more], [8, 2])
   assert.deepEqual(recap.items.filter(item => digest.items.some(one => one.id === item.id)).map(item => item.id), digest.items.map(item => item.id).slice(0, 6))
   assert.ok(recap.items.some(item => item.id === 'm1'), 'the day before the absence is in the recap')
-  // The Lead's away note is the same list, by the same group names.
+  // The Lead's away note is the same list, by the same group names, a reminder under its own heading with when it fired.
   const away = (await r.store.awayNote())!
-  for (const words of ['Needs you: ', 'Reminders: ', 'Kept in memory: ', 'Settings applied: ']) assert.ok(away.includes(words), `${words} in ${away}`)
+  for (const words of ['Needs you: ', 'Reminders that fired in that span:\n- "Check the release notes" fired ', 'Kept in memory: ', 'Settings applied: ']) assert.ok(away.includes(words), `${words} in ${away}`)
   // A push counts reminders apart from what needs the person, and leaves the person's own doings out.
   assert.equal(leadDigestPushText(digest, 'Dex').body, '1 needs you, 1 reminder, 1 done, 1 stopped')
 })
@@ -1281,6 +1281,59 @@ test('a decision that begins waiting after the return is not told as one that ca
   const note = (await r.store.awayNote())!
   assert.ok(note.includes('export plan'), note)
   assert.ok(!note.includes('release branch'), note)
+})
+
+// #2147 (round 7): asked what happened while away, the Lead gave neither the window nor the spend the card showed, and
+// linked only one thing. The note now carries the card's own window and spend, each item with the id a link takes, and
+// the reminders that fired in the window.
+test('#2147: the away note gives the window and spend the card shows, the fired reminders, and the id each named thing opens by', async t => {
+  let items: LeadWorkCard[] = [], reminders: LeadReminder[] = []
+  const r = await rig(t, { board: async () => ({ version: 1, items, more: 0, ...(reminders.length ? { reminders } : {}) }) })
+  await r.store.read(desktop, { active: true })
+  const left = r.now()
+  // Before the person left: a reminder that fired then is not part of the window.
+  reminders = [{ id: 'remind-1', text: 'Earlier check', for: 'person', dueAt: left - 5 * MIN, createdAt: left - 60 * MIN, state: 'fired', firedAt: left - 5 * MIN }]
+  r.tick(12 * MIN)
+  items = [
+    work('work-2', 'needs-you', r.now(), { title: 'Build the game', links: { chats: [], teams: ['goal-game'], prs: [], issues: [] } }),
+    work('work-3', 'stopped', r.now(), { title: 'Fix the stalled task', stoppedBy: 'person', links: { chats: ['fixture:s-7'], teams: [], prs: [], issues: [] } }),
+  ]
+  reminders = [...reminders, { id: 'remind-2', text: 'Check the release notes', for: 'person', item: 'work-2', dueAt: r.now() + 7 * MIN, createdAt: left, state: 'fired', firedAt: r.now() + 7 * MIN }]
+  r.spend(420_000); await r.store.observe()
+  r.tick(20 * MIN)
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  assert.equal(digest.kind, 'away')
+  const note = (await r.store.awayNote())!
+  const deskTime = (at: number) => new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
+  assert.ok(note.includes(`away from ${deskTime(digest.from)} to ${deskTime(digest.to)}, desk time`), `the card's window, as facts in desk time: ${note}`)
+  assert.equal(digest.spentUsdMicros, 420_000)
+  assert.ok(note.includes(`${formatLeadDollars(digest.spentUsdMicros)} was spent in that span.`), `the card's spend, by the card's rule: ${note}`)
+  assert.match(note, /what the person's away card shows/, 'the note says these are the card\'s figures')
+  assert.ok(!note.includes('While you were away') && !note.includes('spent while away'), 'never the card\'s own labels')
+  assert.ok(note.includes('(team goal-game)'), `a Team names the id its link takes: ${note}`)
+  assert.ok(note.includes('(chat fixture:s-7)'), note)
+  assert.match(note, /Reminders that fired in that span:\n- "Check the release notes" fired \d\d:\d\d, about a work item \(work work-2\)/)
+  assert.ok(!note.includes('remind-2'), 'a reminder id is no ref, so it is not printed')
+  assert.ok(!note.includes('Earlier check'), 'a reminder that fired before they left is not in the window')
+  assert.match(note, /An id in parentheses after a kind, as in \(team …\), \(chat …\) or \(work …\), can be used as a ref: to link that item, add it to refs with that kind and id/, 'the note says its ids are refs, in the parentheses it prints them in')
+  assert.match(note, /\((team|chat|work) [^)]+\)/, 'an id is printed in parentheses after its kind')
+})
+
+test('#2147: a pull request or a decision card in the away note is named by what it is, never by an id no ref can take', async t => {
+  let items: LeadWorkCard[] = []
+  const r = await rig(t, { board: async () => ({ version: 1, items, more: 0 }) })
+  await r.store.read(desktop, { active: true })
+  r.tick(12 * MIN)
+  items = [work('work-4', 'done', r.now(), { title: 'Ship the fix', links: { chats: [], teams: [], prs: ['acme/game#12'], issues: [] } })]
+  r.spend(10_000); await r.store.observe()
+  r.tick(20 * MIN)
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  const note = (await r.store.awayNote())!
+  assert.ok(digest.items.some(item => item.ref?.kind === 'pr'), `the card links the pull request: ${JSON.stringify(digest.items)}`)
+  for (const item of digest.items) if (item.ref?.kind === 'pr' || item.ref?.kind === 'card') {
+    assert.ok(!note.includes(item.ref.id), `no ${item.ref.kind} id: ${note}`)
+    assert.ok(note.includes(item.ref.kind === 'pr' ? '(a pull request)' : '(a decision card in the conversation)'), note)
+  }
 })
 
 // #2173: `openAsk` is the Inbox's and the Lead's rule, so it holds a question exactly while its state is `open`.

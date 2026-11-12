@@ -17,6 +17,8 @@ import type { LeadContextFacts } from '@harnessdesk/protocol'
 export const LEAD_PLAN_CONSENT_MS = 86_400_000
 /** How long a click on a withdrawn result waits for the Lead to offer that same card again: one read of the desk. */
 export const LEAD_REOFFER_WAIT_MS = 15_000
+/** How long a request waits for a settings mark still being written before it reads the mark as it stands. */
+const LEAD_SHOWN_WRITE_WAIT_MS = 3_000
 
 /** Trusted host feedback survives the resume transition that clears the wait.
  * It is supplied as current context, rather than fabricated assistant history. */
@@ -91,11 +93,19 @@ interface LeadControlsOptions {
   /** The Lead's current step in plain words, from the desk call in flight; null while it has named none. */
   readonly readActiveStep?: () => string | null
 }
-/** Whether the Lead model wrote a reply to the person after the journal stood at `seq`: one appended later (its id
- * carries the seq it was written at, which a later revision of the message never changes), not proactive, and the
- * model's own words rather than a host notice. */
-const leadAnsweredSince = (journal: LeadJournal, seq: number): boolean => journal.state.messages.some(message =>
-  message.role === 'assistant' && !message.proactive && Number(message.id.slice('message-'.length)) > seq && journal.isModelReply(message.id))
+const written = (message: { readonly id: string }) => Number(message.id.slice('message-'.length))
+/** Whether the Lead model answered the request that left when the journal stood at `seq`: a reply of its own words (not
+ * proactive, not a host notice) written past `seq` and before any later user turn. Its id carries the seq it was written
+ * at, which a later revision never changes. A reminder's or another message's turn starts with a user message of its
+ * own, so a reply after one answers that turn, never this request (#2180). */
+const leadAnsweredRequest = (journal: LeadJournal, seq: number): boolean => {
+  for (const message of journal.state.messages) {
+    if (written(message) <= seq) continue
+    if (message.role === 'user') return false
+    if (message.role === 'assistant' && !message.proactive && journal.isModelReply(message.id)) return true
+  }
+  return false
+}
 
 /** One host owner, no transport or rendering. Child ports never contain these operations. */
 export class LeadControls {
@@ -122,10 +132,16 @@ export class LeadControls {
   #actionsGeneration = 0
   #actions: { readonly scope: string; readonly generation: number; readonly value: readonly LeadAction[] } | null = null
   readonly #detach: () => void
+  /** A person request that read the settings and returned before its reply was stored (the child stores it from a
+   * continuation after a tool call): kept when a reply of the Lead's lands past `seq` (#2180). */
+  #shownPending: { readonly at: number; readonly seq: number } | null = null
+  /** The latest settings mark being written: the next request waits for it before it reads the settings, so a request
+   * from another device never reads the mark from before it and says the same news again. */
+  #shownWrite: Promise<void> = Promise.resolve()
   #contextWork: Promise<unknown> = Promise.resolve()
   #contextCheck = false
   constructor(private readonly options: LeadControlsOptions) {
-    this.#detach = options.journal.onChange(() => { void this.#notify() })
+    this.#detach = options.journal.onChange(() => { this.#settleShown(); void this.#notify() })
   }
   #notify(liveApprovals = false): Promise<void> {
     this.#notifications = this.#notifications.then(async () => {
@@ -146,6 +162,14 @@ export class LeadControls {
     return this.#notifications
   }
   close(): void { this.#closed = true; this.#detach() }
+  /** The pending settings mark, kept once the reply it waited for is stored. */
+  #settleShown(): void {
+    const pending = this.#shownPending
+    if (!pending || !leadAnsweredRequest(this.options.journal, pending.seq)) return
+    this.#shownPending = null
+    const shown = this.options.settingsShown
+    if (shown) this.#shownWrite = this.#shownWrite.then(() => shown(pending.at)).catch(() => { /* The next reply keeps it. */ })
+  }
   async idle(): Promise<void> {
     await this.#tail
     while (this.#continuation) await this.#continuation
@@ -403,8 +427,11 @@ export class LeadControls {
       this.#requestWaitReason = null
       const { context } = this.options
       let persons: readonly string[] = []
-      // When the request that was sent read the settings; kept only once its reply to the person is stored.
+      // When the request that was sent read the settings; kept only once its reply to the person is stored. A new
+      // message from the person supersedes an earlier one still waiting for its reply: this request reads the settings
+      // again, and a wake, a reminder or a proactive turn leaves the person's mark to their own reply.
       let settingsShownAt: number | undefined
+      if (person) this.#shownPending = null
       const build = async () => {
         // With the context engine the request starts from the stored conversation, tool pairs and all; without it,
         // from the words the person can read. Either way no reasoning from an earlier request is carried.
@@ -444,6 +471,12 @@ export class LeadControls {
         // or a Forget since then reaches the model here, every request, and it never calls a declined note recorded.
         let memory: string | null = null
         settingsShownAt = undefined
+        // A mark still being written is read as written, never as the one before it; a write that hangs holds no request
+        // up for longer than a few seconds, and the request then reads the mark as it stands.
+        let wait: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([this.#shownWrite, new Promise<void>(resolve => { wait = setTimeout(resolve, LEAD_SHOWN_WRITE_WAIT_MS) })])
+        } finally { clearTimeout(wait) }
         try {
           const note = await this.options.readMemoryContext?.() ?? null
           memory = typeof note === 'string' ? note : note?.text ?? null
@@ -493,9 +526,12 @@ export class LeadControls {
       }
       else await journal.settingsChanged()
       // The person read a reply from a request that carried the settings: they are no longer news to the Lead. Decided
-      // from the journal, since the child stores its reply itself and returns a result without the words (#2170).
-      if (person && !proactive && settingsShownAt !== undefined && leadAnsweredSince(journal, sentAt))
-        try { await this.options.settingsShown?.(settingsShownAt) } catch { /* The next reply keeps it. */ }
+      // from the journal, since the child stores its reply itself and returns a result without the words (#2170); a
+      // reply that comes from the child's continuation after a tool call lands after this, and keeps it then (#2180).
+      if (person && !proactive && settingsShownAt !== undefined && result.status === 'completed') {
+        this.#shownPending = { at: settingsShownAt, seq: sentAt }
+        this.#settleShown()
+      }
       this.contextChanged()
     } catch (failure) {
       try { this.options.onFailure?.('request', failure) } catch { /* A log never owns the request. */ }

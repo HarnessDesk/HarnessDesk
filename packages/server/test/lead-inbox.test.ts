@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import { isWaitingOnYou, LEAD_UNSENT_WAITS, leadNeedsYou, leadPersonNeeds, leadStage, type LeadDeskSummary, type LeadWindowProjection } from '@harnessdesk/protocol'
 
-import { leadInbox } from '../src/lead/inbox.js'
+import { leadInbox, leadInboxWaiting } from '../src/lead/inbox.js'
 
 const NOW = Date.UTC(2026, 10, 10, 22)
 const window = (over: Partial<LeadWindowProjection> = {}): LeadWindowProjection => ({
@@ -117,3 +117,21 @@ test('with an open question the inbox and the Lead\'s word say one number: the i
   assert.equal(leadPersonNeeds({ openAsk: true }), 1, 'the shared rule counts the open question')
 })
 
+
+test('#2182: the desk summary\'s waiting count is the Inbox\'s, the open question included, and it lists what it counts', () => {
+  const open = { id: 'm4', question: 'Fix the Team or the game first?' }
+  const inbox = leadInbox({ window: window({ stage: 'idle' }), desk: desk([team]), kept: [usage], now: NOW, ask: open })
+  const waiting = leadInboxWaiting(inbox)
+  assert.equal(waiting.count, 2, 'the Team and the open question, as the bell and the phone count them')
+  assert.equal(waiting.count, inbox.needsYou)
+  assert.deepEqual(waiting.items, [
+    { kind: 'ask', id: 'm4', title: 'Fix the Team or the game first?' },
+    { kind: 'team', id: 'goal-game', title: 'build a game', project: 'HarnessDesk' },
+  ], 'the rows it counts, with the ids a link takes; a notice is not one')
+  assert.equal(waiting.more, 0)
+  // Needs-you work past the list is counted, and said as more rather than dropped from the count.
+  const past = leadInboxWaiting(leadInbox({ window: window({ stage: 'you-answer', personActions: [{ id: 'a1' }, { id: 'a2' }] } as never), desk: desk([team], 3), kept: [], now: NOW }))
+  assert.equal(past.count, 6)
+  assert.deepEqual(past.items.map(item => [item.kind, item.count ?? 1]), [['lead', 2], ['team', 1]])
+  assert.equal(past.more, 3, 'the count equals the rows listed (each by its own count) plus more')
+})

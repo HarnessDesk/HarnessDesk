@@ -10,14 +10,16 @@ cross-project action permission and are not paired-phone methods. The desk
 summary caps running, attention and project lists at 20 with omitted counts.
 Both scan at most 2,000 sessions and expose `sessionsScanned` and
 `countsPartial`; desk totals stay exact, while per-project and usage running
-counts cover the scanned sessions when partial.
+counts cover the scanned sessions when partial. The desk summary also carries
+`waiting`: the Inbox's `needsYou` count, the rows it counts (the Lead's open
+question included) and `more` past the list, so a count matches what is listed.
 
 | Method | Required tier | Params | Result |
 | --- | --- | --- | --- |
 | `lead/schedule/read` | `read` | `{}` | `LeadSchedule` |
 | `lead/context/read` | `read` | `{}` | `LeadContextFacts` |
 | `lead/inbox/read` | `read` | `{}` | `LeadInbox`: `{version: 1, needsYou, items}`, the person's inbox (see below) |
-| `lead/context/use` | `read` | `{}` | `LeadContextUse`: `{version: 1, windowTokens, usedTokens, percent, lastSummaryAt, compacting, full?}`, the figure the Lead reads about itself |
+| `lead/context/use` | `read` | `{}` | `LeadContextUse`: `{version: 1, windowTokens, usedTokens, percent, lastSummaryAt, lastSummaryAge?, compacting, full?}` (`lastSummaryAge` is how long ago in the desk's words, "2h ago"), the figure the Lead reads about itself |
 | `lead/repeat/control` | `run` | `taskId`, `action` | updated `LeadSchedule` |
 | `lead/budget/raise` | `answer` | `logicalGoalId`, `caps`, `expectedRevision` | `LeadWindowProjection` |
 | `lead/spendLimit/set` | `answer` | `usdMicros`, `expectedRevision` | `LeadWindowProjection` |

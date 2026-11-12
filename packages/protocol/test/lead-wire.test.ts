@@ -251,6 +251,16 @@ test('autonomy and rules take closed shapes: a kind with a mode, a section with 
     assert.throws(() => request('lead/deadline/set', params), { name: 'ValidationError' }, JSON.stringify(params))
 })
 
+test('#2182: context use says how long ago the summary was, in the desk\'s words, so an old one never reads as just now', () => {
+  const facts = { version: 1 as const, windowTokens: 200_000, usedTokens: 1_000, cacheHitRate: null, compacting: false,
+    checkpoints: [{ id: 'c1', at: 1_000_000, fallback: false, beforeTokens: 150_000, afterTokens: 20_000, text: null }] }
+  const now = 1_000_000 + (2 * 60 + 20) * 60_000
+  assert.equal(leadContextUse(facts as never, now).lastSummaryAge, '2h ago', 'two hours twenty minutes is "2h ago"')
+  assert.equal(leadContextUse(facts as never, 1_000_000 + 30_000).lastSummaryAge, 'just now')
+  assert.equal(leadContextUse({ ...facts, checkpoints: [] } as never, now).lastSummaryAge, null, 'never summarised')
+  assert.equal('lastSummaryAge' in leadContextUse(facts as never), false, 'without a clock the figure stays as it was')
+})
+
 test('context use is one figure: percent of the window, tokens, and when the conversation was last summarised', () => {
   const facts = { version: 1 as const, windowTokens: 200_000, usedTokens: 73_622, cacheHitRate: 0.9, compacting: false,
     checkpoints: [{ id: 'c1', at: 1_000, fallback: false, beforeTokens: 150_000, afterTokens: 20_000, text: 'Earlier summary words' },

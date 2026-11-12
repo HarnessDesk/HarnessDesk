@@ -222,7 +222,8 @@ and the spend of a summary request is filed marked as compaction.
 context-use and cache facts and the kept summaries' text; it changes nothing.
 `lead/context/use` gives the Lead about itself and a paired phone (read tier)
 four numbers: the window's size, the latest request's prompt size, that as a
-percent, and when the conversation was last summarised. No text.
+percent, and when the conversation was last summarised, with how long ago in
+the desk's words ("2h ago"). No conversation text.
 
 `lead/inbox/read` gives the window and a paired phone (read tier) the one list
 of what waits on the person: the Lead's own row with a count, an open question,

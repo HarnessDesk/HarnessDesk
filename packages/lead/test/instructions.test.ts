@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { parseLeadAcceptanceContract, type LeadAcceptanceContract } from '@harnessdesk/protocol'
-import { leadContinuation, leadInstructions } from '../src/index.js'
+import { LEAD_SURFACE_LINES, leadContinuation, leadInstructions } from '../src/index.js'
 
 const project = { id: 'acme', path: '/work/acme' }
 const assignments = [
@@ -172,7 +172,18 @@ test('the instructions tell memory from autonomy from rules, propose settings ra
 
 test('#2170: the desk status the request carries is reference, never recapped unasked', () => {
   const text = leadInstructions({ name: 'Lex', project, policyRevision: 1, caps: { usdMicros: 5_000_000, rounds: 12 } })
-  assert.match(text, /Desk status is reference: never restate settings, rules, memory or pending proposals unless the person asks or a line says it changed\./)
+  assert.match(text, /Desk status is reference: never restate settings, rules, memory or pending proposals unless the person asks, or a settings line says changed since your last reply\. Memory is never news: the person made each change and the desk showed them a receipt\./)
+})
+
+test('#2182: the Lead knows one person message reads as one reply, so a lead line its talk rule asks for opens it once', () => {
+  const text = leadInstructions({ name: 'Lex', project, policyRevision: 1, caps: { usdMicros: 5_000_000, rounds: 12 } })
+  assert.match(text, /Everything you write for one person message reads as one reply: words beside a tool call show at once, the words after its results follow under them, and an ask's question is drawn under your text with its options\./)
+  assert.match(text, /a lead line a talk rule asks for \(a conclusion first\) opens the reply once/)
+})
+
+test('#2182: the device note says what the person\'s surface opens: the phone opens a Team or chat from its Inbox', () => {
+  assert.match(LEAD_SURFACE_LINES.phone, /^Desk note: the person sent the message above from their phone, which opens any Team or chat from its Inbox or Work tab and answers questions and cards there\.$/)
+  assert.match(LEAD_SURFACE_LINES.desktop, /^Desk note: the person sent the message above from the desktop window\b/)
 })
 
 test('a @harnessdesk request is planned as asked and only that, its words granting nothing', () => {
