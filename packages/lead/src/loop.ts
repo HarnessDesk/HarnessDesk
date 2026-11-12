@@ -9,7 +9,7 @@ import { leadWakeAutonomy } from './autonomy.js'
 import { classifyLeadRuns, createLeadWakeGate, leadChatFingerprint, type LeadRunReading, type LeadWakeCounts } from './wake.js'
 import { createLeadMessages } from './messages.js'
 import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesTurn, MessagesUsage } from './messages-types.js'
-import { LEAD_CONTEXT, leadAppendUser, leadWithPlan, leadCloseOpenLoop, leadContextBytes, leadContextMarkOf, leadContextRecord, leadPruneContext, leadStubVolatile, type LeadContextRecord } from './context.js'
+import { LEAD_CONTEXT, type LeadEpochHeld, leadAppendUser, leadWithPlan, leadCloseOpenLoop, leadContextBytes, leadContextMarkOf, leadContextRecord, leadPruneContext, leadStubVolatile, type LeadContextRecord } from './context.js'
 import { leadWorkCards } from './work.js'
 import { parseLeadWorkBoard } from '@harnessdesk/protocol'
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
@@ -55,10 +55,10 @@ export interface LeadLoopOptions {
    * Called when a new epoch of the conversation begins (a new goal, or a compaction or prune the desk applied), and
    * only then: what it returns is added to the standing instructions for that epoch. A provider caches the
    * instructions and refuses replayed reasoning behind changed ones, so memory and rules refresh here and nowhere else.
-   * `memory` is the Core this epoch reads: the one the journal recorded for it, so a restart builds the same bytes, or
-   * the latest when the epoch is new.
+   * `memory` is the Core this epoch reads and `rules` the person's sections: the ones the journal recorded for it, so a
+   * restart builds the same bytes, or the latest when the epoch is new (`leadEpochState`).
    */
-  readonly onEpoch?: (at?: { readonly memory: LeadMemoryCore }) => { readonly standingAddendum?: string }
+  readonly onEpoch?: (at?: LeadEpochHeld) => { readonly standingAddendum?: string }
   /**
    * A failure the loop caught and carried on from (a wait for the person, a dropped record). `stage` is a static name;
    * the caller reduces `failure` to a code before it goes anywhere, so no content reaches a log (#2085).
@@ -138,6 +138,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let snapshot: ClientSnapshot | null = null, relays: ReturnType<typeof leadWorkerApprovalRelay>[] = []
   let acceptance: { runId: string; result: LeadAcceptanceResult }[] = []
   let cancelBatch: (() => void) | null = null, dirty = false, continuationPending = false
+  /** Evidence reached the desk with no run or card event since the last batch (#2172): see `refreshSoon`. */
+  let evidenced = false
   let batchRunning = false, batchAgain = false, batchReply = false
   let requested = 0, reportedActivity = false
   const reportActivity = () => {
@@ -198,13 +200,16 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     if (instructionsFor !== key) {
       const held = state.memoryEpoch, same = !!held && held.goal === goal && held.epoch === epoch
       const memory = same ? held!.memory : state.memory
-      // Nothing was ever kept (revision 0): no record, so a desk without memory writes nothing per epoch.
-      if (!same && record && state.memory.revision > 0) {
+      // The rules the epoch began with; a record older than kept rules has none, and the rules as they stand fill in.
+      const rules = same && held!.rules ? held!.rules : state.autonomy?.rules ?? {}
+      // Nothing was ever kept (revision 0) and no setting was ever touched: no record, so a desk without memory or
+      // settings writes nothing per epoch. Otherwise the rules ride too: the settings note compares against them (#2165).
+      if (!same && record && (state.memory.revision > 0 || state.autonomy !== null)) {
         const at = epoch
-        memoryRecorded = memoryRecorded.then(() => journal.memoryEpoch?.(goal, at, memory)).catch(failure => { noteFailure('memoryEpoch', failure) })
+        memoryRecorded = memoryRecorded.then(() => journal.memoryEpoch?.(goal, at, memory, rules)).catch(failure => { noteFailure('memoryEpoch', failure) })
       }
       let addendum = ''
-      try { addendum = options.onEpoch?.({ memory }).standingAddendum?.trim() ?? '' } catch { /* An epoch hook never blocks a turn. */ }
+      try { addendum = options.onEpoch?.({ memory, rules }).standingAddendum?.trim() ?? '' } catch { /* An epoch hook never blocks a turn. */ }
       instructions = [leadInstructions({ name: state.name === 'lex' ? 'Lex' : 'Dex', project, policyRevision: state.policy?.revision ?? 1,
         caps: state.budget!.caps, ...(options.seats ? { seats: options.seats } : {}) }), addendum].filter(Boolean).join('\n')
       instructionsFor = key
@@ -609,10 +614,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         // A wake refused as too long reads the stored conversation again whatever it was doing: a tool loop cut there
         // goes on from the stored copy, its open calls closed as text.
         const fromStore = owed || changed
-        const activity = dirty, continueTools = continuationPending
-        dirty = false; continuationPending = false
+        const activity = dirty, continueTools = continuationPending, fromEvidence = evidenced
+        dirty = false; continuationPending = false; evidenced = false
         let pendingWake: LeadWakeRecord = { id: nextId(), at: clock.now(), source: continueTools ? requestTemplate?.wakeSource ?? 'trigger' : 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null }
-        let stepped = false
+        // Only a batch that found something is a wake in the ledger: a tool continuation, a look that woke, a chat change,
+        // a desk wake owed, a decision the person's Observe recorded, or evidence that arrived on its own. The minute tick,
+        // a prose notice and a team change that wakes nothing look and find nothing nearly every time (#2172).
+        let stepped = false, caused = continueTools || fromEvidence
         try {
           if (journal.state.phase === 'following') return
           // The previous tool turn already read fresh evidence after dispatch.
@@ -621,7 +629,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           if (blocked()) {
             const state = journal.state
             if (!terminal(state.phase) && state.phase !== 'waiting-for-user' && !state.recoveryBlocked) {
-              dirty ||= activity; continuationPending ||= continueTools
+              // Carried to the batch that runs it, which records the wake then.
+              dirty ||= activity; continuationPending ||= continueTools; evidenced ||= fromEvidence; caused = false
             }
             return
           }
@@ -629,6 +638,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           const chatChanges = [...changedChats]
           const look = activity ? gate.look(snapshot, owned(), personActions, clock.now(), observedChats()) : null
           report()
+          if (look?.wake || chatChanges.length || deskOwed) caused = true
           if (look && !look.wake && !continueTools && !deskOwed && !chatChanges.length) return
           // The person's Off and Observe for unasked reports: the host looked, nothing woke the model. Observe says what it
           // would have done in the wake ledger; the change is taken as seen, so it is said once and not at every check.
@@ -694,7 +704,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           if (wakeOverflow && !closed) { dirty ||= activity; deskOwed ||= activity ? stepCause : false; continuationPending ||= continueTools; batchAgain = true }
           report()
         } finally {
-          try { if (!stepped) await journal.recordWake(pendingWake) }
+          try { if (!stepped && (caused || pendingWake.observed)) await journal.recordWake(pendingWake) }
           finally {
             batchRunning = false; batchReply = false
             if (batchAgain && !closed) { batchAgain = false; schedule(false) }
@@ -840,7 +850,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       }).finally(() => { requested--; reportActivity() })
     },
     /** Host evidence notifications share the bounded desk-event batch. */
-    refreshSoon: () => { if (!closed && started) { refreshPending = true; schedule(false) } },
+    // Evidence that reached the desk with no run or card event (a check a person ran) keeps its row on purpose: it is the
+    // one sign that the child read the desk again, and the host's publication walk waits on it as its fence.
+    refreshSoon: () => { if (!closed && started) { refreshPending = true; evidenced = true; schedule(false) } },
     refresh: () => queue(async () => { await start(); await refresh() }),
     idle: async () => { await preparing; await tail },
     async close() {

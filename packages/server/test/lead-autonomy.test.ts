@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createLeadJournal } from '@harnessdesk/lead'
-import { LEAD_RULE_DEFAULTS, LEAD_SETTINGS_PROPOSAL_LIMITS, type LeadAutonomyMode, type LeadSchedule, type LeadScheduledTask } from '@harnessdesk/protocol'
+import { LEAD_RULE_DEFAULTS, LEAD_RULE_LIMITS, LEAD_SETTINGS_PROPOSAL_LIMITS, parseLeadAutonomyView, type LeadAutonomyMode, type LeadSchedule, type LeadScheduledTask } from '@harnessdesk/protocol'
 import { LeadAutonomyStore, LEAD_OBSERVED_NOTES } from '../src/lead/autonomy.js'
 import { LeadAutomaticGoals } from '../src/lead/automatic-goals.js'
 import { LeadPlanner } from '../src/lead/planner.js'
@@ -30,6 +30,43 @@ const rig = async (t: { after(fn: () => unknown): void }, over: { defaults?: typ
   return { home, journal, store, reports, make, tick: (ms: number) => { now += ms }, now: () => now }
 }
 const wakes = (journal: Awaited<ReturnType<typeof memoryJournal>>) => journal.state.wakes.filter(wake => wake.observed)
+
+test('every save of a section is in the ledger the phone lists: a second desk edit, a restore to an older version and a restore to the shipped words, each its own row, across a restart (#2152)', async t => {
+  const r = await rig(t)
+  const steps = [
+    { section: 'talk', action: 'edit', text: 'Be brief.', expectedVersion: 0 },
+    { section: 'talk', action: 'edit', text: 'Be brief and formal.', expectedVersion: 1 },
+    { section: 'talk', action: 'rollback', to: 1, expectedVersion: 2 },
+    { section: 'talk', action: 'reset', expectedVersion: 3 },
+  ] as const
+  for (const step of steps) { r.tick(1000); await r.store.updateRules(step) }
+  const expected = [[4, 'reset'], [3, 'rollback'], [2, 'edit'], [1, 'edit']]
+  const rows = (view: Awaited<ReturnType<typeof r.store.view>>) => view.changes!.filter(one => one.what === 'rules').map(one => one.what === 'rules' ? [one.version, one.how] : [])
+  assert.deepEqual(rows(await r.store.view()), expected)
+  const reopened = r.make()
+  await reopened.attach()
+  assert.deepEqual(rows(await reopened.view()), expected, 'the ledger is the file, not the window')
+})
+
+test('the autonomy view carries each section\'s earlier words and the shipped words, so a phone draws the wording, a diff and what Restore would bring back without the desk-only rules read (#2152)', async t => {
+  const r = await rig(t)
+  r.tick(1000); await r.store.updateRules({ section: 'talk', action: 'edit', text: 'Be brief.', expectedVersion: 0 })
+  r.tick(1000); await r.store.updateRules({ section: 'talk', action: 'edit', text: 'Be brief and formal.', expectedVersion: 1 })
+  r.tick(1000); await r.store.updateRules({ section: 'talk', action: 'rollback', to: 1, expectedVersion: 2 })
+  const view = await r.store.view()
+  const talk = view.rules.find(one => one.id === 'talk')!
+  assert.equal(talk.shipped, LEAD_RULE_DEFAULTS.talk.text)
+  assert.deepEqual(talk.versions?.map(one => [one.version, one.how, one.text, one.from]), [
+    [3, 'rollback', 'Be brief.', 1], [2, 'edit', 'Be brief and formal.', undefined], [1, 'edit', 'Be brief.', undefined]])
+  assert.deepEqual(talk.versions?.map(one => one.at), [1_003_000, 1_002_000, 1_001_000])
+  const done = view.rules.find(one => one.id === 'done')!
+  assert.equal(done.versions, undefined, 'a section never edited carries nothing extra')
+  assert.equal(done.shipped, undefined)
+  // The wire parses what the desk sends, and never more than the kept versions.
+  assert.deepEqual(parseLeadAutonomyView(JSON.parse(JSON.stringify(view))).rules, view.rules)
+  for (let at = 3; at < 3 + LEAD_RULE_LIMITS.carried + 2; at++) await r.store.updateRules({ section: 'talk', action: 'edit', text: `Version ${at + 1}.`, expectedVersion: at })
+  assert.equal((await r.store.view()).rules.find(one => one.id === 'talk')!.versions?.length, LEAD_RULE_LIMITS.carried)
+})
 
 test('every kind starts on Act; a mode is a host setting the journal replays', async t => {
   const r = await rig(t)
@@ -450,4 +487,13 @@ test('#2106 review: words proposed over a never-edited section go stale when an 
   const mode = await updated.proposeMode({ kind: 'stuck', mode: 'off' })
   const record = (await updated.decide({ id: mode.id!, decision: 'apply' })).changes?.[0]
   assert.equal(record?.what === 'mode' && record.proposal, mode.id)
+})
+
+test('when the Lead last answered the person with its settings is kept across a restart, and never moves back (#2165)', async t => {
+  const r = await rig(t)
+  assert.equal(await r.store.settingsShownAt(), null, 'a desk whose Lead never answered has no mark')
+  await r.store.markSettingsShown(5_000)
+  await r.store.markSettingsShown(4_000)
+  assert.equal(await r.store.settingsShownAt(), 5_000, 'a late, older reply never moves it back')
+  assert.equal(await r.make().settingsShownAt(), 5_000, 'a restart reads it from the file')
 })

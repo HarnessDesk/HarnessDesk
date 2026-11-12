@@ -1608,7 +1608,9 @@ existing composer, strip or sidebar card, with their action and Inbox option.
 Toasts appear at the bottom right of the window, just above the composer when
 one is showing, so neither a page’s own controls nor Send and the model picker
 are covered. Without a composer, they sit a small gap above the window’s bottom
-edge. The shared notice card centres its tile on the complete copy block, with title above optional earned detail. Actions sit
+edge. There, the page keeps a lane under its scroll owner while a toast shows, so
+the toast covers none of its rows; a page with a composer showing keeps none,
+since the toast already sits above the composer. The shared notice card centres its tile on the complete copy block, with title above optional earned detail. Actions sit
 beside the copy, dropping below at three or more actions or below about 400px;
 a wrapped card keeps its dismiss at the top-right. Its plate matches the
 composer, and danger adds a left bar and tinted tile. A requested action that
@@ -2350,6 +2352,8 @@ Lead is one ongoing conversation. Questions, explanations and clarifications rec
 
 While an ordinary reply is in flight the composer offers Stop reply. A completed reply leaves no planning banner or invented goal. Formal reviewed work retains its plan and approval cards. A setup failure keeps the composer available and explains the needed change without Resume; a new message carries that failure back to Lead so it can adjust. Transient interruptions retain Resume. A delegated chat waiting for a provider reset remains working while the host tries at most two continues. Exhausted retries or a credit failure bring the existing structured ask: retry, move to an available agent, or stop. A chosen move retains the old chat and carries the original request and a bounded progress digest into the new one. Person-held chats stay untouched. Tracked ordinary chat state changes coalesce into a background check; results and decisions can return to the same Lead conversation, while unchanged work stays quiet.
 
+After half an hour in which no window or phone was looked at, the next look shows a **While you were away** card when something finished, stopped or came to need the person in that span, or money was spent; when nothing did, there is no card, and the Lead, asked, says the same and names the span. A window counts as looked at only while the person touches it (for two minutes after) or brings it forward. **What happened?** is a top-bar tool on the Lead's page, shown once the thread has a message, and brings the last day's card into the thread in one click; it sits in the bar rather than in the rail, which a narrow window draws over the thread. While the desk reads, its icon turns to a spinner and its name to **Reading…**.
+
 If a chat start or send loses its response after the effect may have begun, Lead waits with `lead-chat-effect-uncertain`. The notice says to inspect that chat on the desk and offers **Start new request**, using the existing person Stop action. Resume is unavailable. Sending before that acknowledgement returns specific feedback and leaves the draft intact. After successful Stop, the next separately typed person message starts a fresh logical goal; the original operation remains uncertain in the journal and is never replayed. Flow recovery, cleanup and allowance fences still apply.
 
 Lead is off by default; `HARNESSDESK_LEAD=1` enables it at startup. Its child
@@ -2392,7 +2396,15 @@ the limits popover: tightening applies at once, raising asks on a card in the
 conversation. The plan's decision stays in the conversation; the rail only reads
 it back, and before approval it reads the latest plan card, the one the
 conversation is asking about. Where it floats it is open by default too, like
-the session rail; its toggle puts it away.
+the session rail; its toggle puts it away, and so do Escape and a press anywhere
+outside it, as for the floating sidebar, so what it lay over answers the next
+press. A press inside it, or a menu it opened, keeps it. Each Work row opens
+what it stands for from its own body: a Team that needs the person, an item's
+Team when it has one, else the item's latest chat; its actions menu answers for
+itself. A question the Lead asked keeps its options live while the desk holds it
+open and it is the newest, past anything the person says about something else;
+Keep and Apply on a proposal each leave one line in the thread saying what was
+kept or applied.
 
 Decision details are assistant Markdown in journal order, without card borders,
 inset rows, revision labels or internal identifiers. Plans show LeadPlanFlow, an ordered flow diagram of steps and responsible roles
@@ -2400,6 +2412,20 @@ ending in Approve to start, acceptance checks, the allowance and folder,
 and the separate-approval boundary for publishing, merging and deleting. Results
 show qualified check, review, findings and changes status, reasons and separately
 attributed Lead and reported worker spend. Unknown values remain unknown.
+
+A Lead reply links the Teams and chats it acted on, from the references the host
+attached to it. A reply that carries none links, at most three, the Teams and
+chats its words name, by the whole-word rule the phone uses
+(`leadWorkNamedIn`), so the two surfaces link the same work. The wake ledger,
+what woke the Lead and whether it spoke, sits at the end of the thread after the
+latest reply, so the conversation reads in time order. Collapsed, it shows the
+wake behind the latest reply, not a later check that found nothing; expanded, it
+lists every wake. A wake is recorded only when the check found something: a
+tool continuation, a desk change the look woke for, a chat change, or evidence
+that arrived on its own. The minute tick, a prose notice and a Team change
+that wakes nothing leave no row. The thread follows its
+end while the reader is there, including when the browser moves the content down
+itself; only scrolling up stops it.
 
 A plan for recurring work carries a Repeats chip and a How it repeats block: its local timetable, that a slot is skipped while the previous run waits, and that an asleep desk makes one run when it wakes. The allowance is per run. Approve covers the stored contract for future runs; publishing, merging and deleting still ask on each run. A changed project, policy, seat, review independence or Flow source returns a plan card with the reason. Each run has its own result and acceptance. Plan and result Runs links open Settings › Lead, where each task's Runs view shows its next slot and last 12 runs, state, reason and known spend and rounds. Pause silently skips slots until Resume. Stop retains the history. Run once now requires an idle Lead. Settings tasks without an approved contract still ask for a plan approval each time.
 
@@ -2499,7 +2525,21 @@ Open a goal when is a read-only list of project declarations with opens.lead
 true, using the arm preview's lead.summary. Each opens the project's returned
 trigger-file path. This page neither edits nor arms declarations.
 
-Settings › Lead › Memory says the Lead reads Core at the start of each conversation and searches Archive when it needs to. Its header holds Export (the notes as JSON) and Forget all, whose confirmation says it also empties the conversation copy the Lead searches and that the Lead's journal keeps its record. A switch, Keep the Lead's notes without asking, lets facts and lessons skip To review; an Add a note field adds the person's own note. To review lists waiting proposals with Keep, Edit and No; Core shows how much of its 6 KB is used, with a warning tone past 90%; Archive follows; each note offers Edit, Archive or Move to Core, and Forget, whose confirmation says what goes (the note, every saved version, passages that quote it) and what stays (the conversation it came from, the Lead's journal), since it cannot be undone, with a chip when the Lead wrote it or when the current plan cites it. History lists the last eight changes, and Undo on any change that can be undone. When the desk could not hand the latest change to the Lead, an error banner at the top says the Lead still reads the version before it. In the Lead's thread, the same proposals sit under the reply they came with.
+Settings › Lead › Rules holds three sections of the person's own words, each
+versioned. A section's dialog lists its versions, newest first, each with
+Restore but the one in force; while the person's words are in force, a last
+**Shipped words** row restores the default, so even a first change can be
+rolled back. A restore saves a new version. Settings › Lead › Autonomy lists
+**Recent changes**, newest first: every mode change, every saved rule version
+(a restore and a reset included) and every deadline, read again whenever the
+desk says autonomy changed. A proposal card for a rule section shows the words
+the section will hold against the words in force, as a diff, whether the Lead
+added a line or wrote the whole section. These pages and the cards call the Lead
+by its chosen name (Dex or Lex), as the phone does. A paired phone receives each
+saved section's newest five versions with their words and the shipped words, so
+it can show earlier wording and a diff; restoring stays at the desk.
+
+Settings › Lead › Memory says the Lead reads Core at the start of each conversation and searches Archive when it needs to. Its header holds Export (the notes as JSON) and Forget all, whose confirmation says it also empties the conversation copy the Lead searches and that the Lead's journal keeps its record. A switch, Keep the Lead's notes without asking, lets facts and lessons skip To review; an Add a note field adds the person's own note. To review lists waiting proposals with Keep, Edit and No; Core shows how much of its 6 KB is used, with a warning tone past 90%; Archive follows; each note offers Edit, Archive or Move to Core, and Forget, whose confirmation says what goes (the note, every saved version, passages that quote it) and what stays (the conversation it came from, the Lead's journal), since it cannot be undone, with a chip when the Lead wrote it or when the current plan cites it. History lists the last eight changes, and Undo on any change that can be undone. A Forget is its own row (You · 1 forgotten); a change whose words it took out keeps its counts under a Forgotten chip and can no longer be undone, so the list never reads only no change. When the desk could not hand the latest change to the Lead, an error banner at the top says the Lead still reads the version before it. In the Lead's thread, the same proposals sit under the reply they came with.
 
 A phone start uses the selected runtime’s saved new-session choices after validating them against the current adapter. Replies use the ordinary turn queue while an agent is busy. If creation succeeds but the first message cannot be confirmed, the response retains the session id and a warning; the phone opens that conversation with the draft instead of starting another session on retry.
 

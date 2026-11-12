@@ -206,3 +206,10 @@ test('the settings tools only propose: no alias reaches a method that changes au
   assert.throws(() => parseLeadToolCall({ type: 'tool_use', id: 't3', name: 'settings_decide', input: { id: 's1', decision: 'apply' } }), LeadToolRefusedError)
   assert.throws(() => parseLeadToolCall({ type: 'tool_use', id: 't4', name: 'autonomy_propose', input: { kind: 'desk-change', mode: 'observe', apply: true } }), LeadToolRefusedError)
 })
+
+test('#2174: the allowance tool says to quote the Dashboard\'s reset and age words as written and never round them', async () => {
+  const { leadToolDefinitions } = await import('../src/tools.js')
+  const usage = leadToolDefinitions.find(tool => tool.name === 'usage_summary')!
+  assert.match(usage.description, /Say resetsIn and readAge as written[^.]*; never round them/)
+  assert.match(usage.description, /resetPassed means the figures were read before that reset/)
+})

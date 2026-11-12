@@ -27,3 +27,21 @@ test('announces the reason an action failed with the canonical alert', async () 
   expect(alert?.classList.contains('failure-layout')).toBe(true)
   expect(alert?.querySelector('[data-slot="alert-content"]')?.textContent).toBe('Could not save.')
 })
+
+test('offers one remedy beside the reason when it has one', async () => {
+  let chosen = 0
+  await act(() => root.render(<ActionError action={{ label: 'Try again', onSelect: () => { chosen += 1 } }}>Could not reach the server.</ActionError>))
+
+  const alert = host.querySelector('[data-slot="alert"]')
+  const buttons = alert?.querySelectorAll('button') ?? []
+  expect(buttons).toHaveLength(1)
+  expect(buttons[0]?.textContent).toBe('Try again')
+  expect(alert?.querySelector('[data-slot="alert-content"]')?.textContent).toBe('Could not reach the server.')
+  await act(() => (buttons[0] as HTMLButtonElement).click())
+  expect(chosen).toBe(1)
+})
+
+test('draws no button when there is nothing that helps', async () => {
+  await act(() => root.render(<ActionError>Could not save.</ActionError>))
+  expect(host.querySelector('button')).toBeNull()
+})

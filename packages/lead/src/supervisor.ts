@@ -439,7 +439,7 @@ export class LeadSupervisor {
       switch (operation) {
         case 'recordWake': await durable(journal.recordWake(args[0] as import('@harnessdesk/protocol').LeadWakeRecord)); break
         // The journal parses all three: a goal id, an epoch and a Core within its budget.
-        case 'memoryEpoch': await durable(journal.memoryEpoch(args[0] as string, args[1] as number, args[2] as import('./memory.js').LeadMemoryCore)); break
+        case 'memoryEpoch': await durable(journal.memoryEpoch(args[0] as string, args[1] as number, args[2] as import('./memory.js').LeadMemoryCore, args[3] as import('@harnessdesk/protocol').LeadAutonomyRecord['rules'] | undefined)); break
         case 'provider-send': {
           if (typeof args[0] !== 'string' || typeof args[1] !== 'string' || new TextEncoder().encode(args[1]).length > 1_048_576) throw error('protocol')
           const withheld = args.length === 3 ? withheldPieces(args[2]) : undefined
@@ -519,7 +519,7 @@ export class LeadSupervisor {
           // cancellation would run as a failure and reach work a cancellation leaves alone.
           if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) break
           try { this.options.onReplying?.() } catch { /* A presentation hook never owns a reply. */ }
-          try { await durable(journal.appendReply(text, proactive, ask, refs)) }
+          try { await durable(journal.appendModelReply(text, proactive, ask, refs)) }
           catch (failure) { if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase)) throw failure }
           break
         }

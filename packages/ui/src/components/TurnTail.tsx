@@ -1,11 +1,15 @@
 import { useMemo } from 'react'
 
-import type { Session, Turn } from '@harnessdesk/protocol'
+import { sessionKey, type Session, type Turn } from '@harnessdesk/protocol'
 
 import { cacheHealthOf } from '../lib/cache-health'
 import { instant } from '../lib/clock'
 import { formatTokens } from '../lib/context-usage'
 import { delegatedIn } from '../lib/turn-summary'
+import { promptOf, turnErrorAction } from '../lib/turn-error'
+import { sessionUnavailable } from '../lib/session-unavailable'
+import { isRecordConversation } from '../lib/team-record'
+import { useSnapshot, useStore } from '../state/context'
 import { ActionError, Alert, AlertContent, AlertDescription, Text, Tooltip, TooltipContent, TooltipTrigger } from '../design'
 import { AlertIcon } from './Icons'
 import { MessageActions } from './MessageActions'
@@ -90,6 +94,31 @@ export const TurnTail = ({
   const visible = turn.items.some((item) => item.type !== 'userMessage')
   const silent = turn.status === 'completed' && !visible
 
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const failure = turn.status === 'failed' && turn.error ? turn.error : null
+  // Another try is the turn's own prompt queued again — only for the last
+  // turn, which is the one a second try would follow, and only where the
+  // conversation can still take a message (the answer row's retry refuses
+  // the same two cases).
+  const remedy = useMemo(() => {
+    if (!failure) return null
+    const key = sessionKey(session.runtime, session.id)
+    const prompt = promptOf(turn)
+    const last = session.turns[session.turns.length - 1]?.id === turn.id
+    const canRetry = last && prompt.length > 0 &&
+      !isRecordConversation(snapshot.goals.values(), key) && sessionUnavailable(snapshot, session) === null
+    const runtime = snapshot.runtimes.find((entry) => entry.id === session.runtime)
+    const action = turnErrorAction(failure, runtime, canRetry)
+    if (!action) return null
+    return {
+      label: action.label,
+      onSelect: action.kind === 'fix'
+        ? () => store.askSeatFix(action.fix)
+        : () => void store.queue(prompt, key),
+    }
+  }, [failure, turn, session, snapshot, store])
+
   const actions = answer.trim().length > 0 && turn.status === 'completed'
   const stamp = instant(turn.completedAt ?? turn.startedAt)
   const when = stamp === null
@@ -97,7 +126,7 @@ export const TurnTail = ({
     : new Date(stamp).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
   const figures = parts.map((part) => part.text).join(' · ')
   const details = parts.flatMap((part) => part.title ? [part.title] : [])
-  if (!silent && !actions && when === null && !(turn.status === 'failed' && turn.error)) return null
+  if (!silent && !actions && when === null && !failure) return null
 
   return (
     <>
@@ -113,10 +142,10 @@ export const TurnTail = ({
       )}
       {/* A failed turn says why, in the transcript, where the reader is —
           not only as a toast that has already faded by the time they look. */}
-      {turn.status === 'failed' && turn.error && (
-        <ActionError className={styles.turnError}>
-          {turn.error.message}
-          {turn.error.retrying ? ' Retrying…' : ''}
+      {failure && (
+        <ActionError className={styles.turnError} {...(remedy ? { action: remedy } : {})}>
+          {failure.message}
+          {failure.retrying ? ' Retrying…' : ''}
         </ActionError>
       )}
       {(actions || when !== null) && (

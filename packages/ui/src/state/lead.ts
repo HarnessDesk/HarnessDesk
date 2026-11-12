@@ -197,6 +197,8 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     async closeWork(id: string, outcome: LeadWorkOutcome) { check(); const board = await transport.request('lead/work/close', { id, outcome }); applyWork(board); return board },
     /** The person's cancel of a reminder that has not fired; the board comes back with it marked cancelled. */
     async cancelReminder(id: string) { check(); const board = await transport.request('lead/reminder/cancel', { id }); applyWork(board); return board },
+    /** The person's clear of a reminder that fired: it leaves the board and the Lead's notes, and is never said again (#2144). */
+    async clearReminder(id: string) { check(); const board = await transport.request('lead/reminder/clear', { id }); applyWork(board); return board },
     async readThread() { check(); const before = state; const result = await transport.request('lead/thread/read', {}).catch(refusedRead); apply(result, before); return result.thread },
     async readSettings() { check(); const before = state; const result = await transport.request('lead/settings/read', {}).catch(refusedRead); apply(result, before); return result.settings },
     async send(text: string, idempotencyKey: string, ask?: string) {

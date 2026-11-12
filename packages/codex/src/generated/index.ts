@@ -43,8 +43,10 @@ export type { GetConversationSummaryResponse } from "./GetConversationSummaryRes
 export type { GitDiffToRemoteParams } from "./GitDiffToRemoteParams.js";
 export type { GitDiffToRemoteResponse } from "./GitDiffToRemoteResponse.js";
 export type { GitSha } from "./GitSha.js";
+export type { GuardianAssessmentOutcome } from "./GuardianAssessmentOutcome.js";
 export type { ImageDetail } from "./ImageDetail.js";
 export type { ImageGenerationFailure } from "./ImageGenerationFailure.js";
+export type { ImageGenerationInputImage } from "./ImageGenerationInputImage.js";
 export type { ImageGenerationItem } from "./ImageGenerationItem.js";
 export type { InitializeCapabilities } from "./InitializeCapabilities.js";
 export type { InitializeParams } from "./InitializeParams.js";
