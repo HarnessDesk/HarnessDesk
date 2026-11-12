@@ -115,6 +115,8 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
     if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
     if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }
+    // A recap reads the whole work ledger, which takes the desk seconds: the rail's button says it is reading meanwhile.
+    if (method === 'lead/presence/read' && params?.recap && scene === 'work-ledger') await new Promise(resolve => setTimeout(resolve, 4000))
     if (method === 'lead/presence/read') return presence
     // The desk's one inbox: in the app shell, the Lead's plan and a Team that wait on the person, listed under the bell as the phone lists it.
     if (method === 'lead/inbox/read') return scene === 'app-shell'

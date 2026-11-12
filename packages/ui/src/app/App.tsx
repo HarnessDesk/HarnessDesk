@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 
 import { useLeadName } from '../components/use-lead-name'
+import { useLeadPresence } from '../components/LeadAway'
 import { desktop, isDesktop, onOpenGoal, onOpenSession, onPromptLink, onShortcut, setWindowTitle } from '../lib/desktop'
 import { windowTitleOf } from '../lib/window-title'
 import { startTrayUpdates } from '../lib/tray'
@@ -66,6 +67,8 @@ export const App = () => {
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const leadName = useLeadName()
+  // The window's presence follows the person on every page, not only while the Lead is showing.
+  useLeadPresence(snapshot.leadAvailable)
   const editorAvailable = effectiveWindowMode('editor', snapshot.workbench) === 'editor'
   const editorSubject = editorAvailable ? fixedSubject(snapshot.workbench.main) : null
   useEffect(() => {

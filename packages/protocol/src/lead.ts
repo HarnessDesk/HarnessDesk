@@ -1166,6 +1166,9 @@ export interface LeadContextFacts {
   readonly compacting: boolean
   /** Oldest first, at most eight. */
   readonly checkpoints: readonly LeadContextCheckpoint[]
+  /** Every summary the conversation has had, as the thread marks them; `checkpoints` keeps only the latest eight.
+   * Absent from a desk that does not count them, where the list's length stands in. */
+  readonly count?: number
   /** The latest compaction could not bring the conversation under the hard line, even keeping the fewest recent
    * turns: no compaction runs until it grows further. Absent otherwise. */
   readonly full?: true
@@ -1200,7 +1203,8 @@ const parseLeadContextCheckpoint: Validator<LeadContextCheckpoint> = omitUnset(o
   person: optional(parseLeadCheckpointPerson) }), ['person'])
 export const parseLeadContextFacts: Validator<LeadContextFacts> = omitUnset(object({ version, windowTokens: integer(1, 100_000_000), usedTokens: nullable(wakeTokens),
   cacheHitRate: nullable((value, path = '') => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : fail(path, 'expected a ratio')),
-  compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id), full: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['full'])
+  compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id), count: optional(integer(0, Number.MAX_SAFE_INTEGER)),
+  full: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['full', 'count'])
 /**
  * The question a Lead message puts to the person, wherever it carries it: an ordinary reply's `ask`, or the options of
  * a report it wrote on an automatic wake. Every surface draws both as the same buttons, so the desk tracks, answers,
