@@ -1111,3 +1111,32 @@ test('the away window lists what moved in it and what was spent, the same as the
   assert.ok(note.includes('$0.75'), note)
   assert.ok(!/no away digest/i.test(note))
 })
+
+test('a spend that starts again inside a minute keeps its fall: $1.00, then $0, then $0.50 is $1.50 spent (#2147)', async t => {
+  let current = 0
+  const r = await rig(t, { spent: () => current })
+  await r.store.read(desktop, { active: true })
+  r.tick(2 * MIN); current = 1_000_000; await r.store.observe()
+  // A new goal's budget starts again from zero, and spends half a dollar, all inside the same minute.
+  r.tick(10_000); current = 0; await r.store.observe()
+  r.tick(10_000); current = 500_000; await r.store.observe()
+  r.tick(MIN)
+  const recap = (await r.store.read(desktop, { active: true, recap: true })).digest!
+  assert.equal(recap.spentUsdMicros, 1_500_000)
+})
+
+test('a decision that begins waiting after the return is not told as one that came while away (#2147)', async t => {
+  const waiting: { id: string; title: string; position: number }[] = []
+  const r = await rig(t, { waiting: () => waiting })
+  await r.store.read(desktop, { active: true })
+  r.tick(10 * MIN)
+  // A plan comes to wait for the person while they are away.
+  r.bump(); waiting.push({ id: 'plan-away', title: 'Approve the export plan', position: 11 })
+  r.tick(25 * MIN)
+  await r.store.read(desktop, { active: true })
+  // After they are back, before their next message, a permission change starts waiting too.
+  r.tick(MIN); r.bump(); waiting.push({ id: 'perm-after', title: 'Allow pushing to the release branch', position: 12 })
+  const note = (await r.store.awayNote())!
+  assert.ok(note.includes('export plan'), note)
+  assert.ok(!note.includes('release branch'), note)
+})

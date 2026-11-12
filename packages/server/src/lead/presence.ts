@@ -77,8 +77,9 @@ interface Stored {
   /** The spend as it moved, oldest first, at most one entry a minute: what any span spent, read back for a recap and the
    * away note. A spend that falls (a new goal's budget) starts again from zero. */
   spend?: { at: number; spent: number }[]
-  /** The desk's latest absence: no window or phone was looked at from `from` to `to`; the journal revision at `from`. */
-  away?: { from: number; to: number; revision: number }
+  /** The desk's latest absence: no window or phone was looked at from `from` to `to`; the journal revision at `from`, and
+   * at `to` (`until`), so a decision that began waiting after the return is not told as one that came while away. */
+  away?: { from: number; to: number; revision: number; until?: number }
 }
 /** How long after the person comes back their turns carry the away window. */
 export const LEAD_AWAY_NOTE_MS = 60 * 60_000
@@ -87,7 +88,8 @@ const spendSamples = (value: unknown): { at: number; spent: number }[] => Array.
   ? value.flatMap(one => one && finite(one.at) && finite(one.spent) ? [{ at: one.at, spent: one.spent }] : []) : []
 const awaySpan = (value: unknown): Stored['away'] => {
   const span = value as Stored['away']
-  return span && finite(span.from) && finite(span.to) && finite(span.revision) && span.from <= span.to ? { from: span.from, to: span.to, revision: span.revision } : undefined
+  return span && finite(span.from) && finite(span.to) && finite(span.revision) && span.from <= span.to
+    ? { from: span.from, to: span.to, revision: span.revision, ...(finite(span.until) ? { until: span.until } : {}) } : undefined
 }
 /** A time in the desk's own zone, the zone the desk clock line names. */
 const deskTime = (at: number) => new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
@@ -255,12 +257,17 @@ export class LeadPresenceStore {
     this.#stored = fresh()
     try { await rename(this.ports.file, `${this.ports.file}.corrupt-${this.ports.now()}`) } catch { this.#unreadable = true }
   }
-  /** Keeps the spend as it moves: a new entry when it changed, folded into the last one inside the same minute. */
+  /**
+   * Keeps the spend as it moves: a new entry when it changed. A rise inside the same minute folds into the last entry,
+   * unless that entry is a fall (a new goal's budget starting again), which must stay as it was or the fall is lost:
+   * $1.00, then $0, then $0.50 in one minute would read as $0.50 spent rather than $1.50. A fall is always an entry.
+   */
   #sampleSpend(): void {
     const now = this.ports.now(), spent = this.ports.spent(), list = this.#stored.spend ?? []
-    const last = list[list.length - 1]
+    const last = list[list.length - 1], before = list[list.length - 2]
     if (last && last.spent === spent) return
-    if (last && now >= last.at && now - last.at < 60_000) last.spent = spent
+    const lastFell = !!last && !!before && last.spent < before.spent
+    if (last && spent > last.spent && !lastFell && now >= last.at && now - last.at < 60_000) last.spent = spent
     else list.push({ at: now, spent })
     // A day and a bit is all a recap or an absence reads; the newest entry before that keeps where the spend starts.
     const cutoff = now - LEAD_PRESENCE_LIMITS.recapMs - LEAD_PRESENCE_LIMITS.awayMs
@@ -348,7 +355,7 @@ export class LeadPresenceStore {
   }
 
   /** Every item since `since`, in the order the person acts on; the caller drops what was seen, then caps the list. */
-  async #items(since: number, revision: number): Promise<LeadDigestItem[]> {
+  async #items(since: number, revision: number, until = Infinity): Promise<LeadDigestItem[]> {
     const board = await this.ports.board().catch(() => null)
     const waiting: LeadDigestItem[] = [], stopped: LeadDigestItem[] = [], done: LeadDigestItem[] = []
     const seen = new Set<string>()
@@ -362,7 +369,7 @@ export class LeadPresenceStore {
       else if ((card.stage === 'stopped' || card.stage === 'blocked') && card.updatedAt >= since) stopped.push(entry('stopped', card.updatedAt))
     }
     // Decisions that wait on the person but belong to no work item (a plan, a permission change). They open their card.
-    for (const card of this.ports.waiting()) if (card.position > revision && !seen.has(card.id))
+    for (const card of this.ports.waiting()) if (card.position > revision && card.position <= until && !seen.has(card.id))
       waiting.push({ kind: 'waiting', id: card.id, title: clip(card.title, LEAD_PRESENCE_LIMITS.titleChars) || 'A request waits for you', ref: { kind: 'card', id: card.id } })
     return [...waiting, ...stopped, ...done]
   }
@@ -470,7 +477,7 @@ export class LeadPresenceStore {
     const marks = Object.values(this.#stored.devices)
     if (!marks.length) return
     const latest = marks.reduce((best, one) => one.seenAt > best.seenAt ? one : best)
-    if (now - latest.seenAt >= LEAD_PRESENCE_LIMITS.awayMs) this.#stored.away = { from: latest.seenAt, to: now, revision: latest.revision }
+    if (now - latest.seenAt >= LEAD_PRESENCE_LIMITS.awayMs) this.#stored.away = { from: latest.seenAt, to: now, revision: latest.revision, until: this.ports.revision() }
   }
   #evict(): void {
     const ids = Object.keys(this.#stored.devices)
@@ -546,7 +553,8 @@ export class LeadPresenceStore {
     return this.#write(async () => {
       const away = this.#stored.away, now = this.ports.now()
       if (!away || now < away.to || now - away.to > LEAD_AWAY_NOTE_MS) return undefined
-      const found = (await this.#items(away.from, away.revision)).filter(entry => entry.at === undefined || entry.at <= away.to)
+      // A ledger item is dated; a decision card is not, so it counts only when it waited by the revision at the return.
+      const found = (await this.#items(away.from, away.revision, away.until ?? away.revision)).filter(entry => entry.at === undefined || entry.at <= away.to)
       const spent = this.#spentBetween(away.from, away.to), dollars = `$${(spent / 1_000_000).toFixed(2)}`
       const lines = found.slice(0, LEAD_PRESENCE_LIMITS.items).map(entry => `- ${LEAD_DIGEST_ITEM_LABELS[entry.kind]}: ${quoteLeadWorkText(entry.title, LEAD_PRESENCE_LIMITS.titleChars)}`)
       if (found.length > lines.length) lines.push(`- and ${found.length - lines.length} more`)
