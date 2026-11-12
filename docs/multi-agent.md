@@ -860,23 +860,33 @@ event takes requests in words: a comment whose first line starts with
 ignoring case and leading spaces, and followed by nothing, a space, `:` or `,`.
 A quoted line, a fenced or indented code line, a longer name
 (`@harnessdesktop`, `@harnessdesk-bot`), a team mention (`@harnessdesk/reviewers`),
-the word mid-sentence or on a later line is not a request. Only the comment's
-id makes it new, so a comment edited later to add the word never asks; a bot
+the word mid-sentence or on a later line is not a request. A comment asks only as
+written: one the forge shows as edited — its update differs from its creation,
+or an inline comment changed after its review was submitted — never asks, even
+before the desk first read it, because anyone with write access may edit
+someone else's comment; a bot
 (a login ending in `[bot]`, or an account the forge marks as one) never asks
 whatever `from` says, and neither does a post the desk made. `from` applies to
 requests exactly as to comments. On an issue the existing comment read finds
-them; on a pull request the desk reads the conversation comments and review
-bodies of only those pull requests its list read already shows as updated
-since their own mark, so an unchanged pull request costs no read, and more
-changed at once than one read can cover stops at a gap. Each comment is one
-firing, never merged with another. A request goes only to the Lead —
+them. On a pull request the desk reads one repository-wide list of the
+conversation comments updated in the source's window, however many pull
+requests moved, and the reviews of only those pull requests its list read
+shows as updated: a review is new by when it was submitted, so one left
+pending and submitted later still asks. A review's summary never asks — the
+forge does not say whether it was edited — but its inline comments do, as one
+request for the review. More than one read can cover stops at a gap. Each
+conversation comment is one firing, and each review one. A request goes only to the Lead —
 `opens: { lead: true }`; a flow or an Agent target is refused, because a
 triggered flow never receives outside text — and the Lead reads a host-made
 first line built from facts ("Request on pull request #12 from you", "… from
 a collaborator (write access)", "… from someone outside the repository"),
 then the asker's words verbatim inside the untrusted-context fence, then the
 thread's title and links. It drafts a plan for that request alone, and nothing
-starts until the person approves it; the desk posts nothing back to the thread.
+starts until the person approves it — the host refuses every chat start or
+send, Team start or other dispatch for that goal until then, at the Lead's
+tool admission and again at dispatch, whatever the policy mode — and the
+request's words are never quoted to a worker as the person's. The desk posts
+nothing back to the thread.
 
 **Arming.** A project's page lists every declared source as a sentence —
 "When a pull request opens or is pushed, review it (review-pr)" — with the

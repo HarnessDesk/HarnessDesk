@@ -1064,3 +1064,40 @@ test('a start passes what woke the turn to the ledger', async t => {
   await r.service.start({ text: 'Add the helper' })
   assert.deepEqual(causes, ['person', 'automatic'])
 })
+
+test('the host gate holds every chat start and send for a request until its plan is approved, but never a stop', async t => {
+  const r = await rig(t); r.row('own')
+  // A journal-admitted call still meets the host's own check: manage mode, no contract, a request's origin.
+  r.setState({ origin: { source: 'pull-request', event: 'mentioned', subject: 'acme/widgets#7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } })
+  r.authorize('lead/chat/start', { text: 'Do work' })
+  await assert.rejects(r.service.start({ text: 'Do work' }), /approve its plan/i)
+  const params = { id: 'fixture:own', text: 'Continue' }
+  r.authorize('lead/chat/send', params)
+  await assert.rejects(r.service.send(params), /approve its plan/i)
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await r.service.stop({ id: 'fixture:own' })
+  assert.deepEqual(r.calls.map(call => call.method), ['stop'])
+  // Any other event's goal follows the policy mode as before.
+  r.setState({ origin: { source: 'pull-request', event: 'commented', subject: 'acme/widgets#7', url: null } })
+  r.authorize('lead/chat/start', { text: 'Do work' })
+  await r.service.start({ text: 'Do work' })
+  assert.deepEqual(r.calls.map(call => call.method), ['stop', 'start'])
+})
+
+test('a request from an issue or pull request is never quoted as the person\'s words', async t => {
+  const r = await rig(t)
+  const user = (id: string, text: string, revision: number, source: 'person' | 'automatic') => ({ version: 1 as const, id, revision, role: 'user' as const, source, text })
+  r.setState({ messages: [user('mine', 'Keep the API stable.', 1, 'person'), user('request', 'Request on pull request #7 from you', 2, 'automatic')] })
+  const params = { text: 'Repair the test' }
+  r.authorize('lead/chat/start', params)
+  await r.service.start(params)
+  assert.equal(r.calls.at(-1)!.params.text, "Repair the test\n\n---\nThe person's words, verbatim:\n\n> Keep the API stable.")
+  // Named outright, the automatic request is refused as a quote rather than presented as theirs.
+  const named = { text: 'Repair the test', quote: ['request'] }
+  r.authorize('lead/chat/start', named)
+  assert.match((await r.service.start(named)).problem!, /person.*message/i)
+  r.setState({ messages: [user('request', 'Request on pull request #7 from you', 1, 'automatic')] })
+  r.authorize('lead/chat/start', params)
+  await r.service.start(params)
+  assert.equal(r.calls.at(-1)!.params.text, 'Repair the test')
+})

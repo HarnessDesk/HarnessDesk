@@ -336,8 +336,8 @@ export const isDeskPost = (body: string): boolean => {
 const SUMMONS = new RegExp(`^${SUMMONS_WORD}(?:$|[\\s:,])`, 'i')
 /**
  * The request a comment makes of the desk, or null when it makes none. A
- * comment is a request only when its first line — leading blank lines and
- * CRLF endings aside — starts with `@harnessdesk`, in any case, followed by
+ * comment is a request only when its literal first line — a CRLF ending
+ * aside — starts with `@harnessdesk`, in any case, followed by
  * the end of the line, whitespace, `:` or `,`. What comes back is every word
  * after the command word, later lines included, trimmed: the asker's words,
  * still untrusted. Not a request:
@@ -345,7 +345,8 @@ const SUMMONS = new RegExp(`^${SUMMONS_WORD}(?:$|[\\s:,])`, 'i')
  * - an indented code block (a tab, or four spaces or more, before the word);
  * - a longer name (`@harnessdesktop`, `@harnessdesk-bot`, `@harnessdesk_x`)
  *   or a team (`@harnessdesk/reviewers`);
- * - the word in the middle of the first line, or on a later line;
+ * - the word in the middle of the first line, or on a later line — a blank
+ *   first line included;
  * - a comment the desk posted itself (`isDeskPost`).
  * A pure function of the body: whether a comment was edited, or who wrote
  * it, is the reader's to decide.
@@ -353,13 +354,12 @@ const SUMMONS = new RegExp(`^${SUMMONS_WORD}(?:$|[\\s:,])`, 'i')
 export const summonsOf = (body: string): string | null => {
   if (isDeskPost(body)) return null
   const lines = body.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n')
-  const first = lines.findIndex((line) => line.trim() !== '')
-  if (first < 0) return null
-  const line = /^ {0,3}(\S.*)$/.exec(lines[first]!)?.[1]
+  // The literal first line: a blank one before the word makes the comment no request.
+  const line = /^ {0,3}(\S.*)$/.exec(lines[0]!)?.[1]
   const word = line === undefined ? null : SUMMONS.exec(line)
   if (!line || !word) return null
   const separator = word[0].length > SUMMONS_WORD.length ? 1 : 0
-  return [line.slice(SUMMONS_WORD.length + separator), ...lines.slice(first + 1)].join('\n').trim()
+  return [line.slice(SUMMONS_WORD.length + separator), ...lines.slice(1)].join('\n').trim()
 }
 export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex')
 

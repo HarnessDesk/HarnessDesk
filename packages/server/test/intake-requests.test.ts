@@ -32,8 +32,11 @@ const STRANGER = { id: 99, login: 'someone-else' }
 
 const source = (forge: FakeForge, now = ARMED) => new ForgeSource({ run: forge.runner, now: () => now })
 const asking = { requests: { permissions: false } }
-const threadReads = (forge: FakeForge, number: number): string[] =>
-  forge.calls.filter((path) => path.startsWith(`repos/${REPO}/issues/${number}/comments`) || path.startsWith(`repos/${REPO}/pulls/${number}/reviews`))
+/** The one repository-wide comment list a request read makes, however many pull requests moved. */
+const commentReads = (forge: FakeForge): string[] => forge.calls.filter((path) => path.startsWith(`repos/${REPO}/issues/comments?`))
+/** One pull request's own reads: its reviews, and a submitted review's inline comments. */
+const reviewReads = (forge: FakeForge, number: number): string[] => forge.calls.filter((path) => path.startsWith(`repos/${REPO}/pulls/${number}/reviews`))
+const submittedAt = (ms: number): string => new Date(ms).toISOString()
 
 // ------------------------------------------------------------------ the forge
 
@@ -64,90 +67,184 @@ test('an issue command comment is both a comment and a request, under two keys; 
   assert.equal(read.facts.filter((fact) => fact.action === 'commented').length, 2, 'both comments are still comments')
 })
 
-test('a pull request conversation comment and a review body are requests; an ordinary one and a pending review are not', async () => {
+
+test('a pull request comment asks, and a submitted review asks once for its inline comments; its summary, a plain comment and a pending review never do', async () => {
   const forge = new FakeForge()
   const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
   const at = ARMED + MINUTE
   forge.pulls.push({
-    number: 12, head: sha('a'), state: 'open', created: ARMED - 60 * MINUTE, updated: at, title: 'Widgets',
+    number: 12, head: sha('a'), state: 'open', created: ARMED - 60 * MINUTE, updated: at + 2000, title: 'Widgets',
     comments: [
       { id: 21, body: '@HarnessDesk: add a test for the time zone', created: at, updated: at },
       { id: 22, body: 'Looks good to me.', created: at, updated: at },
     ],
     reviews: [
-      { id: 31, commit_id: sha('a'), body: '@harnessdesk please split this change', state: 'COMMENTED', submitted_at: new Date(at + 1000).toISOString(), user: WRITER },
-      { id: 32, commit_id: sha('a'), body: '@harnessdesk not yet submitted', state: 'PENDING', submitted_at: null, user: WRITER },
-      { id: 33, commit_id: sha('a'), body: 'Approved.', state: 'APPROVED', submitted_at: new Date(at).toISOString(), user: WRITER },
+      { id: 31, commit_id: sha('a'), body: 'A few notes.', state: 'COMMENTED', submitted_at: submittedAt(at + 1000), user: WRITER },
+      { id: 32, commit_id: sha('a'), body: '', state: 'PENDING', submitted_at: null, user: WRITER },
+      { id: 33, commit_id: sha('a'), body: 'Approved.', state: 'APPROVED', submitted_at: submittedAt(at), user: WRITER },
+      { id: 34, commit_id: sha('a'), body: '@harnessdesk a summary is not a request', state: 'COMMENTED', submitted_at: submittedAt(at + 2000), user: WRITER },
+    ],
+    reviewComments: [
+      { id: 311, review: 31, body: '@harnessdesk please split this change', created: at - 10 * MINUTE, updated: at - 10 * MINUTE, user: WRITER },
+      { id: 312, review: 31, body: 'Nit: a typo here.', created: at - 9 * MINUTE, updated: at - 9 * MINUTE, user: WRITER },
+      { id: 313, review: 31, body: '@harnessdesk and rename the helper', created: at - 8 * MINUTE, updated: at - 8 * MINUTE, user: WRITER },
+      { id: 321, review: 32, body: '@harnessdesk not yet submitted', created: at, updated: at, user: WRITER },
     ],
   })
+  // An issue's comment in the same repository-wide list is the issue source's, never this one's.
+  forge.issues.push({ number: 13, state: 'open', created: at, updated: at, events: [], comments: [{ id: 131, body: '@harnessdesk on an issue', created: at, updated: at }] })
   const read = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, asking)
   assert.equal(read.complete, true)
   const asked = read.facts.filter((fact) => fact.action === 'mentioned')
   assert.deepEqual(asked.map((fact) => [fact.source, fact.subject, fact.head, fact.body, fact.url]), [
     ['pull-request', '12', sha('a'), 'add a test for the time zone', `https://github.com/${REPO}/pull/12#issuecomment-21`],
-    ['pull-request', '12', sha('a'), 'please split this change', `https://github.com/${REPO}/pull/12#pullrequestreview-31`],
-  ])
+    ['pull-request', '12', sha('a'), 'please split this change\n\nand rename the helper', `https://github.com/${REPO}/pull/12#pullrequestreview-31`],
+  ], 'one request per review, its inline words in order, though they were drafted before the window')
   assert.deepEqual(asked.map((fact) => fact.event), [eventKey([REPO, 12, 'mentioned', 21]), eventKey([REPO, 12, 'mentioned', 'review', 31])])
   assert.equal(asked[1]!.author, accountDigest(WRITER.id))
-  assert.equal(read.next.requests?.['12']?.c, 22)
-  assert.equal(read.next.requests?.['12']?.r, 33)
+  assert.equal(asked[1]!.at, at + 1000, 'a review asks when it was submitted')
+  assert.deepEqual(Object.keys(read.next.requests?.seen ?? {}).sort(), ['c21', 'c22', 'p12', 'r31', 'r33', 'r34'], 'the pending review stays unseen')
+  assert.deepEqual(reviewReads(forge, 12).filter((path) => path.includes('/comments')).map((path) => path.split('/')[6]), ['31', '33', '34'], 'only submitted reviews are opened')
 })
 
-test('an unchanged pull request is never read again, and a changed one costs one comment read and one review read', async () => {
+test('comment reads cost one call however many pull requests move; reviews are read only for one that moved', async () => {
   const forge = new FakeForge()
   const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
   const at = ARMED + MINUTE
-  forge.pulls.push({ number: 3, head: sha('b'), state: 'open', created: ARMED - MINUTE, updated: at, comments: [] })
-  forge.pulls.push({ number: 4, head: sha('c'), state: 'open', created: ARMED - MINUTE, updated: at, comments: [] })
+  for (let n = 1; n <= 30; n += 1) {
+    forge.pulls.push({ number: n, head: sha('b'), state: 'open', created: ARMED - MINUTE, updated: at + n, comments: [{ id: 1000 + n, body: `@harnessdesk ask ${n}`, created: at + n, updated: at + n }] })
+  }
   const first = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, asking)
-  assert.deepEqual(threadReads(forge, 3), [`repos/${REPO}/issues/3/comments?since=${new Date(ARMED).toISOString()}&per_page=100&page=1`, `repos/${REPO}/pulls/3/reviews?per_page=100&page=1`])
-  assert.equal(threadReads(forge, 4).length, 2)
+  assert.equal(first.facts.filter((fact) => fact.action === 'mentioned').length, 30)
+  assert.deepEqual(commentReads(forge), [`repos/${REPO}/issues/comments?sort=updated&direction=asc&since=${new Date(ARMED).toISOString()}&per_page=100&page=1`])
+  assert.equal(forge.calls.filter((path) => /\/issues\/[0-9]+\/comments/.test(path)).length, 0, 'never a comment read per pull request')
+  assert.deepEqual(reviewReads(forge, 3), [`repos/${REPO}/pulls/3/reviews?per_page=100&page=1`])
 
-  // Nothing changed: the pull request list is read as it always is, and no thread at all.
+  // Nothing changed: the same one comment read, and no pull request's reviews.
   forge.calls.length = 0
   const second = await source(forge, ARMED + 3 * MINUTE).poll(PROJECT, first.next, never, asking)
-  assert.deepEqual(second.facts, [])
-  assert.ok(forge.calls.some((path) => path.startsWith(`repos/${REPO}/pulls?`)), 'the list it already read')
-  assert.deepEqual([...threadReads(forge, 3), ...threadReads(forge, 4)], [], 'no read for an unchanged pull request')
+  assert.deepEqual(second.facts, [], 'none asks twice')
+  assert.equal(commentReads(forge).length, 1)
+  assert.equal(forge.calls.filter((path) => path.includes('/reviews')).length, 0, 'no review read for an unchanged pull request')
 
-  // Only #4 changes: only #4 is read.
+  // Only #4 changes: only #4's reviews are read.
   forge.calls.length = 0
-  forge.pulls[1]!.updated = ARMED + 4 * MINUTE
-  forge.pulls[1]!.comments = [{ id: 41, body: '@harnessdesk rebase this', created: ARMED + 4 * MINUTE, updated: ARMED + 4 * MINUTE }]
+  forge.pulls[3]!.updated = ARMED + 4 * MINUTE
+  forge.pulls[3]!.comments!.push({ id: 41, body: '@harnessdesk rebase this', created: ARMED + 4 * MINUTE, updated: ARMED + 4 * MINUTE })
   const third = await source(forge, ARMED + 5 * MINUTE).poll(PROJECT, second.next, never, asking)
-  assert.deepEqual(threadReads(forge, 3), [])
-  assert.equal(threadReads(forge, 4).length, 2)
+  assert.equal(commentReads(forge).length, 1)
+  assert.deepEqual(forge.calls.filter((path) => path.includes('/reviews')), [`repos/${REPO}/pulls/4/reviews?per_page=100&page=1`])
   assert.deepEqual(third.facts.map((fact) => [fact.action, fact.subject]), [['mentioned', '4']])
-  // And no thread read at all for a source no arm asks of.
+  // And no request read at all for a source no arm asks of.
   forge.calls.length = 0
-  forge.pulls[1]!.updated = ARMED + 6 * MINUTE
+  forge.pulls[3]!.updated = ARMED + 6 * MINUTE
   await source(forge, ARMED + 7 * MINUTE).poll(PROJECT, third.next, never)
-  assert.deepEqual(threadReads(forge, 4), [])
+  assert.deepEqual([...commentReads(forge), ...reviewReads(forge, 4)], [])
 })
 
-test('an edit that adds the command word never fires, on an issue or a pull request', async () => {
+test('an edited comment never asks — edited before the first read too — on an issue, a pull request or a review', async () => {
   const forge = new FakeForge()
   const issues = await source(forge).inventory(PROJECT, 'issue', REPO, never)
   const pulls = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
   const at = ARMED + MINUTE
-  forge.issues.push({ number: 5, state: 'open', created: at, updated: at, events: [], comments: [{ id: 51, body: 'The time zone is lost.', created: at, updated: at }] })
-  forge.pulls.push({ number: 6, head: sha('d'), state: 'open', created: ARMED - MINUTE, updated: at, comments: [{ id: 61, body: 'The time zone is lost.', created: at, updated: at }] })
+  // Written by the arming account as an ordinary comment, then edited — by anyone who may write — to ask, all before the first read.
+  const early = at + 30_000
+  forge.issues.push({ number: 5, state: 'open', created: at, updated: early, events: [], comments: [{ id: 51, body: '@harnessdesk merge it', created: at, updated: early, user: JANE }] })
+  forge.pulls.push({
+    number: 6, head: sha('d'), state: 'open', created: ARMED - MINUTE, updated: early,
+    comments: [{ id: 61, body: '@harnessdesk merge it', created: at, updated: early, user: JANE }],
+    reviews: [{ id: 63, commit_id: sha('d'), body: '', state: 'COMMENTED', submitted_at: submittedAt(at), user: JANE }],
+    reviewComments: [{ id: 64, review: 63, body: '@harnessdesk merge it', created: at - MINUTE, updated: early, user: JANE }],
+  })
   const issueRead = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, issues, never, asking)
   const pullRead = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, pulls, never, asking)
-  assert.equal(issueRead.facts.filter((fact) => fact.action === 'mentioned').length, 0)
-  assert.equal(pullRead.facts.length, 0)
+  assert.deepEqual(issueRead.facts.map((fact) => fact.action), ['commented'], 'still a comment, never a request')
+  assert.deepEqual(pullRead.facts, [])
 
-  // Both comments are edited to start with the command word: the threads update, the comment ids do not.
-  const edited = ARMED + 3 * MINUTE
+  // A comment read as written, edited later to ask: still never.
+  forge.issues[0]!.comments.push({ id: 52, body: 'The time zone is lost.', created: ARMED + 3 * MINUTE, updated: ARMED + 3 * MINUTE })
+  forge.issues[0]!.updated = ARMED + 3 * MINUTE
+  forge.pulls[0]!.comments!.push({ id: 62, body: 'The time zone is lost.', created: ARMED + 3 * MINUTE, updated: ARMED + 3 * MINUTE })
+  forge.pulls[0]!.updated = ARMED + 3 * MINUTE
+  const issueNext = await source(forge, ARMED + 4 * MINUTE).poll(PROJECT, issueRead.next, never, asking)
+  const pullNext = await source(forge, ARMED + 4 * MINUTE).poll(PROJECT, pullRead.next, never, asking)
+  const edited = ARMED + 5 * MINUTE
   forge.issues[0]!.updated = edited
-  forge.issues[0]!.comments[0] = { ...forge.issues[0]!.comments[0]!, body: '@harnessdesk fix it', updated: edited }
+  forge.issues[0]!.comments[1] = { ...forge.issues[0]!.comments[1]!, body: '@harnessdesk fix it', updated: edited }
   forge.pulls[0]!.updated = edited
-  forge.pulls[0]!.comments![0] = { ...forge.pulls[0]!.comments![0]!, body: '@harnessdesk fix it', updated: edited }
-  const issueAgain = await source(forge, ARMED + 4 * MINUTE).poll(PROJECT, issueRead.next, never, asking)
-  const pullAgain = await source(forge, ARMED + 4 * MINUTE).poll(PROJECT, pullRead.next, never, asking)
-  assert.deepEqual(issueAgain.facts, [], 'a comment is new only by its id')
+  forge.pulls[0]!.comments![1] = { ...forge.pulls[0]!.comments![1]!, body: '@harnessdesk fix it', updated: edited }
+  const issueAgain = await source(forge, ARMED + 6 * MINUTE).poll(PROJECT, issueNext.next, never, asking)
+  const pullAgain = await source(forge, ARMED + 6 * MINUTE).poll(PROJECT, pullNext.next, never, asking)
+  assert.deepEqual(issueAgain.facts, [])
   assert.deepEqual(pullAgain.facts, [])
-  assert.equal(threadReads(forge, 6).length, 4, 'the edited pull request was read again, and found nothing new')
+})
+
+test('a review left pending and submitted after a later review still asks: reviews are new by submission, never by the highest id', async () => {
+  const forge = new FakeForge()
+  const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  const at = ARMED + MINUTE
+  forge.pulls.push({
+    number: 14, head: sha('a'), state: 'open', created: ARMED - MINUTE, updated: at,
+    reviews: [
+      { id: 31, commit_id: sha('a'), body: '', state: 'PENDING', submitted_at: null, user: WRITER },
+      { id: 32, commit_id: sha('a'), body: 'Fine.', state: 'COMMENTED', submitted_at: submittedAt(at), user: WRITER },
+    ],
+    reviewComments: [{ id: 311, review: 31, body: '@harnessdesk cover the empty case', created: at - MINUTE, updated: at - MINUTE, user: WRITER }],
+  })
+  const first = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, asking)
+  assert.deepEqual(first.facts, [])
+  const later = ARMED + 3 * MINUTE
+  forge.pulls[0]!.reviews![0] = { ...forge.pulls[0]!.reviews![0]!, state: 'COMMENTED', submitted_at: submittedAt(later) }
+  forge.pulls[0]!.updated = later
+  const second = await source(forge, ARMED + 4 * MINUTE).poll(PROJECT, first.next, never, asking)
+  assert.deepEqual(second.facts.map((fact) => [fact.event, fact.body]), [[eventKey([REPO, 14, 'mentioned', 'review', 31]), 'cover the empty case']])
+  const third = await source(forge, ARMED + 5 * MINUTE).poll(PROJECT, second.next, never, asking)
+  assert.deepEqual(third.facts, [], 'and asks once')
+})
+
+test('coverage keeps no per-pull-request mark to forget: only the window, and an old pull request never reads as new', async () => {
+  const forge = new FakeForge()
+  const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  const at = ARMED + MINUTE
+  forge.pulls.push({ number: 15, head: sha('a'), state: 'open', created: ARMED - MINUTE, updated: at, comments: [{ id: 151, body: '@harnessdesk fix it', created: at, updated: at }] })
+  let cursor = (await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, asking)).next
+  assert.ok(cursor.requests?.seen['c151'] !== undefined)
+  // Many pull requests move over an hour; what is kept is only what the latest window can return again.
+  for (let step = 1; step <= 6; step += 1) {
+    const now = ARMED + step * 10 * MINUTE
+    forge.pulls.push({ number: 100 + step, head: sha('b'), state: 'open', created: ARMED - MINUTE, updated: now - MINUTE })
+    const read = await source(forge, now).poll(PROJECT, cursor, never, asking)
+    assert.equal(read.complete, true)
+    cursor = read.next
+  }
+  assert.deepEqual(Object.keys(cursor.requests?.seen ?? {}), ['p106'], 'nothing outside the window is kept')
+  // The old pull request comes back: its old comment is not new, and an edit to it never asks.
+  forge.calls.length = 0
+  const edited = ARMED + 70 * MINUTE
+  forge.pulls[0]!.updated = edited
+  forge.pulls[0]!.comments![0] = { ...forge.pulls[0]!.comments![0]!, updated: edited }
+  const back = await source(forge, ARMED + 71 * MINUTE).poll(PROJECT, cursor, never, asking)
+  assert.deepEqual(back.facts, [])
+  assert.equal(commentReads(forge).length, 1)
+})
+
+test('a comment on a pull request the list did not show is routed by its issue_url, with that pull request read once', async () => {
+  const forge = new FakeForge()
+  const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  const at = ARMED + MINUTE
+  forge.pulls.push({ number: 16, head: sha('c'), state: 'open', created: ARMED - 60 * MINUTE, updated: ARMED - 30 * MINUTE, title: 'Old',
+    comments: [{ id: 161, body: '@harnessdesk one', created: at, updated: at }, { id: 162, body: '@harnessdesk two', created: at + 1, updated: at + 1 }] })
+  const read = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, asking)
+  assert.deepEqual(read.facts.map((fact) => [fact.subject, fact.head, fact.title, fact.body]), [['16', sha('c'), 'Old', 'one'], ['16', sha('c'), 'Old', 'two']])
+  assert.deepEqual(forge.calls.filter((path) => path === `repos/${REPO}/pulls/16`), [`repos/${REPO}/pulls/16`])
+})
+
+test('a request coverage that is malformed, or holds more than a window may, is refused', async () => {
+  const { requestCoverageOf } = await import('../src/intake/forge.js')
+  assert.deepEqual(requestCoverageOf({ seen: { c1: 5, r2: 6, p3: 7 } }), { seen: { c1: 5, r2: 6, p3: 7 } })
+  for (const bad of [null, {}, { seen: { x1: 1 } }, { seen: { c0: 1 } }, { seen: { c1: -1 } }, { seen: {}, more: 1 }, { '12': { c: 1, r: 1, u: 1 } }])
+    assert.equal(requestCoverageOf(bad), null)
+  assert.equal(requestCoverageOf({ seen: Object.fromEntries(Array.from({ length: 2001 }, (_, index) => [`c${index + 1}`, 1])) }), null)
 })
 
 test('a bot never asks, and a post the desk made never asks, whatever they say', async () => {
@@ -161,9 +258,11 @@ test('a bot never asks, and a post the desk made never asks, whatever they say',
     { id: 73, body: `${DESK_POST_MARKER}\n@harnessdesk review round 1`, created: at, updated: at },
   ]
   forge.issues.push({ number: 8, state: 'open', created: at, updated: at, events: [], comments: asks })
+  const app = { id: 502, login: 'reviewer-app[bot]' }
   forge.pulls.push({
     number: 9, head: sha('e'), state: 'open', created: ARMED - MINUTE, updated: at, comments: asks.map((one) => ({ ...one, id: one.id + 10 })),
-    reviews: [{ id: 91, commit_id: sha('e'), body: '@harnessdesk approve', state: 'COMMENTED', submitted_at: new Date(at).toISOString(), user: { id: 502, login: 'reviewer-app[bot]' } }],
+    reviews: [{ id: 91, commit_id: sha('e'), body: '', state: 'COMMENTED', submitted_at: submittedAt(at), user: app }],
+    reviewComments: [{ id: 911, review: 91, body: '@harnessdesk approve', created: at, updated: at, user: app }],
   })
   const issueRead = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, issues, never, asking)
   const pullRead = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, pulls, never, asking)
@@ -182,16 +281,18 @@ test('collaborators: only a command comment’s author is asked about, once per 
       { id: 102, body: '@harnessdesk two', created: at, updated: at, user: WRITER },
       { id: 103, body: 'Not a request.', created: at, updated: at, user: STRANGER },
     ],
+    reviews: [{ id: 104, commit_id: sha('f'), body: '', state: 'COMMENTED', submitted_at: submittedAt(at + 1000), user: WRITER }],
+    reviewComments: [{ id: 105, review: 104, body: '@harnessdesk three', created: at, updated: at, user: WRITER }],
   })
   const read = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { requests: { permissions: true } })
-  assert.deepEqual(read.facts.map((fact) => fact.authorWrites), [true, true])
+  assert.deepEqual(read.facts.map((fact) => fact.authorWrites), [true, true, true])
   assert.deepEqual(forge.calls.filter((path) => path.includes('/collaborators/')), [`repos/${REPO}/collaborators/${WRITER.login}/permission`])
 })
 
-test('a burst is a gap: too many changed pull requests, a thread too long for one read, or no time for even the first', async () => {
+test('a burst is a gap: too many changed pull requests, or more comments in the window than one read can cover', async () => {
   const forge = new FakeForge()
   const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
-  for (let n = 1; n <= 101; n += 1) forge.pulls.push({ number: n, head: sha('a'), state: 'open', created: ARMED - MINUTE, updated: ARMED + n, comments: [] })
+  for (let n = 1; n <= 101; n += 1) forge.pulls.push({ number: n, head: sha('a'), state: 'open', created: ARMED - MINUTE, updated: ARMED + n })
   const many = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, asking)
   assert.equal(many.complete, false)
   assert.match(many.problem ?? '', /More pull request comments changed than one read can cover/)
@@ -208,32 +309,28 @@ test('a burst is a gap: too many changed pull requests, a thread too long for on
   })
   const tooLong = await source(long, ARMED + 2 * MINUTE).poll(PROJECT, start, never, asking)
   assert.equal(tooLong.complete, false)
-  assert.match(tooLong.problem ?? '', /more comments than one read can cover/)
-
-  const slow = new FakeForge()
-  const cursor: SourceCursor = await source(slow).inventory(PROJECT, 'pull-request', REPO, never)
-  slow.pulls.push({ number: 2, head: sha('b'), state: 'open', created: ARMED - MINUTE, updated: at, comments: [{ id: 1, body: '@harnessdesk x', created: at, updated: at }] })
-  slow.fail = (path) => path.includes('/issues/2/comments') ? 'timeout' : null
-  const stuck = await source(slow, ARMED + 2 * MINUTE).poll(PROJECT, cursor, never, asking)
-  assert.equal(stuck.complete, false)
-  assert.match(stuck.problem ?? '', /More pull request comments changed than one read can cover/)
+  assert.match(tooLong.problem ?? '', /More pull request comments changed than one read can cover/)
 })
 
-test('a read that runs out of time part-way keeps the pull requests it finished and goes on from the first it did not', async () => {
-  const forge = new FakeForge()
-  const cursor = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
-  for (let n = 1; n <= 3; n += 1) {
-    const at = ARMED + n * MINUTE
-    forge.pulls.push({ number: n, head: sha('a'), state: 'open', created: ARMED - MINUTE, updated: at, comments: [{ id: n, body: `@harnessdesk ask ${n}`, created: at, updated: at }] })
+test('a read that runs out of time reads the same window again: no request lost, none twice', async () => {
+  for (const slow of ['/issues/comments?', '/pulls/2/reviews']) {
+    const forge = new FakeForge()
+    const cursor = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+    for (let n = 1; n <= 3; n += 1) {
+      const at = ARMED + n * MINUTE
+      forge.pulls.push({ number: n, head: sha('a'), state: 'open', created: ARMED - MINUTE, updated: at, comments: [{ id: n, body: `@harnessdesk ask ${n}`, created: at, updated: at }] })
+    }
+    forge.fail = (path) => path.includes(slow) ? 'timeout' : null
+    const first = await source(forge, ARMED + 5 * MINUTE).poll(PROJECT, cursor, never, asking)
+    assert.equal(first.complete, true, slow)
+    assert.deepEqual(first.facts, [], 'no request offered from a read that did not finish')
+    assert.equal(first.next.observedThrough, cursor.observedThrough, 'the window is read again')
+    forge.fail = null
+    const second = await source(forge, ARMED + 6 * MINUTE).poll(PROJECT, first.next, never, asking)
+    assert.deepEqual(second.facts.map((fact) => fact.subject), ['1', '2', '3'], 'none lost')
+    const third = await source(forge, ARMED + 7 * MINUTE).poll(PROJECT, second.next, never, asking)
+    assert.deepEqual(third.facts, [], 'none twice')
   }
-  forge.fail = (path) => path.includes('/issues/2/comments') ? 'timeout' : null
-  const first = await source(forge, ARMED + 5 * MINUTE).poll(PROJECT, cursor, never, asking)
-  assert.equal(first.complete, true)
-  assert.deepEqual(first.facts.map((fact) => fact.subject), ['1'])
-  assert.equal(first.next.observedThrough, ARMED + 2 * MINUTE - 1, 'the next read starts at the first unfinished pull request')
-  forge.fail = null
-  const second = await source(forge, ARMED + 6 * MINUTE).poll(PROJECT, first.next, never, asking)
-  assert.deepEqual(second.facts.map((fact) => fact.subject), ['2', '3'], 'none lost, none twice')
 })
 
 // ------------------------------------------------------------------ admission

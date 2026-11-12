@@ -7,7 +7,7 @@ import { Serial } from '../goals/assignments.js'
 import { atomicJson } from '../goals/store.js'
 import type { ArmedTrigger } from './consent.js'
 import { acceptsFact } from './definition.js'
-import { pullStatesOf, requestMarksOf, ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor, type PullWatch } from './forge.js'
+import { pullStatesOf, requestCoverageOf, ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor, type PullWatch } from './forge.js'
 import { dueSlots, scheduleInventory } from './schedule.js'
 
 /**
@@ -112,7 +112,7 @@ const cursorOf = (value: unknown): SourceCursor | null => {
   }
   const pulls = value['pulls'] === undefined ? undefined : pullStatesOf(value['pulls'])
   if (pulls === null || (value['pullNext'] !== undefined && (!Number.isSafeInteger(value['pullNext']) || (value['pullNext'] as number) < 0))) return null
-  const requests = value['requests'] === undefined ? undefined : requestMarksOf(value['requests'])
+  const requests = value['requests'] === undefined ? undefined : requestCoverageOf(value['requests'])
   if (requests === null) return null
   return {
     ...(pulls === undefined ? {} : { pulls }),

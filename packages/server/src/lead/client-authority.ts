@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import { join } from 'node:path'
-import { LEAD_MEMORY_OPEN } from '@harnessdesk/lead'
+import { LEAD_MEMORY_OPEN, isLeadCancellation } from '@harnessdesk/lead'
 import { clientTierFor, type ClientTier, type HostParams } from '@harnessdesk/protocol'
 import { openClientDoor, type ClientConnectionPolicy, type ClientDoor, type ClientDoorOptions } from '../client-door.js'
 import type { Host } from '../host.js'
@@ -19,6 +19,9 @@ export interface LeadClientAuthorityOptions {
   /** Validates the actual ordinary session without loading its transcript. */
   readonly readChatTarget?: (id: string) => Promise<boolean>
   readonly authorizeStart?: (params: HostParams<'flow/start-goal'>) => boolean | Promise<boolean>
+  /** True while the goal is a request from an issue or pull request whose plan the person has not approved: every
+   * run-tier call but a stop is refused, whatever the journal admitted. */
+  readonly awaitsPlan?: () => boolean
   /** The Lead's kept entries as they stand: a worker's prompt never carries one, nor the memory block itself. */
   readonly memoryLines?: () => readonly string[]
 }
@@ -72,6 +75,9 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
     authorize: async request => {
       try {
         if (clientTierFor(request.method, request.params) === 'answer') return 'tierNotGranted'
+        if (clientTierFor(request.method, request.params) === 'run' && options.awaitsPlan?.() === true &&
+          !isLeadCancellation(request.method, typeof (request.params as { action?: unknown } | undefined)?.action === 'string' ? (request.params as { action: string }).action : null))
+          return 'leadPlanNotApproved'
         if (WORKER_BOUND.has(request.method) && leadCarriesMemory(request.params, options.memoryLines?.() ?? [])) return 'leadMemoryToWorker'
         // Read-only desk projections and skill counts contain no transcripts or account credentials.
         if (request.method === 'lead/desk/summary' || request.method === 'lead/usage/summary' || request.method === 'library/usage') return null

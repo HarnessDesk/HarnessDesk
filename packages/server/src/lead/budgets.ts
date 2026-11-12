@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { decideLeadPermission, leadBudgetProjection, leadWorkerDispatchBlockedByOpenPr, leadReviewedResultSourceFor, type LeadJournal, type LeadAcceptanceResult } from '@harnessdesk/lead'
+import { decideLeadPermission, leadBudgetProjection, leadRequestAwaitsPlan, leadWorkerDispatchBlockedByOpenPr, leadReviewedResultSourceFor, type LeadJournal, type LeadAcceptanceResult } from '@harnessdesk/lead'
 import { LEAD_LIMITS, type LeadBudgetEvent, type LeadProject, type SeatRecord } from '@harnessdesk/protocol'
 import { attributeSample, goalSpend, meterSample, meterTurn, openMeter } from '../intake/spend.js'
 import { seatWindowOf } from '../insight/attribution.js'
@@ -153,7 +153,7 @@ export class LeadBudgets implements FlowLeadGuard {
     if (!contract || contract.digest !== binding.contractDigest || !step || admitted?.state !== 'admitted' ||
       !attempt || attempt.correlationId !== binding.startId || attempt.phase !== 'started' || !attempt.dispatched || attempt.method !== 'flow/start-goal' ||
       state.runs.some(run => run.correlationId === binding.startId) ||
-      state.recoveryBlocked || leadWorkerDispatchBlockedByOpenPr(state) || ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) ||
+      state.recoveryBlocked || leadWorkerDispatchBlockedByOpenPr(state) || leadRequestAwaitsPlan(state) || ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) ||
       !await this.port.member(contract.project)) throw new Error('lead-start-not-approved')
     const current = journal.state
     const decision = decideLeadPermission({ method: 'flow/start-goal', params: pending.params, project: pending.project, runId: null, start: step },

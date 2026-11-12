@@ -180,7 +180,7 @@ import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadClockLine, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadRequestAwaitsPlan, leadWorkCards, leadClockLine, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
 import { initialLeadMemoryCore, leadMemoryStatus, leadSettingsStatus } from '@harnessdesk/lead'
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
@@ -4373,7 +4373,7 @@ export class Host {
       },
       recover: () => { this.#clearLeadChatEffects(); return this.#leadBudgets.recover() },
       openDoor: async admission => openLeadClientDoor({ host: this, logger: this.#logger, home: this.#state.directory,
-        hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission, readChatTarget: id => this.#leadChats!.canRead(id), memoryLines: () => this.#leadMemoryReady?.entries().map(entry => entry.text) ?? [] }) }),
+        hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission, readChatTarget: id => this.#leadChats!.canRead(id), awaitsPlan: () => leadRequestAwaitsPlan(journal.state), memoryLines: () => this.#leadMemoryReady?.entries().map(entry => entry.text) ?? [] }) }),
       stopOwned,
     })
     const ownedWorker = (runtime: string, sessionId: string, includeClosed = false) => {

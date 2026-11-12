@@ -30,8 +30,10 @@ export interface FakePull {
   checks?: { id: number; head_sha: string; name: string; status: string; conclusion: string | null; completed_at?: string }[]
   statuses?: { id: number; context: string; state: string; updated_at?: string }[]
   reviews?: { id: number; commit_id: string; body: string; state: string; submitted_at: string | null; user: { id: number; login: string; type?: 'User' | 'Bot' } | null }[]
-  /** The pull request's conversation comments, as `issues/{n}/comments` answers them. */
+  /** The pull request's conversation comments, as the repository-wide `issues/comments` list answers them. */
   comments?: FakeIssue['comments']
+  /** Inline review comments, each in its review, as `pulls/{n}/reviews/{id}/comments` answers them. */
+  reviewComments?: { id: number; review: number; body: string; created: number; updated: number; user?: { id: number; login: string; type?: 'User' | 'Bot' } }[]
   extra?: Record<string, unknown>
 }
 
@@ -128,7 +130,15 @@ export class FakeForge {
       id: one.id, body: one.body, created_at: iso(one.created), updated_at: iso(one.updated),
       ...(one.user === null ? {} : { user: one.user ?? { ...this.user, type: 'User' } }),
       html_url: `https://github.com/${this.repo}/${issue.pullRequest ? 'pull' : 'issues'}/${issue.number}#issuecomment-${one.id}`,
+      issue_url: `https://api.github.com/repos/${this.repo}/issues/${issue.number}`,
     }
+  }
+
+  /** Every thread's comments: the issues', and each pull request conversation's. */
+  #threads(): FakeIssue[] {
+    return [...this.issues, ...this.pulls.filter((one) => one.comments?.length).map((one): FakeIssue => ({
+      number: one.number, state: one.state, created: one.created, updated: one.updated, events: [], comments: one.comments!, pullRequest: true,
+    }))]
   }
 
   #answer(path: string): unknown {
@@ -152,6 +162,15 @@ export class FakeForge {
       if (!one) throw new Error(`missing pull ${path}`)
       return this.pullJson(one)
     }
+    if (parts[3] === 'pulls' && parts[5] === 'reviews' && parts[7] === 'comments') {
+      const one = this.pulls.find((row) => row.number === Number(parts[4]))
+      return slice((one?.reviewComments ?? []).filter((comment) => comment.review === Number(parts[6]))).map((comment) => ({
+        id: comment.id, pull_request_review_id: comment.review, body: comment.body, created_at: iso(comment.created), updated_at: iso(comment.updated),
+        user: comment.user ?? { ...this.user, type: 'User' }, path: 'src/widget.ts',
+        html_url: `https://github.com/${this.repo}/pull/${parts[4]}#discussion_r${comment.id}`,
+        pull_request_url: `https://api.github.com/repos/${this.repo}/pulls/${parts[4]}`,
+      }))
+    }
     if (parts[3] === 'pulls' && parts[5] === 'reviews') {
       if (parts[6]) return this.pulls.find((row) => row.number === Number(parts[4]))?.reviews?.find((one) => one.id === Number(parts[6]))
       return slice((this.pulls.find((row) => row.number === Number(parts[4]))?.reviews ?? [])
@@ -165,13 +184,13 @@ export class FakeForge {
     if (parts[3] === 'issues' && parts[4] === 'comments' && parts.length === 5) {
       // The repository-wide list: every issue's and pull request conversation's comments, by update, from `since`.
       const since = Date.parse(url.searchParams.get('since') ?? iso(0))
-      const rows = this.issues.flatMap((issue) => issue.comments.map((one) => ({ issue, one })))
+      const rows = this.#threads().flatMap((issue) => issue.comments.map((one) => ({ issue, one })))
         .filter(({ one }) => one.updated >= since)
         .sort((a, b) => (url.searchParams.get('direction') === 'desc' ? b.one.updated - a.one.updated : a.one.updated - b.one.updated) || a.one.id - b.one.id)
       return slice(rows).map(({ issue, one }) => this.commentJson(issue, one))
     }
     if (parts[3] === 'issues' && parts[4] === 'comments' && parts.length === 6) {
-      for (const issue of this.issues) {
+      for (const issue of this.#threads()) {
         const one = issue.comments.find((row) => row.id === Number(parts[5]))
         if (one) return this.commentJson(issue, one)
       }
