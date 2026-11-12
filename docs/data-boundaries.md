@@ -278,18 +278,29 @@ logins the triggers file already names).
 
 A trigger armed for `@harnessdesk` requests on pull requests also reads, as
 the same signed-in person, one repository-wide list of conversation comments
-updated since the source's window opened
+updated since the comment window opened
 (`issues/comments?sort=updated&direction=asc&since=…`, paged), whatever number
-of pull requests moved; the reviews (`pulls/{n}/reviews`) of only those pull
-requests the source's existing list read shows as updated; the inline comments
-of each review newly submitted there (`pulls/{n}/reviews/{id}/comments`); and,
-for a comment on a pull request that list did not show, that one pull request
-(`pulls/{n}`). An issue's comment in the list is dropped unread. With
+of pull requests moved; the reviews (`pulls/{n}/reviews`) of those pull
+requests the source's existing list read shows as updated, and again of one
+read within five minutes of its update, until a read comes five minutes later;
+the inline comments of each review newly submitted there
+(`pulls/{n}/reviews/{id}/comments`); and, for a comment on a pull request that
+list did not show, or one whose reviews are read again after it left the list,
+that one pull request (`pulls/{n}`). An issue's comment in the list is dropped
+unread. Every comment that asks — and only those, on issues and pull requests
+alike — has its edit history read in one GitHub GraphQL query per poll (per
+issue, for an issue trigger) of at most 100 comments: a fixed query that sends
+only the comments' node ids, as their REST answers named them, and reads back
+for each its kind, `lastEditedAt` and `includesCreatedEdit`; it changes
+nothing, and it counts against the same signed-in person's GraphQL rate limit,
+about one point a read. With
 `from: collaborators` the author's permission is read once per author in a
-read. What it keeps beside the trigger's cursor is only what it handled inside
-the overlap window — comment, review and pull request ids with a time, at most
-2,000, dropped as the window moves — and each request as an admission fact:
-its comment or review URL, the author's account digest and the words after
+read, only for a request the forge says was never edited. What it keeps beside
+the trigger's cursor is only what it handled inside its windows — comment,
+review and pull request ids with a time, at most 2,000, dropped as the windows
+move — and the time of the newest comment a complete read covered, and each
+request as an admission fact: its comment or review URL, the author's account
+digest, whether the forge says it was never edited, and the words after
 `@harnessdesk`, clipped like every other body. Those words, the thread's title and its links
 are sent to the Lead's model provider when the request is handed to the Lead,
 inside the untrusted-context fence, on the same terms as every other Lead

@@ -191,6 +191,8 @@ export const SKIP_AUTHOR_UNREAD = 'Who wrote this comment could not be read, so 
 export const SKIP_NOT_ME = 'Only comments by the forge account this trigger was armed with fire it, and someone else wrote this one.'
 export const SKIP_WRITES_UNREAD = 'Whether this comment’s author can write to the repository could not be read, so it did not fire.'
 export const SKIP_NOT_COLLABORATOR = 'Only comments by people who can write to the repository fire this trigger, and this one’s author cannot.'
+export const SKIP_EDITED = 'This request was edited after it was written, and an edit may be anyone’s who can write, so it did not fire.'
+export const SKIP_EDIT_UNREAD = 'Whether this request was edited could not be read, so it did not fire.'
 
 /**
  * Whether a comment may fire this trigger, by its `from` and stable account
@@ -206,6 +208,8 @@ export const commentRefusal = (definition: TriggerDefinition, fact: TriggerFact,
   // `from` reads an issue's comments and a request on either source alike.
   if (fact.action !== 'mentioned' && (fact.source !== 'issue' || fact.action !== 'commented')) return null
   if (fact.desk === true) return SKIP_DESK
+  // A request asks only as first written, whoever's name it carries — and only on the forge's word that it was never edited.
+  if (fact.action === 'mentioned' && fact.unedited !== true) return fact.unedited === false ? SKIP_EDITED : SKIP_EDIT_UNREAD
   const from = definition.from ?? 'me'
   if (from === 'anyone') return null
   if (typeof fact.author !== 'string') return SKIP_AUTHOR_UNREAD

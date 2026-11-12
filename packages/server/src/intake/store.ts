@@ -219,6 +219,7 @@ export const factOf = (value: unknown): TriggerFact | null => {
   if (!(value['author'] === undefined || value['author'] === null || HEX.test(String(value['author'])))) return null
   if (!(value['authorWrites'] === undefined || value['authorWrites'] === null || typeof value['authorWrites'] === 'boolean')) return null
   if (!(value['desk'] === undefined || typeof value['desk'] === 'boolean')) return null
+  if (!(value['unedited'] === undefined || value['unedited'] === null || typeof value['unedited'] === 'boolean')) return null
   if (!(value['thread'] === undefined || value['thread'] === 'issue' || value['thread'] === 'pull-request')) return null
   if (!(value['login'] === undefined || value['login'] === null || (typeof value['login'] === 'string' && FORGE_LOGIN.test(value['login'])))) return null
   if (!(value['bot'] === undefined || typeof value['bot'] === 'boolean')) return null

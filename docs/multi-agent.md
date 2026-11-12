@@ -861,18 +861,23 @@ ignoring case and leading spaces, and followed by nothing, a space, `:` or `,`.
 A quoted line, a fenced or indented code line, a longer name
 (`@harnessdesktop`, `@harnessdesk-bot`), a team mention (`@harnessdesk/reviewers`),
 the word mid-sentence or on a later line is not a request. A comment asks only as
-written: one the forge shows as edited — its update differs from its creation,
-or an inline comment changed after its review was submitted — never asks, even
-before the desk first read it, because anyone with write access may edit
-someone else's comment; a bot
+first written, on the forge's own edit history, read for every comment that
+asks: one the forge shows as edited — its update differs from its creation, an
+inline comment changed after its review was submitted, or GitHub says it was
+edited even within the same second — never asks, even before the desk first
+read it, because anyone with write access may edit someone else's comment.
+Neither does one whose history could not be read; both are kept in the
+trigger's history as skipped, with the reason. A bot
 (a login ending in `[bot]`, or an account the forge marks as one) never asks
 whatever `from` says, and neither does a post the desk made. `from` applies to
 requests exactly as to comments. On an issue the existing comment read finds
 them. On a pull request the desk reads one repository-wide list of the
-conversation comments updated in the source's window, however many pull
+conversation comments updated since its last complete read, however many pull
 requests moved, and the reviews of only those pull requests its list read
-shows as updated: a review is new by when it was submitted, so one left
-pending and submitted later still asks. A review's summary never asks — the
+shows as updated — and again of one read within five minutes of its update,
+until a read comes five minutes later: a review is new by when it was
+submitted, so one left pending and submitted later still asks, even within
+the same second. A review's summary never asks — the
 forge does not say whether it was edited — but its inline comments do, as one
 request for the review. More than one read can cover stops at a gap. Each
 conversation comment is one firing, and each review one. A request goes only to the Lead —

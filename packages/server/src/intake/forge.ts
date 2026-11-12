@@ -15,7 +15,9 @@ import { factOf } from './store.js'
  *
  * Everything the forge answers is untrusted. Reads are only fixed
  * `gh api --method GET` endpoints assembled from the repository the arm was
- * bound to and validated integers; a `Link` header or an address inside a
+ * bound to and validated integers — and one fixed GraphQL query, the edit
+ * history of a comment that asks, by the node id its REST answer named,
+ * which reads and never writes; a `Link` header or an address inside a
  * payload is never followed, and pagination is the desk's own page numbers.
  * Every read is bounded — 100 items a page, 10 pages a list, 4 MiB an answer,
  * 30 seconds a source's whole read — and a read that hits a bound is a gap,
@@ -54,25 +56,31 @@ export interface SourceCursor {
 }
 
 /**
- * The request read's coverage. It reads by time from the source's own
- * `observedThrough` (less the overlap), so it keeps no per-pull-request mark
- * that could be forgotten: only what it handled since that window opened,
- * each by the time it was read under — `c<id>` a conversation comment by its
- * update, `r<id>` a review by its submission, `p<n>` a pull request whose
- * reviews were read at that update. Older entries fall out of the window and
- * are dropped; more than the window may hold is a gap, never a forgotten mark.
+ * The request read's coverage. It reads by time, so it keeps no
+ * per-pull-request mark that could be forgotten: only what it handled inside
+ * its windows, each by the time it was read under — `c<id>` a conversation
+ * comment by its update, `r<id>` a review by its submission, `p<n>` a pull
+ * request whose reviews were read at that update, and `u<n>` one read at an
+ * update so recent that a review could still be submitted within that same
+ * second: its reviews are read again until a read comes a whole overlap
+ * later. `through` is the newest comment update a complete comment read
+ * covered: the comment window moves with it, whether or not any pull request
+ * moved. Entries older than their window are dropped; more than the windows
+ * may hold is a gap, never a forgotten mark.
  */
-export interface RequestCoverage { readonly seen: Readonly<Record<string, number>> }
+export interface RequestCoverage { readonly seen: Readonly<Record<string, number>>; readonly through?: number }
 
 /** Closed parser for the optional request coverage; older cursors omit it. */
 export const requestCoverageOf = (value: unknown): RequestCoverage | null => {
-  if (!isMap(value) || Object.keys(value).length !== 1 || !isMap(value['seen'])) return null
+  if (!isMap(value) || !isMap(value['seen']) || Object.keys(value).some((key) => key !== 'seen' && key !== 'through')) return null
+  const through = value['through']
+  if (through !== undefined && (!Number.isSafeInteger(through) || (through as number) < 0)) return null
   const entries = Object.entries(value['seen'])
   if (entries.length > SEEN_LIMIT) return null
   for (const [key, at] of entries) {
-    if (!/^[cpr][1-9][0-9]{0,15}$/.test(key) || !Number.isSafeInteger(at) || (at as number) < 0) return null
+    if (!/^[cpru][1-9][0-9]{0,15}$/.test(key) || !Number.isSafeInteger(at) || (at as number) < 0) return null
   }
-  return { seen: Object.fromEntries(entries) as Record<string, number> }
+  return { seen: Object.fromEntries(entries) as Record<string, number>, ...(through === undefined ? {} : { through: through as number }) }
 }
 
 /**
@@ -220,6 +228,13 @@ const ISSUE_LIMIT = 100
 const SUBJECT_LIMIT = 5000
 /** What the request read may hold as handled inside one overlap window; more is a gap. */
 const SEEN_LIMIT = 2000
+/** A request's edit history, read for every comment that asks — and only those — in reads of at most 100. */
+const PROVENANCE = 'query($ids:[ID!]!){nodes(ids:$ids){__typename id ...on IssueComment{lastEditedAt includesCreatedEdit} ...on PullRequestReviewComment{lastEditedAt includesCreatedEdit}}}'
+/** A forge node id as a REST answer names it: opaque, short, URL-safe. */
+const NODE_ID = /^[A-Za-z0-9_=-]{1,128}$/
+type Commented = 'IssueComment' | 'PullRequestReviewComment'
+/** A request's edit history: never edited, edited, or not readable. */
+type Provenance = true | false | null
 const CLIPPED = '\n[clipped by HarnessDesk]'
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 /** A forge login as the permission read may spell it into a path: letters, digits and single dashes, or an app's `name[bot]`. */
@@ -449,6 +464,51 @@ export class ForgeSource {
     const answer = await this.#get(project, path, deadline, signal)
     if (!Array.isArray(answer) || answer.length > PER_PAGE) throw unreadable()
     return answer
+  }
+
+  /**
+   * Whether each comment that asks is exactly as its author first wrote it,
+   * on the forge's own edit history: one fixed GraphQL query, by node id, for
+   * at most 100 comments a read — never a mutation, and never a comment that
+   * does not ask. True only when the forge says it was never edited
+   * (`lastEditedAt` null, `includesCreatedEdit` false); false when it was;
+   * null when that cannot be read — any failure, any error the answer
+   * carries, a node of another kind or a missing field — which never asks
+   * either. Never throws but for a stopped read.
+   */
+  async #unedited(project: string, nodes: readonly { readonly id: string | null; readonly kind: Commented }[], deadline: number, signal: AbortSignal): Promise<Provenance[]> {
+    const answers: Provenance[] = nodes.map(() => null)
+    for (let start = 0; start < nodes.length; start += PER_PAGE) {
+      const batch = nodes.slice(start, start + PER_PAGE)
+      const ids = batch.flatMap((node) => node.id === null ? [] : [node.id])
+      if (ids.length === 0) continue
+      let answer: unknown
+      try {
+        if (signal.aborted) throw new ForgeReadError('offline', 'The read was stopped.')
+        const left = deadline - Date.now()
+        if (left <= 0) throw outOfTime()
+        const result = await this.#run(['api', '--method', 'POST', '-H', 'Accept: application/vnd.github+json', '--input', '-', 'graphql'],
+          JSON.stringify({ query: PROVENANCE, variables: { ids } }), { cwd: project, timeoutMs: left, maxBytes: this.#maxBytes })
+        if (signal.aborted) throw new ForgeReadError('offline', 'The read was stopped.')
+        if (result.timedOut || result.overflow || result.exitCode !== 0 || Date.now() > deadline) continue
+        answer = JSON.parse(result.stdout) as unknown
+      } catch (error) {
+        if (signal.aborted) throw error
+        continue
+      }
+      if (!isMap(answer) || answer['errors'] !== undefined || !isMap(answer['data']) || !Array.isArray(answer['data']['nodes']) || answer['data']['nodes'].length !== ids.length) continue
+      const read = answer['data']['nodes'] as readonly unknown[]
+      let at = 0
+      for (const [index, node] of batch.entries()) {
+        if (node.id === null) continue
+        const one = read[at++]
+        if (!isMap(one) || one['id'] !== node.id || one['__typename'] !== node.kind) continue
+        const edited = one['lastEditedAt'], created = one['includesCreatedEdit']
+        if (edited === null && created === false) answers[start + index] = true
+        else if ((typeof edited === 'string' && edited !== '') || created === true) answers[start + index] = false
+      }
+    }
+    return answers
   }
 
   #pull(raw: unknown): PullRow {
@@ -725,11 +785,14 @@ export class ForgeSource {
         through = cursor.observedThrough
       } else {
         facts.push(...asked.facts)
-        // Only what the next window can return again is kept; a window that holds more than that is a gap.
-        const floor = Math.max(cursor.baseline, through - OVERLAP_MS)
-        const seen = Object.fromEntries(Object.entries(asked.seen).filter(([, at]) => at >= floor))
+        // Only what the next windows can return again is kept; windows that hold more than that are a gap.
+        const comments = Math.max(cursor.baseline, Math.max(through, asked.through) - OVERLAP_MS)
+        const reviews = Math.max(cursor.baseline, through - OVERLAP_MS)
+        const settling = Object.entries(asked.seen).filter(([key]) => key.startsWith('u')).map(([, at]) => at)
+        const floors: Record<string, number> = { c: comments, p: reviews, r: Math.min(reviews, ...settling), u: 0 }
+        const seen = Object.fromEntries(Object.entries(asked.seen).filter(([key, at]) => at >= floors[key[0]!]!))
         if (Object.keys(seen).length > SEEN_LIMIT) return this.#gap(cursor, 'More pull request comments changed than one read can cover.')
-        coverage = { seen }
+        coverage = { seen, through: asked.through }
       }
     }
     const next = { ...cursor, observedThrough: through, continuation: null, subjects, pulls: watched.pulls, pullNext: watched.next, ...(coverage === undefined ? {} : { requests: coverage }) }
@@ -963,26 +1026,32 @@ export class ForgeSource {
   }
 
   /**
-   * `@harnessdesk` requests on pull requests, read by time from the source's
-   * own window — never a mark per pull request, so nothing can be forgotten
-   * into looking new.
+   * `@harnessdesk` requests on pull requests, read by time — never a mark per
+   * pull request, so nothing can be forgotten into looking new.
    *
    * Conversation comments come from one repository-wide list, by update, from
-   * the window's start: one paged read however many pull requests moved, each
-   * comment routed to its pull request by `issue_url` (an issue's comments are
-   * the issue source's). A comment asks only as written: one whose update
-   * differs from its creation was edited, by its author or by anyone with
-   * write access, so it never asks — whoever's name it carries.
+   * the comment window's start: one paged read however many pull requests
+   * moved, each comment routed to its pull request by `issue_url` (an issue's
+   * comments are the issue source's). The window moves with the newest
+   * comment a complete read covered, whether or not a pull request moved.
    *
-   * Reviews are read per pull request, only for those the existing list read
-   * shows as updated, and a review is new by its submission time and its id,
-   * never by the highest id read: a review left pending and submitted later is
-   * still new. Its summary never asks, because the forge says nothing of
+   * Reviews are read per pull request: for one the list read shows as
+   * updated, and again for one read so soon after its update that a review
+   * could still be submitted within that same second, until a read comes a
+   * whole overlap later. A review is new by its submission time and its id,
+   * never by the highest id read: a review left pending and submitted later
+   * is still new. Its summary never asks, because the forge says nothing of
    * whether it was edited; its inline comments are read once it is submitted,
    * from that review alone — they carry the time they were drafted, so a read
    * by time would miss a review drafted before the window — and every inline
-   * comment that starts with the word, unedited since the submission, makes
-   * one request for the review.
+   * comment that starts with the word makes one request for the review.
+   *
+   * A request asks only as first written. A comment whose update differs from
+   * its creation was edited, and is refused without another read; every other
+   * one is asked about on the forge's edit history — one GraphQL read for
+   * every request a poll finds — since an edit within the same second leaves
+   * the two times equal. The answer rides on the fact as `unedited`, and
+   * admission refuses anything but a clean one, by name.
    *
    * A list longer than one read may cover is a gap; running out of time
    * returns null, so the caller reads the same window again.
@@ -990,11 +1059,14 @@ export class ForgeSource {
   async #requests(
     project: string, repository: string, cursor: SourceCursor, rows: readonly PullRow[], requests: RequestReading,
     deadline: number, signal: AbortSignal,
-  ): Promise<{ facts: TriggerFact[]; seen: Record<string, number> } | string | null> {
+  ): Promise<{ facts: TriggerFact[]; seen: Record<string, number>; through: number } | string | null> {
     const burst = 'More pull request comments changed than one read can cover.'
-    const since = Math.max(cursor.baseline, cursor.observedThrough - OVERLAP_MS)
+    const commentsFrom = Math.max(cursor.observedThrough, cursor.requests?.through ?? 0)
+    const commentSince = Math.max(cursor.baseline, commentsFrom - OVERLAP_MS)
+    const reviewSince = Math.max(cursor.baseline, cursor.observedThrough - OVERLAP_MS)
+    const now = this.#now()
     const seen: Record<string, number> = { ...cursor.requests?.seen }
-    const facts: TriggerFact[] = []
+    let through = commentsFrom
     const listed = new Map(rows.map((row) => [row.number, row]))
     const extra = new Map<number, PullRow>()
     // One permission answer per author within one read.
@@ -1022,20 +1094,23 @@ export class ForgeSource {
       extra.set(number, row)
       return row
     }
-    const request = (row: PullRow, key: readonly (string | number)[], at: number, words: string, url: string | null,
-      who: { id: number | null }, authorWrites: boolean | null): TriggerFact => ({
-      source: 'pull-request', project, repository, subject: String(row.number), event: eventKey([repository, row.number, 'mentioned', ...key]),
-      action: 'mentioned', at, head: row.head, fork: row.headRepo !== repository, title: row.title, body: prose(words), url, trigger: null,
-      author: who.id === null ? null : accountDigest(who.id), authorWrites, desk: false,
-    })
+    /** A request found, its comments' edit history still to be read: `nodes` empty when the times already say it was edited. */
+    interface Asked {
+      readonly row: PullRow; readonly key: readonly (string | number)[]; readonly at: number; readonly words: string; readonly url: string | null
+      readonly who: { id: number | null; login: string | null }; readonly nodes: readonly { readonly id: string | null; readonly kind: Commented }[]; readonly edited: boolean
+    }
+    const asked: Asked[] = []
+    const facts: TriggerFact[] = []
+    const node = (raw: Record<string, unknown>): string | null => typeof raw['node_id'] === 'string' && NODE_ID.test(raw['node_id']) ? raw['node_id'] : null
     try {
-      const comments = await this.#all(project, `repos/${repository}/issues/comments?sort=updated&direction=asc&since=${new Date(since).toISOString()}`, deadline, signal)
+      const comments = await this.#all(project, `repos/${repository}/issues/comments?sort=updated&direction=asc&since=${new Date(commentSince).toISOString()}`, deadline, signal)
       if (comments === null) return burst
       for (const raw of comments) {
         if (!isMap(raw)) throw unreadable()
         const id = positive(raw['id'])
         const created = time(raw['created_at'])
         const updated = time(raw['updated_at'])
+        through = Math.max(through, updated)
         const key = `c${id}`
         if (seen[key] !== undefined) continue
         const routed = typeof raw['issue_url'] === 'string' ? issueUrl.exec(raw['issue_url']) : null
@@ -1045,20 +1120,30 @@ export class ForgeSource {
         // An issue's comment, which the issue source reads.
         if (url === null) continue
         seen[key] = updated
-        // From before the source began watching, or edited — by its author or by anyone who may write: never a request.
-        if (created <= cursor.baseline || updated !== created) continue
+        // From before the source began watching: never a request.
+        if (created <= cursor.baseline) continue
         const user = isMap(raw['user']) ? raw['user'] : null
         const words = typeof raw['body'] === 'string' && !isBot(user) ? summonsOf(raw['body']) : null
         if (words === null) continue
         const row = await pull(number)
         if (row.baseRepo !== repository) continue
-        const who = author(user)
-        facts.push(request(row, [id], created, words, url, who, await writes(who)))
+        const edited = updated !== created
+        asked.push({ row, key: [id], at: created, words, url, who: author(user), edited, nodes: edited ? [] : [{ id: node(raw), kind: 'IssueComment' }] })
       }
-      const changed = rows.filter((row) => row.baseRepo === repository && row.updated > cursor.baseline && seen[`p${row.number}`] !== row.updated)
-      if (changed.length > ISSUE_LIMIT) return burst
+      // Reviews: of each pull request that moved, and again of each read too soon after its update to be sure of that second.
+      const settling = Object.entries(seen).flatMap(([key, at]) => key.startsWith('u') ? [{ number: Number(key.slice(1)), at }] : [])
+      const reading = new Map<number, number | null>()
+      for (const row of rows) {
+        if (row.baseRepo === repository && row.updated > cursor.baseline && seen[`p${row.number}`] !== row.updated) reading.set(row.number, null)
+      }
+      for (const one of settling) reading.set(one.number, one.at)
+      if (reading.size > ISSUE_LIMIT) return burst
+      const order: { row: PullRow; settling: number | null }[] = []
+      for (const [number, at] of reading) order.push({ row: await pull(number), settling: at })
       let opened = 0
-      for (const row of [...changed].sort((a, b) => a.updated - b.updated || a.number - b.number)) {
+      for (const { row, settling: since } of order.sort((a, b) => a.row.updated - b.row.updated || a.row.number - b.row.number)) {
+        // A review submitted after the read before is never older than that read's update.
+        const floor = since === null ? reviewSince : Math.min(reviewSince, since)
         const reviews = await this.#all(project, `repos/${repository}/pulls/${row.number}/reviews`, deadline, signal)
         if (reviews === null) return 'A pull request has more reviews than one read can cover.'
         for (const raw of reviews) {
@@ -1068,8 +1153,9 @@ export class ForgeSource {
           if (raw['submitted_at'] === null || raw['submitted_at'] === undefined || raw['state'] === 'PENDING') continue
           const submitted = time(raw['submitted_at'])
           const key = `r${id}`
-          if (seen[key] !== undefined || submitted < since || submitted <= cursor.baseline) continue
+          if (seen[key] !== undefined || submitted < floor || submitted <= cursor.baseline) continue
           seen[key] = submitted
+          if (row.baseRepo !== repository) continue
           const user = isMap(raw['user']) ? raw['user'] : null
           if (isBot(user)) continue
           const who = author(user)
@@ -1079,28 +1165,51 @@ export class ForgeSource {
           const inline = await this.#all(project, `repos/${repository}/pulls/${row.number}/reviews/${id}/comments`, deadline, signal)
           if (inline === null) return 'A review has more comments than one read can cover.'
           const words: string[] = []
+          const nodes: { id: string | null; kind: Commented }[] = []
+          let edited = false
           for (const one of inline) {
             if (!isMap(one)) throw unreadable()
             positive(one['id'])
             time(one['created_at'])
             const written = isMap(one['user']) ? one['user'] : null
-            // Only the review's own words, unedited since it was submitted: a later edit may be anyone's who can write.
-            if (one['pull_request_review_id'] !== id || written?.['id'] !== who.id || time(one['updated_at']) > submitted) continue
-            const asked = typeof one['body'] === 'string' ? summonsOf(one['body']) : null
-            if (asked !== null) words.push(asked)
+            // Only the review's own words.
+            if (one['pull_request_review_id'] !== id || written?.['id'] !== who.id) continue
+            const said = typeof one['body'] === 'string' ? summonsOf(one['body']) : null
+            if (said === null) continue
+            words.push(said)
+            // Edited since it was submitted: a later edit may be anyone's who can write.
+            if (time(one['updated_at']) > submitted) edited = true
+            nodes.push({ id: node(one), kind: 'PullRequestReviewComment' })
           }
           if (words.length === 0) continue
           const url = confined(raw['html_url'], `/${repository}/pull/${row.number}`, `#pullrequestreview-${id}`)
-          facts.push(request(row, ['review', id], submitted, words.join('\n\n'), url, who, await writes(who)))
+          asked.push({ row, key: ['review', id], at: submitted, words: words.join('\n\n'), url, who, edited, nodes: edited ? [] : nodes })
         }
         seen[`p${row.number}`] = row.updated
+        // Read within an overlap of its update: a review may yet be submitted within that same second, so read it again.
+        if (now < row.updated + OVERLAP_MS) seen[`u${row.number}`] = row.updated
+        else delete seen[`u${row.number}`]
+      }
+      if (asked.reduce((sum, one) => sum + one.nodes.length, 0) > ISSUE_LIMIT) return burst
+      // Every request's edit history, in one read; only the ones it calls clean ask.
+      const histories = await this.#unedited(project, asked.flatMap((one) => one.nodes), deadline, signal)
+      let next = 0
+      for (const one of asked) {
+        const answers = histories.slice(next, next += one.nodes.length)
+        const unedited: Provenance = one.edited || answers.includes(false) ? false : answers.length > 0 && answers.every((answer) => answer === true) ? true : null
+        const { row, who } = one
+        facts.push({
+          source: 'pull-request', project, repository, subject: String(row.number), event: eventKey([repository, row.number, 'mentioned', ...one.key]),
+          action: 'mentioned', at: one.at, head: row.head, fork: row.headRepo !== repository, title: row.title, body: prose(one.words), url: one.url, trigger: null,
+          author: who.id === null ? null : accountDigest(who.id), authorWrites: unedited === true ? await writes(who) : null, desk: false, unedited,
+        })
       }
     } catch (error) {
       if (error instanceof RequestBurst) return error.message
       if (!(error instanceof ForgeReadError) || !error.budget || signal.aborted) throw error
       return null
     }
-    return { facts, seen }
+    return { facts, seen, through }
   }
 
   /** Every page of one issue's list, or a gap: never a short list read as the whole. */
@@ -1168,6 +1277,7 @@ export class ForgeSource {
       // Read already at this very update: nothing new on it since.
       if (known !== null && known.u === issue.updated) continue
       const found: TriggerFact[] = []
+      const asks: { readonly node: string | null; readonly edited: boolean; readonly fact: TriggerFact }[] = []
       let events = known?.e ?? 0
       let comments = known?.c ?? 0
       const fresh = (id: number, created: number, mark: number): boolean => created > cursor.baseline && (known === null || id > mark)
@@ -1207,11 +1317,12 @@ export class ForgeSource {
             const authorId = user && Number.isSafeInteger(user['id']) && (user['id'] as number) >= 1 ? user['id'] as number : null
             const desk = typeof raw['body'] === 'string' && isDeskPost(raw['body'])
             const login = user && typeof user['login'] === 'string' ? user['login'] : null
-            // A request is a comment that starts with the command word, from a person, as written: a bot never asks,
-            // and neither does an edited comment — anyone with write access may edit it, so its words are not surely its author's.
-            const words = requests !== null && typeof raw['body'] === 'string' && !isBot(user) && time(raw['updated_at']) === created ? summonsOf(raw['body']) : null
+            // A request is a comment that starts with the command word, from a person: a bot never asks. Whether it is
+            // as first written is the forge's edit history's to say, below; differing times already say it was edited.
+            const words = requests !== null && typeof raw['body'] === 'string' && !isBot(user) ? summonsOf(raw['body']) : null
+            const edited = time(raw['updated_at']) !== created
             let writes: boolean | null = null
-            if ((permissions || (words !== null && requests?.permissions === true)) && !desk && authorId !== null && login !== null) {
+            if ((permissions || (words !== null && !edited && requests?.permissions === true)) && !desk && authorId !== null && login !== null) {
               const cached = `${login}\u0000${authorId}`
               if (!writers.has(cached)) writers.set(cached, await this.#writes(project, repository, login, authorId, deadline, signal))
               writes = writers.get(cached) ?? null
@@ -1224,15 +1335,22 @@ export class ForgeSource {
             })
             // The same comment as a request, under its own key: the two dedupe apart.
             if (words !== null) {
-              found.push({
+              asks.push({ node: edited ? null : typeof raw['node_id'] === 'string' && NODE_ID.test(raw['node_id']) ? raw['node_id'] : null, edited, fact: {
                 source: 'issue', project, repository, subject, event: eventKey([repository, issue.number, 'mentioned', id]), action: 'mentioned',
                 at: created, head: null, fork: false, title: issue.title, body: prose(words),
                 url: confined(raw['html_url'], `/${repository}/issues/${issue.number}`, `#issuecomment-${id}`), trigger: null,
-                author: authorId === null ? null : accountDigest(authorId), authorWrites: writes, desk,
-              })
+                author: authorId === null ? null : accountDigest(authorId), authorWrites: edited ? null : writes, desk,
+              } })
             }
           }
           comments = Math.max(comments, id)
+        }
+        // The requests' edit history, in one read for this issue: only one the forge calls never edited asks.
+        const histories = await this.#unedited(project, asks.flatMap((ask) => ask.edited ? [] : [{ id: ask.node, kind: 'IssueComment' as const }]), deadline, signal)
+        let next = 0
+        for (const ask of asks) {
+          const unedited: Provenance = ask.edited ? false : histories[next++] ?? null
+          found.push({ ...ask.fact, ...(unedited === true ? {} : { authorWrites: null }), unedited })
         }
       } catch (error) {
         if (!(error instanceof ForgeReadError) || !error.budget || signal.aborted) throw error

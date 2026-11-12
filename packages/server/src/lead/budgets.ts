@@ -194,6 +194,9 @@ export class LeadBudgets implements FlowLeadGuard {
       // Read again after membership awaits: a latch may have landed meanwhile.
       const current = journal.state, budget = leadBudgetProjection(current.budget!, this.port.now())
       if (budget.stop || leadWorkerDispatchBlockedByOpenPr(current, run.id) || ['stopped', 'accepted', 'declined'].includes(current.phase) || current.recoveryBlocked) throw new Error('lead-budget-stopped')
+      // A request from an issue or pull request dispatches nothing while its plan waits for the person — a renewal
+      // offered after its consent ran out included, on a reopened journal too — nor once that consent has run out.
+      if (leadRequestAwaitsPlan(current) || (current.origin?.event === 'mentioned' && current.consent!.expiresAt <= this.port.now())) throw new Error('lead-plan-not-approved')
       if (current.pr?.state === 'open' && (!current.consent || current.consent.expiresAt <= this.port.now() || current.phase !== 'running' || current.consent.renewalCardRevision !== undefined)) throw new Error('lead-repair-consent')
       // A brand-new execution has no worker turn to meter. Once work exists,
       // missing or stale attribution stops it rather than inferring zero.

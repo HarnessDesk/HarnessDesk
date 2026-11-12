@@ -392,6 +392,14 @@ export interface TriggerFact {
   readonly login?: string | null
   /** A mention fact: the forge says the author is a bot account. */
   readonly bot?: boolean
+  /**
+   * A request (`mentioned`): whether the forge's own edit history says the
+   * comment is exactly as its author first wrote it — true; false when anyone
+   * edited it; null when that history could not be read. Only true asks: an
+   * edit may be anyone's who can write, so the words are no longer surely
+   * the author's.
+   */
+  readonly unedited?: boolean | null
 }
 
 /** How one watched source stands, in sentences a surface can show. */
