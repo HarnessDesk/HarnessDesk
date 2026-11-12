@@ -96,9 +96,12 @@ test('host wiring: the morning brief honours the mode the person set', async t =
     await r.host.leadPresence.updateBrief({ enabled: true, at: '00:00' })
     t.mock.timers.setTime(Date.now() + 26 * 3_600_000)
     await r.host.leadTick()
+    const made = (await r.host.leadPresence.read({ id: 'window:check', label: 'Desktop' })).digest?.kind === 'brief'
     t.mock.timers.reset()
+    assert.equal(made, mode === 'act', `${mode}: the brief ${made ? 'was made' : 'stayed home'}`)
+    // An empty brief is shown on every device but pushes nothing: "Nothing new." on a lock screen is noise (#2147).
     const sent = r.notifications.some(one => one.method === 'lead/presence/changed' && !!one.params.notice)
-    assert.equal(sent, mode === 'act', `${mode}: the brief ${sent ? 'went out' : 'stayed home'}`)
+    assert.equal(sent, false, `${mode}: an empty brief pushes nothing`)
     assert.equal(r.observed().filter(wake => wake.observed === 'brief').length, mode === 'observe' ? 1 : 0, mode)
   }
 })
