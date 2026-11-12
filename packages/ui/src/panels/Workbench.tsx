@@ -508,6 +508,9 @@ const BottomPanel = ({ drawn }: { drawn: boolean }) => {
   </>
 }
 
+/** What a rail row calls after it opens something, when the rail stands beside the page: nothing to put away. */
+const noLeave = (): void => undefined
+
 /**
  * A rail floating over the page is on top of what it covers, as the floating sidebar is, so it goes the same ways:
  * Escape puts it away (one surface on the shared stack, so a menu above it takes the key first), and so does a press
@@ -515,8 +518,6 @@ const BottomPanel = ({ drawn }: { drawn: boolean }) => {
  * rail is the rail's own, and its toggle closes it by its own click. A menu drawn from the rail is portalled out of the
  * shell, so a press in it is not outside. A rail standing beside the page covers nothing and never takes either.
  */
-const noLeave = (): void => undefined
-
 const useFloatingRail = (floating: boolean, shell: RefObject<HTMLDivElement | null>, close: () => void): void => {
   useEscapeSurface(floating, close)
   const held = useRef(close)
