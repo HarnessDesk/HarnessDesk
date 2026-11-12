@@ -1605,7 +1605,9 @@ existing composer, strip or sidebar card, with their action and Inbox option.
 Toasts appear at the bottom right of the window, just above the composer when
 one is showing, so neither a page’s own controls nor Send and the model picker
 are covered. Without a composer, they sit a small gap above the window’s bottom
-edge. The shared notice card centres its tile on the complete copy block, with title above optional earned detail. Actions sit
+edge. There, the page keeps a lane under its scroll owner while a toast shows, so
+the toast covers none of its rows; a page with a composer showing keeps none,
+since the toast already sits above the composer. The shared notice card centres its tile on the complete copy block, with title above optional earned detail. Actions sit
 beside the copy, dropping below at three or more actions or below about 400px;
 a wrapped card keeps its dismiss at the top-right. Its plate matches the
 composer, and danger adds a left bar and tinted tile. A requested action that
@@ -2397,6 +2399,15 @@ ending in Approve to start, acceptance checks, the allowance and folder,
 and the separate-approval boundary for publishing, merging and deleting. Results
 show qualified check, review, findings and changes status, reasons and separately
 attributed Lead and reported worker spend. Unknown values remain unknown.
+
+A Lead reply links the Teams and chats it acted on, from the references the host
+attached to it. A reply that carries none links, at most three, the Teams and
+chats its words name, by the whole-word rule the phone uses
+(`leadWorkNamedIn`), so the two surfaces link the same work. The wake ledger,
+what woke the Lead and whether it spoke, sits at the end of the thread after the
+latest reply, so the conversation reads in time order. The thread follows its
+end while the reader is there, including when the browser moves the content down
+itself; only scrolling up stops it.
 
 A plan for recurring work carries a Repeats chip and a How it repeats block: its local timetable, that a slot is skipped while the previous run waits, and that an asleep desk makes one run when it wakes. The allowance is per run. Approve covers the stored contract for future runs; publishing, merging and deleting still ask on each run. A changed project, policy, seat, review independence or Flow source returns a plan card with the reason. Each run has its own result and acceptance. Plan and result Runs links open Settings › Lead, where each task's Runs view shows its next slot and last 12 runs, state, reason and known spend and rounds. Pause silently skips slots until Resume. Stop retains the history. Run once now requires an idle Lead. Settings tasks without an approved contract still ask for a plan approval each time.
 

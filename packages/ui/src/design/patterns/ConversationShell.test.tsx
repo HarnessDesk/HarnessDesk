@@ -76,11 +76,31 @@ it('keeps following when the scroll it made is reported only after the thread gr
   expect(thread.scrollTop).toBe(2600)
 })
 
+it('keeps following when the browser moves the thread down itself, as scroll anchoring does (#2149)', () => {
+  // Content above the reader changes height (a row near the top, a card under an earlier reply) while a reply grows
+  // the end. The browser shifts scrollTop down to keep what is in view still, and reports that as a scroll that is
+  // neither the thread's own nor at the end. Nobody scrolled up, so the new reply is still followed.
+  act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  const sizes = { scrollHeight: 1200, clientHeight: 800 }
+  box(thread, sizes)
+  thread.scrollTop = 400
+  act(() => thread.dispatchEvent(new Event('scroll')))
+
+  sizes.scrollHeight = 2000
+  thread.scrollTop = 440
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(2000)
+})
+
 it('leaves a reader who scrolled up where they are', () => {
   act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
   const thread = container.firstElementChild as HTMLElement
   const sizes = { scrollHeight: 1200, clientHeight: 800 }
   box(thread, sizes)
+  // The thread starts at its end; the reader scrolls up from there.
+  act(() => resize.forEach(callback => callback()))
   thread.scrollTop = 100
   act(() => thread.dispatchEvent(new Event('scroll')))
 

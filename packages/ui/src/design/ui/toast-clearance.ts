@@ -3,14 +3,22 @@
  * stack's measured expanded extent, so hovering an older result cannot cover
  * newly exposed controls. Sonner owns its heights and offsets; this bridge
  * publishes their geometry just as composer-toast-offset publishes dock space.
+ *
+ * A visible composer already carries the stack above itself, and that composer
+ * lives inside the page the lane is reserved under. Reserving a lane there
+ * would lift the composer, the stack with it, and grow again until the page
+ * body had no height (#2149), so a page with a composer showing keeps none.
  */
+const composerShowing = (): boolean =>
+  (parseFloat(document.body.style.getPropertyValue('--hd-composer-clearance')) || 0) > 0
+
 const regions = new Set<HTMLElement>()
 let resize: ResizeObserver | undefined
 let mutation: MutationObserver | undefined
 
 const publish = (): void => {
   let clearance = 0
-  for (const region of regions) {
+  for (const region of composerShowing() ? [] : regions) {
     for (const stack of region.querySelectorAll<HTMLElement>('[data-sonner-toaster][data-y-position="bottom"]')) {
       const box = stack.getBoundingClientRect()
       if (box.width <= 0 || getComputedStyle(stack).visibility === 'hidden') continue

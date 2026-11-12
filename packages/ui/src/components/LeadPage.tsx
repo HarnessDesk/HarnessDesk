@@ -86,10 +86,13 @@ const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs
 const EMPTY_ASKS: readonly never[] = []
 export const leadElapsed = (ms: number) => { const minutes = Math.max(0, Math.floor(ms / 60000)); return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m` }
 
-/** What sits under one reply: the chats, Teams and work it names, then any memory or settings proposals it carries. */
-const leadMessageNote = (refs: readonly LeadMessageRef[] | undefined, proposals: readonly LeadMemoryCandidate[] | undefined, settings?: readonly LeadSettingsProposal[]) => {
-  if (!refs?.length && !proposals?.length && !settings?.length) return undefined
-  return <>{refs?.length ? <LeadRefs refs={refs} /> : null}{proposals?.length ? <LeadMemoryProposals candidates={proposals} /> : null}{settings?.length ? <LeadSettingsProposals proposals={settings} /> : null}</>
+/**
+ * What sits under one reply: the chats, Teams and work it names, then any memory or settings proposals it carries. A
+ * reply with no refs is read for the work its words name (`text`), as the phone reads it (#2149).
+ */
+const leadMessageNote = (refs: readonly LeadMessageRef[] | undefined, proposals: readonly LeadMemoryCandidate[] | undefined, settings?: readonly LeadSettingsProposal[], text?: string) => {
+  if (!refs?.length && !text?.trim() && !proposals?.length && !settings?.length) return undefined
+  return <>{refs?.length || text?.trim() ? <LeadRefs refs={refs ?? []} text={text} /> : null}{proposals?.length ? <LeadMemoryProposals candidates={proposals} /> : null}{settings?.length ? <LeadSettingsProposals proposals={settings} /> : null}</>
 }
 
 export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
@@ -272,7 +275,6 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   return <ConversationShell ref={shell}>
     <ConversationThread ref={thread} keepEnd role="region" aria-label={`${label} thread`}>
       {entries.length || working || live || pr || openingJobs.length || name && state.settings?.nameChosen !== true || state.wakes?.length || origin || state.thread?.olderMessages || state.savedApprovals?.length || state.revokedApprovals?.length || state.waitReason === 'lead-handback-limit' || state.waitReason === 'lead-repair-recovery-failed' ? <Page width="reading" gutter="none">
-        <LeadWakeLedger wakes={state.wakes ?? []} />
         {name && <LeadNameIntro name={name} chosen={state.settings?.nameChosen === true} pending={choosingName || !!state.error || state.revision < 0} onChoose={async name => {
           if (choosingName) return
           setChoosingName(true)
@@ -285,7 +287,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           ? entry.message.role === 'notice' || entry.message.role === 'system' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={entry.message.id === firstReply?.id ? replyKey : `message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             ask={entry.message.ask} settled={asks.get(entry.message.id)} proactive={entry.message.proactive} disabled={sendDisabled} picked={answers.get(entry.message.id)}
             onAnswer={entry.message.id === latestAsk?.id && !answers.has(entry.message.id) && (asks.get(entry.message.id)?.status ?? 'open') === 'open' ? label => { if (!sendDisabled) void send(label, entry.message.id) } : undefined} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)}
-            note={leadMessageNote(entry.message.refs, proposals.get(entry.message.id), settingsProposals.get(entry.message.id))} />
+            note={leadMessageNote(entry.message.refs, proposals.get(entry.message.id), settingsProposals.get(entry.message.id), entry.message.role === 'user' ? undefined : entry.message.text)} />
           : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
             note={<Chip variant="quiet" tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
@@ -300,6 +302,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         </InlineParts></div>}
         {(state.waitReason === 'lead-handback-limit' || state.waitReason === 'lead-repair-recovery-failed') && <LeadCards {...cardProps} cards={[]} waitReason={state.waitReason} placement="thread" />}
         {pr && state.thread?.project && <PullRequestRecord root={state.thread.project.path} reference={{ repo: pr.repository, number: pr.number }} branch={pr.branch} />}
+        {/* The record of why the Lead woke: at the end, where its latest row happened, never above the conversation (#2149). */}
+        <LeadWakeLedger wakes={state.wakes ?? []} />
         {working ? null : live}
       </Page> : <ConversationEmptyState><LeadGreeting avatar={<LeadAvatar name={face} size="picker" mood={presence.mood} />} title={face ? `Hi, I'm ${label}` : 'Hi there'}
         action={state.projectMissing ? <Button variant="outline" onClick={() => shellActions.chooseProject()}><FolderOpenIcon size={16} />Open folder…</Button> : undefined}>

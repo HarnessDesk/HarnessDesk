@@ -1003,3 +1003,14 @@ it('names the step the host publishes on the live line, not only Thinking, and n
   await update({ requestInFlight: true, thread, activity: { since: Date.now() - 7000, method: null, step: 'Writing the reply' } } as any)
   expect(working().textContent).toContain('Writing the reply')
 })
+it('puts the wake ledger at the end of the thread, after the latest reply, never above the conversation (#2149)', async () => {
+  const { box, update, store, request } = await mount()
+  const wakes = [{ id: 'silent-1', at: Date.now() - 60_000, source: 'desk-change' as const, decision: 'silent' as const, modelTurn: false, usdMicros: null }]
+  request.mockImplementation(async method => (method === 'lead/wakes/read' ? { revision: Number.MAX_SAFE_INTEGER, wakes } : store.lead.state) as never)
+  await update({ thread: { ...store.lead.state.thread!, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'assistant', text: 'The latest reply' }] } })
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  const ledger = box.querySelector('section[aria-label="Wake ledger"]')!
+  const reply = [...box.querySelectorAll('[aria-label="Dex thread"] *')].find(node => node.textContent === 'The latest reply')!
+  expect(ledger).not.toBeNull()
+  expect(reply.compareDocumentPosition(ledger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})

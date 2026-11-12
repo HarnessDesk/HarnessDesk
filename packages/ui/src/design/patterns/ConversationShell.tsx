@@ -22,24 +22,27 @@ const END_SLACK = 24
  * follows its own transcript leaves `keepEnd` off.
  */
 /**
- * Whether each thread follows its end, and the scrollTop it last put itself at. A scroll event arrives with the next
- * frame, which a window in the background can wait a long time for; by then a reply may have grown the thread, so a
- * scroll the thread made itself would read as the reader leaving the end. Only a scroll that is not the one the thread
- * made, and does not reach the end, lets go of it.
+ * Whether each thread follows its end, the scrollTop it last put itself at, and the last scrollTop seen. A scroll event
+ * arrives with the next frame, which a window in the background can wait a long time for; by then a reply may have
+ * grown the thread, so a scroll the thread made itself would read as the reader leaving the end. The browser also
+ * moves a thread on its own: when something above the view changes height, scroll anchoring shifts scrollTop down to
+ * keep the view still, and that too is no reader leaving (#2149). Only a scroll up, away from the end, lets go of it.
  */
-const ends = new WeakMap<Element, { readonly atEnd: boolean; readonly written: number | null }>()
+const ends = new WeakMap<Element, { readonly atEnd: boolean; readonly written: number | null; readonly top: number }>()
 /** Moves a thread to its end and keeps it following there, as when the person sends a message. */
 export const scrollThreadToEnd = (element: HTMLElement): void => {
   element.scrollTop = element.scrollHeight
-  ends.set(element, { atEnd: true, written: element.scrollTop })
+  ends.set(element, { atEnd: true, written: element.scrollTop, top: element.scrollTop })
 }
 /** Whether a thread is following its end: true until the reader scrolls away from it. */
 export const threadFollowsEnd = (element: HTMLElement): boolean => ends.get(element)?.atEnd ?? true
 const readScroll = (element: HTMLElement): void => {
   const last = ends.get(element), top = element.scrollTop
   const own = last?.written !== null && last?.written !== undefined && Math.abs(top - last.written) < 1
-  const atEnd = element.scrollHeight - top - element.clientHeight <= END_SLACK || own && last.atEnd
-  ends.set(element, { atEnd, written: own ? last.written : null })
+  // Moved down or nowhere, and not by the thread: the browser's doing, so whether the thread follows is unchanged.
+  const notUp = last !== undefined && top >= last.top - 1
+  const atEnd = element.scrollHeight - top - element.clientHeight <= END_SLACK || (own || notUp) && (last?.atEnd ?? true)
+  ends.set(element, { atEnd, written: own ? last!.written : null, top })
 }
 
 export const ConversationThread = forwardRef<HTMLDivElement, ComponentProps<'div'> & { readonly keepEnd?: boolean }>(({ className, keepEnd = false, onScroll, ...props }, ref) => {
