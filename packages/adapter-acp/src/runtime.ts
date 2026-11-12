@@ -289,6 +289,12 @@ export interface AcpAgentConfig {
    * Measured on DeepSeek Harness 0.2.2-rc.2 (`docs/decisions.md`).
    */
   readonly cancelLeavesSubagents?: boolean
+  /**
+   * How long a stop under `cancelLeavesSubagents` waits for the cancelled
+   * prompt to settle, and then for the close and reopen to finish, before it
+   * gives up on each. The defaults suit a real agent; tests shorten them.
+   */
+  readonly stopReopenTimings?: { readonly settleMs?: number; readonly reopenMs?: number }
   /** How to install the agent, for the first-run screen. */
   readonly installCommand?: string
   /**
@@ -429,6 +435,11 @@ const PROTOCOL_VERSION = 1
 
 /** How long a stop waits for the cancelled prompt to settle before closing the session regardless. */
 const CANCEL_SETTLE_MS = 5_000
+/** How long a stop's close and reopen may take before the conversation is given up as a dead agent's. */
+const REOPEN_DEADLINE_MS = 15_000
+
+/** What a stop's reopen is opening on, so a reopen given up on can end it. */
+interface ReopenTrack { connection?: AcpConnection; abandoned?: boolean }
 
 /**
  * What a start that arrives after the host has finished with the agent says.
@@ -2643,14 +2654,19 @@ export class AcpRuntime implements AgentRuntime {
     return this.#config.cancelLeavesSubagents === true
   }
 
+  get cancelSettleMs(): number {
+    return this.#config.stopReopenTimings?.settleMs ?? CANCEL_SETTLE_MS
+  }
+
   /**
    * Ends whatever a cancel left running in this conversation and keeps the
    * conversation: the session is closed — or, when it has a process of its
    * own, that process is stopped — and opened again in place, on the same
    * handle, the way a resume would open it. See `cancelLeavesSubagents`.
    *
-   * A reopen that fails is reported as a dead agent's conversation is: the
-   * handle is detached, and the next message opens the conversation afresh.
+   * A reopen that fails, or does not finish in time, is reported as a dead
+   * agent's conversation is: the handle is detached, and the next message
+   * opens the conversation afresh.
    */
   async reopenAfterCancel(session: AcpSession): Promise<void> {
     const id = session.id
@@ -2658,12 +2674,12 @@ export class AcpRuntime implements AgentRuntime {
     const capabilities = this.#initialized?.agentCapabilities
     const verb = capabilities?.loadSession ? 'session/load' : capabilities?.sessionCapabilities?.resume ? 'session/resume' : null
     const connection = this.connectionFor(id)
-    const shared = connection === this.#connection || this.#pendingForks.has(connection) ||
-      [...this.#sessionConnections].some(([other, owner]) => other !== id && owner === connection)
+    const shared = this.#sharesConnection(id, connection)
     // Nothing to reopen it with, or no way to end it short of the process
     // other conversations share: the cancel is all a stop can do.
     if (!verb || (shared && !capabilities?.sessionCapabilities?.close)) return
-    try {
+    const opening: ReopenTrack = {}
+    const work = (async () => {
       if (shared) {
         await connection.request('session/close', { sessionId: id }, 3_000)
       } else {
@@ -2671,17 +2687,39 @@ export class AcpRuntime implements AgentRuntime {
         await connection.stop()
         this.#workers.delete(connection)
       }
+      session.closeFinished()
       const environment = this.#environments.get(id)
       const ceiling = this.#readCeiling && this.#readGuardedSessions.has(session) ? { harnessdesk: { ceiling: 'read' } } : null
-      const opened = await this.#openWithTools<AcpNewSessionResult>(verb, {
+      return await this.#openWithTools<AcpNewSessionResult>(verb, {
         sessionId: id,
         cwd: session.settings().cwd,
         ...(environment
           ? { _meta: environmentMeta(ceiling ?? {}, environment, this.info.capabilities.sessionEnvironment) }
           : ceiling ? { _meta: ceiling } : {}),
-      }, this.#attachmentInputs.get(id))
+      }, this.#attachmentInputs.get(id), false, opening)
+    })()
+    const deadlineMs = this.#config.stopReopenTimings?.reopenMs ?? REOPEN_DEADLINE_MS
+    let timer: NodeJS.Timeout | undefined
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`it did not finish within ${deadlineMs / 1000} seconds`)), deadlineMs)
+    })
+    try {
+      const opened = await Promise.race([work, deadline])
+      // Released or shut down while it reopened: what it opened is nobody's.
+      if (this.#disposed || this.#sessions.get(id) !== session || this.#closing.has(id)) {
+        this.#discardReopened(id, this.connectionFor(id), session)
+        return
+      }
       session.reopened(opened)
     } catch (error) {
+      // Given up on: a process it was starting is ended now, and an open
+      // that answers later is closed again rather than left behind.
+      opening.abandoned = true
+      if (opening.connection && opening.connection !== this.#connection && this.#workers.has(opening.connection)) {
+        void opening.connection.stop()
+        this.#workers.delete(opening.connection)
+      }
+      void work.then(() => this.#discardReopened(id, this.connectionFor(id), session), () => {})
       const message = `${this.#config.name} could not reopen this conversation after it was stopped: ${describeAcp(error)}`
       this.#config.logger?.warn?.('the agent could not reopen a stopped session', { agent: this.#config.id, error: describeAcp(error) })
       if (this.#disposed || this.#sessions.get(id) !== session) return
@@ -2692,7 +2730,29 @@ export class AcpRuntime implements AgentRuntime {
       if (this.#sessionConnections.get(id) === connection) this.#sessionConnections.delete(id)
       this.emit({ type: 'error', sessionId: id, error: { message, code: 'runtimeUnavailable' } })
       this.emit({ type: 'session/detached', sessionId: id })
+    } finally {
+      clearTimeout(timer)
     }
+  }
+
+  #sharesConnection(id: SessionId, connection: AcpConnection): boolean {
+    return connection === this.#connection || this.#pendingForks.has(connection) ||
+      [...this.#sessionConnections].some(([other, owner]) => other !== id && owner === connection)
+  }
+
+  /** A reopen that landed for nobody: end what it opened, unless a newer handle holds the conversation now. */
+  #discardReopened(id: SessionId, connection: AcpConnection, session: AcpSession): void {
+    const holder = this.#sessions.get(id)
+    if (holder && holder !== session) return
+    if (this.#sharesConnection(id, connection)) {
+      if (this.#initialized?.agentCapabilities?.sessionCapabilities?.close) {
+        void connection.request('session/close', { sessionId: id }, 3_000).catch(() => {})
+      }
+      return
+    }
+    if (this.#sessionConnections.get(id) === connection) this.#sessionConnections.delete(id)
+    void connection.stop()
+    this.#workers.delete(connection)
   }
 
   /** Release only this handle; the agent owns the stored conversation. */
@@ -2711,7 +2771,7 @@ export class AcpRuntime implements AgentRuntime {
           } else {
             // The peer has no release verb. Cancel only this conversation;
             // keep working siblings on their shared process until all handles rest.
-            await session.interrupt()
+            session.cancelOnly()
             if (connection === this.#connection && !this.#isProbe(session.id) && !this.#transientReads.has(session.id)) this.#sharedReleasePending = true
           }
         } else {
@@ -3203,6 +3263,7 @@ export class AcpRuntime implements AgentRuntime {
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
     probe = false,
+    track?: ReopenTrack,
   ): Promise<T> {
     const authGeneration = this.#authGeneration
     if (!probe) this.#sessionOpens++
@@ -3216,7 +3277,7 @@ export class AcpRuntime implements AgentRuntime {
           throw new Error('The agent stopped or restarted before the conversation could open.')
         }
       }
-      return await this.#openSessionWithTools<T>(method, params, attachments, authGeneration)
+      return await this.#openSessionWithTools<T>(method, params, attachments, authGeneration, track)
     } finally {
       if (!probe) this.#sessionOpens--
     }
@@ -3227,6 +3288,7 @@ export class AcpRuntime implements AgentRuntime {
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
     authGeneration = this.#authGeneration,
+    track?: ReopenTrack,
   ): Promise<T> {
     const caller = randomUUID()
     const steeringCaller = randomUUID()
@@ -3240,6 +3302,7 @@ export class AcpRuntime implements AgentRuntime {
       ownsWorker = true
       if (this.#disposed) throw shutDown(this.#config.name)
       connection = this.#makeConnection(true)
+      if (track) track.connection = connection
       if (this.#launch && !('blocked' in this.#launch)) {
         connection.withCommand(this.#launch.command, this.#launch.args)
         if (this.#launch.env) connection.withEnv(this.#launch.env)
@@ -3286,6 +3349,7 @@ export class AcpRuntime implements AgentRuntime {
     // the source handle until claim registers the new branch (or open fails).
     if (forking) this.#pendingForks.set(connection, (this.#pendingForks.get(connection) ?? 0) + 1)
     try {
+      if (track?.abandoned) throw new Error('The reopen was given up.')
       return this.#opened(
         claim(await connection.request<T>(method, extend({ ...params, mcpServers: servers }))),
         authGeneration,
@@ -4763,8 +4827,11 @@ class AcpSession implements AgentSession {
   #replaying = false
   /** A stop's close and reopen, while it runs; a send waits for it. */
   #reopening: Promise<void> | null = null
-  /** Between the stop's close and the reopen's answer: nothing said here is the conversation's. */
-  #closedForReopen = false
+  /**
+   * Where a stop's close and reopen stand: `closing` until the close has
+   * ended, `opening` until the reopen answers. See `applyUpdate`.
+   */
+  #reopenPhase: 'closing' | 'opening' | null = null
 
   constructor(host: AcpRuntime, opened: AcpNewSessionResult, cwd: string) {
     this.#host = host
@@ -5233,10 +5300,17 @@ class AcpSession implements AgentSession {
   }
 
   async interrupt(): Promise<void> {
+    // A second stop while the first still closes and reopens: that one is the answer.
+    if (this.#reopening) return this.#reopening
     const turn = this.busy ? this.#currentTurn : null
-    if (turn) turn.interruptRequested = true
-    this.#host.connectionFor(this.id).notify('session/cancel', { sessionId: this.id })
+    this.cancelOnly()
     if (turn && this.#host.cancelLeavesSubagents) await this.#reopenAfterCancel(turn)
+  }
+
+  /** The cancel, and nothing after it. */
+  cancelOnly(): void {
+    if (this.busy && this.#currentTurn) this.#currentTurn.interruptRequested = true
+    this.#host.connectionFor(this.id).notify('session/cancel', { sessionId: this.id })
   }
 
   /**
@@ -5245,28 +5319,36 @@ class AcpSession implements AgentSession {
    * `AcpAgentConfig.cancelLeavesSubagents`.
    */
   async #reopenAfterCancel(turn: MutableTurn): Promise<void> {
-    if (this.#reopening) return this.#reopening
     const settled = this.#turnCompletion
     const reopening = (async () => {
       // A prompt the agent never settles is ended by the close all the same.
       let timer: NodeJS.Timeout | undefined
       await Promise.race([
         settled?.catch(() => {}),
-        new Promise<void>((resolve) => { timer = setTimeout(resolve, CANCEL_SETTLE_MS) }),
+        new Promise<void>((resolve) => { timer = setTimeout(resolve, this.#host.cancelSettleMs) }),
       ])
       clearTimeout(timer)
-      this.#closedForReopen = true
+      // From here the closing session speaks for nobody: its last words are
+      // dropped, a question it asks is refused, and a prompt it never settled
+      // is the stopped turn — ended here, before the close could fail it.
+      this.#reopenPhase = 'closing'
+      this.#abandonPermissions('The conversation was stopped.')
+      if (this.#currentTurn === turn) this.#finishTurn(turn, 'cancelled')
       try {
         await this.#host.reopenAfterCancel(this)
       } finally {
-        this.#closedForReopen = false
+        this.#reopenPhase = null
       }
-      if (this.#currentTurn === turn) this.#finishTurn(turn, 'cancelled')
     })()
     this.#reopening = reopening
     try { await reopening } finally {
       if (this.#reopening === reopening) this.#reopening = null
     }
+  }
+
+  /** The stop's close has ended: from here the reopen is speaking. */
+  closeFinished(): void {
+    if (this.#reopenPhase === 'closing') this.#reopenPhase = 'opening'
   }
 
   async respondToApproval(id: ApprovalId, decision: ApprovalDecision): Promise<void> {
@@ -5372,8 +5454,11 @@ class AcpSession implements AgentSession {
   }
 
   applyUpdate(update: AcpSessionUpdate): void {
-    // A closed session's last words, or a load's replay of what is already held.
-    if (this.#closedForReopen) return
+    // A stop's close: the closed session's last words are not the
+    // conversation's. Its reopen: a load's replay is already held here, while
+    // what the open says of the session's mode, model and options is kept.
+    if (this.#reopenPhase === 'closing') return
+    if (this.#reopenPhase === 'opening' && !REOPEN_SETTINGS_UPDATES.has(update.sessionUpdate)) return
     if (this.#replaying && update.sessionUpdate === 'user_message_chunk') {
       // Housekeeping the agent has owned up to is never speech, so it neither
       // joins the message beside it nor speaks for the person. It still opens
@@ -5841,6 +5926,8 @@ class AcpSession implements AgentSession {
   }
 
   requestPermission(request: AcpPermissionRequest): Promise<{ outcome: AcpPermissionOutcome }> {
+    // A session a stop is closing and reopening has nobody to ask for.
+    if (this.#reopenPhase) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     const id = approvalId(`acp-${request.toolCall.toolCallId}-${Date.now().toString(36)}`)
     // A question is not a permission. Our Claude bridge carries Claude Code's
     // `AskUserQuestion` as a permission request whose options are the
@@ -6044,6 +6131,9 @@ class AcpSession implements AgentSession {
 
 /** `acceptDelegations`' stand-in index for the turn in flight. */
 const OPEN_TURN = -1
+
+/** What a stop's reopen may say that is kept: the session's settings, never its content. */
+const REOPEN_SETTINGS_UPDATES = new Set(['current_mode_update', 'current_model_update', 'config_option_update'])
 
 interface MutableTurn {
   readonly id: TurnId
