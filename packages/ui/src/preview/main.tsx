@@ -147,6 +147,7 @@ import { AgentBriefFrames } from './frames-agent-brief'
 import { HeaderStatusFrames } from './frames-header-status'
 import { LeadChatFrames } from './frames-lead-chat'
 import { ReadCeilingFrames } from './frames-read-ceiling'
+import { CarryOnFrames } from './frames-carry-on'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
 import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
@@ -1395,6 +1396,8 @@ createRoot(container).render(
           ? <ComparisonVerdictPreview />
           : new URLSearchParams(window.location.search).has('read-ceiling')
           ? <ReadCeilingFrames />
+          : new URLSearchParams(window.location.search).has('carry-on')
+          ? <CarryOnFrames />
           : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('runtime-start-only')

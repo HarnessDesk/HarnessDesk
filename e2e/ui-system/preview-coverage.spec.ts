@@ -656,7 +656,7 @@ test.describe('preview coverage', () => {
       } finally { await page.context().close() }
     })
 
-    for (const query of ['lead-synthetic=app-shell', 'lead-synthetic=result-person-gate', 'lead-synthetic=memory-proposal', 'lead-synthetic=settings-configured', 'lead-synthetic=work-ledger', 'lead-synthetic=first-name', 'lead-synthetic=opening-jobs', 'lead-synthetic=wake-ledger', 'lead-chat=lead', 'desk-account=pending', 'desk-account=settings']) test(`coverage Lead and account scene: ${query}`, async () => {
+    for (const query of ['lead-synthetic=app-shell', 'lead-synthetic=result-person-gate', 'lead-synthetic=memory-proposal', 'lead-synthetic=autonomy-proposal', 'lead-synthetic=settings-configured', 'lead-synthetic=work-ledger', 'lead-synthetic=first-name', 'lead-synthetic=opening-jobs', 'lead-synthetic=wake-ledger', 'lead-chat=lead', 'desk-account=pending', 'desk-account=settings']) test(`coverage Lead and account scene: ${query}`, async () => {
       test.setTimeout(360_000)
       // These app scenes own timers and subscriptions. Give each its own context
       // rather than retaining them on the inventory's long-lived page: every
@@ -667,12 +667,15 @@ test.describe('preview coverage', () => {
       const page = await getPage().context().browser()!.newPage({ baseURL: String(test.info().project.use.baseURL), viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
       try {
         await page.goto(`/preview.html?${query}`)
-        if (['lead-synthetic=app-shell', 'lead-synthetic=result-person-gate', 'lead-synthetic=memory-proposal', 'lead-synthetic=work-ledger'].includes(query)) await expect(page.getByRole('region', { name: / thread$/ })).toBeVisible()
+        if (['lead-synthetic=app-shell', 'lead-synthetic=result-person-gate', 'lead-synthetic=memory-proposal', 'lead-synthetic=autonomy-proposal', 'lead-synthetic=work-ledger'].includes(query)) await expect(page.getByRole('region', { name: / thread$/ })).toBeVisible()
         if (query === 'lead-synthetic=settings-configured') await expect(page.getByRole('combobox', { name: 'Permission mode', exact: true })).toBeVisible()
         // The Lead's offered note sits under the reply it came with, with Keep, Edit and No.
         if (query === 'lead-synthetic=memory-proposal') await expect(page.getByRole('button', { name: 'Keep', exact: true })).toBeVisible()
+        // The Lead's proposed settings changes sit under the reply that proposes them, each with Apply and No.
+        if (query === 'lead-synthetic=autonomy-proposal') await expect(page.locator('[data-slot="lead-settings-proposals"]').getByRole('button', { name: 'Apply', exact: true })).toHaveCount(2)
         // A reply that names work carries links under it: the pull request the desk has for the work it names.
-        if (query === 'lead-synthetic=work-ledger') await expect(page.locator('[data-slot="lead-refs"]').getByRole('button', { name: 'Fix the retry status list', exact: true })).toBeVisible()
+        // The scene's later reminder reply names the same work, so look under the reply that names it first.
+        if (query === 'lead-synthetic=work-ledger') await expect(page.locator('article').filter({ hasText: 'The keyboard work is running in its chat' }).locator('[data-slot="lead-refs"]').getByRole('button', { name: 'Fix the retry status list', exact: true })).toBeVisible()
         await settleCoveragePage(page)
         for (const component of (await collectCoverage(page)).covered) covered.add(component)
         if (query === 'desk-account=settings') {
