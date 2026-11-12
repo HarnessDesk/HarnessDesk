@@ -6140,7 +6140,7 @@ export class Host {
           // (a queued packet's when it drains), and its stop at the boundary itself (§9.4). A Seat's send with no gate
           // to pass — its run stalled or gone while the send was being made — is refused, never let through ungated.
           const gate = (): { readonly admit: () => Promise<void>; readonly assert: () => void } | null => {
-            const run = this.#flows.carriedAdmission(runtime, sessionId)
+            const run = this.#flows.carriedAdmission(runtime, sessionId, seat === true)
             if (!run && seat) throw new Error('This seat no longer belongs to a running run.')
             return run
           }

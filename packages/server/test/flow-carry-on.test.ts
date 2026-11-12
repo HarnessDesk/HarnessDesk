@@ -335,12 +335,12 @@ test('a carried Seat whose run stalled meanwhile is refused at its gate, not let
   await rig.flows.flush()
   assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'stalled')
   // The packet is ready now: the gate it asks for is a closed one.
-  const late = rig.flows.carriedAdmission(next.runtime, next.sessionId)
+  const late = rig.flows.carriedAdmission(next.runtime, next.sessionId, true)
   assert.ok(late, 'a Seat of a run that stalled still has a gate')
   await assert.rejects(late.admit(), /no longer handing out work/)
   assert.throws(() => late.assert(), /no longer handing out work/)
-  assert.ok(rig.flows.carriedAdmission(old.runtime, old.sessionId), 'and so does the Seat it replaced')
-  assert.equal(rig.flows.carriedAdmission('nobody', 'nothing'), null, 'a conversation no run seated has none')
+  assert.ok(rig.flows.carriedAdmission(old.runtime, old.sessionId, true), 'and so does the Seat it replaced')
+  assert.equal(rig.flows.carriedAdmission('nobody', 'nothing', true), null, 'a conversation no run seated has none')
 })
 
 /* Round 2, P2: a failure after the lane and the card moved keeps the move, rather than throwing its journal away. */
@@ -441,4 +441,24 @@ test('thirty-two reviewer bindings and an auditor are checked at once, not one c
   assert.equal(await rig.flows.refuseSeatTarget(writer.runtime, writer.sessionId, 'beta-two'),
     'it would leave a later step with no independent provider')
   assert.ok(performance.now() - began < 2_000, `took ${Math.round(performance.now() - began)}ms`)
+})
+
+/* Round 3, P2: a conversation a stopped run let go of, taken back as a chat, is not held to that run's closed gate. */
+test('a stopped run’s old Seat, used again as a chat, sends its retry ungated; as a Seat it is still refused', async (t) => {
+  const rig = await goalRig(t)
+  providers(rig)
+  const started = await rig.start(WRITE_THEN_REVIEW('beta'), AGENTS)
+  await rig.flows.flush()
+  const seat = rig.sessionOf('seat-1')
+  const id = rig.flows.executionsFor(started.goal)[0]!.id
+  await rig.flows.stopRun(id)
+  await rig.flows.flush()
+  assert.notEqual(rig.flows.executionsFor(started.goal)[0]!.state, 'running')
+  // A chat's retry at the reset: no run's gate at all, so it goes.
+  assert.equal(rig.flows.carriedAdmission(seat.runtime, seat.sessionId), null)
+  assert.equal(rig.flows.carriedAdmission(seat.runtime, seat.sessionId, false), null)
+  // The same conversation's send as a Seat still meets the run's closed gate.
+  const gate = rig.flows.carriedAdmission(seat.runtime, seat.sessionId, true)
+  assert.ok(gate)
+  await assert.rejects(gate.admit(), /no longer handing out work/)
 })

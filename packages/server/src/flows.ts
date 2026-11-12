@@ -1210,8 +1210,8 @@ export class Flows implements TeamFlows {
   }
 
   /** The run's own gate a carry-on send into this Seat passes when it actually goes; null for a conversation no run holds. */
-  carriedAdmission(runtime: string, sessionId: string): { readonly admit: () => Promise<void>; readonly assert: () => void } | null {
-    return this.#executions?.carriedAdmission(runtime, sessionId) ?? null
+  carriedAdmission(runtime: string, sessionId: string, seat = false): { readonly admit: () => Promise<void>; readonly assert: () => void } | null {
+    return this.#executions?.carriedAdmission(runtime, sessionId, seat) ?? null
   }
 
   /** A replacement Seat for the card this conversation holds, on `target`. */

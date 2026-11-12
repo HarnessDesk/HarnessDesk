@@ -4796,13 +4796,15 @@ export class FlowExecutions {
    * the run's own dispatch gate, read when the send actually goes — a packet
    * queued behind a brief reads it when it drains — and the run's stop, read
    * synchronously at the boundary itself. Null when no running v2 run holds
-   * the conversation.
+   * the conversation — unless the send is still a Seat's (`seat`): then a run
+   * that once seated it and has stopped handing out work gives a closed gate.
+   * A conversation a person took back as a chat is never held to a run it left.
    */
-  carriedAdmission(runtime: string, sessionId: string): { readonly admit: () => Promise<void>; readonly assert: () => void } | null {
+  carriedAdmission(runtime: string, sessionId: string, seat = false): { readonly admit: () => Promise<void>; readonly assert: () => void } | null {
     const found = this.#carried(runtime, sessionId)
     if (!found) {
       // A Seat of a run that has stalled, stopped or finished still has a gate: a closed one.
-      if (!this.#seatOfAnyRun(runtime, sessionId)) return null
+      if (!seat || !this.#seatOfAnyRun(runtime, sessionId)) return null
       const refuse = (): never => { throw new Error('This run is no longer handing out work.') }
       return { admit: async () => refuse(), assert: refuse }
     }
