@@ -317,6 +317,8 @@ const thread = (overrides = {}) => {
     agentRole: null,
     gitInfo: { sha: 'abc123', branch: 'main', originUrl: 'git@example.com:me/repo.git' },
     name: null,
+    // A sub-agent names its parent however it is described, resumed included.
+    parentThreadId: childParents.get(describedId) ?? null,
     turns: [],
     ...overrides,
   }
@@ -2594,6 +2596,26 @@ rl.on('line', (line) => {
         }
         send(response)
         setImmediate(() => notify('turn/completed', { threadId: THREAD, turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null } }))
+        return
+      }
+      // A root whose turn keeps running over a tree of sub-agents, each a
+      // thread of its own: a working child, that child's working grandchild,
+      // and a second child whose only turn has already finished. Spawned in
+      // that order, so the helper ledger names them in it.
+      if (said === 'spawn-tree') {
+        const root = THREAD
+        const child = spawnChild(root)
+        const grandchild = spawnChild(child)
+        const finished = spawnChild(root)
+        const history = historyOf(finished)
+        history.stored = true
+        history.turns.push({ id: `turn-${finished}`, items: [], itemsView: 'notLoaded', status: 'completed', error: null })
+        send(response)
+        notify('turn/started', { threadId: root, turn: response.result.turn })
+        for (const id of [child, grandchild]) {
+          workingThreads.add(id)
+          notify('turn/started', { threadId: id, turn: { id: `turn-${id}`, items: [], itemsView: 'full', status: 'inProgress', error: null } })
+        }
         return
       }
       // A thread Codex closes on its own while a client still holds it: `closeit`.
