@@ -108,6 +108,12 @@ it('counts every summary the thread marks, not the eight the list keeps (#2149)'
   expect(leadContextWords(facts({ checkpoints: eight }), now).summaries).toBe('8 · last 1m ago')
 })
 
+it('shows a recovered count when no kept summary is left to date it, not "None yet" (#2149)', () => {
+  expect(leadContextWords(facts({ checkpoints: [], count: 10 })).summaries).toBe('10')
+  expect(leadContextWords(facts({ checkpoints: [], count: 0 })).summaries).toBe('None yet')
+  expect(leadContextWords(facts({ checkpoints: [] })).summaries).toBe('None yet')
+})
+
 it('keeps a refused Summarise now on screen in the person\'s words', async () => {
   const lead = { readContext: vi.fn(async () => facts()), compactContext: vi.fn(async () => { throw Object.assign(new Error('x'), { wireCode: 'lead-request-in-flight' }) }) }
   await act(async () => render(<LeadContextSection />, lead))

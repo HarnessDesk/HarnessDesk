@@ -18,6 +18,40 @@ export const LEAD_PRESENCE_REFRESH_MS = 60_000
 export const LEAD_PRESENCE_IDLE_MS = 2 * 60_000
 const LEAD_PRESENCE_INPUT = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'focus'] as const
 
+/** When the person last touched this window, on any page: the window is theirs, whichever page it shows. */
+let leadTouchedAt = Date.now()
+/** Marks a look now: the person's own input, bringing the window forward, or opening the Lead. */
+export const leadPresenceTouch = (at = Date.now()): void => { leadTouchedAt = at }
+/** Whether a read now says the person looked: they touched the window within the idle span. */
+export const leadPresenceLooking = (now = Date.now()): boolean => now - leadTouchedAt < LEAD_PRESENCE_IDLE_MS
+
+/**
+ * The window's presence for the whole app, mounted once beside every page: it follows the person's input and refreshes
+ * the host's record whichever page is showing, so an hour in chats or Settings is an hour looked at, not an absence the
+ * Lead is later told about. A refresh in a window nobody touches still reads (asks expire, digests arrive) but does not
+ * say they looked, so the desk can see them away; the first touch after reads at once, so the away digest comes with it.
+ */
+export const useLeadPresence = (enabled: boolean): void => {
+  const store = useStore()
+  useEffect(() => {
+    if (!enabled) return
+    const read = () => {
+      const state = store.lead.state
+      if (document.visibilityState === 'hidden' || state.revision < 0 || state.error) return
+      void store.lead.readAway({ active: leadPresenceLooking() }).catch(() => {})
+    }
+    const input = () => { const back = !leadPresenceLooking(); leadPresenceTouch(); if (back) read() }
+    const shown = () => { if (document.visibilityState !== 'hidden') leadPresenceTouch(); read() }
+    const timer = setInterval(read, LEAD_PRESENCE_REFRESH_MS)
+    document.addEventListener('visibilitychange', shown)
+    for (const name of LEAD_PRESENCE_INPUT) window.addEventListener(name, input, { passive: true, capture: true })
+    return () => {
+      clearInterval(timer); document.removeEventListener('visibilitychange', shown)
+      for (const name of LEAD_PRESENCE_INPUT) window.removeEventListener(name, input, { capture: true })
+    }
+  }, [store, enabled])
+}
+
 /** The digest's last line: what the list had no room for, then what was spent. */
 export const leadDigestNote = (digest: LeadDigest): string =>
   `${digest.more > 0 ? `${leadDigestMore(digest.more)} · ` : ''}${leadDollars(digest.spentUsdMicros)} spent${digest.kind === 'away' ? ' while away' : ''}`
@@ -78,28 +112,15 @@ export const LeadRecap = () => {
 export const LeadAway = ({ active, state, label }: { readonly active: boolean; readonly state: LeadState; readonly label?: string }) => {
   const store = useStore(), snapshot = useSnapshot()
   const ready = active && state.revision >= 0 && !state.error
-  // Opening the Lead is a look; after that, only the person's own input is. A refresh or a new reply in a window nobody
-  // touches still reads (asks expire, digests arrive) but does not say they looked, so the desk can see them away.
-  const touched = useRef(Date.now())
-  const looking = () => Date.now() - touched.current < LEAD_PRESENCE_IDLE_MS
+  // Opening the Lead is a look, whatever the input clock says; a new reply after that reads with the clock, which
+  // useLeadPresence keeps for every page.
+  const opened = useRef(false)
   useEffect(() => {
-    if (!ready || document.visibilityState === 'hidden') return
-    void store.lead.readAway({ active: looking() }).catch(() => {})
+    if (!ready) { opened.current = false; return }
+    if (!opened.current) { opened.current = true; leadPresenceTouch() }
+    if (document.visibilityState === 'hidden') return
+    void store.lead.readAway({ active: leadPresenceLooking() }).catch(() => {})
   }, [store, ready, state.revision])
-  useEffect(() => {
-    if (!ready) return
-    const read = () => { if (document.visibilityState !== 'hidden') void store.lead.readAway({ active: looking() }).catch(() => {}) }
-    // The first touch after a while away is a return: read at once, so the away digest comes with it.
-    const input = () => { const back = !looking(); touched.current = Date.now(); if (back) read() }
-    const shown = () => { if (document.visibilityState !== 'hidden') touched.current = Date.now(); read() }
-    const timer = setInterval(read, LEAD_PRESENCE_REFRESH_MS)
-    document.addEventListener('visibilitychange', shown)
-    for (const name of LEAD_PRESENCE_INPUT) window.addEventListener(name, input, { passive: true, capture: true })
-    return () => {
-      clearInterval(timer); document.removeEventListener('visibilitychange', shown)
-      for (const name of LEAD_PRESENCE_INPUT) window.removeEventListener(name, input, { capture: true })
-    }
-  }, [store, ready])
   const digest = state.error ? null : state.away?.digest
   if (!digest) return null
   const dismiss = () => { void store.lead.dismissDigest(digest.id).catch(() => {}) }
