@@ -130,7 +130,9 @@ export const leadMemoryStatus = (status: LeadMemoryStatus, read: LeadMemoryCore,
   const proposals = status.proposals.slice(0, LEAD_MEMORY_LIMITS.statusProposals).map(proposal => {
     const into = proposal.entry && (proposal.state === 'kept' || proposal.state === 'edited') ? ` as tag ${proposal.entry}` : ''
     const words = proposal.text === null ? '' : `: ${leadMemoryClean(proposal.text, STATUS_TEXT)}`
-    const history = proposal.history?.length ? ` (${proposal.history.map(event => `${event.what === 'asked-again' ? 'asked again' : event.what} ${leadClock(event.at)}`).join(', ')})` : ''
+    // A pending proposal says when it was made, so the turn after the reply that made it does not read it as news (#2170).
+    const history = proposal.history?.length ? ` (${proposal.history.map(event => `${event.what === 'asked-again' ? 'asked again' : event.what} ${leadClock(event.at)}`).join(', ')})`
+      : proposal.state === 'pending' ? ` (proposed ${leadClock(proposal.at)})` : ''
     // No proposal id: the person never sees one, so the Lead never says one (#2167).
     return `- ${SAID[proposal.state]}${into}${words}${history}`
   })
@@ -148,6 +150,7 @@ export const leadMemoryStatus = (status: LeadMemoryStatus, read: LeadMemoryCore,
     `${LEAD_MEMORY_STATUS_OPEN} revision="${status.revision}">`,
     'Memory as the desk holds it now. A note is in memory only when your desk-memory list holds it and it is not named below as no longer in memory, or when it is named below as kept. Never tell the person something is recorded, noted or remembered otherwise: say it waits for their Keep, or propose it again.',
     'Say only what these lines record about a proposal and when: never that you asked before, that they declined before, or that you reminded them, unless a line here or your work ledger records it. Keep works on every surface the person reads you on. Never say a tag such as m2 to the person.',
+    'Reference, not news: never restate memory or pending proposals unless the person asks or a line here says it changed.',
     ...(shown.length ? ['What you proposed, newest first:', ...shown] : []),
     ...(listed.length ? ['Changed since your desk-memory list:', ...listed] : []),
     ...(!shown.length && !listed.length && !cleared.length ? ['Nothing changed since your desk-memory list, and nothing you proposed waits or was decided since.'] : []),

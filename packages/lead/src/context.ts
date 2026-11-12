@@ -22,6 +22,11 @@ export const LEAD_CONTEXT = Object.freeze({
   trimAbove: 4096, trimHead: 1536, trimTail: 1024,
   /** The kept tail: at least this share of the window, and at least this many turns. */
   tailShare: 0.16, tailTurns: 6,
+  /** And at most this share of a request's turns, 0.15 under the soft line: a conversation of short exchanges, which the
+   * turn count fills before the tokens, comes out of a summary well under the line instead of just below it (#2171). */
+  tailTurnShare: 0.55,
+  /** A soft compaction or prune that would lower the pressure by less than this is not worth an epoch and a cold cache. */
+  minSaving: 0.05,
   /** The stored conversation never grows past this on disk. */
   diskBytes: 2 * 1024 * 1024,
   /** Bytes the desk has not yet seen a provider count for are estimated at this many per token. */
@@ -67,10 +72,10 @@ export interface LeadContextPressureInput {
 export const leadContextPressure = (input: LeadContextPressureInput): number =>
   Math.max(input.tokens / Math.max(1, input.window), input.bytes / LEAD_CONTEXT.requestBytes, input.turns / LEAD_CONTEXT.requestTurns)
 
-/** The soft line after a checkpoint left the conversation at `after`: back to normal when below it, otherwise raised
- * so the next idle turn does not summarise again for a few words. Never past the hard line. */
+/** The soft line after a checkpoint left the conversation at `after`: never nearer than the hysteresis above it, so
+ * the next idle turn does not summarise again for a few words, and never below the usual line or past the hard one. */
 export const leadNextSoftShare = (after: number): number =>
-  after < LEAD_CONTEXT.softShare ? LEAD_CONTEXT.softShare : Math.min(LEAD_CONTEXT.hardShare, after + LEAD_CONTEXT.hysteresis)
+  Math.min(LEAD_CONTEXT.hardShare, Math.max(LEAD_CONTEXT.softShare, after + LEAD_CONTEXT.hysteresis))
 
 /**
  * The one clip for every bounded field the desk writes (a checkpoint, a person message, a turn, a tool call or result, a desk stub): at
@@ -332,18 +337,21 @@ export const leadContextBoundary = (turns: readonly MessagesTurn[], index: numbe
 
 /**
  * Where the kept tail begins: the latest boundary that keeps at least `tailTurns` turns and at least `tailShare` of
- * the window. The region before it is what a checkpoint replaces. With no such boundary the latest boundary that
- * keeps anything is used; null when there is nothing to replace. `smallest` asks for that latest boundary outright: the
- * thrash guard's one smaller tail.
+ * the window, but never more than `tailTurnShare` of a request's turns: past that, the earliest boundary within it. The
+ * region before it is what a checkpoint replaces. With no such boundary the latest boundary that keeps anything is
+ * used; null when there is nothing to replace. `smallest` asks for that latest boundary outright: the thrash guard's
+ * one smaller tail.
  */
 export const leadContextSplit = (turns: readonly MessagesTurn[], window: number, smallest = false): number | null => {
   const want = smallest ? 0 : LEAD_CONTEXT.tailShare * window
-  let tokens = 0, fallback: number | null = null
+  const most = Math.floor(LEAD_CONTEXT.tailTurnShare * LEAD_CONTEXT.requestTurns)
+  let tokens = 0, fallback: number | null = null, within: number | null = null
   for (let index = turns.length - 1; index > 0; index--) {
     tokens += leadEstimatedTokens(leadContextBytes(turns[index]))
     if (!leadContextBoundary(turns, index)) continue
-    fallback ??= index
     if (smallest) return index
+    if (turns.length - index > most) return within ?? index
+    fallback ??= index; within = index
     if (turns.length - index >= LEAD_CONTEXT.tailTurns && tokens >= want) return index
   }
   return fallback

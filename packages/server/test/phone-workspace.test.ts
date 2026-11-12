@@ -1108,9 +1108,9 @@ test('the Lead reads another sign-in’s figures where the Dashboard draws them,
     assert.equal(account!.notReporting, undefined)
     assert.deepEqual(account!.windows, [], 'the agent’s own account is still not claimed to have figures')
     assert.deepEqual(account!.unverified, {
-      whose: 'CLI sign-in', readAgeMinutes: 1, stale: false, windows: [
-        { label: 'Weekly · Gemini Models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 100, remaining: null, unit: null, resetsAt: null, reached: false, projection: null },
-        { label: 'Weekly · Other models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 75, remaining: null, unit: null, resetsAt: NOW + 30 * HOUR, reached: false,
+      whose: 'CLI sign-in', readAgeMinutes: 1, readAge: '1m ago', stale: false, windows: [
+        { label: 'Weekly · Gemini Models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 100, remaining: null, unit: null, resetsAt: null, resetsIn: null, reached: false, projection: null },
+        { label: 'Weekly · Other models', kind: 'weekly', windowMinutes: 10_080, remainingPercent: 75, remaining: null, unit: null, resetsAt: NOW + 30 * HOUR, resetsIn: '1 d 6 h', reached: false,
           // The Dashboard's own projection, as for the agent's own windows.
           projection: { kind: 'lasts-to-reset', at: NOW + 30 * HOUR, basis: 'average consumption since window start', since: NOW + 30 * HOUR - 10_080 * 60_000, asOf: NOW } },
       ],
@@ -1129,5 +1129,26 @@ test('an account that answered with nothing to show reads Not reporting to the L
     const [account] = (await f.workspace.usageSummary(f.reports)).accounts
     assert.equal(account!.notReporting, true)
     assert.equal(account!.spend?.today, 1, 'what it spent is still said')
+  } finally { await f.done() }
+})
+
+test('#2174: Lead allowance says each reset and read age in the Dashboard\'s words, and marks a reset already past', async () => {
+  const f = await fixture()
+  try {
+    const result = await f.workspace.usageSummary([report('dev@example.com', { fetchedAt: NOW - 12_251 * 60_000, staleAfterMs: 1000, lanes: [
+      { id: 'monthly', label: 'Monthly', usedPercent: 40, windowMinutes: 43200, resetsAt: NOW + 21.14 * 24 * HOUR },
+      { id: 'weekly', label: 'Weekly', usedPercent: 10, windowMinutes: 10080, resetsAt: NOW - 37 * HOUR },
+      { id: 'session', label: '5-hour', usedPercent: 10, windowMinutes: 300, resetsAt: null },
+    ] })])
+    const account = result.accounts[0]!
+    assert.equal(account.readAge, '8d ago', '12,251 minutes is eight and a half days, said as eight')
+    assert.equal(account.readAgeMinutes, 12_251)
+    const [monthly, weekly, session] = account.windows
+    assert.equal(monthly!.resetsIn, '21 d 3 h', 'the Dashboard\'s countdown, never rounded up to 22 days')
+    assert.equal(monthly!.resetPassed, undefined)
+    assert.equal(weekly!.resetsIn, null)
+    assert.equal(weekly!.resetPassed, true, 'the stored reset is in the past: these figures are from before it')
+    assert.equal(session!.resetsIn, null)
+    assert.equal(session!.resetPassed, undefined)
   } finally { await f.done() }
 })

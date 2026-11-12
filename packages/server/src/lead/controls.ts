@@ -91,6 +91,12 @@ interface LeadControlsOptions {
   /** The Lead's current step in plain words, from the desk call in flight; null while it has named none. */
   readonly readActiveStep?: () => string | null
 }
+/** Whether the Lead model wrote a reply to the person after the journal stood at `seq`: one appended later (its id
+ * carries the seq it was written at, which a later revision of the message never changes), not proactive, and the
+ * model's own words rather than a host notice. */
+const leadAnsweredSince = (journal: LeadJournal, seq: number): boolean => journal.state.messages.some(message =>
+  message.role === 'assistant' && !message.proactive && Number(message.id.slice('message-'.length)) > seq && journal.isModelReply(message.id))
+
 /** One host owner, no transport or rendering. Child ports never contain these operations. */
 export class LeadControls {
   #tail: Promise<unknown> = Promise.resolve()
@@ -455,6 +461,8 @@ export class LeadControls {
       // A compaction under way finishes first; past the hard line one runs now, whatever else is happening.
       await this.#contextWork
       if (context?.due() === 'hard') await this.#compactContext('hard')
+      // Where the journal stood when the request left: a reply of the Lead's stored past it answered this request.
+      const sentAt = journal.state.seq
       let result = await service.send(await build())
       // The provider counted more than the window: compact and try once more.
       if (context && result.status === 'failed' && result.reason === 'lead-messages-too-long') {
@@ -476,8 +484,6 @@ export class LeadControls {
           await journal.appendModelReply([report.finding, report.caveat, report.ask].join('\n'), report)
         } else {
           await journal.appendModelReply(result.text ?? '', undefined, result.ask, result.refs)
-          // The person read a reply from a request that carried the settings: they are no longer news to the Lead.
-          if (person && settingsShownAt !== undefined) try { await this.options.settingsShown?.(settingsShownAt) } catch { /* The next reply keeps it. */ }
         }
       }
       else if (result.status === 'refused' && !['accepted', 'declined', 'stopped', 'waiting-for-user'].includes(journal.state.phase) && journal.state.budget &&
@@ -486,6 +492,10 @@ export class LeadControls {
         await journal.setManagementPhase('waiting-for-user', 'lead-budget-unknown')
       }
       else await journal.settingsChanged()
+      // The person read a reply from a request that carried the settings: they are no longer news to the Lead. Decided
+      // from the journal, since the child stores its reply itself and returns a result without the words (#2170).
+      if (person && !proactive && settingsShownAt !== undefined && leadAnsweredSince(journal, sentAt))
+        try { await this.options.settingsShown?.(settingsShownAt) } catch { /* The next reply keeps it. */ }
       this.contextChanged()
     } catch (failure) {
       try { this.options.onFailure?.('request', failure) } catch { /* A log never owns the request. */ }

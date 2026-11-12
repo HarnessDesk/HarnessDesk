@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import * as protocol from '@harnessdesk/protocol'
 import { runtimeId, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import {
@@ -1026,5 +1027,14 @@ describe('pacingNote', () => {
 
   it('has no first to name with one account', () => {
     expect(pacingNote([report({ lanes: [weekly(30, NOON + 20 * HOUR)] })], name, NOON)).toBeNull()
+  })
+})
+
+describe('the countdown the Lead is told (#2174)', () => {
+  it('is the Dashboard\'s own formatter, from the protocol, so the host and the UI say the same words', () => {
+    expect(formatCountdown).toBe(protocol.formatCountdown)
+    expect(formatResetCountdown).toBe(protocol.formatResetCountdown)
+    expect(formatCountdownShort).toBe(protocol.formatCountdownShort)
+    expect(formatResetCountdown(21.14 * DAY)).toBe(`in ${protocol.formatResetIn(21.14 * DAY)}`)
   })
 })

@@ -284,8 +284,11 @@ test('a restart during a compaction keeps the old conversation, and one after th
     assert.equal(result?.status, 'completed')
   }
   const before = JSON.stringify(first.store.turns)
-  // The desk stops while the model is writing the checkpoint.
-  void first.store.compact('soft', () => new Promise(() => {}))
+  // On a window this small a checkpoint at its full length is about the size of what it folds: an idle summary is not
+  // worth its epoch (#2171), so the desk stops while the model writes one the person asked for.
+  assert.equal(await first.store.compact('soft', () => new Promise(() => {})), 'nothing')
+  assert.equal(first.store.epoch, 0); assert.equal(first.journal.state.context.pending, null)
+  void first.store.compact('manual', () => new Promise(() => {}))
   await new Promise(resolve => setImmediate(resolve))
   assert.ok(first.journal.state.context.pending)
   const second = await harness(t, { window: 20_000, records: first.records, home: first.home })
@@ -296,7 +299,7 @@ test('a restart during a compaction keeps the old conversation, and one after th
   // This time the desk stops right after the journal recorded the new epoch, before the file was moved into place.
   const commit = second.journal.contextCompactionApplied.bind(second.journal)
   second.journal.contextCompactionApplied = async applied => { await commit(applied); throw new Error('stopped') }
-  await assert.rejects(second.store.compact('soft', second.send))
+  await assert.rejects(second.store.compact('manual', second.send))
   const third = await harness(t, { window: 20_000, records: second.records, home: second.home })
   assert.equal(third.store.epoch, 1)
   assert.equal(third.journal.state.context.epoch, 1)
@@ -306,7 +309,9 @@ test('a restart during a compaction keeps the old conversation, and one after th
 })
 
 /** The host's controls over a stored conversation the test drives: what it asks for and when. */
-const controlsRig = async (replies: { status: string; reason?: string; text?: string }[], extra: Record<string, unknown> = {}, stored?: (journal: lead.LeadJournal) => lead.MessagesTurn[]) => {
+type RigReply = { status: string; reason?: string; text?: string }
+/** A reply, or what the child does before it returns one: it writes the reply to the journal itself. */
+const controlsRig = async (replies: (RigReply | ((journal: lead.LeadJournal) => Promise<RigReply>))[], extra: Record<string, unknown> = {}, stored?: (journal: lead.LeadJournal) => lead.MessagesTurn[]) => {
   const { LeadControls } = await import('../src/lead/controls.js')
   const { dispatch } = await import('../src/methods/index.js')
   const { journal } = await journalOver()
@@ -325,7 +330,12 @@ const controlsRig = async (replies: { status: string; reason?: string; text?: st
       return 'applied' as const
     } }
   const service = { async status() { return { configured: true, protection: 'synthetic cipher' } }, async setKey() {}, async deleteKey() {}, async assertPublic() {},
-    async send(value: any) { sends.push(value); return value.compaction ? { status: 'completed', text: 'checkpoint' } : replies.shift() ?? { status: 'completed', text: 'Ready' } } }
+    async send(value: any) {
+      sends.push(value)
+      if (value.compaction) return { status: 'completed', text: 'checkpoint' }
+      const next = replies.shift()
+      return typeof next === 'function' ? await next(journal) : next ?? { status: 'completed', text: 'Ready' }
+    } }
   const controls = new LeadControls({ journal, service: service as any, project: { id: 'demo', path: '/workspace/demo' }, model: 'fixture-model', now: () => 100, nextId: () => 'card',
     push() {}, decidePerson: async () => {}, decideResult: async () => {}, context: context as any, scheduleContextCheck: run => { checks.push(run) }, ...extra })
   const ctx = { leadContextRead: () => controls.readContext(), leadContextCompact: () => controls.compactContext() } as any
@@ -899,4 +909,53 @@ test('#2165: the settings a request read stop being news only once the Lead\'s r
   await s.controls.send({ idempotencyKey: 'send-answered', text: 'How should you write to me?' })
   await s.controls.idle()
   assert.deepEqual(kept, [2000], 'the reply keeps the time its own request read the settings')
+})
+
+test('#2170: the settings stop being news once the child stored the Lead\'s reply itself, though the result it returns carries no text', async () => {
+  const kept: number[] = []
+  let read = 0
+  // The child writes the reply to the journal over its pipe and returns the result without the words (loop.ts).
+  const s = await controlsRig([async () => ({ status: 'completed' }),
+    async journal => { await journal.appendModelReply('In short sentences, conclusion first.'); return { status: 'completed' } }], {
+    readMemoryContext: async () => ({ text: '<desk-memory-status>\nNothing.\n</desk-memory-status>', settingsShownAt: ++read * 1000 }),
+    settingsShown: async (at: number) => { kept.push(at) } })
+  await s.controls.send({ idempotencyKey: 'send-silent', text: 'How should you write to me?' })
+  await s.controls.idle()
+  assert.deepEqual(kept, [], 'a request that stored no reply answered nobody')
+  await s.controls.send({ idempotencyKey: 'send-answered', text: 'How should you write to me?' })
+  await s.controls.idle()
+  assert.deepEqual(kept, [2000], 'the reply the child stored keeps the time its own request read the settings')
+})
+
+test('#2171: a conversation of many short exchanges summarises once, then four more turns leave it be and keep the epoch', async t => {
+  const s = await bareStore(t, 200_000)
+  // About 470 tokens an exchange: a tail of the window's tokens would keep well over a hundred turns, so turns, not
+  // tokens, decide the pressure, as in a conversation of short questions.
+  await s.feed(76, 1420)
+  assert.equal(s.store.due(), 'soft', `${s.store.turns.length} turns are past the soft line`)
+  assert.equal(await s.store.compact('soft', s.written('Short questions about the desk.')), 'applied')
+  t.diagnostic(`after the summary: ${s.store.turns.length} turns, pressure ${s.store.pressure().toFixed(3)}`)
+  const epoch = s.store.epoch
+  await s.feed(2, 1420, 76)
+  assert.equal(s.store.due(), null, `${s.store.turns.length} turns, pressure ${s.store.pressure().toFixed(3)}: not due again for four more turns`)
+  assert.equal(s.store.epoch, epoch)
+  assert.ok(s.store.pressure() <= lead.LEAD_CONTEXT.softShare - 0.10, 'the summary brought it well under the line')
+})
+
+test('#2171: a soft compaction that would save almost nothing is skipped and spends no epoch', async t => {
+  const s = await bareStore(t, 200_000)
+  // One person message, then a long tool loop with no other boundary: nothing to summarise, and the reads are small.
+  const { messageId } = await s.journal.appendMessage('m-0', 'Check the runs', 'person')
+  const turns: lead.MessagesTurn[] = [{ role: 'user', content: [text('Check the runs'), text(`${REFERENCE}${messageId}`)] }]
+  for (let n = 0; n < 72; n++) {
+    turns.push({ role: 'assistant', content: [{ type: 'tool_use', id: `call-${n}`, name: 'run_read', input: { id: `run-${n}` } }] })
+    turns.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: `call-${n}`, content: `run-${n}: ${'idle; '.repeat(n === 0 ? 820 : 4)}`, is_error: false }] })
+  }
+  await s.store.record({ epoch: s.store.epoch, base: 0, extend: [], usage: null, turns })
+  assert.equal(s.store.due(), 'soft')
+  const epoch = s.store.epoch, records = s.records.length
+  assert.equal(await s.store.compact('soft', s.written('None.')), 'nothing')
+  assert.equal(s.store.epoch, epoch, 'no epoch was spent on it')
+  assert.equal(s.records.length, records, 'nothing was recorded')
+  assert.equal(s.store.due(), null, 'and it is not due again at once')
 })

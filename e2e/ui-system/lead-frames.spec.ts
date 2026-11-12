@@ -52,6 +52,10 @@ for (const theme of ['light', 'dark']) for (const scene of scenes) test(`Lead sy
     // The ledger sits after the latest reply, not above the conversation (#2149).
     const [ledger, reply] = await Promise.all([frame.getByRole('region', { name: 'Wake ledger' }).boundingBox(), frame.getByText('I will look at the nightly run').boundingBox()])
     expect(ledger && reply && ledger.y > reply.y + reply.height).toBe(true)
+    // Collapsed, it shows the wake behind the reply, not the later desk change the Lead let pass (#2172).
+    const rows = frame.getByRole('region', { name: 'Wake ledger' }).locator('[data-wake-row]')
+    await expect(rows).toHaveCount(1)
+    await expect(rows).toContainText('schedule · asked')
   }
   else if (scene === 'autonomy-proposal-words') {
     const cards = frame.locator('[data-slot="lead-settings-proposals"]')

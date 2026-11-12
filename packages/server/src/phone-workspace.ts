@@ -1,4 +1,4 @@
-import { answeredWithNothing, brandKeyField, burn, elapsedMinutes, remainingOf, leadStage, isWaitingOnYou, isSilentUsage } from '@harnessdesk/protocol'
+import { answeredWithNothing, brandKeyField, burn, elapsedMinutes, formatElapsed, formatResetIn, remainingOf, leadStage, isWaitingOnYou, isSilentUsage } from '@harnessdesk/protocol'
 import { teamLeadStage } from './work-stage.js'
 import {
   sessionIndexCursorOf, sessionLabel,
@@ -332,7 +332,10 @@ export class PhoneWorkspace {
             : minutes === null ? 'allowance' : 'window',
           windowMinutes: minutes, remainingPercent: lane.placeholder === true ? null : remainingOf(lane),
           remaining: lane.usageKnown !== false && lane.placeholder !== true && lane.used != null && lane.limit != null ? Math.max(0, lane.limit - lane.used) : null,
+          // The Dashboard's countdown, so the Lead quotes it rather than rounding a timestamp itself (#2174).
           unit: lane.unit ? safe(lane.unit) : null, resetsAt: lane.resetsAt,
+          resetsIn: lane.resetsAt === null ? null : formatResetIn(lane.resetsAt - now),
+          ...(lane.resetsAt !== null && lane.resetsAt <= now ? { resetPassed: true as const } : {}),
           reached: lane.placeholder !== true && (hit === lane.id || hit === lane.label || remainingOf(lane) === 0), projection,
         }
       })
@@ -341,10 +344,10 @@ export class PhoneWorkspace {
       const other = report.unverified
       const borrowed = other && other.lanes.length > 0 ? {
         whose: safe(other.whose), windows: windowsOf(other.lanes, Boolean(other.error), other.reached),
-        readAgeMinutes: ageMinutes(other.fetchedAt, now), stale: Boolean(other.error) || now - other.fetchedAt > other.staleAfterMs,
+        readAgeMinutes: ageMinutes(other.fetchedAt, now), readAge: formatElapsed(other.fetchedAt, now), stale: Boolean(other.error) || now - other.fetchedAt > other.staleAfterMs,
       } : null
       if (report.credits) windows.push({ label: 'Balance', kind: 'balance', unlimited: report.credits.unlimited === true, windowMinutes: null,
-        remainingPercent: null, remaining: report.credits.remaining, unit: safe(report.credits.unit), resetsAt: null,
+        remainingPercent: null, remaining: report.credits.remaining, unit: safe(report.credits.unit), resetsAt: null, resetsIn: null,
         reached: report.reached === 'credits' || report.credits.unlimited !== true && report.credits.remaining !== null && report.credits.remaining <= 0, projection: null })
       const silent = isSilentUsage(report)
       // The Plans table's "plan usage unavailable · Not reporting": an answer with nothing to show is said the same way.
@@ -360,7 +363,7 @@ export class PhoneWorkspace {
         error: report.error ? report.error.needsSignIn === true ? 'sign-in needed' as const : 'reading failed' as const : null,
         spend: report.spend ? { currency: safe(report.spend.currency), today: report.spend.todayCost,
           last30Days: report.spend.windowDays === 30 ? report.spend.windowCost : null, provenance: report.spend.provenance } : null,
-        readAgeMinutes: ageMinutes(report.fetchedAt, now),
+        readAgeMinutes: ageMinutes(report.fetchedAt, now), readAge: formatElapsed(report.fetchedAt, now),
         ...(keptReading(report) ? { refreshFailed: true as const } : {}),
       }
     })
