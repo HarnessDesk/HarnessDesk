@@ -8,8 +8,8 @@ import { isLeadQuiet, leadApprovedPlan, leadInstructions, leadObservation, type 
 import { leadWakeAutonomy } from './autonomy.js'
 import { classifyLeadRuns, createLeadWakeGate, leadChatFingerprint, type LeadRunReading, type LeadWakeCounts } from './wake.js'
 import { createLeadMessages } from './messages.js'
-import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesTurn, MessagesUsage } from './messages-types.js'
-import { LEAD_CONTEXT, type LeadEpochHeld, leadAppendUser, leadWithPlan, leadCloseOpenLoop, leadContextBytes, leadContextMarkOf, leadContextRecord, leadPruneContext, leadStubVolatile, type LeadContextRecord } from './context.js'
+import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesText, MessagesTurn, MessagesUsage } from './messages-types.js'
+import { LEAD_CONTEXT, type LeadEpochHeld, leadAppendUser, leadRefreshedDesk, leadTurnDesk, leadWithPlan, leadCloseOpenLoop, leadContextBytes, leadContextMarkOf, leadContextRecord, leadPruneContext, leadStubVolatile, type LeadContextRecord } from './context.js'
 import { leadWorkCards } from './work.js'
 import { parseLeadWorkBoard } from '@harnessdesk/protocol'
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
@@ -152,6 +152,12 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let tail: Promise<unknown> = Promise.resolve(), iterator: AsyncIterator<ClientEvent> | null = null
   let pump: Promise<void> | null = null, active: AbortController | null = null
   let history: readonly MessagesTurn[] | null = null, requestTemplate: LeadMessagesRequest | null = null
+  /** The desk context the host's latest request carried after its stored part, kept with the turn it belongs to: that
+   * turn's tool continuations carry it again, and no other turn's ever does. */
+  let turnDesk: { readonly turn: number; readonly blocks: readonly MessagesText[] } | null = null
+  /** Host requests counted, the turn the step running now belongs to (0 for a desk wake), and the turn and desk change
+   * a pending tool continuation carries on. */
+  let turns = 0, stepTurn = 0, continuedTurn = 0, continuationChanged = false
   let stepUsage: MessagesUsage | undefined
   let publicationSources: { runId: string; reviewedHead: string; evidenceRevision: string }[] = []
   let lastResultSignature: string | null = null
@@ -568,6 +574,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       return result
     }
     if (result.toolResults?.length && !waitForDesk && !result.proposals?.plan) {
+      // A step that changed the desk owes its continuation a fresh read of the ledger and memory; one that only read
+      // keeps what the turn read. A continuation of another turn owes nothing of this one's.
+      continuationChanged = (continuationPending && continuedTurn === stepTurn && continuationChanged) || !!result.deskChangedTools?.length
+      continuedTurn = stepTurn
       continuationPending = true
       if (!blocked()) schedule(false)
     }
@@ -615,7 +625,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         // goes on from the stored copy, its open calls closed as text.
         const fromStore = owed || changed
         const activity = dirty, continueTools = continuationPending, fromEvidence = evidenced
-        dirty = false; continuationPending = false; evidenced = false
+        const continuedOf = continueTools ? continuedTurn : 0, changedDesk = continueTools && continuationChanged
+        dirty = false; continuationPending = false; evidenced = false; continuationChanged = false
         let pendingWake: LeadWakeRecord = { id: nextId(), at: clock.now(), source: continueTools ? requestTemplate?.wakeSource ?? 'trigger' : 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null }
         // Only a batch that found something is a wake in the ledger: a tool continuation, a look that woke, a chat change,
         // a desk wake owed, a decision the person's Observe recorded, or evidence that arrived on its own. The minute tick,
@@ -630,7 +641,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
             const state = journal.state
             if (!terminal(state.phase) && state.phase !== 'waiting-for-user' && !state.recoveryBlocked) {
               // Carried to the batch that runs it, which records the wake then.
-              dirty ||= activity; continuationPending ||= continueTools; evidenced ||= fromEvidence; caused = false
+              dirty ||= activity; continuationPending ||= continueTools; evidenced ||= fromEvidence; continuationChanged ||= changedDesk; caused = false
             }
             return
           }
@@ -665,8 +676,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
             } catch { /* The copy in hand still answers; the host checks pressure before its own next request. */ }
           }
           // The open work cards ride the wake as desk context of this moment: after the cache mark, stubbed when stored.
-          let work: string | null = null
-          if (activity) {
+          // Undefined while unread or when the read failed; null when the ledger was read and nothing is open on it.
+          let work: string | null | undefined
+          if (activity || changedDesk) {
             try {
               // A read of the desk's own ledger, as the host reads it for its requests: not a step the Lead took.
               work = leadWorkCards(parseLeadWorkBoard(await desk.call('lead/work/list' as never, {} as never)), clock.now())
@@ -674,7 +686,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           }
           // What became of the Lead's memory proposals rides last, after the cards, stubbed when stored like them.
           let memory: string | null = null
-          if (activity) {
+          if (activity || changedDesk) {
             try {
               const status = await options.context?.memoryStatus?.()
               if (typeof status === 'string' && status.startsWith(LEAD_MEMORY_STATUS_OPEN)) memory = status
@@ -698,10 +710,17 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           let planned: ReturnType<typeof leadWithPlan> = { messages: [...history] }
           try { if (journal.state.contract) planned = leadWithPlan(history, leadApprovedPlan(journal.state.contract)) } catch { /* Too large to carry: the host refused it too. */ }
           const observed = activity ? withObservation(planned.messages, observation) : planned.messages
+          // A tool continuation of the host's request carries that request's desk context again, after the tool results:
+          // the reply it writes reads what the turn read (#2180). The ledger and memory read for this batch replace theirs,
+          // and the turn's later continuations carry the refreshed copy. Only that turn's continuation carries it.
+          const own = continuedOf && turnDesk?.turn === continuedOf ? turnDesk.blocks : []
+          const fresh = leadRefreshedDesk(own, { work, memory })
+          if (continuedOf && turnDesk?.turn === continuedOf) turnDesk = { turn: continuedOf, blocks: fresh }
+          stepTurn = continuedOf
           await step({ ...rest, proactive, wakeSource: pendingWake.source, epoch, ...(mark ? { stable: mark, base: mark } : {}), ...(planned.kept ? { kept: planned.kept } : {}),
-            messages: work || memory ? leadAppendUser(observed, [...(work ? [{ type: 'text' as const, text: work }] : []), ...(memory ? [{ type: 'text' as const, text: memory }] : [])]) : observed }, undefined, pendingWake)
+            messages: fresh.length ? leadAppendUser(observed, fresh) : observed }, undefined, pendingWake)
           // Refused as too long: owed once more, after the desk compacts.
-          if (wakeOverflow && !closed) { dirty ||= activity; deskOwed ||= activity ? stepCause : false; continuationPending ||= continueTools; batchAgain = true }
+          if (wakeOverflow && !closed) { dirty ||= activity; deskOwed ||= activity ? stepCause : false; continuationPending ||= continueTools; continuationChanged ||= changedDesk; if (continueTools) continuedTurn = continuedOf; batchAgain = true }
           report()
         } finally {
           try { if (!stepped && (caused || pendingWake.observed)) await journal.recordWake(pendingWake) }
@@ -824,7 +843,14 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     start: () => queue(start),
     request: (input: LeadMessagesRequest, signal?: AbortSignal) => {
       requested++; reportActivity()
-      return queue(async () => { await start(); return step(input, signal) }).finally(() => { requested--; reportActivity() })
+      return queue(async () => {
+        await start()
+        // Stored history stubs this turn's desk context; a tool continuation of it gets it back whole (#2180).
+        const turn = ++turns
+        turnDesk = { turn, blocks: options.context || input.stable ? leadTurnDesk(input.messages, input.kept ?? input.stable) : [] }
+        stepTurn = turn
+        return step(input, signal)
+      }).finally(() => { requested--; reportActivity() })
     },
     /** A checkpoint request: the same instructions, tools and turns as the conversation's own requests, then one
      * instruction. It is queued behind any turn in flight, spends from the goal's budget, and says nothing to the person. */

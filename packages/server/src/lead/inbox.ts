@@ -1,4 +1,4 @@
-import { isWaitingOnYou, LEAD_INBOX_LIMIT, leadDisplayName, leadNeedsYou, type LeadDeskSummary, type LeadInbox, type LeadInboxItem, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { isWaitingOnYou, LEAD_INBOX_LIMIT, leadDisplayName, leadNeedsYou, type LeadDeskSummary, type LeadDeskWaiting, type LeadDeskWaitingItem, type LeadInbox, type LeadInboxItem, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 import { scrub } from '../phone-redact.js'
 
@@ -57,4 +57,17 @@ export const leadInbox = (input: {
     .sort((a, b) => b.at - a.at).slice(0, LEAD_INBOX_LIMIT)
   const more = input.desk?.needsYouMore ?? 0
   return { version: 1, needsYou: lead.reduce((sum, item) => sum + (item.count ?? 1), 0) + work.length + more, items: [...waiting, ...notices] }
+}
+
+/**
+ * What waits on the person, as the Lead reads it beside the desk summary: the Inbox's own count and the rows it counts,
+ * the open question among them, so a count the Lead says is the number the bell and the phone show and matches the
+ * rows it lists (#2182). `more` is needs-you work past the list, counted but not listed.
+ */
+export const leadInboxWaiting = (inbox: LeadInbox): LeadDeskWaiting => {
+  const items = inbox.items.flatMap((item): LeadDeskWaitingItem[] => !item.needsYou || item.kind === 'notice' ? []
+    : [{ kind: item.kind, id: item.kind === 'lead' ? 'lead' : item.target ?? item.id, title: item.title,
+      ...(item.project ? { project: item.project } : {}), ...(item.count ? { count: item.count } : {}) }])
+  const listed = items.reduce((sum, item) => sum + (item.count ?? 1), 0)
+  return { count: inbox.needsYou, items, more: Math.max(0, inbox.needsYou - listed) }
 }

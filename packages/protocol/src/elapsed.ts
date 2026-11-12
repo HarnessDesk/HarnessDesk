@@ -19,3 +19,11 @@ export const formatElapsed = (at: number, now: number): string => {
   const parts = elapsedParts(at, now)
   return parts === null ? 'just now' : `${parts.count}${parts.unit} ago`
 }
+
+const LEAD_CENTS = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+/** Money as the Lead's cards say it: whole cents, and an amount above zero that rounds to $0.00 as "less than $0.01".
+ * The Lead's notes use it so their figures read as the card's. */
+export const formatLeadDollars = (micros: number): string => {
+  const text = LEAD_CENTS.format(micros / 1_000_000)
+  return micros > 0 && text === '$0.00' ? 'less than $0.01' : text
+}

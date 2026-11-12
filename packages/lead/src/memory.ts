@@ -140,7 +140,7 @@ export const leadMemoryStatus = (status: LeadMemoryStatus, read: LeadMemoryCore,
   const added = status.core.filter(entry => before.get(entry.id) !== entry.text)
   const removed = read.entries.filter(entry => !now.has(entry.id)).map(entry => entry.id)
   const changes = [
-    ...added.map(entry => `- tag ${entry.id} ${before.has(entry.id) ? 'changed' : 'now kept'}: ${leadMemoryClean(entry.text, STATUS_TEXT)}`),
+    ...added.map(entry => `- tag ${entry.id} ${before.has(entry.id) ? 'now reads' : 'now kept'}: ${leadMemoryClean(entry.text, STATUS_TEXT)}`),
     ...(removed.length ? [`- no longer in memory: ${removed.map(id => `tag ${id}`).join(', ')}`] : []),
   ]
   // Too many changes to list within the limit: say how many, not which.
@@ -150,9 +150,9 @@ export const leadMemoryStatus = (status: LeadMemoryStatus, read: LeadMemoryCore,
     `${LEAD_MEMORY_STATUS_OPEN} revision="${status.revision}">`,
     'Memory as the desk holds it now. A note is in memory only when your desk-memory list holds it and it is not named below as no longer in memory, or when it is named below as kept. Never tell the person something is recorded, noted or remembered otherwise: say it waits for their Keep, or propose it again.',
     'Say only what these lines record about a proposal and when: never that you asked before, that they declined before, or that you reminded them, unless a line here or your work ledger records it. Keep works on every surface the person reads you on. Never say a tag such as m2 to the person.',
-    'Reference, not news: never restate memory or pending proposals unless the person asks or a line here says it changed.',
+    'Reference, not news: the person made each change here and saw its receipt. Mention memory only when they ask about it.',
     ...(shown.length ? ['What you proposed, newest first:', ...shown] : []),
-    ...(listed.length ? ['Changed since your desk-memory list:', ...listed] : []),
+    ...(listed.length ? ['In memory now, beyond your desk-memory list:', ...listed] : []),
     ...(!shown.length && !listed.length && !cleared.length ? ['Nothing changed since your desk-memory list, and nothing you proposed waits or was decided since.'] : []),
     ...cleared,
     LEAD_MEMORY_STATUS_CLOSE,

@@ -11,6 +11,10 @@ import { leadContainsSecret, leadWithholdCredentialsReport, type LeadWithheldPie
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
   MessagesRedactedThinking, MessagesText, MessagesThinking, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
 
+/** Lead methods that write to the desk though a read tier lets them through: their result changes what the work ledger,
+ * memory or settings say, so the step after them reads those again. */
+const LEAD_DESK_WRITES: ReadonlySet<string> = new Set(['lead/work/note', 'lead/memory/propose', 'lead/reminder/set', 'lead/reminder/cancel', 'lead/autonomy/propose', 'lead/rules/propose'])
+
 /** Configuration defaults only; model choice never changes permissions or behavior. */
 export const LEAD_MESSAGES_DEFAULTS = Object.freeze({ model: 'claude-sonnet-5-5', observerModel: 'claude-haiku-5-5', hardPlanModel: 'claude-opus-5-5' })
 const LIMIT = Object.freeze({ bytes: 1_048_576, text: 16_384, blocks: 64, turns: 256, nodes: 16_384,
@@ -202,11 +206,12 @@ export const LEAD_WAKE_OPEN = 'Desk wake, not a message from the person: '
 export const LEAD_WAKE_REFERENCE = 'Desk reference for the preceding desk wake: '
 /**
  * The line a person message carries for the surface that sent it (#2166). It is part of the person's turn, stored with
- * it, so a tool continuation and every later request read the same thing; a card or ask works on either surface.
+ * it, so a tool continuation and every later request read the same thing; a card or ask works on either surface. It
+ * says what that surface opens, so the Lead never sends a phone user to the desktop for a Team the phone opens (#2182).
  */
 export const LEAD_SURFACE_LINES: Readonly<Record<LeadMessageSurface, string>> = Object.freeze({
-  phone: 'Desk note: the person sent the message above from their phone.',
-  desktop: 'Desk note: the person sent the message above from the desktop window.',
+  phone: 'Desk note: the person sent the message above from their phone, which opens any Team or chat from its Inbox or Work tab and answers questions and cards there.',
+  desktop: 'Desk note: the person sent the message above from the desktop window, which opens anything on the desk.',
 })
 /** The most turns of the person's readable conversation one request carries. The request admits LIMIT.turns - 2;
  * the rest is room for the host's own closing turns and for a tool loop's continuations within the request. */
@@ -549,7 +554,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     } catch { return { status: 'invalid-response', reason: 'lead-messages-continuation-limit', usage: used, toolResults: results } }
     let predecessorReason: string | undefined
     const permissionDeniedTools: string[] = []
-    const transientTools: string[] = [], succeededTools: string[] = [], deskActivityTools: string[] = []
+    const transientTools: string[] = [], succeededTools: string[] = [], deskActivityTools: string[] = [], deskChangedTools: string[] = []
     for (const [position, { use, index }] of uses.entries()) {
       available += reserved[position]!
       if (!signal.aborted && parsed.stop_reason !== 'max_tokens') {
@@ -566,6 +571,9 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
               catch (error) { dispatchError = error; throw error }
             })
           if (executed.decision.effect !== 'allow') permissionDeniedTools.push(use.id)
+          if (executed.outcome === 'succeeded' || executed.outcome === 'uncertain') {
+            if (clientTierFor(call.method, call.params) !== 'read' || LEAD_DESK_WRITES.has(call.method)) deskChangedTools.push(use.id)
+          }
           // Gate reasons are policy facts. Dispatch exceptions are not refusals and raw exceptions may contain secrets.
           const errorText = executed.decision.effect !== 'allow'
             ? executed.decision.rule ? policyRefusal(executed.decision.rule.layer) : `Tool was not permitted: ${executed.decision.reason.slice(0, 240)}`
@@ -644,6 +652,6 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     }
     return { status: parsed.stop_reason === 'max_tokens' ? 'max-tokens' : signal.aborted ? 'cancelled' : 'completed', usage: used,
       ...(predecessorReason ? { reason: predecessorReason } : {}),
-      text: output.text, ...(output.ask ? { ask: output.ask } : {}), ...(output.refs ? { refs: output.refs } : {}), ...(output.proactive ? { proactive: output.proactive } : {}), proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, messages: continuation }
+      text: output.text, ...(output.ask ? { ask: output.ask } : {}), ...(output.refs ? { refs: output.refs } : {}), ...(output.proactive ? { proactive: output.proactive } : {}), proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, deskChangedTools, messages: continuation }
   } }
 }

@@ -1,5 +1,5 @@
 import type { LeadState } from '@harnessdesk/lead'
-import { LEAD_DIGEST_ITEM_LABELS, LEAD_PRESENCE_LIMITS, capLeadPushText, leadMessageAsk, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
+import { LEAD_DIGEST_ITEM_LABELS, LEAD_PRESENCE_LIMITS, capLeadPushText, formatLeadDollars, leadMessageAsk, quoteLeadWorkText, leadDigestPushText, parseLeadBriefSettings, parseLeadDigest, parseLeadPresenceView, parseStoredLeadDigest, isLeadDigestRefId,
   type LeadAsk, type LeadAskState, type LeadProactive, type LeadBriefSettings, type LeadBriefUpdate, type LeadDeviceRef, type LeadDigest, type LeadDigestItem,
   type LeadDigestKind, type LeadDigestRef, type LeadPresenceView, type LeadWorkBoard, type LeadWorkCard } from '@harnessdesk/protocol'
 import { rename } from 'node:fs/promises'
@@ -105,6 +105,14 @@ const digestRef = (card: LeadWorkCard): LeadDigestRef => {
   const found = order.find(([kind, id]) => id && isLeadDigestRefId(kind, id))
   return found ? { kind: found[0], id: found[1]! } : { kind: 'work', id: card.id }
 }
+/** An hour and minute in the desk's zone, as the away card titles its window: "09:27". */
+const hourMinute = (at: number) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
+/** What a named thing opens by: a Team, chat or work item by the kind and id a ref takes; a pull request or a decision
+ * card, which no ref can link, by what it is and never by an id. */
+const awayRef = (ref: LeadDigestRef | undefined): string => !ref ? '' : ref.kind === 'pr' ? ' (a pull request)'
+  : ref.kind === 'card' ? ' (a decision card in the conversation)' : ` (${ref.kind} ${ref.id})`
+/** The zone desk times are said in, by name when the host knows it. */
+const deskZone = (): string => { try { const zone = Intl.DateTimeFormat().resolvedOptions().timeZone; return zone ? ` (${zone})` : '' } catch { return '' } }
 const stored = (value: unknown): LeadDigest | undefined => { if (value === undefined) return undefined; try { return parseStoredLeadDigest(value) } catch { return undefined } }
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const validEnd = (value: unknown): value is { revision: number; spent: number } => !!value && finite((value as { revision: unknown }).revision) && finite((value as { spent: unknown }).spent)
@@ -553,16 +561,32 @@ export class LeadPresenceStore {
     return this.#write(async () => {
       const away = this.#stored.away, now = this.ports.now()
       if (!away || now < away.to || now - away.to > LEAD_AWAY_NOTE_MS) return undefined
+      // The away card a device still holds for this absence is what the person reads: the note gives its window, items
+      // and spend, so the Lead's figures are the card's (#2147). A card that began before another device last looked, or
+      // one from an earlier absence, is not this one; once dismissed, the desk's own span stands in. A mark moves at most
+      // twice a minute, so a minute's slack.
+      const card = Object.values(this.#stored.devices).flatMap(mark => mark.pending?.kind === 'away' && mark.pending.from >= away.from - 60_000 && mark.pending.to >= away.to - 60_000 && mark.pending.to <= now ? [mark.pending] : [])
+        .reduce<LeadDigest | undefined>((best, one) => !best || one.to > best.to ? one : best, undefined)
+      const from = card?.from ?? away.from, to = card?.to ?? away.to
       // A ledger item is dated; a decision card is not, so it counts only when it waited by the revision at the return.
-      const found = (await this.#items(away.from, away.revision, away.until ?? away.revision)).filter(entry => entry.at === undefined || entry.at <= away.to)
-      const spent = this.#spentBetween(away.from, away.to), dollars = `$${(spent / 1_000_000).toFixed(2)}`
-      const lines = found.slice(0, LEAD_PRESENCE_LIMITS.items).map(entry => `- ${LEAD_DIGEST_ITEM_LABELS[entry.kind]}: ${quoteLeadWorkText(entry.title, LEAD_PRESENCE_LIMITS.titleChars)}`)
-      if (found.length > lines.length) lines.push(`- and ${found.length - lines.length} more`)
-      const moved = lines.length ? `In that span, on the work ledger:\n${lines.join('\n')}\n${dollars} was spent in it. `
-        : spent > 0 ? `In that span nothing on the work ledger finished, stopped or came to need them; ${dollars} was spent. `
-        : 'In that span nothing on the work ledger finished, stopped or came to need them, and nothing was spent, so no away digest was shown. '
-      return `The person was away from ${deskTime(away.from)} to ${deskTime(away.to)} (desk time): no window or phone of theirs was looked at in between. ${moved}` +
-        `Anything from before ${deskTime(away.from)} happened before they left: never report it as happening while they were away.`
+      const found = card ? card.items : (await this.#items(away.from, away.revision, away.until ?? away.revision)).filter(entry => entry.at === undefined || entry.at <= away.to)
+      const shown = found.slice(0, LEAD_PRESENCE_LIMITS.items), more = card ? card.more : found.length - shown.length
+      const spent = card ? card.spentUsdMicros : this.#spentBetween(away.from, away.to), dollars = formatLeadDollars(spent)
+      const lines = shown.map(entry => `- ${LEAD_DIGEST_ITEM_LABELS[entry.kind]}: ${quoteLeadWorkText(entry.title, LEAD_PRESENCE_LIMITS.titleChars)}${awayRef(entry.ref)}`)
+      if (more > 0) lines.push(`- and ${more} more`)
+      // Reminders that fired inside the window, with the work item each is about.
+      const board = await this.ports.board().catch(() => null)
+      const fired = (board?.reminders ?? []).filter(entry => entry.firedAt !== undefined && entry.firedAt >= from && entry.firedAt <= to).slice(0, LEAD_PRESENCE_LIMITS.items)
+        .map(entry => `- ${quoteLeadWorkText(entry.text, LEAD_PRESENCE_LIMITS.titleChars)} fired ${hourMinute(entry.firedAt!)}${entry.item ? `, about a work item${awayRef({ kind: 'work', id: entry.item })}` : ''}`)
+      const moved = lines.length ? `In that span, on the work ledger:\n${lines.join('\n')}\n` : 'In that span nothing on the work ledger finished, stopped or came to need them. '
+      const reminded = fired.length ? `Reminders that fired in that span:\n${fired.join('\n')}\n` : ''
+      const said = card ? `${dollars} was spent in that span. That window, those items and that spend are what the person's away card shows: say them as given here. `
+        : lines.length || spent > 0 ? `${dollars} was spent in it. ` : 'Nothing was spent, so no away digest was shown. '
+      const linked = shown.some(entry => entry.ref && entry.ref.kind !== 'pr' && entry.ref.kind !== 'card') || fired.some(line => line.includes('(work '))
+      // The desk does not know a device's time zone: its times are the desk's, and named so.
+      return `The person was away from ${deskTime(from)} to ${deskTime(to)}, desk time${deskZone()}: no window or phone of theirs was looked at in between. ${moved}${reminded}${said}` +
+        (linked ? 'An id in parentheses after a kind, as in (team …), (chat …) or (work …), can be used as a ref: to link that item, add it to refs with that kind and id. ' : '') +
+        `Anything from before ${deskTime(from)} happened before they left: never report it as happening while they were away.`
     })
   }
   async observe(): Promise<void> { if (await this.#write(() => this.#observeAsks())) this.ports.changed?.() }

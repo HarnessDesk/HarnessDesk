@@ -128,6 +128,9 @@ export interface LeadMessagesResult {
   readonly deskActivityTools?: readonly string[]
   /** Dispatch successes, including results that could not fit the continuation. */
   readonly succeededTools?: readonly string[]
+  /** Calls that changed the desk, or may have: a start, a send, a stop, a note, a reminder or a proposal whose dispatch
+   * succeeded or is uncertain. The step that follows reads the work ledger and memory again. */
+  readonly deskChangedTools?: readonly string[]
   readonly toolResults?: readonly MessagesToolResult[]
   /** Validated continuation with one ordered result for every tool use. Still untrusted
    * content: the renderer must use its transcript sanitizer. */

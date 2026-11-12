@@ -738,3 +738,113 @@ test('#2170: a checkpoint leaves settings, rules and memory status out, since th
     assert.match(instruction, /Leave out settings, rules and memory status, and what was said about them: the desk restates them on every request\./)
   }
 })
+
+test('#2180: a tool continuation of a person turn carries that turn\'s desk context again, so the reply reads the settings news the turn read', async () => {
+  const s = await loopFixture([message([tool('catalog', 'flow_catalog', { root: '/workspace/demo' })], { stop_reason: 'tool_use' }), message([text('Done.')])])
+  const context = contextPort()
+  const loop = lead.createLeadLoop({ ...s.options, context: context.port })
+  try {
+    const work = '<work-ledger>\nOpen work the host tracks.\n- w1 Fix the game\n</work-ledger>\n\n<host-note>The person was away from 09:00 to 10:00.</host-note>'
+    const status = '<desk-memory-status>\nNothing pending.\n</desk-memory-status>\n<desk-settings-status>\n- How to talk to me (talk), version 1. Last change 12 Nov 10:41: the person applied your proposal, changed since your last reply.\n</desk-settings-status>'
+    await loop.request({ messages: [user(text('Anything new?'), text(work), text(status))], maxTokens: 100, stable: { turns: 1, blocks: 1 }, epoch: 0, wakeSource: 'person' })
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2, 'the tool result is answered by a continuation')
+    const last = JSON.parse(s.fake.requests[1].body).messages.at(-1)
+    assert.equal(last.content[0].type, 'tool_result', 'the tool result comes first')
+    const texts: string[] = last.content.filter((block: any) => block.type === 'text').map((block: any) => block.text)
+    assert.ok(texts.some(one => one.includes(', changed since your last reply')), 'the settings news reaches the request that writes the reply')
+    assert.ok(texts.some(one => one.includes('<host-note>The person was away')), 'and so does the turn\'s host note')
+    assert.ok(!texts.some(one => one.includes('Anything new?')), 'the person\'s words stay where they were, never repeated')
+    // The stored copy stubs it again: what the continuation carried is desk context of that moment too.
+    const stored = JSON.stringify(context.records.at(-1))
+    assert.ok(!stored.includes('changed since your last reply'), 'never kept verbatim in the stored conversation')
+  } finally { await loop.close() }
+})
+
+test('#2180: a fresh desk read replaces only what it read again: the memory section, the ledger, and the settings only when it carries them', () => {
+  const work = '<work-ledger>\n- w1 Fix the game\n</work-ledger>\n\n<host-note>The person was away from 09:00 to 10:00.</host-note>'
+  const status = '<desk-memory-status>\nNothing pending.\n</desk-memory-status>\n<desk-settings-status>\n- talk, changed since your last reply.\n</desk-settings-status>'
+  const turn = [text('Desk note: the person sent the message above from the desktop window, which opens anything on the desk.'), text(work), text(status)]
+  assert.deepEqual(lead.leadRefreshedDesk(turn, { memory: null }), turn, 'nothing read again: the turn\'s desk as it was')
+  assert.deepEqual(lead.leadRefreshedDesk(turn, { work: undefined, memory: null }), turn, 'a ledger read that failed keeps the turn\'s ledger')
+  assert.deepEqual(lead.leadRefreshedDesk(turn, { work: null, memory: null }).map(block => block.text), [turn[0]!.text, '<host-note>The person was away from 09:00 to 10:00.</host-note>', status],
+    'a ledger read that found nothing open removes the turn\'s ledger and adds none')
+  const memory = '<desk-memory-status>\nOne note kept.\n</desk-memory-status>'
+  const kept = lead.leadRefreshedDesk(turn, { memory }).map(block => block.text)
+  assert.deepEqual(kept, [turn[0]!.text, work, '<desk-settings-status>\n- talk, changed since your last reply.\n</desk-settings-status>', memory],
+    'a fresh memory status without settings replaces the memory section and keeps the settings the turn read')
+  const both = `${memory}\n<desk-settings-status>\n- talk, version 2.\n</desk-settings-status>`
+  const fresh = lead.leadRefreshedDesk(turn, { work: '<work-ledger>\n- w2 Ship it\n</work-ledger>', memory: both }).map(block => block.text)
+  assert.deepEqual(fresh, [turn[0]!.text, '<host-note>The person was away from 09:00 to 10:00.</host-note>', '<work-ledger>\n- w2 Ship it\n</work-ledger>', both],
+    'a fresh ledger replaces the turn\'s and keeps its host note; fresh settings replace the turn\'s')
+})
+
+test('#2180: a continuation that also saw desk activity reads memory again and keeps the settings news its turn read', async () => {
+  const s = await loopFixture([message([tool('catalog', 'flow_catalog', { root: '/workspace/demo' })], { stop_reason: 'tool_use' }), message([text('Done.')])])
+  const context = contextPort()
+  const loop = lead.createLeadLoop({ ...s.options, context: { ...context.port, memoryStatus: async () => '<desk-memory-status>\nOne note kept.\n</desk-memory-status>' } })
+  try {
+    const status = '<desk-memory-status>\nNothing pending.\n</desk-memory-status>\n<desk-settings-status>\n- talk, changed since your last reply.\n</desk-settings-status>'
+    await loop.request({ messages: [user(text('Anything new?'), text(status))], maxTokens: 100, stable: { turns: 1, blocks: 1 }, epoch: 0, wakeSource: 'person' })
+    s.emit({ type: 'chat.changed', project: '/workspace/demo', id: 'chat-1', state: 'waiting', stage: 'you-answer' } as never); await s.drain()
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2)
+    const texts: string[] = JSON.parse(s.fake.requests[1].body).messages.at(-1).content.filter((block: any) => block.type === 'text').map((block: any) => block.text)
+    assert.ok(texts.some(one => one.startsWith('Desk activity changed')), 'the continuation saw desk activity')
+    assert.ok(texts.some(one => one.includes('One note kept.')), 'memory as it stands now')
+    assert.ok(!texts.some(one => one.includes('Nothing pending.')), 'never the memory the turn read beside it')
+    assert.ok(texts.some(one => one.includes(', changed since your last reply')), 'the settings news the turn read is still there')
+  } finally { await loop.close() }
+})
+
+test('#2180: a continuation after a call that changed the desk reads the ledger and memory again; one after a read does not', async () => {
+  for (const [name, method, changes] of [['reminder_set', { text: 'Check the build', inMinutes: 30 }, true], ['flow_catalog', { root: '/workspace/demo' }, false]] as const) {
+    const s = await loopFixture([message([tool('call', name, method)], { stop_reason: 'tool_use' }), message([text('Done.')])])
+    const context = contextPort()
+    let reads = 0
+    const loop = lead.createLeadLoop({ ...s.options, context: { ...context.port, memoryStatus: async () => { reads++; return '<desk-memory-status>\nOne note kept.\n</desk-memory-status>' } } })
+    try {
+      await loop.request({ messages: [user(text('Remind me later.'), text('<desk-memory-status>\nNothing pending.\n</desk-memory-status>'))], maxTokens: 100, stable: { turns: 1, blocks: 1 }, epoch: 0, wakeSource: 'person' })
+      await s.tick(); await loop.idle()
+      assert.equal(s.fake.requests.length, 2, name)
+      const body = JSON.stringify(JSON.parse(s.fake.requests[1].body).messages.at(-1))
+      assert.equal(reads, changes ? 1 : 0, `${name}: memory read again only after a change`)
+      assert.equal(body.includes('One note kept.'), changes, name)
+      assert.equal(body.includes('Nothing pending.'), !changes, `${name}: the turn's own status otherwise`)
+      assert.ok(s.calls.some(call => call.method === 'lead/work/list') === changes, `${name}: the ledger read again only after a change`)
+    } finally { await loop.close() }
+  }
+})
+
+test('#2180: a continuation carries the desk of the turn it continues, never a later turn\'s', async () => {
+  const s = await loopFixture([message([tool('catalog', 'flow_catalog', { root: '/workspace/demo' })], { stop_reason: 'tool_use' }), message([text('Seen.')]), message([text('Done.')])])
+  const context = contextPort()
+  const loop = lead.createLeadLoop({ ...s.options, context: context.port })
+  try {
+    await loop.request({ messages: [user(text('Check the flows.'), text('Desk note: from the phone, turn A.'))], maxTokens: 100, stable: { turns: 1, blocks: 1 }, epoch: 0, wakeSource: 'person' })
+    // Another message lands before the continuation runs: its desk is its own turn's.
+    await loop.request({ messages: [user(text('And the chats?'), text('Desk note: from the desktop, turn B.'))], maxTokens: 100, stable: { turns: 1, blocks: 1 }, epoch: 0, wakeSource: 'person' })
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 3)
+    const body = JSON.stringify(JSON.parse(s.fake.requests[2].body).messages.at(-1))
+    assert.ok(!body.includes('turn B.'), 'the continuation of turn A never carries turn B\'s desk')
+  } finally { await loop.close() }
+})
+
+test('#2180: cancelling the last reminder leaves the continuation with no ledger, never the one the turn read', async () => {
+  const s = await loopFixture([message([tool('cancel', 'reminder_cancel', { id: 'remind-1' })], { stop_reason: 'tool_use' }), message([text('Cancelled.')])])
+  const call = s.options.desk.call
+  // After the cancel, nothing is open on the ledger: the read succeeds and finds nothing.
+  s.options.desk.call = async (method: string, params: unknown) => method === 'lead/work/list' || method === 'lead/reminder/cancel' ? { version: 1, items: [], more: 0 } : call(method, params)
+  const context = contextPort()
+  const loop = lead.createLeadLoop({ ...s.options, context: context.port })
+  try {
+    const ledger = '<work-ledger>\nOpen work the host tracks.\n- remind-1 "Check the build" set for 15:00\n</work-ledger>'
+    await loop.request({ messages: [user(text('Cancel my reminder.'), text(ledger))], maxTokens: 100, stable: { turns: 1, blocks: 1 }, epoch: 0, wakeSource: 'person' })
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2)
+    const body = JSON.stringify(JSON.parse(s.fake.requests[1].body).messages.at(-1))
+    assert.ok(!body.includes('<work-ledger>'), `no ledger section once nothing is open: ${body}`)
+    assert.ok(!body.includes('Check the build'), 'the cancelled reminder is not shown as set')
+  } finally { await loop.close() }
+})

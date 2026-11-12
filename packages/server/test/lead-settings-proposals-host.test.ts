@@ -203,6 +203,38 @@ test('#2165: a settings change stays marked as news through a failed request and
   assert.doesNotMatch(await said('person-c', 'Anything else?'), marked, 'once the Lead answered the person with it, it is no longer news')
 })
 
+test('#2180: after an Apply the next answered request carries the news once, even when the reply is stored after the request returns', async t => {
+  const notes: string[] = []
+  // The child answers the way a tool turn does: the request returns before the reply is stored, and the reply comes
+  // from the child's continuation a moment later, through the journal (#2170).
+  let r!: Awaited<ReturnType<typeof rig>>
+  r = await rig(t, async input => {
+    const last = input.messages.at(-1)!
+    const text = (Array.isArray(last.content) ? last.content : []).map(part => 'text' in part ? part.text : '').join('\n')
+    notes.push(text.includes('<desk-settings-status>') ? text.slice(text.indexOf('<desk-settings-status>')) : '')
+    setTimeout(() => { void r.journal.appendModelReply('Noted.') }, 30)
+    return { status: 'completed', text: '' }
+  })
+  t.mock.method(r.host.credentials, 'leadStatus', async () => ({ configured: true, protection: 'synthetic cipher' }))
+  t.mock.method(r.host.credentials, 'resolveLead', async () => 'fixture-key')
+  const marked = /, changed since your last reply/
+  const said = async (key: string, text: string) => {
+    const before = notes.length, replies = r.journal.state.messages.filter(message => message.role === 'assistant').length
+    await r.host.call('lead/thread/send', { idempotencyKey: key, text })
+    await until(() => notes.length > before && r.journal.state.messages.filter(message => message.role === 'assistant').length > replies)
+    let seq = -1, still = 0
+    await until(() => { still = r.journal.state.seq === seq ? still + 1 : 0; seq = r.journal.state.seq; return still >= 4 })
+    return notes.at(-1)!
+  }
+  await said('person-0', 'Hello.')
+  await new Promise(resolve => setTimeout(resolve, 5))
+  assert.equal(result(await r.tool('rules_propose', { section: 'talk', add: 'Report in Chinese, conclusion first.' })).outcome, 'created')
+  const id = (await r.host.call('lead/autonomy/read', {})).proposals![0]!.id
+  await r.host.call('lead/settings/decide', { id, decision: 'apply' })
+  assert.match(await said('person-a', 'Anything new?'), marked, 'the first request after the Apply carries the news')
+  assert.doesNotMatch(await said('person-b', 'And now?'), marked, 'the reply to it was stored, so the next request does not repeat it')
+})
+
 // #2176: Keep and Apply leave a receipt in the thread, as a host line both surfaces already draw; No leaves none.
 // A receipt is a `system` line: the desktop draws it as a host notice and the phone as its grey line.
 const receipts = (r: { journal: { state: { messages: readonly { role: string; id: string; text: string }[] } } }) =>

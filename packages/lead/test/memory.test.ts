@@ -223,5 +223,15 @@ test('the memory status is reference, not news, and a pending proposal carries w
   const status = lead.leadMemoryStatus({ revision: 2, clearedAt: null, entries: [], core: [],
     proposals: [{ id: 'c1', state: 'pending', text: 'Lead every report with the conclusion.', at: new Date(2026, 10, 12, 14, 5).getTime() }] }, { revision: 0, entries: [] })
   assert.match(status, /^- waiting for the person's Keep, Edit or No; not in memory yet: Lead every report with the conclusion\. \(proposed 2026-11-12 14:05\)$/m)
-  assert.match(status, /^Reference, not news: never restate memory or pending proposals unless the person asks or a line here says it changed\.$/m)
+  assert.match(status, /^Reference, not news: the person made each change here and saw its receipt\. Mention memory only when they ask about it\.$/m)
+})
+
+// #2180: a Keep is listed against the epoch's frozen list until the next summary, so a line that read as a change
+// invited the Lead to retell it on every turn. Memory status is reference, as settings are: no line is news.
+test('#2180: the memory status names nothing as news: a Keep is listed as what memory holds now, never as a change to tell', () => {
+  const status = lead.leadMemoryStatus({ revision: 3, clearedAt: null, entries: ['m5'], core: [{ id: 'm5', text: 'Review with the second model.' }],
+    proposals: [{ id: 'c1', state: 'kept', text: 'Review with the second model.', entry: 'm5', at: 1 }] }, { revision: 0, entries: [{ id: 'm2', text: 'An old note.', kind: 'fact', by: 'lead' }] } as never)
+  assert.ok(status.includes('In memory now, beyond your desk-memory list:'), status)
+  assert.ok(status.includes('- tag m5 now kept: Review with the second model.'))
+  assert.doesNotMatch(status, /[Cc]hanged since|says it changed|news unless/, 'no line invites a retelling')
 })
