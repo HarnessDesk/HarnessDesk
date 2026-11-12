@@ -51,6 +51,10 @@ host gateway described below. A flow's check command may read
 checkout and lane ports a round's own subjects are — never an arbitrary
 environment map, and never anything that was not already visible in the
 checkout the command runs in.
+`harnessdesk mcp` speaks only to the MCP client that started it, over standard
+input and output, and to the desk's local socket. It makes no network request.
+The number of starts MCP clients have made today is kept in
+`client-starts.json` in the desk's state folder.
 
 **Retention:** yours. Deleting the folder deletes it.
 

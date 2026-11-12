@@ -94,6 +94,10 @@ const UNREACHED = {
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
   'phone/triage/list':
     'likewise — the native phone lists mention triage decisions read only; the window reads them per trigger through trigger/decisions',
+  'carryOn/list':
+    'declared ahead of its caller: the carry-on card and the store that loads it are being built against this protocol, and that change removes this line',
+  'carryOn/decide':
+    'likewise — the carry-on card answers an incident through it once that card lands, and that change removes this line',
 }
 
 /**

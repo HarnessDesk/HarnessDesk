@@ -46,6 +46,14 @@ export interface TraySummary {
   readonly agents: readonly TrayAgent[]
 }
 
+/** A prompt link as the shell parsed it. Untrusted text, for a draft only. */
+export interface PromptLink {
+  readonly repo: string
+  readonly prompt: string
+  readonly pr: number | null
+  readonly flow: string | null
+}
+
 export interface AppUpdateFact { readonly label: string; readonly enabled: boolean }
 
 export interface DesktopBridge {
@@ -77,6 +85,12 @@ export interface DesktopBridge {
    */
   onOpenSession?(handler: (request: { runtime: string; sessionId: string }) => void): () => void
   onOpenGoal?(handler: (request: { goal: string }) => void): () => void
+  /**
+   * A prompt link the OS opened (`harnessdesk://new`), already parsed and
+   * bounded by the shell. Subscribing takes any link that is waiting; each
+   * link reaches one handler once. It fills a draft and nothing else.
+   */
+  onPromptLink?(handler: (link: PromptLink) => void): () => void
   /**
    * The browser pane's side of the agent-driven browser. The pane reports
    * its `<webview>` by id once the page can be driven, and says when it
@@ -176,6 +190,10 @@ export const onOpenSession = (
 
 export const onOpenGoal = (handler: (request: { goal: string }) => void): (() => void) =>
   desktop()?.onOpenGoal?.(handler) ?? (() => {})
+
+/** A prompt link from the OS, taken once the renderer can act on it. */
+export const onPromptLink = (handler: (link: PromptLink) => void): (() => void) =>
+  desktop()?.onPromptLink?.(handler) ?? (() => {})
 
 /**
  * Whether the window's top-left is occupied by macOS traffic lights. The

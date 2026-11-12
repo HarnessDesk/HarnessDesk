@@ -1655,6 +1655,17 @@ class PreviewStore {
   private clientsMayAnswer = false
   loadClientsMayAnswer = async (): Promise<boolean> => this.clientsMayAnswer
   setClientsMayAnswer = async (value: boolean): Promise<boolean> => { this.clientsMayAnswer = value; return true }
+  private mcpStarts: import('@harnessdesk/protocol').McpStartsView = {
+    version: 1, revision: 0, mayStart: false, dailyStarts: 5, day: '2026-11-11', started: 0, remaining: 5, source: 'stored',
+  }
+  loadMcpStarts = async (): Promise<import('@harnessdesk/protocol').McpStartsView> => this.mcpStarts
+  setMcpStarts = async (
+    _revision: number, patch: { readonly mayStart?: boolean; readonly dailyStarts?: number },
+  ): Promise<import('@harnessdesk/protocol').McpStartsView> => {
+    const dailyStarts = patch.dailyStarts ?? this.mcpStarts.dailyStarts
+    this.mcpStarts = { ...this.mcpStarts, ...patch, revision: this.mcpStarts.revision + 1, remaining: Math.max(0, dailyStarts - this.mcpStarts.started) }
+    return this.mcpStarts
+  }
   loadQuestionWait = async (): Promise<'5m'> => '5m'
   setQuestionWait = async (): Promise<boolean> => true
   loadUnattendedCeilings = async (): Promise<'seat' | 'refuse'> => 'refuse'

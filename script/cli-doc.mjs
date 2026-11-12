@@ -52,7 +52,7 @@ const TIERS = {
  * The reference, as Markdown, from the command table and what its commands
  * share. Pure: it reads nothing, so a test can hand it a table of its own.
  */
-export const render = ({ commands, exitCodes, globalOptions }) => {
+export const render = ({ commands, exitCodes, globalOptions, mcp }) => {
   const lines = []
   const push = (...more) => lines.push(...more)
 
@@ -183,6 +183,31 @@ export const render = ({ commands, exitCodes, globalOptions }) => {
   push('```')
   push('')
 
+  if (mcp) {
+    push('## Using it from an agent (MCP)')
+    push('')
+    push('`harnessdesk mcp` serves these commands to an agent as an MCP server, over standard input and output. Add it to an MCP client once:')
+    push('')
+    push('```sh')
+    push('claude mcp add harnessdesk -- harnessdesk mcp')
+    push('```')
+    push('')
+    push('Any other MCP client takes the same server as `command: harnessdesk` and `args: [mcp]`. Add `--home DIR` to the arguments to serve a desk other than the default one. The server keeps nothing between calls: each call finds the desk, does its work and disconnects, so a desk that restarts is found again on the next call, and a call made while no desk is running says so.')
+    push('')
+    push('Each command is one tool, with the same arguments and flags, and the tool answers with the command\'s `--json` output.')
+    push('')
+    push('| Tool | Command | Tier |')
+    push('| --- | --- | --- |')
+    for (const tool of mcp.tools) push(`| \`${tool.name}\` | [\`${tool.command}\`](#${anchor(tool.command)}) | ${TIERS[tool.tier] ?? tool.tier} |`)
+    push('')
+    push('- **Starting work is off until you turn it on.** A tool that starts a flow is refused, with `mcpStartsOff`, until **Let MCP clients start work** is on in Settings › Permissions › MCP clients. Then it counts against a number of starts a day that you choose there, 5 unless you change it, counted from midnight in your own time zone; past it, starts are refused with `mcpDailyCap`. A start that fails is not counted. Only a flow saved in the project, in your flows or in the app can be started, and always attended: a seat that would need a higher ceiling than it holds asks you, and an MCP client cannot pass `--unattended`. Runs started this way carry an **MCP** chip in the app. A desk started by a script can set `HARNESSDESK_MCP_MAY_START=1` in its environment instead of the switch.')
+    push('- **Answers.** `card_answer` speaks as you, so it needs the same **answer** tier as the command line, which is off by default. The Team\'s channel shows the answer as given from an MCP client, with the name the client gave.')
+    push('- **Waiting.** `run_wait` waits ' + (mcp.waitDefault ?? 600) + ' seconds when no timeout is given, and at most ' + (mcp.waitMax ?? 3600) + '. A wait that runs out is an answer, not an error: call it again. A client that asks for progress hears from it every 15 seconds and whenever the run changes state, and a client that cancels the call ends the wait.')
+    push('- **Errors.** A command that fails comes back as a tool error whose text starts `exit N:`, with the exit code from the table above and the desk\'s code: `exit 3: noDesk: …`, `exit 4: mcpStartsOff: …`. A wait that ends because a person is needed is not an error: its result carries `exit` and `ended`.')
+    for (const [name, reason] of Object.entries(mcp.excluded)) push(`- **No \`${name}\` tool:** it ${reason}.`)
+    push('')
+  }
+
   return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`
 }
 
@@ -202,13 +227,15 @@ if (isMain) {
   const shown = path.relative(root, out) || out
 
   const built = path.join(root, 'packages/cli/dist/src')
-  if (!fs.existsSync(path.join(built, 'cli.js')) || !fs.existsSync(path.join(built, 'reference.js'))) {
+  if (!['cli.js', 'reference.js', 'mcp-tools.js'].every((file) => fs.existsSync(path.join(built, file)))) {
     console.error('The command line is not built, so its command table cannot be read. Run: pnpm build:node')
     process.exit(1)
   }
   const { COMMANDS } = await import(pathToFileURL(path.join(built, 'cli.js')).href)
   const { EXIT_CODES, GLOBAL_OPTIONS } = await import(pathToFileURL(path.join(built, 'reference.js')).href)
-  const text = render({ commands: COMMANDS, exitCodes: EXIT_CODES, globalOptions: GLOBAL_OPTIONS })
+  const { toolsOf, MCP_EXCLUDED, MCP_RUN_WAIT_DEFAULT, MCP_RUN_WAIT_MAX } = await import(pathToFileURL(path.join(built, 'mcp-tools.js')).href)
+  const mcp = { tools: toolsOf(COMMANDS), excluded: MCP_EXCLUDED, waitDefault: MCP_RUN_WAIT_DEFAULT, waitMax: MCP_RUN_WAIT_MAX }
+  const text = render({ commands: COMMANDS, exitCodes: EXIT_CODES, globalOptions: GLOBAL_OPTIONS, mcp })
 
   if (process.argv.includes('--check')) {
     const existing = fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : ''

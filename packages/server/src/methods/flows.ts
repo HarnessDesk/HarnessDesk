@@ -1,4 +1,4 @@
-import type { AgentRuntime, Flow, FlowProblem, ModelInfo } from '@harnessdesk/protocol'
+import type { AgentRuntime, Flow, FlowExecution, FlowProblem, HostParams, ModelInfo } from '@harnessdesk/protocol'
 
 import { checkAttemptsOf } from '../evidence/check-attempts.js'
 import { CHANGED_PREVIEW } from '../flow-preview.js'
@@ -83,53 +83,8 @@ export const flowMethods = {
    */
   'flow/preview': (ctx, params) => ctx.flowPreviews.preview(params.root, params.source, params.vars, params.retry, undefined, { seats: params.seats, attended: params.attended, continues: params.continues }),
 
-  /**
-   * The only v2 call that spends anything. Redeems the token first — a
-   * caller-supplied `compiled`, ceiling or evidence is not a wire param at
-   * all, so there is nothing here to trust but what the token itself froze —
-   * then hands the frozen policy to `Flows`, which mints the run and its
-   * Goal together.
-   */
-  'flow/start-goal': async (ctx, params) => {
-    if (ctx.flowPreviews.retryTarget(params.token)) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
-    const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {}, { seats: params.seats, attended: params.attended, continues: params.continues })
-    if (!redeemed) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
-    /* The held-seat policy and the reused Goal are the token's, never the
-       request's: a front-door token started without its Goal, or with another,
-       is refused, and nothing here can turn it into an ordinary start. */
-    const bound = redeemed.frontDoor
-    if (JSON.stringify(bound?.goal ?? null) !== JSON.stringify(params.goal ?? null)) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
-    if (redeemed.lead) {
-      if (!ctx.leadStarts) throw new Error('lead-guard-unavailable')
-      await ctx.leadStarts.validateStart(redeemed.lead)
-    }
-    await ctx.workspaces.admitTeamProject(params.root)
-    return ctx.flows.startGoal({
-      root: params.root,
-      sentence: params.sentence,
-      source: params.source,
-      sourcePath: null,
-      compiled: redeemed.compiled,
-      ...(redeemed.lead ? { lead: redeemed.lead } : {}),
-      attended: redeemed.attended,
-      overrides: redeemed.overrides,
-      ...(params.vars ? { vars: params.vars } : {}),
-      ...(params.continues !== undefined ? { continues: params.continues } : {}),
-      ...(bound || redeemed.lead ? { requireHeld: true as const } : {}),
-      ...(bound?.goal ? { goal: bound.goal } : {}),
-      /* Where the run works and what it works on, as the host resolved them
-         for the token — the folder its context named, and the commit every
-         Seat is pinned to — never re-read from the request. */
-      ...(bound ? { cwd: bound.target.context.root } : redeemed.continuation ? { cwd: redeemed.continuation.cwd } : {}),
-      ...(bound?.target.resolved ? { target: bound.target.resolved } : {}),
-      authorization: {
-        sourceDigest: sourceDigest(params.source),
-        commandDigest: sourceDigest(JSON.stringify(redeemed.commands)),
-        approvedAt: Date.now(),
-        ...(bound || redeemed.lead ? { start: 'front-door' as const } : {}),
-      },
-    })
-  },
+  /** The only v2 call that spends anything: `startGoal`, below. */
+  'flow/start-goal': (ctx, params) => startGoal(ctx, params),
 
   'flow/execution/stop': (ctx, params) => ctx.flows.stopRun(params.run, params.reason, 'person'),
 
@@ -324,3 +279,53 @@ const unavailableSeats = async (ctx: HostContext, flow: Flow): Promise<FlowProbl
 
 /** Re-exported so `flow/dry` and the start path cannot drift about what is valid. */
 export { validateFlow }
+
+/**
+ * The only v2 call that spends anything. Redeems the token first — a
+ * caller-supplied `compiled`, ceiling or evidence is not a wire param at
+ * all, so there is nothing here to trust but what the token itself froze —
+ * then hands the frozen policy to `Flows`, which mints the run and its
+ * Goal together. `startedBy` is the client door's, stamped by the host for a
+ * start that came through it; no wire param carries it.
+ */
+export async function startGoal(ctx: HostContext, params: HostParams<'flow/start-goal'>, startedBy?: NonNullable<FlowExecution['startedBy']>): Promise<FlowExecution> {
+  if (ctx.flowPreviews.retryTarget(params.token)) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
+  const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {}, { seats: params.seats, attended: params.attended, continues: params.continues })
+  if (!redeemed) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
+  /* The held-seat policy and the reused Goal are the token's, never the
+     request's: a front-door token started without its Goal, or with another,
+     is refused, and nothing here can turn it into an ordinary start. */
+  const bound = redeemed.frontDoor
+  if (JSON.stringify(bound?.goal ?? null) !== JSON.stringify(params.goal ?? null)) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
+  if (redeemed.lead) {
+    if (!ctx.leadStarts) throw new Error('lead-guard-unavailable')
+    await ctx.leadStarts.validateStart(redeemed.lead)
+  }
+  await ctx.workspaces.admitTeamProject(params.root)
+  return ctx.flows.startGoal({
+    root: params.root,
+    sentence: params.sentence,
+    source: params.source,
+    sourcePath: null,
+    compiled: redeemed.compiled,
+    ...(redeemed.lead ? { lead: redeemed.lead } : {}),
+    attended: redeemed.attended,
+    overrides: redeemed.overrides,
+    ...(params.vars ? { vars: params.vars } : {}),
+    ...(params.continues !== undefined ? { continues: params.continues } : {}),
+    ...(bound || redeemed.lead ? { requireHeld: true as const } : {}),
+    ...(bound?.goal ? { goal: bound.goal } : {}),
+    /* Where the run works and what it works on, as the host resolved them
+       for the token — the folder its context named, and the commit every
+       Seat is pinned to — never re-read from the request. */
+    ...(bound ? { cwd: bound.target.context.root } : redeemed.continuation ? { cwd: redeemed.continuation.cwd } : {}),
+    ...(bound?.target.resolved ? { target: bound.target.resolved } : {}),
+    authorization: {
+      sourceDigest: sourceDigest(params.source),
+      commandDigest: sourceDigest(JSON.stringify(redeemed.commands)),
+      approvedAt: Date.now(),
+      ...(bound || redeemed.lead ? { start: 'front-door' as const } : {}),
+    },
+    ...(startedBy ? { startedBy } : {}),
+  })
+}

@@ -1152,6 +1152,20 @@ stopped would spend money on a guess. The queue lives in the host, so it
 survives a reload and a second window; it does not survive the host, because a
 session that is no longer live could not deliver it anyway.
 
+### Prompt links
+
+`harnessdesk://new?repo=<owner/name, host/owner/name or absolute path>&prompt=<text>`,
+with optional `pr=<number>` and `flow=<flow id>`, brings HarnessDesk forward
+and opens a new chat in that project with the prompt in the composer. It
+never sends. The repository must already be a project on the desk, matched
+by its `origin` remote or by its folder; otherwise a notice says **Open this
+repository first:** and the repository, as text, and nothing opens. A matched
+draft shows **From a link — review before sending.** above the composer,
+with the pull request and Flow as plain words when the link named them; it
+goes at the first edit or on Send. Words already typed in the new-chat
+composer move to its Restore list. The browser build does not read prompt
+links.
+
 ### Cursor model controls
 
 Cursor Agent’s Max mode reflects the flag saved after the turn. **Auto Max**
@@ -1401,6 +1415,16 @@ turning it off revokes answering for clients already connected.
 For a scripted desk, `HARNESSDESK_CLIENTS_MAY_ANSWER=1` also grants that tier,
 regardless of the stored switch. The switch shows and changes the stored
 preference; disabling it does not remove that environment override.
+
+Beneath it, **MCP clients** has **Let MCP clients start work**, off by default,
+and **Starts a day** (1, 3, 5, 10, 20 or 50; 5 unless changed). While the switch
+is on, its row says how many of the day's starts are used, counted from local
+midnight; a start that fails is not counted. Both are host state
+(`app/mcpStarts/get` and `app/mcpStarts/set`, saved against a revision), so a
+second window or a client already connected sees the change on its next call.
+`HARNESSDESK_MCP_MAY_START=1` grants starts for a scripted desk and locks the
+switch, whose hover title names it. A run started this way carries an **MCP**
+chip before its title in a Team's Runs, whose hover title names the client.
 
 **Runtimes** lists every registered runtime with its accounts beneath it.
 Its Process cost section lists runtimes holding processes, with process count and

@@ -39,6 +39,10 @@ export const appMethods = {
 
   'app/browsers': () => installedBrowsers(),
 
+  'app/mcpStarts/get': (ctx) => ctx.mcpStarts.view(),
+
+  'app/mcpStarts/set': (ctx, params) => ctx.mcpStarts.set(params.revision, params),
+
   'app/inbox/keepInfo': async (ctx, params) => {
     const patch = keepRuntimeInboxEntry(ctx.state.state.preferences, params.entry)
     if (patch) await ctx.state.setPreferences(patch)

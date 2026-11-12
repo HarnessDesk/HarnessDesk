@@ -5,6 +5,20 @@ import type { AppSnapshot } from '../state/snapshot'
 import { isBlocking, isOpen, PREVIEW_FINDINGS } from './findings-fixture'
 import { emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 
+/**
+ * A Team a person's agent started through an MCP client, placeholder-named:
+ * one Run in flight, no trigger, so its chip and its provenance row agree.
+ */
+export const mcpRunsStore = () => {
+  const store = overviewTeamStore('running')
+  const run = store.getSnapshot().flowExecutions.get('overview-run')!
+  const patch = (values: Partial<AppSnapshot>) => (store as unknown as { patch: (values: Partial<AppSnapshot>) => void }).patch(values)
+  // Started four minutes ago, as the trigger Team's run in flight is.
+  patch({ flowExecutions: new Map([[run.id, { ...run, startedAt: Date.now() - 240_000, currentEndedAt: null,
+    startedBy: { via: 'mcp', client: 'example-client@1.0.0' } }]]) })
+  return store
+}
+
 /** Repeat starts of one pull request's Team, with no live account or host. */
 export const triggerRunsStore = () => {
   const store = overviewTeamStore('running')

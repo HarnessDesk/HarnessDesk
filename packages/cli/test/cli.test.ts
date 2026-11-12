@@ -7,7 +7,7 @@ import test from 'node:test'
 import { WebSocketServer } from 'ws'
 import { CLIENT_METHODS, PRIVATE_CLIENT_METHODS, clientTierFor } from '@harnessdesk/protocol'
 import { WireCallError } from '@harnessdesk/client'
-import { COMMANDS, FLAG_KEYS, GLOBAL_FLAG_KEYS, errorText, main, printPreview, sanitizeHuman, parseArgs, errorExit } from '../src/cli.js'
+import { COMMANDS, FLAG_KEYS, GLOBAL_FLAG_KEYS, errorText, main, printPreview, sanitizeHuman, parseArgs, errorExit, runCommand, type CommandIo } from '../src/cli.js'
 import { EXIT_CODES, GLOBAL_OPTIONS, type OptionDoc } from '../src/reference.js'
 import type { FlowPreview } from '@harnessdesk/protocol'
 import { Writable } from 'node:stream'
@@ -622,4 +622,20 @@ test('the library stub names an unexpected method in a CLI failure', async t => 
   assert.equal(result.code, 1)
   assert.match(result.stderr, /methodFailed: Unexpected stub method: session\/loadout/)
   assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'session/loadout'])
+})
+
+test('a command writes only through the io it is given, so several can run at once in one process', async t => {
+  const written: string[] = []
+  t.mock.method(process.stdout, 'write', (chunk: string | Uint8Array) => { written.push(String(chunk)); return true })
+  t.mock.method(process.stderr, 'write', (chunk: string | Uint8Array) => { written.push(String(chunk)); return true })
+  try {
+    const out: string[] = [], err: string[] = []
+    const io: CommandIo = { out: text => out.push(text), err: text => err.push(text), interactive: false }
+    // Usage is refused before any desk is reached, and the refusal is the call's own.
+    assert.equal(await runCommand(['run', 'stop', 'r'], io), 2)
+    assert.equal(await runCommand(['library', 'show', 'x', '--text', '--json'], io), 2)
+    assert.deepEqual(out, [])
+    assert.match(err.join(''), /run stop requires --reason TEXT[\s\S]*--text cannot be combined with --json/)
+    assert.deepEqual(written, [], 'nothing reached the process streams')
+  } finally { t.mock.restoreAll() }
 })
