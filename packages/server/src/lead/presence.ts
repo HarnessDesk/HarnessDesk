@@ -667,9 +667,9 @@ export class LeadPresenceStore {
       this.#observeAsks()
       // A tap names the question it answers, so a later message in the thread cannot turn it into plain words. Typed
       // words without an id go to the newest question only.
-      // A question the person has only repeated their request under, or written past about something else, is still
-      // open: typed words that are one of its options answer it.
-      const held = askId ? undefined : this.askHoldingChatStart() ?? this.openAsk()
+      // A question the person has only repeated their request under is still open: typed words can answer it. One they
+      // have written past about something else stays open for a tap, which names it; typed words there are plain words.
+      const held = askId ? undefined : this.askHoldingChatStart()
       const open = askId ? this.#askById(askId) : this.#askSincePerson() ?? (held ? this.#askById(held.id) : undefined)
       if (askId && !open) throw refused()
       // Words that are an option of a question nobody can answer any more are not sent as a new request either.
