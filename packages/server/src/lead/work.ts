@@ -258,6 +258,9 @@ export class LeadWorkLedger {
   #token = 0
   #published = ''
   #refreshing: Promise<void> | null = null
+  /** When the last refresh began, and whether the desk changed (a stop, a chat's or Team's event) after it began. */
+  #refreshedAt = -Infinity
+  #stale = true
   /** Stops being sent now, by chat: the mark a refresh reads first, before any copy on disk. */
   #stops = new Map<string, StopMark>()
   /** Chats whose mark a refresh used or let go; dropped once every item has looked. */
@@ -418,6 +421,7 @@ export class LeadWorkLedger {
     // to the mark it replaced, which is the stop that landed.
     const before = this.#stops.get(chat)
     this.#stops.set(chat, mark)
+    this.#stale = true
     const copy = (now: StopMark | undefined) => void this.#write(() => {
       for (const item of this.stored.items) {
         if (item.closedBy === 'person' || !item.links.chats.includes(chat)) continue
@@ -787,12 +791,25 @@ export class LeadWorkLedger {
     return { ...this.#card(item), origin: { ...item.origin, quotes: [...item.origin.quotes] }, timeline: item.timeline.map(fact => ({ ...fact })) }
   }
 
+  /** The desk changed in a way the board may show: the next `current` refreshes. */
+  stale(): void { this.#stale = true }
+  /**
+   * A refresh for a read of the board, which a phone polls: one only when the desk changed since the last refresh
+   * began (a stop, a chat's or Team's event, so the board names a stop at once, #2145) or the last one began
+   * `maxAgeMs` ago. A refresh lists every Team, so a poll of a quiet desk never pays for one.
+   */
+  current(maxAgeMs = 1000): Promise<void> {
+    if (!this.#stale && this.ports.now() - this.#refreshedAt < maxAgeMs) return this.#refreshing ?? Promise.resolve()
+    return this.refresh()
+  }
+
   /** Recompute every open item from the desk. Coalesced: a refresh asked for while one runs runs once more after it. */
   refresh(): Promise<void> {
     if (this.#refreshing) { this.#again = true; return this.#refreshing }
     const run = (async () => {
       do {
         this.#again = false
+        this.#refreshedAt = this.ports.now(); this.#stale = false
         let teams: ReadonlyMap<string, LeadWorkLinkState & { readonly done: boolean }> | null
         try { teams = await this.ports.teams() } catch { teams = null }
         const prs = new Map(this.ports.pullRequests().map(pr => [pr.ref, pr]))

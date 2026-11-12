@@ -1090,3 +1090,27 @@ test('#2144: the person clears a fired or cancelled reminder; it leaves the boar
   assert.equal((await (await r.reopen()).board()).reminders, undefined, 'and stays cleared after a restart')
   await assert.rejects(r.ledger.clearReminder({ id: 'remind-99' }), /no reminder/)
 })
+
+test('a read of the board refreshes only when the desk changed or a second has passed: a phone poll never lists every Team each time', async t => {
+  const r = await rig(t)
+  let listed = 0
+  const teams = r.ports.teams
+  r.ports.teams = async () => { listed++; return teams() }
+  await r.ledger.current()
+  assert.equal(listed, 1, 'the first read refreshes')
+  await r.ledger.current(); await r.ledger.current()
+  assert.equal(listed, 1, 'reads of a quiet desk within the second do not')
+  r.ledger.stale()
+  await r.ledger.current()
+  assert.equal(listed, 2, 'a chat or Team event makes the next read refresh')
+  await start(r, 'Fix the build', ['Fix the build'], 'c1')
+  r.chat('c1', 'working', 'running', 'turn-1')
+  await r.ledger.refresh()
+  const after = listed
+  r.ledger.stopping('c1', 'person')
+  await r.ledger.current()
+  assert.equal(listed, after + 1, 'a stop just recorded is on the next read at once')
+  r.tick(1000)
+  await r.ledger.current()
+  assert.equal(listed, after + 2, 'and a quiet desk is read fresh once a second')
+})

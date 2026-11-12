@@ -229,6 +229,9 @@ export interface LeadAsk {
   readonly recommended: string
   /** Minutes the question stays answerable, from when the host first saw it. Left out: it does not expire. */
   readonly expiresInMinutes?: number
+  /** The host read this question from the Lead under the rule that marks an option `starts` (#2145). Only then does an
+   * answer without a `starts` option refuse a chat start; a question stored before the rule keeps the old behaviour. */
+  readonly startsMarked?: true
 }
 /** One host-rendered unprompted finding. Actions navigate existing surfaces; they never grant authority. */
 export interface LeadProactive {
@@ -238,6 +241,8 @@ export interface LeadProactive {
   readonly options?: readonly LeadAskOption[]
   readonly recommended?: string
   readonly action?: 'plan' | 'changes' | 'approvals'
+  /** As on `LeadAsk`: the options were written under the `starts` rule. */
+  readonly startsMarked?: true
 }
 export interface LeadApprovalAudit { readonly ruleId: string; readonly target: string; readonly diff?: string }
 /** What a reply's work item is: a Team (or its goal), a conversation (a session or a chat the Lead runs), or a work-ledger item. */
@@ -778,15 +783,16 @@ const askOptions = list(omitUnset(object<LeadAskOption>({ id: askOptionId, label
   const label = text(60)(value, path)
   return label !== label.trim() || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label) ? fail(path, 'expected one trimmed plain-text label') : label
 }, starts: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['starts']), 4, 2, option => option.id)
+const startsMarked = optional((value, path = '') => value === true ? true as const : fail(path, 'expected true'))
 export const parseLeadAsk: Validator<LeadAsk> = (value, path = '') => {
-  const ask = omitUnset(object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId, expiresInMinutes: optional(askExpiry) }), ['expiresInMinutes'])(value, path)
+  const ask = omitUnset(object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId, expiresInMinutes: optional(askExpiry), startsMarked }), ['expiresInMinutes', 'startsMarked'])(value, path)
   if (new Set(ask.options.map(option => option.label.trim().replace(/\s+/gu, ' ').toLowerCase())).size !== ask.options.length) fail(path, 'duplicate option label')
   if (!ask.options.some(option => option.id === ask.recommended)) fail(path, 'recommendation must name an option')
   return ask
 }
 export const parseLeadProactive: Validator<LeadProactive> = (value, path = '') => {
   const report = omitUnset(object<LeadProactive>({ finding: proactiveLine, caveat: proactiveLine, ask: proactiveLine,
-    options: optional(askOptions), recommended: optional(askOptionId), action: optional(literalUnion('plan', 'changes', 'approvals')) }), ['options', 'recommended'])(value, path)
+    options: optional(askOptions), recommended: optional(askOptionId), action: optional(literalUnion('plan', 'changes', 'approvals')), startsMarked }), ['options', 'recommended', 'startsMarked'])(value, path)
   if (report.options !== undefined || report.recommended !== undefined)
     parseLeadAsk({ question: report.ask, options: report.options, recommended: report.recommended }, path)
   return report
@@ -1202,4 +1208,4 @@ export const parseLeadContextFacts: Validator<LeadContextFacts> = omitUnset(obje
  */
 export const leadMessageAsk = (message: { readonly ask?: LeadAsk; readonly proactive?: LeadProactive }): LeadAsk | undefined =>
   message.ask ?? (message.proactive?.options?.length && message.proactive.recommended
-    ? { question: message.proactive.ask, options: message.proactive.options, recommended: message.proactive.recommended } : undefined)
+    ? { question: message.proactive.ask, options: message.proactive.options, recommended: message.proactive.recommended, ...(message.proactive.startsMarked ? { startsMarked: true as const } : {}) } : undefined)

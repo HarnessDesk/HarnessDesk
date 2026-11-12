@@ -466,8 +466,8 @@ export class LeadControls {
         if (proactive) {
           const report = leadProactiveReport(parseLeadProactiveOutput(result.proactive!), 0, 1, false)
           await service.assertPublic(report)
-          await journal.appendReply([report.finding, report.caveat, report.ask].join('\n'), report)
-        } else await journal.appendReply(result.text ?? '', undefined, result.ask, result.refs)
+          await journal.appendModelReply([report.finding, report.caveat, report.ask].join('\n'), report)
+        } else await journal.appendModelReply(result.text ?? '', undefined, result.ask, result.refs)
       }
       else if (result.status === 'refused' && !['accepted', 'declined', 'stopped', 'waiting-for-user'].includes(journal.state.phase) && journal.state.budget &&
         leadBudgetProjection(journal.state.budget, this.options.now()).spend !== 'known') {

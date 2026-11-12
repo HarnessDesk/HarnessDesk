@@ -519,7 +519,7 @@ export class LeadSupervisor {
           // cancellation would run as a failure and reach work a cancellation leaves alone.
           if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) break
           try { this.options.onReplying?.() } catch { /* A presentation hook never owns a reply. */ }
-          try { await durable(journal.appendReply(text, proactive, ask, refs)) }
+          try { await durable(journal.appendModelReply(text, proactive, ask, refs)) }
           catch (failure) { if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase)) throw failure }
           break
         }

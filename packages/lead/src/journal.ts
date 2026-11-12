@@ -613,9 +613,23 @@ export class LeadJournal {
     }
     return true
   }) }
+  /** The latest messages the Lead model wrote itself, as opposed to notices the host wrote (#2144). Held in memory only:
+   * an observer reads them for messages appended in this sitting, and a restart starts past every earlier reply. */
+  readonly #modelReplies: string[] = []
+  /** Whether the message of this id is a reply the Lead model wrote, appended through `appendModelReply`. */
+  isModelReply(id: string): boolean { return this.#modelReplies.includes(id) }
+  /** The Lead model's own reply to a turn. A host notice goes through `appendReply` and never counts as the Lead's words. */
+  appendModelReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[]): Promise<void> {
+    return this.#appendReply(text, proactive, ask, refs, undefined, true)
+  }
   /** `reminded` marks a line the desk wrote to say the person's reminder of that id, never a model's reply. */
-  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[], reminded?: string): Promise<void> { return this.#queue(() => {
+  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[], reminded?: string): Promise<void> {
+    return this.#appendReply(text, proactive, ask, refs, reminded, false)
+  }
+  #appendReply(text: string, proactive: LeadProactive | undefined, ask: LeadAsk | undefined, refs: readonly LeadMessageRef[] | undefined, reminded: string | undefined, model: boolean): Promise<void> { return this.#queue(() => {
     const revision = this.#state.seq + 1
+    // Kept before the append, so the observers it notifies already read it as the model's.
+    if (model) { this.#modelReplies.push(`message-${revision}`); this.#modelReplies.splice(0, this.#modelReplies.length - 16) }
     return this.#append({ type: 'message', idempotencyKey: null,
       message: parseLeadMessage({ version: 1, id: `message-${revision}`, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}),
         ...(refs?.length ? { refs: parseLeadMessageRefs(refs) } : {}), ...(reminded !== undefined ? { reminded } : {}) }) })

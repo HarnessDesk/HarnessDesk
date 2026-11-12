@@ -224,7 +224,7 @@ export const leadHistory = (messages: readonly { readonly id?: string; readonly 
     return { role: message.role as 'user' | 'assistant', content: [
       ...(ask && !message.text.trim() ? [] : [{ type: 'text' as const, text: message.text }]),
       ...(message.role === 'user' && message.id ? [{ type: 'text' as const, text: `Desk reference for the preceding person message: ${message.id}` }] : []),
-      ...(message.role === 'assistant' && ask ? [{ type: 'text' as const, text: `Decision offered in this reply: ${JSON.stringify(parseLeadAsk(ask))}` }] : []),
+      ...(message.role === 'assistant' && ask ? [{ type: 'text' as const, text: `Decision offered in this reply: ${JSON.stringify((({ startsMarked: _host, ...offered }) => offered)(parseLeadAsk(ask)))}` }] : []),
     ] }
   })
   let bytes = new TextEncoder().encode(JSON.stringify(turns)).length
@@ -349,7 +349,10 @@ const proposals = (text: string, outer?: string): { text: string; plan: LeadAcce
   if (new Set(cards.map(card => card.id)).size !== cards.length) fail()
   const own = source.text === undefined ? '' : stripLeadToolMarkup(string(source.text)).text
   return { text: prose && own && !prose.includes(own) ? `${prose}\n\n${own}` : prose || own,
-    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards, ...(source.proactive === undefined ? {} : { proactive: parseLeadProactiveOutput(source.proactive) }), ...(source.ask === undefined ? {} : { ask: parseLeadAsk(source.ask) }),
+    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards,
+    // #2145: a question read now was written under the rule that marks an option `starts`; the host stamps it so, and
+    // a question stored before the rule (without the stamp) keeps the old answer behaviour.
+    ...(source.proactive === undefined ? {} : { proactive: { ...parseLeadProactiveOutput(source.proactive), startsMarked: true as const } }), ...(source.ask === undefined ? {} : { ask: { ...parseLeadAsk(source.ask), startsMarked: true as const } }),
     ...(source.proactive === undefined && replyRefs(source.refs).length > 0 ? { refs: replyRefs(source.refs) } : {}), decoded }
 }
 /** Cancellation also wins when a broken injected operation ignores its signal. */

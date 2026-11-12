@@ -416,7 +416,8 @@ export class LeadChats {
   }
   /**
    * The person's newest message, when it picked an option of the Lead's question just before it and that option is
-   * not marked `starts`: the question and the label. Null for anything else, including a message that is not an option.
+   * not marked `starts`: the question and the label. Null for anything else, including a message that is not an option
+   * and an answer to a question stored before the `starts` rule, which carries no `startsMarked` and keeps the old way.
    */
   #answerWithoutStart(): { readonly question: string; readonly label: string } | null {
     const messages = this.ports.state().messages
@@ -427,7 +428,7 @@ export class LeadChats {
     const asked = messages.slice(since + 1, at).findLast(one => one.role === 'assistant' && leadMessageAsk(one) !== undefined)
     const ask = asked ? leadMessageAsk(asked) : undefined
     const option = ask ? leadAskOption(ask.options, messages[at]!.text) : undefined
-    return ask && option && !option.starts ? { question: ask.question, label: option.label } : null
+    return ask?.startsMarked && option && !option.starts ? { question: ask.question, label: option.label } : null
   }
   #envelope(text: string): string { return leadMessageEnvelope(leadDisplayName(this.ports.state().name), text) }
   /** The person messages a start comes from: the ones it quotes, or the latest that was not an option's answer. */

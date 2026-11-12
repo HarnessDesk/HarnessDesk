@@ -4071,6 +4071,8 @@ export class Host {
     // #2144: each reply the Lead writes says the reminders its turn's cards called owed, so they are marked said once,
     // on the board both surfaces read and in the cards of every later turn. The turn is the newest user message before
     // the reply (the person's, a wake's or a trigger's); a reminder that fired after it began waits for the next reply.
+    // Only the Lead model's own reply counts: a notice the host writes meanwhile (a takeover, a refused repeat) told
+    // the person nothing about the reminder.
     let repliedAt = journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0)
     this.onDispose(journal.onChange(() => {
       const messages = journal.state.messages
@@ -4078,7 +4080,7 @@ export class Host {
         if (message.role !== 'assistant' || message.revision <= repliedAt) continue
         repliedAt = message.revision
         const turn = messages.slice(0, index).findLast(earlier => earlier.role === 'user')
-        if (turn) void work.saidInReply(turn.revision).catch(() => { this.#logger.warn('The Lead work ledger could not mark a reminder said') })
+        if (turn && journal.isModelReply(message.id)) void work.saidInReply(turn.revision).catch(() => { this.#logger.warn('The Lead work ledger could not mark a reminder said') })
       }
     }))
     // Presence: seen marks per device, the away digest, the morning brief and the state of each ask. Built from the
@@ -4108,6 +4110,7 @@ export class Host {
     this.onDispose(() => { if (this.#leadPresence === presence) this.#leadPresence = null })
     let workTimer: ReturnType<typeof setTimeout> | null = null
     const pokeWork = () => {
+      work.stale()
       if (workTimer || this.#disposed) return
       workTimer = setTimeout(() => { workTimer = null; void work.refresh().catch(() => { this.#logger.warn('The Lead work ledger could not refresh') }) }, 250)
       workTimer.unref?.()
@@ -6450,7 +6453,7 @@ export class Host {
         brief: () => this.leadPresence.brief(), updateBrief: update => this.leadPresence.updateBrief(update) },
       // A read of the board is current: a stop that landed a moment ago is on it, named, before the debounced refresh
       // would have run, so the wake that stop causes never reads the chat as still working (#2145).
-      leadWork: { board: async state => { const work = this.leadWork; await work.refresh().catch(() => {}); return work.board(state) }, read: params => this.leadWork.read(params),
+      leadWork: { board: async state => { const work = this.leadWork; await work.current().catch(() => {}); return work.board(state) }, read: params => this.leadWork.read(params),
         note: async params => { const card = await this.leadWork.note(params); void this.leadWork.refresh(); return card },
         close: params => this.leadWork.close(params), setReminder: params => this.leadWork.setReminder(params),
         cancelReminder: params => this.leadWork.cancelReminder(params), clearReminder: params => this.leadWork.clearReminder(params) },

@@ -423,6 +423,27 @@ test('#2144: the reply to a turn that carried a fired reminder marks it said, so
   assert.equal((await r.host.call('workspace/read', {})).work?.reminders?.some(found => found.id === entry.id) ?? false, false, 'the phone reads it gone too')
 })
 
+test('#2144: a host notice that lands before the Lead answers never marks a reminder said; only the Lead\'s own reply to the turn does', async t => {
+  const r = await workRig(t)
+  const set = await r.execute({ method: 'lead/reminder/set', params: { text: 'Look at the build CI', inMinutes: 20, cause: 'person' } })
+  const entry = set.value as { id: string; dueAt: number }
+  await r.host.leadWork.reminded(entry.id, entry.dueAt)
+  const delivery = async () => (await r.host.call('lead/work/list', {})).reminders?.find(found => found.id === entry.id)?.delivery
+  let early: string | undefined
+  const controls = r.controls(async () => {
+    // The desk writes a notice of its own while the Lead is still answering, as the takeover notice does.
+    await r.journal.appendReply('Host notice: 1 queued Lead message was not delivered because the person took over chat a.')
+    await new Promise(resolve => setTimeout(resolve, 50))
+    early = await delivery()
+    return { status: 'completed', text: 'The chat is running. Also: your reminder to look at the build CI is due.' }
+  })
+  await controls.send({ idempotencyKey: 'person-1', text: 'How is the build going?' }); await controls.idle()
+  assert.notEqual(early, 'said', 'the host notice did not say the reminder')
+  let late: string | undefined
+  for (let tries = 0; tries < 100 && late !== 'said'; tries++) { late = await delivery(); if (late !== 'said') await new Promise(resolve => setTimeout(resolve, 20)) }
+  assert.equal(late, 'said', 'the Lead\'s reply to the turn did')
+})
+
 test('#2146: each person turn tells the Lead which device the person wrote from, and that every card works there', async t => {
   const r = await workRig(t)
   const sent: (readonly MessagesTurn[])[] = []

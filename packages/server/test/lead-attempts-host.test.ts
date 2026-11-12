@@ -206,7 +206,9 @@ test('#2145: an answer that picked a way without a new chat never starts one; an
   const r = await rig(t)
   await r.personWrites('Why did the build a game run stall?')
   const ask = () => ({ question: 'The fix was stopped. How do you want to go on?', recommended: 'read',
-    options: [{ id: 'again', label: 'Open a new chat and try again', starts: true as const }, { id: 'read', label: 'Only read the full reason, change nothing' }] })
+    options: [{ id: 'again', label: 'Open a new chat and try again', starts: true as const }, { id: 'read', label: 'Only read the full reason, change nothing' }],
+    // The stamp the host puts on every question it reads from the Lead under the starts rule.
+    startsMarked: true as const })
   await r.journal.appendReply('The fix was stopped. How do you want to go on?', undefined, ask())
   await r.personWrites('Only read the full reason, change nothing')
   const chats = r.runtime.sessions.size
@@ -218,5 +220,18 @@ test('#2145: an answer that picked a way without a new chat never starts one; an
   await r.journal.appendReply('The fix was stopped. How do you want to go on?', undefined, ask())
   await r.personWrites('Open a new chat and try again')
   const started = await r.execute({ method: 'lead/chat/start', params: { text: 'Read the full stall reason, read-only' } })
-  assert.equal(typeof (started.value as { id?: string }).id, 'string', JSON.stringify(started.value))
+  assert.match((started.value as { id?: string }).id ?? '', /./, JSON.stringify(started.value))
+  assert.equal((started.value as { problem?: string }).problem, undefined)
+})
+
+test('#2145: a question stored before the starts rule keeps the old answer behaviour: its answer may still start a chat', async t => {
+  const r = await rig(t)
+  await r.personWrites('Why did the build a game run stall?')
+  // Written by an older desk: no option says starts, and the question carries no stamp.
+  await r.journal.appendReply('The fix was stopped. Shall I start it again?', undefined, { question: 'The fix was stopped. Shall I start it again?', recommended: 'start',
+    options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }] })
+  await r.personWrites('Start it')
+  const started = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build' } })
+  assert.match((started.value as { id?: string }).id ?? '', /./, JSON.stringify(started.value))
+  assert.equal((started.value as { problem?: string }).problem, undefined)
 })
