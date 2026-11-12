@@ -1,4 +1,4 @@
-import { answeredWithNothing, burn, elapsedMinutes, remainingOf, leadStage, isWaitingOnYou, isSilentUsage } from '@harnessdesk/protocol'
+import { answeredWithNothing, brandKeyField, burn, elapsedMinutes, remainingOf, leadStage, isWaitingOnYou, isSilentUsage } from '@harnessdesk/protocol'
 import { teamLeadStage } from './work-stage.js'
 import {
   sessionIndexCursorOf, sessionLabel,
@@ -77,6 +77,8 @@ export interface PhoneWorkspacePorts {
   readonly stopped?: (runtime: RuntimeId, id: SessionId) => boolean
   /** The agent's presentation name, from the runtime's own `presentation`; null for an agent this host does not know. */
   readonly seatName: (runtime: RuntimeId) => string | null
+  /** The agent's mark, a lobe-icons key from `brandForRuntime`; null or absent when it has none. Checked here before it is sent. */
+  readonly seatBrand?: (runtime: RuntimeId) => string | null
   /** Whether this agent moves deleted conversations to the Trash. */
   readonly canDelete?: (runtime: RuntimeId) => boolean
   /** Whether this runtime's `createdAt` is a measured start (`capabilities.startTimes`); absent means it is not. */
@@ -129,6 +131,9 @@ export class PhoneWorkspace {
 
   // ------------------------------------------------------------------ sessions
 
+  /** The `brand` field of a row about this agent: a key shaped as the wire allows, or nothing. */
+  #brand(runtime: RuntimeId): { brand?: string } { return brandKeyField(this.#ports.seatBrand?.(runtime)) }
+
   #stateOf(summary: SessionSummary, live: ReadonlyMap<string, PhoneLiveSession>): PhoneSessionState {
     if (summary.archived) return 'archived'
     const one = live.get(keyOf(summary.runtime, summary.id))
@@ -152,6 +157,7 @@ export class PhoneWorkspace {
       // Lead directs is its work, even though it runs as an ordinary conversation.
       startedBy: lead?.ids.has(id) ? 'lead' : 'you',
       seat,
+      ...this.#brand(summary.runtime),
       cost: money(one?.cost ?? entry.cost),
       lastActivityAt: summary.updatedAt,
       // A start the agent never recorded, or one later than the last activity, is left out rather than guessed.
@@ -438,7 +444,7 @@ export class PhoneWorkspace {
       allowance: allowanceOf(reports, monthly, now),
       counts,
       daily,
-      seats: seatsOf(reports, this.#ports.seatName),
+      seats: seatsOf(reports, this.#ports.seatName, this.#ports.seatBrand),
       period: {
         range,
         finished: this.#finishedSince(rangeStart, live, teams),
@@ -487,7 +493,7 @@ export class PhoneWorkspace {
       canDelete: row.canDelete, pinned: row.pinned, archived: row.archived === true,
       phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
       line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : stageReason === 'stopped' ? 'Stopped' : 'Done',
-      agent: { name: row.seat }, ...(lead ? { by: lead } : {}),
+      agent: { name: row.seat, ...(row.brand ? { brand: row.brand } : {}) }, ...(lead ? { by: lead } : {}),
       updatedAt: row.lastActivityAt, ...(row.startedAt === undefined ? {} : { startedAt: row.startedAt }),
       ...(row.cost === null ? {} : { cost: micros(row.cost) }),
     }
@@ -522,7 +528,7 @@ export class PhoneWorkspace {
       const one = live.get(keyOf(member.session.runtime, member.session.id))
       return {
         id: member.seat, title: scrub(member.title, 80) || 'Seat',
-        seat: { name: this.#ports.seatName(member.session.runtime) ?? 'Agent', ...(member.model ? { model: scrub(member.model, 40) } : {}) },
+        seat: { name: this.#ports.seatName(member.session.runtime) ?? 'Agent', ...(member.model ? { model: scrub(member.model, 40) } : {}), ...this.#brand(member.session.runtime) },
         status: one?.waiting ? 'waiting' : one?.running || member.holding ? 'running' : 'done',
         cost: micros(member.cost ?? 0),
       }
@@ -599,7 +605,7 @@ export class PhoneWorkspace {
         }),
       }
     }
-    const seats = seatRows(reports, this.#ports.seatName)
+    const seats = seatRows(reports, this.#ports.seatName, this.#ports.seatBrand)
     const runtimes = seats.map(seat => allowanceRowOf(seat, now))
     const pacing = pacingOf(seats, runtimes, now)
     return {
@@ -623,7 +629,8 @@ const STANDING_WORD: Record<UsageStandingStatus, string> = {
  * and the Plans table's never disagree; times are epoch milliseconds the phone counts down to. The older string
  * fields stay for a phone that reads only them. A source's error goes through `scrub`; the account never leaves.
  */
-const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
+const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => ({ ...allowanceFiguresOf(seat, now), ...(seat.brand ? { brand: seat.brand } : {}) })
+const allowanceFiguresOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
   const { report } = seat
   // A tracked agent nothing has read: listed, as the desk lists it, with no figures and no reading to date.
   // An account that answered with nothing to show reads the same: the Plans table's "plan usage unavailable · Not reporting".
@@ -764,7 +771,7 @@ interface SeatRow extends PhoneSeatUsage {
  * One row per signed-in agent. A name shared by several accounts gets a number so the rows can be told apart;
  * the account itself is never part of a row.
  */
-const seatRows = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts['seatName']): SeatRow[] => {
+const seatRows = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts['seatName'], seatBrand?: PhoneWorkspacePorts['seatBrand']): SeatRow[] => {
   const named = reports.flatMap(report => { const name = seatName(report.runtime); return name === null ? [] : [{ report, name }] })
   const total = new Map<string, number>()
   for (const { name } of named) total.set(name, (total.get(name) ?? 0) + 1)
@@ -781,6 +788,7 @@ const seatRows = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts
       id: several && nth > 1 ? `${report.runtime}:${nth}` : String(report.runtime),
       report,
       label: several ? `${name} ${nth}` : name,
+      ...brandKeyField(seatBrand?.(report.runtime)),
       windowPercent: short ? Math.round(short.usedPercent) : null,
       resetsAt: short?.resetsAt ?? null,
       weekPercent: week ? Math.round(week.usedPercent) : null,
@@ -788,8 +796,8 @@ const seatRows = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts
   })
 }
 
-const seatsOf = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts['seatName']): PhoneSeatUsage[] =>
-  seatRows(reports, seatName).map(({ label, windowPercent, resetsAt, weekPercent }) => ({ label, windowPercent, resetsAt, weekPercent }))
+const seatsOf = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts['seatName'], seatBrand?: PhoneWorkspacePorts['seatBrand']): PhoneSeatUsage[] =>
+  seatRows(reports, seatName, seatBrand).map(({ label, brand, windowPercent, resetsAt, weekPercent }) => ({ label, ...(brand ? { brand } : {}), windowPercent, resetsAt, weekPercent }))
 
 const pick = (lanes: readonly UsageLane[], compare: (a: UsageLane, b: UsageLane) => number): UsageLane | undefined => [...lanes].sort(compare)[0]
 

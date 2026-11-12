@@ -1052,7 +1052,12 @@ sessions, and its usage. Every `PhoneWorkItem` carries the host's `stage` and
 `stageReason`: `you-answer`, `you-review`, `you-blocked`, `working`, `queued`
 or `idle`. Phones must count and sort by stage, with the three `you-*` stages
 waiting on the person; they must not re-derive attention. Older desks omit
-stage, so phones fall back to the unchanged `phase` field. See the
+stage, so phones fall back to the unchanged `phase` field. A row about an
+agent (a session's `agent`, a Team worker's `seat`, an allowance row, a
+dashboard seat, a startable agent) carries `brand`, the lobe-icons key
+`brandForRuntime` in `packages/protocol/src/brands.ts` gives the desktop's
+marks, sent only when it matches `RUNTIME_BRAND_KEY` (`^[a-z0-9]{1,32}$`); a
+phone draws its generic glyph without one. See the
 [phone Lead contract](../packages/phone-link/lead.md). Each signed-in account is one allowance row with the
 standing the desk's own screens show (`usageStandingOf`), its windows as "left"
 fractions, and reset, back and run-out times as epoch milliseconds the phone

@@ -717,6 +717,12 @@ const agentsRig = (over: Partial<PhoneWorkPorts> = {}) => {
   return { ...r, created, choices }
 }
 
+test('each agent a phone can start on carries its mark\'s key, as the desktop draws it, and only a key of the wire\'s shape (#2150)', async () => {
+  const brands = { [String(RT)]: 'codex', [String(RT2)]: 'Not A Key' } as Record<string, string>
+  const snapshot = await agentsRig({ seatBrand: runtime => brands[String(runtime)] ?? null }).work.snapshot()
+  assert.deepEqual(snapshot.agents?.map(agent => [agent.id, agent.brand]), [[String(RT), 'codex'], [String(RT2), undefined]])
+})
+
 test('the snapshot lists each ready agent with its own models, the default first, and keeps the default models for older phones', async () => {
   const snapshot = await agentsRig().work.snapshot()
   assert.deepEqual(snapshot.agents, [

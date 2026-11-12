@@ -67,6 +67,7 @@ import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
+  brandForRuntime,
   browserProfileStorageName,
   sessionBrowserProfile,
   browserProfileSession,
@@ -12181,6 +12182,11 @@ export class Host {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
       },
+      // The mark the desktop draws for this agent, decided by the same function (#2150).
+      seatBrand: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? brandForRuntime(this.#infoOf(known)) : null
+      },
       canDelete: runtime => this.#runtimes.get(runtime)?.info.capabilities.deleteHistory === 'trash',
       knowsStart: (runtime) => {
         const known = this.#runtimes.get(runtime)
@@ -12465,6 +12471,11 @@ export class Host {
       seatName: (runtime) => {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
+      },
+      // The mark the desktop draws for this agent, decided by the same function (#2150).
+      seatBrand: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? brandForRuntime(this.#infoOf(known)) : null
       },
       isOwn: (runtime, id, includeArchived) => this.#sessionIndex.isOwn(runtime, id, includeArchived),
       summary: (runtime, id) => this.#sessionIndex.get(runtime, id),

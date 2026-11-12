@@ -45,6 +45,7 @@ interface Fixture {
   ledger: (query: LedgerQuery) => LedgerReport
   lead: { name: string; ids: Set<string>; teams?: Map<string, { step: string | null; accepted: boolean }>; wrapsOnDesk?: (team: string) => boolean } | null
   knowsStart: boolean
+  brand: string | null
   readonly done: () => Promise<void>
 }
 
@@ -54,7 +55,7 @@ const fixture = async (): Promise<Fixture> => {
   const index = new SessionIndex(file)
   const db = new DatabaseSync(file)
   const state: Fixture = {
-    index, db, live: [], teams: [], reports: [], lead: null, knowsStart: true, ledger: () => ({ totalCost: null, scannedAt: null, rows: [], daily: [] } as unknown as LedgerReport),
+    index, db, live: [], teams: [], reports: [], lead: null, knowsStart: true, brand: null, ledger: () => ({ totalCost: null, scannedAt: null, rows: [], daily: [] } as unknown as LedgerReport),
     workspace: undefined as never, done: async () => { db.close(); index.close(); await rm(root, { recursive: true, force: true }) },
   }
   const workspace = new PhoneWorkspace({
@@ -68,6 +69,7 @@ const fixture = async (): Promise<Fixture> => {
     },
     live: () => state.live,
     seatName: (runtime: import('@harnessdesk/protocol').RuntimeId) => runtime === agent ? 'Fake Agent' : null,
+    seatBrand: (runtime: import('@harnessdesk/protocol').RuntimeId) => runtime === agent ? state.brand : null,
     knowsStart: () => state.knowsStart,
     teams: async () => state.teams,
     reports: async () => state.reports,
@@ -386,6 +388,29 @@ test('a plan with no short window shows a seat with no bar, and an agent the des
   try {
     f.reports = [report('a', { lanes: [] }), report('b', { runtime: stranger })]
     assert.deepEqual((await f.workspace.dashboardRead({})).seats, [{ label: 'Fake Agent', windowPercent: null, resetsAt: null, weekPercent: null }])
+  } finally { await f.done() }
+})
+
+test('every row the phone draws an agent beside carries its mark\'s key, and a key that is not one is never sent (#2150)', async () => {
+  const f = await populated()
+  try {
+    f.brand = 'claudecode'
+    f.ledger = () => ledgerOf([], 0)
+    f.reports = [report('a@example.com', { lanes: [{ id: 'session', label: '5-hour', usedPercent: 40, windowMinutes: 300, resetsAt: NOW + HOUR }] })]
+    f.teams = [{ ...team('t-build', { role: 'implementer' }), members: [{ seat: 'builder', session: { runtime: agent, id: sessionId('team-seat') }, title: 'Builder', role: 'implementer', model: null, holding: true, cost: null }] }]
+    const brands = (rows: readonly { brand?: string }[]) => [...new Set(rows.map(row => row.brand))]
+    assert.deepEqual(brands(f.workspace.sessionsList({}).rows), ['claudecode'], 'Sessions rows')
+    const items = await f.workspace.workItems()
+    assert.deepEqual(brands(items.filter(one => one.kind === 'session').map(one => one.agent!)), ['claudecode'], 'the work list\'s session rows')
+    assert.deepEqual(brands(items.find(one => one.kind === 'team')!.team!.workers.map(one => one.seat)), ['claudecode'], 'a Team\'s workers')
+    assert.deepEqual(brands((await f.workspace.workUsage())!.runtimes), ['claudecode'], 'allowance tiles and Accounts')
+    assert.deepEqual(brands((await f.workspace.dashboardRead({})).seats), ['claudecode'], 'the dashboard\'s seats')
+    // An agent with no mark sends no key, and anything not shaped like one is dropped rather than sent.
+    for (const bad of [null, 'Claude Code', 'claude-code', '', 'x'.repeat(33)]) {
+      f.brand = bad
+      assert.deepEqual(brands(f.workspace.sessionsList({}).rows), [undefined], String(bad))
+      assert.deepEqual(brands((await f.workspace.dashboardRead({})).seats), [undefined], String(bad))
+    }
   } finally { await f.done() }
 })
 

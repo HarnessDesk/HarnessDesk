@@ -76,6 +76,12 @@ export interface PhoneSessionRow {
   readonly startedBy: PhoneStartedBy
   /** What the session runs on, in the desk's words ("Codex Sol High"). */
   readonly seat: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   /** Dollars so far; null when the agent does not price its sessions. */
   readonly cost: number | null
   /** Epoch milliseconds. */
@@ -129,6 +135,12 @@ export type PhoneRange = 'today' | '7d' | '30d'
 export interface PhoneSeatUsage {
   /** The agent's presentation name, with a number when one agent is signed in more than once. Never an account. */
   readonly label: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   /** The short window's used percent, 0–100 and not clamped; null when the agent has no such window. */
   readonly windowPercent: number | null
   readonly resetsAt: number | null
@@ -203,6 +215,12 @@ export interface PhoneMoney {
 export interface PhoneAgentLabel {
   readonly name: string
   readonly model?: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
 }
 
 export type PhoneWorkPhase = 'running' | 'needsYou' | 'watching' | 'done'
@@ -279,6 +297,12 @@ export interface PhoneWorkAllowance {
   /** Unique per row: an agent signed in twice sends two ids. */
   readonly id: string
   readonly name: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   /** 0–1 of the short window used and not clamped; left out when the agent has no such window. */
   readonly used?: number
   /** Kept for phones that read only this; a newer phone counts down to `resetsAt`. */
@@ -417,6 +441,12 @@ export interface PhoneModelChoice {
 export interface PhoneAgentChoice {
   readonly id: string
   readonly name: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   readonly models: readonly PhoneModelChoice[]
   /** The desk's selected agent, which a start without `agent` uses. */
   readonly default?: true

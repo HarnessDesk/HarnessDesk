@@ -11,7 +11,7 @@ const MODE: Record<LeadAutonomyMode, string> = { off: 'Off', observe: 'Observe',
 
 /**
  * When an applied change holds, said on the card because a mode and a rule section take effect differently. `name` is
- * what the Lead is called (`leadCalled`), Dex or Lex, the words the phone uses for the same card (#2146).
+ * what the Lead is called (`useLeadCalled`), Dex or Lex, the words the phone uses for the same card (#2146).
  */
 export const leadSettingsEffect = (name: string) => ({
   autonomy: `Takes effect at once, for what ${name} does without being asked.`,
