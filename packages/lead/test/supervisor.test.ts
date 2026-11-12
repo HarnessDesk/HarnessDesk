@@ -719,7 +719,8 @@ test('the first request after a summary reaches the provider: the child journals
     assert.equal(result.status, 'completed')
     assert.equal(calls, 1, 'the request reached the provider')
     assert.ok(records.some(record => record.type === 'budget' && record.event.type === 'reserve'), 'the request was reserved')
-    assert.deepEqual(journal.state.memoryEpoch, { goal: 'lead-goal', epoch: 1, memory: journal.state.memory })
+    // The rules the epoch holds ride as a fourth argument, through the same frame check (#2165).
+    assert.deepEqual(journal.state.memoryEpoch, { goal: 'lead-goal', epoch: 1, memory: journal.state.memory, rules: {} })
     assert.equal(f.supervisor.live, true); assert.deepEqual(exits, []); assert.deepEqual(failures, [])
     assert.equal(journal.state.managementReason, null)
   } finally { await f.supervisor.stop(); await runtime.close() }

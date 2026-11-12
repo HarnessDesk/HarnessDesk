@@ -148,6 +148,26 @@ test('#2165: a line the person applied and then edited away by hand reads as not
   assert.equal((await r.host.call('lead/autonomy/read', {})).proposals?.filter(one => one.state === 'pending').length, 1)
 })
 
+test('#2165: the note compares against the words the child built its epoch with, never the settings the host read first', async t => {
+  const r = await rig(t)
+  const talk = () => { const status = r.status(); return status.then(text => text!.slice(text!.indexOf('<desk-settings-status>')).split('\n')) }
+  await r.host.call('lead/rules/update', { section: 'talk', action: 'edit', text: 'Words A.', expectedVersion: 0 })
+  // The child builds this epoch's instructions with A and records them beside the epoch.
+  await r.journal.memoryEpoch('settings-goal', r.journal.state.context.epoch, r.journal.state.memory, { talk: { version: 1, text: 'Words A.' } })
+  // The person changes the words before the host first reads its settings for this epoch: the note must not take B as held.
+  await r.host.call('lead/rules/update', { section: 'talk', action: 'edit', text: 'Words B.', expectedVersion: 1 })
+  const lines = await talk()
+  const at = lines.findIndex(line => line.startsWith('- How to talk to me (talk), version 2.'))
+  assert.ok(at >= 0 && lines[at]!.endsWith('Your instructions hold other words; these hold now:') && lines[at + 1] === '  Words B.', lines.join('\n'))
+  // Back to A: the instructions hold those words, so the line costs nothing more.
+  await r.host.call('lead/rules/update', { section: 'talk', action: 'edit', text: 'Words A.', expectedVersion: 2 })
+  assert.ok((await talk()).some(line => /^- How to talk to me \(talk\), version 3, same as your instructions\./.test(line)))
+  // A new epoch the child has not recorded yet: what its instructions hold is not known, so the words are printed.
+  await r.journal.memoryEpoch('settings-goal', r.journal.state.context.epoch + 1, r.journal.state.memory, {})
+  const unknown = (await talk()).join('\n')
+  assert.match(unknown, /version 3\.[^\n]* Your instructions may hold other words; these hold now:\n {2}Words A\./, unknown)
+})
+
 test('#2165: a settings change stays marked as news through a failed request and a wake, until the Lead answers the person', async t => {
   const notes: string[] = []
   const replies: ('fail' | 'answer')[] = []

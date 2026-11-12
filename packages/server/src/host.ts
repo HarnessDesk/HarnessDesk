@@ -186,10 +186,10 @@ import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRe
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadClockLine, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
-import { initialLeadMemoryCore, leadMemoryStatus, leadSettingsStatus, type LeadRulesHeld, type LeadState } from '@harnessdesk/lead'
+import { initialLeadMemoryCore, leadMemoryStatus, leadRulesHeld, leadSettingsStatus } from '@harnessdesk/lead'
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
-import type { FlowExecution, LeadAutonomyView, LeadProject } from '@harnessdesk/protocol'
+import type { FlowExecution, LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions, sourceDigest, type SeatReplacement } from './flow-execution.js'
 import { FlowReview, PERSON_REVIEWER_ID } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
@@ -4752,17 +4752,8 @@ export class Host {
     // be read leaves them out rather than the memory status.
     const autonomy = this.#leadAutonomy, shownAt = Date.now()
     const read = autonomy ? await Promise.all([autonomy.view(), autonomy.settingsShownAt()]).then(([view, since]) =>
-      ({ settings: leadSettingsStatus(view, undefined, since, this.#leadRulesHeld(journal.state, view)) }), () => null) : null
+      ({ settings: leadSettingsStatus(view, undefined, since, leadRulesHeld(journal.state)) }), () => null) : null
     return { text: read?.settings ? `${memory}\n${read.settings}` : memory, ...(read ? { settingsShownAt: shownAt } : {}) }
-  }
-  /** The words each rule section had when this goal's epoch first read the settings: the Lead's instructions are built
-   * once per goal and epoch from the rules as they stand then (`leadRulesAddendum`), so the settings note prints only
-   * the sections whose words moved since (#2165), and a section the instructions already hold costs one line. */
-  #leadRulesHeldAt: { readonly key: string; readonly held: LeadRulesHeld } | null = null
-  #leadRulesHeld(state: LeadState, view: LeadAutonomyView): LeadRulesHeld {
-    const key = `${state.budget?.logicalGoalId ?? ''}\u0000${state.context?.epoch ?? 0}`
-    if (this.#leadRulesHeldAt?.key !== key) this.#leadRulesHeldAt = { key, held: Object.fromEntries(view.rules.map(rule => [rule.id, rule.custom ? rule.text : null])) }
-    return this.#leadRulesHeldAt.held
   }
   /** The status a desk wake carries: null when the memory store cannot be read, or takes longer than
    * `LEAD_WAKE_MEMORY_STATUS_MS` to open, so a corrupt file or a slow first open never stalls or stops a wake. */

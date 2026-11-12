@@ -180,11 +180,16 @@ const active: Validator<LeadRuleActive> = (value, path = '') => {
   const source = only(['version', 'text'])(value, path)
   return { version: integer(1)(source.version, at(path, 'version')), text: ruleText(source.text, at(path, 'text')) }
 }
+/** The sections the person edited, as a record carries them. */
+export const parseLeadAutonomyRules: Validator<LeadAutonomyRecord['rules']> = (value, path = '') => {
+  const rules = only(LEAD_RULE_SECTIONS)(value, path)
+  const out: Partial<Record<LeadRuleSectionId, LeadRuleActive>> = {}
+  for (const key of LEAD_RULE_SECTIONS) if (rules[key] !== undefined) out[key] = active(rules[key], at(path, key))
+  return out
+}
 export const parseLeadAutonomyRecord: Validator<LeadAutonomyRecord> = (value, path = '') => {
   const source = only(['modes', 'rules', 'deadline'])(value, path)
-  const rules = only(LEAD_RULE_SECTIONS)(source.rules, at(path, 'rules'))
-  const out: Partial<Record<LeadRuleSectionId, LeadRuleActive>> = {}
-  for (const key of LEAD_RULE_SECTIONS) if (rules[key] !== undefined) out[key] = active(rules[key], at(at(path, 'rules'), key))
+  const out = parseLeadAutonomyRules(source.rules, at(path, 'rules'))
   let deadline: LeadAutonomyRecord['deadline']
   if (source.deadline !== undefined) {
     const d = only(['logicalGoalId', 'deadlineAt'])(source.deadline, at(path, 'deadline'))

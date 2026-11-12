@@ -1,4 +1,4 @@
-import { parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, LEAD_APPROVAL_HISTORY_BYTES, LEAD_LIMITS, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadAutonomyRecord, parseLeadAutonomyRules, parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, LEAD_APPROVAL_HISTORY_BYTES, LEAD_LIMITS, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import { parseLeadDecisionMessage, parseLeadWakeLog, parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy, parseLeadCaps } from '@harnessdesk/protocol'
 import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
 import { LEAD_ACCEPTED_TEAMS, initialLeadState, initialLeadContext, removedWorkerApprovalNotice, retireLeadWorkerApprovals, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
@@ -49,9 +49,10 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     (context.last === null || typeof context.last === 'object' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(context.last.id)))
   parseLeadMemoryCore(source.memory)
   const frozen = source.memoryEpoch
-  assert(frozen === null || typeof frozen === 'object' && Object.keys(frozen).sort().join() === 'epoch,goal,memory' && Number.isSafeInteger(frozen.epoch) && frozen.epoch >= 0 &&
+  assert(frozen === null || typeof frozen === 'object' && ['epoch,goal,memory', 'epoch,goal,memory,rules'].includes(Object.keys(frozen).sort().join()) && Number.isSafeInteger(frozen.epoch) && frozen.epoch >= 0 &&
     typeof frozen.goal === 'string' && (frozen.goal === '' || /^[A-Za-z0-9._:/@-]{1,256}$/.test(frozen.goal)))
   if (frozen) parseLeadMemoryCore(frozen.memory)
+  if (frozen && Object.hasOwn(frozen, 'rules')) try { parseLeadAutonomyRules(frozen.rules) } catch { assert(false) }
   assert(Number.isSafeInteger(source.decisionRevision) && source.decisionRevision >= 0 && source.decisionRevision <= source.seq)
   assert(Number.isSafeInteger(source.goalStartedSeq) && source.goalStartedSeq >= 0 && source.goalStartedSeq <= source.seq)
   const effects = source.chatEffectsSinceReply
