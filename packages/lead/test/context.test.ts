@@ -765,9 +765,12 @@ test('#2180: a fresh desk read replaces only what it read again: the memory sect
   const work = '<work-ledger>\n- w1 Fix the game\n</work-ledger>\n\n<host-note>The person was away from 09:00 to 10:00.</host-note>'
   const status = '<desk-memory-status>\nNothing pending.\n</desk-memory-status>\n<desk-settings-status>\n- talk, changed since your last reply.\n</desk-settings-status>'
   const turn = [text('Desk note: the person sent the message above from the desktop window, which opens anything on the desk.'), text(work), text(status)]
-  assert.deepEqual(lead.leadRefreshedDesk(turn, { work: null, memory: null }), turn, 'nothing read again: the turn\'s desk as it was')
+  assert.deepEqual(lead.leadRefreshedDesk(turn, { memory: null }), turn, 'nothing read again: the turn\'s desk as it was')
+  assert.deepEqual(lead.leadRefreshedDesk(turn, { work: undefined, memory: null }), turn, 'a ledger read that failed keeps the turn\'s ledger')
+  assert.deepEqual(lead.leadRefreshedDesk(turn, { work: null, memory: null }).map(block => block.text), [turn[0]!.text, '<host-note>The person was away from 09:00 to 10:00.</host-note>', status],
+    'a ledger read that found nothing open removes the turn\'s ledger and adds none')
   const memory = '<desk-memory-status>\nOne note kept.\n</desk-memory-status>'
-  const kept = lead.leadRefreshedDesk(turn, { work: null, memory }).map(block => block.text)
+  const kept = lead.leadRefreshedDesk(turn, { memory }).map(block => block.text)
   assert.deepEqual(kept, [turn[0]!.text, work, '<desk-settings-status>\n- talk, changed since your last reply.\n</desk-settings-status>', memory],
     'a fresh memory status without settings replaces the memory section and keeps the settings the turn read')
   const both = `${memory}\n<desk-settings-status>\n- talk, version 2.\n</desk-settings-status>`
@@ -825,5 +828,23 @@ test('#2180: a continuation carries the desk of the turn it continues, never a l
     assert.equal(s.fake.requests.length, 3)
     const body = JSON.stringify(JSON.parse(s.fake.requests[2].body).messages.at(-1))
     assert.ok(!body.includes('turn B.'), 'the continuation of turn A never carries turn B\'s desk')
+  } finally { await loop.close() }
+})
+
+test('#2180: cancelling the last reminder leaves the continuation with no ledger, never the one the turn read', async () => {
+  const s = await loopFixture([message([tool('cancel', 'reminder_cancel', { id: 'remind-1' })], { stop_reason: 'tool_use' }), message([text('Cancelled.')])])
+  const call = s.options.desk.call
+  // After the cancel, nothing is open on the ledger: the read succeeds and finds nothing.
+  s.options.desk.call = async (method: string, params: unknown) => method === 'lead/work/list' || method === 'lead/reminder/cancel' ? { version: 1, items: [], more: 0 } : call(method, params)
+  const context = contextPort()
+  const loop = lead.createLeadLoop({ ...s.options, context: context.port })
+  try {
+    const ledger = '<work-ledger>\nOpen work the host tracks.\n- remind-1 "Check the build" set for 15:00\n</work-ledger>'
+    await loop.request({ messages: [user(text('Cancel my reminder.'), text(ledger))], maxTokens: 100, stable: { turns: 1, blocks: 1 }, epoch: 0, wakeSource: 'person' })
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2)
+    const body = JSON.stringify(JSON.parse(s.fake.requests[1].body).messages.at(-1))
+    assert.ok(!body.includes('<work-ledger>'), `no ledger section once nothing is open: ${body}`)
+    assert.ok(!body.includes('Check the build'), 'the cancelled reminder is not shown as set')
   } finally { await loop.close() }
 })

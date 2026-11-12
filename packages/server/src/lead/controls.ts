@@ -17,6 +17,8 @@ import type { LeadContextFacts } from '@harnessdesk/protocol'
 export const LEAD_PLAN_CONSENT_MS = 86_400_000
 /** How long a click on a withdrawn result waits for the Lead to offer that same card again: one read of the desk. */
 export const LEAD_REOFFER_WAIT_MS = 15_000
+/** How long a request waits for a settings mark still being written before it reads the mark as it stands. */
+const LEAD_SHOWN_WRITE_WAIT_MS = 3_000
 
 /** Trusted host feedback survives the resume transition that clears the wait.
  * It is supplied as current context, rather than fabricated assistant history. */
@@ -469,8 +471,9 @@ export class LeadControls {
         // or a Forget since then reaches the model here, every request, and it never calls a declined note recorded.
         let memory: string | null = null
         settingsShownAt = undefined
-        // A mark still being written is read as written, never as the one before it.
-        await this.#shownWrite
+        // A mark still being written is read as written, never as the one before it; a write that hangs holds no request
+        // up for longer than a few seconds, and the request then reads the mark as it stands.
+        await Promise.race([this.#shownWrite, new Promise<void>(resolve => { const wait = setTimeout(resolve, LEAD_SHOWN_WRITE_WAIT_MS); wait.unref?.() })])
         try {
           const note = await this.options.readMemoryContext?.() ?? null
           memory = typeof note === 'string' ? note : note?.text ?? null

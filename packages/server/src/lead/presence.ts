@@ -585,7 +585,7 @@ export class LeadPresenceStore {
       const linked = shown.some(entry => entry.ref && entry.ref.kind !== 'pr' && entry.ref.kind !== 'card') || fired.some(line => line.includes('(work '))
       // The desk does not know a device's time zone: its times are the desk's, and named so.
       return `The person was away from ${deskTime(from)} to ${deskTime(to)}, desk time${deskZone()}: no window or phone of theirs was looked at in between. ${moved}${reminded}${said}` +
-        (linked ? 'An id in brackets after a kind (team, chat or work) can be used as a ref: to link that item, add it to refs with that kind and id. ' : '') +
+        (linked ? 'An id in parentheses after a kind, as in (team …), (chat …) or (work …), can be used as a ref: to link that item, add it to refs with that kind and id. ' : '') +
         `Anything from before ${deskTime(from)} happened before they left: never report it as happening while they were away.`
     })
   }

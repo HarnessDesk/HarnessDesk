@@ -146,12 +146,14 @@ const withoutSection = (text: string, { open, close }: { readonly open: string; 
 }
 /**
  * A turn's desk blocks brought up to date for a step that read the desk again: a fresh work ledger replaces the turn's,
- * a fresh memory status replaces only the turn's memory section, and the turn's settings status stays unless the fresh
- * read carries one of its own. What the turn read and nothing replaced is carried as it was (#2180).
+ * and a ledger read that found nothing open removes it (`work: null`), so work stopped or cancelled since is never shown
+ * as open; an unread or failed read (`undefined`) keeps the turn's. A fresh memory status replaces only the turn's
+ * memory section, and the turn's settings status stays unless the fresh read carries one of its own. What the turn read
+ * and nothing replaced is carried as it was (#2180).
  */
-export const leadRefreshedDesk = (turn: readonly MessagesText[], fresh: { readonly work: string | null; readonly memory: string | null }): MessagesText[] => {
+export const leadRefreshedDesk = (turn: readonly MessagesText[], fresh: { readonly work?: string | null; readonly memory: string | null }): MessagesText[] => {
   const sections = [
-    ...(fresh.work ? [WORK_LEDGER] : []),
+    ...(fresh.work !== undefined ? [WORK_LEDGER] : []),
     ...(fresh.memory ? [{ open: LEAD_MEMORY_STATUS_OPEN, close: LEAD_MEMORY_STATUS_CLOSE }] : []),
     ...(fresh.memory?.includes(LEAD_SETTINGS_STATUS_OPEN) ? [{ open: LEAD_SETTINGS_STATUS_OPEN, close: LEAD_SETTINGS_STATUS_CLOSE }] : []),
   ]

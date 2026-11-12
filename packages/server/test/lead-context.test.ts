@@ -957,6 +957,20 @@ test('#2180: a request waits for the settings mark still being written before it
   assert.deepEqual(order.slice(0, 4), ['read 1', 'mark 1000', 'kept 1000', 'read 2'], order.join(', '))
 })
 
+test('#2180: a settings mark whose write hangs holds the next request up for a few seconds, never for good', async () => {
+  let read = 0
+  const s = await controlsRig([{ status: 'completed', text: 'Noted.' }, { status: 'completed', text: 'Again.' }], {
+    readMemoryContext: async () => { read++; return { text: '<desk-memory-status>\nNothing.\n</desk-memory-status>', settingsShownAt: read * 1000 } },
+    settingsShown: () => new Promise<void>(() => { /* A write that never ends. */ }) })
+  await s.controls.send({ idempotencyKey: 'send-one', text: 'How should you write to me?' })
+  await s.controls.idle()
+  const started = Date.now()
+  await s.controls.send({ idempotencyKey: 'send-two', text: 'And what changed?' })
+  await s.controls.idle()
+  assert.equal(read, 2, 'the second request read the settings and answered')
+  assert.ok(Date.now() - started < 10_000, `the hung write held it ${Date.now() - started} ms`)
+})
+
 test('#2171: a conversation of many short exchanges summarises once, then four more turns leave it be and keep the epoch', async t => {
   const s = await bareStore(t, 200_000)
   // About 470 tokens an exchange: a tail of the window's tokens would keep well over a hundred turns, so turns, not

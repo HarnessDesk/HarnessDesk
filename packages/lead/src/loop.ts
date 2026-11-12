@@ -676,7 +676,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
             } catch { /* The copy in hand still answers; the host checks pressure before its own next request. */ }
           }
           // The open work cards ride the wake as desk context of this moment: after the cache mark, stubbed when stored.
-          let work: string | null = null
+          // Undefined while unread or when the read failed; null when the ledger was read and nothing is open on it.
+          let work: string | null | undefined
           if (activity || changedDesk) {
             try {
               // A read of the desk's own ledger, as the host reads it for its requests: not a step the Lead took.

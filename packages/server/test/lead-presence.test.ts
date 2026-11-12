@@ -1173,7 +1173,8 @@ test('#2147: the away note gives the window and spend the card shows, the fired 
   assert.match(note, /Reminders that fired in that span:\n- "Check the release notes" fired \d\d:\d\d, about a work item \(work work-2\)/)
   assert.ok(!note.includes('remind-2'), 'a reminder id is no ref, so it is not printed')
   assert.ok(!note.includes('Earlier check'), 'a reminder that fired before they left is not in the window')
-  assert.match(note, /can be used as a ref: to link that item, add it to refs with that kind and id/, 'the note says its ids are refs')
+  assert.match(note, /An id in parentheses after a kind, as in \(team …\), \(chat …\) or \(work …\), can be used as a ref: to link that item, add it to refs with that kind and id/, 'the note says its ids are refs, in the parentheses it prints them in')
+  assert.match(note, /\((team|chat|work) [^)]+\)/, 'an id is printed in parentheses after its kind')
 })
 
 test('#2147: a pull request or a decision card in the away note is named by what it is, never by an id no ref can take', async t => {
