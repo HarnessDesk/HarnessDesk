@@ -100,6 +100,14 @@ it('says when the last summary was made, as the phone does', () => {
   expect(leadContextWords({ ...two, compacting: true }, now).summaries).toBe('Summarising now')
 })
 
+it('counts every summary the thread marks, not the eight the list keeps (#2149)', () => {
+  const now = 10 * 60 * 60_000
+  const eight = Array.from({ length: 8 }, (_, n) => ({ ...facts().checkpoints[0]!, id: `checkpoint-${n + 3}`, at: now - (8 - n) * 60_000 }))
+  expect(leadContextWords(facts({ checkpoints: eight, count: 10 }), now).summaries).toBe('10 · last 1m ago')
+  // A desk that does not count them: the list's length stands in.
+  expect(leadContextWords(facts({ checkpoints: eight }), now).summaries).toBe('8 · last 1m ago')
+})
+
 it('keeps a refused Summarise now on screen in the person\'s words', async () => {
   const lead = { readContext: vi.fn(async () => facts()), compactContext: vi.fn(async () => { throw Object.assign(new Error('x'), { wireCode: 'lead-request-in-flight' }) }) }
   await act(async () => render(<LeadContextSection />, lead))

@@ -75,8 +75,9 @@ export const leadContextWords = (facts: LeadContextFacts, now = Date.now()) => (
   used: facts.usedTokens === null ? 'Nothing sent yet' : `${percent(facts.usedTokens / facts.windowTokens)} of ${thousands(facts.windowTokens)} tokens`,
   cache: facts.cacheHitRate === null ? 'No requests yet' : `${percent(facts.cacheHitRate)} of the prompt read from the cache`,
   // When the last summary was made is the fact that varies, as the phone shows it beside the count.
+  // Every summary the thread marks; the list keeps only the latest eight.
   summaries: facts.compacting ? 'Summarising now' : facts.checkpoints.length === 0 ? 'None yet'
-    : `${facts.checkpoints.length} · last ${formatAge(facts.checkpoints.at(-1)!.at, now)}`,
+    : `${Math.max(facts.count ?? 0, facts.checkpoints.length)} · last ${formatAge(facts.checkpoints.at(-1)!.at, now)}`,
 })
 
 /** Settings › Lead: how full the conversation is and how much the provider served from its cache. Facts, read when shown. */

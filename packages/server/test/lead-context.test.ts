@@ -247,6 +247,28 @@ test('the stored conversation survives a restart, imports each person message on
   assert.equal(JSON.stringify(reopened.turns), JSON.stringify(second.store.turns))
 })
 
+test('Settings counts every summary the thread marks, past the eight it keeps, and keeps the count over a restart (#2149)', async t => {
+  const first = await harness(t, { window: 200_000 })
+  for (let n = 1; n <= 10; n++) {
+    for (let m = 1; m <= 5; m++) await first.say(`Message ${n}.${m}.${filler(n)}`)
+    assert.equal(await first.store.compact('manual', first.send), 'applied')
+  }
+  const dividers = (lead1: { journal: lead.LeadJournal }) => lead1.journal.state.messages.filter(message => message.checkpoint).length
+  assert.equal(dividers(first), 10)
+  const facts = first.store.facts()
+  assert.equal(facts.checkpoints.length, 8, 'the list keeps the latest eight')
+  assert.equal(facts.count, 10, 'the count is every summary the thread marks')
+  const second = await harness(t, { window: 200_000, records: first.records, home: first.home })
+  assert.equal(second.store.facts().count, 10, 'and it survives a restart')
+  // A desk that kept no count before: the thread's markers stand in for it.
+  const file = join(first.home, 'context-checkpoints.json')
+  const kept = JSON.parse(await readFile(file, 'utf8'))
+  delete kept.count
+  await writeFile(file, JSON.stringify(kept))
+  const third = await harness(t, { window: 200_000, records: second.records, home: first.home })
+  assert.equal(third.store.facts().count, dividers(third))
+})
+
 test('a restart during a compaction keeps the old conversation, and one after the journal applied it moves the new one in', async t => {
   const first = await harness(t, { window: 20_000 })
   let n = 0

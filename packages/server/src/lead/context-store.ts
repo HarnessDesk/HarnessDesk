@@ -88,6 +88,8 @@ export class LeadContextStore {
   #softAt: number = LEAD_CONTEXT.softShare
   #measured: RecordLine['measured'] = null
   #checkpoints: LeadContextCheckpoint[] = []
+  /** Every summary applied, where `#checkpoints` keeps the latest eight: what Settings counts, as the thread marks them. */
+  #count = 0
   #compacting = false
   /** Pressure after a compaction that could not bring the conversation under the hard line; no compaction is due
    * again until it rises past this by the hysteresis. */
@@ -137,9 +139,10 @@ export class LeadContextStore {
     const current = await this.#load(FILE)
     if (current && current.header.epoch === settled) { this.#adopt(current.header, current.turns, current.measured); this.#fileBytes = current.bytes }
     else await this.#seed(settled)
-    const kept = await readBoundedJson(this.#path(CHECKPOINTS), 600_000) as { version?: unknown; checkpoints?: unknown } | undefined
+    const kept = await readBoundedJson(this.#path(CHECKPOINTS), 600_000) as { version?: unknown; checkpoints?: unknown; count?: unknown } | undefined
     if (kept?.version === 1 && Array.isArray(kept.checkpoints)) {
       this.#checkpoints = readableCheckpoints(kept.checkpoints.slice(-CHECKPOINT_LIST))
+      if (Number.isSafeInteger(kept.count) && (kept.count as number) >= 0) this.#count = kept.count as number
     }
     // The desk stopped between started and applied: the old conversation stands, and the run is not a failure.
     const pending = journal.state.context.pending
@@ -452,7 +455,9 @@ export class LeadContextStore {
       try { await this.#connections.screen?.(shown) } catch { shown = null }
       this.#checkpoints = [...this.#checkpoints, { id, at: now(), fallback, beforeTokens, afterTokens, text: shown === null ? null : leadCheckpointModelPart(shown),
         ...(shown === null ? {} : { person: quotes }) }].slice(-CHECKPOINT_LIST)
-      await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, checkpoints: this.#checkpoints }, async () => {}).catch(() => {})
+      // The journal has already marked this one in the thread.
+      this.#count = Math.max(this.#count + 1, this.#counted())
+      await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, count: this.#count, checkpoints: this.#checkpoints }, async () => {}).catch(() => {})
       return 'applied'
     } catch (error) {
       if (journal.state.context.pending?.id === id) await journal.contextCompactionFailed(id, 'interrupted').catch(() => {})
@@ -480,11 +485,16 @@ export class LeadContextStore {
     })
   }
 
+  /** The kept count, or more if the thread marks more (a desk that kept no count, or stopped before writing it). */
+  #counted(): number {
+    const marked = this.options.journal.state.messages.reduce((sum, message) => sum + (message.checkpoint ? 1 : 0), 0)
+    return Math.max(this.#count, this.#checkpoints.length, marked)
+  }
   facts(): LeadContextFacts {
     const wakes = this.options.journal.state.wakes.flatMap(wake => wake.tokens ? [wake.tokens] : [])
     const total = wakes.reduce((sum, tokens) => sum + tokens.input + tokens.cacheRead + tokens.cacheWrite, 0)
     return parseLeadContextFacts({ version: 1, windowTokens: this.window, usedTokens: this.#turns.length ? Math.min(100_000_000, Math.round(this.tokens())) : null,
       cacheHitRate: total ? wakes.reduce((sum, tokens) => sum + tokens.cacheRead, 0) / total : null, compacting: this.#compacting, checkpoints: readableCheckpoints(this.#checkpoints),
-      ...(this.#fullAt !== null ? { full: true } : {}) })
+      count: this.#counted(), ...(this.#fullAt !== null ? { full: true } : {}) })
   }
 }
