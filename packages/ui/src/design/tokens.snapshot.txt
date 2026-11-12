@@ -108,6 +108,7 @@
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
+--hd-composer-notices-max-height = 60dvh
 --hd-composer-radius = 28px
 --hd-composer-send-size = 30px
 --hd-composer-shell-shadow = 0 4px 20px rgba(0, 0, 0, 0.035)
@@ -710,6 +711,7 @@
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
+--hd-composer-notices-max-height = 60dvh
 --hd-composer-radius = 28px
 --hd-composer-send-size = 30px
 --hd-composer-shell-shadow = 0 4px 20px rgba(0, 0, 0, 0.035)
@@ -1312,6 +1314,7 @@
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
+--hd-composer-notices-max-height = 60dvh
 --hd-composer-radius = 28px
 --hd-composer-ring = 0 0 0 3px color-mix(in srgb, rgb(52, 88, 240) 45%, transparent)
 --hd-composer-send-size = 30px
@@ -1919,6 +1922,7 @@
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
+--hd-composer-notices-max-height = 60dvh
 --hd-composer-radius = 28px
 --hd-composer-ring = 0 0 0 3px color-mix(in srgb, rgb(112, 142, 250) 55%, transparent)
 --hd-composer-send-size = 30px
