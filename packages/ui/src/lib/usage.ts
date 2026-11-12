@@ -1,5 +1,8 @@
 import {
+  formatCountdown,
+  formatCountdownShort,
   formatElapsed,
+  formatResetCountdown,
   type AccountActivity,
   bindingLane,
   isBlocked,
@@ -197,53 +200,8 @@ export { bindingLane, isBlocked, reachedLaneOf, remainingOf, type UsagePreferenc
 const clamp = (value: number, low: number, high: number): number =>
   value < low ? low : value > high ? high : value
 
-/**
- * Rounds to the nearest whole unit rather than truncating: 47h59m reads as two
- * days to a person, not the one day flooring produces.
- */
-export const formatCountdown = (ms: number): string | null => {
-  if (!Number.isFinite(ms) || ms <= 0) return null
-  if (ms < HOUR) {
-    // Rounding can carry into the next unit at every boundary — 59½ minutes
-    // is 60, 23 hours and 59½ minutes is 24 — and each carry is said in the
-    // unit above it, never as "60m" or "24h".
-    const minutes = Math.max(1, Math.round(ms / MINUTE))
-    return minutes === 60 ? '1h' : `${minutes}m`
-  }
-  if (ms < DAY) {
-    const hours = Math.floor(ms / HOUR)
-    const minutes = Math.round((ms % HOUR) / MINUTE)
-    if (minutes === 60) {
-      const nextHours = hours + 1
-      return nextHours === 24 ? '1d' : `${nextHours}h`
-    }
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
-  }
-  const days = Math.floor(ms / DAY)
-  const hours = Math.round((ms % DAY) / HOUR)
-  if (hours === 24) return `${days + 1}d`
-  return hours > 0 ? `${days}d ${hours}h` : `${days}d`
-}
-
-/** The reset reading shared by every usage meter list. */
-export const formatResetCountdown = (ms: number | null): string => {
-  const value = ms === null ? null : formatCountdown(ms)
-  return value === null ? '—' : `in ${value.replace(/(\d)([dhm])/g, '$1 $2')}`
-}
-
-/** One unit only, for a row that has no space for two. */
-export const formatCountdownShort = (ms: number): string | null => {
-  if (!Number.isFinite(ms) || ms <= 0) return null
-  if (ms < HOUR) {
-    const minutes = Math.max(1, Math.round(ms / MINUTE))
-    return minutes === 60 ? '1h' : `${minutes}m`
-  }
-  if (ms < DAY) {
-    const hours = Math.round(ms / HOUR)
-    return hours >= 24 ? '1d' : `${Math.max(1, hours)}h`
-  }
-  return `${Math.max(1, Math.round(ms / DAY))}d`
-}
+/** The Dashboard's countdown words live in the protocol, so the Lead is told a reset in the same words (#2174). */
+export { formatCountdown, formatCountdownShort, formatResetCountdown }
 
 export const toneForRemaining = (remaining: number | null): Tone => {
   if (remaining === null) return 'good'

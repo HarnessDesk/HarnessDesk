@@ -1065,6 +1065,11 @@ export interface LeadUsageWindow {
   readonly unit: string | null
   /** Absolute epoch milliseconds, never relative text. */
   readonly resetsAt: number | null
+  /** How long until `resetsAt` in the Dashboard's words (`formatResetIn`, "21 d 3 h"): said as written, never rounded.
+   * Null when there is no reset or it is past. */
+  readonly resetsIn: string | null
+  /** `resetsAt` is already past: the figures were read before that reset, and the next one is not known. Absent otherwise. */
+  readonly resetPassed?: true
   readonly reached: boolean
   readonly projection: {
     readonly kind: 'runs-out' | 'lasts-to-reset'
@@ -1098,6 +1103,8 @@ export interface LeadUsageSummary {
     readonly useFirst?: true
     /** Whole minutes between when these figures were read and `asOf`. */
     readonly readAgeMinutes: number
+    /** The same age in the words every surface uses (`formatElapsed`, "8d ago"): said as written, never rounded. */
+    readonly readAge: string
     /** The latest refresh failed; the windows are the last good figures, read `readAgeMinutes` ago. Absent otherwise. */
     readonly refreshFailed?: true
     /**
@@ -1115,6 +1122,7 @@ export interface LeadUsageSummary {
       readonly whose: string
       readonly windows: readonly LeadUsageWindow[]
       readonly readAgeMinutes: number
+      readonly readAge: string
       readonly stale: boolean
     }
   }[]

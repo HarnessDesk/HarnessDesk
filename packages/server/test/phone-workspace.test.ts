@@ -1131,3 +1131,24 @@ test('an account that answered with nothing to show reads Not reporting to the L
     assert.equal(account!.spend?.today, 1, 'what it spent is still said')
   } finally { await f.done() }
 })
+
+test('#2174: Lead allowance says each reset and read age in the Dashboard\'s words, and marks a reset already past', async () => {
+  const f = await fixture()
+  try {
+    const result = await f.workspace.usageSummary([report('dev@example.com', { fetchedAt: NOW - 12_251 * 60_000, staleAfterMs: 1000, lanes: [
+      { id: 'monthly', label: 'Monthly', usedPercent: 40, windowMinutes: 43200, resetsAt: NOW + 21.14 * 24 * HOUR },
+      { id: 'weekly', label: 'Weekly', usedPercent: 10, windowMinutes: 10080, resetsAt: NOW - 37 * HOUR },
+      { id: 'session', label: '5-hour', usedPercent: 10, windowMinutes: 300, resetsAt: null },
+    ] })])
+    const account = result.accounts[0]!
+    assert.equal(account.readAge, '8d ago', '12,251 minutes is eight and a half days, said as eight')
+    assert.equal(account.readAgeMinutes, 12_251)
+    const [monthly, weekly, session] = account.windows
+    assert.equal(monthly!.resetsIn, '21 d 3 h', 'the Dashboard\'s countdown, never rounded up to 22 days')
+    assert.equal(monthly!.resetPassed, undefined)
+    assert.equal(weekly!.resetsIn, null)
+    assert.equal(weekly!.resetPassed, true, 'the stored reset is in the past: these figures are from before it')
+    assert.equal(session!.resetsIn, null)
+    assert.equal(session!.resetPassed, undefined)
+  } finally { await f.done() }
+})

@@ -138,6 +138,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let snapshot: ClientSnapshot | null = null, relays: ReturnType<typeof leadWorkerApprovalRelay>[] = []
   let acceptance: { runId: string; result: LeadAcceptanceResult }[] = []
   let cancelBatch: (() => void) | null = null, dirty = false, continuationPending = false
+  /** A desk event arrived since the last batch: the minute tick and the host's refreshes are not one (#2172). */
+  let evented = false
   let batchRunning = false, batchAgain = false, batchReply = false
   let requested = 0, reportedActivity = false
   const reportActivity = () => {
@@ -612,10 +614,12 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         // A wake refused as too long reads the stored conversation again whatever it was doing: a tool loop cut there
         // goes on from the stored copy, its open calls closed as text.
         const fromStore = owed || changed
-        const activity = dirty, continueTools = continuationPending
-        dirty = false; continuationPending = false
+        const activity = dirty, continueTools = continuationPending, fromEvent = evented
+        dirty = false; continuationPending = false; evented = false
         let pendingWake: LeadWakeRecord = { id: nextId(), at: clock.now(), source: continueTools ? requestTemplate?.wakeSource ?? 'trigger' : 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null }
-        let stepped = false
+        // Only a batch with a cause is a wake in the ledger: a desk event, a tool continuation, or a look that found
+        // something. The minute tick that lets a quiet run be called stuck finds nothing nearly every time (#2172).
+        let stepped = false, caused = fromEvent || continueTools
         try {
           if (journal.state.phase === 'following') return
           // The previous tool turn already read fresh evidence after dispatch.
@@ -624,7 +628,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           if (blocked()) {
             const state = journal.state
             if (!terminal(state.phase) && state.phase !== 'waiting-for-user' && !state.recoveryBlocked) {
-              dirty ||= activity; continuationPending ||= continueTools
+              // Carried to the batch that runs it, which records the wake then.
+              dirty ||= activity; continuationPending ||= continueTools; evented ||= fromEvent; caused = false
             }
             return
           }
@@ -632,6 +637,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           const chatChanges = [...changedChats]
           const look = activity ? gate.look(snapshot, owned(), personActions, clock.now(), observedChats()) : null
           report()
+          if (look?.wake || chatChanges.length || deskOwed) caused = true
           if (look && !look.wake && !continueTools && !deskOwed && !chatChanges.length) return
           // The person's Off and Observe for unasked reports: the host looked, nothing woke the model. Observe says what it
           // would have done in the wake ledger; the change is taken as seen, so it is said once and not at every check.
@@ -697,7 +703,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           if (wakeOverflow && !closed) { dirty ||= activity; deskOwed ||= activity ? stepCause : false; continuationPending ||= continueTools; batchAgain = true }
           report()
         } finally {
-          try { if (!stepped) await journal.recordWake(pendingWake) }
+          try { if (!stepped && (caused || pendingWake.observed)) await journal.recordWake(pendingWake) }
           finally {
             batchRunning = false; batchReply = false
             if (batchAgain && !closed) { batchAgain = false; schedule(false) }
@@ -747,6 +753,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           }
           changedChats.set(event.id, { state: event.state, stage, ...(event.incident ? { incident: event.incident } : {}) })
           if (changedChats.size > 64) changedChats.delete(changedChats.keys().next().value!)
+          evented = true
           schedule(true)
           continue
         }
@@ -783,6 +790,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           }
           const wakesModel = (['run.changed', 'card.changed', 'review.changed', 'waiting'].includes(event.type) || teamWakes) &&
             (('run' in event && state.runs.some(run => run.runId === event.run)) || ('team' in event && event.team !== null && state.teams.includes(event.team)))
+          evented = true
           schedule(wakesModel)
         }
       }

@@ -2468,3 +2468,23 @@ test('a wake whose request was sent and lost is recorded as failed, not as silen
     assert.equal(wake.decision, 'failed'); assert.equal(wake.modelTurn, true)
   } finally { await loop.close() }
 })
+
+test('#2172: the minute tick over an unchanged desk records no wake, while a desk change the gate lets pass records one silent wake', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message(), message(), message()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request({ ...input, wakeSource: 'person' })
+    // The request's tool continuation runs first, and the first look at the started run: both are wakes with a cause.
+    await s.drain(); await s.tick(); await loop.idle()
+    loop.poke(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(loop.state.phase, 'running')
+    const before = s.journal.state.wakes.length
+    for (let minute = 1; minute <= 3; minute++) { loop.poke(); await s.drain(); await s.tick(); await loop.idle() }
+    assert.equal(s.journal.state.wakes.length, before, 'three ticks that found nothing left no row')
+    s.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'running', flow: 'lead-reviewed-result', round: 1, reason: null })
+    await s.drain(); await s.tick(); await loop.idle()
+    const added = s.journal.state.wakes.slice(before)
+    assert.equal(added.length, 1, 'the desk change is one row')
+    assert.equal(added[0]!.source, 'desk-change'); assert.equal(added[0]!.decision, 'silent'); assert.equal(added[0]!.modelTurn, false)
+  } finally { await loop.close() }
+})

@@ -372,7 +372,10 @@ export class LeadContextStore {
     const id = nextId(), beforeTokens = this.tokens()
     const pruned = leadPruneAndFold(this.#turns)
     let split = leadContextSplit(this.#turns, this.window)
-    if (pruned === this.#turns && split === null) { this.#softAt = Math.min(LEAD_CONTEXT.hardShare, this.pressure() + LEAD_CONTEXT.hysteresis); return 'nothing' }
+    const before = this.pressure()
+    // Nothing worth doing: wait until the conversation grows by the hysteresis before looking again.
+    const leave = () => { this.#softAt = Math.min(LEAD_CONTEXT.hardShare, before + LEAD_CONTEXT.hysteresis); return 'nothing' as const }
+    if (pruned === this.#turns && split === null) return leave()
     const share = (turns: readonly MessagesTurn[]) => leadContextPressure({ window: this.window, tokens: this.tokens(turns), bytes: leadContextBytes(turns), turns: turns.length })
     // A kept tail that stays past the hard line by itself would bring the next compaction straight back: keep the
     // smallest tail instead, its older tool results trimmed too.
@@ -382,14 +385,19 @@ export class LeadContextStore {
       const fewer = leadContextSplit(this.#turns, this.window, true)
       if (fewer !== null) { split = fewer; smallest = true }
     }
+    // Every compaction starts an epoch, which costs the next requests their cache: an idle run that would barely lower
+    // the pressure is skipped, and the pressure comes straight back after it anyway (#2171). The checkpoint is measured
+    // at its largest.
+    const worth = (turns: readonly MessagesTurn[]) => trigger !== 'soft' || before - share(turns) >= LEAD_CONTEXT.minSaving
+    let prune = pruned !== this.#turns && (split === null || trigger !== 'manual' && share(pruned) < this.#softAt)
+    if (prune && !worth(pruned)) prune = false
+    if (!prune && (split === null || !worth([room, ...(smallest ? leadPruneAndFold(this.#turns.slice(split), 0) : this.#turns.slice(split))]))) return leave()
     await journal.contextCompactionStarted(id, now(), trigger)
     try {
-      if (pruned !== this.#turns) {
-        if (split === null || trigger !== 'manual' && share(pruned) < this.#softAt) {
-          const afterTokens = this.tokens(pruned)
-          await this.#replace(id, current => leadPruneAndFold(current), () => journal.contextPruned({ id, at: now(), beforeTokens, afterTokens }), share(pruned))
-          return 'pruned'
-        }
+      if (prune) {
+        const afterTokens = this.tokens(pruned)
+        await this.#replace(id, current => leadPruneAndFold(current), () => journal.contextPruned({ id, at: now(), beforeTokens, afterTokens }), share(pruned))
+        return 'pruned'
       }
       if (split === null) { await journal.contextCompactionFailed(id, 'blocked'); return 'nothing' }
       const from = split

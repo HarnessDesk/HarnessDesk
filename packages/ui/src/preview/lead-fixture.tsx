@@ -222,6 +222,8 @@ export const leadContextFacts: LeadContextFacts = { version: 1, windowTokens: 20
 export const leadWakeFixture = [
   { id: 'silent-1', at: Date.now() - 180_000, source: 'desk-change' as const, decision: 'silent' as const, modelTurn: false, usdMicros: null },
   { id: 'scheduled-1', at: Date.now() - 60_000, source: 'schedule' as const, decision: 'asked' as const, modelTurn: true, usdMicros: 1200 },
+  // A later desk change the Lead let pass: collapsed, the ledger still shows the wake behind the reply (#2172).
+  { id: 'silent-2', at: Date.now() - 20_000, source: 'desk-change' as const, decision: 'silent' as const, modelTurn: false, usdMicros: null },
 ]
 
 const workCard = (n: number, title: string, stage: LeadWorkStage, extra: Partial<LeadWorkCard> = {}): LeadWorkCard => ({
