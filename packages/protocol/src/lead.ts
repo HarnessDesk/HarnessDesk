@@ -216,13 +216,22 @@ export interface LeadChatIncidentObservation extends LeadChatIncident {
   readonly candidates: readonly LeadChatCandidate[]
 }
 
-export interface LeadAskOption { readonly id: string; readonly label: string }
+export interface LeadAskOption {
+  readonly id: string
+  readonly label: string
+  /** Choosing it starts or restarts a chat. An answer that picked an option without it starts none: the host refuses
+   * the start, so an answer never begins what the question said it would not. Left out on every other option. */
+  readonly starts?: true
+}
 export interface LeadAsk {
   readonly question: string
   readonly options: readonly LeadAskOption[]
   readonly recommended: string
   /** Minutes the question stays answerable, from when the host first saw it. Left out: it does not expire. */
   readonly expiresInMinutes?: number
+  /** The host read this question from the Lead under the rule that marks an option `starts` (#2145). Only then does an
+   * answer without a `starts` option refuse a chat start; a question stored before the rule keeps the old behaviour. */
+  readonly startsMarked?: true
 }
 /** One host-rendered unprompted finding. Actions navigate existing surfaces; they never grant authority. */
 export interface LeadProactive {
@@ -232,6 +241,8 @@ export interface LeadProactive {
   readonly options?: readonly LeadAskOption[]
   readonly recommended?: string
   readonly action?: 'plan' | 'changes' | 'approvals'
+  /** As on `LeadAsk`: the options were written under the `starts` rule. */
+  readonly startsMarked?: true
 }
 export interface LeadApprovalAudit { readonly ruleId: string; readonly target: string; readonly diff?: string }
 /** What a reply's work item is: a Team (or its goal), a conversation (a session or a chat the Lead runs), or a work-ledger item. */
@@ -272,7 +283,17 @@ export interface LeadMessage {
    * still count).
    */
   readonly reminded?: string
+  /**
+   * The person's own messages only: the surface that sent it, as the send's device named it (`phone:` or `window:`).
+   * The Lead reads it with the message, so a later turn never takes an earlier one for another device's (#2166). Kept
+   * in the journal; the thread projection leaves it out.
+   */
+  readonly surface?: LeadMessageSurface
 }
+export const LEAD_MESSAGE_SURFACES = ['phone', 'desktop'] as const
+export type LeadMessageSurface = typeof LEAD_MESSAGE_SURFACES[number]
+/** Which surface a device reference names: a paired phone, or a desktop window. */
+export const leadSurfaceOf = (device: { readonly id: string }): LeadMessageSurface => device.id.startsWith('phone:') ? 'phone' : 'desktop'
 /** What woke the Lead: `reminder` is the reminder's id, `text` its own words (untrusted, as the person or Lead set them). */
 export interface LeadMessageWake { readonly kind: 'reminder'; readonly reminder: string; readonly text: string }
 export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'following' | 'accepted' | 'declined' | 'stopped'
@@ -768,19 +789,20 @@ const askExpiry: Validator<number> = (value, path = '') =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 5 && value <= 7 * 24 * 60 ? value : fail(path, 'expected 5 to 10080 minutes')
 const askOptionId: Validator<string> = (value, path = '') =>
   typeof value === 'string' && /^[a-z0-9-]{1,32}$/.test(value) ? value : fail(path, 'expected a short option slug')
-const askOptions = list(object<LeadAskOption>({ id: askOptionId, label: (value, path = '') => {
+const askOptions = list(omitUnset(object<LeadAskOption>({ id: askOptionId, label: (value, path = '') => {
   const label = text(60)(value, path)
   return label !== label.trim() || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label) ? fail(path, 'expected one trimmed plain-text label') : label
-} }), 4, 2, option => option.id)
+}, starts: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['starts']), 4, 2, option => option.id)
+const startsMarked = optional((value, path = '') => value === true ? true as const : fail(path, 'expected true'))
 export const parseLeadAsk: Validator<LeadAsk> = (value, path = '') => {
-  const ask = omitUnset(object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId, expiresInMinutes: optional(askExpiry) }), ['expiresInMinutes'])(value, path)
+  const ask = omitUnset(object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId, expiresInMinutes: optional(askExpiry), startsMarked }), ['expiresInMinutes', 'startsMarked'])(value, path)
   if (new Set(ask.options.map(option => option.label.trim().replace(/\s+/gu, ' ').toLowerCase())).size !== ask.options.length) fail(path, 'duplicate option label')
   if (!ask.options.some(option => option.id === ask.recommended)) fail(path, 'recommendation must name an option')
   return ask
 }
 export const parseLeadProactive: Validator<LeadProactive> = (value, path = '') => {
   const report = omitUnset(object<LeadProactive>({ finding: proactiveLine, caveat: proactiveLine, ask: proactiveLine,
-    options: optional(askOptions), recommended: optional(askOptionId), action: optional(literalUnion('plan', 'changes', 'approvals')) }), ['options', 'recommended'])(value, path)
+    options: optional(askOptions), recommended: optional(askOptionId), action: optional(literalUnion('plan', 'changes', 'approvals')), startsMarked }), ['options', 'recommended', 'startsMarked'])(value, path)
   if (report.options !== undefined || report.recommended !== undefined)
     parseLeadAsk({ question: report.ask, options: report.options, recommended: report.recommended }, path)
   return report
@@ -813,7 +835,7 @@ export const parseLeadMessageRef: Validator<LeadMessageRef> = omitUnset(object<L
 /** The refs a reply carries, at most `LEAD_MESSAGE_REFS_MAX`, one per kind and id. */
 export const parseLeadMessageRefs: Validator<readonly LeadMessageRef[]> = list(parseLeadMessageRef, LEAD_MESSAGE_REFS_MAX, 1, ref => `${ref.kind}:${ref.id}`)
 const parseLeadMessageWake: Validator<LeadMessageWake> = object<LeadMessageWake>({ kind: literalUnion('reminder'), reminder: id, text: text(200) })
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs), wake: optional(parseLeadMessageWake), reminded: optional(id) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs', 'wake', 'reminded'])
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs), wake: optional(parseLeadMessageWake), reminded: optional(id), surface: optional(literalUnion(...LEAD_MESSAGE_SURFACES)) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs', 'wake', 'reminded', 'surface'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
@@ -823,6 +845,7 @@ export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   if (message.refs && message.role !== 'assistant') fail(path, 'refs belong to a reply')
   if (message.wake && message.role !== 'user' && message.role !== 'system') fail(path, 'a wake is a desk turn')
   if (message.reminded !== undefined && (message.role !== 'assistant' || message.ask || message.proactive)) fail(path, 'a reminder line is a plain reply')
+  if (message.surface !== undefined && (message.role !== 'user' || message.wake)) fail(path, 'a surface belongs to the person\'s own message')
   return message
 }
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {
@@ -1042,6 +1065,11 @@ export interface LeadUsageWindow {
   readonly unit: string | null
   /** Absolute epoch milliseconds, never relative text. */
   readonly resetsAt: number | null
+  /** How long until `resetsAt` in the Dashboard's words (`formatResetIn`, "21 d 3 h"): said as written, never rounded.
+   * Null when there is no reset or it is past. */
+  readonly resetsIn: string | null
+  /** `resetsAt` is already past: the figures were read before that reset, and the next one is not known. Absent otherwise. */
+  readonly resetPassed?: true
   readonly reached: boolean
   readonly projection: {
     readonly kind: 'runs-out' | 'lasts-to-reset'
@@ -1075,13 +1103,28 @@ export interface LeadUsageSummary {
     readonly useFirst?: true
     /** Whole minutes between when these figures were read and `asOf`. */
     readonly readAgeMinutes: number
+    /** The same age in the words every surface uses (`formatElapsed`, "8d ago"): said as written, never rounded. */
+    readonly readAge: string
     /** The latest refresh failed; the windows are the last good figures, read `readAgeMinutes` ago. Absent otherwise. */
     readonly refreshFailed?: true
     /**
      * A tracked agent nothing has read: no windows, and no reading to date. Every surface lists it as "Not reporting";
-     * it is never left out of a count. Absent otherwise.
+     * it is never left out of a count. An account that answered with no window, balance or billing shape at all is
+     * Not reporting too, as the Plans table and the phone say it ("plan usage unavailable"). Absent otherwise.
      */
     readonly notReporting?: true
+    /**
+     * Figures read through another sign-in (`UsageReport.unverified`): the desk cannot tie them to this agent's own
+     * account, so they are never `windows`, but they are what the Dashboard draws for it. `whose` names the sign-in.
+     * Absent when there are none.
+     */
+    readonly unverified?: {
+      readonly whose: string
+      readonly windows: readonly LeadUsageWindow[]
+      readonly readAgeMinutes: number
+      readonly readAge: string
+      readonly stale: boolean
+    }
   }[]
   /**
    * Which account to use first, from fresh readings only (`pacingAdvice`): `use-first` when a window refills soon with
@@ -1154,6 +1197,9 @@ export interface LeadContextFacts {
   readonly compacting: boolean
   /** Oldest first, at most eight. */
   readonly checkpoints: readonly LeadContextCheckpoint[]
+  /** Every summary the conversation has had, as the thread marks them; `checkpoints` keeps only the latest eight.
+   * Absent from a desk that does not count them, where the list's length stands in. */
+  readonly count?: number
   /** The latest compaction could not bring the conversation under the hard line, even keeping the fewest recent
    * turns: no compaction runs until it grows further. Absent otherwise. */
   readonly full?: true
@@ -1188,7 +1234,8 @@ const parseLeadContextCheckpoint: Validator<LeadContextCheckpoint> = omitUnset(o
   person: optional(parseLeadCheckpointPerson) }), ['person'])
 export const parseLeadContextFacts: Validator<LeadContextFacts> = omitUnset(object({ version, windowTokens: integer(1, 100_000_000), usedTokens: nullable(wakeTokens),
   cacheHitRate: nullable((value, path = '') => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : fail(path, 'expected a ratio')),
-  compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id), full: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['full'])
+  compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id), count: optional(integer(0, Number.MAX_SAFE_INTEGER)),
+  full: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['full', 'count'])
 /**
  * The question a Lead message puts to the person, wherever it carries it: an ordinary reply's `ask`, or the options of
  * a report it wrote on an automatic wake. Every surface draws both as the same buttons, so the desk tracks, answers,
@@ -1196,4 +1243,4 @@ export const parseLeadContextFacts: Validator<LeadContextFacts> = omitUnset(obje
  */
 export const leadMessageAsk = (message: { readonly ask?: LeadAsk; readonly proactive?: LeadProactive }): LeadAsk | undefined =>
   message.ask ?? (message.proactive?.options?.length && message.proactive.recommended
-    ? { question: message.proactive.ask, options: message.proactive.options, recommended: message.proactive.recommended } : undefined)
+    ? { question: message.proactive.ask, options: message.proactive.options, recommended: message.proactive.recommended, ...(message.proactive.startsMarked ? { startsMarked: true as const } : {}) } : undefined)

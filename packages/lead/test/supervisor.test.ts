@@ -719,7 +719,8 @@ test('the first request after a summary reaches the provider: the child journals
     assert.equal(result.status, 'completed')
     assert.equal(calls, 1, 'the request reached the provider')
     assert.ok(records.some(record => record.type === 'budget' && record.event.type === 'reserve'), 'the request was reserved')
-    assert.deepEqual(journal.state.memoryEpoch, { goal: 'lead-goal', epoch: 1, memory: journal.state.memory })
+    // The rules the epoch holds ride as a fourth argument, through the same frame check (#2165).
+    assert.deepEqual(journal.state.memoryEpoch, { goal: 'lead-goal', epoch: 1, memory: journal.state.memory, rules: {} })
     assert.equal(f.supervisor.live, true); assert.deepEqual(exits, []); assert.deepEqual(failures, [])
     assert.equal(journal.state.managementReason, null)
   } finally { await f.supervisor.stop(); await runtime.close() }
@@ -736,7 +737,7 @@ test('every operation the child may call passes the frame check at its full arit
 })
 
 test('the child reads the desk\'s memory status through the host: the text, or null when the host has none or answers with something else', async () => {
-  for (const [answer, expected] of [['<desk-memory-status>\n- [c1] kept as m2\n</desk-memory-status>', '<desk-memory-status>\n- [c1] kept as m2\n</desk-memory-status>'], [null, null], [undefined, null], [42, null]] as const) {
+  for (const [answer, expected] of [['<desk-memory-status>\n- kept as tag m2\n</desk-memory-status>', '<desk-memory-status>\n- kept as tag m2\n</desk-memory-status>'], [null, null], [undefined, null], [42, null]] as const) {
     let replied!: (message: any) => void
     const reply = new Promise<any>(resolve => { replied = resolve })
     let asked = 0

@@ -16,7 +16,7 @@ import { parseLeadSeatChoices } from './instructions.js'
 import { createLeadTools, type LeadResolvedTool } from './tools.js'
 import type { LeadMessagesRequest, MessagesTransport } from './messages-types.js'
 import { parseLeadContextTurns } from './messages.js'
-import { leadEpochAddendum } from './context.js'
+import { leadEpochAddendum, leadEpochState } from './context.js'
 import { LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, leadFailureCode, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
 
 const denied = () => new Error('lead-child-operation-failed')
@@ -97,7 +97,7 @@ export const leadChildRpcPorts = (rpc: LeadChildRpc, readState: () => LeadState)
     restoreResult: async (id, revision) => { await rpc('restoreResult', [id, revision]) },
     recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
     recordWake: async wake => { await rpc('recordWake', [wake]) },
-    memoryEpoch: async (goal, epoch, memory) => { await rpc('memoryEpoch', [goal, epoch, memory]) },
+    memoryEpoch: async (goal, epoch, memory, rules) => { await rpc('memoryEpoch', rules === undefined ? [goal, epoch, memory] : [goal, epoch, memory, rules]) },
     appendReply: async (text, proactive, ask, refs) => {
       const message = parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}), ...(ask ? { ask } : {}), ...(refs?.length ? { refs } : {}) })
       // The work items the reply names ride as a fourth argument, after an ask or its null.
@@ -203,7 +203,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
             }) },
           resolveTool: ports.resolveTool, freezePlan: ports.freezePlan, readEvidence: ports.readEvidence,
           // The host parses what it reads back; what it sends here is parsed again before a request carries it.
-          onEpoch: at => ({ standingAddendum: leadEpochAddendum(at ? { ...journal.state, memory: at.memory } : journal.state) }),
+          onEpoch: at => ({ standingAddendum: leadEpochAddendum(leadEpochState(journal.state, at)) }),
           context: ports.context })
         // A run that goes quiet sends no event; a minute's tick lets the gate call it stuck. It costs no request unless it is.
         setInterval(() => { if (!closed) loop?.poke() }, 60_000).unref()

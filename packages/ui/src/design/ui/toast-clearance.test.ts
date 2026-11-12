@@ -48,3 +48,19 @@ it('updates the lane when a toast grows and keeps room for the expanded visible 
   await Promise.resolve()
   expect(clearance()).toBe('0px')
 })
+
+it('reserves no lane while a composer is showing, so the lane cannot lift the composer the stack sits on (#2149)', () => {
+  // The stack already sits above a visible composer. A lane under the page
+  // that holds that composer would lift it, lift the stack with it and grow
+  // again, until the page body had no height left.
+  document.body.style.setProperty('--hd-composer-clearance', '120px')
+  try {
+    release = registerToastRegion(region)
+    expect(clearance()).toBe('0px')
+    document.body.style.setProperty('--hd-composer-clearance', '0px')
+    for (const resize of resized) resize()
+    expect(clearance()).toBe(`calc(${window.innerHeight - 700 + 58}px + var(--hd-toast-gap))`)
+  } finally {
+    document.body.style.removeProperty('--hd-composer-clearance')
+  }
+})

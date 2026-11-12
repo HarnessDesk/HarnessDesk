@@ -100,9 +100,10 @@ export interface LeadState {
   /** Core of the person's and the Lead's kept notes, as the host last journaled it. The standing instructions render
    * it at each new epoch, so a change reaches the model at the next goal or summary. Carried across goals. */
   readonly memory: LeadMemoryCore
-  /** The Core the current epoch's standing instructions were built with, and the goal and epoch it belongs to. A
-   * restart in that epoch builds them from this, not from a Core kept since. Carried across goals. */
-  readonly memoryEpoch: { readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore } | null
+  /** The Core and the person's rule sections the current epoch's standing instructions were built with, and the goal
+   * and epoch they belong to. A restart in that epoch builds them from this, not from what was kept or edited since;
+   * the settings note compares against `rules` (#2165), absent in a record older than them. Carried across goals. */
+  readonly memoryEpoch: { readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore; readonly rules?: LeadAutonomyRecord['rules'] } | null
 }
 export interface LeadContextState {
   /** Bumped by every applied compaction or prune: the child reads the stored conversation again at a new epoch. */
@@ -460,7 +461,16 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, context: { ...state.context, epoch: state.context.epoch + 1, pending: null } }
       break
     case 'memory-core': ensure(event.memory.revision > state.memory.revision); state = { ...state, memory: event.memory }; break
-    case 'memory-epoch': state = { ...state, memoryEpoch: { goal: event.goal, epoch: event.epoch, memory: event.memory } }; break
+    case 'receipt': {
+      // A host line, drawn as a notice on the desktop and as a grey line on the phone, which shows `system` lines and not
+      // every `notice`. It is neither the person's message nor the Lead's, so it never answers or closes a question.
+      const all = [...state.messages, { version: 1, id: `receipt-${event.seq}`, revision: event.seq, role: 'system', text: event.text } satisfies LeadMessage]
+      const thread = windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project: null,
+        messages: all.slice(Math.max(0, all.length - 256)), olderMessages: state.olderMessages + Math.max(0, all.length - 256), cards: [] }, 131072)
+      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages }
+      break
+    }
+    case 'memory-epoch': state = { ...state, memoryEpoch: { goal: event.goal, epoch: event.epoch, memory: event.memory, ...(event.rules ? { rules: event.rules } : {}) } }; break
     case 'wake': state = { ...state, wakes: [...state.wakes.filter(wake => wake.id !== event.wake.id), event.wake].sort((a, b) => a.at - b.at).slice(-128) }; break
     case 'settings-changed': state = { ...state, ...(event.name === undefined ? {} : { name: event.name, nameChosen: true }), ...(event.follow === undefined ? {} : { follow: event.follow }) }; break
     case 'publication': {

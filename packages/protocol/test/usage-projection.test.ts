@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { isSilentUsage, runtimeId, supersededUsageNotices, trackedUsage, usageCrossingKey, type UsageReport } from '../src/index.js'
+import { answeredWithNothing, isSilentUsage, runtimeId, usageShapeOf, supersededUsageNotices, trackedUsage, usageCrossingKey, type UsageReport } from '../src/index.js'
 
 const NOW = Date.UTC(2026, 10, 11, 12, 0, 0)
 const report = (runtime: string, patch: Partial<UsageReport> = {}): UsageReport => ({
@@ -86,4 +86,20 @@ test('Not reporting is said of an agent that was asked, never of one a fresh sta
   const empty = report('codex', { source: { kind: 'runtime', label: 'no source available' } })
   assert.equal(isSilentUsage(empty), false)
   assert.equal(after.find(one => one.runtime === runtimeId('codex'))!.notReporting, true)
+})
+
+test('an answer with nothing to show is one rule for every surface, and another sign-in\'s figures are something (#2150)', () => {
+  const empty = report('codex')
+  assert.equal(usageShapeOf(empty), 'none')
+  assert.equal(answeredWithNothing(empty, NOW), true)
+  // Silence is its own stand-in, a failure with nothing kept is Unknown, and a reached limit is Out: none of them is this.
+  assert.equal(answeredWithNothing({ ...empty, notReporting: true }, NOW), false)
+  assert.equal(answeredWithNothing({ ...empty, error: { message: 'refused' } }, NOW), false)
+  assert.equal(answeredWithNothing({ ...empty, reached: 'credits' }, NOW), false)
+  const borrowed = { ...empty, unverified: { whose: 'CLI sign-in', reached: null, fetchedAt: NOW, staleAfterMs: 60_000,
+    lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 0, windowMinutes: 10_080, resetsAt: null }] } }
+  assert.equal(answeredWithNothing(borrowed, NOW), false)
+  assert.equal(usageShapeOf({ ...empty, credits: { remaining: 2.45, unit: 'USD' } }), 'balance')
+  assert.equal(usageShapeOf({ ...empty, credits: { remaining: null, unit: 'USD' } }), 'none')
+  assert.equal(usageShapeOf({ ...empty, billing: { kinds: ['free'] } } as UsageReport), 'free')
 })
