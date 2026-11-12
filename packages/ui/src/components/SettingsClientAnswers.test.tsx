@@ -156,6 +156,8 @@ const mountMcp = (load: () => Promise<McpStartsView | null>, save: (revision: nu
     loadUnheldCeilings: vi.fn(async () => 'seat'),
     loadUnattendedCeilings: vi.fn(async () => 'refuse'),
     loadQuestionWait: vi.fn(async () => '5m'),
+    loadCarryOnPolicy: vi.fn(async () => ({ onLimit: 'ask', otherAgents: true })),
+    readCarryOnRules: async () => true,
     loadClientsMayAnswer: vi.fn(async () => false),
     setClientsMayAnswer: vi.fn(async () => true),
     loadMcpStarts: load,
