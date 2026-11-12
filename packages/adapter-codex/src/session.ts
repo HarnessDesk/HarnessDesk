@@ -67,6 +67,9 @@ import { CODEX_RUNTIME_ID, mapSummary, mapUsage, nameFromMessage, stripContext }
  */
 const SETTLE_MS = 5_000
 
+/** How long a Stop waits on its sub-agents' stops before it settles; the sweep runs on. */
+const TREE_WAIT_MS = 3_000
+
 export interface CodexSessionDeps {
   /** Which Codex account owns this thread — the runtime it was started on. */
   readonly runtime?: RuntimeId
@@ -646,17 +649,22 @@ export class CodexSession implements AgentSession {
    *
    * Codex stops only the thread it is asked about (`Session::interrupt_task`
    * aborts that thread's own turn, 0.167.1) and its sub-agents are threads of
-   * their own, so the runtime asks each of them in turn. The descendants are
-   * asked after this thread's own stop has been sent, and the call settles
-   * once each of them has been asked or has run out of time; only this
-   * thread's own answer can make it fail. Nothing is unsubscribed: the
-   * conversation stays open.
+   * their own, so the runtime asks each of them in turn. This thread's own
+   * stop is written first and the descendants are asked in the same tick.
+   * The call settles once this thread has answered and the tree has been
+   * asked, or after `TREE_WAIT_MS` of the tree at most, so a stalled process
+   * cannot hold a Stop for the sum of its per-request bounds; the sweep goes
+   * on in the background. Only this thread's own answer can make it fail.
+   * Nothing is unsubscribed: the conversation stays open.
    */
   async interrupt(): Promise<void> {
     this.#requireActiveTurn('interrupt')
     const own = this.interruptTurn()
     const tree = this.deps.stopDescendants?.(this.id) ?? Promise.resolve()
-    const [result] = await Promise.allSettled([own, tree])
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const capped = Promise.race([tree, new Promise<void>(resolve => { timer = setTimeout(resolve, TREE_WAIT_MS) })])
+      .finally(() => clearTimeout(timer))
+    const [result] = await Promise.allSettled([own, capped])
     if (result.status === 'rejected') throw result.reason
   }
 
