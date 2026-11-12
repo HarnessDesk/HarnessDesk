@@ -1297,7 +1297,7 @@ export class AppStore {
       // These families have no additional event owner and their captured
       // material can be checked in the body. Notice items require exact wire
       // equality during restoration; notice events remain protected.
-      const supportedItem = (item: AgentItem) => item.type === 'userMessage' || item.type === 'assistantMessage' || item.type === 'command' || item.type === 'reasoning' || item.type === 'fileChange' || item.type === 'plan' || item.type === 'toolCall' || item.type === 'publication' || item.type === 'notice'
+      const supportedItem = (item: AgentItem) => item.type === 'userMessage' || item.type === 'assistantMessage' || item.type === 'command' || item.type === 'reasoning' || item.type === 'fileChange' || item.type === 'plan' || item.type === 'toolCall' || item.type === 'publication' || item.type === 'carryOn' || item.type === 'notice'
       const represented = (event.type === 'session/started' && event.session.itemsLoaded && !event.session.partialHistory &&
           event.session.turns.every(turn => turn.items.every(supportedItem) && new Set(turn.items.map(item => item.id)).size === turn.items.length) &&
           new Set(event.session.turns.map(turn => turn.id)).size === event.session.turns.length) ||

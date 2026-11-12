@@ -80,7 +80,7 @@ import {
   type Tone,
 } from '../design'
 import { STATUS_LABEL, paneStatus, type PaneStatus } from '../lib/pane-status'
-import { splitTurn } from '../lib/turn-view'
+import { carryOnAtBoundary, splitTurn } from '../lib/turn-view'
 import { ItemView } from './Items'
 import { BranchSwitcher } from './BranchSwitcher'
 import { BranchCreateDialog } from './BranchCreateDialog'
@@ -690,7 +690,8 @@ export const Conversation = ({
                 busy && turn.id === live?.id ? (turn.items[turn.items.length - 1]?.id ?? null) : null
               return (
                 <div key={turn.id} data-turn={turn.id}>
-                  {turnIndex > 0 && <Separator className={styles.turnDivider} />}
+                  {/* A carry-on marker at the boundary is itself the rule. */}
+                  {turnIndex > 0 && !carryOnAtBoundary(session.turns[turnIndex - 1], turn) && <Separator className={styles.turnDivider} />}
                   {/* The two halves are marked separately because the rail on the
                       left has a dash for each, and a dash that previews the answer
                       has to land on the answer rather than on the top of the turn
@@ -723,6 +724,9 @@ export const Conversation = ({
                         .join('\n\n')}
                     />
                   )}
+                  {view.closing.map((item) => (
+                    <ItemView key={item.id} item={item} root={session.cwd} />
+                  ))}
                 </div>
               )
             })}
