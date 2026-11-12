@@ -27,7 +27,9 @@ it('lists the five kinds with their mode, and says what Observe does once', asyn
   const { box } = await mount(<LeadAutonomySection />)
   for (const title of ['Desk-change reports', 'Stuck nudges', 'Repeat runs', 'Mention triggers', 'Morning brief']) expect(box.textContent).toContain(title)
   expect(box.querySelectorAll('select').length).toBe(5)
-  expect(box.textContent).toContain('Observe writes what the Lead would have done')
+  // The caption names the Lead as the person chose to call it, the words the phone uses (#2146).
+  expect(box.textContent).toContain('Observe records what Dex would have done and does nothing.')
+  expect(box.textContent).not.toContain('the Lead')
   expect(box.textContent).toContain('Would have said a run had gone quiet.')
 })
 
@@ -47,7 +49,7 @@ it('rules: three sections; an edit is saved against its version and appears in t
   const edit = [...box.querySelectorAll<HTMLElement>('button')].filter(one => one.textContent === 'Edit')[2]!
   await act(async () => { edit.click() })
   const area = document.body.querySelector<HTMLTextAreaElement>('textarea[aria-label="What counts as done"]')!
-  expect(document.body.textContent).toContain("Takes effect at the Lead's next epoch")
+  expect(document.body.textContent).toContain("Takes effect at Dex's next epoch, never in the middle of a turn. It cannot widen what Dex is allowed to do.")
   await act(async () => {
     const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
     set.call(area, 'Tests pass and I looked.'); area.dispatchEvent(new Event('input', { bubbles: true }))
@@ -101,7 +103,11 @@ it('lists the changes the person made, newest first, with who made them and when
   const { box } = await mount(<LeadAutonomySection />)
   const changes = () => [...box.querySelectorAll('[aria-label="Autonomy changes"] [data-slot="row-title"]')].map(one => one.textContent)
   expect(changes()).toEqual(['Stuck nudges: Act → Observe', 'How to talk to me: version 1 saved'])
-  expect(box.textContent).toContain('Only you change these; the Lead cannot.')
+  // A change applied from a proposal names the Lead as the person calls it, never a proposal id (#2167).
+  const applied = box.querySelectorAll('[aria-label="Autonomy changes"] [data-slot="row"]')[1]!
+  expect(applied.textContent).toContain("Applied from Dex's proposal")
+  expect(box.textContent).not.toMatch(/proposal s[0-9]/)
+  expect(box.textContent).toContain('Only you change these; Dex cannot.')
   const select = box.querySelector<HTMLSelectElement>('select[aria-label="Repeat runs"]')!
   await act(async () => { select.value = 'off'; select.dispatchEvent(new Event('change', { bubbles: true })) })
   await settle()
@@ -114,4 +120,33 @@ it('rules: each edited section shows its version and when it changed, on its own
   expect(row.textContent).toMatch(/Version 1 · Nov 2/)
   const untouched = [...box.querySelectorAll<HTMLElement>('[data-slot="row-title"]')].find(one => one.textContent?.startsWith('What counts as done'))!.closest<HTMLElement>('[data-slot="row"]') ?? box
   expect(untouched.textContent).not.toContain('Version')
+})
+
+it('a first rule change can be restored to the shipped words from its history, and every save shows in Recent changes (#2152)', async () => {
+  const { box, calls } = await mount(<><LeadRulesSection /><LeadAutonomySection /></>)
+  const ledger = () => box.querySelector('[aria-label="Autonomy changes"]')!.textContent
+  const edit = [...box.querySelectorAll<HTMLElement>('button')].filter(one => one.textContent === 'Edit')[0]!
+  await act(async () => { edit.click() })
+  const dialog = () => document.body.querySelector<HTMLElement>('[role="dialog"]')!
+  const history = [...dialog().querySelectorAll('[data-slot="row"]')].map(row => row.textContent ?? '')
+  expect(history.find(row => row.startsWith('Version 1')), 'the version in force has nothing to restore').not.toContain('Restore')
+  const shipped = [...dialog().querySelectorAll<HTMLElement>('[data-slot="row"]')].find(row => row.textContent?.startsWith('Shipped words'))
+  expect(shipped, 'the words before the first change are in the history').toBeTruthy()
+  await act(async () => { [...shipped!.querySelectorAll<HTMLElement>('button')].find(one => one.textContent === 'Restore')!.click() })
+  await settle()
+  expect(calls.filter(call => call.method === 'lead/rules/update').map(call => call.params)).toEqual([{ section: 'talk', action: 'reset', expectedVersion: 1 }])
+  expect(ledger(), 'the restore that saved version 2 is in the ledger without reopening the page').toContain('How to talk to me: reset to default')
+  await act(async () => { [...dialog().querySelectorAll<HTMLElement>('[data-slot="row"]')].find(row => row.textContent?.startsWith('Version 1'))!.querySelector<HTMLElement>('button')!.click() })
+  await settle()
+  expect(calls.filter(call => call.method === 'lead/rules/update').at(-1)!.params).toEqual({ section: 'talk', action: 'rollback', to: 1, expectedVersion: 2 })
+  expect(ledger()).toContain('How to talk to me: version 3 restored')
+})
+
+it('a rule version applied from a proposal says whose proposal it was, never its id (#2167)', async () => {
+  const { box } = await mount(<LeadRulesSection />)
+  const edit = [...box.querySelectorAll<HTMLElement>('button')].filter(one => one.textContent === 'Edit')[0]!
+  await act(async () => { edit.click() })
+  const version = [...document.body.querySelectorAll<HTMLElement>('[role="dialog"] [data-slot="row"]')].find(row => row.textContent?.startsWith('Version 1'))!
+  expect(version.textContent).toContain("Applied from Dex's proposal")
+  expect(document.body.textContent).not.toMatch(/proposal s[0-9]/)
 })

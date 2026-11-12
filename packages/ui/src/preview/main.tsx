@@ -148,6 +148,7 @@ import { HeaderStatusFrames } from './frames-header-status'
 import { LeadChatFrames } from './frames-lead-chat'
 import { ReadCeilingFrames } from './frames-read-ceiling'
 import { CarryOnFrames } from './frames-carry-on'
+import { TurnErrorFrames } from './frames-turn-errors'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
 import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
@@ -1398,6 +1399,8 @@ createRoot(container).render(
           ? <ReadCeilingFrames />
           : new URLSearchParams(window.location.search).has('carry-on')
           ? <CarryOnFrames />
+          : new URLSearchParams(window.location.search).has('turn-errors')
+          ? <TurnErrorFrames />
           : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('runtime-start-only')

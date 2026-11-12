@@ -315,7 +315,10 @@ test('the same handshake and refusal rule as the desk\'s own tools server', asyn
   const ours = await initialize(server)
   const oursRefused = await server.request('resources/list')
   assert.equal(hello.result.protocolVersion, ours.result.protocolVersion)
-  assert.deepEqual(hello.result.capabilities, ours.result.capabilities)
+  // One difference, on purpose: the bridge's tools follow the plugins, which
+  // can change mid-conversation, so it says its list can change; this
+  // server's tools are fixed.
+  assert.deepEqual(hello.result.capabilities, { ...ours.result.capabilities, tools: { ...ours.result.capabilities.tools, listChanged: true } })
   assert.deepEqual(hello.result.serverInfo, ours.result.serverInfo)
   assert.equal(refused.error.code, oursRefused.error?.code)
   assert.equal(refused.error.message, oursRefused.error?.message)

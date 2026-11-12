@@ -1311,6 +1311,13 @@ test('a prompt-time auth refusal moves an observed agent to sign-in required', a
     await session.send([{ type: 'text', text: 'hello' }])
     await turnFinished
 
+    // The failed turn says what kind of failure it was, on the turn the
+    // transcript keeps and on the event the store refreshes the runtime on.
+    const failed = events.find((event) => event.type === 'turn/completed')
+    assert.equal(failed?.type === 'turn/completed' ? failed.turn.error?.code : null, 'auth')
+    const error = events.find((event) => event.type === 'error')
+    assert.equal(error?.type === 'error' ? error.error.code : null, 'auth')
+
     const status = await runtime.getAccount()
     assert.deepEqual(status.accounts, [], 'accounts must be empty when sign-in is required')
     assert.equal(status.signInMethods.length, 1)
@@ -1340,13 +1347,14 @@ test('a prompt-time non-auth error leaves an observed agent signed in (control)'
     const initial = await runtime.getAccount()
     assert.deepEqual(initial.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
 
-    const turnFinished = new Promise<void>((resolve) => {
+    const turnFinished = new Promise<string | undefined>((resolve) => {
       runtime.subscribe((event) => {
-        if (event.type === 'turn/completed') resolve()
+        if (event.type === 'turn/completed') resolve(event.turn.error?.code)
       })
     })
     await session.send([{ type: 'text', text: 'hello' }])
-    await turnFinished
+    // A bare internal error names no remedy, so none is claimed for it.
+    assert.equal(await turnFinished, 'unknown')
 
     // Non-auth error must NOT move #signIn to required
     const status = await runtime.getAccount()

@@ -15,6 +15,7 @@ import {
   type AccountStatus,
   type AuthMethod,
   type LoginStart,
+  type AgentError,
   type AgentEvent,
   type AgentItem,
   type AgentRuntime,
@@ -119,6 +120,7 @@ import {
 
 import { CliAccount, type AcpAccountCommands, type AcpCommandSpec } from './account.js'
 import { attachmentsMeta, decodeAttachmentCapability, toAttachmentSupport, validateAttachmentReceipt } from './attachments.js'
+import { classifyAcpError, isAuthRefusal } from './errors.js'
 import { AcpExtensions } from './extensions.js'
 import { resolveExecutable, versionAtLeast, type AcpExecutableSpec, type ResolvedExecutable } from './executable.js'
 import { acknowledgeEnvironment, environmentMeta, environmentSupported } from './lane-environment.js'
@@ -4450,15 +4452,6 @@ type SignInObservation =
   | { readonly state: 'required'; readonly message: string; readonly signedOut?: true }
 
 /**
- * ACP's own refusal for a session that needs a sign-in first is `-32000
- * auth_required` with the words "Authentication required" — but -32000 is
- * also the head of JSON-RPC's reserved server-error range, and an agent's
- * "internal server error" wears the same number. So the words decide, in
- * the message or in the details the agent attached: Antigravity's
- * server sends the code and the words, a bridge may send the words alone,
- * and a bare -32000 is a failure of some other kind.
- */
-/**
  * What a sign-in method id gets so the desk can tell an ACP method from a
  * CLI's or a stored key's. `#observedAccount` mints them and `login()` reads
  * them back; the agent's own id is whatever follows.
@@ -4481,11 +4474,6 @@ const PACKAGE_RUNNERS: Readonly<Record<string, string>> = {
 /** Said when the key an agent was told to use is taken away (`#authenticateWithStoredKey`). */
 const KEY_REMOVED = 'Its key was removed. Sign in again, or store a key.'
 
-const AUTH_REQUIRED_WORDS =
-  /api key is missing(?: or not configured)?|authentication required|not authenticated|unauthenticated|auth(?:Required|[_ -]required)|login required|sign[- ]?in required|not (?:signed|logged) in|please (?:log|sign) in|(?:log|sign) in to (?:use|continue|access)|authenticate again/i
-const isAuthRefusal = (error: unknown): boolean =>
-  (error instanceof AcpError || error instanceof Error) &&
-  AUTH_REQUIRED_WORDS.test(`${error.message}\n${(error as AcpError).details ?? ''}`)
 
 /** The first sentence of what an agent said, for a line a person reads. */
 export const firstSentence = (text: string): string => {
@@ -5214,7 +5202,7 @@ class AcpSession implements AgentSession {
       })
       .catch((error: unknown) => {
         this.#host.refusedForSignIn(error)
-        this.#failTurn(turn, describeAcp(error))
+        this.#failTurn(turn, describeAcp(error), classifyAcpError(error))
         if (control) throw error
       })
     // A control's result is internal turn bookkeeping, not setter acceptance.
@@ -5524,7 +5512,7 @@ class AcpSession implements AgentSession {
       }
       case 'agent_message_chunk': {
         if (!turn) return
-        const item = this.#appendText(turn, 'assistantMessage', textOf(update.content))
+        const item = this.#appendText(turn, 'assistantMessage', textOf(update.content), update.messageId)
         this.#emit({
           type: 'item/delta',
           sessionId: this.id,
@@ -5536,7 +5524,7 @@ class AcpSession implements AgentSession {
       }
       case 'agent_thought_chunk': {
         if (!turn) return
-        const item = this.#appendText(turn, 'reasoning', textOf(update.content))
+        const item = this.#appendText(turn, 'reasoning', textOf(update.content), update.messageId)
         this.#emit({
           type: 'item/delta',
           sessionId: this.id,
@@ -6019,7 +6007,7 @@ class AcpSession implements AgentSession {
 
   agentDied(): void {
     const turn = this.#currentTurn
-    if (turn) this.#failTurn(turn, `${this.#host.agentName} exited mid-turn.`)
+    if (turn) this.#failTurn(turn, `${this.#host.agentName} exited mid-turn.`, 'runtimeUnavailable')
     this.#abandonPermissions('The agent exited.')
   }
 
@@ -6042,13 +6030,26 @@ class AcpSession implements AgentSession {
     this.#pendingPermissions.clear()
   }
 
+  /**
+   * A chunk continues the item before it when that item is the same kind of
+   * text and, where the agent names its messages, the same message. An agent
+   * that answers twice in one prompt — DeepSeek Harness says it is waiting
+   * on a subagent, then answers again when the subagent reports — sends two
+   * messages back to back with nothing between them but their ids; read
+   * without the ids they were one item, "…waiting.Here is…", spliced with no
+   * separator.
+   */
   #appendText(
     turn: MutableTurn,
     type: 'assistantMessage' | 'reasoning',
     text: string,
+    messageId?: string | null,
   ): AgentItem {
     const last = turn.items[turn.items.length - 1]
-    if (last && last.type === type) {
+    const named = typeof messageId === 'string' && messageId.length > 0 ? messageId : null
+    const sameMessage = named === null || turn.textMessage === undefined || turn.textMessage.itemId !== last?.id || turn.textMessage.messageId === named
+    if (last && last.type === type && sameMessage) {
+      if (named !== null) turn.textMessage = { itemId: last.id, messageId: named }
       const updated: AgentItem =
         type === 'assistantMessage'
           ? { ...(last as Extract<AgentItem, { type: 'assistantMessage' }>), text: (last as Extract<AgentItem, { type: 'assistantMessage' }>).text + text }
@@ -6064,6 +6065,7 @@ class AcpSession implements AgentSession {
         ? { id: itemId(`${turn.id}-a${turn.items.length}`), type, text, startedAt: Date.now() }
         : { id: itemId(`${turn.id}-r${turn.items.length}`), type, summary: [], content: [text], startedAt: Date.now() }
     turn.items.push(item)
+    turn.textMessage = named === null ? undefined : { itemId: item.id, messageId: named }
     // The started item goes out empty: the chunk that created it follows as
     // the first delta, and sending the text both ways doubles it on screen.
     const bare: AgentItem =
@@ -6105,7 +6107,7 @@ class AcpSession implements AgentSession {
     this.#host.emit({ type: 'session/status', sessionId: this.id, status: { type: 'idle' } })
   }
 
-  #failTurn(turn: MutableTurn, message: string): void {
+  #failTurn(turn: MutableTurn, message: string, code: AgentError['code']): void {
     if (this.#currentTurn?.id !== turn.id) return
     const completedAt = Date.now()
     this.#currentTurn = null
@@ -6113,7 +6115,9 @@ class AcpSession implements AgentSession {
       id: turn.id,
       items: [...turn.items],
       status: 'failed',
-      error: { message },
+      // The code goes on the turn as well as the event: the turn is what the
+      // transcript keeps, and what it reads to offer the one fix that helps.
+      error: { message, code },
       startedAt: turn.startedAt,
       completedAt,
       durationMs: turn.startedAt === null ? null : completedAt - turn.startedAt,
@@ -6124,7 +6128,7 @@ class AcpSession implements AgentSession {
     this.#host.emit({
       type: 'error',
       sessionId: this.id,
-      error: { message, code: 'runtimeUnavailable' },
+      error: { message, code },
     })
   }
 }
@@ -6142,6 +6146,8 @@ interface MutableTurn {
   controls?: Set<Promise<unknown>>
   items: AgentItem[]
   tools?: Map<string, ToolItemState>
+  /** The message id the agent gave the text item last written, when it gave one (`#appendText`). */
+  textMessage?: { readonly itemId: ItemId; readonly messageId: string }
   /**
    * `null` only for a turn opened while replaying stored history
    * (`#replaying`): the desk already knows when it really started, and

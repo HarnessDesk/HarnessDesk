@@ -38,3 +38,37 @@ test('the expiry note reaches the model request of the turn that answers the mes
   assert.match(requests[1]!, /expired at/)
   assert.doesNotMatch(requests[0]!, /<host-note>/)
 })
+
+test('after half an hour with no window or phone looked at, the next person turn carries the real away window, through the host (#2147)', async t => {
+  const { StateStore } = await import('../src/index.js')
+  const { tempDir } = await import('./scratch.js')
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  const requests: string[] = []
+  const transport = { async send(request: { readonly body: unknown }) { requests.push(String(request.body))
+    return { status: 200, body: JSON.stringify({ id: `msg_${requests.length}`, type: 'message', role: 'assistant', model: 'claude-sonnet-5-5',
+      content: [{ type: 'text', text: 'Nothing moved.' }], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } }) } } }
+  const state = new StateStore(`${tempDir('hd-lead-away-state-')}/state.json`)
+  const desk = await evidenceDesk(t, { leadEnabled: true, state, leadMessagesTransport: transport as never,
+    credentialCipher: { protection: 'synthetic cipher', encrypt: (plain: string) => Buffer.from(Buffer.from(plain).toString('hex')), decrypt: (blob: Buffer) => Buffer.from(blob.toString(), 'hex').toString() } as never })
+  const settings = await desk.host.call('lead/settings/read', {}) as { revision: number }
+  await desk.host.call('lead/settings/update', { expectedRevision: settings.revision, credential: { provider: 'anthropic', key: 'sk-test-not-real-0000' } } as never)
+  const settled = async (count: number) => {
+    for (let attempt = 0; attempt < 300; attempt++) {
+      const read = await desk.host.call('lead/thread/read', {}) as unknown as { requestInFlight: boolean; thread: { messages: { role: string }[] } }
+      if (!read.requestInFlight && read.thread.messages.filter(message => message.role === 'assistant').length >= count) return
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    throw new Error('the reply did not settle')
+  }
+  const device = { id: 'window:fixture-window', label: 'Desktop' }
+  await desk.host.call('lead/presence/read', { device, active: true } as never)
+  await desk.host.call('lead/thread/send', { idempotencyKey: 'away-1', text: 'Start on the status list' })
+  await settled(1)
+  t.mock.timers.tick(31 * 60_000)
+  await desk.host.call('lead/presence/read', { device, active: true } as never)
+  await desk.host.call('lead/thread/send', { idempotencyKey: 'away-2', text: 'What happened while I was away?' })
+  await settled(2)
+  assert.doesNotMatch(requests[0]!, /The person was away/)
+  assert.match(requests.at(-1)!, /<host-note>[^<]*The person was away from/, 'the turn after the absence is told the window')
+  assert.match(requests.at(-1)!, /nothing was spent, so no away digest was shown/)
+})

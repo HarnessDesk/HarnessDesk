@@ -1,8 +1,8 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { runtimeId, sessionId, sessionKey, turnId, type GoalView, type Session, type Turn } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, turnId, type GoalView, type RuntimeInfo, type Session, type Turn } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -144,4 +144,84 @@ it('leaves only actions and time visible, with the turn figures on the time tool
     vi.advanceTimersByTime(1000)
   })
   expect(document.body.textContent).toContain('1 step · 25.0s · 1K in · 200 out · 90% cached')
+})
+
+/**
+ * A failed turn offers the one thing that helps, chosen by the kind of
+ * failure the adapter named — the same for every agent, worded from the
+ * runtime's presentation and gated on what it can do.
+ */
+describe('the remedy beside a failed turn', () => {
+  const agent = runtimeId('fake')
+  const info = (capabilities: { account?: boolean; metered?: boolean } = {}) => ({
+    id: agent,
+    presentation: { name: 'Fake Agent' },
+    capabilities: { account: true, metered: true, ...capabilities },
+  }) as unknown as RuntimeInfo
+  const failedTurn = (code: string | undefined, extra: Partial<Turn> = {}): Turn => ({
+    id: turnId('t-failed'),
+    status: 'failed',
+    diff: null,
+    items: [{ id: 'u1', type: 'userMessage', content: [{ type: 'text', text: 'Fix the build', deskContext: { kind: 'person' } }] } as never],
+    error: { message: 'The turn failed.', ...(code ? { code } : {}) },
+    ...extra,
+  } as Turn)
+
+  const renderFailed = async (turn: Turn, runtime: RuntimeInfo | null = info(), turns?: Turn[]) => {
+    const snapshot = { ...emptySnapshot(), runtimes: runtime ? [runtime] : [] } as unknown as AppSnapshot
+    const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, queue: vi.fn(), askSeatFix: vi.fn() }
+    const session = { id: sessionId('s1'), runtime: agent, cwd: '/work', turns: turns ?? [turn], usage: null } as unknown as Session
+    await act(async () => root.render(
+      <StoreProvider store={store as unknown as AppStore}><TurnTail turn={turn} session={session} /></StoreProvider>,
+    ))
+    const alert = container.querySelector<HTMLElement>('[data-slot="alert"]')
+    return { store, alert, button: alert?.querySelector<HTMLButtonElement>('button') ?? null }
+  }
+
+  it.each([
+    ['auth', 'Sign in to Fake Agent', { kind: 'signIn', runtime: 'fake' }],
+    ['credits', 'See when it resets', { kind: 'usage', runtime: 'fake' }],
+    ['rateLimit', 'See when it resets', { kind: 'usage', runtime: 'fake' }],
+    ['versionGate', 'Open Fake Agent in Settings', { kind: 'runtime', runtime: 'fake' }],
+    ['runtimeUnavailable', 'Open Fake Agent in Settings', { kind: 'runtime', runtime: 'fake' }],
+  ])('%s takes the person where it is fixed', async (code, label, fix) => {
+    const { store, button } = await renderFailed(failedTurn(code))
+    expect(button?.textContent).toBe(label)
+    act(() => button!.click())
+    expect(store.askSeatFix).toHaveBeenCalledWith(fix)
+    expect(store.queue).not.toHaveBeenCalled()
+  })
+
+  it.each(['network', 'protocol', 'unknown'])('%s offers another try with the turn’s own prompt', async (code) => {
+    const { store, button } = await renderFailed(failedTurn(code))
+    expect(button?.textContent).toBe('Try again')
+    act(() => button!.click())
+    // The person's words again, without the provenance of the first sending.
+    expect(store.queue).toHaveBeenCalledWith([{ type: 'text', text: 'Fix the build' }], sessionKey(agent, sessionId('s1')))
+  })
+
+  it.each(['interrupted', 'sandboxDenied', undefined])('%s offers nothing', async (code) => {
+    const { alert, button } = await renderFailed(failedTurn(code))
+    expect(alert?.textContent).toContain('The turn failed.')
+    expect(button).toBeNull()
+  })
+
+  it('offers nothing while the runtime is retrying on its own', async () => {
+    const turn = failedTurn('rateLimit')
+    const { button } = await renderFailed({ ...turn, error: { ...turn.error!, retrying: true } })
+    expect(button).toBeNull()
+  })
+
+  it('gates each door on what the runtime can do, never on which it is', async () => {
+    expect((await renderFailed(failedTurn('auth'), info({ account: false }))).button).toBeNull()
+    expect((await renderFailed(failedTurn('credits'), info({ metered: false }))).button).toBeNull()
+    expect((await renderFailed(failedTurn('runtimeUnavailable'), null)).button).toBeNull()
+  })
+
+  it('offers another try only on the last turn, and not where the conversation cannot run', async () => {
+    const earlier = failedTurn('network')
+    const later = { ...failedTurn('network'), id: turnId('t-later') }
+    expect((await renderFailed(earlier, info(), [earlier, later])).button).toBeNull()
+    expect((await renderFailed(failedTurn('network'), null)).button, 'its runtime is not installed').toBeNull()
+  })
 })

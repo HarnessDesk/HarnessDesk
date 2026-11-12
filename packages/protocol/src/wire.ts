@@ -3000,6 +3000,8 @@ export interface HostMethods {
   'lead/reminder/set': { params: import('./lead-work.js').LeadReminderSet; result: import('./lead-work.js').LeadReminder }
   /** Cancels a reminder that has not fired, from the Lead, the window or the phone. */
   'lead/reminder/cancel': { params: { readonly id: string }; result: import('./lead-work.js').LeadWorkBoard }
+  /** The person clears a reminder that fired or was cancelled, from the window or the phone; never the Lead's (#2144). */
+  'lead/reminder/clear': { params: { readonly id: string }; result: import('./lead-work.js').LeadWorkBoard }
   /** The Lead proposes a mode for one kind of unasked work. A card for the person; nothing changes until they Apply. */
   'lead/autonomy/propose': { params: import('./lead-autonomy.js').LeadAutonomyPropose; result: import('./lead-autonomy.js').LeadSettingsProposeResult }
   /** The Lead proposes words for a rule section. A card for the person; nothing changes until they Apply. */

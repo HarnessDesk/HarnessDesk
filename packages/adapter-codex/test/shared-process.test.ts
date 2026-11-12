@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentEvent, AgentSession } from '@harnessdesk/protocol'
+import { sessionId, type AgentEvent, type AgentSession } from '@harnessdesk/protocol'
 import { CodexRuntime } from '../src/index.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
@@ -23,6 +23,9 @@ const until = async (condition: () => boolean | Promise<boolean>, message: strin
 }
 const lines = async <T>(path: string): Promise<T[]> =>
   (await readFile(path, 'utf8')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as T)
+
+/** A Codex session's stop of its own turn alone, the one closing uses; the shared session interface does not expose it. */
+const ownStop = (session: AgentSession) => session as unknown as { interruptTurn: () => Promise<void> }
 
 const environment = (start: number) => ({
   HARNESSDESK_GOAL_ID: 'g1',
@@ -223,12 +226,13 @@ test('a failed close interruption retains the subscribed handle for a retry', as
   const d = await account(t)
   const seat = await d.seat('seat')
   await d.turn(seat)
-  const interrupt = seat.interrupt.bind(seat)
-  seat.interrupt = async () => { throw new Error('Synthetic interruption refusal') }
+  const own = ownStop(seat)
+  const interrupt = own.interruptTurn.bind(seat)
+  own.interruptTurn = async () => { throw new Error('Synthetic interruption refusal') }
   await assert.rejects(seat.close(), /Synthetic interruption refusal/)
   assert.equal(d.runtime.session(seat.id), seat)
   assert.ok(!(await d.calls()).some(call => call.method === 'thread/unsubscribe' && call.threadId === seat.id))
-  seat.interrupt = interrupt
+  own.interruptTurn = interrupt
   await seat.close()
   await until(() => d.ended(seat), 'the retry ends the turn')
   assert.equal(d.runtime.session(seat.id), undefined)
@@ -242,7 +246,7 @@ test('a resumed active thread can steer and stop its current turn', async (t) =>
   await d.turn(other)
 
   // Simulate an externally unsubscribed active thread. Local pane close now interrupts.
-  seat.interrupt = async () => {}
+  ownStop(seat).interruptTurn = async () => {}
   await seat.close()
   const again = await d.runtime.resumeSession(seat.id, { cwd: join(d.dir, 'seat') })
   await again.steer([{ type: 'text', text: 'Continue here' }])
@@ -257,7 +261,7 @@ test('a completion heard while recovering a resumed turn beats the older turn sn
   const d = await account(t, { FAKE_CODEX_COMPLETE_ON_TURNS_LIST: '1' })
   const seat = await d.seat('seat')
   await d.turn(seat)
-  seat.interrupt = async () => {}
+  ownStop(seat).interruptTurn = async () => {}
   await seat.close()
   const again = await d.runtime.resumeSession(seat.id, { cwd: join(d.dir, 'seat') })
   assert.ok(d.ended(seat), 'completion arrived with the in-progress history snapshot')
@@ -398,6 +402,67 @@ test('closing stops a running descendant before unsubscribe and preserves anothe
   assert.ok(calls.indexOf('turn/interrupt') < calls.indexOf('thread/unsubscribe'))
   assert.ok(running(theirs.pid), 'another root’s descendant keeps working')
   assert.ok(!(await d.calls()).some(call => call.threadId === theirs.threadId && call.method === 'turn/interrupt'))
+})
+
+/** The turn a Codex session holds as running, which the shared session interface does not expose. */
+const runningTurn = (session: AgentSession): unknown => (session as unknown as { activeTurnId: unknown }).activeTurnId
+
+/** A seat whose turn runs over `spawn-tree`: a working child and grandchild, and a child already finished. */
+const tree = async (d: Awaited<ReturnType<typeof account>>, seat: AgentSession) => {
+  await seat.send([{ type: 'text', text: 'spawn-tree' }])
+  await until(() => d.events.some((event) => event.type === 'turn/started' && event.sessionId === seat.id), 'the root turn started')
+  const below = async () => (await d.helpers()).filter((helper) => helper.threadId.startsWith(`${seat.id}-sub-`))
+  await until(async () => (await below()).length === 3, 'the sub-agent tree is loaded')
+  const [child, grandchild, finished] = (await below()).map((helper) => helper.threadId)
+  return { child: child!, grandchild: grandchild!, finished: finished! }
+}
+
+test('Stop interrupts every running turn below the conversation and unsubscribes nothing', async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' })
+  const seat = await d.seat('seat')
+  const sibling = await d.seat('sibling')
+  await d.turn(sibling)
+  const { child, grandchild, finished } = await tree(d, seat)
+  const before = (await d.calls()).length
+
+  await seat.interrupt()
+
+  const calls = (await d.calls()).slice(before)
+  const interrupted = calls.filter((call) => call.method === 'turn/interrupt').map((call) => call.threadId)
+  assert.deepEqual([...interrupted].sort(), [seat.id, child, grandchild].sort(), 'the root, its child and its grandchild were each stopped once')
+  assert.equal(interrupted[0], seat.id, 'the root’s own stop is asked first')
+  assert.ok(!interrupted.includes(finished), 'a child whose turn already finished is not stopped')
+  assert.ok(!interrupted.includes(sibling.id), 'a sibling conversation is not stopped')
+  assert.ok(!calls.some((call) => call.method === 'thread/unsubscribe'), 'Stop keeps every thread subscribed')
+  await until(() => d.ended(seat), 'the root’s turn ended')
+  assert.ok(!d.ended(sibling), 'the sibling keeps working')
+  assert.equal(d.runtime.session(seat.id), seat, 'the conversation stays open')
+
+  // A late report does not restart the root, as far as the adapter can see:
+  // no further turn is asked for or announced on it.
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  const after = (await d.calls()).slice(before)
+  assert.ok(!after.some((call) => call.method === 'turn/start'), 'nothing started another turn')
+  assert.equal(d.events.filter((event) => event.type === 'turn/started' && event.sessionId === seat.id).length, 1, 'the root saw one turn')
+  assert.equal(runningTurn(seat), null)
+})
+
+test('Stop also stops a descendant that is open as a conversation of its own', async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' })
+  const seat = await d.seat('seat')
+  const { child, grandchild } = await tree(d, seat)
+  const opened = await d.runtime.resumeSession(sessionId(child), { cwd: join(d.dir, 'seat') })
+  await until(() => runningTurn(opened) !== null, 'the opened child recovered its running turn')
+  const before = (await d.calls()).length
+
+  await seat.interrupt()
+
+  const calls = (await d.calls()).slice(before)
+  const interrupted = calls.filter((call) => call.method === 'turn/interrupt').map((call) => call.threadId)
+  assert.deepEqual([...interrupted].sort(), [seat.id, child, grandchild].sort(), 'the open child, and the grandchild below it, were stopped once each')
+  assert.ok(!calls.some((call) => call.method === 'thread/unsubscribe'))
+  await until(() => runningTurn(opened) === null, 'the open child’s turn ended')
+  assert.equal(d.runtime.session(opened.id), opened, 'the child’s conversation stays open')
 })
 
 test('a close the desk asked for is not announced back when Codex makes it in the same read as its answer', async (t) => {

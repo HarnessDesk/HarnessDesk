@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { runtimeId, type UsageBilling, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
+import { answeredWithNothing, isSilentUsage, runtimeId, type UsageBilling, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import {
   approxTurnsOf,
@@ -513,6 +513,27 @@ describe('statusOf', () => {
     expect(statusPresentation(statusOf(failed, 'windows', describeReport(failed, { now: NOON }), NOON)).label).toBe('Unknown')
     const silent = report({ notReporting: true })
     expect(statusPresentation(statusOf(silent, 'none', describeReport(silent, { now: NOON }), NOON)).label).toBe('Not reporting')
+  })
+
+  // The phone says Not reporting for exactly `isSilentUsage || answeredWithNothing`; the Plans row says it for the same
+  // accounts and no others, whatever else the report carries (#2150).
+  it('says Not reporting for exactly the accounts the phone does', () => {
+    const unverified = { whose: 'its other sign-in', lanes: [lane({ id: 'weekly', usedPercent: 30 })], reached: null, fetchedAt: NOON, staleAfterMs: 5 * MINUTE }
+    const cases: Record<string, UsageReport> = {
+      silent: report({ notReporting: true }),
+      empty: report({}),
+      'empty with a plan': report({ plan: 'Pro' }),
+      'empty, a limit reached it cannot name': report({ reached: 'session' }),
+      'empty, an overage on': report({ billing: billing(['allowance'], { overage: { enabled: true, spent: 0, currency: 'USD' } }) }),
+      'empty, another sign-in\'s figures': report({ unverified }),
+      'empty, a failed read': report({ error: { message: 'HTTP 503' } as never }),
+      'empty, unlimited credits': report({ credits: { remaining: null, unit: 'USD', unlimited: true } as never }),
+      figures: report({ lanes: [lane({ id: 'weekly', usedPercent: 10 })] }),
+      'a spent lane': report({ lanes: [lane({ id: 'weekly', usedPercent: 100 })] }),
+      'a balance': report({ credits: { remaining: 4, unit: 'USD' } as never }),
+    }
+    for (const [name, subject] of Object.entries(cases))
+      expect([name, describeRow(subject, NOON).status === 'notReporting']).toEqual([name, isSilentUsage(subject) || answeredWithNothing(subject, NOON)])
   })
 
   it('otherwise reads "ready"', () => {

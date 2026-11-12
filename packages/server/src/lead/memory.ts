@@ -26,7 +26,18 @@ interface StoredVersion {
   readonly undone?: true
   /** Forget took text out of this version, so it can no longer be put back. */
   readonly erased?: true
+  /** What the version did, counted before Forget took its words out, so its history row still says so (#2152). */
+  readonly counts?: VersionCounts
+  /** The person's Forget: how many notes it took out. */
+  readonly forgot?: number
 }
+interface VersionCounts { readonly added: number; readonly removed: number; readonly changed: number }
+const countsOf = (changes: readonly StoredChange[]): VersionCounts => ({
+  added: changes.filter(change => !change.before && change.after).length,
+  removed: changes.filter(change => change.before && !change.after).length,
+  changed: changes.filter(change => change.before && change.after).length,
+})
+const NO_COUNTS: VersionCounts = { added: 0, removed: 0, changed: 0 }
 /** One of the Lead's proposals and what the person did with it. A kept one names its entry; whether that entry is
  * still in memory is read from the entries, so Forget, Undo and a tidy's merge need no second record. */
 interface StoredProposal {
@@ -101,13 +112,12 @@ const diff = (before: readonly LeadMemoryEntry[], after: readonly LeadMemoryEntr
 }
 const summary = (version: StoredVersion, entries: readonly LeadMemoryEntry[]): LeadMemoryVersionSummary => {
   const current = new Map(entries.map(entry => [entry.id, entry]))
-  return { version: version.version, at: version.at, by: version.by,
-    added: version.changes.filter(change => !change.before && change.after).length,
-    removed: version.changes.filter(change => change.before && !change.after).length,
-    changed: version.changes.filter(change => change.before && change.after).length,
+  const counts = version.forgot !== undefined ? NO_COUNTS : version.counts ?? countsOf(version.changes)
+  return { version: version.version, at: version.at, by: version.by, ...counts,
     ...(version.tidy ? { tidy: version.tidy } : {}),
     undoable: !version.undone && !version.erased && version.changes.length > 0 && version.changes.every(change => sameEntry(current.get(change.id), change.after)),
-    ...(version.undone ? { undone: true as const } : {}) }
+    ...(version.undone ? { undone: true as const } : {}),
+    ...(version.forgot !== undefined ? { forgotten: version.forgot } : version.erased ? { erased: true as const } : {}) }
 }
 const dayOf = (at: number): string => { const date = new Date(at); return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}` }
 
@@ -117,7 +127,9 @@ const parseVersion = (value: unknown): StoredVersion => {
   if (!['person', 'lead', 'tidy', 'undo', 'migration'].includes(item.by)) throw new Error('lead-memory-store')
   const changes = item.changes.map(change => ({ id: String(change.id), before: change.before === null ? null : parseLeadMemoryEntry(change.before), after: change.after === null ? null : parseLeadMemoryEntry(change.after) }))
   return { version: item.version, at: item.at, by: item.by, changes, ...(item.tidy ? { tidy: { merged: Number(item.tidy.merged) || 0, replaced: Number(item.tidy.replaced) || 0, archived: Number(item.tidy.archived) || 0 } } : {}),
-    ...(item.undone === true ? { undone: true as const } : {}), ...(item.erased === true ? { erased: true as const } : {}) }
+    ...(item.undone === true ? { undone: true as const } : {}), ...(item.erased === true ? { erased: true as const } : {}),
+    ...(item.counts && typeof item.counts === 'object' ? { counts: { added: Number(item.counts.added) || 0, removed: Number(item.counts.removed) || 0, changed: Number(item.counts.changed) || 0 } } : {}),
+    ...(Number.isSafeInteger(item.forgot) && item.forgot! > 0 ? { forgot: item.forgot! } : {}) }
 }
 const PROPOSAL_STATES = ['pending', 'kept', 'edited', 'declined', 'forgotten'] as const
 /** A record the desk cannot read is dropped: it only tells the Lead what became of a proposal. */
@@ -224,7 +236,7 @@ export class LeadMemoryStore {
     return next
   }
   /** One change: the entries refit to Core's budget, a version when they changed, the revision bumped and saved. */
-  async #commit(next: Partial<StoreState>, by: LeadMemoryChangeBy, extra: Pick<StoredVersion, 'tidy'> = {}): Promise<number | null> {
+  async #commit(next: Partial<StoreState>, by: LeadMemoryChangeBy, extra: Pick<StoredVersion, 'tidy' | 'forgot'> = {}): Promise<number | null> {
     const before = this.#state.entries, entries = next.entries ? fit(next.entries) : before
     const changes = diff(before, entries)
     let versions = next.versions ?? this.#state.versions, version: number | null = null
@@ -360,8 +372,9 @@ export class LeadMemoryStore {
   }
 
   /** What the person does, in Settings or on a Keep chip. `seq` is the Lead's journal position, which a No keeps: the
-   * same words are offered again only after the person writes past it. */
-  change(change: LeadMemoryChange, seq = 0): Promise<LeadMemoryView> {
+   * same words are offered again only after the person writes past it. `kept` hears the entry a Keep made, inside this
+   * change's own turn of the queue, so two Keeps at once each name their own entry (#2176). */
+  change(change: LeadMemoryChange, seq = 0, kept?: (entry: LeadMemoryEntry) => void): Promise<LeadMemoryView> {
     return this.#serial(async () => {
       const { entries, inbox } = this.#state, at = this.#now()
       const entry = (id: string) => entries.find(one => one.id === id) ?? (() => { throw leadRefusal('lead-memory-missing') })()
@@ -397,9 +410,10 @@ export class LeadMemoryStore {
           room()
           const text = change.text === undefined ? candidate.text : words(change.text), edited = leadMemoryFold(text) !== leadMemoryFold(candidate.text)
           const id = `m${this.#state.next}`
+          const made: LeadMemoryEntry = { id, text, kind: change.kind ?? candidate.kind, by: edited ? 'person' : 'lead', tier: 'core', source: candidate.source, createdAt: at, usedAt: at, version: 1 }
           await this.#commit({ next: this.#state.next + 1, inbox: inbox.filter(one => one.id !== candidate.id),
-            entries: [...entries, { id, text, kind: change.kind ?? candidate.kind, by: edited ? 'person' : 'lead', tier: 'core', source: candidate.source, createdAt: at, usedAt: at, version: 1 }],
-            proposals: this.#decided(candidate, edited ? 'edited' : 'kept', at, id) }, 'person')
+            entries: [...entries, made], proposals: this.#decided(candidate, edited ? 'edited' : 'kept', at, id) }, 'person')
+          kept?.(made)
           break
         }
         case 'dismiss': {
@@ -431,10 +445,11 @@ export class LeadMemoryStore {
           // What the Lead proposed and the person kept as this note is forgotten too, and its words go with it.
           const proposals = this.#state.proposals.map(one => (one.entry && gone.has(one.entry)) || (one.text !== null && texts.has(one.text))
             ? { ...one, state: 'forgotten' as const, text: null, at } : one)
-          await this.#commit({ entries: entries.filter(one => one.id !== old.id), proposals }, 'person')
-          // Forgotten means gone: the text leaves every version too, and those versions can no longer be undone.
+          await this.#commit({ entries: entries.filter(one => one.id !== old.id), proposals }, 'person', { forgot: 1 })
+          // Forgotten means gone: the text leaves every version too, and those versions can no longer be undone. Each
+          // keeps its counts, so the history still says what it did and that Forget came after.
           this.#state = { ...this.#state, versions: this.#state.versions.map(version => version.changes.some(one => gone.has(one.id))
-            ? { ...version, changes: version.changes.filter(one => !gone.has(one.id)), erased: true as const } : version) }
+            ? { ...version, counts: version.counts ?? countsOf(version.changes), changes: version.changes.filter(one => !gone.has(one.id)), erased: true as const } : version) }
           await this.#save()
           break
         }
