@@ -488,3 +488,12 @@ test('#2106 review: words proposed over a never-edited section go stale when an 
   const record = (await updated.decide({ id: mode.id!, decision: 'apply' })).changes?.[0]
   assert.equal(record?.what === 'mode' && record.proposal, mode.id)
 })
+
+test('when the Lead last answered the person with its settings is kept across a restart, and never moves back (#2165)', async t => {
+  const r = await rig(t)
+  assert.equal(await r.store.settingsShownAt(), null, 'a desk whose Lead never answered has no mark')
+  await r.store.markSettingsShown(5_000)
+  await r.store.markSettingsShown(4_000)
+  assert.equal(await r.store.settingsShownAt(), 5_000, 'a late, older reply never moves it back')
+  assert.equal(await r.make().settingsShownAt(), 5_000, 'a restart reads it from the file')
+})

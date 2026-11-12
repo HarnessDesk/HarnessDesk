@@ -128,17 +128,18 @@ const day = (at: number): string => { const date = new Date(at); return `${date.
  */
 export const leadMemoryStatus = (status: LeadMemoryStatus, read: LeadMemoryCore, limit: number = LEAD_MEMORY_LIMITS.statusBytes): string => {
   const proposals = status.proposals.slice(0, LEAD_MEMORY_LIMITS.statusProposals).map(proposal => {
-    const into = proposal.entry && (proposal.state === 'kept' || proposal.state === 'edited') ? ` as ${proposal.entry}` : ''
+    const into = proposal.entry && (proposal.state === 'kept' || proposal.state === 'edited') ? ` as tag ${proposal.entry}` : ''
     const words = proposal.text === null ? '' : `: ${leadMemoryClean(proposal.text, STATUS_TEXT)}`
     const history = proposal.history?.length ? ` (${proposal.history.map(event => `${event.what === 'asked-again' ? 'asked again' : event.what} ${leadClock(event.at)}`).join(', ')})` : ''
-    return `- [${proposal.id}] ${SAID[proposal.state]}${into}${words}${history}`
+    // No proposal id: the person never sees one, so the Lead never says one (#2167).
+    return `- ${SAID[proposal.state]}${into}${words}${history}`
   })
   const before = new Map(read.entries.map(entry => [entry.id, entry.text])), now = new Set(status.entries)
   const added = status.core.filter(entry => before.get(entry.id) !== entry.text)
   const removed = read.entries.filter(entry => !now.has(entry.id)).map(entry => entry.id)
   const changes = [
-    ...added.map(entry => `- ${entry.id} ${before.has(entry.id) ? 'changed' : 'now kept'}: ${leadMemoryClean(entry.text, STATUS_TEXT)}`),
-    ...(removed.length ? [`- no longer in memory: ${removed.join(', ')}`] : []),
+    ...added.map(entry => `- tag ${entry.id} ${before.has(entry.id) ? 'changed' : 'now kept'}: ${leadMemoryClean(entry.text, STATUS_TEXT)}`),
+    ...(removed.length ? [`- no longer in memory: ${removed.map(id => `tag ${id}`).join(', ')}`] : []),
   ]
   // Too many changes to list within the limit: say how many, not which.
   const counted = [`- ${added.length} notes kept or changed and ${removed.length} no longer in memory; the next summary brings the whole list.`]
@@ -146,7 +147,7 @@ export const leadMemoryStatus = (status: LeadMemoryStatus, read: LeadMemoryCore,
   const build = (shown: readonly string[], listed: readonly string[] = changes) => [
     `${LEAD_MEMORY_STATUS_OPEN} revision="${status.revision}">`,
     'Memory as the desk holds it now. A note is in memory only when your desk-memory list holds it and it is not named below as no longer in memory, or when it is named below as kept. Never tell the person something is recorded, noted or remembered otherwise: say it waits for their Keep, or propose it again.',
-    'Say only what these lines record about a proposal and when: never that you asked before, that they declined before, or that you reminded them, unless a line here or your work ledger records it. Keep works on every surface the person reads you on.',
+    'Say only what these lines record about a proposal and when: never that you asked before, that they declined before, or that you reminded them, unless a line here or your work ledger records it. Keep works on every surface the person reads you on. Never say a tag such as m2 to the person.',
     ...(shown.length ? ['What you proposed, newest first:', ...shown] : []),
     ...(listed.length ? ['Changed since your desk-memory list:', ...listed] : []),
     ...(!shown.length && !listed.length && !cleared.length ? ['Nothing changed since your desk-memory list, and nothing you proposed waits or was decided since.'] : []),

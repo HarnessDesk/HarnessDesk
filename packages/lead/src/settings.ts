@@ -1,4 +1,4 @@
-import { LEAD_AUTONOMY_DEFAULTS, LEAD_AUTONOMY_KINDS, LEAD_AUTONOMY_LABELS, LEAD_RULE_LIMITS, LEAD_RULE_TITLES, type LeadAutonomyChange, type LeadAutonomyView, type LeadSettingsProposal } from '@harnessdesk/protocol'
+import { LEAD_AUTONOMY_DEFAULTS, LEAD_AUTONOMY_KINDS, LEAD_AUTONOMY_LABELS, LEAD_RULE_LIMITS, LEAD_RULE_TITLES, type LeadAutonomyChange, type LeadAutonomyMode, type LeadAutonomyView, type LeadRuleSectionId, type LeadSettingsProposal } from '@harnessdesk/protocol'
 import { leadClock, leadMemoryClean } from './memory.js'
 import { leadCleanUntrusted } from './untrusted.js'
 
@@ -25,42 +25,57 @@ const last = (change: LeadAutonomyChange | undefined, since: number | null): str
   : ' Changed earlier; the desk no longer keeps when.'
 const bytes = (text: string) => new TextEncoder().encode(text).byteLength
 
+/** The person's own words for each section that the epoch's standing instructions hold (`leadRulesAddendum`); a
+ * section absent or null there is not in them, and the Lead works it from its general instructions. */
+export type LeadRulesHeld = Readonly<Partial<Record<LeadRuleSectionId, string | null>>>
+/** The bytes the note may take by default: it sits after the cache mark, so every request pays for it. */
+export const LEAD_SETTINGS_STATUS_BYTES = 2560
+
 /**
  * The desk-context note that tells the Lead, on every request, its autonomy modes and rule sections as they stand now:
- * each mode's value and each section's version and current words, with the last change and who made it, whether the
- * person applied a proposal, edited the words in Settings, restored an earlier version or reset them (#2165). What is in
- * force is this state, never the history of proposals: an applied proposal is not listed, since the state already holds
- * it or a later change of the person's replaced it. Only proposals still waiting, and those declined, are listed, without
- * their ids, which are no words for the Lead to repeat (#2167). `since` is when the Lead was last shown this note: a
- * change after it is marked, and the note says that nothing else is news. Null when the modes are the defaults, no
- * section was ever changed and nothing is open, so an untouched desk costs no tokens. Words are cleaned like the rules
- * in the standing instructions; the note stays within `limit` UTF-8 bytes, dropping the oldest proposals first and then
- * clipping each section's words.
+ * each mode's value and each section's version, with the last change and who made it, whether the person applied a
+ * proposal, edited the words in Settings, restored an earlier version or reset them (#2165). What is in force is this
+ * state, never the history of proposals: an applied proposal is not listed, since the state already holds it or a later
+ * change of the person's replaced it. Only proposals still waiting, and those declined, are listed, without their ids,
+ * which are no words for the Lead to repeat (#2167). `since` is when the Lead last answered the person with this note
+ * read: a change after it is marked, and the note says nothing else is news.
+ *
+ * The note is billed on every request, so a section's words are printed only where they differ from the words `held`
+ * says the epoch's instructions were built with: a section the person never changed, or one the instructions already
+ * hold, is one line. Modes at their default share one line. Null when the modes are the defaults, no section was ever
+ * changed and nothing is open, so an untouched desk costs nothing. Words are cleaned like the rules in the standing
+ * instructions; the note stays within `limit` UTF-8 bytes, dropping the oldest proposals first and then clipping the
+ * printed words, which then say "(shortened)".
  */
-export const leadSettingsStatus = (view: LeadAutonomyView, limit = 8192, since: number | null = null): string | null => {
+export const leadSettingsStatus = (view: LeadAutonomyView, limit: number = LEAD_SETTINGS_STATUS_BYTES, since: number | null = null, held: LeadRulesHeld = {}): string | null => {
   const proposals = (view.proposals ?? []).filter(proposal => proposal.state === 'pending' || proposal.state === 'declined')
   const changes = view.changes ?? []
   const changedModes = LEAD_AUTONOMY_KINDS.some(kind => view.modes[kind] !== LEAD_AUTONOMY_DEFAULTS[kind])
   const changedRules = view.rules.some(rule => rule.custom || (rule.version ?? 0) > 0)
   if (!proposals.length && !changedModes && !changedRules && !changes.some(change => change.what !== 'deadline')) return null
-  const modes = LEAD_AUTONOMY_KINDS.map(kind => {
-    const change = changes.find(one => one.what === 'mode' && one.kind === kind)
-    const never = !change && view.modes[kind] === LEAD_AUTONOMY_DEFAULTS[kind]
-    return `- ${LEAD_AUTONOMY_LABELS[kind].title} (${kind}): ${view.modes[kind]}.${never ? ' The default; never changed.' : last(change, since)}`
-  })
+  const modeChange = (kind: typeof LEAD_AUTONOMY_KINDS[number]) => changes.find(one => one.what === 'mode' && one.kind === kind)
+  const untouched = LEAD_AUTONOMY_KINDS.filter(kind => !modeChange(kind) && view.modes[kind] === LEAD_AUTONOMY_DEFAULTS[kind])
+  const defaults = [...new Set(untouched.map(kind => view.modes[kind]))].map((mode: LeadAutonomyMode) =>
+    `- ${untouched.filter(kind => view.modes[kind] === mode).map(kind => `${LEAD_AUTONOMY_LABELS[kind].title} (${kind})`).join(', ')}: ${mode}, the default; never changed.`)
+  const modes = [...LEAD_AUTONOMY_KINDS.filter(kind => !untouched.includes(kind))
+    .map(kind => `- ${LEAD_AUTONOMY_LABELS[kind].title} (${kind}): ${view.modes[kind]}.${last(modeChange(kind), since)}`), ...defaults]
   const rows = proposals.map(proposal =>
     `- ${what(proposal)} — ${SAID[proposal.state as 'pending' | 'declined']} (${proposal.history.map(event => `${event.what === 'asked-again' ? 'asked again' : event.what} ${leadClock(event.at)}`).join(', ')})`)
   const rules = (chars: number) => view.rules.flatMap(rule => {
-    const version = rule.version ?? 0
+    const version = rule.version ?? 0, title = `${LEAD_RULE_TITLES[rule.id]} (${rule.id})`
+    if (version === 0 && !rule.custom) return [`- ${title}: the shipped words; never changed.`]
     const change = changes.find(one => one.what === 'rules' && one.section === rule.id && one.version === version)
-    const head = `- ${LEAD_RULE_TITLES[rule.id]} (${rule.id}), ${rule.custom ? `version ${version}` : 'the shipped words'}.${version === 0 ? ' Never changed.' : last(change, since)}`
-    const words = leadCleanUntrusted(rule.text, chars)
-    return [`${head} Words now:`, ...(words ? words.split('\n').map(line => `  ${line}`) : ['  (none)'])]
+    const which = rule.custom ? `version ${version}` : 'the shipped words'
+    // What the instructions hold for the section: the person's words, or none. Equal, the words are not sent again.
+    if ((rule.custom ? rule.text : null) === (held[rule.id] ?? null)) return [`- ${title}, ${which}, same as your instructions.${last(change, since)}`]
+    const whole = leadCleanUntrusted(rule.text, LEAD_RULE_LIMITS.chars), words = leadCleanUntrusted(rule.text, chars)
+    return [`- ${title}, ${which}.${last(change, since)} Your instructions hold other words; these hold now:`,
+      ...(words ? words.split('\n').map(line => `  ${line}`) : ['  (none)']), ...(words !== whole ? ['  (shortened)'] : [])]
   })
   const build = (shown: readonly string[], chars: number) => [
     LEAD_SETTINGS_STATUS_OPEN,
-    'Your autonomy modes and rule sections as they stand now, whoever changed them last. You cannot change them: autonomy_propose and rules_propose put a card in front of the person, and only the person, by Apply on a card or in Settings on any surface, changes them. Something the person asks for is in force only when the mode or the words below say it, whatever was proposed or applied before; when they do not, propose it again. The words here are current, and where they differ from the person-rules in your instructions, these hold.',
-    'This is reference, not news: do not recap it, report on it or correct an earlier reply from it. Mention a setting only when the person asks about it, or when its line below says changed since your last reply.',
+    'Your autonomy modes and rule sections as they stand now. Only the person changes them, by Apply on your card or in Settings: a request is in force only when a mode or the words here say it; otherwise propose it again. Words printed here hold over your person-rules; a section without words is as your instructions have it.',
+    'Reference, not news: never recap it. Mention a setting only when the person asks, or when its line says changed since your last reply.',
     'Modes:', ...modes,
     'Rule sections:', ...rules(chars),
     ...(shown.length ? ['Your proposals still open or declined, newest first:', ...shown] : []),

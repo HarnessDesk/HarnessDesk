@@ -635,7 +635,7 @@ test('with a plan approved the host keeps the plan in the stored words and puts 
 })
 
 test('the state of the Lead\'s own memory proposals is desk context of the moment: after the work cards, never kept, and a failing read still answers', async () => {
-  const status = '<desk-memory-status>\n- [c1] declined by the person; not in memory: Lead with the conclusion.\n</desk-memory-status>'
+  const status = '<desk-memory-status>\n- declined by the person; not in memory: Lead with the conclusion.\n</desk-memory-status>'
   const s = await controlsRig([], { readWorkContext: async () => 'Work cards: none open.', readMemoryContext: async () => status })
   await s.controls.send({ idempotencyKey: 'send-memory', text: 'Lead with the conclusion, please.' })
   await s.controls.idle()
@@ -885,4 +885,18 @@ test('#2166: a tool continuation reads the surface of the message it answers, ne
   assert.equal(seen.length, 1, 'the continuation after the chat list was sent')
   assert.deepEqual(seen[0], [lead.LEAD_SURFACE_LINES.phone, lead.LEAD_SURFACE_LINES.desktop],
     'the continuation still names the desktop for the newest message, and the phone for the earlier one')
+})
+
+test('#2165: the settings a request read stop being news only once the Lead\'s reply to the person is stored, never on a failed request', async () => {
+  const kept: number[] = []
+  let read = 0
+  const s = await controlsRig([{ status: 'failed', reason: 'lead-request-failed' }, { status: 'completed', text: 'Noted.' }], {
+    readMemoryContext: async () => ({ text: '<desk-memory-status>\nNothing.\n</desk-memory-status>', settingsShownAt: ++read * 1000 }),
+    settingsShown: async (at: number) => { kept.push(at) } })
+  await s.controls.send({ idempotencyKey: 'send-failed', text: 'How should you write to me?' })
+  await s.controls.idle()
+  assert.deepEqual(kept, [], 'a failed request answered nobody')
+  await s.controls.send({ idempotencyKey: 'send-answered', text: 'How should you write to me?' })
+  await s.controls.idle()
+  assert.deepEqual(kept, [2000], 'the reply keeps the time its own request read the settings')
 })

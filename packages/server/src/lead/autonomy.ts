@@ -66,6 +66,11 @@ interface Stored {
    * since a card replaced in the same turn can be dropped from the kept list and must still count toward the cap.
    */
   turn?: { personSeq: number; created: number }
+  /**
+   * When the Lead last answered the person from a request that read the settings: a change after it is news, and the
+   * settings note marks it (#2165). Kept here, so a restart does not forget what the Lead was already told.
+   */
+  settingsShownAt?: number
 }
 type StoredProposal = { -readonly [K in keyof LeadSettingsProposal]: LeadSettingsProposal[K] } & { personSeq?: number }
 /** One No: which change (by key), on which card, and the person's message position when they said it. */
@@ -149,6 +154,7 @@ export class LeadAutonomyStore {
     const highest = Math.max(0, ...(out.proposals ?? []).map(one => Number(one.id.slice(1))), ...(out.declines ?? []).map(one => Number(one.id.slice(1))))
     const counter = Number.isSafeInteger(source.nextProposal) && source.nextProposal! > 0 ? source.nextProposal! : 1
     if (highest > 0 || counter > 1) out.nextProposal = Math.max(counter, highest + 1)
+    if (Number.isSafeInteger(source.settingsShownAt) && source.settingsShownAt! >= 0) out.settingsShownAt = source.settingsShownAt
     if (Array.isArray(source.automatic)) out.automatic = source.automatic.filter((id): id is string => typeof id === 'string' && id.length <= 300).slice(-MAX_AUTOMATIC_IDS)
     return out
   }
@@ -455,6 +461,12 @@ export class LeadAutonomyStore {
   async automaticIds(): Promise<ReadonlySet<string>> { await this.#ready().catch(() => {}); return new Set(this.#stored.automatic ?? []) }
   /** Whether the file has been read (or found unreadable and set aside), so what it remembers can be counted. */
   get loaded(): boolean { return this.#loaded || this.#unreadable }
+  /** When the Lead last answered the person with the settings in its request; null before it ever has. */
+  async settingsShownAt(): Promise<number | null> { await this.#ready(); return this.#stored.settingsShownAt ?? null }
+  /** Called once the Lead's reply to the person is stored: the settings its request read are no longer news. */
+  async markSettingsShown(at: number): Promise<void> {
+    await this.#write(() => { if ((this.#stored.settingsShownAt ?? -1) < at) this.#stored.settingsShownAt = at })
+  }
   automaticIdsNow(): ReadonlySet<string> { return new Set(this.#stored.automatic ?? []) }
   async markAutomatic(id: string): Promise<void> {
     if (this.#stored.automatic?.includes(id)) return

@@ -736,7 +736,7 @@ test('every operation the child may call passes the frame check at its full arit
 })
 
 test('the child reads the desk\'s memory status through the host: the text, or null when the host has none or answers with something else', async () => {
-  for (const [answer, expected] of [['<desk-memory-status>\n- [c1] kept as m2\n</desk-memory-status>', '<desk-memory-status>\n- [c1] kept as m2\n</desk-memory-status>'], [null, null], [undefined, null], [42, null]] as const) {
+  for (const [answer, expected] of [['<desk-memory-status>\n- kept as tag m2\n</desk-memory-status>', '<desk-memory-status>\n- kept as tag m2\n</desk-memory-status>'], [null, null], [undefined, null], [42, null]] as const) {
     let replied!: (message: any) => void
     const reply = new Promise<any>(resolve => { replied = resolve })
     let asked = 0

@@ -186,10 +186,10 @@ import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRe
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadWorkCards, leadClockLine, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
-import { initialLeadMemoryCore, leadMemoryStatus, leadSettingsStatus } from '@harnessdesk/lead'
+import { initialLeadMemoryCore, leadMemoryStatus, leadSettingsStatus, type LeadRulesHeld, type LeadState } from '@harnessdesk/lead'
 import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
-import type { FlowExecution, LeadProject } from '@harnessdesk/protocol'
+import type { FlowExecution, LeadAutonomyView, LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions, sourceDigest, type SeatReplacement } from './flow-execution.js'
 import { FlowReview, PERSON_REVIEWER_ID } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
@@ -4550,6 +4550,7 @@ export class Host {
         return leadTurnContext(cards, note, turn.proactive)
       },
       readMemoryContext: () => this.#leadMemoryContext(),
+      settingsShown: async at => { await this.#leadAutonomy?.markSettingsShown(at) },
       approveRepeat: async (id, contract, reactivate) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now(), reactivate) },
       freezeRepeat: async contract => ({ ...contract, digest: leadContractDigest(contract) }),
       validateRepeat: async contract => {
@@ -4739,28 +4740,36 @@ export class Host {
     }
     return 0
   }
-  /** When the Lead's requests last carried the settings note: a settings change after it is news, and marked. */
-  #leadSettingsShownAt: number | null = null
   /** What each request tells the Lead about memory now: what became of its proposals, and what changed since the
-   * Core its standing instructions hold. */
-  async #leadMemoryContext(): Promise<string | null> {
+   * Core its standing instructions hold. `settingsShownAt` is when the settings were read: once the Lead's reply to the
+   * person is stored, the controls keep it, and a settings change before it is no longer marked as news (#2165). A
+   * failed request, a wake or a proactive turn answers nobody, so nothing is kept for them. */
+  async #leadMemoryContext(): Promise<{ readonly text: string; readonly settingsShownAt?: number } | null> {
     const journal = this.#leadJournal
     if (!journal) return null
     const memory = leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
     // Its own settings and what became of its proposals to change them ride the same note: a settings file that cannot
     // be read leaves them out rather than the memory status.
-    // The settings note marks a change made after the Lead was last shown it, and says nothing else is news (#2165).
-    const since = this.#leadSettingsShownAt, shownAt = Date.now()
-    const settings = this.#leadAutonomy ? await this.#leadAutonomy.view().then(view => leadSettingsStatus(view, undefined, since), () => null) : null
-    if (settings) this.#leadSettingsShownAt = shownAt
-    return settings ? `${memory}\n${settings}` : memory
+    const autonomy = this.#leadAutonomy, shownAt = Date.now()
+    const read = autonomy ? await Promise.all([autonomy.view(), autonomy.settingsShownAt()]).then(([view, since]) =>
+      ({ settings: leadSettingsStatus(view, undefined, since, this.#leadRulesHeld(journal.state, view)) }), () => null) : null
+    return { text: read?.settings ? `${memory}\n${read.settings}` : memory, ...(read ? { settingsShownAt: shownAt } : {}) }
+  }
+  /** The words each rule section had when this goal's epoch first read the settings: the Lead's instructions are built
+   * once per goal and epoch from the rules as they stand then (`leadRulesAddendum`), so the settings note prints only
+   * the sections whose words moved since (#2165), and a section the instructions already hold costs one line. */
+  #leadRulesHeldAt: { readonly key: string; readonly held: LeadRulesHeld } | null = null
+  #leadRulesHeld(state: LeadState, view: LeadAutonomyView): LeadRulesHeld {
+    const key = `${state.budget?.logicalGoalId ?? ''}\u0000${state.context?.epoch ?? 0}`
+    if (this.#leadRulesHeldAt?.key !== key) this.#leadRulesHeldAt = { key, held: Object.fromEntries(view.rules.map(rule => [rule.id, rule.custom ? rule.text : null])) }
+    return this.#leadRulesHeldAt.held
   }
   /** The status a desk wake carries: null when the memory store cannot be read, or takes longer than
    * `LEAD_WAKE_MEMORY_STATUS_MS` to open, so a corrupt file or a slow first open never stalls or stops a wake. */
   async #leadMemoryStatusForWake(): Promise<string | null> {
     let timer: ReturnType<typeof setTimeout> | undefined
     const late = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), LEAD_WAKE_MEMORY_STATUS_MS); timer.unref?.() })
-    try { return await Promise.race([this.#leadMemoryContext().catch(() => null), late]) }
+    try { return await Promise.race([this.#leadMemoryContext().then(note => note?.text ?? null, () => null), late]) }
     finally { clearTimeout(timer) }
   }
   /** The Lead's memory: Core, Archive, the inbox and their versions, beside the journal. Opened once; the first open

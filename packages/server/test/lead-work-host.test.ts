@@ -445,21 +445,21 @@ test('#2144: a host notice that lands before the Lead answers never marks a remi
   assert.equal(late, 'said', 'the Lead\'s reply to the turn did')
 })
 
-test('#2146: each person turn tells the Lead which device the person wrote from, and that every card works there', async t => {
+test('#2146: each person turn says once which surface the person wrote from, and never the device\'s own name', async t => {
   const r = await workRig(t)
   const sent: (readonly MessagesTurn[])[] = []
   const controls = r.controls(async messages => { sent.push(messages); return { status: 'completed', text: 'Done.' } })
+  const last = (turns: readonly MessagesTurn[]) => (Array.isArray(turns.at(-1)!.content) ? turns.at(-1)!.content as readonly { text?: string }[] : []).map(part => part.text ?? '')
   const words = (turns: readonly MessagesTurn[]) => turns.flatMap(turn => Array.isArray(turn.content) ? turn.content : []).map(part => 'text' in part ? part.text : '').join('\n')
   await controls.send({ idempotencyKey: 'phone-1', text: 'Did my change apply?', device: { id: 'phone:p1', label: 'Jane\'s phone <b>' } }); await controls.idle()
-  const phone = words(sent[0]!)
-  assert.match(phone, /<person-device>The person wrote this message on their phone "Jane's phone \\u003cb>"/)
-  assert.match(phone, /Every card and ask option works there/)
-  assert.match(phone, /press it where they are, never on the desktop/)
+  assert.deepEqual(last(sent[0]!).filter(text => /phone|desktop/i.test(text) && text !== 'Did my change apply?'), [LEAD_SURFACE_LINES.phone],
+    'one line names the surface; no second block says it again')
+  assert.doesNotMatch(words(sent[0]!), /Jane|<person-device>/, 'the device\'s own name never reaches the model')
   await controls.send({ idempotencyKey: 'window-1', text: 'And now?', device: { id: 'window:w1', label: 'Desktop' } }); await controls.idle()
-  assert.match(words(sent[1]!), /<person-device>The person wrote this message in the desktop window/)
-  assert.doesNotMatch(words(sent[1]!), /on their phone/)
+  assert.ok(last(sent[1]!).includes(LEAD_SURFACE_LINES.desktop))
+  assert.ok(!last(sent[1]!).includes(LEAD_SURFACE_LINES.phone))
   await controls.send({ idempotencyKey: 'unknown-1', text: 'One more' }); await controls.idle()
-  assert.doesNotMatch(words(sent[2]!), /<person-device>/, 'a send that names no device says nothing about one')
+  assert.ok(!last(sent[2]!).some(text => text.startsWith('Desk note: the person sent')), 'a send that names no device says nothing about one')
 })
 
 test('#2166: each person message carries the surface that sent it, and every later request reads each message with its own', async t => {

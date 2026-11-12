@@ -1019,8 +1019,13 @@ it('#2168: "What happened?" is one click in the top bar, never at the foot of th
   const { box, request } = await mount({ ...base, thread: { ...base.thread, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'assistant', text: 'First' }] } }, false, true)
   const rail = box.querySelector('[data-testid="lead-rail"]')!
   expect(rail.textContent).not.toContain('What happened?')
-  const recap = box.querySelector<HTMLButtonElement>('[data-slot="top-bar"] button[aria-label="What happened?"], button[data-lead-recap]')
-  expect(recap, 'the top bar carries it').not.toBeNull()
+  const recaps = [...box.querySelectorAll<HTMLButtonElement>('button[data-lead-recap]')]
+  expect(recaps, 'one button, nowhere else').toHaveLength(1)
+  const recap = recaps[0]!
+  const bar = box.querySelector('[data-slot="top-bar"]')
+  expect(bar, 'the page draws its top bar').not.toBeNull()
+  expect(bar!.contains(recap), 'the top bar carries it').toBe(true)
+  expect(recap.getAttribute('aria-label')).toBe('What happened?')
   expect(rail.contains(recap)).toBe(false)
   expect(recap!.title).toBe('What happened?')
   await act(async () => { recap!.click() })
