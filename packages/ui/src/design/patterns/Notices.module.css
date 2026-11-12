@@ -139,6 +139,8 @@
   flex-direction: column;
   gap: var(--hd-space-1-5);
   max-width: var(--hd-column);
+  max-height: var(--hd-composer-notices-max-height);
+  overflow-y: auto;
   margin: 0 auto;
   padding-bottom: var(--hd-space-1-5);
 }

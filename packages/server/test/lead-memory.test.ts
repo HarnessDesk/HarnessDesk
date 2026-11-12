@@ -102,18 +102,44 @@ test('the inbox round-trips: Keep, Keep with an edit, No, and a declined line is
   let view = parseLeadMemoryView(store.view())
   assert.deepEqual(view.inbox.map(item => [item.id, item.afterSeq]), [[a.id, 41], [b.id, 41], [c.id, 42]])
   view = await store.change({ action: 'keep', id: a.id! })
-  assert.deepEqual(view.core.map(entry => [entry.text, entry.by, entry.source.id]), [['The staging database listens on port 5433.', 'lead', 'work-3']])
+  // The person made it a memory, so it is the person's, whoever first said the words (#2181).
+  assert.deepEqual(view.core.map(entry => [entry.text, entry.by, entry.source.id]), [['The staging database listens on port 5433.', 'person', 'work-3']])
   view = await store.change({ action: 'keep', id: c.id!, text: 'Deploys happen on Tuesday mornings.' })
   assert.equal(view.core.find(entry => entry.text.startsWith('Deploys'))!.by, 'person', 'an edited Keep is the person\'s words')
   view = await store.change({ action: 'dismiss', id: b.id! })
   assert.equal(view.inbox.length, 0)
   assert.equal((await store.propose({ text: 'The person likes long weekly reports!', kind: 'preference' }, 50)).reason, 'declined')
-  // The person's entries come first in Core, the order the Lead reads.
-  assert.deepEqual(view.core.map(entry => entry.by), ['person', 'lead'])
+  // The person's entries come first in Core, the order the Lead reads, in the order they were kept.
+  assert.deepEqual(view.core.map(entry => [entry.by, entry.text]), [['person', 'The staging database listens on port 5433.'], ['person', 'Deploys happen on Tuesday mornings.']])
   // It survives a restart byte for byte.
   const again = await LeadMemoryStore.open({ dir })
   assert.deepEqual(again.view(), store.view())
   await assert.rejects(store.change({ action: 'keep', id: b.id! }), /lead-memory-missing/)
+})
+
+test('a note the Lead kept on its own stays the Lead\'s; one the person kept is the person\'s, and a store saved before says so on load (#2181)', async () => {
+  let at = 1_000
+  const { store, dir } = await open({ now: () => at++ })
+  await store.change({ action: 'auto', on: true })
+  const own = await store.propose({ text: 'The staging database listens on port 5433.', kind: 'fact' }, 3)
+  assert.equal(own.outcome, 'kept', 'a fact skips To review while the person lets the Lead keep its notes')
+  await store.change({ action: 'auto', on: false })
+  const offered = await store.propose({ text: 'Reports go out in Chinese.', kind: 'preference' }, 5)
+  const view = await store.change({ action: 'keep', id: offered.id! }, 6)
+  assert.deepEqual(view.core.map(entry => [entry.text, entry.by]), [['Reports go out in Chinese.', 'person'], ['The staging database listens on port 5433.', 'lead']])
+  // A store an earlier desk saved recorded the person's Keep as the Lead's note: the record of the Keep corrects it.
+  const file = join(dir, 'memory-store.json'), saved = JSON.parse(await readFile(file, 'utf8'))
+  const kept = saved.entries.find((entry: LeadMemoryEntry) => entry.text.startsWith('Reports'))
+  saved.entries = saved.entries.map((entry: LeadMemoryEntry) => entry.id === kept.id ? { ...entry, by: 'lead' } : entry)
+  saved.versions = saved.versions.map((version: { changes: { after: LeadMemoryEntry | null }[] }) => ({ ...version,
+    changes: version.changes.map(change => change.after?.id === kept.id ? { ...change, after: { ...change.after, by: 'lead' } } : change) }))
+  await writeFile(file, JSON.stringify(saved))
+  const again = await LeadMemoryStore.open({ dir })
+  assert.deepEqual(again.view().core.map(entry => [entry.text, entry.by]), [['Reports go out in Chinese.', 'person'], ['The staging database listens on port 5433.', 'lead']])
+  // Undo of a later change puts back the corrected entry, never the old label.
+  await again.change({ action: 'edit', id: kept.id, text: 'Reports go out in Chinese, short.' })
+  const undone = await again.change({ action: 'undo', version: again.view().history[0]!.version })
+  assert.equal(undone.core.find(entry => entry.id === kept.id)!.by, 'person')
 })
 
 test('today\'s person-edited lines migrate with nothing lost: kept lines in order and numbering, offered lines to the inbox', async () => {

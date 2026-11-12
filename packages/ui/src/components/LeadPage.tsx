@@ -26,7 +26,8 @@ import { LeadDetails } from './LeadDetails'
 import { useShell } from '../panels/views'
 import { AtIcon, FolderIcon, FolderOpenIcon, PlusIcon, RouteIcon, SendIcon, SettingsIcon, StopIcon } from './Icons'
 import { LeadStatusPanel, useLeadControls } from './LeadControls'
-import { sidebarPlacement } from '../state/workbench'
+import { pageRailOpen, sidebarPlacement } from '../state/workbench'
+import { focusWhenDrawn } from '../lib/focus-when-drawn'
 import { formatLeadConsentTime } from './lead-consent-time'
 import { LeadMemoryProposals, leadMemoryPlacement } from './LeadMemory'
 import { LeadSettingsProposals } from './LeadSettingsProposals'
@@ -264,6 +265,16 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     requestedDecisionFocus.current = focus; setSelectedDecision(focus)
     element.scrollIntoView?.({ block: 'end' }); focusDock(focus)
   }, [active, focus, state.revision])
+  // A reminder's door is the Work list: the rail comes back if it was put away, and the reminder's row comes into view.
+  const focusedReminder = useRef<string | null>(null)
+  useEffect(() => {
+    if (!active) { focusedReminder.current = null; return }
+    if (!focus || !/^remind-\d+$/.test(focus) || focusedReminder.current === focus) return
+    // Once per door: the rail opens, and the row is focused when the rail's contents arrive.
+    focusedReminder.current = focus
+    if (!pageRailOpen(store.getSnapshot().workbench, 'lead')) store.togglePageRail('lead')
+    return focusWhenDrawn(`[data-work-reminder="${focus}"]`, () => {})
+  }, [active, focus, store])
   useEffect(() => {
     if (!active || !requestedDecisionFocus.current) return
     if (!cards.some(card => card.id === requestedDecisionFocus.current)) { requestedDecisionFocus.current = null; return }

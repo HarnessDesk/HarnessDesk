@@ -148,7 +148,24 @@ const parseDecline = (value: unknown): StoredDecline[] => {
   const item = value as StoredDecline
   return item && typeof item === 'object' && typeof item.key === 'string' && Number.isSafeInteger(item.seq) ? [{ key: item.key, seq: item.seq }] : []
 }
-const parseStore = (value: unknown): StoreState => {
+/**
+ * A store saved before #2181 recorded the person's Keep in the Lead's words as the Lead's note. The record of that Keep
+ * says otherwise: a proposal the person decided names the entry it became under an id of its own (`c<n>`), where a note
+ * the Lead kept on its own is recorded under the entry's id, and the version that added the entry was the person's.
+ * Either is enough. The saved versions are corrected with the entries, so an Undo never puts the old label back.
+ */
+const keptByThePerson = (state: StoreState): StoreState => {
+  const ids = new Set([
+    ...state.proposals.filter(one => one.entry !== undefined && one.entry !== one.id && (one.state === 'kept' || one.state === 'edited')).map(one => one.entry!),
+    ...state.versions.filter(version => version.by === 'person').flatMap(version => version.changes.filter(change => !change.before && change.after).map(change => change.id)),
+  ])
+  const fix = (entry: LeadMemoryEntry | null): LeadMemoryEntry | null => entry && entry.by === 'lead' && ids.has(entry.id) ? { ...entry, by: 'person' } : entry
+  if (!state.entries.some(entry => fix(entry) !== entry)) return state
+  return { ...state, entries: state.entries.map(entry => fix(entry)!),
+    versions: state.versions.map(version => ({ ...version, changes: version.changes.map(change => ({ ...change, before: fix(change.before), after: fix(change.after) })) })) }
+}
+const parseStore = (value: unknown): StoreState => keptByThePerson(parseStoreAsSaved(value))
+const parseStoreAsSaved = (value: unknown): StoreState => {
   const item = value as StoreState
   if (!item || typeof item !== 'object' || item.version !== 1 || !Number.isSafeInteger(item.revision) || !Number.isSafeInteger(item.next)) throw new Error('lead-memory-store')
   const entries = (item.entries ?? []).map(entry => parseLeadMemoryEntry(entry)), inbox = (item.inbox ?? []).map(candidate => parseLeadMemoryCandidate(candidate))
@@ -410,7 +427,8 @@ export class LeadMemoryStore {
           room()
           const text = change.text === undefined ? candidate.text : words(change.text), edited = leadMemoryFold(text) !== leadMemoryFold(candidate.text)
           const id = `m${this.#state.next}`
-          const made: LeadMemoryEntry = { id, text, kind: change.kind ?? candidate.kind, by: edited ? 'person' : 'lead', tier: 'core', source: candidate.source, createdAt: at, usedAt: at, version: 1 }
+          // The person made it a memory, so it is the person's, in the Lead's words or their own (#2181).
+          const made: LeadMemoryEntry = { id, text, kind: change.kind ?? candidate.kind, by: 'person', tier: 'core', source: candidate.source, createdAt: at, usedAt: at, version: 1 }
           await this.#commit({ next: this.#state.next + 1, inbox: inbox.filter(one => one.id !== candidate.id),
             entries: [...entries, made], proposals: this.#decided(candidate, edited ? 'edited' : 'kept', at, id) }, 'person')
           kept?.(made)

@@ -5,7 +5,8 @@ import { LEAD_CONTROL_REFUSALS, LEAD_LIMITS, type LeadWindowProjection } from '@
 import { AppStore } from '../state/store'
 import { StoreProvider } from '../state/context'
 import { previewStore } from '../preview/harness'
-import { leadBudget, leadPlan, leadProjection } from '../preview/lead-fixture'
+import { leadBudget, leadPlan, leadProjection, leadWorkFixture } from '../preview/lead-fixture'
+import { pageRailOpen } from '../state/workbench'
 import { DestinationPageScope } from '../panels/destination-page'
 import { LeadSettingsSection } from './LeadSettings'
 import { PageRailHost, TopBarOutlet, TopBarProvider, WorkDetailsOutlet } from '../panels/top-bar'
@@ -1064,4 +1065,18 @@ it('#2168: an empty thread has nothing to recap, so the top bar offers no "What 
   const base = leadProjection()
   const { box } = await mount({ ...base, thread: { ...base.thread, messages: [] } }, false, true)
   expect(box.querySelector('button[data-lead-recap]')).toBeNull()
+})
+
+it('#2147: a reminder door opens the rail where reminders are listed and focuses that reminder', async () => {
+  const projection = leadProjection(), { store, box, request, focusDecision } = await mount(projection, false, true)
+  request.mockImplementation(async (method: string) => (method === 'lead/work/list' ? leadWorkFixture : projection) as never)
+  await act(async () => { await store.lead.readWork() })
+  if (pageRailOpen(store.getSnapshot().workbench, 'lead')) await act(async () => store.togglePageRail('lead'))
+  expect(pageRailOpen(store.getSnapshot().workbench, 'lead')).toBe(false)
+  await focusDecision('remind-1')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(pageRailOpen(store.getSnapshot().workbench, 'lead')).toBe(true)
+  const row = box.querySelector<HTMLElement>('[data-testid="lead-rail"] [data-work-reminder="remind-1"]')
+  expect(row).not.toBeNull()
+  expect(document.activeElement).toBe(row)
 })

@@ -242,12 +242,20 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
   // A page draws the rail only when it registered one, under the owner MainPages scopes it to.
   const pageOwner = `destination:${pageKind}`, pageRail = useRegisteredDetails(pageOwner)
   const railOpen = !suspended && (pageActive ? pageRail && pageRailOpen(workbench, pageKind) : workRailOpen(workbench))
-  // A page that keeps its terminal pane gives the rail only the column beside that pane, as a session does.
-  const railFloating = pageActive ? railOpen && railFloatsBeside(snapshot.windowWidth - standingSidebar - (paneActive && rightPanelDrawn(workbench) && !rightPanelOverlay ? rightWidth : 0))
-    : workRailFloats(workbench, snapshot.windowWidth, standingSidebar)
-  // A rail floating over the thread goes the way the floating sidebar does: on Escape, and on a press outside it.
+  /*
+   * The rail docks only where the thread keeps its minimum beside it, counting the sidebar actually drawn: a sidebar
+   * floating over a narrow window takes no column, but it covers as much of the thread as one would (#2179). A page
+   * that keeps its terminal pane gives the rail only the column beside that pane, as a session does.
+   */
+  const drawnSidebar = column || floating ? workbench.sidebar.size : 0
+  const railFloating = pageActive ? railOpen && railFloatsBeside(snapshot.windowWidth - drawnSidebar - (paneActive && rightPanelDrawn(workbench) && !rightPanelOverlay ? rightWidth : 0))
+    : workRailFloats(workbench, snapshot.windowWidth, drawnSidebar)
+  /*
+   * A rail floating over the thread goes the way the floating sidebar does: on Escape, and on a press outside it.
+   * While the floating sidebar lies over both, it is the surface on top and takes the key and the press itself.
+   */
   const closeRail = () => { if (pageActive) store.togglePageRail(pageKind); else store.toggleWorkRail() }
-  useFloatingRail(railOpen && railFloating, shell, closeRail)
+  useFloatingRail(railOpen && railFloating && !floating, shell, closeRail)
   // A row in a floating rail that opens a Team or chat puts the rail away too, so it does not lie over where it went.
   const leaveRail = railOpen && railFloating ? closeRail : noLeave
   const retainedRight = Math.min(workbench.right.size, Math.max(0, snapshot.windowWidth - FRAME.page.canvasGutter))

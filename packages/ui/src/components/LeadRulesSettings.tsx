@@ -61,7 +61,7 @@ export const LeadRulesSection = () => {
   const section = view.sections.find(one => one.id === open)
   return <Section title="Rules">
     <Rows>
-      {view.sections.map(one => <Row key={one.id} title={one.title}
+      {view.sections.map(one => <Row key={one.id} title={one.title} data-lead-settings-focus={`rules:${one.id}`} tabIndex={-1}
         titleChip={one.defaultUpdated ? <Chip tone="warning">Default updated</Chip> : one.custom ? <Chip tone="neutral">Edited</Chip> : undefined}
         control={<>{one.history[0] && <Text role="meta">{`Version ${one.version} · ${when(one.history[0].at)}`}</Text>}
           <Button variant="secondary" onClick={() => setOpen(one.id)}>Edit</Button></>} />)}

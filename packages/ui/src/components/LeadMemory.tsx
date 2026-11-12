@@ -91,7 +91,7 @@ const EntryRow = ({ entry, label, cited, pending, change }: { readonly entry: Le
       <Button variant="quiet" onClick={() => setEditing(null)}>Cancel</Button>
     </InlineParts>} />
   const chip = cited ? <Chip tone="info">Used in this plan</Chip> : entry.by === 'lead' ? <Chip variant="quiet" tone="neutral">{`${label}'s note`}</Chip> : undefined
-  return <><Row title={entry.text} titleChip={chip} tooltip={`${entry.id} · ${KIND[entry.kind]}`}
+  return <><Row title={entry.text} titleChip={chip} tooltip={`${entry.id} · ${KIND[entry.kind]}`} data-lead-settings-focus={`memory:${entry.id}`} tabIndex={-1}
     control={<InlineParts>
       <Button variant="quiet" disabled={pending} onClick={() => setEditing(entry.text)}>Edit</Button>
       {entry.tier === 'core'

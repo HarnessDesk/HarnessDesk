@@ -64,9 +64,10 @@ test('a proposal round-trips through the inbox on the window and the phone, and 
   // The earlier read and update still work, over the same store: they carry the person's own lines.
   await r.host.call('lead/memory/change', { action: 'add', text: 'Prefer small pull requests.', kind: 'preference' })
   const legacy = await r.host.call('lead/memory/read', {})
-  assert.deepEqual(legacy.items.map(item => [item.text, item.state]), [['Prefer small pull requests.', 'kept']])
-  await r.host.call('lead/memory/update', { memory: { version: 1, items: [] } })
-  assert.deepEqual((await r.host.call('lead/memory/view', {})).core.map(entry => entry.by), ['lead'], 'the person removed their line; the Lead\'s kept note stays')
+  // The proposal the person kept is the person's line now, beside the one they wrote (#2181).
+  assert.deepEqual(legacy.items.map(item => [item.text, item.state]), [['The staging database listens on port 5433.', 'kept'], ['Prefer small pull requests.', 'kept']])
+  await r.host.call('lead/memory/update', { memory: { version: 1, items: legacy.items.slice(0, 1) } })
+  assert.deepEqual((await r.host.call('lead/memory/view', {})).core.map(entry => [entry.text, entry.by]), [['The staging database listens on port 5433.', 'person']], 'the person removed one line; the other stays')
   await r.until(() => r.journal.state.memory.entries.length === 1, 'the change is journaled too')
 })
 

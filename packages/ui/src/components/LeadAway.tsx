@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { LEAD_DIGEST_ITEM_LABELS, leadDigestMore, type LeadAskState, type LeadDigest, type LeadDigestItem } from '@harnessdesk/protocol'
+import { LEAD_DIGEST_GROUPS, LEAD_DIGEST_GROUP_LABELS, leadDigestGroup, leadDigestMore, type LeadAskState, type LeadDigest, type LeadDigestItem } from '@harnessdesk/protocol'
 import { Button, ListRow, ListRows, Spinner, ToolGroup, ToolProse, ToolSection, TopBarToolButton } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { useSnapshot, useStore } from '../state/context'
@@ -58,16 +58,21 @@ export const leadDigestNote = (digest: LeadDigest): string =>
 export const leadDigestTitle = (digest: LeadDigest): string =>
   digest.kind === 'brief' ? 'Morning brief' : digest.kind === 'recap' ? 'What happened' : `While you were away · ${clock(digest.from)}–${clock(digest.to)} ${zone(digest.to)}`.trim()
 
-/** The digest's items in the order the person acts on them: Needs you, then Stopped or stuck, then Done. */
+/**
+ * The digest's items in the order the person acts on them: Needs you, Reminders, Stopped or stuck and Done, then what was
+ * kept in memory and the settings applied. The away card and "What happened?" are one digest drawn one way.
+ */
 export const leadDigestSections = (digest: LeadDigest) =>
-  (['waiting', 'stopped', 'done'] as const).map(kind => ({ kind, label: LEAD_DIGEST_ITEM_LABELS[kind], items: digest.items.filter(item => item.kind === kind) })).filter(section => section.items.length > 0)
+  LEAD_DIGEST_GROUPS.map(kind => ({ kind, label: LEAD_DIGEST_GROUP_LABELS[kind], items: digest.items.filter(item => leadDigestGroup(item) === kind) })).filter(section => section.items.length > 0)
 
 /**
  * The line under a digest item. A stop the host saw someone make says who, in the reader's words: "You stopped it" for
- * the person on any surface, the Lead by its name. Anything else is the host's own latest fact.
+ * the person on any surface, the Lead by its name. Anything else is the host's own latest fact. A reminder, a note or a
+ * setting has none: its fact only names its group for a reader that draws no groups, and here the group says it.
  */
 export const leadDigestLine = (item: LeadDigestItem, lead: string): string | undefined =>
-  item.kind === 'stopped' && item.stoppedBy === 'person' ? 'You stopped it'
+  item.about ? undefined
+    : item.kind === 'stopped' && item.stoppedBy === 'person' ? 'You stopped it'
     : item.kind === 'stopped' && item.stoppedBy === 'lead' ? `${lead} stopped it`
     : item.fact ? sanitizeText(item.fact) : undefined
 
@@ -112,7 +117,8 @@ export const LeadRecap = () => {
 /**
  * The digest the host built for this window, at the top of the Lead conversation. What the window has seen is the host's
  * record, kept per device; a dismissal is the desk's, so dismissing here clears the phone's card too. Each item the desk
- * can find opens it: the chat, the Team, the pull request or the decision card.
+ * can find opens it: the chat, the Team, the pull request or the decision card; a reminder on the Work list; a note or a
+ * setting in Settings › Lead.
  */
 export const LeadAway = ({ active, state, label }: { readonly active: boolean; readonly state: LeadState; readonly label?: string }) => {
   const store = useStore(), snapshot = useSnapshot()

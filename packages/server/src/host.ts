@@ -4092,6 +4092,10 @@ export class Host {
       spent: () => { const budget = journal.state.budget; if (!budget) return 0; const spend = leadBudgetProjection(budget, Date.now()); return spend.leadUsdMicros + spend.workerUsdMicros },
       board: () => work.board('all'), waiting: () => leadWaitingDecisions(journal.state), revision: () => journal.state.seq, messages: () => journal.state.messages,
       quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()), name: () => leadDisplayName(journal.state.name),
+      // What else a digest tells, from the same records the Work list, the Inbox and Settings read.
+      desk: () => this.#phoneWorkspaceView().deskSummary({ limit: 20 }),
+      memory: async () => (await this.#leadMemory()).entries(),
+      settings: async () => (await this.#leadAutonomy?.view())?.changes ?? [],
       observe: input => observe(input).catch(() => null), briefGate: async () => await this.#leadAutonomy?.gate('brief') ?? 'act',
       push: notice => this.#push({ method: 'lead/presence/changed', params: { notice } }),
       changed: () => this.#push({ method: 'lead/presence/changed', params: {} }) })

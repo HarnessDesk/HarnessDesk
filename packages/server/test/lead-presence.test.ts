@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test, { type TestContext } from 'node:test'
-import { LEAD_PRESENCE_LIMITS, capLeadPushText, isLeadDigestRefId, parseLeadPresenceView, type LeadAsk, type LeadDeviceRef, type LeadWorkCard } from '@harnessdesk/protocol'
+import { LEAD_PRESENCE_LIMITS, capLeadPushText, isLeadDigestRefId, leadDigestPushText, parseLeadPresenceView, parseStoredLeadDigest, type LeadAsk, type LeadAutonomyChange, type LeadDeskItem, type LeadDeskSummary, type LeadDeviceRef,
+  type LeadMemoryEntry, type LeadReminder, type LeadWorkCard } from '@harnessdesk/protocol'
 import { leadInbox } from '../src/lead/inbox.js'
 import { LEAD_DIGEST_OBSERVER_DAILY_MICROS, LeadPresenceStore, leadRepeatsRequest, leadTurnContext, type LeadPresencePorts } from '../src/lead/presence.js'
 
@@ -1087,7 +1088,7 @@ test('the Lead is told the real away window, and that nothing moved in it when n
   assert.ok(note, 'a person turn after the absence carries the window')
   const clock = (at: number) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
   assert.ok(note.includes(clock(left)) && note.includes(clock(back)), note)
-  assert.match(note, /nothing on the work ledger/i)
+  assert.match(note, /nothing finished, stopped or came to need them, no reminder fired/i)
   assert.match(note, /no away digest/i)
   assert.ok(!note.includes('Fix the stalled task'), 'work from before the window is not in it')
   assert.match(note, /before they left/)
@@ -1110,6 +1111,97 @@ test('the away window lists what moved in it and what was spent, the same as the
   assert.ok(note.includes('Done') && note.includes('export'), note)
   assert.ok(note.includes('$0.75'), note)
   assert.ok(!/no away digest/i.test(note))
+})
+
+/** A desk summary holding these Teams and chats, the way the phone view builds one. */
+const deskOf = (items: readonly LeadDeskItem[]): LeadDeskSummary => {
+  const zero = { running: 0, needsYou: 0, idle: 0 }
+  return { totals: { chats: zero, teams: zero }, countsPartial: false, sessionsScanned: items.length, projectsMore: 0, projects: [],
+    recent: [...items].sort((a, b) => b.updatedAt - a.updatedAt), running: [], runningMore: 0, needsYou: items.filter(item => item.state === 'needs-you'), needsYouMore: 0,
+    olderCount: 0 } as unknown as LeadDeskSummary
+}
+const note = (id: string, text: string, at: number, extra: Partial<LeadMemoryEntry> = {}): LeadMemoryEntry =>
+  ({ id, text, kind: 'preference', by: 'person', tier: 'core', source: { kind: 'message', id: 'msg-1' }, createdAt: at, usedAt: at, version: 1, ...extra })
+
+test('the away card and "What happened?" tell one list: reminders, Teams and chats on the desk, notes kept and settings applied, each with its door (#2147)', async t => {
+  let desk: LeadDeskItem[] = [], notes: LeadMemoryEntry[] = [], changes: LeadAutonomyChange[] = [], reminders: LeadReminder[] = []
+  let items: LeadWorkCard[] = []
+  const r = await rig(t, {
+    board: async () => ({ version: 1, items, more: 0, ...(reminders.length ? { reminders } : {}) }),
+    desk: async () => deskOf(desk), memory: async () => notes, settings: async () => changes,
+  })
+  await r.store.read(desktop, { active: true })
+  const left = r.now()
+  // Before the person left: none of this is news when they come back.
+  notes = [note('m1', 'Reports go out in Chinese.', left - 5 * MIN)]
+  r.tick(32 * MIN)
+  const at = (minutes: number) => left + minutes * MIN
+  items = [work('work-4', 'stopped', at(12), { title: 'Fix the flaky upload test', links: { chats: ['codex:chat-9'], teams: [], prs: [], issues: [] } })]
+  desk = [
+    { id: 'team-7', kind: 'team', title: 'Ship the parking lot release', project: 'acme-app', state: 'needs-you', updatedAt: at(20) },
+    // The ledger already follows this chat: it is told once, as the ledger's item.
+    { id: 'codex:chat-9', kind: 'chat', title: 'Fix the flaky upload test', project: 'acme-app', state: 'needs-you', updatedAt: at(12) },
+    { id: 'claude:chat-3', kind: 'chat', title: 'Tidy the changelog', project: 'acme-app', state: 'idle', updatedAt: at(25) },
+    // Finished before the person left.
+    { id: 'claude:chat-1', kind: 'chat', title: 'Old chat', project: 'acme-app', state: 'idle', updatedAt: left - MIN },
+  ]
+  reminders = [
+    { id: 'remind-2', text: 'Check the release notes', for: 'person', dueAt: at(22), createdAt: left - 60 * MIN, state: 'fired', firedAt: at(22) },
+    // The Lead's own check-back is the Lead's business, not news for the person.
+    { id: 'remind-3', text: 'Look at work-4 again', for: 'lead', dueAt: at(23), createdAt: left - 60 * MIN, state: 'fired', firedAt: at(23) },
+  ]
+  notes = [...notes, note('m2', 'Staging listens on port 5433.', at(15), { by: 'lead', kind: 'fact' }),
+    // A tidy's merge is housekeeping.
+    note('m3', 'Merged staging facts.', at(16), { by: 'lead', source: { kind: 'consolidation', id: 'm2' } })]
+  changes = [
+    { at: at(18), by: 'person', what: 'mode', kind: 'brief', from: 'off', to: 'act', proposal: 'p1' },
+    { at: at(19), by: 'person', what: 'rules', section: 'done', version: 2, how: 'edit', proposal: 'p2' },
+    { at: at(19), by: 'person', what: 'deadline', deadlineAt: null },
+    { at: left - 10 * MIN, by: 'person', what: 'mode', kind: 'stuck', from: 'off', to: 'observe' },
+  ] as LeadAutonomyChange[]
+  const view = await r.store.read(desktop, { active: true })
+  const digest = view.digest!
+  parseLeadPresenceView(view)
+  assert.deepEqual(digest.items.map(item => [item.kind, item.about ?? null, item.title, item.ref?.kind, item.ref?.id]), [
+    ['waiting', null, 'Ship the parking lot release', 'team', 'team-7'],
+    ['waiting', 'reminder', 'Check the release notes', 'reminder', 'remind-2'],
+    ['stopped', null, 'Fix the flaky upload test', 'chat', 'codex:chat-9'],
+    ['done', 'memory', 'Staging listens on port 5433.', 'memory', 'm2'],
+    ['done', 'setting', 'Morning brief, Act', 'setting', 'autonomy:brief'],
+    ['done', 'setting', 'What counts as done, version 2', 'setting', 'rules:done'],
+    ['done', null, 'Tidy the changelog', 'chat', 'claude:chat-3'],
+  ])
+  // A surface that does not know `about` still reads what each one is from its words.
+  assert.deepEqual(digest.items.filter(item => item.about).map(item => item.fact), ['A reminder fired', 'Kept in memory', 'Applied in Settings', 'Applied in Settings'])
+  assert.ok(digest.items.every(item => item.ref && isLeadDigestRefId(item.ref.kind, item.ref.id)))
+  // "What happened?" over the same day tells the same items, the note from before the absence included.
+  // Its day also holds the note, the setting and the chat from before the absence: ten in all, eight listed, two counted.
+  const recap = (await r.store.read(desktop, { recap: true })).digest!
+  assert.deepEqual([recap.items.length, recap.more], [8, 2])
+  assert.deepEqual(recap.items.filter(item => digest.items.some(one => one.id === item.id)).map(item => item.id), digest.items.map(item => item.id).slice(0, 6))
+  assert.ok(recap.items.some(item => item.id === 'm1'), 'the day before the absence is in the recap')
+  // The Lead's away note is the same list, by the same group names.
+  const away = (await r.store.awayNote())!
+  for (const words of ['Needs you: ', 'Reminders: ', 'Kept in memory: ', 'Settings applied: ']) assert.ok(away.includes(words), `${words} in ${away}`)
+  // A push counts reminders apart from what needs the person, and leaves the person's own doings out.
+  assert.equal(leadDigestPushText(digest, 'Dex').body, '1 needs you, 1 reminder, 1 done, 1 stopped')
+})
+
+test('a reminder about a work item opens that item, as the item\'s own row does (#2147)', async t => {
+  const card = work('work-5', 'working', 0, { links: { chats: [], teams: ['team-5'], prs: [], issues: [] } })
+  const r = await rig(t, { board: async () => ({ version: 1, items: [card], more: 0,
+    reminders: [{ id: 'remind-1', text: 'Ask about the review', for: 'person', item: 'work-5', dueAt: r.now(), createdAt: 0, state: 'fired', firedAt: r.now() } as LeadReminder] }) })
+  const digest = (await r.store.read(desktop, { recap: true })).digest!
+  assert.deepEqual(digest.items.map(item => [item.about, item.ref]), [['reminder', { kind: 'team', id: 'team-5' }]])
+})
+
+test('a digest an older host stored reads back, and a newer link kind an older reader cannot open drops alone (#2147)', () => {
+  const base = { version: 1, id: 'away-1-2', kind: 'away', from: 1, to: 2, more: 0, spentUsdMicros: 0 }
+  const read = parseStoredLeadDigest({ ...base, items: [
+    { kind: 'done', about: 'memory', id: 'm2', title: 'Staging listens on port 5433.', fact: 'Kept in memory', ref: { kind: 'memory', id: 'm2' }, at: 1 },
+    { kind: 'done', about: 'someday', id: 'm3', title: 'A kind of item from a newer host', ref: { kind: 'someday', id: 'x' }, at: 1 },
+  ] })
+  assert.deepEqual(read.items.map(item => [item.id, item.about, item.ref?.kind]), [['m2', 'memory', 'memory'], ['m3', undefined, undefined]])
 })
 
 test('a spend that starts again inside a minute keeps its fall: $1.00, then $0, then $0.50 is $1.50 spent (#2147)', async t => {
