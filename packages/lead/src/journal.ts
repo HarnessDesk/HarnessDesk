@@ -132,17 +132,20 @@ export type LeadJournalEvent =
   | { readonly type: 'context-pruned'; readonly id: string; readonly at: number; readonly beforeTokens: number; readonly afterTokens: number }
   /** The host's memory store changed Core: the Lead reads this at its next epoch. */
   | { readonly type: 'memory-core'; readonly memory: LeadMemoryCore }
-  /** The Core one epoch's standing instructions were built with, so a restart in that epoch builds them again byte
-   * for byte. `goal` is the logical goal id, empty between goals. `rules` are the person's sections those instructions
-   * hold, which the settings note compares against; absent in a record written before they were kept (#2165). */
   /** Host only. A host notice in the thread that says what the person's own press changed: "Kept · Fact: …" when they
    * keep a memory the Lead proposed, "Applied · <section>, version N" when they apply a settings proposal (#2176). */
   | { readonly type: 'receipt'; readonly text: string }
+  /** The Core one epoch's standing instructions were built with, so a restart in that epoch builds them again byte
+   * for byte. `goal` is the logical goal id, empty between goals. `rules` are the person's sections those instructions
+   * hold, which the settings note compares against; absent in a record written before they were kept (#2165). */
   | { readonly type: 'memory-epoch'; readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore; readonly rules?: LeadAutonomyRecord['rules'] }
-/** A receipt is one line the host wrote, at most 600 characters. */
+/** A receipt is one line the host wrote, at most 600 characters. Line breaks and tabs in what was kept fold to single
+ * spaces first, so a kept memory written over two lines still gets its receipt; any other control character refuses. */
 export const leadReceiptText = (value: unknown): string => {
-  if (typeof value !== 'string' || !value.trim() || value.length > 600 || /[\u0000-\u001f\u007f-\u009f]/.test(value)) throw new Error('lead-journal-record')
-  return value
+  if (typeof value !== 'string') throw new Error('lead-journal-record')
+  const line = value.replace(/[\t\n\v\f\r\u0085\u2028\u2029 ]+/g, ' ').trim()
+  if (!line || line.length > 600 || /[\u0000-\u001f\u007f-\u009f]/.test(line)) throw new Error('lead-journal-record')
+  return line
 }
 export type LeadCompactionTrigger = 'soft' | 'hard' | 'manual' | 'overflow'
 export type LeadJournalRecord = Base & LeadJournalEvent

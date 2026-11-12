@@ -121,9 +121,10 @@ export interface LeadWorkBoard {
    */
   readonly reminders?: readonly LeadReminder[]
   /**
-   * The Lead's own question the desk holds open, when the board is read for the Lead's context: the one ask the presence
-   * record says is `open`, newest first replacing older ones. Left out when none is open, and on the board a window or
-   * the phone reads; they follow `lead/presence/read`'s `asks` instead.
+   * The Lead's own question the desk holds open: the one ask the presence record says is `open`, a newer one replacing
+   * an older. The Lead's context and checkpoint read it, and `lead/work/list` returns it too, so a window or the phone
+   * may see it; LeadKit decodes the board with Codable and ignores the key. Their source for an ask's state stays
+   * `lead/presence/read`'s `asks`. Left out when none is open.
    */
   readonly ask?: LeadWorkAsk
 }

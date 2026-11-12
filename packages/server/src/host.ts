@@ -4536,7 +4536,7 @@ export class Host {
       screen: async text => { await this.#leadService!.assertPublic(text) },
       // The desk as it stands when the checkpoint is written, so a summary never keeps a fact the ledger has moved past.
       deskNow: async () => [leadClockLine(Date.now()),
-        leadWorkCards(await work.board(), Date.now()) ?? '<work-ledger>\nNo open work, no reminders and nothing stopped in the last day.\n</work-ledger>'].join('\n'),
+        leadWorkCards(this.#withLeadAsk(await work.board()), Date.now()) ?? '<work-ledger>\nNo open work, no reminders and nothing stopped in the last day.\n</work-ledger>'].join('\n'),
     }).catch(() => {})
     this.#leadControls = new LeadControls({ journal,
       readWorkContext: async turn => {
@@ -6526,10 +6526,10 @@ export class Host {
       leadMemoryUpdate: async params => (await this.#leadMemory()).replaceLegacy(params.memory, this.#leadJournal?.state.seq ?? 0),
       leadMemoryView: async () => this.#leadMemoryShown((await this.#leadMemory()).view()),
       leadMemoryChange: async params => {
-        const store = await this.#leadMemory(), before = params.action === 'keep' ? new Set([...store.view().core, ...store.view().archive].map(entry => entry.id)) : null
-        const view = await store.change(params, this.#leadJournal?.state.seq ?? 0)
-        // Keep says what it kept in the thread, in the words and kind it was kept with (#2176). No leaves no receipt.
-        const kept = before && [...view.core, ...view.archive].find(entry => !before.has(entry.id))
+        // Keep says what it kept in the thread, in the words and kind it was kept with (#2176). No leaves no receipt. The
+        // store names the entry this Keep made, so two Keeps at once never both name the same one.
+        let kept = undefined as { readonly kind: keyof typeof LEAD_MEMORY_KIND_LABELS; readonly text: string } | undefined
+        const view = await (await this.#leadMemory()).change(params, this.#leadJournal?.state.seq ?? 0, entry => { kept = entry })
         if (kept) await this.#leadReceipt(`Kept · ${LEAD_MEMORY_KIND_LABELS[kept.kind]}: ${kept.text}`)
         return this.#leadMemoryShown(view)
       },

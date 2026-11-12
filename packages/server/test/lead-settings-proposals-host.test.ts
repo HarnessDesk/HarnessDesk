@@ -248,3 +248,38 @@ test('#2176: Apply on a settings proposal leaves one receipt with the section an
   await r.host.call('lead/settings/decide', { id: second, decision: 'apply' })
   assert.equal(receipts(r).at(-1), 'Applied · How to talk to me, version 2')
 })
+
+test('#2176: two Keeps at once each leave the receipt for what they kept, never one for the other', async t => {
+  const r = await rig(t)
+  await r.tool('memory_propose', { text: 'Deploys happen on Tuesdays.', kind: 'fact' })
+  await r.tool('memory_propose', { text: 'Reports go in Chinese.', kind: 'preference' })
+  await r.tool('memory_propose', { text: 'Ask before a force push.', kind: 'rule' })
+  const inbox = (await r.host.call('lead/memory/view', {})).inbox
+  const id = (text: string) => inbox.find(one => one.text === text)!.id
+  // Pressed together, from two devices: all start before any is written. The first is kept in the person's own words,
+  // which puts it ahead of the others in Core, so a Keep that looked for "the entry that was not there before" would
+  // find it again and say it twice.
+  await Promise.all([
+    r.host.call('lead/memory/change', { action: 'keep', id: id('Deploys happen on Tuesdays.'), text: 'Deploys happen on Tuesdays and Thursdays.' }),
+    r.host.call('lead/memory/change', { action: 'keep', id: id('Reports go in Chinese.') }),
+    r.host.call('lead/memory/change', { action: 'keep', id: id('Ask before a force push.') }),
+  ])
+  assert.deepEqual([...receipts(r)].sort(), ['Kept · Fact: Deploys happen on Tuesdays and Thursdays.', 'Kept · Preference: Reports go in Chinese.', 'Kept · Rule: Ask before a force push.'])
+})
+
+test('#2176: Apply on a stale or already decided settings proposal is refused and leaves no receipt', async t => {
+  const r = await rig(t)
+  assert.equal(result(await r.tool('rules_propose', { section: 'talk', add: 'Report in Chinese, conclusion first.' })).outcome, 'created')
+  const first = (await r.host.call('lead/autonomy/read', {})).proposals![0]!.id
+  await r.host.call('lead/settings/decide', { id: first, decision: 'apply' })
+  assert.deepEqual(receipts(r), ['Applied · How to talk to me, version 1'])
+  // The same card pressed again from another device: already applied, so nothing changes and nothing is said.
+  await assert.rejects(r.host.call('lead/settings/decide', { id: first, decision: 'apply' }), (error: Error & { wireCode?: string }) => error.wireCode === 'lead-proposal-decided')
+  // A card whose words the person changed in Settings first.
+  assert.equal(result(await r.tool('rules_propose', { section: 'talk', add: 'Say what you need from me last.' })).outcome, 'created')
+  const second = (await r.host.call('lead/autonomy/read', {})).proposals!.find(one => one.state === 'pending')!.id
+  await r.host.call('lead/rules/update', { section: 'talk', action: 'edit', text: 'Short. In Chinese.', expectedVersion: 1 })
+  await assert.rejects(r.host.call('lead/settings/decide', { id: second, decision: 'apply' }), (error: Error & { wireCode?: string }) => error.wireCode === 'lead-rules-stale')
+  await assert.rejects(r.host.call('lead/settings/decide', { id: second, decision: 'apply' }), (error: Error & { wireCode?: string }) => error.wireCode === 'lead-proposal-decided')
+  assert.deepEqual(receipts(r), ['Applied · How to talk to me, version 1'], 'a refused Apply writes nothing')
+})

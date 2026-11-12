@@ -1140,3 +1140,37 @@ test('a decision that begins waiting after the return is not told as one that ca
   assert.ok(note.includes('export plan'), note)
   assert.ok(!note.includes('release branch'), note)
 })
+
+// #2173: `openAsk` is the Inbox's and the Lead's rule, so it holds a question exactly while its state is `open`.
+test('openAsk names the open question while its state is open, and nothing once it expired or was answered', async t => {
+  const r = await rig(t)
+  const asked = { id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask(30) }
+  r.setMessages([asked])
+  await r.store.observe()
+  assert.equal(r.store.openAsk()?.id, 'message-3')
+  assert.equal(r.store.openAsk()?.question, 'Start it?')
+  r.tick(31 * MIN)
+  await r.store.read(desktop, { active: true })
+  assert.deepEqual((await r.store.read(desktop, { active: true })).asks.map(one => one.status), ['expired'])
+  assert.equal(r.store.openAsk(), null, 'an expired question is not open')
+  const s = await rig(t)
+  s.setMessages([asked])
+  await s.store.observe()
+  await (await s.store.beforeSend(phone, 'Start it', 'message-3'))!(true)
+  assert.equal(s.store.openAsk(), null, 'an answered question is not open')
+})
+
+// #2176: a receipt is the host's line, not the person's, so it neither answers a question nor ends the hold under it.
+test('a receipt between a question and the person\'s reply leaves the question open, held and answerable by typed words', async t => {
+  const asked = { id: 'message-3', role: 'assistant', text: 'Start it?', ask: ask() }
+  const receipt = { id: 'receipt-4', role: 'system', text: 'Kept · Fact: Deploys happen on Tuesdays.' }
+  const r = await rig(t)
+  r.setMessages([asked, receipt])
+  await r.store.observe()
+  assert.equal(r.store.askHoldingChatStart()?.id, 'message-3', 'the chat-start hold still sees the question')
+  assert.equal(r.store.openAsk()?.id, 'message-3')
+  const settle = await r.store.beforeSend(desktop, 'start it')
+  assert.ok(settle, 'typed option words still answer it across the receipt')
+  await settle!(true)
+  assert.deepEqual((await r.store.read(desktop, { active: true })).asks, [{ id: 'message-3', status: 'answered', answer: { option: 'Start it', by: 'Desktop', at: r.now() } }])
+})

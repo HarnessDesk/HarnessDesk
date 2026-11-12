@@ -4,6 +4,7 @@ import { Button, Chip, ListRow, ListRows, Menu, MenuItem, MenuNote, MenuSeparato
 import { formatLeadRunTime } from '../lib/lead-time'
 import { useSnapshot, useStore } from '../state/context'
 import { useLeadInbox } from './use-inbox-waiting'
+import { useRailLeave } from '../panels/top-bar'
 import { openExternal } from '../lib/desktop'
 import { sanitizeText } from '../lib/sanitize'
 import { leadRefusalText } from './lead-refusals'
@@ -77,7 +78,7 @@ export const leadVisibleReminders = (board: LeadWorkBoard | null | undefined): r
  */
 export const LeadWork = () => {
   const store = useStore(), state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null), leave = useRailLeave()
   useEffect(() => { void store.lead.readWork().catch(() => {}) }, [store, state.revision])
   const board = state.work, inbox = useLeadInbox(), goals = useSnapshot().goals
   const reminders = leadVisibleReminders(board)
@@ -86,16 +87,17 @@ export const LeadWork = () => {
   // Nothing tracked yet is not a card: the rail stays as it was until the Lead starts work or sets a reminder.
   if (!board || board.items.length === 0 && reminders.length === 0 && waiting.length === 0) return null
   const groups = leadWorkGroups(board, waiting), open = leadWorkOpenCount(board, waiting)
+  // Opening what a row stands for takes the person there, so a floating rail goes with them (#2175).
   const openWaiting = (entry: LeadWorkWaiting) => {
-    if (entry.kind === 'team') { store.openGoal(entry.id); return }
+    if (entry.kind === 'team') { store.openGoal(entry.id); leave(); return }
     const key = chatKey(entry.id)
-    if (key) void store.openSession(key.session, { runtime: key.runtime })
+    if (key) { void store.openSession(key.session, { runtime: key.runtime }); leave() }
   }
   // An item opens what it stands for: its Team when it has one, else its latest chat. Nothing to open, nothing to press.
   const itemDoor = (card: LeadWorkCard): (() => void) | undefined => {
     const team = card.links.teams.at(-1), chat = card.links.chats.at(-1), key = chat ? chatKey(chat) : null
-    if (team) return () => store.openTeamRoom(team)
-    if (key) return () => { void store.openSession(key.session, { runtime: key.runtime }) }
+    if (team) return () => { store.openTeamRoom(team); leave() }
+    if (key) return () => { void store.openSession(key.session, { runtime: key.runtime }); leave() }
     return undefined
   }
   const close = async (card: LeadWorkCard, outcome: LeadWorkOutcome) => {

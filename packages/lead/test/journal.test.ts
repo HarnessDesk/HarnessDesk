@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { parseClientMessage, parseLeadAcceptanceContract, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
 import * as lead from '../src/index.js'
 import { canReportLeadChatEffect } from '../src/state.js'
+import { leadReceiptText } from '../src/journal.js'
 
 const runEvidence = (identity: lead.LeadRunIdentity, terminal = false): lead.LeadRunObservation => ({ ...identity, firstRoundId: '1', terminal })
 
@@ -2192,4 +2193,24 @@ test('#2144: only a model reply that was written counts as the model\'s; one ref
   await journal.appendReply('Host notice: a queued message was not delivered.')
   await journal.appendModelReply('Done.')
   assert.deepEqual(seen, [false, true], 'the notice that took the refused reply\'s number is the host\'s; the written reply is the model\'s')
+})
+
+// #2176: a receipt is a record of its own, so the thread holds it after a restart exactly as it did before one.
+test('a receipt replays into the same system line it was written as, and a kept memory over two lines still gets one', async () => {
+  const storage = memory(), journal = await open(storage)
+  await journal.receipt('Kept · Fact: Deploys happen\non Tuesdays.\r\n\tAsk first.')
+  await journal.receipt('Applied · How to talk to me, version 2')
+  const lines = (state: any) => state.messages.filter((message: any) => message.role === 'system').map((message: any) => [message.id, message.text])
+  const written = lines(journal.state)
+  // Line breaks and tabs in what was kept fold to single spaces, so the receipt is one line rather than none.
+  assert.deepEqual(written.map(([, text]: string[]) => text), ['Kept · Fact: Deploys happen on Tuesdays. Ask first.', 'Applied · How to talk to me, version 2'])
+  assert.ok(written.every(([id]: [string, string]) => /^receipt-\d+$/.test(id)))
+  assert.equal(storage.records.filter(record => record.type === 'receipt').length, 2)
+  const replayed = await open(storage)
+  assert.deepEqual(lines(replayed.state), written, 'the same ids and words after a restart')
+  // Any other control character is still refused, and nothing is written for it.
+  await assert.rejects(journal.receipt('Kept · Fact: \u0007bell'), /lead-journal-record/)
+  await assert.rejects(journal.receipt(' \n\t '), /lead-journal-record/)
+  assert.equal(storage.records.filter(record => record.type === 'receipt').length, 2)
+  assert.equal(leadReceiptText('a\u2028b'), 'a b', 'a line separator folds too')
 })

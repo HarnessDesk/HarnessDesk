@@ -5,16 +5,18 @@ import { LEAD_WORK_GROUP_LABELS, leadWorkOpenCount, leadWorkWaiting, type LeadIn
 import { StoreProvider } from '../state/context'
 import { createLeadFixtureStore } from '../preview/frames-lead'
 import { leadWorkFixture } from '../preview/lead-fixture'
+import { RailLeaveProvider } from '../panels/top-bar'
 import { LeadDetails } from './LeadDetails'
 import { leadWorkGroups } from './LeadWork'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const clean: (() => void)[] = []
 afterEach(() => { clean.splice(0).forEach(fn => fn()) })
-const mount = async (scene: 'work-ledger' | 'empty') => {
+const mount = async (scene: 'work-ledger' | 'empty', leave?: () => void) => {
   const store = createLeadFixtureStore(scene), box = document.createElement('div'); document.body.append(box)
   const root = createRoot(box)
-  await act(async () => root.render(<StoreProvider store={store}><LeadDetails /></StoreProvider>))
+  const details = <StoreProvider store={store}><LeadDetails /></StoreProvider>
+  await act(async () => root.render(leave ? <RailLeaveProvider value={leave}>{details}</RailLeaveProvider> : details))
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
   clean.push(() => { act(() => root.unmount()); box.remove() })
   return { box, store }
@@ -183,9 +185,9 @@ it('a reminder alone draws the card, so a reminder is never set where the person
 })
 
 it('a Work row opens its Team or chat from the row itself, and its menu stays its own (#2175)', async () => {
-  const { box, store } = await mount('work-ledger')
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)) })
   const opened: string[] = []
+  const { box, store } = await mount('work-ledger', () => { opened.push('rail away') })
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)) })
   store.openGoal = ((id: string) => { opened.push(`goal:${id}`) }) as typeof store.openGoal
   store.openTeamRoom = ((id: string) => { opened.push(`team:${id}`) }) as typeof store.openTeamRoom
   store.openSession = (async (session: string, options?: { runtime?: string }) => { opened.push(`chat:${options?.runtime}:${session}`); return true }) as unknown as typeof store.openSession
@@ -195,7 +197,8 @@ it('a Work row opens its Team or chat from the row itself, and its menu stays it
   // An item opens what it stands for: its Team when it has one, else its latest chat.
   await act(async () => { title('[data-work-item="work-4"]').click() })
   await act(async () => { title('[data-work-item="work-3"]').click() })
-  expect(opened).toEqual(['goal:game-team', 'chat:fixture:rename-column', 'team:demo-team'])
+  // Each one takes the person there, so the shell is told to put a floating rail away after it.
+  expect(opened).toEqual(['goal:game-team', 'rail away', 'chat:fixture:rename-column', 'rail away', 'team:demo-team', 'rail away'])
   // A row that opens something is drawn as something to press.
   expect(box.querySelector('[data-work-item="work-4"]')!.className).toContain('cursor-pointer')
   expect(box.querySelector('[data-work-waiting="game-team"]')!.className).toContain('cursor-pointer')

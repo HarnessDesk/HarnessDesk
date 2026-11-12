@@ -99,7 +99,12 @@ test('the open question the desk holds is one line of the work context, and noth
   const lines = alone.split('\n').filter(row => /question/i.test(row))
   assert.equal(lines.length, 1, alone)
   assert.match(lines[0]!, /^Your question from 12m ago is still open: "Start the label fix\?"/)
-  assert.match(lines[0]!, /until the person answers it, it expires or you ask a newer one/)
+  // Typed words after an aside are plain words, so the desk can hold a question open that the person has answered in
+  // their own words: the line says only what the screen shows, and tells the Lead to act on such an answer.
+  assert.match(lines[0]!, /no option has been chosen on screen/)
+  assert.match(lines[0]!, /If the person has since answered it in their own words, act on that answer and do not ask it again/)
+  assert.match(lines[0]!, /a newer question replaces it/)
+  assert.doesNotMatch(lines[0]!, /stays open until the person answers it/)
   const timed = leadWorkCards({ ...board([card(1, 'working')]), ask: { ...ask, expiresAt: now + 8 * 60_000 } }, now)!
   assert.match(timed, /still open: "Start the label fix\?"[^\n]*answerable for 8m more/)
   assert.ok(timed.indexOf('Your question') < timed.indexOf('work-1'), 'the question comes before the cards')

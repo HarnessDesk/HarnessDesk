@@ -38,7 +38,7 @@ import {
 import { toolOf } from '../state/frame-tools'
 import { Workbench as WorkbenchBody } from './Workbench'
 import * as terminalLabels from '../lib/terminal-labels'
-import { TopBarProvider, useWorkDetails } from './top-bar'
+import { TopBarProvider, useRailLeave, useWorkDetails } from './top-bar'
 import { PageRailToggle } from './WorkTools'
 import { ShellHostsProvider, ShellOutlets } from './shell-hosts'
 import type { ComponentProps } from 'react'
@@ -1426,6 +1426,22 @@ it('a floating rail goes on a press outside it and on Escape, as the floating si
   act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
   draw()
   expect(shell().dataset.railOpen, 'Escape puts it away').toBe('false')
+})
+
+it('a row in a floating rail that takes the person somewhere puts the rail away; a standing rail stays (#2175)', () => {
+  // The row stands in for a Work row: it opens what it stands for, then tells the shell it left.
+  const Row = () => { const leave = useRailLeave(); return <button type="button" data-testid="door" onClick={leave}>Build a small browser game</button> }
+  for (const [windowWidth, floats, after] of [[900, 'true', 'false'], [1440, 'false', 'true']] as const) {
+    const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth })
+    const Page = () => { useWorkDetails('destination:lead', <Row />); return null }
+    const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+    draw()
+    const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+    expect([shell().dataset.railFloats, shell().dataset.railOpen]).toEqual([floats, 'true'])
+    act(() => container.querySelector<HTMLButtonElement>('[data-testid="door"]')!.click())
+    draw()
+    expect(shell().dataset.railOpen, floats === 'true' ? 'a floating rail goes with the person' : 'a rail beside the page stays').toBe(after)
+  }
 })
 
 it('a rail that stands beside the page keeps out of the way of presses and Escape alike (#2175)', () => {

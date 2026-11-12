@@ -372,8 +372,9 @@ export class LeadMemoryStore {
   }
 
   /** What the person does, in Settings or on a Keep chip. `seq` is the Lead's journal position, which a No keeps: the
-   * same words are offered again only after the person writes past it. */
-  change(change: LeadMemoryChange, seq = 0): Promise<LeadMemoryView> {
+   * same words are offered again only after the person writes past it. `kept` hears the entry a Keep made, inside this
+   * change's own turn of the queue, so two Keeps at once each name their own entry (#2176). */
+  change(change: LeadMemoryChange, seq = 0, kept?: (entry: LeadMemoryEntry) => void): Promise<LeadMemoryView> {
     return this.#serial(async () => {
       const { entries, inbox } = this.#state, at = this.#now()
       const entry = (id: string) => entries.find(one => one.id === id) ?? (() => { throw leadRefusal('lead-memory-missing') })()
@@ -409,9 +410,10 @@ export class LeadMemoryStore {
           room()
           const text = change.text === undefined ? candidate.text : words(change.text), edited = leadMemoryFold(text) !== leadMemoryFold(candidate.text)
           const id = `m${this.#state.next}`
+          const made: LeadMemoryEntry = { id, text, kind: change.kind ?? candidate.kind, by: edited ? 'person' : 'lead', tier: 'core', source: candidate.source, createdAt: at, usedAt: at, version: 1 }
           await this.#commit({ next: this.#state.next + 1, inbox: inbox.filter(one => one.id !== candidate.id),
-            entries: [...entries, { id, text, kind: change.kind ?? candidate.kind, by: edited ? 'person' : 'lead', tier: 'core', source: candidate.source, createdAt: at, usedAt: at, version: 1 }],
-            proposals: this.#decided(candidate, edited ? 'edited' : 'kept', at, id) }, 'person')
+            entries: [...entries, made], proposals: this.#decided(candidate, edited ? 'edited' : 'kept', at, id) }, 'person')
+          kept?.(made)
           break
         }
         case 'dismiss': {

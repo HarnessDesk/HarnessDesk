@@ -1,6 +1,6 @@
 import { effectiveWindowMode } from '../editor'
 import { tileBrowserWorkbench } from '../lib/browser-tiles'
-import { PageRailHost, WorkDetailsOutlet, useRegisteredDetails, useRegisteredOwner } from './top-bar'
+import { PageRailHost, RailLeaveProvider, WorkDetailsOutlet, useRegisteredDetails, useRegisteredOwner } from './top-bar'
 import { useShellHosts } from './shell-hosts'
 import { RunDockProvider, RunDetailsView } from './run-dock'
 import {
@@ -246,7 +246,10 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
   const railFloating = pageActive ? railOpen && railFloatsBeside(snapshot.windowWidth - standingSidebar - (paneActive && rightPanelDrawn(workbench) && !rightPanelOverlay ? rightWidth : 0))
     : workRailFloats(workbench, snapshot.windowWidth, standingSidebar)
   // A rail floating over the thread goes the way the floating sidebar does: on Escape, and on a press outside it.
-  useFloatingRail(railOpen && railFloating, shell, () => { if (pageActive) store.togglePageRail(pageKind); else store.toggleWorkRail() })
+  const closeRail = () => { if (pageActive) store.togglePageRail(pageKind); else store.toggleWorkRail() }
+  useFloatingRail(railOpen && railFloating, shell, closeRail)
+  // A row in a floating rail that opens a Team or chat puts the rail away too, so it does not lie over where it went.
+  const leaveRail = railOpen && railFloating ? closeRail : noLeave
   const retainedRight = Math.min(workbench.right.size, Math.max(0, snapshot.windowWidth - FRAME.page.canvasGutter))
   const frameStyle = {
     '--frame-left-size': `${standingSidebar}px`, '--frame-left': 'var(--frame-left-drag, var(--frame-left-size))',
@@ -278,7 +281,7 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
           <Button variant="ghost" size="icon-sm" aria-label="Swap back" title="Swap back" onClick={() => store.swapWorkPane()}><SwapIcon size={16} /></Button>
           <Button variant="ghost" size="icon-sm" aria-label="Close pane" title="Close pane" onClick={() => store.toggleWorkPanel()}><CrossIcon size={16} /></Button>
         </> : undefined}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><MainDestination page={pageActive} work={<KeyboardHereContext.Provider value={pageActive ? false : null}><Panes /></KeyboardHereContext.Provider>} pages={<PageRailHost value>{pages}</PageRailHost>} /></FixedPanelBody></div>}
-      rail={pageActive ? <PageRail owner={pageOwner} drawn={railOpen} /> : <WorkRail drawn={railOpen} />}
+      rail={<RailLeaveProvider value={leaveRail}>{pageActive ? <PageRail owner={pageOwner} drawn={railOpen} /> : <WorkRail drawn={railOpen} />}</RailLeaveProvider>}
       right={<RightWorkActive.Provider value={paneActive}><RightPanel /></RightWorkActive.Provider>} bottom={null}>
       {narrow && <WorkbenchScrim className={styles.scrim} {...(floating ? { 'data-open': '' } : {})} aria-hidden
         onMouseDown={event => event.preventDefault()} onClick={() => store.closeFloatingSidebar()} />}
@@ -512,6 +515,8 @@ const BottomPanel = ({ drawn }: { drawn: boolean }) => {
  * rail is the rail's own, and its toggle closes it by its own click. A menu drawn from the rail is portalled out of the
  * shell, so a press in it is not outside. A rail standing beside the page covers nothing and never takes either.
  */
+const noLeave = (): void => undefined
+
 const useFloatingRail = (floating: boolean, shell: RefObject<HTMLDivElement | null>, close: () => void): void => {
   useEscapeSurface(floating, close)
   const held = useRef(close)
