@@ -104,6 +104,7 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
     {asking && <ConfirmDialog
       title={asking.target.transport === 'stdio' ? 'Run this project’s server?' : 'Connect to this project’s server?'}
       confirmLabel={asking.target.transport === 'stdio' ? 'Run test' : 'Connect'}
+      cancelLabel="Cancel"
       onConfirm={() => void run(asking.digest)}
       onCancel={() => setAsking(null)}
     >

@@ -82,14 +82,14 @@ it('shows a project server’s exact command before running it, and sends back t
   expect(container.textContent).toContain('Connected · 1 tool')
 })
 
-it('Keep runs nothing', async () => {
+it('Cancel runs nothing', async () => {
   const { request } = mount([{
     ok: false, reason: 'confirm', detail: 'Check it.', ms: 0, digest: 'd1',
     target: { transport: 'http', scope: 'project', url: 'https://tools.example.com/mcp', headerNames: ['Authorization'] },
   }], { path: '/work/app/.mcp.json', cwd: '/work/app' })
   await act(async () => button('Test connection')!.click())
   expect(document.querySelector('[role="alertdialog"]')!.textContent).toContain('https://tools.example.com/mcp')
-  await act(async () => button('Keep')!.click())
+  await act(async () => button('Cancel')!.click())
   expect(document.querySelector('[role="alertdialog"]')).toBeNull()
   expect(request).toHaveBeenCalledTimes(1)
 })
