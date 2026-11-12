@@ -7383,7 +7383,8 @@ export class Host {
           signal.removeEventListener('abort', stop)
           resolve(turn)
         })
-        this.#orderSeat(consult.runtime, consult.sessionId, text).catch((error: unknown) => {
+        // The ask's signal goes with the order: an ask withdrawn while the order waits sends nothing.
+        this.#orderSeat(consult.runtime, consult.sessionId, text, undefined, signal).catch((error: unknown) => {
           if (!this.#consultTurns.has(key)) return
           this.#consultTurns.delete(key)
           signal.removeEventListener('abort', stop)
@@ -9300,12 +9301,15 @@ export class Host {
     return holdCeiling(live, level, control)
   }
 
-  async #orderSeat(runtime: string, sessionId: string, text: string, noticeKind?: 'agentBrief'): Promise<void> {
+  async #orderSeat(runtime: string, sessionId: string, text: string, noticeKind?: 'agentBrief', signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw signal.reason
     const live = await this.#teamLive(runtime as RuntimeId, sessionId)
     const environment = environmentForCheckout(live.settings().cwd, this.#lanes.list())
     // Whether the values reached the agent's environment, the same rule that
     // decided it at the open: a runtime that took none is told to pass them itself.
     const handed = laneEnvironmentFor(this.#runtime({ runtime }), environment) !== undefined
+    // Nothing is awaited from this look to the send: an order withdrawn while it waited is never sent.
+    if (signal?.aborted) throw signal.reason
     await live.send(
       [{ type: 'text', text: laneStandingOrder(text, environment, handed) }],
       // Only the Agent seating entry point marks its standing brief. Flow

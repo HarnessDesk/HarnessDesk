@@ -672,16 +672,20 @@ at 32 KiB with a marker), and deletes the conversation. Any approval the
 asked agent raises is declined by the desk. The asked agent is never offered
 `ask_agent` itself, so asking is one level deep. Its usage counts against the
 caller's run: on a trigger's Goal it is metered as `<seat>/ask/<n>` on that
-Goal's budget, and a Goal at its cap refuses the ask. The usage is read from
+Goal's budget, and a Goal at its cap refuses the ask — checked again after the
+consult's turn is on the meter, the last thing before the question goes, so a
+cap that read finds reached sends nothing. The usage is read from
 the live conversation before it is deleted and reconciled with whatever the
 recorded usage already counted — the final reading stands, never the sum, and
 a final reading below one taken earlier (a total that reset) leaves the spend
-unknown. An agent that reported none leaves the Goal's spend unknown, and the
+unknown; a recorded reading older than one already counted, which the record
+hands back at every read, is nothing. An agent that reported none leaves the Goal's spend unknown, and the
 next ask is refused with that reason until a recorded reading taken at or
 after the consult's turn ended repairs it — one from part-way through repairs
-nothing; a Goal stopped meanwhile is still read for it, and one wrapped
-meanwhile settles then, after a restart too. A
-question withdrawn before it was sent costs nothing. Insight counts the
+nothing; a Goal stopped meanwhile is still read for it — every Goal is read
+until its reservation settles — and one wrapped meanwhile settles then, after
+a restart too. A question withdrawn before it was sent costs nothing, and one
+withdrawn while it is being sent is not sent at all. Insight counts the
 consult under the seat that asked, from that same live reading kept with the
 seat when the last reading on disk is not larger. The consult is closed the
 moment its ask ends, before its deletion is even asked for, and nothing of it

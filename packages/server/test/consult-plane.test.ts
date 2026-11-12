@@ -131,6 +131,26 @@ test('money: a trigger’s Goal at its cap refuses with askBudget; under it, the
   assert.ok(at('meteredEnd:seat-1/ask/1') > at('ask:') && at('meteredEnd:seat-1/ask/1') < at('discard'), r.calls.join(', '))
 })
 
+test('round 4: a cap the metering read finds reached refuses the ask before it is sent — $0.20 cap, $0.42 found when the turn’s start goes on the meter', async () => {
+  const r = rig()
+  r.seat = { ...r.seat!, trigger: true }
+  // Admission reads $0 against a $0.20 cap; the read that puts the turn's start on the meter finds $0.42.
+  const cap = 200_000
+  let spent = 0
+  ;(r.port as { beforeDispatch: ConsultPort['beforeDispatch'] }).beforeDispatch = async () => {
+    r.calls.push(`gate:${spent}`)
+    return spent <= cap ? { ok: true } : { ok: false, detail: `This Goal has spent $${spent / 1_000_000} of its $${cap / 1_000_000}.` }
+  }
+  ;(r.port as { meteredStart: ConsultPort['meteredStart'] }).meteredStart = async (_goal, meter) => { r.calls.push(`meteredStart:${meter}`); spent = 420_000 }
+  await assert.rejects(r.plane.ask({ agent: 'b', question: 'q', context: null }, scope),
+    (error: Error) => code('askBudget')(error) && /spent \$0\.42 of its \$0\.2/.test(error.message))
+  assert.equal(r.calls.some((one) => one.startsWith('ask:')), false, `nothing was sent: ${r.calls.join(', ')}`)
+  assert.deepEqual(r.calls.filter((one) => one.startsWith('gate:')), ['gate:0', 'gate:420000'], 'checked at admission and again right before the send')
+  // Nothing went, so nothing was spent: the consult's meter closes as unsent, and the conversation is discarded.
+  assert.deepEqual(r.finals, ['unsent'])
+  assert.ok(r.calls.includes('discard'))
+})
+
 test('the deadline bounds the open: the timer fires while opening is held — askTimeout at once, and the late conversation is discarded', async () => {
   const r = rig()
   let opened!: (consult: OpenedConsult) => void

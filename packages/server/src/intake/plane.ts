@@ -1238,16 +1238,18 @@ export class IntakePlane {
 
   /**
    * Closed consult windows whose meter is now known are let go; a wrapped
-   * Goal a reading reconciled settles — wrapped as this desk saw it, or as
-   * the Goal itself says after a restart.
+   * Goal still holding its reservation settles once its spend is known —
+   * wrapped as this desk saw it, or as the Goal itself says after a restart.
+   * Settling is tried at every read, so no reading that repairs the spend is
+   * one the reservation can miss.
    */
-  async #afterConsultRead(goal: string, wasUnknown: boolean): Promise<void> {
+  async #afterConsultRead(goal: string): Promise<void> {
     const meters = this.#store.read().budgets[goal]?.meters ?? {}
     const left = (this.#consults.get(goal) ?? []).filter((one) => one.closed === null || meters[one.id]?.unknown === CONSULT_USAGE_UNKNOWN)
     if (left.length > 0) this.#consults.set(goal, left)
     else this.#consults.delete(goal)
-    const stillUnknown = Object.values(meters).some((meter) => meter.unknown === CONSULT_USAGE_UNKNOWN)
-    if (wasUnknown && !stillUnknown && (this.#wrapped.has(goal) || this.#port.goalWrapped?.(goal) === true)) await this.#budgets.settle(goal)
+    const budget = this.#store.read().budgets[goal]
+    if (budget && !budget.settled && (this.#wrapped.has(goal) || this.#port.goalWrapped?.(goal) === true)) await this.#budgets.settle(goal)
   }
 
   /**
@@ -1309,24 +1311,23 @@ export class IntakePlane {
       read = { samples: [], complete: false }
     }
     const consults = this.#consultWindows(goal, budget)
-    const wasUnknown = Object.values(budget.meters).some((meter) => meter.unknown === CONSULT_USAGE_UNKNOWN)
     const seats = [...this.#port.seats().filter((seat) => seat.board === goal), ...consults.windows]
     // An interrupted consult closes here, at the read that found it, with no final reading.
     const closing = [...settle, ...consults.interrupted.filter((id) => !settle.some((one) => one.seat === id)).map((seat) => ({ seat, final: null }))]
     for (const seat of consults.interrupted) await this.#budgets.turn(goal, seat, { ended: at })
     await this.#budgets.read(goal, read.samples, seats, { at, complete: read.complete }, turn, closing)
-    await this.#afterConsultRead(goal, wasUnknown || closing.length > 0)
+    await this.#afterConsultRead(goal)
   }
 
   /**
    * Every live budget read once: what keeps a Seat inside a turn under a
-   * minute stale — and every Goal, stopped or not, whose consult's spend
-   * still waits for the reading that can repair it.
+   * minute stale — and every Goal, stopped or not, whose reservation is still
+   * held, so the reading that can repair its spend settles it.
    */
   meter(): Promise<void> {
     this.#metering ??= (async () => {
       const live = this.#budgets.live()
-      const reading = [...new Set([...live, ...this.#budgets.awaitingConsult()])]
+      const reading = [...new Set([...live, ...this.#budgets.unsettled()])]
       if (reading.length === 0 || this.#closed) return
       if (live.length > 0) await this.#port.refreshLanes?.(live).catch(() => {})
       for (const goal of reading) {

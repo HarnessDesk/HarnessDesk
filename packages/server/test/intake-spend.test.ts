@@ -154,6 +154,25 @@ test('round 3: no final reading — $0.10 read mid-turn, nothing at its end — 
   assert.equal(capCheck(350_000, goalSpend([final], 200).spentMicros), null, 'and the cap admits again')
 })
 
+test('round 4: a corpus that replays $0.10 after $0.12 latches nothing, and the $0.20 final still repairs the spend', () => {
+  const consult = meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 })
+  const unknown = meterTurn(settleConsult(consult, null), { ended: 130 })
+  // Every read hands back everything the corpus holds, in the order it found it.
+  const first = fold(unknown, [sample({ key: 'r1', usd: exact(0.1), to: 110 })])
+  const second = fold(first, [sample({ key: 'r1', usd: exact(0.1), to: 110 }), sample({ key: 'r2', usd: exact(0.12), to: 120 })])
+  assert.deepEqual({ unknown: second.unknown, lastMicros: second.lastMicros }, { unknown: CONSULT_USAGE_UNKNOWN, lastMicros: 120_000 })
+  const third = fold(second, [
+    sample({ key: 'r1', usd: exact(0.1), to: 110 }), sample({ key: 'r2', usd: exact(0.12), to: 120 }), sample({ key: 'r3', usd: exact(0.2), to: 130 }),
+  ])
+  assert.equal(third.unknown, null, 'the replayed $0.10 is not a total that went down')
+  assert.equal(meterTotal(third, 200).micros, 200_000, 'the final $0.20 is the whole')
+  assert.equal(capCheck(350_000, goalSpend([third], 200).spentMicros), null)
+  // The same replay after the repair changes nothing.
+  assert.deepEqual(fold(third, [sample({ key: 'r1', usd: exact(0.1), to: 110 }), sample({ key: 'r3', usd: exact(0.2), to: 130 })]), third)
+  // A lower total taken after the last one counted is still a total that went down.
+  assert.match(meterSample(third, sample({ key: 'r4', usd: exact(0.15), to: 140 })).unknown ?? '', /went down/)
+})
+
 test('a consult’s unknown spend is repaired by a later valid reading, and a question never sent is a known zero', () => {
   const consult = meterTurn(meter({ seat: 'seat-1/ask/1' }), { started: 100 })
   const unknown = meterTurn(settleConsult(consult, null), { ended: 130 })

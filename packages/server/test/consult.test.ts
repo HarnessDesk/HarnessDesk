@@ -641,6 +641,8 @@ test('round 3: a total that reset — 0.30 recorded, then a final 0.12 live — 
   const { d, goal, caller } = await askWithCorpus(t, 0.3, 0.12)
   const meter = askMeter(d, goal)!
   assert.match(meter.unknown ?? '', /final total below/)
+  // Round 4: unknown for good, and its reservation held — so it is never dropped from the Goals read.
+  assert.ok(d.host.intakePlane.budgets.unsettled().includes(goal), 'a Goal whose reservation is held stays read')
   await assert.rejects(d.host.consultPlane.ask({ agent: 'fake', question: 'And 3+3?', context: null }, caller),
     (error: Error) => code('askBudget')(error) && /Spend is unknown/.test(error.message))
 })
@@ -671,4 +673,68 @@ test('round 3: after a restart, a wrapped Goal whose consult’s spend a final r
   await d.host.intakePlane.tick()
   const budget = d.host.intakePlane.journal.read().budgets[goal]!
   assert.deepEqual({ unknown: askMeter(d, goal)!.unknown, settled: budget.settled, reservedMicros: budget.reservedMicros }, { unknown: null, settled: true, reservedMicros: 0 })
+})
+
+test('round 4: an ask withdrawn the moment it is scheduled is never sent — the order looks at the signal after every wait, last thing before the send', E2E, async (t) => {
+  const a = await asking(t)
+  const order: string[] = []
+  a.holds.onSend = (session, text) => {
+    if (!text.includes(CONSULT_PROMPT)) return
+    order.push('send')
+    setImmediate(() => (session as HoldSession).finish('4'))
+  }
+  const withdraw = new AbortController()
+  // The host's own ask, withdrawn right after it is scheduled: its order is still waiting on the conversation.
+  const port = (a.d.host.consultPlane as unknown as { port: { ask: (...args: unknown[]) => Promise<unknown> } }).port
+  const ask = port.ask
+  port.ask = (...args: unknown[]) => {
+    const pending = ask(...args)
+    order.push('asked')
+    withdraw.abort()
+    return pending
+  }
+  t.after(() => { port.ask = ask })
+  const pending = a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'q', context: null }, { ...a.caller, signal: withdraw.signal })
+  await assert.rejects(pending, code('askCancelled'))
+  order.push('asker stopped')
+  // Long enough for an order that kept going to have reached the send.
+  await whenChanged(a.d, () => (a.d.host.registry.get('holdfake' as never, a.holds.held[0]!.id) === undefined ? true : null), 'the consult discarded')
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.deepEqual(order, ['asked', 'asker stopped'], 'nothing was sent after the ask was withdrawn')
+})
+
+test('round 4: a corpus that replays $0.10 before the $0.20 final strands nothing — the stopped, wrapped Goal stays read and settles its reservation', E2E, async (t) => {
+  const corpus: UsageSample[] = []
+  const { d, goal, caller } = await triggerSeat(t, 2, () => corpus)
+  d.runtime.onSend = (session, text) => { if (text.includes(CONSULT_PROMPT)) setImmediate(() => (session as HoldSession).finish('4')) }
+  await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
+  assert.match(askMeter(d, goal)?.unknown ?? '', /reported no usage/, 'no final reading')
+  const lines = await seatLines(d.stateDir)
+  const link = lines.find((line) => line.type === 'seat-consult' && line.consult!.closedAt !== null)!.consult!
+  const project = lines.find((line) => line.type === 'seat')!.record!.checkout.project
+  // The Goal wraps; the desk sees it as wrapped from here on.
+  const standing = GoalStore.prototype.standing
+  GoalStore.prototype.standing = function (id) {
+    const real = standing.call(this, id)
+    return id === goal && real ? { ...real, state: 'wrapped' } : real
+  }
+  t.after(() => { GoalStore.prototype.standing = standing })
+  // Intermediate totals, each read in turn: $0.10, then $0.12. The Goal stops for a person, and is still read.
+  corpus.push(corpusOf('fake', link.sessionId, project, 0.1, link.openedAt, link.openedAt))
+  await d.host.intakePlane.tick()
+  corpus.push(corpusOf('fake', link.sessionId, project, 0.12, link.openedAt, link.openedAt + 1))
+  await d.host.intakePlane.tick()
+  const held = d.host.intakePlane.journal.read().budgets[goal]!
+  assert.equal(askMeter(d, goal)!.lastMicros, 120_000)
+  assert.notEqual(held.stop, null, 'stopped while its spend is unknown')
+  assert.ok(held.reservedMicros > 0 && !held.settled, 'its reservation is held')
+  assert.ok(d.host.intakePlane.budgets.unsettled().includes(goal), 'a stopped Goal whose reservation is held is still read')
+  // The next corpus hands back $0.10 again, before the valid $0.20 final.
+  corpus.push(corpusOf('fake', link.sessionId, project, 0.2, link.openedAt, link.closedAt!))
+  await d.host.intakePlane.tick()
+  const meter = askMeter(d, goal)!
+  assert.deepEqual({ unknown: meter.unknown, lastMicros: meter.lastMicros }, { unknown: null, lastMicros: 200_000 }, 'the replay latched nothing; the final repaired it')
+  const budget = d.host.intakePlane.journal.read().budgets[goal]!
+  assert.deepEqual({ settled: budget.settled, reservedMicros: budget.reservedMicros }, { settled: true, reservedMicros: 0 })
+  assert.equal(d.host.intakePlane.budgets.unsettled().includes(goal), false, 'only settling takes it off the list')
 })

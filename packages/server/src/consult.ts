@@ -304,6 +304,10 @@ export class ConsultPlane implements AgentsEngine {
       const key = meter ? await this.#within(controller.signal, meter) : null
       // The turn's start is on the meter before the question goes.
       if (key) await this.#within(controller.signal, this.port.meteredStart(seat.goal, key, this.port.now()))
+      // Money again, last thing before the question goes: the read that put the turn's start on the
+      // meter may have found the caller's Goal over its cap, and nothing is sent past it.
+      const still = await this.#within(controller.signal, this.port.beforeDispatch(seat.goal))
+      if (!still.ok) throw refused('askBudget', still.detail)
       // 8. Ask, and wait for the one turn.
       const text = [CONSULT_PROMPT, input.question, ...(input.context ? [input.context] : [])].join('\n\n')
       if (controller.signal.aborted) throw controller.signal.reason

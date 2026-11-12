@@ -14,8 +14,10 @@ import type { UsageSample } from '../ledger/insight.js'
  *   for no Goal; nothing is shared out between Goals.
  * - **Counted once.** A cumulative session total is read as a delta from the
  *   Seat's own baseline, and moves only forward; a per-call sample counts
- *   once by its key. A replay is nothing; a session's two kinds of total are
- *   never added together.
+ *   once by its key. A replay is nothing — a session reading taken before the
+ *   one already counted included, so a corpus that hands back what it found
+ *   last time never reads as a total that went down; a session's two kinds of
+ *   total are never added together.
  * - **Unknown is not zero.** No USD cost, a floor rather than a total, an
  *   unknown money basis, a list-price total whose model changed inside one
  *   cumulative figure, delegated work whose inclusion the desk cannot tell,
@@ -45,6 +47,12 @@ export interface SessionMeter {
   readonly model: string | null
   readonly baselineMicros: number | null
   readonly lastMicros: number | null
+  /**
+   * When the reading behind `lastMicros` was taken: a session reading older
+   * than it is one already read, or one overtaken — never a total that went
+   * down. Absent on a meter saved before it was kept.
+   */
+  readonly lastAt?: number | null
   readonly callMicros: number
   readonly calls: readonly string[]
   readonly observedAt: number | null
@@ -58,7 +66,7 @@ export const openMeter = (input: {
   readonly seat: string; readonly runtime: string; readonly sessionId: string; readonly project: string
   readonly openedAt: number; readonly fresh: boolean; readonly delegation: SessionMeter['delegation']
 }): SessionMeter => ({
-  ...input, scope: null, provenance: null, model: null, baselineMicros: input.fresh ? 0 : null, lastMicros: null,
+  ...input, scope: null, provenance: null, model: null, baselineMicros: input.fresh ? 0 : null, lastMicros: null, lastAt: null,
   callMicros: 0, calls: [], observedAt: null, turnStartedAt: null, turnEndedAt: null, unknown: null,
 })
 
@@ -82,7 +90,7 @@ export const CONSULT_TOTAL_WENT_DOWN = 'The agent this Seat asked reported a fin
 /** A meter that has read nothing yet, keeping its Seat, session, turns and the last time it was read. */
 const unread = (meter: SessionMeter): SessionMeter => ({
   ...meter, scope: null, provenance: null, model: null, baselineMicros: meter.fresh ? 0 : meter.baselineMicros,
-  lastMicros: null, callMicros: 0, calls: [], unknown: null,
+  lastMicros: null, lastAt: null, callMicros: 0, calls: [], unknown: null,
 })
 
 /**
@@ -121,10 +129,14 @@ export function meterSample(meter: SessionMeter, sample: UsageSample): SessionMe
       return unknown('The model changed inside one cumulative total, so its list price cannot be split.')
     }
     if (meter.baselineMicros === null) return unknown('This session was not new when it was seated, and no starting total was captured.')
+    // A reading taken before the one already counted — the corpus replaying what it found last
+    // time, or an older record found late — says nothing new: never a reset, never a total.
+    const lastAt = meter.lastAt ?? null
+    if (meter.lastMicros !== null && lastAt !== null && sample.to !== null && sample.to < lastAt) return meter
     if (meter.lastMicros !== null && value < meter.lastMicros) return unknown('This session’s total went down, so what it spent is no longer known.')
     return {
       ...meter, scope: 'session', provenance: sample.moneyBasis, model: sample.model,
-      lastMicros: value, observedAt: Math.max(meter.observedAt ?? 0, at),
+      lastMicros: value, lastAt: sample.to ?? lastAt, observedAt: Math.max(meter.observedAt ?? 0, at),
     }
   }
   if (meter.calls.includes(sample.key)) return meter

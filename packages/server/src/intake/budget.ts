@@ -4,7 +4,7 @@ import { DEFAULT_TRIGGER_DAILY_USD } from '@harnessdesk/protocol'
 import { seatWindowOf } from '../insight/attribution.js'
 import type { UsageSample } from '../ledger/insight.js'
 import { usdMicros } from './definition.js'
-import { attributeSample, CONSULT_USAGE_UNKNOWN, goalSpend, meterSample, meterTurn, openMeter, settleConsult, type SessionMeter } from './spend.js'
+import { attributeSample, goalSpend, meterSample, meterTurn, openMeter, settleConsult, type SessionMeter } from './spend.js'
 import type { IntakeBudget, IntakeOperation, IntakeSnapshot } from './store.js'
 
 export { CONSULT_USAGE_UNKNOWN } from './spend.js'
@@ -443,15 +443,14 @@ export class TriggerBudgets {
   }
 
   /**
-   * Every unsettled Goal — stopped or not — with a consult whose spend waits
-   * for its final reading: still read, so that reading can repair it, though
-   * a stop made meanwhile stands.
+   * Every Goal whose reservation is still held — stopped or not: still read,
+   * so a reading that repairs its spend (a consult's final one) can settle
+   * it, though a stop made meanwhile stands. A Goal leaves this list only by
+   * settling.
    */
-  awaitingConsult(): readonly string[] {
+  unsettled(): readonly string[] {
     try {
-      return Object.entries(this.#read().budgets)
-        .filter(([, budget]) => !budget.settled && Object.values(budget.meters).some((meter) => meter.unknown === CONSULT_USAGE_UNKNOWN))
-        .map(([goal]) => goal)
+      return Object.entries(this.#read().budgets).filter(([, budget]) => !budget.settled).map(([goal]) => goal)
     } catch {
       return []
     }
