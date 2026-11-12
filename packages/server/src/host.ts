@@ -234,6 +234,7 @@ import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibrarySources, type LibrarySourcesOptions } from './library-sources.js'
 import { LibraryUpdates } from './library-updates.js'
 import { LibraryUsageReader } from './library-usage.js'
+import { McpConnectionTests } from './mcp-test.js'
 import type { Logger } from './log.js'
 import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
 import { StateStore, type ShellProjectIdentity } from './state.js'
@@ -990,6 +991,7 @@ export class Host {
   #libraryUpdates: LibraryUpdates | null = null
   #librarySources: LibrarySources | null = null
   #libraryUsage: LibraryUsageReader | null = null
+  #mcpConnectionTests: McpConnectionTests | null = null
   /** The archive for runtimes with none of their own. See `SessionArchive`. */
   readonly #archive: SessionArchive
   readonly #names: SessionNames
@@ -3894,6 +3896,8 @@ export class Host {
     this.#harnessDeskAccount.close()
     this.#attachments.revokeAll()
     this.#attachmentAbort.abort()
+    // A server a connection test started stops with the desk, its whole group.
+    this.#mcpConnectionTests?.dispose()
     this.#catalogs.stop()
     this.#agentWatch?.dispose()
     // Cancels every v2 release still waiting on a Seat's turn to end: no
@@ -6645,6 +6649,7 @@ export class Host {
         )
         return this.#libraryUsage
       },
+      mcpConnectionTests: () => this.#mcpConnectionTests ??= new McpConnectionTests(this.options.libraryHome !== undefined ? { home: this.options.libraryHome } : {}),
       extensions: () => this.#requireExtensions(),
       push: (notification) => this.#push(notification),
       runtimes: {

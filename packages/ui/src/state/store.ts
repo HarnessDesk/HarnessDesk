@@ -8469,8 +8469,8 @@ export class AppStore {
       .catch(() => [])
   }
 
-  async mcpLogin(name: string): Promise<void> {
-    const runtime = this.#snapshot.activeRuntime
+  /** Starts the agent's own sign-in for one of its servers: the active agent's, or the one named. */
+  async mcpLogin(name: string, runtime: RuntimeId | null = this.#snapshot.activeRuntime): Promise<void> {
     if (!runtime) return
     try {
       const { url } = await this.transport.request('runtime/mcp/login', { runtime, name })

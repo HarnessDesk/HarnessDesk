@@ -1346,6 +1346,9 @@ Empty-directory cleanup and runtime catalogue banners appear only under Needs at
 
 MCP servers retain List and Matrix, their PageOptions and their existing
 filters. An empty MCP region says No MCP servers yet with no description.
+Each copy of a server on disk has Test connection, whose answer stays on the
+row as one chip; a copy the project's own file declares shows its command or
+address before it runs.
 The List compares Server, State and Loaded by in three labelled columns.
 Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
 the generic plugin glyph is omitted only when the list has no mapped glyphs.

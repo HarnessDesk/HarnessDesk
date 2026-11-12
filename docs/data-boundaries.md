@@ -363,6 +363,19 @@ last good copy, or nothing, in its place.
   address fetches that one repository over HTTPS with `git`, anonymously —
   your credential helpers and `.netrc` are cut off — within 64 MB and 60
   seconds. Only when you ask. (`packages/server/src/library-sources.ts`)
+- **Test connection on an MCP server.** Only when you click it on one copy of
+  a server, the host starts that server from the declaration on disk — never
+  from anything the window sends — asks it to initialize and list its tools,
+  and stops it, within 15 seconds. A local command runs in its own process
+  group with the variables it declares on top of a minimal environment (no
+  HarnessDesk variables, a proxy without its user name and password, in the
+  project folder for a project's server); a remote server is asked at the
+  address it declares, with the headers it declares, no redirect followed,
+  and its session ended afterwards. A server the project's own file declares
+  shows its exact command or address first, with the variables that decide
+  what starts. What comes back is a tool count and the server's name;
+  variable and header values never appear in the answer, and a server that
+  asks for sign-in is not signed in to. (`packages/server/src/mcp-test.ts`)
 - **Plugins, on request.** The built-in **web** plugin fetches a page only
   from hosts you have added to its allowlist, which starts empty; a plugin you
   install from npm is downloaded when you install it.

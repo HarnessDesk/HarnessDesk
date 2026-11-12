@@ -1238,6 +1238,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'library/usage': shape({}),
   'library/plan': shape({ cwd: optional(isString), intents: arrayOf(libraryIntentValidator) }),
   'library/apply': shape({ cwd: optional(isString), ops: arrayOf(libraryPlannedOpValidator) }),
+  'library/mcp/test': shape({ name: atMost(512), path: atMost(4096), cwd: optional(isString), confirmed: optional(atMost(128)) }),
   // `null` is how a goal is cleared. `optional` turns it into undefined, and
   // the adapter clears only on null, so a clear arrived as nothing (#25).
   'session/goal': shape({ runtime: isString, sessionId: isString, objective: nullableString }),
