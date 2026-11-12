@@ -291,6 +291,21 @@ const runPrompt = async (id, params) => {
     say('waiting')
     return
   }
+  if (text === 'two messages by id') {
+    // DeepSeek Harness's shape when a subagent reports mid-prompt: one
+    // committed message, then another, each chunk carrying its message id.
+    const chunk = (kind, messageId, words) => update(state.id, {
+      sessionUpdate: kind, content: { type: 'text', text: words }, ...(messageId ? { messageId } : {}),
+    })
+    chunk('agent_thought_chunk', 'm1', 'pondering')
+    chunk('agent_message_chunk', 'm1', 'Started a helper; ')
+    chunk('agent_message_chunk', 'm1', 'waiting.')
+    chunk('agent_message_chunk', 'm2', 'The helper reported.')
+    chunk('agent_message_chunk', null, ' Done.')
+    chunk('agent_thought_chunk', 'm3', 'first')
+    chunk('agent_thought_chunk', 'm4', 'second')
+    return reply(id, { stopReason: 'end_turn' })
+  }
   if (process.env.FAKE_ACP_GOALS && text.startsWith('/goal ')) {
     const objective = text.slice(6)
     update(state.id, { sessionUpdate: 'session_info_update', _meta: { jetbrains: { air: { goal: objective === 'clear' ? null : { objective, status: 'active', controlMethod: '_session/goal' } } } } })
