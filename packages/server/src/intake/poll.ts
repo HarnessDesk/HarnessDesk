@@ -87,7 +87,11 @@ export const intakeSources = (forge: ForgeSource): IntakeSources => ({
       // Asked for every comment only when an arm on this source lets collaborators' comments fire it.
       permissions: group.arms.some((arm) => arm.definition.from === 'collaborators' && (arm.definition.on.kind === 'mention' || (arm.definition.on.events as readonly string[]).includes('commented'))),
       // `@harnessdesk` requests are read only when an arm names them; their authors are asked about only for collaborators.
-      ...(requested(group.arms) ? { requests: { permissions: group.arms.some((arm) => asks(arm) && arm.definition.from === 'collaborators') } } : {}),
+      // Each from the earliest arm that asks: an arm added to a source already watched never reaches back before it was armed.
+      ...(requested(group.arms) ? { requests: {
+        permissions: group.arms.some((arm) => asks(arm) && arm.definition.from === 'collaborators'),
+        since: Math.min(...group.arms.filter(asks).map((arm) => arm.baseline)),
+      } } : {}),
       watches: [...(group.watches ?? []), ...group.arms.flatMap((arm) => arm.definition.on.kind !== 'pull-request' ? [] : [{
         since: arm.baseline, checks: arm.definition.on.events.includes('checks-failed'), reviews: arm.definition.on.events.includes('review-commented'),
       }]).filter((watch) => watch.checks || watch.reviews)],

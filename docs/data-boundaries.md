@@ -278,11 +278,14 @@ logins the triggers file already names).
 
 A trigger armed for `@harnessdesk` requests on pull requests also reads, as
 the same signed-in person, one repository-wide list of conversation comments
-updated since the comment window opened
+updated since the comment window opened, and never since before the earliest
+trigger that asks was armed
 (`issues/comments?sort=updated&direction=asc&since=…`, paged), whatever number
 of pull requests moved; the reviews (`pulls/{n}/reviews`) of those pull
-requests the source's existing list read shows as updated, and again of one
-read within five minutes of its update, until a read comes five minutes later;
+requests the source's existing list read shows as updated, every page, and
+once more, five minutes later, of one read within five minutes of its update
+— from the page that held the last review it listed, at most 20 pull requests
+a poll and the rest on the next;
 the inline comments of each review newly submitted there
 (`pulls/{n}/reviews/{id}/comments`); and, for a comment on a pull request that
 list did not show, or one whose reviews are read again after it left the list,
@@ -295,7 +298,8 @@ for each its kind, `lastEditedAt` and `includesCreatedEdit`; it changes
 nothing, and it counts against the same signed-in person's GraphQL rate limit,
 about one point a read. With
 `from: collaborators` the author's permission is read once per author in a
-read, only for a request the forge says was never edited. What it keeps beside
+read, only for a request the forge says was never edited — after its edit
+history is read, so an edited request never costs that read. What it keeps beside
 the trigger's cursor is only what it handled inside its windows — comment,
 review and pull request ids with a time, at most 2,000, dropped as the windows
 move — and the time of the newest comment a complete read covered, and each

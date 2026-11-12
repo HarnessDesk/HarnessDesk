@@ -186,6 +186,7 @@ export interface OfferAnswer {
 export const SKIP_FORK = 'This pull request comes from another repository, and this trigger does not allow forks.'
 export const SKIP_CHANGED = 'The trigger or what it runs changed since it was armed, so this did not fire. Arm it again to watch from now.'
 export const SKIP_MISMATCH = 'This trigger does not read this kind of fact.'
+export const SKIP_BEFORE_ARMED = 'This happened before the trigger was armed, so it did not fire.'
 export const SKIP_DESK = 'This comment was posted by this desk, so it does not fire a trigger.'
 export const SKIP_AUTHOR_UNREAD = 'Who wrote this comment could not be read, so it did not fire.'
 export const SKIP_NOT_ME = 'Only comments by the forge account this trigger was armed with fire it, and someone else wrote this one.'
@@ -347,6 +348,8 @@ export class Admission {
       if (!acceptsFact(definition, fact) || (fact.trigger !== null && fact.trigger !== definition.id) || fact.project !== arm.project) {
         return this.#skip(arm, key, SKIP_MISMATCH, fact)
       }
+      // From before this arm was armed: never its to fire, whatever read offered it.
+      if (fact.at < arm.baseline) return this.#skip(arm, key, SKIP_BEFORE_ARMED, fact)
       if (fact.fork && definition.forks !== 'allow') return this.#skip(arm, key, SKIP_FORK, fact)
       // Throws when the arm cannot be read now: no answer, so the fact is kept and offered again.
       const binding = await (options.binding ? options.binding() : this.#port.binding(arm))

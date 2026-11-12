@@ -2,14 +2,14 @@ import assert from 'node:assert/strict'
 import { test, type TestContext } from 'node:test'
 
 import { createLeadJournal, type LeadJournal } from '@harnessdesk/lead'
-import { DESK_POST_MARKER, parseLeadAcceptanceContract, type TriggerArmPreview, type TriggerDefinition, type TriggerFact, type TriggerHistoryPage } from '@harnessdesk/protocol'
+import { DESK_POST_MARKER, parseLeadAcceptanceContract, type TriggerArmPreview, type TriggerDefinition, type TriggerFact, type TriggerHistoryPage, type TriggerProjectView } from '@harnessdesk/protocol'
 
-import { commentRefusal, SKIP_AUTHOR_UNREAD, SKIP_DESK, SKIP_EDIT_UNREAD, SKIP_EDITED, SKIP_NOT_COLLABORATOR, SKIP_NOT_ME, SKIP_WRITES_UNREAD } from '../src/intake/admission.js'
+import { commentRefusal, SKIP_AUTHOR_UNREAD, SKIP_BEFORE_ARMED, SKIP_DESK, SKIP_EDIT_UNREAD, SKIP_EDITED, SKIP_NOT_COLLABORATOR, SKIP_NOT_ME, SKIP_WRITES_UNREAD } from '../src/intake/admission.js'
 import { accountDigest, ForgeSource, type SourceCursor } from '../src/intake/forge.js'
 import { eventKey } from '../src/intake/keys.js'
 import { factOf } from '../src/intake/store.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
-import { ARMED_AT, FakeForge, REPO, sha, type Edit, type Failure } from './fixtures/intake-forge.js'
+import { ARMED_AT, FakeForge, REPO, sha, type Edit, type Failure, type FakePull } from './fixtures/intake-forge.js'
 import { commitTriggers, intakeDesk, until, type IntakeDesk } from './fixtures/intake-host.js'
 import { definition as flowDefinition, desk as admissionDesk } from './fixtures/intake-restart.js'
 import { tempDir } from './scratch.js'
@@ -105,7 +105,7 @@ test('a pull request comment asks, and a submitted review asks once for its inli
   assert.equal(asked[1]!.at, at + 1000, 'a review asks when it was submitted')
   assert.deepEqual(asked.map((fact) => fact.unedited), [true, true], 'the forge says neither was ever edited')
   assert.deepEqual(forge.histories, [['IC_21', 'PRRC_311', 'PRRC_313']], 'one edit-history read for every request the poll found, and for nothing else')
-  assert.deepEqual(Object.keys(read.next.requests?.seen ?? {}).sort(), ['c21', 'c22', 'p12', 'r31', 'r33', 'r34', 'u12'], 'the pending review stays unseen')
+  assert.deepEqual(Object.keys(read.next.requests?.seen ?? {}).sort(), ['c21', 'c22', 'p12', 'r31', 'r33', 'r34', 't12', 'u12'], 'the pending review stays unseen')
   assert.deepEqual(reviewReads(forge, 12).filter((path) => path.includes('/comments')).map((path) => path.split('/')[6]), ['31', '33', '34'], 'only submitted reviews are opened')
 })
 
@@ -122,25 +122,34 @@ test('comment reads cost one call however many pull requests move; reviews are r
   assert.equal(forge.calls.filter((path) => /\/issues\/[0-9]+\/comments/.test(path)).length, 0, 'never a comment read per pull request')
   assert.deepEqual(reviewReads(forge, 3), [`repos/${REPO}/pulls/3/reviews?per_page=100&page=1`])
 
-  // Read within an overlap of their updates, their reviews are read once more, a whole overlap later; then they are settled.
+  // Read within an overlap of their updates, their reviews are read once more, a whole overlap later — twenty a poll, the rest on the next; then they are settled.
+  const unsettled = (cursor: SourceCursor) => Object.keys(cursor.requests?.seen ?? {}).filter((key) => key.startsWith('u')).length
   forge.calls.length = 0
-  const settling = await source(forge, ARMED + 7 * MINUTE).poll(PROJECT, first.next, never, asking)
+  const early = await source(forge, ARMED + 4 * MINUTE).poll(PROJECT, first.next, never, asking)
+  assert.equal(forge.calls.filter((path) => path.includes('/reviews')).length, 0, 'never on the polls between')
+  forge.calls.length = 0
+  const settling = await source(forge, ARMED + 7 * MINUTE).poll(PROJECT, early.next, never, asking)
   assert.deepEqual(settling.facts, [], 'none asks twice')
   assert.equal(commentReads(forge).length, 1)
-  assert.equal(forge.calls.filter((path) => path.endsWith('/reviews?per_page=100&page=1')).length, 30)
-  assert.deepEqual(Object.keys(settling.next.requests?.seen ?? {}).filter((key) => key.startsWith('u')), [], 'all settled')
+  assert.equal(forge.calls.filter((path) => path.endsWith('/reviews?per_page=100&page=1')).length, 20)
+  assert.equal(unsettled(settling.next), 10, 'the rest wait, none dropped')
+  forge.calls.length = 0
+  const settled = await source(forge, ARMED + 8 * MINUTE).poll(PROJECT, settling.next, never, asking)
+  assert.deepEqual(settled.facts, [], 'none asks twice')
+  assert.equal(forge.calls.filter((path) => path.endsWith('/reviews?per_page=100&page=1')).length, 10)
+  assert.equal(unsettled(settled.next), 0, 'all settled')
 
   // Nothing changed: the same one comment read, and no pull request's reviews.
   forge.calls.length = 0
-  const second = await source(forge, ARMED + 8 * MINUTE).poll(PROJECT, settling.next, never, asking)
+  const second = await source(forge, ARMED + 9 * MINUTE).poll(PROJECT, settled.next, never, asking)
   assert.deepEqual(second.facts, [], 'none asks twice')
   assert.equal(commentReads(forge).length, 1)
   assert.equal(forge.calls.filter((path) => path.includes('/reviews')).length, 0, 'no review read for an unchanged, settled pull request')
 
   // Only #4 changes: only #4's reviews are read.
   forge.calls.length = 0
-  forge.pulls[3]!.updated = ARMED + 9 * MINUTE
-  forge.pulls[3]!.comments!.push({ id: 41, body: '@harnessdesk rebase this', created: ARMED + 9 * MINUTE, updated: ARMED + 9 * MINUTE })
+  forge.pulls[3]!.updated = ARMED + 10 * MINUTE
+  forge.pulls[3]!.comments!.push({ id: 41, body: '@harnessdesk rebase this', created: ARMED + 10 * MINUTE, updated: ARMED + 10 * MINUTE })
   const third = await source(forge, ARMED + 15 * MINUTE).poll(PROJECT, second.next, never, asking)
   assert.equal(commentReads(forge).length, 1)
   assert.deepEqual(forge.calls.filter((path) => path.includes('/reviews')), [`repos/${REPO}/pulls/4/reviews?per_page=100&page=1`])
@@ -293,6 +302,93 @@ test('a review submitted within the same second as the read before still asks, o
   }
 })
 
+test('a hundred moved pull requests of 900 reviews each are read once, then once more from their last page, twenty a poll — and a late review in the same second still asks once', async () => {
+  const forge = new FakeForge()
+  const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  const at = ARMED + MINUTE
+  const old = (n: number) => Array.from({ length: 900 }, (_, i) => ({
+    id: n * 1000 + i + 1, commit_id: sha('a'), body: 'Earlier.', state: 'COMMENTED', submitted_at: submittedAt(ARMED - 60 * MINUTE), user: WRITER,
+  }))
+  for (let n = 1; n <= 100; n += 1) forge.pulls.push({ number: n, head: sha('a'), state: 'open', created: ARMED - 120 * MINUTE, updated: at - n, reviews: old(n) })
+  const listReads = () => forge.calls.filter((path) => /^repos\/[^/]+\/[^/]+\/pulls\/[0-9]+\/reviews\?/.test(path))
+  const settling = (cursor: SourceCursor) => Object.keys(cursor.requests?.seen ?? {}).filter((key) => key.startsWith('u')).length
+  let cursor = (await source(forge, at).poll(PROJECT, baseline, never, asking)).next
+  assert.equal(listReads().length, 100 * 10, 'every page of every pull request that moved, once')
+  assert.equal(settling(cursor), 100)
+  // Pull request 1, the last to settle, gets a review submitted later within its same second: its update does not change.
+  forge.pulls[0]!.reviews!.push({ id: 1901, commit_id: sha('a'), body: '', state: 'COMMENTED', submitted_at: submittedAt(at - 1), user: WRITER })
+  forge.pulls[0]!.reviewComments = [{ id: 19011, review: 1901, body: '@harnessdesk cover the empty case', created: at - 1, updated: at - 1, user: WRITER }]
+  const asked: string[] = []
+  let total = listReads().length
+  for (let minute = 1; minute <= 10; minute += 1) {
+    forge.calls.length = 0
+    const read = await source(forge, at + minute * MINUTE).poll(PROJECT, cursor, never, asking)
+    assert.equal(read.complete, true, `minute ${minute}: ${read.problem}`)
+    asked.push(...read.facts.map((fact) => `${minute}:${fact.event}`))
+    // Nothing between the first read and an overlap later; then twenty a poll, each from the page that held its last review.
+    const expected = minute < 5 ? 0 : Math.max(0, Math.min(20, 100 - (minute - 5) * 20))
+    assert.equal(new Set(listReads().map((path) => path.split('/')[4])).size, expected, `minute ${minute}: settle reads`)
+    assert.ok(listReads().every((path) => /page=(9|10)$/.test(path)), `minute ${minute}: never an old page again`)
+    total += listReads().length
+    assert.equal(settling(read.next), Math.max(0, 100 - Math.max(0, minute - 4) * 20), `minute ${minute}: the rest wait, none dropped`)
+    cursor = read.next
+  }
+  assert.deepEqual(asked, [`9:${eventKey([REPO, 1, 'mentioned', 'review', 1901])}`], 'the late review asks once, when its pull request settles')
+  // A fixed bound well under the forge's 5,000 reads an hour: one full read, and two pages each a whole overlap later.
+  assert.ok(total <= 100 * 10 + 100 * 2, `review list reads over ten minutes: ${total}`)
+})
+
+test('a request arm newer than its source reads nothing from before it was armed: no old request, no gap, and a later one asks once', async () => {
+  const forge = new FakeForge()
+  const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  // The source has been watched for an hour; a pull request moved early and has been talked over since, at length.
+  const comments: NonNullable<FakePull['comments']> = []
+  for (let n = 1; n <= 1100; n += 1) {
+    const at = ARMED + MINUTE + n * 2000
+    comments.push({ id: n, body: n % 100 === 0 ? '@harnessdesk an old ask' : 'An ordinary comment.', created: at, updated: at, user: JANE })
+  }
+  forge.pulls.push({
+    number: 20, head: sha('a'), state: 'open', created: ARMED - MINUTE, updated: ARMED + MINUTE, comments,
+    reviews: [{ id: 2001, commit_id: sha('a'), body: '', state: 'COMMENTED', submitted_at: submittedAt(ARMED + 10 * MINUTE), user: WRITER }],
+    reviewComments: [{ id: 20011, review: 2001, body: '@harnessdesk an old inline ask', created: ARMED + 10 * MINUTE, updated: ARMED + 10 * MINUTE, user: WRITER }],
+  })
+  const watched = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never)
+  // A request arm is added an hour on: the source's own window is still an hour old.
+  const armedAt = ARMED + 60 * MINUTE
+  const reading = { requests: { permissions: false, since: armedAt } }
+  forge.calls.length = 0
+  const first = await source(forge, armedAt + MINUTE).poll(PROJECT, watched.next, never, reading)
+  assert.equal(first.complete, true, `no gap: ${first.problem}`)
+  assert.deepEqual(first.facts.filter((fact) => fact.action === 'mentioned'), [], 'nothing from before the arm asks')
+  assert.equal(new URL(`https://api.invalid/${commentReads(forge)[0]!}`).searchParams.get('since'), new Date(armedAt).toISOString(), 'never read back past the arm')
+  assert.deepEqual(reviewReads(forge, 20), [], 'nor its reviews')
+  assert.deepEqual(forge.histories, [])
+  // Asked after arming: it asks once.
+  const later = armedAt + 2 * MINUTE
+  forge.pulls[0]!.updated = later
+  comments.push({ id: 5000, body: '@harnessdesk a new ask', created: later, updated: later, user: JANE })
+  const second = await source(forge, later + MINUTE).poll(PROJECT, first.next, never, reading)
+  assert.deepEqual(second.facts.filter((fact) => fact.action === 'mentioned').map((fact) => fact.event), [eventKey([REPO, 20, 'mentioned', 5000])])
+  const third = await source(forge, later + 2 * MINUTE).poll(PROJECT, second.next, never, reading)
+  assert.deepEqual(third.facts.filter((fact) => fact.action === 'mentioned'), [], 'once')
+})
+
+test('an issue request is asked about its author only once its edit history says it was never edited', async () => {
+  const forge = new FakeForge()
+  forge.permissions.set(WRITER.login, { id: WRITER.id, permission: 'write' })
+  // Every permission read is refused, as when the forge's budget is spent: an edited request must never reach one.
+  forge.fail = (path) => path.includes('/collaborators/') ? { exitCode: 1, stderr: 'gh: API rate limit exceeded (HTTP 403)' } : null
+  const baseline = await source(forge).inventory(PROJECT, 'issue', REPO, never)
+  const at = ARMED + MINUTE
+  forge.issues.push({ number: 8, state: 'open', created: at, updated: at, events: [], comments: [
+    { id: 81, body: '@harnessdesk edited in the same second', created: at, updated: at, user: WRITER, edit: { lastEditedAt: new Date(at).toISOString(), includesCreatedEdit: false } },
+  ] })
+  const read = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { requests: { permissions: true } })
+  assert.equal(read.complete, true, `${read.problem}`)
+  assert.deepEqual(read.facts.filter((fact) => fact.action === 'mentioned').map((fact) => [fact.unedited, fact.authorWrites]), [[false, null]])
+  assert.deepEqual(forge.calls.filter((path) => path.includes('/collaborators/')), [], 'no permission read for an edited request')
+})
+
 test('the comment window moves with a complete comment read, though no pull request moves: steady comments never pile up into a gap', async () => {
   const forge = new FakeForge()
   let cursor = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
@@ -330,7 +426,7 @@ test('coverage keeps no per-pull-request mark to forget: only the window, and an
     assert.equal(read.complete, true)
     cursor = read.next
   }
-  assert.deepEqual(Object.keys(cursor.requests?.seen ?? {}).sort(), ['p106', 'u106'], 'nothing outside the window is kept')
+  assert.deepEqual(Object.keys(cursor.requests?.seen ?? {}).sort(), ['p106', 't106', 'u106'], 'nothing outside the window is kept')
   // The old pull request comes back: its old comment is not new, and an edit to it never asks.
   forge.calls.length = 0
   const edited = ARMED + 70 * MINUTE
@@ -508,9 +604,12 @@ test('one firing per command comment: the same comment again is a duplicate, a s
   assert.deepEqual([unread.outcome, unread.reason], ['skipped', SKIP_WRITES_UNREAD])
   const nobody = await d.admission.offer(d.arm, fact({ author: null, event: eventKey([REPO, 12, 'mentioned', 25]) }))
   assert.deepEqual([nobody.outcome, nobody.reason], ['skipped', SKIP_AUTHOR_UNREAD])
+  // Whatever read offered it, a request from before this arm was armed is never its to fire.
+  const before = await d.admission.offer({ ...d.arm, baseline: ARMED + 2 * MINUTE }, fact({ author: 'a'.repeat(64), authorWrites: true, event: eventKey([REPO, 12, 'mentioned', 26]) }))
+  assert.deepEqual([before.outcome, before.reason], ['skipped', SKIP_BEFORE_ARMED])
   const firings = Object.values(d.store.read().firings)
   assert.equal(firings.filter((one) => one.outcome === 'fired').length, 2)
-  assert.equal(firings.filter((one) => one.outcome === 'skipped').length, 3, 'skipped requests stay in the history')
+  assert.equal(firings.filter((one) => one.outcome === 'skipped').length, 4, 'skipped requests stay in the history')
 })
 
 // ------------------------------------------------------------------ end to end
@@ -605,4 +704,48 @@ test('one @harnessdesk comment on a pull request becomes exactly one Lead plan c
   assert.equal(asked.length, 1)
   assert.ok(d.forge.calls.some((path) => path.includes('/issues/comments?')), 'the source was read')
   assert.equal(d.forge.calls.filter((path) => path.includes('/12/comments') || path.includes('/12/reviews')).length, 0)
+})
+
+const WATCH = `- id: watch-pushes
+  on: pull-request
+  events: [pushed]
+  opens: { flow: review-pr }
+`
+
+test('a request arm added to a pull request source already watched fires nothing from before it was armed, with no gap, and a later request once', { timeout: 120_000 }, async (t) => {
+  const repo = await makeRepo('hd-intake-requests-')
+  await commitTriggers(repo, WATCH + ASK)
+  const d = await intakeDesk({ repo, lead: true })
+  t.after(() => d.stop())
+  const arm = async (id: string) => {
+    const preview = await d.host.call('trigger/preview', { root: repo.dir, id }) as TriggerArmPreview
+    assert.deepEqual(preview.problems, [])
+    await d.host.call('trigger/arm', { root: repo.dir, id, token: preview.token! })
+  }
+  await arm('watch-pushes')
+  // Watched a while: a pull request moves once, then is talked over at length, asks included, before anyone arms requests.
+  const at = d.clocks.wall + 1000
+  const comments: NonNullable<FakePull['comments']> = []
+  for (let n = 1; n <= 1100; n += 1) comments.push({ id: n, body: n % 100 === 0 ? '@harnessdesk an old ask' : 'An ordinary comment.', created: at + n * 1000, updated: at + n * 1000, user: JANE })
+  d.forge.pulls.push({ number: 12, head: sha('a'), state: 'open', created: at, updated: at, title: 'Widgets', comments })
+  for (let i = 0; i < 30; i += 1) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
+
+  await arm('ask-desk')
+  const { journal, asked } = await leadOn(t, d)
+  for (let i = 0; i < 2; i += 1) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
+  const view = async () => (await d.host.call('trigger/list', { root: repo.dir }) as TriggerProjectView).triggers.find((one) => one.id === 'ask-desk')!
+  assert.equal((await view()).source?.state, 'watching', `no gap: ${(await view()).source?.reason}`)
+  let page = await d.host.call('trigger/history', { root: repo.dir, id: 'ask-desk' }) as TriggerHistoryPage
+  assert.deepEqual(page.items, [], 'nothing from before the arm fired, or was even offered')
+  assert.equal(asked.length, 0)
+
+  // Asked after arming: one plan card, once.
+  const later = d.clocks.wall + 1000
+  d.forge.pulls[0]!.updated = later
+  comments.push({ id: 9001, body: '@harnessdesk fix the date picker', created: later, updated: later, user: JANE })
+  for (let i = 0; i < 3; i += 1) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
+  await until(() => journal.state.cards.filter((card) => card.type === 'plan').length === 1 ? true : null, 'one plan card')
+  page = await d.host.call('trigger/history', { root: repo.dir, id: 'ask-desk' }) as TriggerHistoryPage
+  assert.deepEqual(page.items.map((one) => [one.outcome, one.subject]), [['fired', '12']])
+  assert.equal(asked.length, 1)
 })
