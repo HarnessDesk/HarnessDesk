@@ -614,6 +614,13 @@ export interface AppSnapshot {
   /** The conversation handed to the open draft, if any. */
   readonly draftHandoff: DraftHandoff | null
   /**
+   * The open draft's words came from a prompt link (`harnessdesk://new`).
+   * The composer marks the draft while its text is still exactly `text`;
+   * an edit or a send ends it. `context` is what else the link asked for,
+   * as plain words — a pull request, a Flow — never acted on.
+   */
+  readonly promptLinkDraft: { readonly text: string; readonly context: string | null } | null
+  /**
    * Where the draft will start — see `DraftPlace`. Cleared the moment a
    * conversation is in front, and when the workspace changes under it: a
    * worktree chosen for one repository is not a choice about the next.
@@ -984,6 +991,7 @@ const EMPTY: AppSnapshot = {
   navCanBack: false,
   navCanForward: false,
   draftHandoff: null,
+  promptLinkDraft: null,
   draftPlace: null,
   sidebarCollapsed: false,
   windowWidth: typeof window === 'undefined' ? 1440 : window.innerWidth,
