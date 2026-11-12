@@ -148,3 +148,16 @@ test('the approved plan is the same text whatever the moment, and where it stand
   assert.match(now, /propose a new plan now/)
   assert.equal(textOf(leadContinuation({ contract, steps: [] })), plan + textOf(leadPlanMoment({ contract, steps: [] })))
 })
+
+// #2106, #2107, #2108: memory, autonomy and rules are three different things; history and who stopped work come from the desk.
+test('the instructions tell memory from autonomy from rules, propose settings rather than set them, and claim no history the desk has not recorded', () => {
+  const text = leadInstructions({ name: 'Lex', project, policyRevision: 1, caps: { usdMicros: 5_000_000, rounds: 12 } })
+  assert.match(text, /Memory holds facts and preferences.*autonomy decides what you do unasked.*rules decide how you report, delegate and judge done/)
+  assert.match(text, /autonomy_propose/)
+  assert.match(text, /rules_propose/)
+  assert.match(text, /You cannot change a mode or a rule yourself/)
+  assert.match(text, /Never say you asked before, that the person declined before, or that you reminded them/)
+  assert.match(text, /never tell the person to press Keep or Apply on the desktop/)
+  assert.match(text, /say who stopped it as the work-ledger block records it/)
+  assert.match(text, /stopped twice/)
+})

@@ -11,7 +11,7 @@ const presenceNames = ['lead/presence/read', 'lead/presence/dismiss', 'lead/brie
 const autonomyNames = ['lead/autonomy/read', 'lead/autonomy/set', 'lead/rules/read', 'lead/rules/update', 'lead/deadline/set']
 
 test('the closed Lead window controls validate and none is on the client surface', () => {
-  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames, ...presenceNames, ...autonomyNames, 'lead/memory/propose', 'lead/memory/search', 'lead/context/use', 'lead/inbox/read', 'lead/reminder/set', 'lead/reminder/cancel'].sort())
+  assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names, ...chatNames, 'lead/desk/summary', 'lead/usage/summary', ...workNames, ...presenceNames, ...autonomyNames, 'lead/memory/propose', 'lead/memory/search', 'lead/context/use', 'lead/inbox/read', 'lead/reminder/set', 'lead/reminder/cancel', 'lead/autonomy/propose', 'lead/rules/propose', 'lead/settings/decide'].sort())
   for (const name of names) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false)
   // The Lead's own two memory methods are the only memory methods its client may call.
   for (const name of ['lead/memory/propose', 'lead/memory/search']) assert.equal(Object.hasOwn(CLIENT_METHODS, name), true)
@@ -24,6 +24,15 @@ test('the closed Lead window controls validate and none is on the client surface
   assert.doesNotThrow(() => request('lead/reminder/cancel', { id: 'remind-2' }))
   assert.throws(() => request('lead/reminder/set', { text: 'Send the notes' }))
   assert.throws(() => request('lead/reminder/cancel', { id: 'work-2' }))
+  // #2106: the Lead proposes its own settings at the read tier; the person's decision is never on its door.
+  for (const name of ['lead/autonomy/propose', 'lead/rules/propose']) assert.equal(CLIENT_METHODS[name as keyof typeof CLIENT_METHODS], 'read')
+  assert.equal(Object.hasOwn(CLIENT_METHODS, 'lead/settings/decide'), false)
+  assert.doesNotThrow(() => request('lead/autonomy/propose', { kind: 'desk-change', mode: 'observe' }))
+  assert.doesNotThrow(() => request('lead/rules/propose', { section: 'talk', add: 'Report in Chinese, conclusion first.' }))
+  assert.throws(() => request('lead/rules/propose', { section: 'talk', add: 'One line.', text: 'And whole words.' }))
+  assert.throws(() => request('lead/rules/propose', { section: 'talk' }))
+  assert.doesNotThrow(() => request('lead/settings/decide', { id: 's2', decision: 'apply' }))
+  assert.throws(() => request('lead/settings/decide', { id: 'c2', decision: 'apply' }))
   // The person's inbox is the window's and the phone's read; the Lead never reads it through its client.
   assert.equal(Object.hasOwn(CLIENT_METHODS, 'lead/inbox/read'), false)
   assert.doesNotThrow(() => request('lead/inbox/read', {}))
