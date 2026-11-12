@@ -627,12 +627,13 @@ export class LeadJournal {
     return this.#appendReply(text, proactive, ask, refs, reminded, false)
   }
   #appendReply(text: string, proactive: LeadProactive | undefined, ask: LeadAsk | undefined, refs: readonly LeadMessageRef[] | undefined, reminded: string | undefined, model: boolean): Promise<void> { return this.#queue(() => {
-    const revision = this.#state.seq + 1
-    // Kept before the append, so the observers it notifies already read it as the model's.
-    if (model) { this.#modelReplies.push(`message-${revision}`); this.#modelReplies.splice(0, this.#modelReplies.length - 16) }
+    const revision = this.#state.seq + 1, id = `message-${revision}`
+    // Kept once the write is durable and before the observers it notifies run, so they read it as the model's; a reply
+    // that does not parse or is not written keeps nothing, and the host notice that takes its number next is not it.
+    const committed = model ? () => { this.#modelReplies.push(id); this.#modelReplies.splice(0, this.#modelReplies.length - 16) } : undefined
     return this.#append({ type: 'message', idempotencyKey: null,
-      message: parseLeadMessage({ version: 1, id: `message-${revision}`, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}),
-        ...(refs?.length ? { refs: parseLeadMessageRefs(refs) } : {}), ...(reminded !== undefined ? { reminded } : {}) }) })
+      message: parseLeadMessage({ version: 1, id, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}),
+        ...(refs?.length ? { refs: parseLeadMessageRefs(refs) } : {}), ...(reminded !== undefined ? { reminded } : {}) }) }, committed)
   }) }
   #policyChange(state: LeadState, policy: LeadPermissionPolicy, id: string): LeadJournalEvent | null {
     if (!state.policy) throw new Error('lead-policy-unavailable')
