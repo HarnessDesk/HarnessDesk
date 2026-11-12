@@ -22,6 +22,7 @@ import { Admission, AGAIN_MISSING, PAUSED, SKIP_CHANGED, type AdmissionOptions, 
 import { IntakeEffects, type IntakeObservationPort, type TriggerExecutionPort, type TriggerGoalPort } from './apply.js'
 import { AttentionOutbox, type AttentionInput } from './attention.js'
 import { BudgetWatch, TriggerBudgets, utcDay, type BudgetVerdict } from './budget.js'
+import { CONSULT_USAGE_UNKNOWN, type SessionMeter } from './spend.js'
 import { consentMatches, TriggerClosures, TriggerConsent, type ArmBinding, type ArmedTrigger, type TriggerClosure } from './consent.js'
 import { usdMicros } from './definition.js'
 import { ForgeSource } from './forge.js'
@@ -123,6 +124,15 @@ export interface IntakeHostPort {
   readonly evidence: IntakeObservationPort
   /** The Seat book. */
   seats(): readonly SeatRecord[]
+  /**
+   * Consults the Seat book recorded (`seat-consult`), as Seat-shaped windows
+   * keyed `${seat}/ask/${n}`: what a restarted desk meters a consult by when
+   * its live window is gone — one interrupted, or one whose spend is still
+   * unknown and waiting for a reading.
+   */
+  consultWindows?(): readonly SeatRecord[]
+  /** Whether the Goal has wrapped, as its own record says: what a restarted desk settles a reconciled reservation by. */
+  goalWrapped?(goal: string): boolean
   /** Interrupts every live turn on the Goal's open Seats, keeping what each already said. */
   interrupt(goal: string): Promise<void>
   /** Whether the plan the Goal's Seats spend from has allowance left, as the usage service last read it. */
@@ -1149,6 +1159,100 @@ export class IntakePlane {
   }
 
   /**
+   * Consult conversations a trigger Goal's Seats opened with `ask_agent`, as
+   * Seat-shaped windows keyed `${seat}/ask/${n}`: the one way their usage is
+   * attributed to the Goal — counted against the caller's run — while they
+   * are never Seats anywhere else. Kept until the Goal's next read after they
+   * close, so a sample read late still lands.
+   */
+  readonly #consults = new Map<string, SeatRecord[]>()
+
+  /**
+   * A Seat of a trigger Goal asked another agent: the consult's meter opens
+   * at zero, keyed `${caller}/ask/${n}`, on the caller's Goal. Awaited, so the
+   * meter exists before the consult's one turn starts.
+   */
+  async consulted(caller: SeatRecord, consult: { readonly n: number; readonly runtime: string; readonly sessionId: string; readonly openedAt: number }): Promise<string | null> {
+    const goal = caller.board
+    if (!goal || this.#closed || !this.#hasBudget(goal)) return null
+    const id = `${caller.id}/ask/${consult.n}`
+    const window: SeatRecord = {
+      ...caller, id, session: { runtime: consult.runtime, sessionId: consult.sessionId },
+      openedAt: consult.openedAt, closed: null, restored: null,
+    }
+    this.#consults.set(goal, [...(this.#consults.get(goal) ?? []).filter((one) => one.id !== id), window])
+    await this.#budgets.seated(goal, {
+      seat: id, runtime: consult.runtime, sessionId: consult.sessionId, project: caller.checkout.project,
+      openedAt: consult.openedAt, fresh: true, delegation: 'none',
+    })
+    return id
+  }
+
+  /** A consult's one turn is about to be sent: its start is on the meter first, so a working consult never reads as idle. */
+  async consultStarted(goal: string, id: string, started: number): Promise<void> {
+    if (this.#closed || !this.#consults.get(goal)?.some((one) => one.id === id)) return
+    await this.#meterGoal(goal, { seat: id, started })
+  }
+
+  /**
+   * A consult's one turn ended: metered with a usage read made after it,
+   * and with `final` — its usage as the live conversation reported it,
+   * captured and priced before it is discarded, since an ephemeral consult
+   * leaves nothing on disk to read later; or `unsent` when the question
+   * never went. A consult nothing counted is unknown, never zero: the
+   * Goal's next dispatch and ask are refused, and its window stays on the
+   * Goal so the first valid reading of it reconciles the meter
+   * (`settleConsult`). A known one's window is dropped after this read.
+   */
+  async consultEnded(goal: string, id: string, ended: number, final: UsageSample | null | 'unsent'): Promise<void> {
+    const windows = this.#consults.get(goal)
+    const window = windows?.find((one) => one.id === id)
+    if (!windows || !window || this.#closed) return
+    this.#consults.set(goal, windows.map((one) => one.id === id ? { ...one, closed: { at: ended, why: 'answered' } } : one))
+    await this.#meterGoal(goal, final === 'unsent' ? undefined : { seat: id, ended }, [{ seat: id, final }])
+  }
+
+  /**
+   * The consult windows a Goal's read attributes by: the live ones, and
+   * those the Seat book recorded whose meter is still open — a consult a
+   * restart interrupted, or one whose spend waits for a reading. An
+   * interrupted consult (its turn begun, never closed) is closed now, with
+   * no final reading.
+   */
+  #consultWindows(goal: string, budget: { readonly meters: Readonly<Record<string, SessionMeter>> }): {
+    readonly windows: readonly SeatRecord[]
+    readonly interrupted: readonly string[]
+  } {
+    const live = this.#consults.get(goal) ?? []
+    const held = new Set(live.map((one) => one.id))
+    const recorded = (this.#port.consultWindows?.() ?? []).filter((one) => one.board === goal && !held.has(one.id) && budget.meters[one.id])
+    const interrupted = recorded.filter((one) => {
+      const meter = budget.meters[one.id]!
+      return meter.turnStartedAt !== null && (meter.turnEndedAt === null || meter.turnStartedAt > meter.turnEndedAt)
+    }).map((one) => one.id)
+    const waiting = recorded.filter((one) => interrupted.includes(one.id) || budget.meters[one.id]!.unknown === CONSULT_USAGE_UNKNOWN)
+    // A consult's conversation is that consult's alone, before and after its turn: a reading taken
+    // after it closed — the one that can prove its final figure — is still its own.
+    return { windows: [...live, ...waiting].map((one) => ({ ...one, closed: null })), interrupted }
+  }
+
+  /**
+   * Closed consult windows whose meter is now known are let go; a wrapped
+   * Goal still holding its reservation settles once its spend is known —
+   * wrapped as this desk saw it, or as the Goal itself says after a restart.
+   * Settling is tried at every read, so no reading that repairs the spend is
+   * one the reservation can miss.
+   */
+  async #afterConsultRead(goal: string): Promise<void> {
+    const meters = this.#store.read().budgets[goal]?.meters ?? {}
+    const left = (this.#consults.get(goal) ?? []).filter((one) => one.closed === null || meters[one.id]?.unknown === CONSULT_USAGE_UNKNOWN)
+    if (left.length > 0) this.#consults.set(goal, left)
+    else this.#consults.delete(goal)
+    const budget = this.#store.read().budgets[goal]
+    if (budget && !budget.settled && (this.#wrapped.has(goal) || this.#port.goalWrapped?.(goal) === true)) await this.#budgets.settle(goal)
+  }
+
+  /**
    * A turn started or ended on a trigger Goal's Seat. Its end is recorded in
    * the same save as a usage read made after it, so a finished turn is
    * metered — or, when the read had gaps, unknown — never read as zero.
@@ -1167,9 +1271,13 @@ export class IntakePlane {
       .catch((error: unknown) => this.#port.log('a trigger Seat’s turn could not be metered', { error: String(error) }))
   }
 
+  /** Goals wrapped while this desk ran: a consult's spend reconciled later settles one then. */
+  readonly #wrapped = new Set<string>()
+
   /** A Goal wrapped: its reservation settles against its final spend — only a known, complete one — and its waits end. */
   wrapped(goal: string): void {
     if (this.#closed || !this.#hasBudget(goal)) return
+    this.#wrapped.add(goal)
     void this.#track((async () => {
       await this.#meterGoal(goal)
       await this.#budgets.settle(goal)
@@ -1189,7 +1297,10 @@ export class IntakePlane {
   // --------------------------------------------------------------- meters
 
   /** One usage read for one Goal, folded with a turn when one is given. */
-  async #meterGoal(goal: string, turn?: { readonly seat: string; readonly started?: number; readonly ended?: number }): Promise<void> {
+  async #meterGoal(
+    goal: string, turn?: { readonly seat: string; readonly started?: number; readonly ended?: number },
+    settle: readonly { readonly seat: string; readonly final: UsageSample | null | 'unsent' }[] = [],
+  ): Promise<void> {
     const budget = this.#store.read().budgets[goal]
     if (!budget) return
     const at = this.#port.now()
@@ -1199,16 +1310,27 @@ export class IntakePlane {
     } catch {
       read = { samples: [], complete: false }
     }
-    await this.#budgets.read(goal, read.samples, this.#port.seats().filter((seat) => seat.board === goal), { at, complete: read.complete }, turn)
+    const consults = this.#consultWindows(goal, budget)
+    const seats = [...this.#port.seats().filter((seat) => seat.board === goal), ...consults.windows]
+    // An interrupted consult closes here, at the read that found it, with no final reading.
+    const closing = [...settle, ...consults.interrupted.filter((id) => !settle.some((one) => one.seat === id)).map((seat) => ({ seat, final: null }))]
+    for (const seat of consults.interrupted) await this.#budgets.turn(goal, seat, { ended: at })
+    await this.#budgets.read(goal, read.samples, seats, { at, complete: read.complete }, turn, closing)
+    await this.#afterConsultRead(goal)
   }
 
-  /** Every live budget read once: what keeps a Seat inside a turn under a minute stale. */
+  /**
+   * Every live budget read once: what keeps a Seat inside a turn under a
+   * minute stale — and every Goal, stopped or not, whose reservation is still
+   * held, so the reading that can repair its spend settles it.
+   */
   meter(): Promise<void> {
     this.#metering ??= (async () => {
       const live = this.#budgets.live()
-      if (live.length === 0 || this.#closed) return
-      await this.#port.refreshLanes?.(live).catch(() => {})
-      for (const goal of live) {
+      const reading = [...new Set([...live, ...this.#budgets.unsettled()])]
+      if (reading.length === 0 || this.#closed) return
+      if (live.length > 0) await this.#port.refreshLanes?.(live).catch(() => {})
+      for (const goal of reading) {
         if (this.#closed) return
         await this.#meterGoal(goal).catch((error: unknown) => this.#port.log('a trigger Goal could not be metered', { error: String(error) }))
       }

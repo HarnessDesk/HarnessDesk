@@ -4,8 +4,10 @@ import { DEFAULT_TRIGGER_DAILY_USD } from '@harnessdesk/protocol'
 import { seatWindowOf } from '../insight/attribution.js'
 import type { UsageSample } from '../ledger/insight.js'
 import { usdMicros } from './definition.js'
-import { attributeSample, goalSpend, meterSample, meterTurn, openMeter, type SessionMeter } from './spend.js'
+import { attributeSample, goalSpend, meterSample, meterTurn, openMeter, settleConsult, type SessionMeter } from './spend.js'
 import type { IntakeBudget, IntakeOperation, IntakeSnapshot } from './store.js'
+
+export { CONSULT_USAGE_UNKNOWN } from './spend.js'
 
 /**
  * What unattended work may spend, and where it stops.
@@ -264,11 +266,18 @@ export class TriggerBudgets {
    * A Seat is witnessed only when the desk has read it before, or it is a
    * session the desk opened at zero: an older session found with nothing
    * says nothing about what it spent.
+   *
+   * `settle` closes consults' meters in the same save, after the turn's end
+   * is on them, each with its final reading (`settleConsult`): reconciled
+   * with what the corpus counted, never added to it; with none, unknown —
+   * a figure read part-way through a turn is not its whole; and a question
+   * never sent is a known zero.
    */
   read(
     goal: string, samples: readonly UsageSample[], seats: readonly SeatRecord[],
     read: { readonly at: number; readonly complete: boolean },
     turn?: { readonly seat: string; readonly started?: number; readonly ended?: number },
+    settle: readonly { readonly seat: string; readonly final: UsageSample | null | 'unsent' }[] = [],
   ): Promise<void> {
     const windows = seats.map(seatWindowOf)
     return this.#transact((snapshot) => {
@@ -285,13 +294,17 @@ export class TriggerBudgets {
         })
         meters[seat.id] = meterSample(meter, sample)
       }
+      if (turn && meters[turn.seat]) meters[turn.seat] = meterTurn(meters[turn.seat]!, turn)
+      for (const one of settle) {
+        const settling = meters[one.seat]
+        if (settling) meters[one.seat] = settleConsult(settling, one.final)
+      }
       if (read.complete) {
         for (const [id, meter] of Object.entries(meters)) {
           if (meter.unknown !== null || !(meter.observedAt !== null || meter.fresh)) continue
           meters[id] = { ...meter, observedAt: Math.max(meter.observedAt ?? 0, read.at) }
         }
       }
-      if (turn && meters[turn.seat]) meters[turn.seat] = meterTurn(meters[turn.seat]!, turn)
       if (JSON.stringify(meters) === JSON.stringify(budget.meters)) return { next: null, value: undefined }
       const clock = Math.max(snapshot.clock, this.#port.now())
       return { next: { ...snapshot, clock, budgets: { ...snapshot.budgets, [goal]: { ...budget, meters } } }, value: undefined }
@@ -424,6 +437,20 @@ export class TriggerBudgets {
   live(): readonly string[] {
     try {
       return Object.entries(this.#read().budgets).filter(([, budget]) => !budget.settled && budget.stop === null).map(([goal]) => goal)
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Every Goal whose reservation is still held — stopped or not: still read,
+   * so a reading that repairs its spend (a consult's final one) can settle
+   * it, though a stop made meanwhile stands. A Goal leaves this list only by
+   * settling.
+   */
+  unsettled(): readonly string[] {
+    try {
+      return Object.entries(this.#read().budgets).filter(([, budget]) => !budget.settled).map(([goal]) => goal)
     } catch {
       return []
     }

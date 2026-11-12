@@ -239,6 +239,66 @@ test('context contributions are folded into the turn, not exposed as tools', asy
   assert.equal(kernel.list('context').length, 1)
 })
 
+/** Every request the session writes to the app-server, by method, while the test runs. */
+const requestsOf = (session: unknown, t: { after: (fn: () => void) => void }): string[] => {
+  const server = (session as { deps: { server: { request: (method: string, ...rest: unknown[]) => Promise<unknown> } } }).deps.server
+  const original = server.request
+  const seen: string[] = []
+  server.request = function (this: unknown, method: string, ...rest: unknown[]) {
+    seen.push(method)
+    return original.call(this, method, ...rest)
+  }
+  t.after(() => { server.request = original })
+  return seen
+}
+
+test('round 5: a send withdrawn while its context resolves writes no turn/start, once the context is let go', async (t) => {
+  const kernel = new ExtensionKernel()
+  let holding = false
+  let release!: () => void
+  let resolving!: () => void
+  const resolved = new Promise<void>((done) => { resolving = done })
+  await loadPlugin(kernel, 'slow', (ctx) => {
+    ctx.context.register({
+      label: 'Held',
+      resolve: () => holding
+        ? new Promise<string>((done) => { release = () => done('Held context.'); resolving() })
+        : 'Held context.',
+    })
+  })
+  const { runtime } = await start(kernel, 'turn')
+  t.after(async () => { await runtime.dispose(); await kernel.dispose() })
+  const session = await runtime.createSession({ cwd: '/w' })
+  const seen = requestsOf(session, t)
+  const withdraw = new AbortController()
+  holding = true
+  const sending = session.send([{ type: 'text', text: 'do the thing' }], { recordAs: 'notice', signal: withdraw.signal })
+  await resolved
+  withdraw.abort(new Error('withdrawn'))
+  release()
+  await assert.rejects(sending, /withdrawn/)
+  await settle(200)
+  assert.deepEqual(seen.filter((method) => method === 'turn/start'), [], 'nothing was written once the send was withdrawn')
+})
+
+test('round 5: a send withdrawn while the agent accepts it interrupts the turn it started', async (t) => {
+  const kernel = new ExtensionKernel()
+  const { runtime } = await start(kernel, 'turn')
+  t.after(async () => { await runtime.dispose(); await kernel.dispose() })
+  const session = await runtime.createSession({ cwd: '/w' })
+  const seen = requestsOf(session, t)
+  const withdraw = new AbortController()
+  const server = (session as unknown as { deps: { server: { request: (method: string, ...rest: unknown[]) => Promise<unknown> } } }).deps.server
+  const spy = server.request
+  server.request = function (this: unknown, method: string, ...rest: unknown[]) {
+    const pending = spy.call(this, method, ...rest)
+    if (method === 'turn/start') withdraw.abort(new Error('withdrawn'))
+    return pending
+  }
+  await assert.rejects(session.send([{ type: 'text', text: 'do the thing' }], { signal: withdraw.signal }), /withdrawn/)
+  assert.deepEqual(seen.filter((method) => method.startsWith('turn/')), ['turn/start', 'turn/interrupt'], 'the started turn was stopped')
+})
+
 test("a sub-agent's call to a plugin tool is its parent thread's: the scope names the conversation the desk opened", async (t) => {
   const kernel = new ExtensionKernel()
   const scopes: unknown[] = []

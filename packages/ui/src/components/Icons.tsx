@@ -54,6 +54,7 @@ import {
   Lock,
   LockOpen,
   Maximize2,
+  MessageCircleQuestionMark,
   MessageSquare,
   MessageSquarePlus,
   Plus,
@@ -367,6 +368,12 @@ export const AgentIcon = animated(BotGlyph, Bot, 'AgentIcon')
 export const SubagentIcon = ({ size = 16, className, style, ...rest }: IconProps) => (
   <IconTile size="navigation" shape="face" badge="↳" title="Sub-agent of this conversation" className={className} style={{ width: size, height: size, color: 'inherit' }}>
     <AgentIcon size={size} {...rest} style={{ ...style, width: size, height: size }} />
+  </IconTile>
+)
+/** One question this conversation put to another agent, which answered and closed: an exchange, not a sub-agent of it. */
+export const AskAgentIcon = ({ size = 16, className, style, ...rest }: IconProps) => (
+  <IconTile size="navigation" shape="square" title="Asked another agent one question" className={className} style={{ width: size, height: size, color: 'inherit' }}>
+    <MessageCircleQuestionMark size={size} focusable="false" {...rest} style={{ ...style, width: size, height: size }} />
   </IconTile>
 )
 /** An Agent's written brief — its instructions, distinct from the Agent itself. */

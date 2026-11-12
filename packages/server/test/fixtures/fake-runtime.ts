@@ -259,7 +259,7 @@ export class FakeRuntime implements AgentRuntime {
    */
   refusesWhileBusy = false
   /** Called once a sent turn has started, so a test can play an agent that works inside that turn. */
-  onSend: ((session: FakeSession, text: string, opts?: { readonly recordAs?: 'user' | 'notice' }) => void) | null = null
+  onSend: ((session: FakeSession, text: string, opts?: { readonly recordAs?: 'user' | 'notice'; readonly signal?: AbortSignal }) => void) | null = null
   /** Turn ids the test asked to leave running, so interrupt has something to do. */
   readonly history: SessionSummary[] = []
 
@@ -851,7 +851,7 @@ export class FakeSession implements AgentSession {
   /** Thrown by the next `send`, once — a turn the agent never accepted. */
   sendFailure: Error | null = null
 
-  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId> {
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly signal?: AbortSignal }): Promise<TurnId> {
     if (this.sendFailure) {
       const failure = this.sendFailure
       this.sendFailure = null

@@ -19,6 +19,8 @@ export const DESK_TOOL_CEILINGS: Readonly<Record<string, Readonly<Record<string,
     decide_finding: 'read', list_findings: 'read',
   },
   checkpoint: { create_checkpoint: 'edit', list_checkpoints: 'read' },
+  // Asking changes nothing on disk; the Flow's `ask:` gate, not the ceiling, limits it.
+  consult: { ask_agent: 'read' },
   web: { fetch_url: 'read' },
   tests: { run_tests: 'edit' },
   browser: {

@@ -128,6 +128,14 @@ export type SessionOptions = Partial<SessionSettings> & {
    * refuse. `cwd` on a resume is never read in its place.
    */
   readonly knownCwd?: string
+  /**
+   * Plugin tools, by bare name, this conversation is not shown — `ask_agent`
+   * for anything but a Flow seat whose role may ask. Host-only, like
+   * `knownCwd`: refused on the wire. A runtime that lists tools per
+   * conversation drops them; the tool's own call-time refusal is the lock
+   * that holds either way.
+   */
+  readonly withheldTools?: readonly string[]
 }
 
 /**

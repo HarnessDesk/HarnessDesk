@@ -85,7 +85,9 @@ import type {
 //    belongs to: the plugin's own process is held to no disk, network or
 //    program of its own. A confined process says so in `host/hello` and
 //    asks the parent for every browser placement, and for `browser/handoff`.
-export const EXTENSION_PROTOCOL_VERSION = 17
+// 18 adds `agents/ask` — `{ scope, agent, question, context }` — one
+//    read-only question to another agent, answered once (`ctx.agents`).
+export const EXTENSION_PROTOCOL_VERSION = 18
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -407,6 +409,15 @@ export interface ChildToHostMethods {
   'forge/publicationAllowed': {
     params: { readonly scope: TeamCallScope }
     result: { readonly ok: true } | { readonly ok: false; readonly reason: string }
+  }
+  /**
+   * `ctx.agents` — one read-only question to another agent. Host-owned for
+   * the team plane's reason: only the host knows the calling seat, its Flow's
+   * `ask` and what it has spent. The answer is the asked agent's, untrusted.
+   */
+  'agents/ask': {
+    params: { readonly scope: TeamCallScope; readonly agent: string; readonly question: string; readonly context: string | null }
+    result: { readonly text: string; readonly agentName: string; readonly truncated: boolean }
   }
   'team/board': { params: { readonly scope: TeamCallScope }; result: string }
   'team/addIntent': {

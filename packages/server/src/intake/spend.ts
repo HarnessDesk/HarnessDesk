@@ -14,8 +14,11 @@ import type { UsageSample } from '../ledger/insight.js'
  *   for no Goal; nothing is shared out between Goals.
  * - **Counted once.** A cumulative session total is read as a delta from the
  *   Seat's own baseline, and moves only forward; a per-call sample counts
- *   once by its key. A replay is nothing; a session's two kinds of total are
- *   never added together.
+ *   once by its key. A replay is nothing — a session reading taken before the
+ *   one already counted, at or below it, included, so a corpus that hands
+ *   back what it found last time never reads as a total that went down; an
+ *   older one above it is a total that went down. A session's two kinds of
+ *   total are never added together.
  * - **Unknown is not zero.** No USD cost, a floor rather than a total, an
  *   unknown money basis, a list-price total whose model changed inside one
  *   cumulative figure, delegated work whose inclusion the desk cannot tell,
@@ -45,6 +48,12 @@ export interface SessionMeter {
   readonly model: string | null
   readonly baselineMicros: number | null
   readonly lastMicros: number | null
+  /**
+   * When the reading behind `lastMicros` was taken: a session reading older
+   * than it is one already read, or one overtaken — never a total that went
+   * down. Absent on a meter saved before it was kept.
+   */
+  readonly lastAt?: number | null
   readonly callMicros: number
   readonly calls: readonly string[]
   readonly observedAt: number | null
@@ -58,7 +67,7 @@ export const openMeter = (input: {
   readonly seat: string; readonly runtime: string; readonly sessionId: string; readonly project: string
   readonly openedAt: number; readonly fresh: boolean; readonly delegation: SessionMeter['delegation']
 }): SessionMeter => ({
-  ...input, scope: null, provenance: null, model: null, baselineMicros: input.fresh ? 0 : null, lastMicros: null,
+  ...input, scope: null, provenance: null, model: null, baselineMicros: input.fresh ? 0 : null, lastMicros: null, lastAt: null,
   callMicros: 0, calls: [], observedAt: null, turnStartedAt: null, turnEndedAt: null, unknown: null,
 })
 
@@ -69,12 +78,40 @@ const micros = (usd: number): number | null => (Number.isFinite(usd) && usd >= 0
 export const attributeSample = (sample: UsageSample, seats: readonly SeatWindow[]): string | null => seatFor(sample, seats)
 
 /**
+ * Why a consult's spend is unknown when its conversation closed with no
+ * final reading: the one unknown a later reading repairs, and only a reading
+ * taken at or after its turn ended — the consult is a single finished turn,
+ * and a total read part-way through it is not the whole of it.
+ */
+export const CONSULT_USAGE_UNKNOWN = 'The agent this Seat asked reported no usage before its conversation closed, so what it spent is unknown.'
+
+/** Why a consult's spend is unknown when its final total is below what was read of it earlier: a reset, or another epoch. */
+export const CONSULT_TOTAL_WENT_DOWN = 'The agent this Seat asked reported a final total below what was read of it earlier, so what it spent is unknown.'
+
+/** A meter that has read nothing yet, keeping its Seat, session, turns and the last time it was read. */
+const unread = (meter: SessionMeter): SessionMeter => ({
+  ...meter, scope: null, provenance: null, model: null, baselineMicros: meter.fresh ? 0 : meter.baselineMicros,
+  lastMicros: null, lastAt: null, callMicros: 0, calls: [], unknown: null,
+})
+
+/**
  * One sample, folded into one Seat's meter. A sample for another session
  * changes nothing; anything the meter cannot vouch for makes it unknown, and
- * an unknown meter stays unknown — nothing later refunds or repairs it.
+ * an unknown meter stays unknown — nothing later refunds or repairs it, but
+ * for a consult that closed with no final reading (`CONSULT_USAGE_UNKNOWN`).
+ * That one is repaired only by a reading proven final: one taken at or after
+ * the consult's turn ended. An earlier reading is folded in — so a later
+ * total below it still reads as gone down — but leaves the spend unknown;
+ * a reading the meter cannot vouch for leaves it unknown for good.
  */
 export function meterSample(meter: SessionMeter, sample: UsageSample): SessionMeter {
   if (sample.runtime !== meter.runtime || sample.sessionId !== meter.sessionId) return meter
+  if (meter.unknown === CONSULT_USAGE_UNKNOWN) {
+    const folded = meterSample({ ...meter, unknown: null }, sample)
+    if (folded.unknown !== null) return { ...meter, unknown: folded.unknown }
+    const final = meter.turnEndedAt !== null && (sample.to ?? Number.NEGATIVE_INFINITY) >= meter.turnEndedAt
+    return final ? folded : { ...folded, unknown: CONSULT_USAGE_UNKNOWN }
+  }
   if (meter.unknown !== null) return meter
   const unknown = (why: string): SessionMeter => ({ ...meter, unknown: why })
   const at = sample.to ?? sample.from ?? meter.observedAt ?? 0
@@ -93,10 +130,17 @@ export function meterSample(meter: SessionMeter, sample: UsageSample): SessionMe
       return unknown('The model changed inside one cumulative total, so its list price cannot be split.')
     }
     if (meter.baselineMicros === null) return unknown('This session was not new when it was seated, and no starting total was captured.')
+    // A reading taken before the one already counted — the corpus replaying what it found last
+    // time, or an older record found late — at or below that total says nothing new. One above
+    // it is evidence the total once stood higher than what was counted after: a reset, unknown.
+    const lastAt = meter.lastAt ?? null
+    if (meter.lastMicros !== null && lastAt !== null && sample.to !== null && sample.to < lastAt) {
+      return value <= meter.lastMicros ? meter : unknown('This session’s total went down, so what it spent is no longer known.')
+    }
     if (meter.lastMicros !== null && value < meter.lastMicros) return unknown('This session’s total went down, so what it spent is no longer known.')
     return {
       ...meter, scope: 'session', provenance: sample.moneyBasis, model: sample.model,
-      lastMicros: value, observedAt: Math.max(meter.observedAt ?? 0, at),
+      lastMicros: value, lastAt: sample.to ?? lastAt, observedAt: Math.max(meter.observedAt ?? 0, at),
     }
   }
   if (meter.calls.includes(sample.key)) return meter
@@ -105,6 +149,36 @@ export function meterSample(meter: SessionMeter, sample: UsageSample): SessionMe
     ...meter, scope: 'call', provenance: sample.moneyBasis, model: sample.model,
     callMicros: meter.callMicros + value, calls: [...meter.calls, sample.key], observedAt: Math.max(meter.observedAt ?? 0, at),
   }
+}
+
+/**
+ * A consult's meter closed with its final reading, taken from the live
+ * conversation before it was discarded. A consult's spend is known only when
+ * its final figure is.
+ *
+ * - `unsent`: the question never went, so nothing was spent — a meter that
+ *   read nothing forgets the turn it was about to start, a known zero.
+ * - `null`: no final reading. Whatever the corpus counted may have been read
+ *   part-way through the turn, so the spend is unknown
+ *   (`CONSULT_USAGE_UNKNOWN`) until a reading proven final repairs it.
+ * - a sample: the final total, reconciled with what the corpus counted,
+ *   never added to it. A final total at or above the corpus's stands as the
+ *   whole. One below it — a total that went down, a reset — cannot be shown
+ *   to share the corpus's epoch, so the spend is unknown; and so is a final
+ *   reading the meter cannot vouch for.
+ */
+export function settleConsult(meter: SessionMeter, final: UsageSample | null | 'unsent'): SessionMeter {
+  const counted = meter.scope !== null
+  if (final === 'unsent') return !counted && meter.unknown === null ? { ...meter, turnStartedAt: null, turnEndedAt: null } : meter
+  if (meter.unknown !== null && meter.unknown !== CONSULT_USAGE_UNKNOWN) return meter
+  if (final === null) return { ...meter, unknown: CONSULT_USAGE_UNKNOWN }
+  const alone = meterSample(unread(meter), final)
+  if (alone.unknown !== null) return { ...meter, unknown: alone.unknown }
+  if (!counted) return alone
+  const corpus = meter.scope === 'call' ? meter.callMicros : (meter.lastMicros ?? 0) - (meter.baselineMicros ?? 0)
+  const live = (alone.lastMicros ?? 0) - (alone.baselineMicros ?? 0)
+  if (live < corpus) return { ...meter, unknown: CONSULT_TOTAL_WENT_DOWN }
+  return { ...alone, observedAt: Math.max(meter.observedAt ?? 0, alone.observedAt ?? 0) }
 }
 
 /** A turn the host saw start or end on this Seat's session. */
