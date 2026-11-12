@@ -216,3 +216,14 @@ it('keeps each sentence-length explanation in its wrapped description, never squ
   const values = [...document.querySelectorAll('dd')].map((el) => el.textContent)
   for (const sentence of sentences) expect(values).not.toContain(sentence)
 })
+
+it('a request trigger says it hands the words to the Lead by the name chosen in settings, and who may ask', async () => {
+  const definition = issueDefinition({ id: 'ask-desk', on: { kind: 'issue', events: ['mentioned'] }, opens: { lead: true }, again: null, from: 'collaborators' })
+  const lead = { subscribe: () => () => {}, state: { revision: 1, settings: { name: 'dex' } }, readSettings: vi.fn(async () => {}) }
+  await rig(triggerArmPreview({ definition, flow: null }), { lead } as unknown as Partial<AppStore>)
+  expect(document.body.textContent).toContain('When you or a collaborator write @harnessdesk … on an issue, hand it to Dex as a request')
+  expect(document.body.textContent).toContain('Who may ask')
+  expect(document.body.textContent).toContain('Only a comment whose first line starts with @harnessdesk asks; an edit, a bot or a post this desk makes never does.')
+  expect(document.body.textContent).not.toContain('Comments that fire it')
+  expect(document.body.textContent).not.toContain('A later event on an open issue')
+})

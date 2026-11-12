@@ -13,6 +13,7 @@ import type {
   TriggerSource,
   TriggerStopReason,
 } from '@harnessdesk/protocol'
+import { SUMMONS_WORD } from '@harnessdesk/protocol'
 
 /**
  * Sentences for a project's `.harnessdesk/triggers.yml`, read the same way
@@ -28,12 +29,14 @@ const PR_EVENT_WORDS: Readonly<Record<PullRequestEvent, string>> = {
   pushed: 'is pushed',
   'checks-failed': 'has failing checks',
   'review-commented': 'receives a review comment',
+  mentioned: `is asked with ${SUMMONS_WORD}`,
 }
 
 const ISSUE_EVENT_WORDS: Readonly<Record<IssueEvent, string>> = {
   labelled: 'is labelled',
   closed: 'closes',
   commented: 'is commented on',
+  mentioned: `is asked with ${SUMMONS_WORD}`,
 }
 
 const joinEither = (words: readonly string[]): string =>
@@ -55,11 +58,29 @@ const triggerWhenWords = (definition: TriggerDefinition): string => definition.o
       ? `When a comment asks ${definition.handle ? `@${definition.handle}` : 'the Lead'}`
       : `When an issue ${joinEither(definition.on.events.map((event) => ISSUE_EVENT_WORDS[event]))}`
 
-/** The list and both reviews name the target once, with the trigger id and concurrency below. */
-export const triggerRowWords = (definition: TriggerDefinition): { readonly title: string; readonly facts: string } => {
+/** A trigger that reads only @harnessdesk requests on its source: the words a person writes are what it hands on. */
+export const isRequestTrigger = (definition: TriggerDefinition): boolean =>
+  (definition.on.kind === 'issue' || definition.on.kind === 'pull-request') &&
+  definition.on.events.length === 1 && definition.on.events[0] === 'mentioned'
+
+const REQUEST_WHO: Readonly<Record<TriggerCommentFrom, string>> = {
+  me: 'you write',
+  collaborators: 'you or a collaborator write',
+  anyone: 'anyone writes',
+}
+
+/**
+ * The list and both reviews name the target once, with the trigger id and concurrency below. A request trigger says
+ * whose words it reads and who is handed them: `leadName` is the name the person chose in settings, or "the Lead".
+ */
+export const triggerRowWords = (definition: TriggerDefinition, leadName: string | null = null): { readonly title: string; readonly facts: string } => {
+  const times = definition.concurrency === 1 ? 'once at a time' : `at most ${definition.concurrency} at once`
+  if (isRequestTrigger(definition)) {
+    const where = definition.on.kind === 'issue' ? 'an issue' : 'a pull request'
+    return { title: `When ${REQUEST_WHO[definition.from ?? 'me']} ${SUMMONS_WORD} … on ${where}, hand it to ${leadName ?? 'the Lead'} as a request`, facts: `${definition.id} · ${times}` }
+  }
   const opens = 'lead' in definition.opens ? 'a plan for approval' : 'flow' in definition.opens ? definition.opens.flow : definition.opens.agent
   const action = opens === 'review-pr' ? `review it (${opens})` : opens === 'triager' ? `triage it (${opens})` : opens === 'sweep' ? `run a sweep (${opens})` : `open ${opens}`
-  const times = definition.concurrency === 1 ? 'once at a time' : `at most ${definition.concurrency} at once`
   return { title: `${triggerWhenWords(definition)}, ${action}`, facts: `${definition.id} · ${times}` }
 }
 

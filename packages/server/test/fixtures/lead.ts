@@ -1,5 +1,5 @@
 import { evaluateLeadAcceptance, createLeadJournal, createLeadTools, leadReviewedResultSourceFor, type LeadJournalRecord } from '@harnessdesk/lead'
-import { parseLeadAcceptanceContract } from '@harnessdesk/protocol'
+import { parseLeadAcceptanceContract, type LeadOrigin } from '@harnessdesk/protocol'
 import type { StoredFlowExecution } from '../../src/flow-execution.js'
 import { readLeadEvidence } from '../../src/lead/assembly.js'
 import { LeadAdmission } from '../../src/lead/admission.js'
@@ -9,7 +9,7 @@ import { createLeadClientAuthority } from '../../src/lead/client-authority.js'
 import { flowMethods } from '../../src/methods/flows.js'
 import { agent, goalRig } from './flow-goal-rig.js'
 
-export const leadRig = async (t: { after(fn: () => Promise<void>): void }, revision = 'recipe-2', options: { realAcceptance?: boolean } = {}) => {
+export const leadRig = async (t: { after(fn: () => Promise<void>): void }, revision = 'recipe-2', options: { realAcceptance?: boolean; origin?: LeadOrigin } = {}) => {
   const source = leadReviewedResultSourceFor(revision)!
   let budgets!: LeadBudgets
   const rig = await goalRig(t, { executionOptions: { lead: {
@@ -31,6 +31,8 @@ export const leadRig = async (t: { after(fn: () => Promise<void>): void }, revis
     assertions: [{ id: 'review', kind: 'review', description: 'Independent review' }, ...(options.realAcceptance ? [
       { id: 'checks', kind: 'check', description: 'Required checks' }, { id: 'blockers', kind: 'blocking-findings', description: 'No blockers' }] : [])], caps: { usdMicros: 100_000, rounds: 10 } })
   await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  // Where the goal came from is set before any plan, as a trigger sets it.
+  if (options.origin) await journal.setOrigin(options.origin)
   await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: contract.caps, freshnessMs: 1000 })
   await journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
   await journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, 1000)

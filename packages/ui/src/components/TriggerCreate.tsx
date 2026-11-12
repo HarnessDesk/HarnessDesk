@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
-  AGAIN_TITLE, TRIGGER_COMMENT_FROM,
+  AGAIN_TITLE, SUMMONS_WORD, TRIGGER_COMMENT_FROM,
   type AuthoringDocument, type AuthoringIssue, type AuthoringSavePreview, type TriggerBudget, type TriggerCommentFrom,
   type TriggerDefinition, type TriggerField, type TriggerSource,
 } from '@harnessdesk/protocol'
@@ -11,7 +11,8 @@ import {
 } from '../design'
 import { triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerRowWords } from '../lib/intake'
 import { wholeTextDiff, DiffView } from '../editor'
-import { useStore } from '../state/context'
+import { useSnapshot, useStore } from '../state/context'
+import { useLeadLabel } from './use-lead-name'
 
 /**
  * Every time: turn a shape or an Agent into a disarmed trigger, saved to the
@@ -48,6 +49,9 @@ const sentenceCase = (value: string): string => value ? `${value[0]!.toLocaleUpp
 /** The whole minutes a schedule may name — the same bound the parser holds it to. */
 const SCHEDULE_MINUTES_MAX = 10080
 
+/** What a request trigger reads, and the only events it reads. */
+const REQUEST_ONLY = 'A request trigger reads only requests. Turn off “When someone asks” to choose other events.'
+
 const slugify = (text: string): string => {
   const slug = text.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64)
   return slug || 'trigger'
@@ -55,6 +59,8 @@ const slugify = (text: string): string => {
 
 export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved, onClose }: TriggerCreateProps) => {
   const store = useStore()
+  const leadAvailable = useSnapshot().leadAvailable === true
+  const leadName = useLeadLabel()
   const [existing, setExisting] = useState<AuthoringDocument | null>(null)
   const [readProblem, setReadProblem] = useState<string | null>(null)
   const [id, setId] = useState(slugify('lead' in opens ? 'lead-plan' : 'flow' in opens ? opens.flow : opens.agent))
@@ -66,6 +72,8 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
   const [previewProblem, setPreviewProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
+  /** A request trigger: comments that start with the summons, handed to the Lead whatever this composer opened for. */
+  const [asking, setAsking] = useState(false)
   const sequence = useRef(0)
 
   useEffect(() => {
@@ -97,11 +105,16 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
     }
   }, [store])
 
-  const draft = useCallback(async (nextId: string, nextSource: TriggerSource): Promise<void> => {
+  const draft = useCallback(async (nextId: string, nextSource: TriggerSource, ask = false): Promise<void> => {
     const mine = ++sequence.current
+    // Only the Lead reads words from outside, so a request trigger opens the Lead's plan, whatever this composer was opened for.
+    const request = ask && (nextSource === 'issue' || nextSource === 'pull-request')
     try {
-      const next = await store.draftTrigger({ id: nextId, on: nextSource, opens })
+      const drafted = await store.draftTrigger({ id: nextId, on: nextSource, opens: request ? { lead: true } : opens })
       if (mine !== sequence.current) return
+      const next = request && (drafted.on.kind === 'issue' || drafted.on.kind === 'pull-request')
+        ? { ...drafted, on: { kind: drafted.on.kind, events: ['mentioned'] }, from: drafted.from ?? 'me', again: null, label: undefined } as TriggerDefinition
+        : drafted
       // A fresh draft is rendered immediately, the same as any other field
       // edit — so the very first draft is already previewable, not only one
       // a person has since touched.
@@ -119,11 +132,17 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
 
   const chooseSource = (next: TriggerSource): void => {
     setSource(next)
-    void draft(id, next)
+    const ask = asking && (next === 'issue' || next === 'pull-request')
+    setAsking(ask)
+    void draft(id, next, ask)
   }
   const changeId = (next: string): void => {
     setId(next)
-    void draft(next, source)
+    void draft(next, source, asking)
+  }
+  const chooseAsking = (next: boolean): void => {
+    setAsking(next)
+    void draft(id, source, next)
   }
 
   const edit = (patch: Partial<TriggerDefinition>): void => {
@@ -177,11 +196,30 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
     }
   }
 
-  const words = definition ? triggerRowWords(definition) : null
+  const words = definition ? triggerRowWords(definition, leadName) : null
   const fields = SOURCE_FIELDS[source]
   const subject = SOURCE_SUBJECT[source]
   const budget: TriggerBudget = definition?.budget ?? { usd: 5, rounds: 3, hours: 4, withoutProgress: 2 }
   const canSave = !saved && preview !== null && preview.token !== null && preview.issues.length === 0 && !busy
+
+  // One more event on an issue or pull request: a comment whose first line starts with the summons. Only the Lead reads
+  // words from outside, so choosing it hands the trigger to the Lead and turns the other events off.
+  const askRow = (
+    <Row
+      title={`When someone asks ${SUMMONS_WORD}`}
+      tooltip={leadAvailable
+        ? `Hands the words after ${SUMMONS_WORD} to ${leadName ?? 'the Lead'} as a request, for a plan you approve. Only the Lead reads words from outside, so this replaces what the trigger opens.`
+        : 'The Lead is off on this desk, and only the Lead takes requests.'}
+      control={(
+        <Switch
+          checked={asking}
+          disabled={!leadAvailable && !asking}
+          aria-label={`Fire when someone asks ${SUMMONS_WORD}`}
+          onCheckedChange={chooseAsking}
+        />
+      )}
+    />
+  )
 
   if (readProblem) return <Banner tone="danger" title="This project's triggers could not be read">{readProblem}</Banner>
   if (existing && existing.issues.length > 0) {
@@ -247,13 +285,16 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
                   <SectionHead level="label" name="Events" />
                   <FormStack spacing="section">
                     <Rows>
+                      {askRow}
                       {(['opened', 'pushed'] as const).map((event) => (
                         <Row
                           key={event}
                           title={sentenceCase(event)}
+                          {...(asking ? { tooltip: REQUEST_ONLY } : {})}
                           control={(
                             <Switch
                               checked={definition.on.kind === 'pull-request' && definition.on.events.includes(event)}
+                              disabled={asking}
                               aria-label={`Fire when a pull request is ${event}`}
                               onCheckedChange={(checked) => {
                                 const events = definition.on.kind === 'pull-request' ? definition.on.events : []
@@ -280,13 +321,16 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
                 <section aria-label="Events">
                   <SectionHead level="label" name="Events" />
                   <Rows>
+                    {askRow}
                     {(['labelled', 'closed', 'commented'] as const).map((event) => (
                       <Row
                         key={event}
                         title={sentenceCase(event)}
+                        {...(asking ? { tooltip: REQUEST_ONLY } : {})}
                         control={(
                           <Switch
                             checked={definition.on.kind === 'issue' && definition.on.events.includes(event)}
+                            disabled={asking}
                             aria-label={`Fire when an issue is ${event}`}
                             onCheckedChange={(checked) => {
                               const events = definition.on.kind === 'issue' ? definition.on.events : []
@@ -309,7 +353,7 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
                       )}
                     </Field>
                   )}
-                  {definition.on.kind === 'issue' && definition.on.events.includes('commented') && (
+                  {definition.on.kind === 'issue' && definition.on.events.includes('commented') && !asking && (
                     <Field label="Comments that fire it">
                       {(control) => (
                         <NativeSelect {...control} value={definition.from ?? 'me'} onChange={(event) => edit({ from: event.target.value as TriggerCommentFrom })}>
@@ -319,6 +363,16 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
                     </Field>
                   )}
                 </section>
+              )}
+
+              {asking && (definition.on.kind === 'issue' || definition.on.kind === 'pull-request') && (
+                <Field label="Who may ask">
+                  {(control) => (
+                    <NativeSelect {...control} value={definition.from ?? 'me'} onChange={(event) => edit({ from: event.target.value as TriggerCommentFrom })}>
+                      {TRIGGER_COMMENT_FROM.map((one) => <option key={one} value={one}>{triggerCommentWords(one)}</option>)}
+                    </NativeSelect>
+                  )}
+                </Field>
               )}
 
               {source === 'mention' && definition.on.kind === 'mention' && (
@@ -383,7 +437,7 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
                 </Rows>
               </section>
 
-              {source !== 'schedule' && (
+              {source !== 'schedule' && !asking && (
                 <Row
                   title="Continue an open Goal"
                   desc={definition.again ? 'Stops the old round and opens a new one on the role named below.' : 'Records the fact and needs a person — no new round opens on its own.'}

@@ -4,7 +4,7 @@ import { LEAD_LIMITS, deskContextContent, leadDisplayName, leadMessageAsk, leadM
 import { LeadChatHeldError, type LeadChatControlStore } from './chat-control.js'
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
-import { decideLeadPermission, leadBudgetProjection, summarizeLeadArguments, type LeadPermissionCall, type LeadPermissionContext, type LeadState } from '@harnessdesk/lead'
+import { decideLeadPermission, leadBudgetProjection, leadRequestFenced, summarizeLeadArguments, type LeadPermissionCall, type LeadPermissionContext, type LeadState } from '@harnessdesk/lead'
 import { runtimeId, sessionId, sessionIndexCursorOf, type HostParams, type HostResult, type LeadProject, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
 import type { SessionIndex } from '../session-index.js'
 import type { PhoneWork } from '../phone-work.js'
@@ -304,6 +304,9 @@ export class LeadChats {
           (attempt.outcome === 'uncertain' || attempt.resolutionPending || attempt.contested ||
             !finalAdmission && attempt.id !== attemptId && attempt.phase === 'started' && attempt.dispatched && !this.#queuedMutations.has(attempt.id))))
         refuse('Lead management is stopped pending recovery or user action.')
+      // Checked again here, at dispatch: a request from an issue or pull request starts and sends nothing unapproved,
+      // nor once that approval has run out. Stops are not in this branch, so they still go through.
+      if (leadRequestFenced(state, now)) refuse('This request waits for the person to approve its plan.')
     }
     const approved = state.contract && state.consent ? { contract: state.contract, consent: state.consent,
       runIds: state.runs.map(run => run.runId), teamIds: state.teams } : null
@@ -438,7 +441,7 @@ export class LeadChats {
     for (let index = messages.length - 1; index >= 0; index--) {
       const person = messages[index]!
       // A desk wake (a reminder) is a user turn the person never wrote: it is never quoted as theirs.
-      if (person.role !== 'user' || person.wake) continue
+      if (person.role !== 'user' || person.wake || person.source === 'automatic') continue
       const previous = messages[index - 1]
       const options = previous?.role === 'assistant' ? previous.ask?.options ?? previous.proactive?.options : undefined
       if (options?.some(option => option.label === person.text)) continue
@@ -448,7 +451,8 @@ export class LeadChats {
   }
   #startText(params: HostParams<'lead/chat/start'>): string | { readonly problem: string } {
     const messages = this.ports.state().messages
-    const people = messages.filter(message => message.role === 'user' && !message.wake)
+    // A trigger's request is a user turn the person never wrote: only their own messages are quoted as theirs.
+    const people = messages.filter(message => message.role === 'user' && !message.wake && message.source !== 'automatic')
     const ids = this.#quoteIds(params)
     if (ids.some(id => !people.some(message => message.id === id)))
       return { problem: 'Quote only a person message in the current conversation window.' }

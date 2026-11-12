@@ -536,7 +536,7 @@ export class IntakePlane {
   async #offer(arm: ArmedTrigger, fact: TriggerFact, batch?: object): Promise<OfferAnswer> {
     if (this.#closed) throw new Error('The desk is closing.')
     // A comment whose id the desk recorded posting is the desk's own, marker or not: it never fires.
-    if ((fact.action === 'commented' || fact.action === 'review-commented') && fact.desk !== true && await this.#postedHere(fact)) fact = { ...fact, desk: true }
+    if ((fact.action === 'commented' || fact.action === 'review-commented' || fact.action === 'mentioned') && fact.desk !== true && await this.#postedHere(fact)) fact = { ...fact, desk: true }
     const answer = await this.#admission.offer(arm, fact, batch ? { binding: () => this.#bindingOnce(batch, arm) } : {})
     this.#changed(arm.project)
     if (answer.outcome === 'fired') await this.#syncTimers()

@@ -142,6 +142,16 @@ const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.r
 
 /** Card decisions, not phase changes or recovery, release the plan fence. */
 export const hasPendingLeadPlan = (state: LeadState): boolean => state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(cardKey(card)))
+/** A goal an issue or pull request asked for (`@harnessdesk`) starts, sends and dispatches nothing until the person
+ * approves its plan: the request's words grant nothing, whatever the policy mode allows an ordinary goal. Admission
+ * and every host dispatch check it, so a prompt the model ignores cannot open the gate. */
+export const leadRequestAwaitsPlan = (state: LeadState): boolean =>
+  state.origin?.event === 'mentioned' && (state.contract === null || state.consent === null || hasPendingLeadPlan(state))
+/** The one fence every layer asks — tool admission, the chat gate, Team start and Flow dispatch — so they cannot
+ * drift: a request's goal is fenced while its plan waits, and again once its approval has run out, until the person
+ * renews it. A stop narrows, so callers let cancellations through. */
+export const leadRequestFenced = (state: LeadState, now: number): boolean => leadRequestAwaitsPlan(state) ||
+  state.origin?.event === 'mentioned' && state.consent !== null && !(state.consent.expiresAt > now)
 
 /** Ordinary worker dispatch stays fenced for the lifetime of an owned open PR.
  * Only the exact host-journaled running repair may dispatch on its owned run. */

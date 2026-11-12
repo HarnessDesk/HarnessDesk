@@ -6,6 +6,8 @@ export const formatLeadRunTime = (date: Date | null): string => date ? new Intl.
 }).format(date) : 'Not scheduled'
 
 export const leadOriginText = (origin: LeadOrigin): string => {
+  // A @harnessdesk request names what it is, never the event's wire word.
+  if (origin.event === 'mentioned') return `From: a request on ${origin.subject}`
   if (origin.source !== 'schedule') return `From: ${origin.event.replace(/-/g, ' ')} on ${origin.subject}`
   const date = new Date(Number(origin.subject))
   return Number.isFinite(date.getTime()) ? `From: scheduled run, ${formatLeadRunTime(date)}` : 'From: scheduled run'
