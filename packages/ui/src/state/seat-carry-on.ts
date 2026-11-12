@@ -30,9 +30,13 @@ export const createSeatCarryOnState = (transport: SeatCarryOnTransport) => {
       const { key, incident } = notification.params
       keep(sessionKey(key.runtime, key.sessionId), incident)
     },
+    /** A whole list from the host: the seats' questions still open. The store's one carry-on read hands it on. */
+    listed(incidents: readonly CarryOnIncidentView[]): void {
+      set(new Map(incidents.filter((one) => one.owner === 'seat').map((one) => [sessionKey(one.runtime, one.sessionId), one])))
+    },
     async refresh(): Promise<void> {
       const { incidents } = await transport.request('carryOn/list', {})
-      set(new Map(incidents.filter((one) => one.owner === 'seat').map((one) => [sessionKey(one.runtime, one.sessionId), one])))
+      this.listed(incidents)
     },
     async decide(decision: CarryOnDecision): Promise<void> {
       const { incident } = await transport.request('carryOn/decide', decision)

@@ -55,6 +55,7 @@ import { RuntimesSection, type RuntimeSettingsView } from './SettingsAgents'
 import { ExtensionsSection } from './Extensions'
 import { CeilingsSection } from './SettingsCeilings'
 import { QuestionWaitSection } from './SettingsQuestionWait'
+import { CarryOnSection } from './SettingsCarryOn'
 import { ClientAnswersSection } from './SettingsClientAnswers'
 import { RemoveWorktree } from './RemoveWorktree'
 import {
@@ -653,6 +654,7 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
       <CeilingsSection focus={focus} />
 
       <QuestionWaitSection />
+      <CarryOnSection />
       <GitWriteSettings />
 
       <ClientAnswersSection />

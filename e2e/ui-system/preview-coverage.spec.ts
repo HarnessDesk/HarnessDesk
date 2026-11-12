@@ -641,6 +641,21 @@ test.describe('preview coverage', () => {
       for (const file of result.covered) covered.add(file)
     })
 
+    test('coverage carry-on card over the composer', async () => {
+      test.setTimeout(120_000)
+      // The scene owns a store and its pushes, so it gets a page of its own,
+      // as the Lead scenes below do, rather than the inventory's long-lived one.
+      const page = await getPage().context().browser()!.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
+      try {
+        await page.goto(new URL('/preview.html?notices=carry-on', getPage().url()).href)
+        // The card mounts only once the scene's carryOn/changed push lands.
+        await expect(page.locator('[data-slot="decision-notice"]')).toBeVisible({ timeout: 30_000 })
+        const result = await collectCoverage(page)
+        expect(result.covered).toContain('components/CarryOnNotice.tsx#CarryOnNotice')
+        for (const file of result.covered) covered.add(file)
+      } finally { await page.context().close() }
+    })
+
     for (const query of ['lead-synthetic=app-shell', 'lead-synthetic=result-person-gate', 'lead-synthetic=memory-proposal', 'lead-synthetic=autonomy-proposal', 'lead-synthetic=settings-configured', 'lead-synthetic=work-ledger', 'lead-synthetic=first-name', 'lead-synthetic=opening-jobs', 'lead-synthetic=wake-ledger', 'lead-chat=lead', 'desk-account=pending', 'desk-account=settings']) test(`coverage Lead and account scene: ${query}`, async () => {
       test.setTimeout(360_000)
       // These app scenes own timers and subscriptions. Give each its own context

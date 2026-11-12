@@ -328,6 +328,7 @@ export const NOTICE_KINDS: readonly NoticeKind[] = [
     ['app:drafts', 'Draft storage', 'A draft could not be saved for a later window.'],
     ['usage:crossing', 'Usage changes', 'A runtime crossed a usage threshold. Its standing condition stays beside the composer.'],
     ['usage:switched', 'Account switches', 'New sessions moved to the next account because one reached its limit.'],
+    ['usage:carry-on', 'Usage limits in a conversation', 'A kept copy of each one. The card over the conversation and the mark in it always show.'],
   ] as const).map(([kind, title, detail]): NoticeKind => ({ kind, title, detail, lifetime: 'occurrence', use: 'info', surfaces: ['inbox'] })),
   ...([
     ['git:outside', 'Outside git writes', 'A native write bypassed the gateway; no requester is named for it.'],

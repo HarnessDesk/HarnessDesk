@@ -261,6 +261,38 @@
   }
 }
 
+/* --- decision: a composer notice with several answers and a rule box ------ */
+
+/* The sentence leads on the tile's line; the answers and the box follow under
+   it, on the sentence's own edge, so the card reads top to bottom. */
+.decision {
+  align-items: flex-start;
+}
+
+.decision > [data-slot='notice-lead'] {
+  align-self: flex-start;
+}
+
+.decisionBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.decisionActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
+.decisionAlways {
+  align-self: flex-start;
+}
+
 /* --- strip: one slim line above a pane ------------------------------------ */
 
 .strip {

@@ -22,6 +22,13 @@ import { transcriptFingerprint, transcriptSessionFingerprint } from './transcrip
 import { teamsInput } from '../lib/teams-snapshot'
 import { roomFoldersGone } from '../lib/room-folders'
 import {
+  CARRY_ON_PREFERENCE,
+  carryOnPolicyOf,
+  whenOutForChoice,
+  type CarryOnDecision,
+  type CarryOnIncidentView,
+  type CarryOnKey,
+  type CarryOnPolicy,
   DEFAULT_QUESTION_WAIT,
   QUESTION_WAIT_PREFERENCE,
   questionWaitOf,
@@ -173,6 +180,7 @@ import {
 import { staleDefaults, type StaleDefault } from '../lib/composer-slots'
 import { accountKey, accountName, agentKeyOf, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
 import { canTakeTurn, inPoolOrder, nextInPool, readAccountPools, runtimeOut, whenOutOf, type AccountPool } from '../lib/account-pool'
+import { carryOnInboxTitle } from '../lib/carry-on'
 import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
@@ -591,6 +599,242 @@ export class AppStore {
     return this.#writePreference({ [QUESTION_WAIT_PREFERENCE]: value }, 'How long a question waits when nobody is here')
   }
 
+  /**
+   * The carry-on rules, read again from the host: the desk's and every
+   * agent's own (`accountPools`). An "Always do this" answered in another
+   * window, or answered here just before the link dropped, is written by the
+   * host, and this window hears no push for a preference — so Settings asks
+   * when it is shown, and a reconnect reads it too. A read that a write from
+   * this window overtook is dropped: the write is newer.
+   */
+  async loadCarryOnPolicy(): Promise<CarryOnPolicy> {
+    await this.readCarryOnRules()
+    return this.#snapshot.carryOnPolicy
+  }
+
+  /**
+   * Reads both levels of the rule until a read is applied, and says whether
+   * one was. A read never starts while a write of the rules is in flight — it
+   * waits for the write to settle — and one a write overtook is asked again,
+   * three times at most. False means this window still holds only its own
+   * copy: a page that writes the whole map must not write it from that.
+   */
+  async readCarryOnRules(): Promise<boolean> {
+    for (let tries = 0; tries < 3; tries++) {
+      if (this.#carryOnWrites > 0) await this.#carryOnRulesIdle()
+      const revision = this.#carryOnRulesRevision
+      let preferences: Readonly<Record<string, unknown>> | undefined
+      try {
+        preferences = await this.transport.request('app/state/get', {})
+      } catch {
+        // The rule this window holds is the best it has.
+        return false
+      }
+      const result = this.#applyCarryOnRules(preferences, revision, false)
+      if (result === 'applied') return true
+      if (result === 'empty') return false
+    }
+    return false
+  }
+
+  /** Settles once no write of the rules is in flight. */
+  #carryOnRulesIdle(): Promise<void> {
+    if (this.#carryOnWrites === 0) return Promise.resolve()
+    return new Promise(resolve => this.#carryOnIdleWaiters.push(resolve))
+  }
+
+  /**
+   * Applies a read of the rules unless a write of this window's is newer:
+   * `'overtaken'` when one finished since, `'held'` while one is in flight —
+   * which, for a read nobody is waiting on, asks for another when it settles.
+   */
+  #applyCarryOnRules(preferences: Readonly<Record<string, unknown>> | undefined, revision: number, rereadWhenSettled = true): 'applied' | 'overtaken' | 'held' | 'empty' {
+    if (!preferences || typeof preferences !== 'object') return 'empty'
+    if (this.#carryOnWrites > 0) {
+      if (rereadWhenSettled) this.#carryOnRulesStale = true
+      return 'held'
+    }
+    if (revision !== this.#carryOnRulesRevision) return 'overtaken'
+    this.#patch({ carryOnPolicy: carryOnPolicyOf(preferences), accountPools: readAccountPools(preferences['accountPools']) })
+    this.#followPool(this.#snapshot.usage)
+    return 'applied'
+  }
+
+  /** A local write of the rule, held in flight so no read of the rules lands across it. */
+  async #writingCarryOnRules<T>(write: () => Promise<T>): Promise<T> {
+    this.#carryOnRulesRevision++
+    this.#carryOnWrites++
+    try {
+      return await write()
+    } finally {
+      this.#carryOnRulesRevision++
+      this.#carryOnWrites--
+      if (this.#carryOnWrites === 0) {
+        const waiters = this.#carryOnIdleWaiters
+        this.#carryOnIdleWaiters = []
+        for (const resolve of waiters) resolve()
+        if (this.#carryOnRulesStale) {
+          this.#carryOnRulesStale = false
+          void this.loadCarryOnPolicy()
+        }
+      }
+    }
+  }
+
+  /** Writes the whole rule, as the validator takes it; a write that did not land puts the old one back. */
+  async setCarryOnPolicy(carryOnPolicy: CarryOnPolicy): Promise<boolean> {
+    const before = this.#snapshot.carryOnPolicy
+    this.#patch({ carryOnPolicy })
+    const kept = await this.#writingCarryOnRules(() => this.#writePreference({ [CARRY_ON_PREFERENCE]: carryOnPolicy }, 'What happens when a usage limit is reached'))
+    if (!kept && this.#snapshot.carryOnPolicy === carryOnPolicy) this.#patch({ carryOnPolicy: before })
+    if (kept) this.#followPool(this.#snapshot.usage)
+    return kept
+  }
+
+  /**
+   * Every live carry-on incident, whole. Asked on each connect, so a card a
+   * reload or a dropped link took away comes back. A host that cannot answer
+   * yet leaves what this window holds: an empty list would say nothing is
+   * stuck, which it does not know.
+   *
+   * The list is reconciled one conversation at a time, through the same path
+   * as a push, so the inbox hears of a question asked while this window was
+   * away. A conversation a push changed while the list was being read keeps
+   * the push, and a list from a connection that has since dropped is not
+   * applied at all. A kept question the list no longer asks was answered
+   * elsewhere, and is marked read.
+   */
+  async loadCarryOn(): Promise<void> {
+    const generation = this.#chatConnectionGeneration
+    // Stamped again when the request goes out: its place in the host's order.
+    let stamp = ++this.#carryOnSeq
+    let answer: { readonly incidents: readonly CarryOnIncidentView[] }
+    try {
+      answer = await this.transport.request('carryOn/list', {}, { onSend: () => { stamp = ++this.#carryOnSeq } })
+    } catch {
+      // Carry-on is the host's; a host without it has nothing live to show.
+      return
+    }
+    if (!answer || !Array.isArray(answer.incidents) || generation !== this.#chatConnectionGeneration) return
+    // One read serves both: a seat's question belongs to its Team's notice, and the seats' state keeps those.
+    this.seatCarryOn.listed(answer.incidents)
+    const listed = new Map<string, CarryOnIncidentView>(answer.incidents.map(incident => [sessionKey(incident.runtime, incident.sessionId), incident]))
+    const held = this.#snapshot.carryOnIncidents
+    for (const at of new Set<string>([...held.keys(), ...listed.keys()])) {
+      if ((this.#carryOnTouched.get(at) ?? 0) >= stamp) continue
+      const next = listed.get(at) ?? null
+      const current = held.get(at)
+      const side = next ?? current
+      if (!side) continue
+      this.#carryOnChanged(next, { runtime: side.runtime, sessionId: side.sessionId }, stamp)
+    }
+    this.#carryOnInbox(() => this.#settleAnsweredCarryOn())
+  }
+
+  /** Marks read every kept carry-on question this window no longer sees asked. */
+  #settleAnsweredCarryOn(): void {
+    const asked = new Set([...this.#snapshot.carryOnIncidents.values()].filter(entry => entry.state === 'asked').map(entry => entry.incidentId))
+    const answered = this.#snapshot.inbox.filter(entry => {
+      if (entry.read || entry.kind !== 'usage:carry-on') return false
+      const match = /^carry-on:(.+):asked$/.exec(entry.id)
+      return match !== null && !asked.has(match[1]!)
+    })
+    if (answered.length > 0) this.#setInbox(answered.reduce((inbox, entry) => markedRead(inbox, entry.id), this.#snapshot.inbox))
+  }
+
+  /**
+   * The person's answer to an asked incident. The answer the host gives back
+   * replaces the card at once rather than waiting for the push — unless a
+   * push for the conversation arrived while the answer was on its way, which
+   * is newer. "Always do this" is written by the host, and mirrored here, at
+   * the level the incident named, so Settings and the next write from this
+   * window agree with it.
+   *
+   * A refusal (a stale target, a host without the service) is thrown for the
+   * card to say beside its buttons. A stale refusal carries the incident as
+   * the host now has it, or none; that is applied first, so the card the
+   * refusal is said on is the current one. Nothing is retried.
+   */
+  async decideCarryOn(decision: CarryOnDecision): Promise<CarryOnIncidentView> {
+    const before = [...this.#snapshot.carryOnIncidents.values()].find(entry => entry.incidentId === decision.incidentId)
+    const generation = this.#chatConnectionGeneration
+    // Stamped again when the request goes out: an answer made while the link
+    // was down is sent after a reconnect's list, so the list must not outrank it.
+    let stamp = ++this.#carryOnSeq
+    const fresh = (at: string): boolean => generation === this.#chatConnectionGeneration && (this.#carryOnTouched.get(at) ?? 0) < stamp
+    let incident: CarryOnIncidentView
+    try {
+      // "Always do this" is a write of the rule, by the host: no read of the rules lands across it.
+      const ask = () => this.transport.request('carryOn/decide', decision, { onSend: () => { stamp = ++this.#carryOnSeq } })
+      ;({ incident } = await (decision.always ? this.#writingCarryOnRules(ask) : ask()))
+    } catch (error) {
+      const refusal = error as { code?: unknown; data?: unknown }
+      const data = refusal.data as { incident?: CarryOnIncidentView | null } | undefined
+      if (refusal.code === 'carryOnStale' && data && typeof data === 'object' && 'incident' in data) {
+        const now = data.incident ?? null
+        const side = now ?? before
+        if (side && fresh(sessionKey(side.runtime, side.sessionId))) this.#carryOnChanged(now, { runtime: side.runtime, sessionId: side.sessionId }, stamp)
+      }
+      throw error
+    }
+    if (fresh(sessionKey(incident.runtime, incident.sessionId))) this.#carryOnChanged(incident, { runtime: incident.runtime, sessionId: incident.sessionId }, stamp)
+    if (decision.always) {
+      const scope = before?.alwaysScope ?? incident.alwaysScope
+      if (scope === 'desk') this.#patch({ carryOnPolicy: { ...this.#snapshot.carryOnPolicy, onLimit: decision.choice } })
+      else {
+        const agent = agentKeyOf(incident.runtime, this.#snapshot.runtimes)
+        this.#patch({ accountPools: { ...this.#snapshot.accountPools, [agent]: { ...this.#snapshot.accountPools[agent], whenOut: whenOutForChoice(decision.choice) } } })
+      }
+    }
+    return incident
+  }
+
+  /**
+   * One incident's new state, from the push, an answer or the list. The card
+   * reads the map; the inbox keeps one copy of each state worth reading
+   * later — of an ordinary chat only, since a seat's question is its Team's
+   * notice and a Lead chat's is the Lead's inbox.
+   */
+  #carryOnChanged(incident: CarryOnIncidentView | null, key: CarryOnKey, stamp = ++this.#carryOnSeq): void {
+    const at = sessionKey(key.runtime, key.sessionId)
+    this.#carryOnTouched.set(at, stamp)
+    const previous = this.#snapshot.carryOnIncidents.get(at)
+    const carryOnIncidents = new Map(this.#snapshot.carryOnIncidents)
+    if (incident) carryOnIncidents.set(at, incident)
+    else carryOnIncidents.delete(at)
+    this.#patch({ carryOnIncidents })
+    this.#carryOnInbox(() => this.#keepCarryOn(previous, incident))
+  }
+
+  /** Inbox work runs against the kept inbox and the real notice policy, so it waits for the preferences. */
+  #carryOnInbox(work: () => void): void {
+    if (this.#snapshot.preferencesLoaded) work()
+    else this.#carryOnInboxPending.push(work)
+  }
+
+  #keepCarryOn(previous: CarryOnIncidentView | undefined, incident: CarryOnIncidentView | null): void {
+    // An answered question is no longer waiting on anybody.
+    if (previous?.state === 'asked' && (incident?.state !== 'asked' || incident.incidentId !== previous.incidentId)) {
+      const asked = `carry-on:${previous.incidentId}:asked`
+      if (this.#snapshot.inbox.some(entry => entry.id === asked && !entry.read)) this.markInboxRead(asked)
+    }
+    if (!incident || incident.owner !== 'chat' || (previous?.incidentId === incident.incidentId && previous.state === incident.state)) return
+    const title = carryOnInboxTitle(incident)
+    const id = `carry-on:${incident.incidentId}:${incident.state}`
+    if (!title || surfaceFor(this.#snapshot.noticePolicy, 'usage:carry-on') === null) return
+    // Kept once: keeping again would mark a read copy unread.
+    if (this.#snapshot.inbox.some(entry => entry.id === id)) return
+    this.keep({
+      id,
+      kind: 'usage:carry-on',
+      tone: incident.state === 'asked' || incident.state === 'stopped' ? 'warning' : 'info',
+      title,
+      ...(incident.note ? { body: incident.note } : {}),
+      at: Date.now(),
+      from: { runtime: incident.runtime, sessionId: incident.sessionId, name: incident.from.name },
+    })
+  }
+
   /** Whether this desk lets local clients answer on the person's behalf. */
   async loadClientsMayAnswer(): Promise<boolean> {
     try {
@@ -687,6 +931,30 @@ export class AppStore {
   #leadCapabilityEpoch = 0
   #chatRootsVersion: { epoch: string; revision: number } | null = null
   #chatConnectionGeneration = 0
+  /**
+   * Carry-on's fences. Every incident state is stamped with the moment its
+   * news set out (`#carryOnSeq`): a push when it arrives, a list or an answer
+   * when its request was written to the socket — which, for one made while
+   * the link was down, is when the reconnect flushes it. A conversation keeps the stamp of the state it
+   * shows (`#carryOnTouched`), and a state stamped earlier never replaces it,
+   * so a list sent before an answer never outranks that answer, whichever
+   * comes back first.
+   *
+   * `#carryOnRulesRevision` moves when a local write of the rule (desk or
+   * agent) starts and again when it settles, and no read of the rules is
+   * applied while one is in flight (`#carryOnWrites`): a read sent before the
+   * write landed, or before a reconnect flushed it, never undoes it. A read
+   * dropped that way is read again: at once when the write has finished, or
+   * when the last one in flight settles (`#carryOnRulesStale`). Inbox work waits for the kept inbox and the
+   * notice policy (`#carryOnInboxPending`).
+   */
+  #carryOnSeq = 0
+  readonly #carryOnTouched = new Map<string, number>()
+  #carryOnRulesRevision = 0
+  #carryOnWrites = 0
+  #carryOnRulesStale = false
+  #carryOnIdleWaiters: (() => void)[] = []
+  #carryOnInboxPending: (() => void)[] = []
   // This authority is preparatory only: no body is evicted until the Host's
   // complete notification and durable-receipt guarantees are enabled.
   readonly #transcriptAuthority = new Map<SessionKey, { watermark: TranscriptWatermark; lastFingerprint: string | null; sessionFingerprint: string }>()
@@ -1772,6 +2040,7 @@ export class AppStore {
         if (notification.method === 'usage/scanProgress') {
           this.#patch({ scan: notification.params.progress })
         }
+        if (notification.method === 'carryOn/changed') this.#carryOnChanged(notification.params.incident, notification.params.key)
         if (notification.method === 'session/worktreeKept') this.resultNotice('info', notification.params.message)
         if (notification.method === 'person/notice') {
           this.#personNotice(notification.params.notice)
@@ -1890,11 +2159,17 @@ export class AppStore {
             const adjacent = this.#snapshot.adjacentSession
             if (adjacent) { const { runtime, id } = splitSessionKey(adjacent.key); void this.openAdjacentSession(id, runtime) }
             void this.#refreshLeadAvailability()
-            void this.seatCarryOn.refresh().catch(() => {})
             const generation = this.#chatConnectionGeneration
-            void this.transport.request('app/state/get', {}).then(preferences => this.#applyChatsPreferences(preferences, generation)).catch(() => {})
+            // The same read refreshes the carry-on rules: an "Always do this" the host wrote while the link was down.
+            const rules = this.#carryOnRulesRevision
+            void this.transport.request('app/state/get', {}).then(preferences => {
+              this.#applyChatsPreferences(preferences, generation)
+              if (this.#applyCarryOnRules(preferences, rules) === 'overtaken') void this.loadCarryOnPolicy()
+            }).catch(() => {})
           }
           if (previous !== 'open') void this.loadCaptureHealth().catch(() => {})
+          // Chat and seat questions alike: a seat already waiting on a person, or one a dropped link took away, comes back.
+          if (previous !== 'open') void this.loadCarryOn()
           if (previous === 'reconnecting' && this.#harnessDeskAccountRequested) void this.loadHarnessDeskAccount()
         }
       },
@@ -2015,8 +2290,6 @@ export class AppStore {
     // is loaded once here rather than on the first ⌘U. Cached readings answer
     // most of these without anyone being asked again.
     void this.loadUsage()
-    // A seat already waiting on a person when this window connected still shows its question.
-    void this.seatCarryOn.refresh().catch(() => {})
     // The editor plane is pushed the moment the socket opens, which is before
     // any of the above has run — so a plugin's file, marked while this window
     // was closed, arrived with no runtime to open it into. Projected again
@@ -8601,6 +8874,7 @@ export class AppStore {
       this.#patch({
         accountPrefs,
         accountPools: readAccountPools(preferences['accountPools']),
+        carryOnPolicy: carryOnPolicyOf(preferences),
         hideAccountAddresses: preferences['hideAccountAddresses'] === true,
         profile,
         customPresets: readCustomPresets(preferences['customPresets']),
@@ -8659,6 +8933,9 @@ export class AppStore {
       this.#patch({ preferencesLoaded: true })
     }
     this.#drainPendingPersonNotices()
+    const carryOn = this.#carryOnInboxPending
+    this.#carryOnInboxPending = []
+    for (const work of carryOn) work()
     const info = this.#pendingInfo
     this.#pendingInfo = []
     for (const pending of info) this.#keepInfo(pending.event, pending.runtime)
@@ -9325,7 +9602,7 @@ export class AppStore {
     if ((merged.order?.length ?? 0) === 0 && merged.whenOut === undefined && merged.pace === undefined) delete accountPools[agent]
     else accountPools[agent] = merged
     this.#patch({ accountPools })
-    void this.#writePreference({ accountPools }, 'The account order')
+    void this.#writingCarryOnRules(() => this.#writePreference({ accountPools }, 'The account order'))
     this.#followPool(this.#snapshot.usage)
   }
 
@@ -9349,7 +9626,7 @@ export class AppStore {
     const runtimes = this.#snapshot.runtimes
     const agent = agentKeyOf(active, runtimes)
     const pool = this.#snapshot.accountPools[agent]
-    if (whenOutOf(pool) !== 'next') return
+    if (whenOutOf(pool, this.#snapshot.carryOnPolicy) !== 'next') return
     const siblings = inPoolOrder(runtimes.filter((entry) => agentKeyOf(entry.id, runtimes) === agent), pool, { reports, now: Date.now() })
     const usable = (runtime: RuntimeId): boolean => {
       const entry = siblings.find((sibling) => sibling.id === runtime)
