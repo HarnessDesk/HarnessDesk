@@ -4929,7 +4929,8 @@ class AcpSession implements AgentSession {
     }
     this.#replaying = false
     // History says what ran then, not what runs now: the live session's next
-    // list says that.
+    // list says that (one that arrived before this point was dropped with
+    // the replay, and the next list or turn end corrects it).
     this.#runningDelegations = new Set()
     this.#saidOutlasting = false
     this.#modes = loaded.modes ?? this.#modes
@@ -5894,6 +5895,9 @@ class AcpSession implements AgentSession {
     // reopened one's replay) — those still end the rows they name, above.
     // A child a stop's close ended stays ended, whatever a later list replays
     // of it; a delegation the agent starts afterwards is new work and counts.
+    // A live list that lands before `finishReplay` is dropped with the
+    // replayed ones, by design: the agent's next list, or the next turn's
+    // end, says what runs.
     if (!this.#replaying && this.#reopenPhase === null) {
       this.#runningDelegations = new Set(delegations.flatMap((delegation) =>
         typeof delegation?.id === 'string' && delegation.id.length > 0 && !this.#endedByClose.has(delegation.id) &&

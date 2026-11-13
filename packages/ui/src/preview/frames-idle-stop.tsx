@@ -71,7 +71,7 @@ export const idleStopStore = (theme: 'light' | 'dark' = 'light') => {
 
 const ConversationPane = ({ id, title, sessionKey: key }: { id: string; title: string; sessionKey: SessionKey }) => (
   <Frame id={id} title={title}>
-    <div className="h-[560px]">
+    <div className="flex h-[560px] min-h-0 flex-col">
       <PaneProvider scope={{ paneId: `${id}-pane` as never, view: { kind: 'conversation', session: key }, sessionKey: key }}>
         <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
       </PaneProvider>

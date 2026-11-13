@@ -141,3 +141,34 @@ for (const theme of WALL_THEMES) {
     }
   })
 }
+
+// A message typed while sub-agents outlast the turn: Send and Stop are two
+// coins side by side in the corner, Stop outboard, neither drawn over the other.
+for (const theme of WALL_THEMES) {
+  test(`Send and Stop sit side by side while sub-agents work in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 1400 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?idle-stop&theme=${theme}`)
+    await page.evaluate(async () => { await document.fonts.ready })
+    const frame = page.locator('[data-frame-id="idle-stop-typed"]')
+    const send = frame.getByRole('button', { name: 'Send', exact: true })
+    const stop = frame.getByRole('button', { name: 'Stop', exact: true })
+    await expect(send).toBeVisible()
+    await expect(stop).toBeVisible()
+    const corner = frame.locator('[data-composer-track="send"]')
+    const [a, b, track] = [await send.boundingBox(), await stop.boundingBox(), await corner.boundingBox()]
+    expect(a && b && track).toBeTruthy()
+    expect(a!.x + a!.width, 'Stop starts after Send ends').toBeLessThanOrEqual(b!.x)
+    for (const box of [a!, b!]) {
+      expect(box.x, 'each coin lies inside the corner').toBeGreaterThanOrEqual(track!.x - 0.5)
+      expect(box.x + box.width).toBeLessThanOrEqual(track!.x + track!.width + 0.5)
+    }
+    // The corner clips what overflows it: each coin is drawn whole, not under the other.
+    const drawn = await corner.evaluate((node) => [...node.querySelectorAll<HTMLElement>('[data-slot="composer-send"]')].map((coin) => {
+      const box = coin.getBoundingClientRect()
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+      return hit === coin || coin.contains(hit)
+    }))
+    expect(drawn).toEqual([true, true])
+  })
+}

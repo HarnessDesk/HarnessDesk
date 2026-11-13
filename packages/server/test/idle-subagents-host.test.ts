@@ -101,3 +101,40 @@ test('the idle after a turn seen with no active status is a turn ending, even wh
   await new Promise((resolve) => setTimeout(resolve, 50))
   assert.deepEqual({ ended: ended.length, rearmed: rearmed.length }, handled, 'the sub-agent ending is not a turn ending')
 })
+
+/**
+ * Codex can say a conversation is idle before its `turn/completed` arrives (a
+ * review turn, an interrupt). That idle is the turn's ending; the completion
+ * after it must not leave the next flag-only idle looking like another one.
+ */
+test('a turn whose idle came before its turn/completed leaves the next sub-agent change a toggle', async (t) => {
+  const work = tempDir('hd-idle-subagents-')
+  const rig = await start(); const client = await Client.connect(rig.server)
+  t.after(async () => { client.close(); await stop(rig); await rm(work, { recursive: true, force: true }) })
+  await client.call('workspace/open', { path: work })
+  const session = await client.call('session/create', { runtime: 'fake', options: { cwd: work } }) as Session
+  const id = String(session.id)
+
+  const ended: Array<'turn' | 'idle'> = []
+  const rearmed: string[] = []
+  const team = rig.host.teamPlane
+  const onTurnEnded = team.onTurnEnded.bind(team)
+  team.onTurnEnded = (runtime, sessionId, turn) => { if (sessionId === id) ended.push(turn === undefined ? 'idle' : 'turn'); return onTurnEnded(runtime, sessionId, turn) }
+  const flows = rig.host.flowsPlane
+  const reArm = flows.reArm.bind(flows)
+  flows.reArm = (runtime, sessionId) => { if (sessionId === id) rearmed.push(sessionId); return reArm(runtime, sessionId) }
+
+  const emit = (event: AgentEvent) => rig.runtime.emit(event)
+  emit({ type: 'turn/started', sessionId: session.id, turn: { id: turnId('review-1'), status: 'inProgress', items: [], startedAt: 1 } })
+  emit({ type: 'session/status', sessionId: session.id, status: { type: 'active' } })
+  emit({ type: 'session/status', sessionId: session.id, status: { type: 'idle', subagentsRunning: true } })
+  emit({ type: 'turn/completed', sessionId: session.id, turn: { id: turnId('review-1'), status: 'completed', items: [], startedAt: 1 } })
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.ok(ended.includes('idle') && ended.includes('turn'), 'the idle and the completion each end the turn, as before')
+  const settled = { ended: ended.length, rearmed: rearmed.length }
+
+  // The sub-agent finishes while the conversation rests.
+  emit({ type: 'session/status', sessionId: session.id, status: { type: 'idle' } })
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.deepEqual({ ended: ended.length, rearmed: rearmed.length }, settled, 'the sub-agent ending is not read as a turn ending')
+})

@@ -1380,10 +1380,10 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
               buttons, which is what this replaces. */}
           <ComposerTrack name="send">
           {/* A wrapped Team's conversation draws its refused send only while
-              nothing is running. The corner is one coin wide and clips a
-              second, so beside a running turn the refused send would hide
-              the Stop that works; the placeholder already says why nothing
-              can be sent. */}
+              nothing is running: beside a running turn a dead coin would sit
+              next to the Stop that works, and the placeholder already says
+              why nothing can be sent. Two coins widen the corner
+              (`ComposerTrack`), with Stop outboard. */}
           {(!stoppable || canSend) && (
             <ComposerSend
               type="button"

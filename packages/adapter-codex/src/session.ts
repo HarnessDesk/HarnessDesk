@@ -541,7 +541,11 @@ export class CodexSession implements AgentSession {
       return await this.#send(input, opts)
     } finally {
       this.#starting -= 1
-      if (this.#starting === 0) this.deps.startSettled?.(this.id)
+      // Said after the send's own outcome, never in place of it: a throw here
+      // must not replace the rejection the caller is waiting on.
+      if (this.#starting === 0) {
+        try { this.deps.startSettled?.(this.id) } catch { /* the next status says it */ }
+      }
     }
   }
 
