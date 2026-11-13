@@ -666,3 +666,32 @@ test('a reminder line is a plain reply: an assistant message with no ask, report
   assert.throws(() => protocol.parseLeadMessage({ ...line, ask: { question: 'Now?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }], recommended: 'yes' } }))
   assert.throws(() => protocol.parseLeadMessage({ ...line, reminded: '' }))
 })
+
+test('#2183: a trigger-opened turn carries what opened it; the thread line is made from those facts alone', () => {
+  const trigger = { source: 'pull-request', event: 'mentioned', subject: 'acme/widgets#12', from: 'you', words: 'Make the empty state keyboard accessible',
+    url: 'https://github.com/acme/widgets/pull/12#issuecomment-9001' }
+  const turn = { version: 1, id: 'message-1', revision: 1, role: 'user', source: 'automatic', text: 'Request on pull request #12 from you\nBEGIN UNTRUSTED EVENT CONTEXT', trigger }
+  const line = { version: 1, id: 'message-1', revision: 1, role: 'system', text: 'Request on pull request #12 from you', trigger }
+  assert.deepEqual(protocol.parseLeadMessage(turn), turn)
+  assert.deepEqual(protocol.parseLeadMessage(line), line)
+  const event = { source: 'issue', event: 'checks-failed', subject: '7', url: null }
+  assert.deepEqual(protocol.parseLeadMessageTrigger(event), event)
+  // Refused: the person's own message, a reply, a wake, who-asked on an ordinary event, a link that is not https,
+  // words over the bound or across lines, and a who-asked the host never writes.
+  assert.throws(() => protocol.parseLeadMessage({ ...turn, source: 'person' }), /a trigger belongs to the turn a trigger opened/)
+  assert.throws(() => protocol.parseLeadMessage({ ...turn, source: undefined }), /a trigger belongs/)
+  assert.throws(() => protocol.parseLeadMessage({ ...line, role: 'assistant' }), /a trigger belongs/)
+  assert.throws(() => protocol.parseLeadMessage({ ...turn, wake: { kind: 'reminder', reminder: 'remind-1', text: 'Check' } }))
+  assert.throws(() => protocol.parseLeadMessageTrigger({ ...event, from: 'you' }), /who asked belongs to a request/)
+  for (const url of ['javascript:alert(1)', 'http://github.com/acme/widgets/pull/12', 'https://github.com/acme widgets', ''])
+    assert.throws(() => protocol.parseLeadMessageTrigger({ ...trigger, url }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadMessageTrigger({ ...trigger, words: 'x'.repeat(protocol.LEAD_TRIGGER_WORDS_MAX + 1) }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadMessageTrigger({ ...trigger, words: 'two\nlines' }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadMessageTrigger({ ...trigger, from: 'Jane Doe' }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadMessageTrigger({ ...trigger, source: 'mention' }), protocol.ValidationError)
+  assert.equal(protocol.leadTriggerLine(trigger as never), 'Request on pull request #12 from you')
+  assert.equal(protocol.leadTriggerLine({ ...trigger, from: 'outside' } as never), 'Request on pull request #12 from someone outside the repository')
+  assert.equal(protocol.leadTriggerLine(event as never), 'Checks failed on issue #7')
+  assert.equal(protocol.leadTriggerLine({ ...event, event: 'brand-new' } as never), 'Brand new on issue #7')
+  assert.equal(protocol.leadTriggerLine({ source: 'schedule', event: 'tick', subject: '1700000000000', url: null }), 'Scheduled run')
+})

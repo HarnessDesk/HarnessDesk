@@ -1,6 +1,6 @@
 import { parseLeadApprovalAudit, parseLeadAutonomyChange, parseLeadAutonomyRules, parseLeadMessageRefs, type LeadMessageRef, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyChange, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import {
-  parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
+  parseLeadOrigin, parseLeadMessageTrigger, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_LIMITS, LEAD_MANAGEMENT_REASONS, leadNoSpendLimit, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy, type LeadBudgetEvent, type LeadBudgetState, type LeadCaps,
 } from '@harnessdesk/protocol'
@@ -577,8 +577,9 @@ export class LeadJournal {
   ownedPush(operation: LeadOwnedPush): Promise<void> { return this.#queue(() => this.#append({ type: 'owned-push', operation })) }
   observePr(pr: LeadPullRequest): Promise<void> { return this.#queue(() => this.#append({ type: 'pr-observed', pr })) }
   /** `wake` marks a desk wake (a reminder that came due): the model's user turn, never the person's message. `surface` is
-   * the device that sent a person's message (#2166), kept with it so every later request reads where it came from. */
-  appendMessage(idempotencyKey: string, text: string, source: NonNullable<LeadMessage['source']>, committed?: () => void, wake?: LeadMessage['wake'], surface?: LeadMessage['surface']): Promise<LeadSendReceipt> {
+   * the device that sent a person's message (#2166), kept with it so every later request reads where it came from.
+   * `trigger` is the event an automatic goal opened on (#2183), what a thread draws in place of the model's text. */
+  appendMessage(idempotencyKey: string, text: string, source: NonNullable<LeadMessage['source']>, committed?: () => void, wake?: LeadMessage['wake'], surface?: LeadMessage['surface'], trigger?: LeadMessage['trigger']): Promise<LeadSendReceipt> {
     if (!['person', 'automatic', 'schedule'].includes(source)) return Promise.reject(new Error('Lead message source is required.'))
     const input = parseLeadThreadSend({ idempotencyKey, text })
     return this.#queue(async () => {
@@ -586,7 +587,8 @@ export class LeadJournal {
       if (previous) return { messageId: previous.messageId, revision: previous.revision }
       const revision = this.#state.seq + 1, messageId = `message-${revision}`
       await this.#append({ type: 'message', idempotencyKey: input.idempotencyKey,
-        message: { version: 1, id: messageId, revision, role: 'user', text: input.text, source, ...(wake ? { wake } : {}), ...(surface && source === 'person' && !wake ? { surface } : {}) } }, committed)
+        message: { version: 1, id: messageId, revision, role: 'user', text: input.text, source, ...(wake ? { wake } : {}), ...(surface && source === 'person' && !wake ? { surface } : {}),
+          ...(trigger && source !== 'person' && !wake ? { trigger: parseLeadMessageTrigger(trigger) } : {}) } }, committed)
       return { messageId, revision }
     })
   }
