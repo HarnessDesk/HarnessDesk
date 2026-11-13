@@ -9,6 +9,7 @@ import { RelaySim } from '@harnessdesk/phone-link/relay-sim'
 import { PhoneSim } from '@harnessdesk/phone-link/sim'
 import type { HarnessDeskAccountStatus, PhoneLinkState, WireNotification } from '@harnessdesk/protocol'
 import { Logger } from '../src/log.js'
+import type { SealedPhonePush } from '../src/harnessdesk-account.js'
 import { startPhoneLink, type PhoneLinkControl, type PhoneRelayAccount, type RunningPhoneLink } from '../src/phone-link.js'
 
 const DESK = 'desk-'.padEnd(22, 'x')
@@ -36,6 +37,8 @@ class FakeAccount implements PhoneRelayAccount {
     if (this.offline) throw new Error('offline')
     return { invite: 'i'.repeat(43), api: 'https://cloud.example.com', relay: this.relay.url, expiresAt: Date.now() + 600_000 }
   }
+  readonly pushes: SealedPhonePush[] = []
+  async sendPush(push: SealedPhonePush) { this.pushes.push(push); return 'sent' as const }
   async unlinkPhone(deviceId: string) {
     if (this.offline) throw new Error('offline')
     this.unlinked.push(deviceId)

@@ -146,7 +146,9 @@ surface. Lead worker cards can carry complete bounded request details, including
 extra permissions. Saved approvals expose target descriptions and counts; each
 automatically allowed file change adds its exact bounded diff to that rule’s
 retained entries in `savedApprovals`. The paired phone receives this bounded
-history, including read-only revoked rows and an uncertainty flag for unacknowledged dispatches; it is excluded from the Lead provider conversation. The desk identity, paired-device keys, grants, revocations and port
+history, including read-only revoked rows and an uncertainty flag for unacknowledged dispatches; it is excluded from the Lead provider conversation. Each paired phone also gets a push key of its own when it pairs, inside the
+encrypted session, and again on every later sign-in, so a phone that did not keep it has it again; the desk seals
+that phone's pushes with it (see the account section) and no service ever holds it. The desk identity, paired-device keys and push keys, grants, revocations and port
 live under `phone-link/` in the local state folder. Removing a phone closes its
 connection and requires pairing again; starting without the opt-in closes the
 LAN lane. Account sign-out and deletion do not remove this separate registry.
@@ -472,7 +474,8 @@ and reads account name, email, picture URL and linked-phone metadata. The
 host fetches the picture over HTTPS without browser cookies or a referrer,
 accepting only a bounded raster image at a public address. It passes image
 data to the renderer; the renderer keeps its local-only image policy. No prompt, file, transcript,
-agent credential or project path is sent through this lane.
+agent credential or project path is sent through this lane; a push to a linked phone travels sealed, as described
+below, and the service cannot read it.
 
 The desktop host's complete account request inventory is below. Paths are
 relative to `https://app.harnessdesk.app` by default. JSON requests carry
@@ -496,6 +499,20 @@ never become the desktop's desk token.
 | `POST /v1/account/delete` | Desk bearer token and an empty JSON object | After confirming Delete account; session renewal may first obtain a challenge and session |
 | `POST /v1/invites` | Desk bearer token and an empty JSON object | When Show code or New code is chosen in Settings › Phone while signed in, Reachable from your phone is on and the phone link runs; the one-time invite goes into the pairing code only |
 | `POST /v1/links/revoke` (queued) | As above | After a phone the account linked is removed in Settings › Phone; while the account cannot be reached, the device id waits in `relay-unlinks.json`, in the phone link's folder under the HarnessDesk home, and is sent once it can |
+| `POST /v1/push/send` | Desk bearer token; the phone's device id, its push key's number (`kid`), a 12-byte nonce, the sealed push, priority `high`, and a collapse tag (22 characters of a SHA-256 hash of the item's Inbox id) | When something newly appears in the Inbox as needing you, while signed in with Reachable from your phone on and the phone link running: one request per phone the account linked to this desk that is also paired here with Read. An item is pushed once, and not again if it returns within ten minutes; what already waited when pushing began is not pushed. The desk sends at most 30 a minute, 12 a minute per phone, holds off for a minute after the service says too many, and leaves a phone alone for ten minutes after the service has no push token for it. A failure is logged and dropped |
+
+The sealed push is AES-GCM under that phone's own push key, bound to its device id and key number, and at most
+2,048 bytes before sealing. Inside it is the contract's `PushPlaintext` (`packages/contract/src/api.ts`):
+`{"v":1,"id","ts","kind":"needs-you","title","body","deep"}`, where `id` names the push and `ts` is when it was made in
+seconds. The title is the
+conversation's or Team's name, or the Lead's name for the Lead and its questions (at most 80 characters); the body is
+one line (at most 120 characters) saying what it waits on: the Lead's question, how many things the Lead waits on, or
+for a conversation the request of its newest open approval (the command, scrubbed as the phone's transcript is; a
+single file's name or a count of files; a permission's summary; the question asked), otherwise "Waiting on you"; and
+`deep` is the Inbox's own id for the item (`ask:<id>`, `lead`, `chat:<agent>:<session>` or `team:<id>`). The account
+service checks that the phone is linked to this desk, passes the sealed push to the phone's push service with a fixed
+visible alert ("HarnessDesk", "New activity"), and sees which phone, when and how large, never the content. Source:
+`packages/server/src/phone-push.ts`.
 
 While signed in with Reachable from your phone on, and the phone link running,
 the host also keeps one connection to the relay the desk session names

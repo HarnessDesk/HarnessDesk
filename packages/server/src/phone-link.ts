@@ -3,13 +3,14 @@ import { readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import {
-  parseClientMessage, wireCodeOf, type HarnessDeskAccountStatus, type HostMethodName, type HostParams, type HostResult, type LeadAutonomyView, type PhoneLinkState,
+  leadDisplayName, parseClientMessage, wireCodeOf, type HarnessDeskAccountStatus, type HostMethodName, type HostParams, type HostResult, type LeadAutonomyView, type PhoneLinkState,
   type PhonePairing, type PhoneRelayState, type PhoneTier, type WireNotification,
 } from '@harnessdesk/protocol'
 import { PhoneCallError, PhoneLinkService, RelayLink, type AccountOffer, type Device, type PhonePolicy } from '@harnessdesk/phone-link'
-import type { PhoneInvite, RelayAccess } from './harnessdesk-account.js'
+import type { PhoneInvite, PhonePushStatus, RelayAccess, SealedPhonePush } from './harnessdesk-account.js'
 import type { Host } from './host.js'
 import type { Logger } from './log.js'
+import { PhonePushSender } from './phone-push.js'
 import { phoneAutonomy, WorkspaceFeed } from './phone-work.js'
 
 /** What the wire methods under `phone/` reach: the window decides, the service obeys. */
@@ -115,6 +116,8 @@ export interface PhoneLinkOptions {
   readonly account?: PhoneRelayAccount
   /** For tests. */
   readonly relay?: { readonly heartbeatMs?: number; readonly random?: () => number; readonly maxBackoffMs?: number }
+  /** For tests: how long changes are gathered before the Inbox is read for pushes. */
+  readonly pushDelayMs?: number
 }
 
 /** The part of the HarnessDesk account the phone link uses. The desk key stays inside it. */
@@ -124,6 +127,8 @@ export interface PhoneRelayAccount {
   relayAccess(fresh: boolean): Promise<RelayAccess>
   createPhoneInvite(): Promise<PhoneInvite>
   unlinkPhone(deviceId: string): Promise<HarnessDeskAccountStatus>
+  /** One sealed push for a phone the account linked; the account service carries it and can read none of it. */
+  sendPush(push: SealedPhonePush): Promise<PhonePushStatus>
 }
 
 export interface RunningPhoneLink {
@@ -141,6 +146,8 @@ const WORKSPACE_EVENTS = new Set([
   'approval/requested', 'approval/resolved',
 ])
 const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed', 'lead/memory/changed', 'lead/autonomy/changed'])
+/** What may change what waits on the person, so the push sender reads the Inbox again: the workspace's own, and the Lead's. */
+const PUSH_METHODS = new Set([...WORKSPACE_METHODS, 'lead/changed', 'lead/presence/changed', 'session/indexChanged', 'lead/chats/controlChanged'])
 
 /**
  * The methods whose receipts and marks name the device that made them, and the one that lets a phone do less:
@@ -212,7 +219,20 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     delayMs: options.workspaceDelayMs,
     onError: error => log.info('workspace snapshot failed', { error: error instanceof Error ? error.name : 'error' }),
   })
+  const account = options.account
+  // A push for each phone the account linked when something newly waits on the person; nothing without an account.
+  const push = account ? new PhonePushSender({
+    account, devices: () => service.devices(),
+    inbox: () => host.call('lead/inbox/read', {}),
+    leadName: async () => leadDisplayName((await host.call('lead/thread/read', {})).settings?.name ?? 'dex'),
+    log: (message, fields) => log.info(message, fields),
+    ...(options.pushDelayMs === undefined ? {} : { delayMs: options.pushDelayMs }),
+  }) : null
   const detach = host.addBroadcaster((notification: WireNotification) => {
+    if (push) {
+      if (notification.method === 'event') push.noteEvent(notification.params.runtime, notification.params.event)
+      if (PUSH_METHODS.has(notification.method) || (notification.method === 'event' && WORKSPACE_EVENTS.has(notification.params.event.type))) push.poke()
+    }
     // A Lead change can move a Team row too (its step, `canWrap`, `relayed`, who started it) without any Team event,
     // so the workspace is rebuilt as well; the feed publishes only when the snapshot differs.
     if (notification.method === 'lead/changed') { service.publish('lead', notification.params); feed.poke() }
@@ -235,7 +255,6 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     }
   }
   let closed = false
-  const account = options.account
   let relayState: PhoneRelayState = 'off'
   const unlinks = account ? await UnlinkOutbox.open(join(options.home, 'phone-link', 'relay-unlinks.json'), account, log) : null
   const relay = account ? new RelayLink({
@@ -254,6 +273,7 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
   let reachable = false
   const follow = (status: HarnessDeskAccountStatus) => {
     if (closed) return
+    push?.accountChanged()
     const next = status.status === 'signedIn' && status.desk.reachable
     if (status.status === 'signedIn') void unlinks?.flush()
     if (next === reachable) return
@@ -302,11 +322,13 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
       return () => { listeners.delete(listener); off() }
     },
   }
+  // A phone paired or removed changes who a push goes to.
+  if (push) service.onChange(change => { if (change === 'devices') push.poke() })
   host.attachPhoneLink(control)
   log.info('phone link listening', { port: service.port, deskId: service.deskId })
   return {
     service, control,
-    close: async () => { closed = true; detach(); unfollow?.(); relay?.stop(); feed.dispose(); await service.close() },
+    close: async () => { closed = true; detach(); unfollow?.(); relay?.stop(); feed.dispose(); push?.dispose(); await service.close() },
   }
 }
 
