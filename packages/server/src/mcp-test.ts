@@ -1,9 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createHmac, randomBytes } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { basename, sep } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 
-import { canonicalMcp, digestOf, findMcpDeclaration, type McpDialect, type McpServerSpec } from '@harnessdesk/agent-inventory'
+import { canonicalMcp, findMcpDeclaration, type McpDialect, type McpServerSpec } from '@harnessdesk/agent-inventory'
 import type { McpTestFailure, McpTestResult, McpTestTarget } from '@harnessdesk/protocol'
 
 import { checkEnvironment } from './evidence/run.js'
@@ -121,14 +123,15 @@ export const isLaunchVariable = (name: string): boolean => LAUNCH_VARIABLE.test(
  * variables that change what starts, with their values; every other variable
  * and every header by name only.
  */
-export const mcpTestTarget = (spec: McpServerSpec, scope: 'user' | 'project', cwd: string): McpTestTarget => {
+export const mcpTestTarget = (spec: McpServerSpec, scope: 'user' | 'project', cwd: string, readEnvNames: readonly string[] = []): McpTestTarget => {
   if (spec.transport !== 'stdio') {
-    return { transport: spec.transport, scope, url: spec.url ?? '', headerNames: Object.keys(spec.headers ?? {}).sort() }
+    return { transport: spec.transport, scope, readEnvNames, url: spec.url ?? '', headerNames: Object.keys(spec.headers ?? {}).sort() }
   }
   const names = Object.keys(spec.env ?? {}).sort()
   return {
     transport: 'stdio',
     scope,
+    readEnvNames,
     command: spec.command ?? '',
     args: [...(spec.args ?? [])],
     cwd,
@@ -137,25 +140,26 @@ export const mcpTestTarget = (spec: McpServerSpec, scope: 'user' | 'project', cw
   }
 }
 
-/** What a confirmation vouches for: the whole declaration and where it runs, values included, digested. */
-const targetDigest = (spec: McpServerSpec, cwd: string): string => digestOf(`${canonicalMcp(spec)}\n${cwd}`)
+/** A renderer-visible digest must not be an offline oracle for short credentials. */
+const CONFIRMATION_KEY = randomBytes(32)
+const targetDigest = (spec: McpServerSpec, cwd: string, names: readonly string[]): string =>
+  createHmac('sha256', CONFIRMATION_KEY).update(JSON.stringify([canonicalMcp(spec), cwd, [...names].sort()])).digest('hex').slice(0, 16)
 
 /**
  * The location table identifies the reader; JSON alone does not identify a dialect.
- * Claude: https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcp-json
- * Cursor: https://cursor.com/docs/mcp#config-interpolation (env:NAME, not bare NAME).
- * Gemini: packages/cli/src/utils/envVarResolver.ts in google-gemini/gemini-cli,
- * applied recursively by its settings loader: bare $NAME and braced defaults too.
- * Codex strings are literal; env_vars explicitly forwards names from its environment:
- * https://developers.openai.com/codex/mcp#stdio-servers
+ * Braced references and defaults expand in the JSON fields the inventory carries.
+ * The cursor dialect uses env:NAME and its home/project/path placeholders;
+ * the gemini dialect also supports bare $NAME and Windows percent references.
+ * The codex dialect keeps strings literal and forwards env_vars that are set.
  *
- * No shell, recursive substitution, or evaluation of nested braces. Missing names
+ * No shell, recursive substitution, or nested defaults. Missing JSON names
  * refuse the probe even where an agent would warn and keep the placeholder.
  */
 export const expandMcpTestSpec = (
   declaration: McpServerSpec,
   dialect: McpDialect,
   from: NodeJS.ProcessEnv = process.env,
+  context: { readonly home?: string; readonly cwd?: string } = {},
 ): { spec: McpServerSpec; names: readonly string[]; secrets: readonly string[] } => {
   const names = new Set<string>()
   const secrets = new Set<string>()
@@ -163,8 +167,10 @@ export const expandMcpTestSpec = (
     names.add(name)
     const value = Object.hasOwn(from, name) ? from[name] : undefined
     if (value === undefined && fallback === undefined) throw new TestFailure('notFound', `Environment variable ${name} is not set. Set it before testing this server.`)
+    // Claude's MCP documentation explicitly says empty-but-set counts as set:
+    // a braced default is used only when the variable is absent, not empty.
     const resolved = value ?? fallback ?? ''
-    if (resolved !== '') secrets.add(resolved)
+    if (value !== undefined && value.length >= 4) secrets.add(value)
     return resolved
   }
   const expand = (text: string): string => {
@@ -184,9 +190,17 @@ export const expandMcpTestSpec = (
         const whole = text.slice(i, end)
         const body = text.slice(i + 2, end - 1)
         const match = !nested && depth === 0
-          ? dialect === 'cursor' ? /^env:([^{}]+)$/.exec(body) : /^([A-Za-z_][A-Za-z0-9_]*)(?::-([^{}]*))?$/.exec(body)
+          ? dialect === 'cursor' ? /^env:([A-Za-z_][A-Za-z0-9_]*)$/.exec(body) : /^([A-Za-z_][A-Za-z0-9_]*)(?::-([^{}]*))?$/.exec(body)
           : null
-        out += match?.[1] ? read(match[1], match[2]) : whole
+        let replacement: string | undefined
+        if (!nested && depth === 0 && dialect === 'cursor') {
+          if (body === 'userHome') replacement = context.home ?? homedir()
+          else if (body === 'pathSeparator' || body === '/') replacement = sep
+          else if ((body === 'workspaceFolder' || body === 'workspaceFolderBasename') && context.cwd !== undefined) {
+            replacement = body === 'workspaceFolder' ? context.cwd : basename(context.cwd)
+          }
+        }
+        out += replacement ?? (match?.[1] ? read(match[1], match[2]) : whole)
         i = end
       } else if (dialect === 'gemini' && text[i] === '$') {
         const match = /^\$([A-Za-z_][A-Za-z0-9_]*)/.exec(text.slice(i))
@@ -202,7 +216,11 @@ export const expandMcpTestSpec = (
   }
   const record = (values: Readonly<Record<string, string>>): Record<string, string> =>
     Object.fromEntries(Object.entries(values).map(([name, value]) => [name, expand(value)]))
-  const forwarded = Object.fromEntries((declaration.envVars ?? []).map(name => [name, read(name)]))
+  const forwarded: Record<string, string> = {}
+  for (const name of declaration.envVars ?? []) {
+    names.add(name)
+    if (Object.hasOwn(from, name) && from[name] !== undefined) forwarded[name] = read(name)
+  }
   return {
     spec: {
       ...declaration,
@@ -251,8 +269,9 @@ const MCP_FAMILY = /^(?:LC_|XDG_)/
  * alike: the small set of names a check gets from the desk
  * (`checkEnvironment` — where tools are, whose account, locale, proxy), the
  * names in `MCP_EXTRA_NAMES`, every `LC_*` and `XDG_*`, then the server's own
- * configured variables on top. Nothing else of the desk's — no
- * `HARNESSDESK_*`, no `HD_*`, no token — reaches it. A proxy the desk passes
+ * configured variables on top, including explicit environment references. No
+ * other desk variable is implicitly inherited; a declaration may explicitly
+ * read a credential or token. A proxy the desk passes
  * on goes without the user name and password in its URL; a proxy the
  * declaration sets itself is its own and is passed as written.
  */
@@ -319,8 +338,8 @@ const converse = async (request: Request, notify: Notify, phase: { current: stri
 /** A JSON-RPC reply to one of our requests, or the failure it carries. */
 const settleReply = (method: string, message: Record<string, unknown>, mask: (text: string) => string): unknown => {
   if (isRecord(message['error'])) {
-    const said = typeof message['error']['message'] === 'string' ? message['error']['message'] : 'an error'
-    throw new TestFailure('protocol', `It answered ${method} with an error: ${mask(said).slice(0, 300)}`)
+    const said = typeof message['error']['message'] === 'string' ? mask(message['error']['message']).slice(0, 300) : 'an error'
+    throw new TestFailure('protocol', `It answered ${method} with an error: ${said}`)
   }
   return message['result']
 }
@@ -440,7 +459,7 @@ const runStdio = async (
 
   const phase = { current: 'initialize' }
   child.on('error', (error: NodeJS.ErrnoException) =>
-    fail(new TestFailure('spawnFailed', error.code === 'ENOENT' ? `Could not start ${command}: no such command.` : `Could not start ${command}: ${error.code ?? error.message}.`)),
+    fail(new TestFailure('spawnFailed', error.code === 'ENOENT' ? `Could not start ${mask(command)}: no such command.` : `Could not start ${mask(command)}: ${mask(error.code ?? error.message)}.`)),
   )
   child.on('exit', (code, signal) => {
     fail(new TestFailure('spawnFailed', `It exited (${signal ?? `code ${code ?? 'unknown'}`}) before it answered ${phase.current}.`))
@@ -610,7 +629,7 @@ const statusFailure = (response: Response, mask: (text: string) => string): Test
     return new TestFailure('httpError', `It answered HTTP ${response.status}, a redirect; a test does not follow one.`)
   }
   if (!response.ok) {
-    return new TestFailure('httpError', mask(`It answered HTTP ${response.status}${response.statusText ? ` ${plain(response.statusText).slice(0, 80)}` : ''}.`))
+    return new TestFailure('httpError', `It answered HTTP ${response.status}${response.statusText ? ` ${plain(mask(response.statusText)).slice(0, 80)}` : ''}.`)
   }
   return null
 }
@@ -826,8 +845,10 @@ export interface McpTestRunOptions {
   readonly timeoutMs?: number
   /** Where the minimal environment's names are read from; the desk's own by default. */
   readonly baseEnv?: NodeJS.ProcessEnv
-  /** Resolved reference values are masked even when shorter than ordinary configured secrets. */
+  /** Only real desk values of at least four characters enter this mask. */
   readonly secrets?: readonly string[]
+  /** Original configured secrets, before expansion, so defaults are not treated as desk secrets. */
+  readonly declaration?: McpServerSpec
   readonly fetch?: typeof fetch
   /** Ends the test early, as its deadline would. */
   readonly signal?: AbortSignal
@@ -838,8 +859,8 @@ export interface McpTestRunOptions {
 /** Run one test against one declaration. Never throws; every failure is an answer. */
 export const runMcpTest = async (spec: McpServerSpec, options: McpTestRunOptions): Promise<McpTestResult> => {
   const started = Date.now()
-  const configuredMask = mcpSecretMask(spec)
-  const secrets = [...(options.secrets ?? [])].filter(value => value !== '').sort((a, b) => b.length - a.length)
+  const configuredMask = mcpSecretMask(options.declaration ?? spec)
+  const secrets = [...(options.secrets ?? [])].filter(value => value.length >= 4).sort((a, b) => b.length - a.length)
   const mask = (text: string): string => configuredMask(secrets.reduce((out, value) => out.split(value).join('•••'), text))
   // Keep one whole reference value before the visible tail, so truncating
   // stderr cannot cut a long value before it has had a chance to be masked.
@@ -873,7 +894,7 @@ export const runMcpTest = async (spec: McpServerSpec, options: McpTestRunOptions
     return {
       ok: false,
       reason: failure.reason,
-      detail: mask(plain(failure.message)),
+      detail: plain(failure.message),
       ms: Date.now() - started,
       ...(tail !== '' ? { stderr: tail } : {}),
     }
@@ -919,11 +940,11 @@ export class McpConnectionTests {
     const cwd = params.cwd ?? this.#home
     let resolved: ReturnType<typeof expandMcpTestSpec>
     try {
-      resolved = expandMcpTestSpec(found.spec, found.dialect, this.#baseEnv)
+      resolved = expandMcpTestSpec(found.spec, found.dialect, this.#baseEnv, { home: this.#home, ...(params.cwd !== undefined ? { cwd: params.cwd } : {}) })
     } catch (error) {
       return { ok: false, reason: 'notFound', detail: error instanceof TestFailure ? error.message : 'The environment references could not be read.', ms: 0 }
     }
-    const digest = targetDigest(resolved.spec, cwd)
+    const digest = targetDigest(resolved.spec, cwd, resolved.names)
     if (found.scope === 'project' && params.confirmed !== digest) {
       return {
         ok: false,
@@ -935,7 +956,7 @@ export class McpConnectionTests {
         target: mcpTestTarget({ ...found.spec, env: {
           ...Object.fromEntries((found.spec.envVars ?? []).map(name => [name, `\${${name}}`])),
           ...found.spec.env,
-        } }, found.scope, cwd),
+        } }, found.scope, cwd, resolved.names),
         digest,
       }
     }
@@ -957,6 +978,7 @@ export class McpConnectionTests {
       return await runMcpTest(resolved.spec, {
         cwd,
         secrets: resolved.secrets,
+        declaration: found.spec,
         signal: this.#stop.signal,
         track: (child) => {
           this.#children.add(child)

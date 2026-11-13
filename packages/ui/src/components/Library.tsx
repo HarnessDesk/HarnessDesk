@@ -221,6 +221,12 @@ const FILTER_WORDS: Record<Filter, string> = {
   unused: 'Never fired',
 }
 
+/** One action for the first usable copy; identity changes discard the old copy's result. */
+const mcpListTest = (entry: LibraryEntry, cwd: string | undefined, home: string | undefined) => {
+  const copy = entry.copies.find(copy => !copy.hollow)
+  return copy ? <McpConnectionTest key={copy.path} compact name={entry.name} path={copy.path} cwd={cwd} readBy={copy.readBy} home={home} /> : undefined
+}
+
 interface LibrarySectionProps { readonly id?: string; readonly section: LibraryKind; readonly onSection: (kind: LibraryKind) => void; readonly importIntent: number }
 export const LibrarySection = (props: LibrarySectionProps) => <LibraryBody {...props} />
 const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: LibrarySectionProps) => {
@@ -787,10 +793,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
               entry={entry}
               columns={columns}
               onOpen={() => openEntry(entry)}
-              actions={(() => {
-                const copy = entry.copies.find(copy => !copy.hollow)
-                return copy ? <McpConnectionTest compact name={entry.name} path={copy.path} cwd={cwd} readBy={copy.readBy} home={library?.home} /> : undefined
-              })()}
+              actions={mcpListTest(entry, cwd, library?.home)}
             />
           ))}
         </SkillList>

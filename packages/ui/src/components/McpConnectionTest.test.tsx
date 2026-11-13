@@ -2,7 +2,7 @@ import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { runtimeId, type McpTestResult, type RuntimeInfo } from '@harnessdesk/protocol'
+import { runtimeId, type McpTestResult, type McpTestTarget, type RuntimeInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -194,4 +194,45 @@ it('needs sign-in explains ownership when no reading agent offers its own sign-i
   expect(container.textContent).toContain('Needs sign-in')
   expect(container.textContent).toContain('Its agent signs in to it, not this page.')
   expect(button('Sign in')).toBeUndefined()
+})
+
+
+it('confirmation names every desk variable without exposing values', async () => {
+  mount([{ ok: false, reason: 'confirm', detail: 'Check it.', digest: 'd', ms: 0,
+    target: { transport: 'http', scope: 'project', url: 'https://mcp.acme.dev/mcp', headerNames: ['Authorization'], readEnvNames: ['AWS_SECRET_ACCESS_KEY', 'GITHUB_TOKEN'] } as McpTestTarget,
+  }])
+  await act(async () => button('Test connection')!.click())
+  expect(document.querySelector('[role="alertdialog"]')!.textContent).toContain('Reads from this desk: AWS_SECRET_ACCESS_KEY, GITHUB_TOKEN')
+})
+
+it('confirmation omits the desk-variable line when none are read', async () => {
+  mount([{ ok: false, reason: 'confirm', detail: 'Check it.', digest: 'd', ms: 0,
+    target: { transport: 'http', scope: 'project', url: 'https://mcp.acme.dev/mcp', headerNames: [], readEnvNames: [] } as McpTestTarget,
+  }])
+  await act(async () => button('Test connection')!.click())
+  expect(document.querySelector('[role="alertdialog"]')!.textContent).not.toContain('Reads from this desk:')
+})
+
+it('a failed list chip opens a keyboard-accessible reason and server output', async () => {
+  mount([{ ok: false, reason: 'spawnFailed', detail: 'Missing executable.', stderr: 'Server stopped.', ms: 0 }], { compact: true })
+  await act(async () => button('Test')!.click())
+  const failed = button('Did not start')
+  expect(failed).toBeDefined()
+  await act(async () => failed!.click())
+  const dialog = document.querySelector('[role="dialog"]')!
+  expect(dialog.textContent).toContain('Missing executable.')
+  expect(dialog.textContent).toContain('Server stopped.')
+})
+
+it('a missing variable has its own chip wording without changing the wire reason', async () => {
+  mount([{ ok: false, reason: 'notFound', detail: 'Environment variable API_KEY is not set. Set it before testing this server.', ms: 0 }])
+  await act(async () => button('Test connection')!.click())
+  expect(container.textContent).toContain('Variable not set')
+  expect(container.textContent).not.toContain('Not found')
+})
+
+it('success without a server name has no empty segment in its title', async () => {
+  mount([{ ok: true, tools: 12, ms: 40 }])
+  await act(async () => button('Test connection')!.click())
+  expect(container.querySelector('[title="12 tools · answered in 40 ms"]')).not.toBeNull()
 })

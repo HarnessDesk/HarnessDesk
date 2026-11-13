@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import type { Library, LibraryEntry, McpTestResult } from '@harnessdesk/protocol'
+import type { HostParams, Library, LibraryEntry, McpTestResult, RuntimeId } from '@harnessdesk/protocol'
 
 import { App } from '../app/App'
 import { McpConnectionTest } from '../components/McpConnectionTest'
@@ -12,32 +12,54 @@ import { Frame } from './main'
 const answer: McpTestResult = { ok: false, reason: 'needsSignIn', detail: 'It asks for sign-in.', ms: 120 }
 
 /** Real Library and wire-shaped fakes only; never a real account or server. */
-export function mcpTestStore() {
-  const store = frameDestinationStore(previewStore())
-  const runtime = store.getSnapshot().runtimes.find(runtime => runtime.capabilities.mcp)!
+type McpTestOutcome = 'pass' | 'fail' | 'needsSignIn'
+type McpTestObservation = { calls: HostParams<'library/mcp/test'>[]; logins: { name: string; runtime: RuntimeId | null }[] }
+declare global { interface Window { __mcpTest?: McpTestObservation } }
+
+export function mcpTestStore(outcome: McpTestOutcome = 'pass') {
+  const seed = previewStore().getSnapshot()
+  const primary = seed.runtimes[0]!
+  const runtime = { ...primary, capabilities: { ...primary.capabilities, mcp: true } }
+  const store = frameDestinationStore(previewStore({ runtimes: [runtime, ...seed.runtimes.slice(1)] }))
   const entry: LibraryEntry = {
     kind: 'mcp', name: 'workspace-tools', title: 'Workspace tools', description: 'Tools for the demo workspace.',
-    copies: [{ path: '/home/jane/.claude.json', scope: 'user', readBy: [runtime.id], digest: 'demo', hollow: false, readOnly: false }],
+    copies: [
+      { path: '/home/jane/.cursor/mcp.json', scope: 'user', readBy: [], digest: null, hollow: true, readOnly: false },
+      { path: '/home/jane/.claude.json', scope: 'user', readBy: [runtime.id], digest: 'demo', hollow: false, readOnly: false },
+    ],
     reach: [{ runtime: runtime.id, state: 'reaches', basis: 'scanned' }],
   }
+  const copy = entry.copies.find(copy => !copy.hollow)!
+  const calls: McpTestObservation['calls'] = []
+  const logins: McpTestObservation['logins'] = []
   const library: Library = { ...LIBRARY, home: '/home/jane', entries: [entry] }
   const request = store.transport.request.bind(store.transport)
   store.transport.request = (async (method, params) => {
     if (method === 'library/read') return library
-    if (method === 'library/definition') return { kind: 'mcp', name: entry.name, path: entry.copies[0]!.path,
+    if (method === 'library/definition') return { kind: 'mcp', name: entry.name, path: copy.path,
       text: '{"command":"node","args":["demo-tools.js"]}', truncated: false, files: [], moreFiles: 0 }
-    if (method === 'library/mcp/test') return { ok: true, tools: 12, serverName: entry.name, ms: 40 }
+    if (method === 'library/mcp/test') {
+      calls.push({ ...params as HostParams<'library/mcp/test'> })
+      return outcome === 'pass' ? { ok: true, tools: 12, ms: 40 }
+        : outcome === 'fail' ? { ok: false, reason: 'spawnFailed', detail: 'The demo server did not start.', ms: 8 }
+        : { ok: false, reason: 'needsSignIn', detail: 'It asks for sign-in.', ms: 8 }
+    }
     if (method === 'runtime/mcp/login') return undefined
     return request(method, params)
   }) as typeof store.transport.request
-  store.mcpLogin = async () => {}
+  store.mcpLogin = async (name, runtime = store.getSnapshot().activeRuntime) => { logins.push({ name, runtime }) }
   store.openDestination({ kind: 'library', section: 'mcp' })
-  return { store, entry, runtime }
+  return { store, entry, copy, runtime, calls, logins }
 }
 
-/** Browser specs open an entry from this real list, then stub only its wire. */
+/** The query selects a fake wire outcome; the hook observes identities without rewriting served code. */
 export const McpTestPreview = () => {
-  const { store } = useMemo(mcpTestStore, [])
+  const { store } = useMemo(() => {
+    const outcome = new URLSearchParams(location.search).get('mcp-test-outcome')
+    const fixture = mcpTestStore(outcome === 'fail' || outcome === 'needsSignIn' ? outcome : 'pass')
+    window.__mcpTest = { calls: fixture.calls, logins: fixture.logins }
+    return fixture
+  }, [])
   return <StoreProvider store={store}><App /></StoreProvider>
 }
 
@@ -67,7 +89,7 @@ const ResultFrame = ({ list = false, canSignIn = true }: { list?: boolean; canSi
     observer.observe(element, { childList: true, subtree: true })
     return () => observer.disconnect()
   }, [])
-  const test = <McpConnectionTest compact={list} name={fixture.entry.name} path={fixture.entry.copies[0]!.path}
+  const test = <McpConnectionTest compact={list} name={fixture.entry.name} path={fixture.copy.path}
     cwd={undefined} readBy={canSignIn ? [fixture.runtime.id] : []} home="/home/jane" />
   return <StoreProvider store={fixture.store}><div ref={host} className="p-4">
     {list ? <SkillList kind="mcp"><SkillRow entry={fixture.entry} columns={[{ id: fixture.runtime.id, label: fixture.runtime.presentation.name }]}

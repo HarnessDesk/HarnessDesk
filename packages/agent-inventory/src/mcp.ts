@@ -147,6 +147,54 @@ const decodeJsonEntry = (name: string, entry: unknown, dialect: McpDialect): Mcp
   return { name, transport, url: resolved, ...(headers ? { headers } : {}) }
 }
 
+/** Read a TOML string array without treating quoted brackets or comments as syntax. */
+const tomlStringArray = (text: string): string[] | null => {
+  if (text[0] !== '[') return null
+  let i = 1
+  const values: string[] = []
+  const skip = () => {
+    for (;;) {
+      while (i < text.length && /\s/.test(text[i]!)) i++
+      if (text[i] !== '#') break
+      while (i < text.length && text[i] !== '\n') i++
+    }
+  }
+  const finish = (): string[] | null =>
+    /^[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$)/.test(text.slice(i + 1)) ? values : null
+  for (;;) {
+    skip()
+    if (text[i] === ']') return finish()
+    const quote = text[i++]
+    if (quote !== '"' && quote !== "'") return null
+    let value = ''
+    let closed = false
+    while (i < text.length) {
+      const char = text[i++]!
+      if (char === quote) { closed = true; break }
+      if (char < ' ' || char === '\x7f') return null
+      if (quote === '"' && char === '\\') {
+        const escape = text[i++]
+        const escapes: Record<string, string> = { b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', '"': '"', '\\': '\\' }
+        if (escape !== undefined && Object.hasOwn(escapes, escape)) value += escapes[escape]
+        else if (escape === 'u' || escape === 'U') {
+          const length = escape === 'u' ? 4 : 8
+          const hex = text.slice(i, i + length)
+          if (hex.length !== length || !/^[0-9a-f]+$/i.test(hex)) return null
+          const point = Number.parseInt(hex, 16)
+          if (point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff)) return null
+          value += String.fromCodePoint(point)
+          i += length
+        } else return null
+      } else value += char
+    }
+    if (!closed) return null
+    values.push(value)
+    skip()
+    if (text[i] === ']') return finish()
+    if (text[i++] !== ',') return null
+  }
+}
+
 /** One `[mcp_servers.<name>]` table body → canonical. */
 const decodeTomlEntry = (name: string, body: string): McpServerSpec | null => {
   const string = (key: string): string | undefined =>
@@ -189,14 +237,12 @@ const decodeTomlEntry = (name: string, body: string): McpServerSpec | null => {
     }
 
     let envVars: string[] | undefined
-    const envVarsRaw = /^\s*env_vars\s*=\s*(\[[^\]]*\])/m.exec(body)?.[1]
-    if (envVarsRaw !== undefined) {
-      try {
-        const parsed = stringArray(JSON.parse(envVarsRaw))
-        if (parsed === LOSSY) return null
-        envVars = parsed
-      } catch { return null }
-    } else if (/^\s*env_vars\s*=/m.test(body)) return null
+    const envVarsStart = /^\s*env_vars\s*=\s*/m.exec(body)
+    if (envVarsStart) {
+      const parsed = tomlStringArray(body.slice(envVarsStart.index + envVarsStart[0].length))
+      if (parsed === null) return null
+      envVars = parsed
+    }
 
     return {
       name,

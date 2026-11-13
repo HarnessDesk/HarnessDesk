@@ -1302,7 +1302,8 @@ export interface HostMethods {
    * against the location table), never a command: the host reads the
    * command, variables, URL and headers from that file itself. A server
    * declared in a project's own file answers `confirm` until `confirmed`
-   * carries the digest of the target the person was shown.
+   * carries the keyed digest of the target and every desk environment name
+   * the person was shown. Reference values stay in the host.
    */
   'library/mcp/test': {
     params: { readonly name: string; readonly path: string; readonly cwd?: string; readonly confirmed?: string }

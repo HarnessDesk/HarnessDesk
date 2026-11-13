@@ -114,3 +114,23 @@ test('malformed TOML env_vars refuse rather than silently dropping pass-through 
     assert.equal(decodeRawMcpEntry(`command = "node"\nenv_vars = ${value}`, 'toml', 'probe', 'codex'), null)
   }
 })
+
+for (const [label, raw] of [
+  ['multiline trailing comma', '[\n  "A",\n  "B",\n]'],
+  ['single-quoted strings', "['A', 'B']"],
+  ['comments inside the array', '[\n # names to forward\n "A", # first name\n "B",\n]'],
+  ['quoted delimiters', `["A#B", 'C]D', "E,F"]`],
+] as const) test(`Codex env_vars accepts ${label} and round-trips it`, () => {
+  const spec = decodeRawMcpEntry(`command = "node"\nenv_vars = ${raw}`, 'toml', 'probe', 'codex')
+  assert.ok(spec)
+  const expected = label === 'quoted delimiters' ? ['A#B', 'C]D', 'E,F'] : ['A', 'B']
+  assert.deepEqual(spec.envVars, expected)
+  const encoded = applyMcpEdit(null, 'toml', 'mcp_servers', 'probe', spec, 'codex')
+  assert.deepEqual(decodeMcpEntry(encoded, 'toml', 'mcp_servers', 'probe', 'codex')?.envVars, expected)
+})
+
+test('Codex env_vars refuses malformed separators, strings and trailing junk', () => {
+  for (const raw of ['["A" "B"]', '[,"A"]', '["A",,"B"]', '["A]', '["A"] junk', '["A"\ncommand = "other"']) {
+    assert.equal(decodeRawMcpEntry(`command = "node"\nenv_vars = ${raw}`, 'toml', 'probe', 'codex'), null, raw)
+  }
+})

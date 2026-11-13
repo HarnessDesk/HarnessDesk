@@ -146,7 +146,7 @@ export const SkillRow = ({ entry, columns, onOpen, actions }: {
     members={members}
   /> : <span>{narrow && <span className="sr-only">Loaded by </span>}<Text role="muted" ink="muted" title={narrow ? 'Loaded by none' : undefined}>None</Text></span>
   if (narrow) return <ListRow
-    as={actions ? "div" : "button"}
+    as={actions ? 'div' : 'button'}
     interactive
     data-slot="skill-row"
     onClick={onOpen}
