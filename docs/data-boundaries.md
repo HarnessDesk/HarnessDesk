@@ -407,7 +407,16 @@ last good copy, or nothing, in its place.
   and stops it, within 15 seconds. A local command runs in its own process
   group with the variables it declares on top of a minimal environment (no
   HarnessDesk variables, a proxy without its user name and password, in the
-  project folder for a project's server); a remote server is asked at the
+  project folder for a project's server). The same environment, and the same
+  group, serve a tool call or listing an approved attachment server makes. The
+  environment is `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, the locale names
+  and every `LC_*`, every `XDG_*`, `TZ`, `TMPDIR`, `TEMP`, `TMP`, the proxy
+  names (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and their lower-case forms),
+  the certificate names (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`,
+  `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`), and on Windows
+  `SystemRoot`, `windir`, `ComSpec`, `PATHEXT`, `USERPROFILE`, `APPDATA`,
+  `LOCALAPPDATA` and `ProgramData`; no credential, token or agent socket is
+  among them; a remote server is asked at the
   address it declares, with the headers it declares, no redirect followed,
   and its session ended afterwards. A server the project's own file declares
   shows its exact command or address first, with the variables that decide
