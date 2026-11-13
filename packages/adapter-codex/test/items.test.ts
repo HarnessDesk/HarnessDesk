@@ -546,6 +546,36 @@ test('a delegation keeps the handles it can open and drops the rest (#272)', () 
   }
 })
 
+test('a sub-agent announced by activity items reads as the calls did (Codex 0.160)', () => {
+  // Shape measured on codex-cli 0.160.0: no spawn call, an activity per step, the path's last segment the name.
+  const activity = (kind: string, fields: Record<string, unknown> = {}) =>
+    map({ type: 'subAgentActivity', id: `activity-${kind}`, kind, agentThreadId: 'thread-child', agentPath: '/root/alpha', model: null, reasoningEffort: null, ...fields } as unknown as Parameters<typeof mapItem>[0])
+  const started = activity('started', { model: 'gpt-6.1-sol' })
+  assert.deepEqual(started, {
+    id: 'activity-started',
+    type: 'subagent',
+    action: 'spawnAgent',
+    status: 'completed',
+    prompt: null,
+    model: 'gpt-6.1-sol',
+    members: [{ sessionId: 'thread-child', nickname: 'alpha', role: null, state: 'running' }],
+  })
+  const word = (kind: string) => {
+    const mapped = activity(kind)
+    return mapped.type === 'subagent' ? [mapped.action, mapped.members[0]?.state] : null
+  }
+  assert.deepEqual(word('interacted'), ['sendInput', 'running'])
+  assert.deepEqual(word('interrupted'), ['interruptAgent', 'interrupted'])
+  assert.deepEqual(word('completed'), ['agentCompleted', 'completed'])
+  // A kind a later Codex adds names the child without claiming a state.
+  assert.deepEqual(word('paused'), ['subAgentActivity', null])
+  // No thread is nothing to open, and no path is no name.
+  const bare = activity('started', { agentThreadId: '', agentPath: '' })
+  assert.deepEqual(bare.type === 'subagent' ? bare.members : null, [])
+  const nameless = activity('started', { agentPath: '' })
+  assert.deepEqual(nameless.type === 'subagent' ? nameless.members[0]?.nickname : undefined, null)
+})
+
 test('a contentItems that is present but falsy is a container that arrived, not "nothing came" (#272)', () => {
   /* `!items` collapsed every falsy value into the one answer reserved for `null`. Measured before: `0`,
      `false` and `''` each mapped to an item with no `result` at all — the wire's own word for "the call

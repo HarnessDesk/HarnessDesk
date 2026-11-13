@@ -1,15 +1,15 @@
-import { useEffect, useMemo } from 'react'
+import { Fragment, useEffect, useMemo } from 'react'
 
-import { allItems, type Session, type SessionId, type SubagentItem, type TokenUsage } from '@harnessdesk/protocol'
+import { allItems, type Session, type SessionId } from '@harnessdesk/protocol'
 
 import { defaultTint } from '../lib/accounts'
-import { formatTokensWithFloor } from '../lib/context-usage'
-import { sanitizeText } from '../lib/sanitize'
+import { PHASE_WORDS, type ChildPhase, type ChildRow } from '../lib/subagent-flow'
 import { useActiveSession, useStore } from '../state/context'
 import type { ReportFoot } from './Details'
 import { AgentIcon } from './Icons'
 import { IconTile } from '../design'
-import { PanelEmpty, PanelRow, RunDot } from './Panel'
+import { GroupLine, PanelEmpty, PanelRow, RunDot } from './Panel'
+import { childFacts, SubagentLanes, useChildren, useNow } from './SubagentFlow'
 
 /**
  * Every sub-agent this session started, in one place.
@@ -23,55 +23,20 @@ import { PanelEmpty, PanelRow, RunDot } from './Panel'
  * glyphs.
  */
 
-interface Entry {
-  readonly sessionId: string
-  readonly nickname: string
-  readonly role: string | null
-  readonly state: string | null
-  readonly prompt: string | null
-  readonly model: string | null
-  /** What this child spent, where the runtime attributes it. Null otherwise. */
-  readonly usage: TokenUsage | null
-  /** False where the child's id is a handle rather than a conversation. */
-  readonly openable: boolean
-}
-
 export const hasSessionAgents = (session: Session | null): boolean => Boolean(session && allItems(session).some(item => item.type === 'subagent' && item.members.length > 0))
 
-const RUNNING = new Set(['running', 'active', 'started', 'working'])
+/** Working first, then failures that want a look, then the rest. */
+const GROUPS: readonly { readonly label: string; readonly phases: readonly ChildPhase[] }[] = [
+  { label: 'Working', phases: ['working'] },
+  { label: 'Failed', phases: ['failed'] },
+  { label: 'Finished', phases: ['done', 'stopped', 'ended'] },
+]
 
 export const Agents = ({ query, onFoot }: { query: string; onFoot: ReportFoot }) => {
   const store = useStore()
   const session = useActiveSession()
-
-  const agents = useMemo(() => {
-    if (!session) return []
-    const byId = new Map<string, Entry>()
-    for (const item of allItems(session)) {
-      if (item.type !== 'subagent') continue
-      const call = item as SubagentItem
-      for (const member of call.members) {
-        // Later calls carry fresher state, so a repeat overwrites rather than
-        // duplicating the same agent.
-        const before = byId.get(member.sessionId)
-        byId.set(member.sessionId, {
-          sessionId: member.sessionId,
-          nickname: sanitizeText(member.nickname ?? member.sessionId.slice(0, 8)),
-          role: member.role ?? null,
-          state: member.state ?? null,
-          prompt: call.prompt ? sanitizeText(call.prompt) : before?.prompt ?? null,
-          // The child's own model where the runtime names one per child, and
-          // the call's otherwise. All three runtimes now let one delegation
-          // address children on different models, so the call's model is a
-          // default and not the answer.
-          model: member.model ?? call.model ?? before?.model ?? null,
-          usage: member.usage ?? call.usage ?? before?.usage ?? null,
-          openable: member.openable !== false,
-        })
-      }
-    }
-    return [...byId.values()]
-  }, [session])
+  const agents = useChildren(session)
+  const now = useNow(agents.some(agent => agent.phase === 'working'))
 
   const needle = query.trim().toLowerCase()
   const shown = useMemo(
@@ -80,14 +45,20 @@ export const Agents = ({ query, onFoot }: { query: string; onFoot: ReportFoot })
         ? agents
         : agents.filter(
             (agent) =>
-              agent.nickname.toLowerCase().includes(needle) ||
+              agent.name.toLowerCase().includes(needle) ||
               (agent.prompt ?? '').toLowerCase().includes(needle) ||
               (agent.role ?? '').toLowerCase().includes(needle),
           ),
     [agents, needle],
   )
 
-  const running = agents.filter((agent) => RUNNING.has(agent.state ?? '')).length
+  const running = agents.filter((agent) => agent.phase === 'working').length
+  const open = (agent: ChildRow) => {
+    // A sub-agent runs under the agent that started it, so this session's
+    // runtime is the one that can read it. Without that, the id goes to
+    // whichever agent happens to be active.
+    if (session) void store.openSession(agent.id as SessionId, { runtime: session.runtime })
+  }
 
   useEffect(() => {
     onFoot(
@@ -107,53 +78,53 @@ export const Agents = ({ query, onFoot }: { query: string; onFoot: ReportFoot })
 
   if (shown.length === 0) return <PanelEmpty>No sub-agents match that filter.</PanelEmpty>
 
+  const groups = GROUPS.map(group => ({ ...group, rows: shown.filter(agent => group.phases.includes(agent.phase)) })).filter(group => group.rows.length > 0)
+
   return (
     <>
-      {shown.map((agent) => (
-        <PanelRow
-          key={agent.sessionId}
-          mark={
-            <IconTile size="sm" shape="face" tint={defaultTint(agent.sessionId)} badge="↳" title={`Sub-agent of ${session?.title || 'this conversation'}`}>
-              <AgentIcon size={12} />
-            </IconTile>
-          }
-          title={
-            <>
-              {agent.nickname}
-              {RUNNING.has(agent.state ?? '') && <RunDot />}
-            </>
-          }
-          {...(agent.prompt ? { ask: agent.prompt } : {})}
-          meta={[
-            agent.state,
-            // Codex names a child's role; the ACP extension puts the asked-for
-            // model here when it differs from what actually ran. Both are the
-            // same slot: what this child was meant to be.
-            agent.role,
-            agent.model,
-            // What it cost, where the runtime attributes spend to a child.
-            // Absent rather than zeroed for the runtimes that cannot: a
-            // sub-agent shown as having spent nothing is a claim, and one
-            // that is usually false.
-            agent.usage && agent.usage.totalTokens > 0 ? `${formatTokensWithFloor(agent.usage)} tokens` : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-          // A child with a conversation of its own opens; one that ran inside
-          // this session has none, and gets a row rather than a press that
-          // fails. Codex gives its children threads; Claude Code does not.
-          {...(agent.openable
-            ? {
-                tooltip: [`Open ${agent.sessionId}`, agent.prompt].filter(Boolean).join('\n\n'),
-                // A sub-agent runs under the agent that started it, so this
-                // session's runtime is the one that can read it. Without that,
-                // the id goes to whichever agent happens to be active.
-                onClick: () => {
-                  if (session) void store.openSession(agent.sessionId as SessionId, { runtime: session.runtime })
-                },
+      {needle.length === 0 && <SubagentLanes onPick={open} />}
+      {groups.map(group => (
+        <Fragment key={group.label}>
+          {groups.length > 1 && <GroupLine left={`${group.label} · ${group.rows.length}`} />}
+          {group.rows.map((agent) => (
+            <PanelRow
+              key={agent.id}
+              mark={
+                <IconTile size="sm" shape="face" tint={defaultTint(agent.id)} badge="↳" title={`Sub-agent of ${session?.title || 'this conversation'}`}>
+                  <AgentIcon size={12} />
+                </IconTile>
               }
-            : { tooltip: ['Ran inside this conversation; it has none of its own to open.', agent.prompt].filter(Boolean).join('\n\n') })}
-        />
+              title={
+                <>
+                  {agent.name}
+                  {agent.phase === 'working' && <RunDot />}
+                </>
+              }
+              {...(agent.prompt ? { ask: agent.prompt } : {})}
+              meta={[
+                agent.phase === 'working' ? null : PHASE_WORDS[agent.phase],
+                // Codex names a child's role; the ACP extension puts the
+                // asked-for model here when it differs from what actually ran.
+                // Both are the same slot: what this child was meant to be.
+                agent.role,
+                // Model, time and tokens. Tokens are absent rather than zeroed
+                // for the runtimes that cannot attribute spend to a child: a
+                // sub-agent shown as having spent nothing is a claim, and one
+                // that is usually false.
+                childFacts(agent, now) || null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+              // A child with a conversation of its own opens; one that ran
+              // inside this session has none, and gets a row rather than a
+              // press that fails. Codex gives its children threads; Claude
+              // Code does not.
+              {...(agent.openable
+                ? { tooltip: [`Open ${agent.id}`, agent.prompt].filter(Boolean).join('\n\n'), onClick: () => open(agent) }
+                : { tooltip: ['Ran inside this conversation; it has none of its own to open.', agent.prompt].filter(Boolean).join('\n\n') })}
+            />
+          ))}
+        </Fragment>
       ))}
     </>
   )

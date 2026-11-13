@@ -516,6 +516,17 @@ test('a sub-agent Codex names only in its parent’s spawn item is counted, with
   assert.ok(!calls.some((call) => call.method === 'thread/read' && call.threadId === child), 'the spawn item placed it; nothing had to read it')
 })
 
+test('a sub-agent Codex announces by an activity item is counted, with no read of it', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  const before = (await d.calls()).length
+  await seat.send([{ type: 'text', text: 'spawn-outlive-activity' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  const child = (await d.helpers()).find((helper) => helper.threadId.startsWith(`${seat.id}-sub-`))!.threadId
+  const calls = (await d.calls()).slice(before)
+  assert.ok(!calls.some((call) => call.method === 'thread/read' && call.threadId === child), 'the activity item placed it; nothing had to read it')
+})
+
 test('a sub-agent Codex never names is placed by one thread/read of its parent, and counted', async (t) => {
   const d = await account(t)
   const seat = await d.seat('seat')

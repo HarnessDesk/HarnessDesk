@@ -18,6 +18,7 @@ import { FlowOverlayBoard } from '../../preview/frames-flow-overlay'
 import { ReviewPublicationBoard } from '../../preview/frames-review-publication'
 import { FlowCanvasBoard } from '../../preview/frames-flow-canvas'
 import { FlowGraphBoard } from '../../preview/frames-flow-graph'
+import { AgentFlowBoard } from '../../preview/frames-subagent-flow'
 import { ShapeGraphBoard } from '../../preview/frames-shape-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
@@ -3260,6 +3261,7 @@ const FlowCanvasWorkspaceBoard = () => {
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'flow-canvas-workspace', title: 'Flow canvas workspace', about: 'The shared canvas and its responsive card rail, below the shell bar.', render: () => <FlowCanvasWorkspaceBoard /> },
+  { id: 'agent-flow', title: 'Agent flow', about: 'Sub-agents a conversation started: the transcript card with each phase, the fan-in line, and lanes on one clock.', render: () => <AgentFlowBoard /> },
   { id: 'flow-example', title: 'Flow example', about: 'Local finite playback of declared routes; no host work starts.', render: () => <Specimen measure="wide" caption="A repair loop and person handoff, with manual or automatic stepping"><FlowExample model={flowModel(FLOW_CARD_EXAMPLE_POLICY)} rounds={7} /></Specimen> },
   { id: 'flow-cards', title: 'Flow cards', about: 'Policy thumbnails, source chips, complete summaries and selection in the destination and picker.', render: () => <FlowCardsBoard /> },
   { id: 'flow-canvas-toolbar', title: 'Flow canvas toolbar', about: 'Two floating groups leave the canvas available between controls.', render: () => <FlowCanvasToolbarBoard /> },

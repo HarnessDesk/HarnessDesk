@@ -36,7 +36,8 @@ import {
 } from '../design'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 
-import { isBusy, sessionKey, sessionId, runtimeId, sessionModel, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
+import { isBusy, sessionKey, sessionId, runtimeId, sessionModel, type Session, type SessionId, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
+import { childrenOfSession } from '../lib/subagent-flow'
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
@@ -67,6 +68,7 @@ import {
   PinIcon,
   SlidersIcon,
   SortNameIcon,
+  SubagentIcon,
   TeamIcon,
   TrashIcon,
   UnpinIcon,
@@ -115,6 +117,8 @@ type SessionRowSlice = {
   busy: boolean
   /** What a seat nobody typed to is called: its job and its Team. */
   seatLabel: string | null
+  /** The sub-agents still working under it, as `id\tname\topenable` lines; empty when none. */
+  workingChildren: string
 }
 
 const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boolean =>
@@ -124,7 +128,40 @@ const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boo
   left.deskCopy === right.deskCopy && left.trace === right.trace &&
   left.backgrounded === right.backgrounded && left.error === right.error && left.folderGone === right.folderGone &&
   left.visible === right.visible && left.active === right.active && left.needsYou === right.needsYou && left.busy === right.busy &&
-  left.seatLabel === right.seatLabel
+  left.seatLabel === right.seatLabel && left.workingChildren === right.workingChildren
+
+/** How many working sub-agents a row shows before it says how many more. */
+const CHILD_ROWS = 3
+
+/**
+ * The sub-agents still working under a conversation, nested beneath its row
+ * the way a Team's seats are under the Team. Only working ones: a finished
+ * child is in the transcript's card and the Agents panel, and a row that
+ * stays for ever is a cost every screen pays.
+ */
+const WorkingChildren = ({ lines, summary }: { lines: string; summary: SessionSummary }) => {
+  const store = useStore()
+  const children = lines.split('\n').map(line => {
+    const [id = '', name = '', openable = '0'] = line.split('\t')
+    return { id, name, openable: openable === '1' }
+  })
+  const shown = children.slice(0, CHILD_ROWS)
+  const more = children.length - shown.length
+  const working: LeftColumnTrail = { kind: 'mark', label: 'Working', icon: <Spinner size="sm" aria-hidden /> }
+  return <LeftColumnSeats>
+    {shown.map(child => <li key={child.id} data-region="subagent-row"><LeftColumnRow nested label={child.name}
+      icon={<SubagentIcon size={16} />}
+      title={`Sub-agent · Working${child.openable ? '' : ' · Ran inside this conversation'}`}
+      trailing={working}
+      onClick={() => {
+        if (child.openable) void store.openSession(child.id as SessionId, { runtime: summary.runtime })
+        else { void store.openSession(summary.id, { runtime: summary.runtime }); store.openDetailsTab('agents') }
+      }} /></li>)}
+    {more > 0 && <li data-region="subagent-row"><LeftColumnRow nested label={`${more} more working`}
+      title="Show every sub-agent of this conversation"
+      onClick={() => { void store.openSession(summary.id, { runtime: summary.runtime }); store.openDetailsTab('agents') }} /></li>}
+  </LeftColumnSeats>
+}
 
 const SessionRow = memo(({
   summary,
@@ -157,7 +194,7 @@ const SessionRow = memo(({
   const key = sessionKey(summary.runtime, summary.id)
   const {
     runtime, pinned, liveTitle, livePreview, deskCopy, trace, backgrounded, error,
-    folderGone, active, visible, needsYou, busy, seatLabel,
+    folderGone, active, visible, needsYou, busy, seatLabel, workingChildren,
   } = useSnapshotSelector((snapshot): SessionRowSlice => {
     const live = snapshot.sessions.get(key)
     const status = live?.status ?? summary.status
@@ -179,6 +216,14 @@ const SessionRow = memo(({
       needsYou: needsYou || trace === 'waiting',
       busy: live ? isBusy(live) : summary.status.type === 'active',
       seatLabel: seatLabelsOf(snapshot).get(String(key)) ?? null,
+      // A background child can outlive its conversation's turn, so this is
+      // read whether or not the conversation has settled. The fold is cached
+      // per conversation (and empty at once where there are no sub-agent
+      // calls), so a row redraws only when a sub-agent call moved.
+      workingChildren: live
+        ? childrenOfSession(live).filter(child => child.phase === 'working')
+          .map(child => `${child.id}\t${child.name}\t${child.openable ? 1 : 0}`).join('\n')
+        : '',
     }
   }, sameSessionRowSlice)
   const agentName = runtime?.presentation.name ?? 'This conversation’s runtime'
@@ -244,6 +289,7 @@ const SessionRow = memo(({
       icon={<SessionHoverCard session={summary}><span aria-label={agentName}>{runtime ? <RuntimeMark runtime={runtime} size={16} /> : <AgentIcon size={16} />}</span></SessionHoverCard>}
       trailing={trailing} action={{ label: `Actions for ${label}`, expanded: menu.at !== null,
         onClick: event => { rowRef.current?.focus({ preventScroll: true }); if (multiSelected && onSelectionMenu) onSelectionMenu(event); else menu.open(event) } }} />}
+      {workingChildren && <WorkingChildren lines={workingChildren} summary={summary} />}
       <ContextMenu at={menu.at} label={`Actions for ${label}`} onClose={menu.close} icons="all">
         <MenuItem
           icon={<PencilIcon size={13} />}

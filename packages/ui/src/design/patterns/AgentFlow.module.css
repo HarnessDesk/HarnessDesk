@@ -1,0 +1,140 @@
+/* Sub-agents, drawn the same in the transcript and the Agents panel. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1-5);
+  padding: var(--hd-space-2) var(--hd-space-3);
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius-md);
+  background: var(--hd-background);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--hd-space-1-5);
+  min-width: 0;
+}
+
+.facts {
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
+/* The spine: children hang off one rule under the head's light. */
+.spine {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-0-5);
+  margin: 0;
+  margin-inline-start: calc(var(--hd-space-1) - var(--hd-border-width) / 2);
+  padding: 0 0 0 var(--hd-space-3);
+  list-style: none;
+  border-inline-start: var(--hd-border-width) solid var(--hd-border);
+}
+
+.child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.childLine {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  min-width: 0;
+  min-height: var(--hd-target-min);
+}
+
+.childName {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  min-width: 0;
+}
+
+.open {
+  flex-shrink: 0;
+}
+
+.prompt {
+  margin: 0;
+  padding: var(--hd-space-1) 0 var(--hd-space-2) var(--hd-space-4);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.waiting {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+}
+
+/* Lanes: a name column and a track on one shared clock. */
+.lanes {
+  display: grid;
+  grid-template-columns: minmax(0, 7rem) minmax(0, 1fr);
+  column-gap: var(--hd-space-2);
+  row-gap: var(--hd-space-1);
+  align-items: center;
+  /* The inspector's row gutter, so the lanes line up with the groups below them. */
+  padding: var(--hd-space-2) var(--hd-inset-row);
+}
+
+.lane {
+  display: contents;
+}
+
+.laneName {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.track {
+  position: relative;
+  height: var(--hd-space-2-5);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-muted);
+}
+
+.bar {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: var(--lane-start);
+  width: var(--lane-width);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-muted-foreground);
+}
+
+.bar[data-phase='working'] {
+  background: var(--hd-accent);
+  animation: lane-breathe var(--hd-duration-cadence) ease-in-out infinite alternate;
+}
+
+.bar[data-phase='done'] {
+  background: var(--hd-success);
+}
+
+.bar[data-phase='failed'] {
+  background: var(--hd-danger);
+}
+
+.axis {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+}
+
+@keyframes lane-breathe {
+  from { opacity: 1; }
+  to { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar[data-phase='working'] {
+    animation: none;
+  }
+}

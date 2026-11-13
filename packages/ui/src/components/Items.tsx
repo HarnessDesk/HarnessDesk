@@ -1,4 +1,5 @@
 import { carryOnMarker, splitSessionKey } from '@harnessdesk/protocol'
+import { ReadOnlyTranscriptContext } from '../lib/read-only-transcript'
 import {
   Fragment,
   createContext,
@@ -136,7 +137,6 @@ import { Publication } from './Publication'
 import styles from './Items.module.css'
 
 /** A secondary transcript may disclose and copy, but cannot direct the desk. */
-const ReadOnlyTranscriptContext = createContext(false)
 export const ReadOnlyTranscript = ({ children }: { children: ReactNode }) => <ReadOnlyTranscriptContext.Provider value>{children}</ReadOnlyTranscriptContext.Provider>
 
 /**
