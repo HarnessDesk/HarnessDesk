@@ -47,7 +47,7 @@ const slug = (value: string, max: number): string => {
   while (/-[0-9]+$/.test(out)) out = out.replace(/-[0-9]+$/, '')
   return out
 }
-/** Families a model id often opens with: the word after one says which model it is (`claude-opus-4` is `opus`). */
+/** Families a model id often opens with: the word after one says which model it is (`claude-opus-4` is `opus`). A label only, never a gate (rule 8). */
 const FAMILY = new Set(['claude', 'gpt', 'gemini', 'grok', 'llama', 'mistral', 'qwen', 'deepseek', 'kimi', 'glm'])
 /** The model's own word: its first letter-led word, or the next one after a family word. Versions and dates drop. */
 const modelWord = (model: string): string => {
@@ -122,10 +122,14 @@ export class LeadChatUnknownError extends Error {
   readonly wireCode = 'lead-chat-unknown'
   constructor() { super('lead-chat-unknown') }
 }
-/** The chat a reference names: an id stays itself, a handle becomes its chat's id. A handle nobody holds is refused. */
+/**
+ * The chat a reference names: an id stays itself, a handle becomes its chat's id. A handle nobody holds is refused.
+ * Handles are lowercase by construction, so case and surrounding spaces are folded before the lookup.
+ */
 export const leadChatIdFor = (handles: LeadChatHandles, ref: string): string => {
   if (leadChatIdShaped(ref)) return ref
-  const entry = handles.entries.find(one => one.handle === ref)
+  const handle = ref.trim().toLowerCase()
+  const entry = handles.entries.find(one => one.handle === handle)
   if (!entry) throw new LeadChatUnknownError()
   return entry.id
 }

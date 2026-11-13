@@ -75,6 +75,21 @@ test('the map survives a restart from the journal records and from a checkpoint'
   assert.deepEqual(lead.parseLeadCheckpoint(legacy).state.chatHandles, { entries: [], last: {} })
 })
 
+test('after the map drops a handle, a restart from the journal or a checkpoint still goes on from the next number', async () => {
+  const storage = memory()
+  const journal = await lead.createLeadJournal(storage)
+  const total = lead.LEAD_CHAT_HANDLES.entries + 10
+  for (let at = 0; at < total; at += lead.LEAD_CHAT_HANDLES.perRecord)
+    await journal.nameChats(Array.from({ length: Math.min(lead.LEAD_CHAT_HANDLES.perRecord, total - at) }, (_, index) => ({ id: `codex:fill-${at + index}`, base: 'web-opus' })))
+  assert.throws(() => lead.leadChatIdFor(journal.state.chatHandles, 'web-opus'), lead.LeadChatUnknownError)
+  const replayed = await lead.createLeadJournal(storage)
+  assert.equal((await replayed.nameChats([{ id: 'claude:after-replay', base: 'web-opus' }])).get('claude:after-replay'), `web-opus-${total + 1}`)
+  const { state } = lead.parseLeadCheckpoint(lead.leadCheckpoint(replayed.state, 'c'.repeat(64)))
+  const restored = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } } as any)
+  assert.equal((await restored.nameChats([{ id: 'claude:after-checkpoint', base: 'web-opus' }])).get('claude:after-checkpoint'), `web-opus-${total + 2}`)
+  assert.throws(() => lead.leadChatIdFor(restored.state.chatHandles, 'web-opus'), lead.LeadChatUnknownError, 'a dropped handle stays dropped')
+})
+
 test('a record that breaks the rule cannot be replayed: a reused number, a handle moved to another chat', async () => {
   for (const namings of [
     [{ id: 'claude:a', base: 'web-opus', n: 1 }, { id: 'claude:b', base: 'web-opus', n: 1 }],
@@ -102,6 +117,7 @@ test('every chat tool takes a handle or an id; the call that comes out names the
     ['lead/chat/start', 'moveFrom', { text: 'Move it', agent: 'cursor' }]] as const) {
     const byHandle = lead.resolveLeadChatCall({ method, params: { ...extra, [key]: 'web-opus' } } as any, handles)
     assert.deepEqual(byHandle.params, { ...extra, [key]: 'claude:a' }, method)
+    assert.deepEqual(lead.resolveLeadChatCall({ method, params: { ...extra, [key]: ' Web-Opus ' } } as any, handles).params, { ...extra, [key]: 'claude:a' }, `${method}: case and spaces around a handle do not matter`)
     const byId = { method, params: { ...extra, [key]: 'claude:a' } } as any
     assert.equal(lead.resolveLeadChatCall(byId, handles), byId, `${method}: an id passes untouched`)
     assert.throws(() => lead.resolveLeadChatCall({ method, params: { ...extra, [key]: 'web-opus-9' } } as any, handles), (error: any) => error instanceof lead.LeadChatUnknownError && error.wireCode === 'lead-chat-unknown')
