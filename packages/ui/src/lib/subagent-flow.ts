@@ -140,8 +140,9 @@ const lineOf = (text: string): string => sanitizeText(text).replace(/\s+/g, ' ')
  * outlived it. A child whose last word was "working", said by a call that
  * has returned, then ended without a later item saying how (Codex reports a
  * child's state only on the calls that address it), and is shown as ended
- * rather than as working for ever. A child whose own item is still open is
- * left to that item.
+ * rather than as working for ever. Only the first item naming a child can
+ * be its own live record while open; a later call addressing that child
+ * still settles if it never closed.
  * `liveFrom` does the same for a child last named before that index — in an
  * earlier turn — while a later turn runs.
  */
@@ -156,13 +157,15 @@ export const childrenOf = (
 ): ChildRow[] => {
   const byId = new Map<string, ChildRow>()
   const lastIndex = new Map<string, number>()
-  /** Children whose last word came from an item still open — the runtime's own live record of them. */
+  const firstIndex = new Map<string, number>()
+  /** Children whose last word came from their first item, still open — their own live record. */
   const open = new Set<string>()
   items.forEach((item, index) => {
     if (!isSubagent(item)) return
     const at = item.startedAt ?? null
     const done = item.completedAt ?? at
     for (const member of item.members) {
+      if (!firstIndex.has(member.sessionId)) firstIndex.set(member.sessionId, index)
       const before = byId.get(member.sessionId)
       const stale = Boolean(before && done !== null && before.lastSeenAt !== null && done < before.lastSeenAt)
       const known = knownPhase(member.state)
@@ -173,7 +176,7 @@ export const childrenOf = (
       const named = member.nickname ? lineOf(member.nickname) || null : null
       if (!stale) {
         lastIndex.set(member.sessionId, index)
-        if (isOpen(item)) open.add(member.sessionId)
+        if (isOpen(item) && firstIndex.get(member.sessionId) === index) open.add(member.sessionId)
         else open.delete(member.sessionId)
       }
       byId.set(member.sessionId, {
@@ -197,10 +200,10 @@ export const childrenOf = (
     }
   })
   const rows = [...byId.values()].sort((a, b) => a.order - b.order)
-  // Only a child last named by a call that has itself returned is ended by
-  // settling: an item still open is the runtime keeping the child's own
-  // record (one item per child, replaced as it moves), and it says when the
-  // child ends — a background child can outlive the turn that started it.
+  // Only the first item naming a child can be its own live record while
+  // open (one item per child, replaced as it moves). A later call addressing
+  // that child still settles if it never closed; a background child whose
+  // own record is open can outlive the turn that started it.
   return rows.map(row => (row.phase === 'working' && !open.has(row.id) && (settled || (lastIndex.get(row.id) ?? 0) < liveFrom) ? { ...row, phase: 'ended' } : row))
 }
 
@@ -222,6 +225,20 @@ const CACHED_SESSIONS = 64
  * not a walk of its items. The sidebar reads every visible row on each change.
  */
 const bySession = new WeakMap<Session, ChildRow[]>()
+
+const itemIdsBySession = new WeakMap<Session, ReadonlySet<string>>()
+
+/** Sub-agent item ids, scanned once per immutable conversation snapshot for all its cards. */
+export const subagentItemIdsOf = (session: Session): ReadonlySet<string> => {
+  const known = itemIdsBySession.get(session)
+  if (known) return known
+  const ids = new Set<string>()
+  for (const turn of session.turns) {
+    for (const item of turn.items) if (isSubagent(item)) ids.add(String(item.id))
+  }
+  itemIdsBySession.set(session, ids)
+  return ids
+}
 
 export const childrenOfSession = (session: Session): ChildRow[] => {
   const known = bySession.get(session)

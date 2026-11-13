@@ -255,6 +255,7 @@ export class DelegationRegistry {
       }
       entry.state = block['is_error'] === true ? 'failed' : 'completed'
       entry.endedAt = this.now()
+      this.#forgetTasks(entry.id)
       changed = true
     }
     return changed
@@ -293,7 +294,13 @@ export class DelegationRegistry {
     if (!state || (state === 'completed' && summary !== undefined && STILL_WAITING.test(summary))) return false
     entry.state = state
     entry.endedAt = this.now()
+    this.#forgetTasks(entry.id)
     return true
+  }
+
+  /** An ended delegation no longer needs any background task ids pointing at it. */
+  #forgetTasks(id: string): void {
+    for (const [task, spawn] of this.#byTask) if (spawn === id) this.#byTask.delete(task)
   }
 
   /**
