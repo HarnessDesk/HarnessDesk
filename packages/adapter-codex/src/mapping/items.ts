@@ -353,7 +353,7 @@ const mapFunctionCallOutput = (output: unknown): ToolResultContent[] => {
  * model it ran on and the status of the call all untouched beside it. One id
  * that came unwrapped is still a usable handle, so that one is kept (#272).
  */
-const threadIdsOf = (ids: unknown): string[] => {
+export const threadIdsOf = (ids: unknown): string[] => {
   if (typeof ids === 'string') return ids === '' ? [] : [ids]
   if (!Array.isArray(ids)) return []
   // An empty id is not a handle either: it opens nothing.

@@ -149,6 +149,7 @@ import { HeaderStatusFrames } from './frames-header-status'
 import { LeadChatFrames } from './frames-lead-chat'
 import { ReadCeilingFrames } from './frames-read-ceiling'
 import { CarryOnFrames } from './frames-carry-on'
+import { IdleStopFrames } from './frames-idle-stop'
 import { TurnErrorFrames } from './frames-turn-errors'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
@@ -1407,6 +1408,8 @@ createRoot(container).render(
           ? <CarryOnFrames />
           : new URLSearchParams(window.location.search).has('turn-errors')
           ? <TurnErrorFrames />
+          : new URLSearchParams(window.location.search).has('idle-stop')
+          ? <IdleStopFrames />
           : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('runtime-start-only')

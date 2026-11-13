@@ -1133,7 +1133,10 @@ they were typed. ⌘↵ steers the running turn for runtimes that support mid-tu
 steering — the others state that they cannot, so the shortcut is offered by
 capability rather than tried and apologised for. Stop and the queue button sit
 side by side while a turn runs, so the primary position never changes meaning
-under a pointer already moving toward it.
+under a pointer already moving toward it. Stop stays after the turn ends while
+sub-agents it started are still working (the host marks the idle status with
+`subagentsRunning`): it then stops those sub-agents and starts no turn, and a
+message typed meanwhile is sent at once, with Send beside Stop.
 
 If adding a message to the running turn fails — the turn ended, the connection
 was lost, or the runtime timed out — its words and chips stay in that

@@ -470,6 +470,17 @@ export const currentTurn = (session: Session): Turn | undefined =>
 export const isBusy = (session: Session): boolean =>
   session.status.type === 'active' || currentTurn(session)?.status === 'inProgress'
 
+/** The conversation's own turn is over, and sub-agents it started are still working. */
+export const subagentsOutlastTurn = (session: Session): boolean =>
+  session.status.type === 'idle' && session.status.subagentsRunning === true
+
+/**
+ * Whether Stop has anything to stop: a turn running, or sub-agents still
+ * working after it ended. `isBusy` stays the question of whether the
+ * conversation itself is working; this one only decides the Stop control.
+ */
+export const isStoppable = (session: Session): boolean => isBusy(session) || subagentsOutlastTurn(session)
+
 /** Flattened transcript across every turn, in order — what the chat view renders. */
 export const allItems = (session: Session): AgentItem[] =>
   session.turns.flatMap((turn) => turn.items as AgentItem[])

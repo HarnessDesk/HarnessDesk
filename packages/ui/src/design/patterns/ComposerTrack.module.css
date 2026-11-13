@@ -32,6 +32,14 @@
 .trackModelFolded { width: var(--hd-composer-track-model-folded); }
 .trackModelTight { width: var(--hd-composer-track-model-tight); }
 .trackSend { width: var(--hd-composer-track-send); }
+/* The corner is one coin wide. When it holds two — the message being written
+   beside Stop, while a turn runs or sub-agents outlast it — it takes their
+   width with the toolbar's own gap between them, rather than clipping Stop
+   behind the first coin. Stop stays the outboard coin. */
+.trackSend:has(> :nth-child(2)) {
+  width: max-content;
+  gap: var(--hd-space-1);
+}
 
 /* Selected values use their full content while the toolbar has room. The
    shared trigger has to leave its label enough of its own row before it
