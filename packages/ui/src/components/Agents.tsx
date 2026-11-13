@@ -4,6 +4,7 @@ import { allItems, type Session, type SessionId, type SubagentItem, type TokenUs
 
 import { defaultTint } from '../lib/accounts'
 import { formatTokensWithFloor } from '../lib/context-usage'
+import { sanitizeText } from '../lib/sanitize'
 import { useActiveSession, useStore } from '../state/context'
 import type { ReportFoot } from './Details'
 import { AgentIcon } from './Icons'
@@ -55,10 +56,10 @@ export const Agents = ({ query, onFoot }: { query: string; onFoot: ReportFoot })
         const before = byId.get(member.sessionId)
         byId.set(member.sessionId, {
           sessionId: member.sessionId,
-          nickname: member.nickname ?? member.sessionId.slice(0, 8),
+          nickname: sanitizeText(member.nickname ?? member.sessionId.slice(0, 8)),
           role: member.role ?? null,
           state: member.state ?? null,
-          prompt: call.prompt ?? before?.prompt ?? null,
+          prompt: call.prompt ? sanitizeText(call.prompt) : before?.prompt ?? null,
           // The child's own model where the runtime names one per child, and
           // the call's otherwise. All three runtimes now let one delegation
           // address children on different models, so the call's model is a

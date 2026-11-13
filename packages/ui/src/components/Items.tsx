@@ -1358,6 +1358,11 @@ const ACTION_LABEL: Record<string, string> = {
 const Subagent = ({ item }: { item: SubagentItem }) => {
   const store = useStore()
   const readOnly = useContext(ReadOnlyTranscriptContext)
+  // Names and descriptions are agent output, including when an ordinary
+  // delegation tool supplied them. Keep the handle raw only for identity.
+  const members = item.members.map(member => ({
+    ...member, nickname: sanitizeText(member.nickname ?? member.sessionId.slice(0, 8)),
+  }))
   // The sub-agent is the same agent's conversation; opening it needs that
   // runtime named, not the active one (see AppStore.openSession).
   const session = useActiveSession()
@@ -1369,9 +1374,9 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
     <Row
       icon={<SubagentIcon size={14} />}
       title={
-        item.members.length === 1
-          ? `${title}: ${item.members[0]?.nickname ?? 'agent'}`
-          : `${title} · ${item.members.length}`
+        members.length === 1
+          ? `${title}: ${members[0]?.nickname ?? 'agent'}`
+          : `${title} · ${members.length}`
       }
       // What it ran on and what it cost, where the runtime says. A delegation
       // has its own model and its own bill; those are the two facts that make
@@ -1384,10 +1389,10 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
       status={item.status}
       defaultOpen={item.status === 'inProgress'}
     >
-      {item.prompt && <CodeBlock output={item.prompt} />}
+      {item.prompt && <CodeBlock output={sanitizeText(item.prompt)} />}
       {item.members.length > 0 && (
         <div className={styles.fileList}>
-          {item.members.map((member) => {
+          {members.map((member) => {
             if (readOnly) return <Text key={member.sessionId} role="muted">{member.nickname ?? member.sessionId.slice(0, 8)}</Text>
             // A child with a conversation of its own can be opened; one whose
             // id is only the handle of the call that spawned it cannot, and a

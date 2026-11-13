@@ -107,7 +107,7 @@ test('only the Gemini template declares per-tool MCP approval guidance', async (
   assert.ok(configs.filter((config) => config.id !== 'gemini').every((config) => config.perToolMcpApproval === undefined))
 })
 
-test('only the DeepSeek Harness template says its cancel leaves subagents running', async (t) => {
+test('only the DeepSeek Harness template declares delegation tools and says its cancel leaves subagents running', async (t) => {
   const dir = await tempDir()
   t.after(() => rm(dir, { recursive: true, force: true }))
   const store = new AgentRegistryStore(join(dir, 'agents.json'))
@@ -116,6 +116,10 @@ test('only the DeepSeek Harness template says its cancel leaves subagents runnin
     store.add({ id, template: id })
   }
   const configs = store.configs()
+  assert.deepEqual(configs.find((config) => config.id === 'dsh')?.delegationTools, {
+    spawn: ['subagent', 'subagent_fork'], send: ['send_message'], wait: ['wait_agent'], cancel: ['interrupt_agent'],
+  })
+  assert.ok(configs.filter(config => config.id !== 'dsh').every(config => config.delegationTools === undefined))
   assert.equal(configs.find((config) => config.id === 'dsh')?.cancelLeavesSubagents, true)
   assert.ok(configs.filter((config) => config.id !== 'dsh').every((config) => config.cancelLeavesSubagents === undefined))
 })

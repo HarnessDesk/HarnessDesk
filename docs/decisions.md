@@ -6129,6 +6129,33 @@ A sitting after #2184 and #2185 found What happened? listing seven "Settings app
 
 **Rule:** a digest says where each thing stands, not each step it took; the away note is the card's own list whenever there is a card.
 
+## DeepSeek delegation tools describe sub-agents — 2026-11-12
+
+DeepSeek Harness 0.2.2-rc.2 delegates through ordinary ACP tool calls:
+`subagent` and `subagent_fork` spawn, `send_message` sends, `wait_agent` waits
+and `interrupt_agent` interrupts. The registry template declares these names
+as `delegationTools`, passed through `AcpAgentConfig` into tool projection;
+the adapter never chooses this behavior by runtime identity.
+
+ACP reports no child session id here. The member's `sessionId` is a handle:
+the non-empty `name` argument, otherwise the name in “started subagent X”,
+otherwise the spawn call id. It is always non-openable. Its label is the
+description, otherwise the name, and its prompt is the spawn prompt. Sends,
+waits and interrupts naming a known member fold into that row without
+replacing its original prompt; a follow-up whose spawn is unknown stays a
+tool row naming the member. No per-child usage is exposed, so both item and
+member usage stay absent: an absent reading does not mean zero spend.
+
+The spawn tool returns immediately while its child keeps working. The root
+prompt settles only when the whole tree is done, so `end_turn` completes the
+projected children. `cancelled` marks their rows stopped, matching Stop's
+close/reopen lifecycle, while retaining their call ids in the existing
+running-delegation set until that close/reopen succeeds. This also feeds idle
+`subagentsRunning` when a root is cancelled without a desk Stop; a later Stop
+then closes and reopens without starting another prompt. Replayed tools are
+history, never evidence of children running now. Names and prompts use the
+renderer’s plain-text sanitizing path; handles remain raw for identity.
+
 ## Stop reaches sub-agents that outlast the turn — 2026-11-12
 
 A conversation's own turn can end while sub-agents it started are still working: a Codex child is a thread with turns of its own, and an ACP agent's delegation list can still name a child as running after the prompt that started it settled. Stop was offered only while the conversation's own turn ran, so those children could not be stopped from the desk at all. This reverses the last rejection of *Stop stops the whole tree* and narrows *Only a stop with a turn running closes the session* in the DeepSeek entry: both assumed an idle conversation had nothing below it running.

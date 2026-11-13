@@ -14,7 +14,8 @@ createInterface({ input: process.stdin }).on('line', line => {
     send({ id, result: { sessionId: 'tool-items' } })
   } else if (method === 'session/prompt') {
     replay(params.sessionId)
-    send({ id, result: { stopReason: 'end_turn' } })
+    if (process.env.TOOL_STOP_REASON === 'error') send({ id, error: { code: -32603, message: 'Fixture prompt failed' } })
+    else send({ id, result: { stopReason: process.env.TOOL_STOP_REASON ?? 'end_turn' } })
   } else if (method === 'session/list') {
     send({ id, result: { sessions: [{ sessionId: 'tool-items', cwd: process.env.TOOL_CWD }] } })
   } else if (method === 'session/load') {
