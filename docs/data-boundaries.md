@@ -502,12 +502,14 @@ never become the desktop's desk token.
 | `POST /v1/push/send` | Desk bearer token; the phone's device id, its push key's number (`kid`), a 12-byte nonce, the sealed push, priority `high`, and a collapse tag (22 characters of a SHA-256 hash of the item's Inbox id) | When something newly appears in the Inbox as needing you, while signed in with Reachable from your phone on and the phone link running: one request per phone the account linked to this desk that is also paired here with Read. An item is pushed once, and not again if it returns within ten minutes; what already waited when pushing began is not pushed. The desk sends at most 30 a minute, 12 a minute per phone, holds off for a minute after the service says too many, and leaves a phone alone for ten minutes after the service has no push token for it. A failure is logged and dropped |
 
 The sealed push is AES-GCM under that phone's own push key, bound to its device id and key number, and at most
-2,048 bytes before sealing. Inside it is exactly `{"v":1,"title","body","kind":"needs-you","ref"}`: the title is the
+2,048 bytes before sealing. Inside it is the contract's `PushPlaintext` (`packages/contract/src/api.ts`):
+`{"v":1,"id","ts","kind":"needs-you","title","body","deep"}`, where `id` names the push and `ts` is when it was made in
+seconds. The title is the
 conversation's or Team's name, or the Lead's name for the Lead and its questions (at most 80 characters); the body is
 one line (at most 120 characters) saying what it waits on: the Lead's question, how many things the Lead waits on, or
 for a conversation the request of its newest open approval (the command, scrubbed as the phone's transcript is; a
 single file's name or a count of files; a permission's summary; the question asked), otherwise "Waiting on you"; and
-`ref` is the Inbox's own id for the item (`ask:<id>`, `lead`, `chat:<agent>:<session>` or `team:<id>`). The account
+`deep` is the Inbox's own id for the item (`ask:<id>`, `lead`, `chat:<agent>:<session>` or `team:<id>`). The account
 service checks that the phone is linked to this desk, passes the sealed push to the phone's push service with a fixed
 visible alert ("HarnessDesk", "New activity"), and sees which phone, when and how large, never the content. Source:
 `packages/server/src/phone-push.ts`.

@@ -1,24 +1,18 @@
 import { createHash } from 'node:crypto'
-import { PUSH_PLAINTEXT_MAX, fromB64u, sealPushJson } from '@harnessdesk/crypto'
+import { PushPlaintext } from '@harnessdesk/contract'
+import { fromB64u, sealPushJson } from '@harnessdesk/crypto'
 import type { AgentEvent, Approval, HarnessDeskAccountStatus, LeadInbox, LeadInboxItem } from '@harnessdesk/protocol'
 import type { Device } from '@harnessdesk/phone-link'
 import { accountRefusalStatus, type PhonePushStatus, type SealedPhonePush } from './harnessdesk-account.js'
 import { scrub } from './phone-redact.js'
 
 /**
- * The sealed body of a needs-you push, version 1. The phone's notification extension opens it and reads exactly these
- * fields; the account service and the phone's push service only ever carry it sealed.
+ * The sealed body of a needs-you push: the contract's `PushPlaintext`, which the phone's notification extension opens.
+ * `title` is the conversation, Team or Lead it is about; `body` one line saying what it waits on; `deep` the Inbox's own
+ * id for the item (`ask:<id>`, `lead`, `chat:<runtime:session>`, `team:<goal>`). The account service and the phone's
+ * push service only ever carry it sealed.
  */
-export interface PhonePushBody {
-  readonly v: 1
-  /** The conversation, Team or Lead it is about, short. */
-  readonly title: string
-  /** One line saying what it waits on. */
-  readonly body: string
-  readonly kind: 'needs-you'
-  /** The Inbox's own id for the item (`ask:<id>`, `lead`, `chat:<runtime:session>`, `team:<goal>`). */
-  readonly ref: string
-}
+export type PhonePushBody = PushPlaintext & { readonly kind: 'needs-you'; readonly deep: string }
 
 /** The part of the HarnessDesk account a push needs. */
 export interface PhonePushAccount {
@@ -44,8 +38,8 @@ export interface PhonePushOptions {
 
 export const PUSH_TITLE_CHARS = 80
 export const PUSH_BODY_CHARS = 120
-/** A ref is the Inbox's id; one longer than this is not sent rather than cut, since a cut ref would open nothing. */
-const PUSH_REF_BYTES = 256
+/** A ref is the Inbox's id, sent as `deep`; one longer than this is not sent rather than cut, since a cut ref would open nothing. */
+const PUSH_REF_CHARS = 200
 /** An item that stopped waiting and came back within this long is not pushed again. */
 export const PUSH_REPEAT_MS = 10 * 60_000
 /** The desk's own pace, under the account service's limits (60 a minute per desk, 30 per phone). */
@@ -59,14 +53,20 @@ const PUSH_UNREGISTERED_MS = 10 * 60_000
 const APPROVAL_SESSIONS = 256
 const APPROVALS_PER_SESSION = 16
 
-const encoder = new TextEncoder()
-const bytes = (value: unknown): number => encoder.encode(JSON.stringify(value)).length
-
-/** One flat line: controls and runs of space removed, clipped with an ellipsis at `max` characters. */
+/**
+ * One flat line: controls and runs of space removed, clipped with an ellipsis to at most `max` UTF-16 units (the
+ * contract's own count), never splitting a character.
+ */
 export const pushLine = (value: string, max: number): string => {
   const clean = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, ' ').replace(/\s+/g, ' ').trim()
+  if (clean.length <= max) return clean
   const chars = [...clean]
-  return chars.length > max ? `${chars.slice(0, Math.max(0, max - 1)).join('').trimEnd()}…` : clean
+  let kept = ''
+  for (const char of chars) {
+    if (kept.length + char.length > max - 1) break
+    kept += char
+  }
+  return `${kept.trimEnd()}…`
 }
 
 /** A short stable tag for a ref, so a later push about the same item replaces the earlier one on the lock screen. */
@@ -88,18 +88,19 @@ export const approvalLine = (approval: Approval): string => {
 }
 
 /**
- * The body of one push, at most `PUSH_PLAINTEXT_MAX` bytes once serialized: the body line gives way first. Null when
- * the ref alone could not fit, which an Inbox id never comes near.
+ * The body of one push, as the contract's `PushPlaintext` and within what can be sealed: the body line gives way first.
+ * `id` names this one push. Null when the ref alone could not fit, which an Inbox id never comes near.
  */
-export const pushBody = (ref: string, title: string, body: string): PhonePushBody | null => {
-  if (!ref || encoder.encode(ref).length > PUSH_REF_BYTES) return null
+export const pushBody = (ref: string, title: string, body: string, ts: number): PhonePushBody | null => {
+  if (!ref || ref.length > PUSH_REF_CHARS) return null
   let line = pushLine(body, PUSH_BODY_CHARS)
   const heading = pushLine(title, PUSH_TITLE_CHARS) || 'HarnessDesk'
+  const id = createHash('sha256').update(`${ref}\0${ts}`).digest('base64url').slice(0, 22)
   for (;;) {
-    const value: PhonePushBody = { v: 1, title: heading, body: line, kind: 'needs-you', ref }
-    if (bytes(value) <= PUSH_PLAINTEXT_MAX) return value
+    const value: PhonePushBody = { v: 1, id, ts, kind: 'needs-you', title: heading, body: line, deep: ref }
+    if (PushPlaintext.safeParse(value).success) return value
     if (!line) return null
-    line = pushLine(line, Math.floor([...line].length / 2))
+    line = pushLine(line, Math.floor(line.length / 2))
   }
 }
 
@@ -217,23 +218,23 @@ export class PhonePushSender {
       // Counted as pushed before anything is sent, so a failure is never retried into a second push for one item.
       this.#pushedAt.set(item.id, now)
       if (item.kind === 'lead' || item.kind === 'ask') leadName ??= await this.#options.leadName().catch(() => null)
-      const body = this.#body(item, leadName ?? null)
+      const body = this.#body(item, leadName ?? null, Math.floor(now / 1000))
       if (!body) { this.#options.log('phone push skipped: too large', { kind: item.kind }); continue }
-      const collapse = pushCollapse(body.ref)
+      const collapse = pushCollapse(body.deep)
       for (const device of targets) await this.#send(device, body, collapse)
     }
   }
 
-  #body(item: LeadInboxItem, leadName: string | null): PhonePushBody | null {
+  #body(item: LeadInboxItem, leadName: string | null, ts: number): PhonePushBody | null {
     const lead = leadName || 'Lead'
     switch (item.kind) {
-      case 'ask': return pushBody(item.id, lead, item.title)
-      case 'lead': return pushBody(item.id, lead, item.count && item.count > 1 ? `Waiting for you on ${item.count} things` : 'Waiting for you')
+      case 'ask': return pushBody(item.id, lead, item.title, ts)
+      case 'lead': return pushBody(item.id, lead, item.count && item.count > 1 ? `Waiting for you on ${item.count} things` : 'Waiting for you', ts)
       case 'chat': {
         const open = item.target ? this.#approvals.get(item.target) : undefined
-        return pushBody(item.id, item.title, open?.at(-1)?.line ?? 'Waiting on you')
+        return pushBody(item.id, item.title, open?.at(-1)?.line ?? 'Waiting on you', ts)
       }
-      default: return pushBody(item.id, item.title, 'Waiting on you')
+      default: return pushBody(item.id, item.title, 'Waiting on you', ts)
     }
   }
 

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { SendPushRequest } from '@harnessdesk/contract'
+import { PushPlaintext, SendPushRequest } from '@harnessdesk/contract'
 import { b64u, fromB64u, generatePushKey, openPushJson, randomBytes } from '@harnessdesk/crypto'
 import type { Device } from '@harnessdesk/phone-link'
 import type { AgentEvent, HarnessDeskAccountStatus, LeadInbox, LeadInboxItem, WireNotification } from '@harnessdesk/protocol'
@@ -54,7 +54,14 @@ const rig = (devices: Device[], linked: Device[], options: { reachable?: boolean
   }
   return { account, sender, round, logs }
 }
-const open = async (target: Device, push: SealedPhonePush) => openPushJson(fromB64u(target.pushKey), push.deviceId, { kid: push.kid, nonce: push.nonce, ciphertext: push.ciphertext })
+/** Opens a push as the phone would, checks it is the contract's `PushPlaintext`, and returns it without its per-push id and time. */
+const open = async (target: Device, push: SealedPhonePush) => {
+  const opened = PushPlaintext.parse(await openPushJson(fromB64u(target.pushKey), push.deviceId, { kid: push.kid, nonce: push.nonce, ciphertext: push.ciphertext }))
+  assert.match(opened.id, /^[A-Za-z0-9_-]{22}$/)
+  assert.ok(Number.isInteger(opened.ts) && opened.ts > 0)
+  const { id: _id, ts: _ts, ...rest } = opened
+  return rest
+}
 
 test('a newly waiting item sends one sealed push to each phone the account linked, and only to those', async () => {
   const linked = device('Linked phone')
@@ -70,7 +77,7 @@ test('a newly waiting item sends one sealed push to each phone the account linke
   assert.deepEqual(account.sent.map(one => one.push.deviceId).sort(), [linked.id, second.id].sort())
   for (const { push } of account.sent) {
     const target = push.deviceId === linked.id ? linked : second
-    assert.deepEqual(await open(target, push), { v: 1, title: 'Fix the login page', body: 'Waiting on you', kind: 'needs-you', ref: 'chat:codex:s1' })
+    assert.deepEqual(await open(target, push), { v: 1, title: 'Fix the login page', body: 'Waiting on you', kind: 'needs-you', deep: 'chat:codex:s1' })
     assert.equal(push.priority, 'high')
     assert.equal(push.collapse, pushCollapse('chat:codex:s1'))
     assert.match(push.collapse!, /^[A-Za-z0-9_-]{1,64}$/)
@@ -91,7 +98,7 @@ test('an item is pushed once: not again while it waits, nor when it comes back s
   await round(inboxOf())
   await round(inboxOf(ask))
   assert.equal(account.sent.length, 1)
-  assert.deepEqual(await open(linked, account.sent[0]!.push), { v: 1, title: 'Dex', body: 'Which branch should the release go to?', kind: 'needs-you', ref: 'ask:m1' })
+  assert.deepEqual(await open(linked, account.sent[0]!.push), { v: 1, title: 'Dex', body: 'Which branch should the release go to?', kind: 'needs-you', deep: 'ask:m1' })
   // Nothing changed: no push.
   await round(inboxOf(ask))
   assert.equal(account.sent.length, 1)
@@ -109,8 +116,8 @@ test('a chat that waits on an approval says what it asks for, trimmed to one lin
   await round(inboxOf(waiting('chat:claude:s2', 'chat', `A very long conversation title ${'x'.repeat(200)}`, { target: 'claude:s2' })))
   const body = await open(linked, account.sent[0]!.push) as { title: string; body: string }
   assert.match(body.body, /^Asks to run npm test -- --flag/)
-  assert.ok([...body.body].length <= PUSH_BODY_CHARS)
-  assert.ok([...body.title].length <= PUSH_TITLE_CHARS)
+  assert.ok(body.body.length <= PUSH_BODY_CHARS)
+  assert.ok(body.title.length <= PUSH_TITLE_CHARS)
   assert.ok(account.sent[0]!.push.ciphertext.length <= 2752)
   // Settled approvals are forgotten, so a later push about the chat does not repeat an old request.
   sender.noteEvent('claude', { type: 'approval/resolved', sessionId: 's2', approvalId: 'a1', resolution: { outcome: 'timedOut' } } as unknown as AgentEvent)
@@ -180,7 +187,7 @@ test('the Lead waiting on several things says how many', async () => {
   const { account, round } = rig([linked], [linked])
   await round(inboxOf())
   await round(inboxOf(waiting('lead', 'lead', 'Dex is waiting for you', { count: 3 })))
-  assert.deepEqual(await open(linked, account.sent[0]!.push), { v: 1, title: 'Dex', body: 'Waiting for you on 3 things', kind: 'needs-you', ref: 'lead' })
+  assert.deepEqual(await open(linked, account.sent[0]!.push), { v: 1, title: 'Dex', body: 'Waiting for you on 3 things', kind: 'needs-you', deep: 'lead' })
 })
 
 test('nothing is pushed while signed out or with Reachable from your phone off', async () => {
@@ -239,7 +246,7 @@ test('the phone link pushes through the account when the Inbox changes', async (
     await settle()
     assert.equal(pushes.length, 1)
     assert.equal(pushes[0]!.deviceId, linked.id)
-    assert.deepEqual(await open(linked, pushes[0]!), { v: 1, title: 'Dex', body: 'Merge it now?', kind: 'needs-you', ref: 'ask:m9' })
+    assert.deepEqual(await open(linked, pushes[0]!), { v: 1, title: 'Dex', body: 'Merge it now?', kind: 'needs-you', deep: 'ask:m9' })
   } finally {
     await running.close()
     await rm(home, { recursive: true, force: true })
