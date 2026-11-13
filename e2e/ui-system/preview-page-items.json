@@ -116,6 +116,21 @@
       "title": "Schema form \u2014 a plugin's own configuration"
     },
     {
+      "selector": "[data-frame-id=\"mcp-test-list-result\"] > div",
+      "id": "mcp-test-list-result",
+      "title": "MCP test \u2014 a result in the list"
+    },
+    {
+      "selector": "[data-frame-id=\"mcp-test-needs-sign-in\"] > div",
+      "id": "mcp-test-needs-sign-in",
+      "title": "MCP test \u2014 sign in through its agent"
+    },
+    {
+      "selector": "[data-frame-id=\"mcp-test-agent-sign-in\"] > div",
+      "id": "mcp-test-agent-sign-in",
+      "title": "MCP test \u2014 its agent owns sign-in"
+    },
+    {
       "selector": "[data-frame-id=\"typography-cjk\"] > div",
       "id": "typography-cjk",
       "title": "CJK \u2014 reading text and controls"

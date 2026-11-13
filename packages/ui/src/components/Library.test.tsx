@@ -2553,3 +2553,26 @@ it('deduplicates native commands, counts them, and keeps them out of another run
   expect(container.textContent).not.toContain('A native command')
   expect(container.querySelector('[aria-label="Skills"] [role="radio"]')?.textContent).toBe('All0')
 })
+
+it.each([1000, 390])('MCP list tests the first usable copy at %ipx without opening it; hollow copies have no action', async width => {
+  vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({ width } as DOMRect)
+  const source = entry('tools', ['reaches'], { kind: 'mcp' })
+  const usablePath = source.copies[0]!.path
+  const usable = { ...source, copies: [{ ...source.copies[0]!, path: '/home/jane/.cursor/mcp.json', hollow: true }, ...source.copies] }
+  const emptySource = entry('empty-tools', ['hollow'], { kind: 'mcp' })
+  const hollow = { ...emptySource, copies: [{ ...emptySource.copies[0]!, path: '/home/jane/.cursor/mcp.json' }, ...emptySource.copies] }
+  const request = await mount(library([usable, hollow]))
+  await chooseKind('mcp')
+  const rows = [...container.querySelectorAll<HTMLElement>('[data-slot="skill-row"]')]
+  const row = rows.find(row => row.textContent?.includes('tools') && !row.textContent?.includes('empty-tools'))!
+  const empty = rows.find(row => row.textContent?.includes('empty-tools'))!
+  expect([...empty.querySelectorAll('button')].find(button => button.textContent === 'Test')).toBeUndefined()
+  expect(row.querySelector('button button')).toBeNull()
+  request.mockResolvedValueOnce({ ok: true, tools: 2, ms: 5 })
+  await act(async () => [...row.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Test')!.click())
+  expect(request).toHaveBeenLastCalledWith('library/mcp/test', { name: 'tools', path: usablePath })
+  expect(row.textContent).toContain('Connected')
+  expect(row.querySelector('[title^="2 tools"]')).not.toBeNull()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  expect(visit).not.toHaveBeenCalled()
+})

@@ -2,13 +2,15 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { LOCATIONS, locate } from './locations.js'
-import { decodeMcpEntry, dialectFor, type McpServerSpec } from './mcp.js'
+import { decodeMcpEntry, dialectFor, type McpDialect, type McpServerSpec } from './mcp.js'
 
 /** One server's declaration, as the library reads it, at a path the location table names. */
 export type McpDeclarationLookup =
   | {
       readonly found: true
       readonly spec: McpServerSpec
+      /** The owning reader’s format, derived from the trusted location table. */
+      readonly dialect: McpDialect
       readonly scope: 'user' | 'project'
       /** The configuration file, resolved. */
       readonly file: string
@@ -47,7 +49,7 @@ export const findMcpDeclaration = (
       if (decoded === null) {
         return { found: false, detail: 'This file does not declare that server in a form that can be read faithfully.' }
       }
-      return { found: true, spec: decoded, scope: spec.scope, file }
+      return { found: true, spec: decoded, dialect, scope: spec.scope, file }
     }
   }
   return { found: false, detail: 'That file is not one where any agent keeps MCP servers.' }

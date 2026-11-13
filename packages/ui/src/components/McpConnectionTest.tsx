@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { McpTestResult, McpTestTarget, RuntimeId } from '@harnessdesk/protocol'
 
 import { useSnapshot, useStore } from '../state/context'
-import { Button, Chip, CodeText, ConfirmDialog, DescLines, InlineParts, Text } from '../design'
+import { Button, Chip, CodeText, ConfirmDialog, Dialog, DescLines, InlineParts, Text } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { shortPath } from '../lib/paths'
 
@@ -19,6 +19,22 @@ const FAILURE_WORD: Record<Exclude<Failure['reason'], 'confirm'> | 'error', stri
   httpError: 'HTTP error',
   busy: 'Busy',
   error: 'Not tested',
+}
+
+/** Reuse the existing lookup failure while naming the specific missing prerequisite. */
+const failureWord = (failure: Exclude<Answer, { ok: true } | { reason: 'confirm' }>): string =>
+  failure.reason === 'notFound' && /^Environment variable [A-Za-z_][A-Za-z0-9_]* is not set\./.test(failure.detail)
+    ? 'Variable not set' : FAILURE_WORD[failure.reason]
+
+/** The same result word and tone in a list row, detail, and reading sheet. */
+export const McpTestResultChip = ({ answer, compact = false }: { answer: Answer | null; compact?: boolean }) => {
+  if (!answer || (!answer.ok && answer.reason === 'confirm')) return null
+  if (answer.ok) return <Chip tone="success" size="sm"
+    title={[`${answer.tools} ${answer.tools === 1 ? 'tool' : 'tools'}`, sanitizeText([answer.serverName, answer.serverVersion].filter(Boolean).join(' ')), `answered in ${answer.ms} ms`].filter(Boolean).join(' · ')}>
+    {compact ? 'Connected' : `Connected · ${answer.tools} ${answer.tools === 1 ? 'tool' : 'tools'}`}
+  </Chip>
+  return <Chip tone={answer.reason === 'busy' ? 'neutral' : answer.reason === 'needsSignIn' ? 'warning' : 'danger'} size="sm"
+    title={sanitizeText(answer.detail)}>{failureWord(answer)}</Chip>
 }
 
 /** A command line as a person would type it: arguments with spaces or quotes are quoted. */
@@ -65,13 +81,15 @@ const shownTarget = (target: McpTestTarget, cwd: string, home: string | undefine
     ? target.launchEnv.map(({ name, value }) => `${show(name, SHOWN_LIMIT.value)}=${show(value, SHOWN_LIMIT.value)}`).join('\n')
     : ''
   const names = show((target.transport === 'stdio' ? target.envNames : target.headerNames).join(', '), SHOWN_LIMIT.names)
+  // Read every name in full: this is the consent inventory, not a capped preview.
+  const reads = (target.readEnvNames ?? []).map(name => shownValue(name, Number.POSITIVE_INFINITY).text).join(', ')
   const folder = show(shortPath(cwd, home), SHOWN_LIMIT.value)
   const cut = parts.reduce((sum, part) => sum + part.cut, 0)
   const notes = [
     cut > 0 ? `${cut.toLocaleString('en-US')} more ${cut === 1 ? 'character is' : 'characters are'} not shown.` : '',
     parts.some(part => part.marked) ? 'A ⟨U+…⟩ is a character that draws nothing or changes the order of the text around it.' : '',
   ].filter(Boolean).join(' ')
-  return { plate, launch, names, folder, notes }
+  return { plate, launch, names, reads, folder, notes }
 }
 
 /**
@@ -83,7 +101,9 @@ const shownTarget = (target: McpTestTarget, cwd: string, home: string | undefine
  * result stays on the row as a chip; a failure adds its reason, the one line
  * that varies, and the server's own output folds away beneath it.
  */
-export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
+export const McpConnectionTest = ({ name, path, cwd, readBy, home, compact = false }: {
+  /** List action: result on the same line, failure reason in a dialog, no second line. */
+  compact?: boolean
   name: string
   path: string
   cwd: string | undefined
@@ -94,8 +114,10 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
   const store = useStore()
   const snapshot = useSnapshot()
   const [running, setRunning] = useState(false)
+  const [readingFailure, setReadingFailure] = useState(false)
   const [answer, setAnswer] = useState<Answer | null>(null)
   const [asking, setAsking] = useState<{ target: McpTestTarget; digest: string } | null>(null)
+  const inFlight = useRef(false)
   const live = useRef(true)
   // Re-armed on every mount: StrictMode mounts, cleans up and mounts again.
   useEffect(() => {
@@ -104,7 +126,9 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
   }, [])
 
   const run = async (confirmed?: string) => {
-    setRunning(true); setAsking(null)
+    if (inFlight.current) return
+    inFlight.current = true
+    setRunning(true); setAsking(null); setReadingFailure(false)
     try {
       const result = await store.transport.request('library/mcp/test', {
         name, path, ...(cwd !== undefined ? { cwd } : {}), ...(confirmed !== undefined ? { confirmed } : {}),
@@ -115,6 +139,7 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
     } catch (error) {
       if (live.current) setAnswer({ ok: false, reason: 'error', detail: error instanceof Error ? error.message : String(error), ms: 0 })
     } finally {
+      inFlight.current = false
       if (live.current) setRunning(false)
     }
   }
@@ -126,32 +151,38 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
   const stderr = failure && 'stderr' in failure && failure.stderr ? sanitizeText(failure.stderr) : null
   const shown = asking ? shownTarget(asking.target, asking.target.transport === 'stdio' ? asking.target.cwd : '', home) : null
 
-  return <DescLines>
-    <InlineParts data-slot="mcp-test">
-      <Button variant="outline" size="xs" disabled={running} onClick={() => void run()}
-        title="Start this server from its declaration, ask it for its tools, then stop it">
-        {running ? 'Testing…' : 'Test connection'}
+  const content = <>
+    <InlineParts data-mcp-test="" onClick={event => event.stopPropagation()}>
+      <Button variant={compact ? 'ghost' : 'outline'} size="xs" disabled={running} onClick={() => void run()}
+        title={`${compact ? `${sanitizeText(shortPath(path, home))}: ` : ''}Start this server from its declaration, ask it for its tools, then stop it`}>
+        {running ? 'Testing…' : compact ? 'Test' : 'Test connection'}
       </Button>
-      {answer?.ok && <Chip tone="success" size="sm"
-        title={[answer.serverName, answer.serverVersion].filter(Boolean).join(' ') + ` · answered in ${answer.ms} ms`}>
-        {`Connected · ${answer.tools} ${answer.tools === 1 ? 'tool' : 'tools'}`}
-      </Chip>}
-      {failure && <Chip tone={failure.reason === 'busy' ? 'neutral' : failure.reason === 'needsSignIn' ? 'warning' : 'danger'} size="sm">
-        {FAILURE_WORD[failure.reason]}
-      </Chip>}
-      {failure?.reason === 'needsSignIn' && signIn.map(runtime => <Button key={runtime.id} variant="ghost" size="xs"
+      {compact && failure ? <Button variant="ghost" size="content-min" onClick={() => setReadingFailure(true)}
+        title="Read the connection test failure"><McpTestResultChip answer={answer} compact /></Button>
+        : <McpTestResultChip answer={answer} compact={compact} />}
+      {!compact && failure?.reason === 'needsSignIn' && signIn.map(runtime => <Button key={runtime.id} variant="ghost" size="xs"
         title={`Sign in through ${runtime.presentation.name}`} onClick={() => void store.mcpLogin(name, runtime.id)}>
         {signIn.length === 1 ? 'Sign in' : `Sign in · ${runtime.presentation.name}`}
       </Button>)}
     </InlineParts>
-    {detail && <Text role="meta" tone={failure?.reason === 'needsSignIn' ? 'warning' : undefined}>
+    {!compact && detail && <Text role="meta" tone={failure?.reason === 'needsSignIn' ? 'warning' : undefined}>
       {failure?.reason === 'needsSignIn' && signIn.length === 0 ? `${detail} Its agent signs in to it, not this page.` : detail}
     </Text>}
-    {stderr && <details>
+    {!compact && stderr && <details>
       <Text as="summary" role="meta">Server output</Text>
       <CodeText as="pre" block ground="muted" wrap>{stderr}</CodeText>
     </details>}
-    {asking && shown && <ConfirmDialog
+    {compact && readingFailure && failure && <span onClick={event => event.stopPropagation()}><Dialog
+      title={failureWord(failure)} onClose={() => setReadingFailure(false)}
+      description={sanitizeText(name)}>
+      <Text as="p" role="meta">{detail}{failure.reason === 'needsSignIn' && signIn.length === 0 ? ' Its agent signs in to it, not this page.' : ''}</Text>
+      {failure.reason === 'needsSignIn' && signIn.map(runtime => <Button key={runtime.id} variant="ghost" size="xs"
+        title={`Sign in through ${runtime.presentation.name}`} onClick={() => void store.mcpLogin(name, runtime.id)}>
+        {signIn.length === 1 ? 'Sign in' : `Sign in · ${runtime.presentation.name}`}
+      </Button>)}
+      {stderr && <CodeText as="pre" block ground="muted" wrap>{stderr}</CodeText>}
+    </Dialog></span>}
+    {asking && shown && <span onClick={event => event.stopPropagation()}><ConfirmDialog
       title={asking.target.transport === 'stdio' ? 'Run this project’s server?' : 'Connect to this project’s server?'}
       confirmLabel={asking.target.transport === 'stdio' ? 'Run test' : 'Connect'}
       cancelLabel="Cancel"
@@ -169,7 +200,9 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
         {asking.target.transport === 'stdio' ? (shown.launch ? 'And its other variables: ' : 'With its variables: ') : 'With its headers: '}
         {shown.names}
       </Text>}
+      {shown.reads && <Text as="p" role="meta">Reads from this desk: {shown.reads}</Text>}
       {shown.notes && <Text as="p" role="meta" tone="warning">{shown.notes}</Text>}
-    </ConfirmDialog>}
-  </DescLines>
+    </ConfirmDialog></span>}
+  </>
+  return compact ? content : <DescLines>{content}</DescLines>
 }
