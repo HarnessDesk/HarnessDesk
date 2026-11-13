@@ -20,6 +20,8 @@ export interface McpServerSpec {
   readonly command?: string
   readonly args?: readonly string[]
   readonly env?: Readonly<Record<string, string>>
+  /** Additional environment names forwarded by the reading agent (Codex env_vars). */
+  readonly envVars?: readonly string[]
   readonly url?: string
   readonly headers?: Readonly<Record<string, string>>
 }
@@ -43,6 +45,7 @@ export const canonicalMcp = (spec: McpServerSpec): string => {
     args: spec.args ?? [],
     env: sorted(spec.env),
     headers: sorted(spec.headers),
+    ...(spec.envVars?.length ? { envVars: [...spec.envVars].sort() } : {}),
   })
 }
 
@@ -52,6 +55,25 @@ export const canonicalMcp = (spec: McpServerSpec): string => {
  * JSON and disagree about what a bare `url` means.
  */
 export type McpDialect = 'claude' | 'cursor' | 'gemini' | 'codex'
+
+/**
+ * The inside of a one-line TOML inline table `key = { … }`, up to the first `}` outside a double-quoted string, so a
+ * `${VAR}` value and a trailing `# {comment}` both read right. `undefined` when the key is absent, `null` when its
+ * table does not close on that line.
+ */
+const inlineTableBody = (body: string, key: string): string | null | undefined => {
+  const open = new RegExp(`^\\s*${key}\\s*=\\s*\\{`, 'm').exec(body)
+  if (!open) return undefined
+  let quoted = false
+  for (let at = open.index + open[0].length; at < body.length; at++) {
+    const char = body[at]
+    if (char === '\n') return null
+    if (quoted && char === '\\') { at++; continue }
+    if (char === '"') quoted = !quoted
+    else if (!quoted && char === '}') return body.slice(open.index + open[0].length, at)
+  }
+  return null
+}
 
 export const dialectFor = (brand: string): McpDialect | null => {
   if (brand === 'claudecode' || brand === 'claude') return 'claude'
@@ -144,6 +166,54 @@ const decodeJsonEntry = (name: string, entry: unknown, dialect: McpDialect): Mcp
   return { name, transport, url: resolved, ...(headers ? { headers } : {}) }
 }
 
+/** Read a TOML string array without treating quoted brackets or comments as syntax. */
+const tomlStringArray = (text: string): string[] | null => {
+  if (text[0] !== '[') return null
+  let i = 1
+  const values: string[] = []
+  const skip = () => {
+    for (;;) {
+      while (i < text.length && /\s/.test(text[i]!)) i++
+      if (text[i] !== '#') break
+      while (i < text.length && text[i] !== '\n') i++
+    }
+  }
+  const finish = (): string[] | null =>
+    /^[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$)/.test(text.slice(i + 1)) ? values : null
+  for (;;) {
+    skip()
+    if (text[i] === ']') return finish()
+    const quote = text[i++]
+    if (quote !== '"' && quote !== "'") return null
+    let value = ''
+    let closed = false
+    while (i < text.length) {
+      const char = text[i++]!
+      if (char === quote) { closed = true; break }
+      if (char < ' ' || char === '\x7f') return null
+      if (quote === '"' && char === '\\') {
+        const escape = text[i++]
+        const escapes: Record<string, string> = { b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', '"': '"', '\\': '\\' }
+        if (escape !== undefined && Object.hasOwn(escapes, escape)) value += escapes[escape]
+        else if (escape === 'u' || escape === 'U') {
+          const length = escape === 'u' ? 4 : 8
+          const hex = text.slice(i, i + length)
+          if (hex.length !== length || !/^[0-9a-f]+$/i.test(hex)) return null
+          const point = Number.parseInt(hex, 16)
+          if (point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff)) return null
+          value += String.fromCodePoint(point)
+          i += length
+        } else return null
+      } else value += char
+    }
+    if (!closed) return null
+    values.push(value)
+    skip()
+    if (text[i] === ']') return finish()
+    if (text[i++] !== ',') return null
+  }
+}
+
 /** One `[mcp_servers.<name>]` table body → canonical. */
 const decodeTomlEntry = (name: string, body: string): McpServerSpec | null => {
   const string = (key: string): string | undefined =>
@@ -172,7 +242,8 @@ const decodeTomlEntry = (name: string, body: string): McpServerSpec | null => {
     }
 
     const env: Record<string, string> = {}
-    const envRaw = /^\s*env\s*=\s*\{([^}]*)\}/m.exec(body)?.[1]
+    const envRaw = inlineTableBody(body, 'env')
+    if (envRaw === null) return null
     if (envRaw !== undefined) {
       for (const pair of envRaw.split(',').map((one) => one.trim()).filter(Boolean)) {
         const match = /^([A-Za-z0-9_]+)\s*=\s*"([^"]*)"$/.exec(pair)
@@ -185,12 +256,21 @@ const decodeTomlEntry = (name: string, body: string): McpServerSpec | null => {
       return null
     }
 
+    let envVars: string[] | undefined
+    const envVarsStart = /^\s*env_vars\s*=\s*/m.exec(body)
+    if (envVarsStart) {
+      const parsed = tomlStringArray(body.slice(envVarsStart.index + envVarsStart[0].length))
+      if (parsed === null) return null
+      envVars = parsed
+    }
+
     return {
       name,
       transport: 'stdio',
       command,
       ...(args ? { args } : {}),
       ...(Object.keys(env).length > 0 ? { env } : {}),
+      ...(envVars ? { envVars } : {}),
     }
   }
   const url = string('url')
@@ -210,6 +290,9 @@ export const canHostMcp = (
 ): { readonly ok: true } | { readonly ok: false; readonly reason: string } => {
   if (dialect === null) {
     return { ok: false, reason: 'No configuration location is known for this agent, so nothing can be written for it.' }
+  }
+  if (spec.envVars?.length && dialect !== 'codex') {
+    return { ok: false, reason: 'This agent’s format cannot carry a list of environment variable names to pass through.' }
   }
   if (dialect === 'codex') {
     if (spec.transport === 'sse') {
@@ -272,6 +355,7 @@ export const encodeTomlBlock = (spec: McpServerSpec, key: string): string => {
     if (spec.args && spec.args.length > 0) {
       lines.push(`args = [${spec.args.map((one) => JSON.stringify(one)).join(', ')}]`)
     }
+    if (spec.envVars?.length) lines.push(`env_vars = ${JSON.stringify(spec.envVars)}`)
     if (spec.env && Object.keys(spec.env).length > 0) {
       const pairs = Object.entries(spec.env).map(([k, v]) => `${k} = ${JSON.stringify(v)}`)
       lines.push(`env = { ${pairs.join(', ')} }`)
