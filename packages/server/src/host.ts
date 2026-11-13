@@ -10987,6 +10987,14 @@ export class Host {
     const eventSession = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId :
       'sessionId' in event ? event.sessionId : undefined
     const priorRecord = eventSession ? this.registry.get(runtime, eventSession) : undefined
+    // An idle status that differs from the idle before it only in
+    // `subagentsRunning` says a sub-agent started or stopped while the
+    // conversation rested. It is not a turn ending: nothing below treats it as
+    // one, or a child finishing would drain the queue, tell the Team its turn
+    // ended and hand a flow seat its order again — a turn nobody asked for.
+    const priorStatus = priorRecord?.session.status
+    const subagentsOnly = event.type === 'session/status' && event.status.type === 'idle' && priorStatus?.type === 'idle' &&
+      (priorStatus.subagentsRunning === true) !== (event.status.subagentsRunning === true)
     const temporarilyWatched: TurnId[] = []
     if (priorRecord && event.type === 'session/started') {
       const pending = this.#transcripts.pendingTurnIds(runtime, priorRecord.session.id, priorRecord.bodyGeneration, priorRecord.bodyAuthorityEpoch)
@@ -11121,7 +11129,7 @@ export class Host {
     // Cancellation cleanup may still have seen the completed turn's active
     // status. Its trailing idle notification resumes the surviving queue, but
     // cannot deliver into a newer running turn or a send awaiting acceptance.
-    if (event.type === 'session/status' && event.status.type === 'idle' && record && !this.#queueBusy(record)) {
+    if (event.type === 'session/status' && event.status.type === 'idle' && !subagentsOnly && record && !this.#queueBusy(record)) {
       void this.#drain(record)
     }
     // Messages other agents left for this conversation go after the user's
@@ -11132,7 +11140,7 @@ export class Host {
     // is the nudge that actually lands most deliveries.
     if (
       event.type === 'turn/completed' ||
-      (event.type === 'session/status' && event.status.type === 'idle')
+      (event.type === 'session/status' && event.status.type === 'idle' && !subagentsOnly)
     ) {
       // The turn's own last word goes with the signal: if this turn was
       // started by a teammate's message, the room shows that answer. It is

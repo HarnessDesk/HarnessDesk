@@ -40,7 +40,7 @@ const environment = (start: number) => ({
 const account = async (
   t: TestContext,
   env: Readonly<Record<string, string>> = {},
-  gates: readonly ('unload' | 'close' | 'delegate-list' | 'delegate-read' | 'interrupt')[] = [],
+  gates: readonly ('unload' | 'close' | 'delegate-list' | 'delegate-read' | 'interrupt' | 'start')[] = [],
 ) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-codex-shared-'))
   const helpers = join(dir, 'helpers.ndjson')
@@ -79,7 +79,7 @@ const account = async (
     },
     ended: (session: AgentSession) =>
       events.some((event) => event.type === 'turn/completed' && event.sessionId === session.id),
-    release: (name: 'unload' | 'close' | 'delegate-list' | 'delegate-read' | 'interrupt') => rm(gateFile(name), { force: true }),
+    release: (name: 'unload' | 'close' | 'delegate-list' | 'delegate-read' | 'interrupt' | 'start') => rm(gateFile(name), { force: true }),
   }
 }
 
@@ -527,6 +527,88 @@ test('Stop with the turn over stops the sub-agents still working and starts no t
     'the root saw no new turn')
   assert.equal(runningTurn(seat), null)
   assert.ok(!after.some((call) => call.method === 'thread/unsubscribe'), 'Stop keeps every thread subscribed')
+})
+
+const statusesAfter = (events: readonly AgentEvent[], session: AgentSession, from: number) =>
+  events.slice(from).filter((event): event is Extract<AgentEvent, { type: 'session/status' }> =>
+    event.type === 'session/status' && event.sessionId === session.id).map((event) => event.status)
+
+test('a sub-agent whose thread closes without finishing its turn no longer keeps Stop', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive-closed' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  await until(() => lastStatus(d.events, seat)?.type === 'idle' && !outlasting(d.events, seat), 'the closed sub-agent no longer counts')
+})
+
+test('a conversation that fails while its sub-agents work drops the flag and is not said idle again when they end', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive-error' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  await until(() => lastStatus(d.events, seat)?.type === 'error', 'the conversation failed')
+  const from = d.events.length
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  assert.deepEqual(statusesAfter(d.events, seat, from), [], 'the sub-agent ending says nothing over the failure')
+  assert.equal(lastStatus(d.events, seat)?.type, 'error')
+})
+
+test('a conversation Codex has said is active is not said idle when one of its sub-agents ends before its turn starts', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive-busy' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  await until(() => lastStatus(d.events, seat)?.type === 'active', 'Codex said the conversation is active again')
+  const from = d.events.length
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  assert.deepEqual(statusesAfter(d.events, seat, from), [], 'no idle is said over the active conversation')
+  assert.equal(lastStatus(d.events, seat)?.type, 'active')
+})
+
+test('a conversation closed while its sub-agents work hears nothing more of them', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive-done' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  await seat.close()
+  const from = d.events.length
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  assert.deepEqual(statusesAfter(d.events, seat, from), [], 'the sub-agent ending is not said of a closed conversation')
+})
+
+test('Stop after a new turn started over the sub-agents stops that turn as well as the sub-agents', async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' })
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the root is idle over a working sub-agent')
+  const child = (await d.helpers()).find((helper) => helper.threadId.startsWith(`${seat.id}-sub-`))!.threadId
+  await seat.send([{ type: 'text', text: 'Keep working' }])
+  await until(() => runningTurn(seat) !== null, 'the new turn is running')
+  const before = (await d.calls()).length
+
+  await seat.interrupt()
+
+  const interrupted = (await d.calls()).slice(before).filter((call) => call.method === 'turn/interrupt').map((call) => call.threadId)
+  assert.deepEqual([...interrupted].sort(), [seat.id, child].sort(), 'the new turn and the sub-agent were each stopped')
+})
+
+test('Stop while a new turn is still being started is refused, and stops nothing', async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' }, ['start'])
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the root is idle over a working sub-agent')
+  const sending = seat.send([{ type: 'text', text: 'start-held' }])
+  await until(async () => (await d.calls()).filter((call) => call.method === 'turn/start' && call.threadId === seat.id).length === 2,
+    'the new turn was asked for')
+  const before = (await d.calls()).length
+
+  await assert.rejects(() => seat.interrupt(), /no turn is currently running/)
+
+  assert.ok(!(await d.calls()).slice(before).some((call) => call.method === 'turn/interrupt'),
+    'a Stop that cannot reach the turn being started stops nothing, rather than only the sub-agents')
+  await d.release('start')
+  await sending
+  await until(() => runningTurn(seat) !== null, 'the new turn runs')
 })
 
 test('Stop with the turn over and nothing below it is refused as before, and asks Codex nothing', async (t) => {

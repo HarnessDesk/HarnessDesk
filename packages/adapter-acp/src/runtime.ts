@@ -2671,16 +2671,14 @@ export class AcpRuntime implements AgentRuntime {
    * agent's conversation is: the handle is detached, and the next message
    * opens the conversation afresh.
    */
-  async reopenAfterCancel(session: AcpSession): Promise<void> {
+  async reopenAfterCancel(session: AcpSession): Promise<boolean> {
     const id = session.id
-    if (this.#disposed || this.#sessions.get(id) !== session || this.#closing.has(id)) return
-    const capabilities = this.#initialized?.agentCapabilities
-    const verb = capabilities?.loadSession ? 'session/load' : capabilities?.sessionCapabilities?.resume ? 'session/resume' : null
-    const connection = this.connectionFor(id)
-    const shared = this.#sharesConnection(id, connection)
+    const verb = this.#reopenVerb(session)
     // Nothing to reopen it with, or no way to end it short of the process
     // other conversations share: the cancel is all a stop can do.
-    if (!verb || (shared && !capabilities?.sessionCapabilities?.close)) return
+    if (verb === null) return false
+    const connection = this.connectionFor(id)
+    const shared = this.#sharesConnection(id, connection)
     const opening: ReopenTrack = {}
     const work = (async () => {
       if (shared) {
@@ -2711,9 +2709,10 @@ export class AcpRuntime implements AgentRuntime {
       // Released or shut down while it reopened: what it opened is nobody's.
       if (this.#disposed || this.#sessions.get(id) !== session || this.#closing.has(id)) {
         this.#discardReopened(id, this.connectionFor(id), session)
-        return
+        return false
       }
       session.reopened(opened)
+      return true
     } catch (error) {
       // Given up on: a process it was starting is ended now, and an open
       // that answers later is closed again rather than left behind.
@@ -2725,7 +2724,7 @@ export class AcpRuntime implements AgentRuntime {
       void work.then(() => this.#discardReopened(id, this.connectionFor(id), session), () => {})
       const message = `${this.#config.name} could not reopen this conversation after it was stopped: ${describeAcp(error)}`
       this.#config.logger?.warn?.('the agent could not reopen a stopped session', { agent: this.#config.id, error: describeAcp(error) })
-      if (this.#disposed || this.#sessions.get(id) !== session) return
+      if (this.#disposed || this.#sessions.get(id) !== session) return false
       session.blockOpening(message)
       session.agentDied()
       this.#sessions.delete(id)
@@ -2733,9 +2732,32 @@ export class AcpRuntime implements AgentRuntime {
       if (this.#sessionConnections.get(id) === connection) this.#sessionConnections.delete(id)
       this.emit({ type: 'error', sessionId: id, error: { message, code: 'runtimeUnavailable' } })
       this.emit({ type: 'session/detached', sessionId: id })
+      return false
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  /**
+   * Whether a stop can end what this conversation's cancel leaves running:
+   * the verb it would reopen it with, or null where it cannot — no load or
+   * resume, a process other conversations share with no `session/close`, or
+   * a conversation already closing or gone. Asked before a sub-agent is said
+   * to outlast the turn, so the window never offers a Stop that cannot reach it.
+   */
+  #reopenVerb(session: AcpSession): 'session/load' | 'session/resume' | null {
+    const id = session.id
+    if (this.#disposed || this.#sessions.get(id) !== session || this.#closing.has(id)) return null
+    const capabilities = this.#initialized?.agentCapabilities
+    const verb = capabilities?.loadSession ? 'session/load' : capabilities?.sessionCapabilities?.resume ? 'session/resume' : null
+    if (!verb) return null
+    if (this.#sharesConnection(id, this.connectionFor(id)) && !capabilities?.sessionCapabilities?.close) return null
+    return verb
+  }
+
+  /** Whether Stop can reach sub-agents this conversation's turn left running: see `#reopenVerb`. */
+  canStopOutlasting(session: AcpSession): boolean {
+    return this.cancelLeavesSubagents && this.#reopenVerb(session) !== null
   }
 
   #sharesConnection(id: SessionId, connection: AcpConnection): boolean {
@@ -4794,6 +4816,8 @@ class AcpSession implements AgentSession {
    * prompt that started it has ended.
    */
   #runningDelegations: ReadonlySet<string> = new Set()
+  /** Delegations a stop's close ended; a later list naming one running is a replay, not work. */
+  readonly #endedByClose = new Set<string>()
   /** Whether the conversation was last said to be idle over running delegations. */
   #saidOutlasting = false
   #goal: SessionGoal | null = null
@@ -4823,7 +4847,7 @@ class AcpSession implements AgentSession {
 
   #replaying = false
   /** A stop's close and reopen, while it runs; a send waits for it. */
-  #reopening: Promise<void> | null = null
+  #reopening: Promise<boolean> | null = null
   /**
    * Where a stop's close and reopen stand: `closing` until the close has
    * ended, `opening` until the reopen answers. See `applyUpdate`.
@@ -5298,12 +5322,14 @@ class AcpSession implements AgentSession {
 
   async interrupt(): Promise<void> {
     // A second stop while the first still closes and reopens: that one is the answer.
-    if (this.#reopening) return this.#reopening
+    if (this.#reopening) { await this.#reopening; return }
     const turn = this.busy ? this.#currentTurn : null
     // The turn is over and its sub-agents are not: there is no prompt to
-    // cancel, and only the close ends them on an agent whose cancel leaves them.
+    // cancel, and only the close ends them on an agent whose cancel leaves
+    // them. Where the close cannot run after all, the cancel is sent and the
+    // agent's next list says what still runs.
     if (!turn && this.#runningDelegations.size > 0 && this.#host.cancelLeavesSubagents) {
-      await this.#reopenAfterCancel(null)
+      if (!await this.#reopenAfterCancel(null)) this.cancelOnly()
       return
     }
     this.cancelOnly()
@@ -5321,9 +5347,9 @@ class AcpSession implements AgentSession {
    * prompt has settled, and the session is opened again in its place. See
    * `AcpAgentConfig.cancelLeavesSubagents`.
    */
-  async #reopenAfterCancel(turn: MutableTurn | null): Promise<void> {
+  async #reopenAfterCancel(turn: MutableTurn | null): Promise<boolean> {
     const settled = this.#turnCompletion
-    const reopening = (async () => {
+    const reopening = (async (): Promise<boolean> => {
       // A prompt the agent never settles is ended by the close all the same.
       // With no turn (sub-agents outlasting it) there is nothing to wait for.
       let timer: NodeJS.Timeout | undefined
@@ -5338,18 +5364,24 @@ class AcpSession implements AgentSession {
       this.#reopenPhase = 'closing'
       this.#abandonPermissions('The conversation was stopped.')
       if (turn && this.#currentTurn === turn) this.#finishTurn(turn, 'cancelled')
+      let reopened = false
       try {
-        await this.#host.reopenAfterCancel(this)
+        reopened = await this.#host.reopenAfterCancel(this)
       } finally {
         this.#reopenPhase = null
-        // The close ended every child the closed session had; a list the
-        // reopened one pushes says otherwise if it must.
-        this.#runningDelegations = new Set()
-        this.#sayOutlasting()
+        // Only a close that ran ended the children: those it ended are not
+        // taken as running again from a list the reopened session replays,
+        // and a stop that could not close leaves the agent's own list to say.
+        if (reopened) {
+          for (const id of this.#runningDelegations) this.#endedByClose.add(id)
+          this.#runningDelegations = new Set()
+          this.#sayOutlasting()
+        }
       }
+      return reopened
     })()
     this.#reopening = reopening
-    try { await reopening } finally {
+    try { return await reopening } finally {
       if (this.#reopening === reopening) this.#reopening = null
     }
   }
@@ -5796,6 +5828,9 @@ class AcpSession implements AgentSession {
     delegations: readonly AcpDelegation[],
     delegated: AcpDelegationUsage | null,
   ): void {
+    // While a stop closes and reopens the session, a list is the dying
+    // session's last word or the reopened one's replay: neither says what runs.
+    if (this.#reopenPhase !== null) return
     const open = this.#currentTurn
     // A closed turn's items are `readonly` and were already handed out with
     // `turn/completed`, so each one touched is copied once here and the whole
@@ -5852,8 +5887,10 @@ class AcpSession implements AgentSession {
       const previous = this.#turns[turn]
       if (previous) this.#turns[turn] = { ...previous, items }
     }
+    // A child a stop's close ended stays ended, whatever a later list replays
+    // of it; a delegation the agent starts afterwards is new work and counts.
     this.#runningDelegations = new Set(delegations.flatMap((delegation) =>
-      typeof delegation?.id === 'string' && delegation.id.length > 0 &&
+      typeof delegation?.id === 'string' && delegation.id.length > 0 && !this.#endedByClose.has(delegation.id) &&
         (DELEGATION_STATUS[delegation.state ?? 'running'] ?? 'inProgress') === 'inProgress' ? [delegation.id] : []))
     this.#sayOutlasting()
     // A share of the session's total and never an addition to it — the
@@ -6030,12 +6067,15 @@ class AcpSession implements AgentSession {
   }
 
   agentDied(): void {
+    // Its children went with it, or are no longer this handle's to stop.
+    this.#runningDelegations = new Set()
     const turn = this.#currentTurn
     if (turn) this.#failTurn(turn, `${this.#host.agentName} exited mid-turn.`, 'runtimeUnavailable')
     this.#abandonPermissions('The agent exited.')
   }
 
   released(): void {
+    this.#runningDelegations = new Set()
     const turn = this.#currentTurn
     if (turn && !this.#replaying) this.#finishTurn(turn, 'cancelled')
     this.#abandonPermissions('The conversation closed.')
@@ -6133,14 +6173,24 @@ class AcpSession implements AgentSession {
 
   /** Idle, and whether sub-agents the agent still lists as running outlast the turn. */
   #idleStatus(): SessionStatus {
-    this.#saidOutlasting = this.#runningDelegations.size > 0
+    this.#saidOutlasting = this.#outlasts()
     return this.#saidOutlasting ? { type: 'idle', subagentsRunning: true } : { type: 'idle' }
+  }
+
+  /**
+   * Whether sub-agents outlast the turn in a way Stop can end: the agent lists
+   * one running, and a close and reopen can run here. ACP leaves a cancel with
+   * no prompt to cancel undefined, so for any other agent the flag is never
+   * raised — Stop is not offered where it would do nothing known.
+   */
+  #outlasts(): boolean {
+    return this.#runningDelegations.size > 0 && this.#host.canStopOutlasting(this)
   }
 
   /** Says the idle status again when what outlasts the turn changed while no turn ran. */
   #sayOutlasting(): void {
     if (this.#currentTurn !== null) return
-    if (this.#saidOutlasting === this.#runningDelegations.size > 0) return
+    if (this.#saidOutlasting === this.#outlasts()) return
     this.#host.emit({ type: 'session/status', sessionId: this.id, status: this.#idleStatus() })
   }
 

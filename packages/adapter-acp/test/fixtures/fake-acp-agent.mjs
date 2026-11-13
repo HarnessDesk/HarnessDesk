@@ -854,6 +854,7 @@ const runPrompt = async (id, params) => {
   // whose output count is still a streaming placeholder. `deleg refused` and
   // `deleg cancelled` report a running child and then end the turn some way
   // other than as asked: the row is there, and the turn is not a finished one.
+  // `deleg again` starts a second child, `d3`, after a stop ended the first.
   if (text.startsWith('deleg ')) {
     const [, verb] = text.split(/\s+/)
     const one = (over) => ({
@@ -877,6 +878,12 @@ const runPrompt = async (id, params) => {
         sessionId: state.id,
         delegations: [one({ state: 'completed', endedAt: 2, usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12, cachedReadTokens: 0, cachedWriteTokens: 0, outputExact: true } })],
         delegated: { inputTokens: 10, outputTokens: 2, totalTokens: 12, outputExact: true },
+      })
+    }
+    if (verb === 'again') {
+      notify('_harnessdesk/delegation/changed', {
+        sessionId: state.id,
+        delegations: [one({ id: 'd3', state: 'running' })],
       })
     }
     if (verb === 'floor') {
@@ -1103,6 +1110,12 @@ const handleTaskPrompt = (state, text) => {
   return false
 }
 
+/** The list a closing or reopening session may still say: its first child running. */
+const staleDelegations = (sessionId) => notify('_harnessdesk/delegation/changed', {
+  sessionId,
+  delegations: [{ id: 'd1', label: 'Explore', prompt: 'look around', models: ['fake-child'], startedAt: 1, calls: 1, state: 'running' }],
+})
+
 const handlers = {
   initialize: async (id, params) => {
     // Hold a real spawned process after its environment was captured, without
@@ -1247,6 +1260,10 @@ const handlers = {
   'test/crash': () => { process.exit(1) },
   'session/close': async (id, params) => {
     sequence(`session/close ${params.sessionId}`)
+    // FAKE_ACP_DELEGATION_REPLAY has the closing session say its last list,
+    // and the reopened one replay it while opening and once open: `d1` still
+    // running, as an agent restoring its own record of it might.
+    if (process.env.FAKE_ACP_DELEGATION_REPLAY) staleDelegations(params.sessionId)
     if (process.env.FAKE_ACP_NO_CLOSE) return fail(id, 'close is unsupported')
     if (process.env.FAKE_ACP_CLOSE_SILENT) return
     if (process.env.FAKE_ACP_CLOSE_FAIL) return fail(id, 'close refused')
@@ -1588,8 +1605,10 @@ const handlers = {
         writeFileSync(process.env.FAKE_ACP_DUMP_SERVERS, JSON.stringify(params?.mcpServers ?? []))
       } catch {}
     }
+    if (process.env.FAKE_ACP_DELEGATION_REPLAY) staleDelegations(state.id)
     // No replay: resume restores the context and says nothing about it.
     reply(id, { configOptions: configOptionsOf(state) })
+    if (process.env.FAKE_ACP_DELEGATION_REPLAY) setTimeout(() => staleDelegations(state.id), 20)
   },
   'session/load': async (id, params) => {
     if (RESUME_ONLY) return send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found', data: { method: 'session/load' } } })

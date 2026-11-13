@@ -2603,10 +2603,18 @@ rl.on('line', (line) => {
       // parent's own `collabAgentToolCall` spawn item names it, and its status
       // and turns reach this connection under its own thread id. The root's
       // turn ends and goes idle while the child's own turn is still running.
-      // `spawn-outlive-done` lets the child finish on its own a moment later;
-      // `spawn-outlive-unannounced` leaves the spawn item out, so the child is
-      // known only by what it does and by a `thread/read` of its parent.
-      if (said === 'spawn-outlive' || said === 'spawn-outlive-done' || said === 'spawn-outlive-unannounced') {
+      // The suffix says what happens next:
+      // - `-done`: the child finishes on its own a moment later;
+      // - `-closed`: the child's thread closes with no `turn/completed`;
+      // - `-error`: the root's thread fails, then the child finishes;
+      // - `-busy`: a second child starts too; the root is said active (a turn
+      //   coming, not yet started), then the first child finishes while the
+      //   second still works;
+      // - `-unannounced`: no spawn item at all, so the child is known only by
+      //   what it does and by a `thread/read` of its parent.
+      const outlive = /^spawn-outlive(?:-(done|closed|error|busy|unannounced))?$/.exec(said)
+      if (outlive) {
+        const then = outlive[1] ?? null
         const root = THREAD
         const child = spawnChild(root)
         workingThreads.add(child)
@@ -2615,24 +2623,47 @@ rl.on('line', (line) => {
           type: 'collabAgentToolCall', id: `spawn-${child}`, tool: 'spawnAgent', status, senderThreadId: root,
           receiverThreadIds, prompt: 'Check one payment provider.', model: null, reasoningEffort: null, agentsStates: {},
         })
+        const childDone = () => {
+          workingThreads.delete(child)
+          notify('turn/completed', { threadId: child, turn: { ...childTurn, itemsView: 'summary', status: 'completed' } })
+          notify('thread/status/changed', { threadId: child, status: { type: 'idle' } })
+        }
         send(response)
         notify('turn/started', { threadId: root, turn: response.result.turn })
-        if (said !== 'spawn-outlive-unannounced') {
+        if (then !== 'unannounced') {
           notify('item/started', { threadId: root, turnId: TURN, item: spawnItem('inProgress', []), startedAtMs: nowMs() })
           notify('item/completed', { threadId: root, turnId: TURN, item: spawnItem('completed', [child]), completedAtMs: nowMs() })
         }
         notify('thread/status/changed', { threadId: child, status: { type: 'active', activeFlags: [] } })
         notify('turn/started', { threadId: child, turn: childTurn })
+        if (then === 'busy') {
+          const second = spawnChild(root)
+          workingThreads.add(second)
+          notify('item/completed', { threadId: root, turnId: TURN, item: { ...spawnItem('completed', [second]), id: `spawn-${second}` }, completedAtMs: nowMs() })
+          notify('turn/started', { threadId: second, turn: { ...childTurn, id: `turn-${second}` } })
+        }
         setImmediate(() => {
+          workingThreads.delete(root)
           notify('turn/completed', { threadId: root, turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null } })
           notify('thread/status/changed', { threadId: root, status: { type: 'idle' } })
-          if (said === 'spawn-outlive-done') {
-            setTimeout(() => {
-              notify('turn/completed', { threadId: child, turn: { ...childTurn, itemsView: 'summary', status: 'completed' } })
-              notify('thread/status/changed', { threadId: child, status: { type: 'idle' } })
-            }, 50)
-          }
+          if (then === 'done') setTimeout(childDone, 50)
+          if (then === 'closed') setTimeout(() => { workingThreads.delete(child); notify('thread/closed', { threadId: child }) }, 50)
+          if (then === 'error') setTimeout(() => {
+            notify('thread/status/changed', { threadId: root, status: { type: 'systemError' } })
+            setTimeout(childDone, 30)
+          }, 50)
+          if (then === 'busy') setTimeout(() => {
+            notify('thread/status/changed', { threadId: root, status: { type: 'active', activeFlags: [] } })
+            setTimeout(childDone, 30)
+          }, 50)
         })
+        return
+      }
+      // A turn whose start is not answered while `FAKE_CODEX_START_GATE` names
+      // a file that exists: the turn Codex is starting when Stop lands.
+      if (said === 'start-held') {
+        replyAfterHold(process.env.FAKE_CODEX_START_GATE, id, response.result, 'START_HELD')
+        afterHold(process.env.FAKE_CODEX_START_GATE, () => notify('turn/started', { threadId: THREAD, turn: response.result.turn }), 'START_HELD')
         return
       }
       // A root whose turn keeps running over a tree of sub-agents, each a

@@ -2220,13 +2220,16 @@ export class CodexRuntime implements AgentRuntime {
   /**
    * Says it again for every open conversation whose turn is over and whose
    * answer changed: a sub-agent started or ended while it rested, or its own
-   * turn just ended over children still working. A conversation Codex last
-   * called errored or not loaded is left as Codex said.
+   * turn just ended over children still working. Only a conversation Codex
+   * last called idle (or has not described) rests: one it called active has a
+   * turn coming that `turn/started` has not yet named, and one it called
+   * errored or not loaded is left as Codex said — an error drops the flag on
+   * purpose, since what the window must show then is the failure.
    */
   #reconsiderSubagents(): void {
     for (const [id, session] of this.#sessions) {
       const own = this.#ownStatus.get(id)
-      const resting = session.activeTurnId === null && own !== 'error' && own !== 'notLoaded'
+      const resting = session.activeTurnId === null && (own === undefined || own === 'idle')
       const outlasting = resting && this.#subagentsRunning(id)
       if (outlasting === this.#outlasting.has(id)) continue
       if (outlasting) this.#outlasting.add(id)

@@ -301,15 +301,28 @@ const outlasting = (r: Rig, id: string): boolean => {
   return status?.type === 'idle' && status.subagentsRunning === true
 }
 
-async function idleOverDelegation(r: Rig) {
+async function idleOverDelegation(r: Rig, flagged = true) {
   const session = await r.runtime.createSession({ cwd: r.dir })
   // A first exchange the agent keeps, so the conversation can be reopened.
   await session.send([{ type: 'text', text: 'hello' }])
   await completedTimes(r, 1)
   await session.send([{ type: 'text', text: 'deleg spawn' }])
   await completedTimes(r, 2)
-  await r.until(() => outlasting(r, String(session.id)))
+  if (flagged) await r.until(() => outlasting(r, String(session.id)))
+  // The list is pushed before the prompt settles; give a status it might raise time to land.
+  else await pause(100)
   return session
+}
+const everOutlasting = (r: Rig, id: string, from = 0): boolean =>
+  r.events.slice(from).some((event) => event.type === 'session/status' && String(event.sessionId) === id &&
+    event.status.type === 'idle' && event.status.subagentsRunning === true)
+
+/** Waits for the agent to have read a notification the runtime sent it, which nothing answers. */
+async function sequenceGrows(r: Rig, from: number): Promise<string[]> {
+  const deadline = Date.now() + 2_000
+  while ((await lines(r.files.sequence)).length === from && Date.now() < deadline) await pause(20)
+  await pause(100)
+  return (await lines(r.files.sequence)).slice(from)
 }
 
 test('an idle conversation over a running delegation says its sub-agents still work, and stops saying it when the list says they ended', async (t) => {
@@ -344,17 +357,45 @@ test('Stop with the turn over closes and reopens the session to end its sub-agen
   assert.equal(completions(r.events)[2]?.turn.status, 'completed')
 })
 
-test('without the declaration, Stop with the turn over sends the agent its cancel and nothing else', async (t) => {
+test('without the declaration, a running delegation does not offer Stop, whose cancel with no prompt ACP leaves undefined', async (t) => {
   const r = await rig(t, { flag: false, resumeOnly: true })
+  const session = await idleOverDelegation(r, false)
+  const id = String(session.id)
+  assert.equal(everOutlasting(r, id), false, 'the conversation is never said to have sub-agents Stop can end')
+  // A Stop sent anyway is the agent's own cancel, as an idle Stop always was.
+  const sequenceBefore = (await lines(r.files.sequence)).length
+  await session.interrupt()
+  assert.deepEqual(await sequenceGrows(r, sequenceBefore), [`session/cancel ${id}`])
+})
+
+test('an agent that declares it but cannot be closed here does not offer Stop, and a Stop sent anyway is its cancel', async (t) => {
+  const r = await rig(t, { flag: true, resumeOnly: true, env: OWN_PROCESS, config: { sharedSessionProcess: true } })
+  const session = await idleOverDelegation(r, false)
+  const id = String(session.id)
+  assert.equal(everOutlasting(r, id), false, 'no close can run on a shared process without session/close, so no Stop is offered')
+  const sequenceBefore = (await lines(r.files.sequence)).length
+  await session.interrupt()
+  assert.deepEqual(await sequenceGrows(r, sequenceBefore), [`session/cancel ${id}`],
+    'the close could not run, so the cancel is sent rather than nothing')
+})
+
+test('a list the closing session or the reopened one replays does not say the stopped sub-agent runs again; a new one does', async (t) => {
+  const r = await rig(t, { flag: true, resumeOnly: true, env: { FAKE_ACP_DELEGATION_REPLAY: '1' } })
   const session = await idleOverDelegation(r)
   const id = String(session.id)
   const sequenceBefore = (await lines(r.files.sequence)).length
+  const eventsBefore = r.events.length
+
   await session.interrupt()
-  // The cancel is a notification: nothing answers it, so wait for the agent to have read it.
-  const deadline = Date.now() + 2_000
-  while ((await lines(r.files.sequence)).length === sequenceBefore && Date.now() < deadline) await pause(20)
-  await pause(100)
-  assert.deepEqual((await lines(r.files.sequence)).slice(sequenceBefore), [`session/cancel ${id}`])
+
+  assert.deepEqual((await lines(r.files.sequence)).slice(sequenceBefore), [`session/close ${id}`, `session/resume ${id}`],
+    'the close and the reopen ran')
+  await pause(150)
+  assert.equal(outlasting(r, id), false, 'the replayed list did not bring the flag back')
+  assert.equal(everOutlasting(r, id, eventsBefore), false, 'not even for a moment')
+  await session.send([{ type: 'text', text: 'deleg again' }])
+  await completedTimes(r, 3)
+  await r.until(() => outlasting(r, id))
 })
 
 test('Stop with the turn over and nothing below it neither closes nor reopens', async (t) => {

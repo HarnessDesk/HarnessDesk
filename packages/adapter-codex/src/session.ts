@@ -144,6 +144,8 @@ export class CodexSession implements AgentSession {
    * `turn/interrupt`, so the session has to know which turn is live.
    */
   #currentTurnId: string | null = null
+  /** Sends still starting a turn here: asked for, not yet answered with the turn they started. */
+  #starting = 0
   #turnRevision = 0
   readonly #interruptions = new Map<string, Promise<void>>()
   readonly #turnEndWaiters = new Set<() => void>()
@@ -532,6 +534,15 @@ export class CodexSession implements AgentSession {
   }
 
   async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }): Promise<TurnId> {
+    this.#starting += 1
+    try {
+      return await this.#send(input, opts)
+    } finally {
+      this.#starting -= 1
+    }
+  }
+
+  async #send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }): Promise<TurnId> {
     const signal = opts?.signal
     if (signal?.aborted) throw signal.reason
     const overrides = this.#pendingOverrides
@@ -666,10 +677,13 @@ export class CodexSession implements AgentSession {
    * With this thread's own turn over and sub-agents below it still working
    * (`subagentsRunning`), Stop asks only the tree: there is no turn here to
    * stop, and nothing is started on this thread. With neither, it is refused
-   * as before.
+   * as before. So is a Stop that lands while a send is still starting a turn
+   * here (`#starting`): stopping only the tree would leave the turn being
+   * started to run as if Stop had covered it, so nothing is stopped and the
+   * refusal says no turn is running yet; the next Stop finds it running.
    */
   async interrupt(): Promise<void> {
-    if (this.#currentTurnId === null && this.deps.subagentsRunning?.(this.id)) {
+    if (this.#currentTurnId === null && this.#starting === 0 && this.deps.subagentsRunning?.(this.id)) {
       await this.#stopTree()
       return
     }
