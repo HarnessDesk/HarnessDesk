@@ -445,3 +445,27 @@ test('Stop with the turn over and nothing below it neither closes nor reopens', 
   assert.deepEqual((await lines(r.files.sequence)).slice(sequenceBefore).filter((line) => !line.startsWith('session/cancel ')), [])
   assert.equal(r.events.filter((event) => event.type === 'turn/started').length, 1)
 })
+
+test('a declared spawn alone feeds idle Stop after the root is cancelled, and Stop closes and reopens', async t => {
+  const r = await rig(t, { flag: true, resumeOnly: true,
+    env: { FAKE_ACP_DELEGATION_TOOL: '1', FAKE_ACP_CHILD_CANCELS_ROOT: '1' },
+    config: { delegationTools: { spawn: ['subagent', 'subagent_fork'], send: ['send_message'], wait: ['wait_agent'], cancel: ['interrupt_agent'] } },
+  })
+  const { session, pid } = await startSubagent(r)
+  await completedTimes(r, 1)
+  assert.equal(completions(r.events)[0]?.turn.status, 'interrupted')
+  await r.until(() => outlasting(r, String(session.id)))
+  assert.equal(alive(pid), true, 'the cancelled root left the child running')
+  const before = (await lines(r.files.sequence)).length
+  await session.interrupt()
+  const id = String(session.id)
+  assert.deepEqual((await lines(r.files.sequence)).slice(before), [`session/close ${id}`, `session/resume ${id}`])
+  const deadline = Date.now() + 2_000
+  while (alive(pid) && Date.now() < deadline) await pause(20)
+  assert.equal(alive(pid), false)
+  assert.equal(outlasting(r, id), false)
+  assert.equal(completions(r.events).length, 1)
+  const item = (await r.runtime.readSession(session.id)).turns[0]?.items.find(item => item.type === 'subagent')
+  assert.ok(item?.type === 'subagent')
+  assert.equal(item.members[0]?.state, 'stopped')
+})

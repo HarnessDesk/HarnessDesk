@@ -108,6 +108,14 @@ measurement and names the upgrade path. (It runs on DSH's own ACP server,
 conversation without replaying it; the desk keeps the transcript. See
 [the DeepSeek decision](decisions.md#deepseek-runs-on-dshs-own-acp-server-and-its-tools-arrive-with-the-session).)
 
+The ACP adapter projects the delegation extension into sub-agent items. An
+agent template can also declare `delegationTools`: DeepSeek's `subagent` and
+`subagent_fork` calls become the same items, with non-openable name handles
+and no child usage. Sends, waits and interrupts remain tool rows naming the
+member, with their own progress, results and approval targets. The child stays running until the root prompt settles; a cancelled
+prompt leaves its spawn in the existing running-delegation set so idle Stop
+can close and reopen the session to end the children.
+
 **The machine decides which copy runs.** The row in `agents.json` is the
 fallback; before every start the host finds every copy of the agent on the
 machine (PATH as the login shell sees it, vendor install directories, and the

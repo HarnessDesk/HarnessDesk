@@ -409,7 +409,17 @@ const runPrompt = async (id, params) => {
     let ticks = 0
     const subagent = { child, closed: false, ticker: setInterval(() => say(`subagent still working ${++ticks}.`), 20) }
     state.subagent = subagent
+    if (process.env.FAKE_ACP_DELEGATION_TOOL) {
+      update(state.id, { sessionUpdate: 'tool_call', toolCallId: 'spawn-child', title: 'subagent', status: 'in_progress', rawInput: { name: 'helper', description: 'Read the fixture' } })
+      update(state.id, { sessionUpdate: 'tool_call_update', toolCallId: 'spawn-child', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'started subagent helper' } }] })
+    }
     say('started a subagent.')
+    // A cancelled prompt can settle without a desk interrupt; the child
+    // still lives, so the next Stop has to find it from the tool alone.
+    if (process.env.FAKE_ACP_CHILD_CANCELS_ROOT) {
+      say('subagent still working after the root is cancelled.')
+      return reply(id, { stopReason: 'cancelled' })
+    }
     let asked = false
     for (;;) {
       if (subagent.closed) return fail(id, 'Internal error', { details: 'the session was closed' })
