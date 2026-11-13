@@ -56,6 +56,25 @@ export const canonicalMcp = (spec: McpServerSpec): string => {
  */
 export type McpDialect = 'claude' | 'cursor' | 'gemini' | 'codex'
 
+/**
+ * The inside of a one-line TOML inline table `key = { … }`, up to the first `}` outside a double-quoted string, so a
+ * `${VAR}` value and a trailing `# {comment}` both read right. `undefined` when the key is absent, `null` when its
+ * table does not close on that line.
+ */
+const inlineTableBody = (body: string, key: string): string | null | undefined => {
+  const open = new RegExp(`^\\s*${key}\\s*=\\s*\\{`, 'm').exec(body)
+  if (!open) return undefined
+  let quoted = false
+  for (let at = open.index + open[0].length; at < body.length; at++) {
+    const char = body[at]
+    if (char === '\n') return null
+    if (quoted && char === '\\') { at++; continue }
+    if (char === '"') quoted = !quoted
+    else if (!quoted && char === '}') return body.slice(open.index + open[0].length, at)
+  }
+  return null
+}
+
 export const dialectFor = (brand: string): McpDialect | null => {
   if (brand === 'claudecode' || brand === 'claude') return 'claude'
   if (brand === 'cursor' || brand === 'cursoragent') return 'cursor'
@@ -223,7 +242,8 @@ const decodeTomlEntry = (name: string, body: string): McpServerSpec | null => {
     }
 
     const env: Record<string, string> = {}
-    const envRaw = /^\s*env\s*=\s*\{(.*)\}/m.exec(body)?.[1]
+    const envRaw = inlineTableBody(body, 'env')
+    if (envRaw === null) return null
     if (envRaw !== undefined) {
       for (const pair of envRaw.split(',').map((one) => one.trim()).filter(Boolean)) {
         const match = /^([A-Za-z0-9_]+)\s*=\s*"([^"]*)"$/.exec(pair)

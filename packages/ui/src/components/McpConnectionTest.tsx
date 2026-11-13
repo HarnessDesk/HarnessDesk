@@ -30,7 +30,7 @@ const failureWord = (failure: Exclude<Answer, { ok: true } | { reason: 'confirm'
 export const McpTestResultChip = ({ answer, compact = false }: { answer: Answer | null; compact?: boolean }) => {
   if (!answer || (!answer.ok && answer.reason === 'confirm')) return null
   if (answer.ok) return <Chip tone="success" size="sm"
-    title={[`${answer.tools} ${answer.tools === 1 ? 'tool' : 'tools'}`, [answer.serverName, answer.serverVersion].filter(Boolean).join(' '), `answered in ${answer.ms} ms`].filter(Boolean).join(' · ')}>
+    title={[`${answer.tools} ${answer.tools === 1 ? 'tool' : 'tools'}`, sanitizeText([answer.serverName, answer.serverVersion].filter(Boolean).join(' ')), `answered in ${answer.ms} ms`].filter(Boolean).join(' · ')}>
     {compact ? 'Connected' : `Connected · ${answer.tools} ${answer.tools === 1 ? 'tool' : 'tools'}`}
   </Chip>
   return <Chip tone={answer.reason === 'busy' ? 'neutral' : answer.reason === 'needsSignIn' ? 'warning' : 'danger'} size="sm"

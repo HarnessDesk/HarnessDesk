@@ -54,13 +54,13 @@ export function mcpTestStore(outcome: McpTestOutcome = 'pass') {
 
 /** The query selects a fake wire outcome; the hook observes identities without rewriting served code. */
 export const McpTestPreview = () => {
-  const { store } = useMemo(() => {
+  const fixture = useMemo(() => {
     const outcome = new URLSearchParams(location.search).get('mcp-test-outcome')
-    const fixture = mcpTestStore(outcome === 'fail' || outcome === 'needsSignIn' ? outcome : 'pass')
-    window.__mcpTest = { calls: fixture.calls, logins: fixture.logins }
-    return fixture
+    return mcpTestStore(outcome === 'fail' || outcome === 'needsSignIn' ? outcome : 'pass')
   }, [])
-  return <StoreProvider store={store}><App /></StoreProvider>
+  // Published from an effect: development's double render may build a second fixture and keep only one.
+  useEffect(() => { window.__mcpTest = { calls: fixture.calls, logins: fixture.logins } }, [fixture])
+  return <StoreProvider store={fixture.store}><App /></StoreProvider>
 }
 
 const ResultFrame = ({ list = false, canSignIn = true }: { list?: boolean; canSignIn?: boolean }) => {

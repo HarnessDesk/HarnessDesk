@@ -109,6 +109,13 @@ test('TOML pass-through names round-trip, affect identity, and cannot be silentl
   assert.equal(canHostMcp('gemini', spec).ok, false)
 })
 
+test('a TOML env table keeps a ${VAR} value and ignores a trailing comment with braces', () => {
+  const spec = decodeRawMcpEntry('command = "node"\nenv = { A = "${X}", B = "a}b" } # {note}', 'toml', 'probe', 'codex')
+  assert.ok(spec)
+  assert.deepEqual(spec.env, { A: '${X}', B: 'a}b' })
+  assert.equal(decodeRawMcpEntry('command = "node"\nenv = { A = "x"', 'toml', 'probe', 'codex'), null, 'an unclosed table refuses')
+})
+
 test('malformed TOML env_vars refuse rather than silently dropping pass-through names', () => {
   for (const value of ['["TOKEN", 12]', '["TOKEN"', '[{ name = "TOKEN", source = "remote" }]']) {
     assert.equal(decodeRawMcpEntry(`command = "node"\nenv_vars = ${value}`, 'toml', 'probe', 'codex'), null)
