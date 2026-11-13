@@ -28,11 +28,11 @@ import {
  * is a session inherited from before this process attached — a resumed
  * thread — which is shown with what little is known rather than hidden.
  *
- * `thread/backgroundTerminals/clean` exists and is deliberately not called.
- * The name does not say whether it reaps dead entries or kills live ones, and
- * the only way to find out costs a paid turn; a "Clear finished" button that
- * might silently kill running work is not worth the guess. Forgetting is done
- * here, where it provably touches nothing.
+ * `thread/backgroundTerminals/clean` is not called from here. Codex's
+ * server answers it by terminating every live terminal of the thread, not by
+ * reaping finished entries, so it cannot back a clearing of finished work.
+ * Forgetting is done here, where it provably touches nothing; Stop uses clean
+ * for a conversation's sub-agents, whose shells end with them.
  */
 
 /** Past this, a command is shortened for its title; the plate keeps it whole. */

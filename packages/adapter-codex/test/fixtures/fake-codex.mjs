@@ -2780,8 +2780,11 @@ rl.on('line', (line) => {
       return
     }
 
+    // FAKE_CODEX_CLEAN=fail refuses every clean, the way a thread that is no
+    // longer loaded is refused, so a test can see the Stop sweep go on.
     case 'thread/backgroundTerminals/clean':
-      send({ id, result: {} })
+      if (process.env.FAKE_CODEX_CLEAN === 'fail') send({ id, error: { code: -32600, message: 'thread not loaded' } })
+      else send({ id, result: {} })
       return
 
     case 'turn/interrupt':

@@ -434,6 +434,11 @@ test('Stop interrupts every running turn below the conversation and unsubscribes
   assert.ok(!interrupted.includes(finished), 'a child whose turn already finished is not stopped')
   assert.ok(!interrupted.includes(sibling.id), 'a sibling conversation is not stopped')
   assert.ok(!calls.some((call) => call.method === 'thread/unsubscribe'), 'Stop keeps every thread subscribed')
+  const cleaned = calls.filter((call) => call.method === 'thread/backgroundTerminals/clean').map((call) => call.threadId)
+  assert.deepEqual([...cleaned].sort(), [child, grandchild, finished].sort(),
+    'every sub-agent’s background shells end with the Stop, a finished one’s too')
+  assert.ok(!cleaned.includes(seat.id), 'the root keeps its own background shells')
+  assert.ok(!cleaned.includes(sibling.id), 'a sibling conversation’s shells are untouched')
   await until(() => d.ended(seat), 'the root’s turn ended')
   assert.ok(!d.ended(sibling), 'the sibling keeps working')
   assert.equal(d.runtime.session(seat.id), seat, 'the conversation stays open')
@@ -444,6 +449,23 @@ test('Stop interrupts every running turn below the conversation and unsubscribes
   const after = (await d.calls()).slice(before)
   assert.ok(!after.some((call) => call.method === 'turn/start'), 'nothing started another turn')
   assert.equal(d.events.filter((event) => event.type === 'turn/started' && event.sessionId === seat.id).length, 1, 'the root saw one turn')
+  assert.equal(runningTurn(seat), null)
+})
+
+test('A refused clean of a sub-agent’s shells does not hold up the Stop or the other sub-agents', async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1', FAKE_CODEX_CLEAN: 'fail' })
+  const seat = await d.seat('seat')
+  const { child, grandchild } = await tree(d, seat)
+  const before = (await d.calls()).length
+
+  await seat.interrupt()
+
+  const calls = (await d.calls()).slice(before)
+  const interrupted = calls.filter((call) => call.method === 'turn/interrupt').map((call) => call.threadId)
+  assert.deepEqual([...interrupted].sort(), [seat.id, child, grandchild].sort(), 'every running turn was still stopped')
+  const cleaned = calls.filter((call) => call.method === 'thread/backgroundTerminals/clean').map((call) => call.threadId)
+  assert.ok(cleaned.includes(child) && cleaned.includes(grandchild), 'each sub-agent was still asked, though the others refused')
+  await until(() => d.ended(seat), 'the root’s turn ended')
   assert.equal(runningTurn(seat), null)
 })
 
@@ -530,6 +552,8 @@ test('Stop with the turn over stops the sub-agents still working and starts no t
   const calls = (await d.calls()).slice(before)
   assert.deepEqual(calls.filter((call) => call.method === 'turn/interrupt').map((call) => call.threadId), [child],
     'only the sub-agent was stopped; the idle root was not asked')
+  assert.deepEqual(calls.filter((call) => call.method === 'thread/backgroundTerminals/clean').map((call) => call.threadId), [child],
+    'the sub-agent’s background shells end with it; the root’s stay')
   await until(() => !outlasting(d.events, seat), 'the conversation no longer says a sub-agent works')
   await new Promise((resolve) => setTimeout(resolve, 200))
   const after = (await d.calls()).slice(before)
