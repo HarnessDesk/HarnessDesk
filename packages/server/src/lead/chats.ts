@@ -14,12 +14,13 @@ import type { AgentError, LeadChatCandidate, LeadChatIncidentObservation, RateLi
 import { boundLeadChatRead } from './chat-read.js'
 import { leadAskOption } from './presence.js'
 import type { LeadWorkLedger, LeadWorkLinkState } from './work.js'
+import type { LeadChatHandlesPort } from './chat-handles.js'
 
 export class LeadChatBusyError extends Error { constructor() { super('That chat is busy; defer the recovery retry.') } }
 
 export const LEAD_CHAT_HELD = 'The person has taken this chat over. Wait until they hand it back.'
 
-export interface LeadChatActivity { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage: LeadStage; readonly incident?: LeadChatIncidentObservation }
+export interface LeadChatActivity { readonly id: string; readonly handle?: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage: LeadStage; readonly incident?: LeadChatIncidentObservation }
 
 export interface LeadChatsPorts {
   readonly control?: Pick<LeadChatControlStore, 'holder' | 'noteSent'> & Partial<Pick<LeadChatControlStore, 'assertDispatch' | 'assertCanStart' | 'current'>>
@@ -49,6 +50,8 @@ export interface LeadChatsPorts {
     readonly schedule?: (run: () => void, delay: number) => () => void
   }
   readonly publish?: (event: LeadChatActivity) => void
+  /** The chats' handles for the Lead (`chat-handles.ts`): what it is shown names a chat by its handle as well as its id. */
+  readonly handles?: LeadChatHandlesPort
   /** The reserved run: a start the Lead makes for automatic work is refused while only the person's slot is left. */
   readonly slots?: { admit(cause: LeadStartCause): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>; hold(cause: LeadStartCause): { release(): void } | null; mark(id: string, cause: LeadStartCause): Promise<void>; readonly reasons: { readonly cap: string } }
   /**
@@ -133,7 +136,7 @@ export class LeadChats {
         this.ports.control?.assertDispatch?.(ports.project.path, incident.chatId)
         // Timers and transcript content stay host-owned; this bounded observation is the only wake.
         this.#states.set(incident.chatId, 'you-blocked')
-        ports.publish?.({ id: incident.chatId, project: ports.project.path, state: 'waiting', stage: 'you-blocked', incident: { chatId: incident.chatId, turnId: incident.turnId, kind: incident.kind, attempts: incident.attempts, firstAt: incident.firstAt, lastAt: incident.lastAt, resetsAt: incident.resetsAt, lastError: incident.lastError, state: incident.state, ...(incident.movedTo ? { movedTo: incident.movedTo } : {}), candidates } })
+        await this.#publish({ id: incident.chatId, project: ports.project.path, state: 'waiting', stage: 'you-blocked', incident: { chatId: incident.chatId, turnId: incident.turnId, kind: incident.kind, attempts: incident.attempts, firstAt: incident.firstAt, lastAt: incident.lastAt, resetsAt: incident.resetsAt, lastError: incident.lastError, state: incident.state, ...(incident.movedTo ? { movedTo: incident.movedTo } : {}), candidates } })
       },
     })
   }
@@ -152,6 +155,14 @@ export class LeadChats {
       await this.#target(id, false); await this.#gate(retry ? { method: 'lead/chat/send', params: { id, text: 'Continue from where you stopped.' } } : { method: 'lead/chat/read', params: { id } })
       return await this.ports.control?.holder(this.ports.project.path, id) === 'lead'
     } catch { return false }
+  }
+  /** The handles of these chats, naming any not yet named. Never a gate: a chat without one goes by its id. */
+  async #handles(ids: readonly string[]): Promise<ReadonlyMap<string, string>> {
+    try { return await this.ports.handles?.name(ids) ?? new Map() } catch { return new Map() }
+  }
+  async #publish(event: LeadChatActivity): Promise<void> {
+    const handle = (await this.#handles([event.id])).get(event.id)
+    this.ports.publish?.(handle ? { ...event, handle } : event)
   }
   async #activity(id: string): Promise<LeadChatActivity> {
     const incident = this.incidents?.get(id)
@@ -219,7 +230,8 @@ export class LeadChats {
         activities.push(await this.#activity(id))
       } catch { /* Withdrawn, archived and removed watches disclose no identity. */ }
     }
-    return activities
+    const handles = await this.#handles(activities.map(activity => activity.id))
+    return activities.map(activity => handles.has(activity.id) ? { ...activity, handle: handles.get(activity.id)! } : activity)
   }
   /** Only followed chats emit, and only on state transitions. No token output or
    * transcript bytes cross this notification path. Persisted watches survive restarts. */
@@ -256,7 +268,7 @@ export class LeadChats {
         if (this.#states.get(id) === stage) return
         this.#states.set(id, stage)
         while (this.#states.size > 64) this.#states.delete(this.#states.keys().next().value!)
-        this.ports.publish?.({ id, project: this.ports.project.path, state, stage })
+        await this.#publish({ id, project: this.ports.project.path, state, stage })
       } catch { this.#states.delete(id) }
       finally {
         // Capturing a terminal turn revoked its timer/claim before any await.
@@ -385,13 +397,15 @@ export class LeadChats {
       const item: typeof items[number] = { id, title: scrub(summary.title ?? summary.preview ?? '', 160) || 'Conversation',
         state: live.waiting ? 'waiting' : this.incidents?.waiting(id) || live.running ? 'running' : 'idle', stage: this.#stageOf(id), updatedAt: summary.updatedAt }
       // Counts alone do not bound UTF-8 or escaped JSON. Leave room for the
-      // opaque continuation token and stop before consuming the omitted row.
-      if (Buffer.byteLength(JSON.stringify({ items: [...items, item], nextCursor: '0'.repeat(36) })) > 12_000) {
+      // opaque continuation token and each row's handle, and stop before consuming the omitted row.
+      if (Buffer.byteLength(JSON.stringify({ items: [...items, item].map(one => ({ ...one, handle: 'x'.repeat(32) })), nextCursor: '0'.repeat(36) })) > 12_000) {
         position = previousPosition; more = true; break
       }
       items.push(item)
       if (items.length >= limit) { more = i < page.data.length - 1 || page.nextCursor !== null; break }
     }
+    // Each chat shown is named once, here, before the Lead can refer to it.
+    const handles = await this.#handles(items.map(item => item.id))
     await this.#gate({ method: 'lead/chat/list', params })
     if (this.ports.project.path !== root) refuse('Lead project scope changed.')
     let nextCursor: string | null = null
@@ -400,7 +414,7 @@ export class LeadChats {
       this.#cursors.set(nextCursor, { root, cursor: position, expires: now + CURSOR_TTL })
       while (this.#cursors.size > 256) this.#cursors.delete(this.#cursors.keys().next().value!)
     }
-    return { items, nextCursor }
+    return { items: items.map(item => handles.has(item.id) ? { ...item, handle: handles.get(item.id)! } : item), nextCursor }
   }
 
   async read(params: HostParams<'lead/chat/read'>): Promise<HostResult<'lead/chat/read'>> {
@@ -415,7 +429,8 @@ export class LeadChats {
     await this.#watch(params.id)
     await this.#target(params.id, true)
     if (this.ports.project.path !== root) refuse('Lead project scope changed.')
-    return boundLeadChatRead(result)
+    const handle = (await this.#handles([params.id])).get(params.id)
+    return handle ? { handle, ...boundLeadChatRead(result) } : boundLeadChatRead(result)
   }
   /**
    * The person's newest message, when it picked an option of the Lead's question just before it and that option is
@@ -545,6 +560,9 @@ export class LeadChats {
           result = await this.#create(params, call, text, agent, paced, admit, effectStarted, attemptId)
           if (result.id && !result.problem) await this.ports.slots?.mark(result.id, cause).catch(() => {})
         } finally { hold.release() }
+        // A started chat is named at once, so the Lead's receipt already carries the name it will use.
+        const handle = result.id && !result.problem ? (await this.#handles([result.id])).get(result.id) : undefined
+        if (handle) result = { ...result, handle }
         if (claim && result.id) return { ...result, ledgerItem: await this.ports.ledger!.started(claim, result.id) }
         return result
       } finally { if (claim) this.ports.ledger!.release(claim) }

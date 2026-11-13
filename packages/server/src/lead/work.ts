@@ -14,6 +14,8 @@ export interface LeadWorkPorts {
   readonly project: () => string | null
   /** A chat's host stage; null when the desk no longer holds it. */
   readonly chat: (id: string) => LeadWorkLinkState | null
+  /** The handle the Lead knows a chat by, when it has one: what the ledger's refusals name a chat with. */
+  readonly handle?: (id: string) => string | undefined
   /** Every Team the desk knows, by id; `done` once its result was accepted and it wrapped. */
   readonly teams: () => Promise<ReadonlyMap<string, LeadWorkLinkState & { readonly done: boolean }>>
   /** Pull requests the Lead follows right now, as `owner/repo#number`. */
@@ -351,7 +353,7 @@ export class LeadWorkLedger {
     for (const claim of this.#pending.values())
       if (claim.item === null && covers(claim)) return { problem: `A start for this request is already starting ("${clip(claim.title, 60)}"). Wait for its result instead of starting another chat.` }
     const open = this.stored.items.find(item => item.closedAt === undefined && covers({ title: item.title, quotes: item.origin.quotes, project: item.project }))
-    const chat = (item: Item) => item.links.chats.at(-1) ? ` Its chat is ${item.links.chats.at(-1)}.` : ''
+    const chat = (item: Item) => item.links.chats.at(-1) ? ` Its chat is ${this.#chatName(item.links.chats.at(-1)!)}.` : ''
     if (open) return { item: open.id, problem: `Nothing was started: open work ${open.id} "${clip(open.title, 80)}" (${open.stage}) already covers this request.${chat(open)} ` +
       `Name it to the person and offer to continue it: chat_send continues its chat, or pass ledgerItem "${open.id}" to add a chat to it. Ask before starting another attempt.` }
     // A recent try that was stopped is the same work too: the person decides whether to go again. Work that finished
@@ -378,6 +380,12 @@ export class LeadWorkLedger {
    * not the person saying no. A stop the desk could not attribute is counted, since it may have been the person's.
    * Null when the attempt may go ahead.
    */
+  /** A chat as the Lead is told of it: by its handle, with the id beside it so either works. */
+  #chatName(id: string): string {
+    let handle: string | undefined
+    try { handle = this.ports.handle?.(id) } catch { handle = undefined }
+    return handle ? `${handle} (${id})` : id
+  }
   #askFirst(item: Item): LeadWorkClaimRefusal | null {
     const stops = item.stops ?? [], counted = stops.filter(stop => stop.by !== 'lead').length
     if (item.closedAt === undefined || item.stage !== 'stopped' || counted < LEAD_WORK_LIMITS.stopsBeforeAsking) return null
@@ -385,7 +393,7 @@ export class LeadWorkLedger {
     if (item.retryAsked !== undefined && asked > item.retryAsked) return null
     item.retryAsked = asked
     const count = stops.length === 1 ? 'once' : stops.length === 2 ? 'twice' : `${stops.length} times`
-    const chat = item.links.chats.at(-1)
+    const last = item.links.chats.at(-1), chat = last && this.#chatName(last)
     return { item: item.id, problem: `Nothing was started: work ${item.id} "${clip(item.title, 80)}" was stopped ${count} (${leadStopTally(stops)}), ` +
       `the last time ${ago(this.ports.now() - item.closedAt)} ago.${chat ? ` Its last chat is ${chat}.` : ''} Tell the person what happened, in those words, and ask ` +
       `which they want before anything else: continue the last chat${chat ? ` (chat_send to ${chat})` : ''}, start fresh (pass ledgerItem "${item.id}" again once they answer), ` +

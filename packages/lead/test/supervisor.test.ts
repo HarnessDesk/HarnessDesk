@@ -1000,6 +1000,37 @@ test('a plan whose seats cannot hold comes back to the child as its code, and th
 })
 
 
+test('a chat handle nobody holds is an RPC refusal by name, never a broken child; a handle sent to execute is', async () => {
+  for (const operation of ['resolveTool', 'execute'] as const) {
+    let reply!: (value: any) => void
+    const replied = new Promise<any>(resolve => { reply = resolve })
+    const call = { method: 'lead/chat/read', params: { id: 'demo-opus' } }
+    const child = fake((message, child) => {
+      if (message.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+      if (message.type === 'request') child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation,
+        args: operation === 'resolveTool' ? [call] : [{ id: 'attempt-1', request: { ...call, project: null, runId: null, start: null }, context: {} }] }))
+      if (message.type === 'reply') reply(message)
+      if (message.type === 'shutdown') child.kill()
+    })
+    const f = await fixture({ spawn: () => child, resolveTool: async () => {
+      if (operation === 'resolveTool') throw Object.assign(new Error('lead-chat-unknown'), { wireCode: 'lead-chat-unknown' })
+      // Execution only ever sees an id: a call the host had to resolve again means the child skipped resolution.
+      return { project: null, runId: null, start: null, context: {}, call: { method: 'lead/chat/read', params: { id: 'claude:a' } } }
+    } })
+    const sent = f.supervisor.send(request).catch(() => {})
+    try {
+      if (operation === 'resolveTool') {
+        const response = await replied
+        assert.equal(response.ok, false); assert.equal(response.value, 'lead-chat-unknown')
+        assert.equal(f.supervisor.live, true)
+      } else {
+        await sent
+        assert.equal(f.supervisor.live, false, 'a handle reaching execution is a protocol failure')
+      }
+    } finally { await f.supervisor.stop(); await sent }
+  }
+})
+
 const crew = { implement: [{ runtime: 'acme-writer', model: 'acme/writer-1' }], review: [{ runtime: 'acme-reviewer', model: 'acme/reviewer-1', effort: 'high' }] }
 /** The real child, wired in-process to a supervisor over framed streams, with the provider answered by the host seam. */
 const childRig = async (bootstrapExtra: Record<string, unknown>, providerSend: (requestId: string, body: string) => Promise<unknown>, extra: Record<string, unknown> = {}) => {

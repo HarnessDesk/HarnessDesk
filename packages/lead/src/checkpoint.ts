@@ -4,6 +4,7 @@ import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalReco
 import { LEAD_ACCEPTED_TEAMS, initialLeadState, initialLeadContext, removedWorkerApprovalNotice, retireLeadWorkerApprovals, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
 import { initialLeadMemoryCore, parseLeadMemoryCore } from './memory.js'
+import { initialLeadChatHandles, parseLeadChatHandles } from './chat-handles.js'
 
 export interface LeadJournalCheckpoint {
   readonly type: 'checkpoint'; readonly version: 1; readonly seq: number; readonly head: string
@@ -40,7 +41,9 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // Checkpoints before the memory store carry no Core: the host journals it again when it opens.
   const remembered = contextual && { ...contextual, memory: Object.hasOwn(contextual, 'memory') ? contextual.memory : initialLeadMemoryCore() }
   // Checkpoints before epoch snapshots carry none: the next build records one.
-  const source = remembered && { ...remembered, memoryEpoch: Object.hasOwn(remembered, 'memoryEpoch') ? remembered.memoryEpoch : null }
+  const epoched = remembered && { ...remembered, memoryEpoch: Object.hasOwn(remembered, 'memoryEpoch') ? remembered.memoryEpoch : null }
+  // Checkpoints before chat handles carry none: the next chat the Lead sees is the first named.
+  const source = epoched && { ...epoched, chatHandles: Object.hasOwn(epoched, 'chatHandles') ? epoched.chatHandles : initialLeadChatHandles() }
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
   const context = source.context
   assert(context && typeof context === 'object' && Object.keys(context).sort().join() === 'epoch,failures,last,pending' &&
@@ -48,6 +51,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     (context.pending === null || typeof context.pending === 'object' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(context.pending.id) && ['soft', 'hard', 'manual', 'overflow'].includes(context.pending.trigger)) &&
     (context.last === null || typeof context.last === 'object' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(context.last.id)))
   parseLeadMemoryCore(source.memory)
+  try { parseLeadChatHandles(source.chatHandles) } catch { assert(false) }
   const frozen = source.memoryEpoch
   assert(frozen === null || typeof frozen === 'object' && ['epoch,goal,memory', 'epoch,goal,memory,rules'].includes(Object.keys(frozen).sort().join()) && Number.isSafeInteger(frozen.epoch) && frozen.epoch >= 0 &&
     typeof frozen.goal === 'string' && (frozen.goal === '' || /^[A-Za-z0-9._:/@-]{1,256}$/.test(frozen.goal)))

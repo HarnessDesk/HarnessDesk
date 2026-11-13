@@ -87,6 +87,9 @@ export interface MessagesToolScope {
   readonly context: LeadPermissionContext
   readonly predecessor?: { readonly runId: string; readonly ready: boolean; readonly terminal?: true; readonly reason?: 'lead-predecessor-unavailable' | 'lead-predecessor-unverifiable' }
   readonly stepId?: string | null
+  /** The call as the host resolved it, only when it named a chat by its handle: the same call with the chat's id. The
+   * child sends this call on, never its own, so everything the host decides and dispatches sees the id. */
+  readonly call?: LeadPermissionCall
 }
 export interface LeadMessagesOptions {
   readonly apiKey: string

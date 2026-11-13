@@ -25,6 +25,7 @@ import { LeadChatWatches } from './lead/chat-watches.js'
 import { leadChatCandidates, readLeadChatLimits } from './lead/chat-candidates.js'
 import type { RateLimits, WrapChoices } from '@harnessdesk/protocol'
 import { LeadChats, LeadChatBusyError } from './lead/chats.js'
+import { leadChatHandlesPort } from './lead/chat-handles.js'
 import { LeadReminderTimer, LeadWorkLedger, settleLeadReminders, wakeForLeadWork } from './lead/work.js'
 import { LeadAutonomyStore } from './lead/autonomy.js'
 import { LeadSlots } from './lead/slots.js'
@@ -4059,10 +4060,16 @@ export class Host {
     }
     // One timer for the soonest reminder, armed once the minute tick exists below; every ledger change re-arms it.
     let reminderTimer: LeadReminderTimer | null = null
+    // The short names the Lead knows chats by, kept in its journal (`lead/chat-handles.ts`).
+    const handles = leadChatHandlesPort({ journal, project: () => project.path, model: id => {
+      const at = id.indexOf(':'), held = at > 0 ? this.registry.get(runtimeId(id.slice(0, at)), makeSessionId(id.slice(at + 1))) : undefined
+      return held ? sessionModel(held.session) : null
+    } })
     // The work ledger: one record per piece of work, its stages read from the same desk state the phone shows.
     const work = new LeadWorkLedger({ file: join(this.#state.directory, 'lead', 'work.json'), now: () => Date.now(),
       project: () => folderName(project.path),
       chat: id => this.#leadChats?.workState(id) ?? null,
+      handle: id => handles.of(id),
       teams: async () => new Map((await this.#goals.list()).map(view => {
         const latest = this.#flows.executionSummaries({ team: view.goal.id, active: false })[0]
         const { stage, reason } = view.stage === undefined ? teamLeadStage(view, latest ? { state: latest.state } : null) : { stage: view.stage, reason: view.stageReason ?? 'idle' }
@@ -4156,7 +4163,7 @@ export class Host {
       if (notification.method === 'goal/changed' || notification.method === 'session/indexChanged' || notification.method === 'session/removed' ||
         (notification.method === 'event' && WORK_EVENTS.has(notification.params.event.type))) pokeWork()
     }))
-    this.#leadChatCancellation = async (id, count) => { await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${id}.`) }
+    this.#leadChatCancellation = async (id, count) => { const handle = handles.of(id); await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${handle ? `${handle} (${id})` : id}.`) }
     const pacing = pacingPort({
         startableAgents: () => this.#phoneWorkView().startableAgents().map(String),
         infoOf: id => { const known = this.#runtimes.get(runtimeId(id)); return known ? this.#infoOf(known) : undefined },
@@ -4250,6 +4257,7 @@ export class Host {
       },
       watches: new LeadChatWatches(join(this.#state.directory, 'lead', 'chats.json')),
       publish: params => { this.#push({ method: 'lead/chat/changed', params }); pokeWork() },
+      handles,
       ledger: work,
     })
     this.#leadChatsRestored = false

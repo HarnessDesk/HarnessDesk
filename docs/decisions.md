@@ -7,6 +7,18 @@ the rule is the last line of its section.
 
 ---
 
+## The Lead names chats by short handles, never given twice, resolved before any check — 2026-11-12
+
+A chat id is `runtime:session`, forty-odd characters the model copies from a list into its next call. It mistypes them, and every list and notice pays for them in tokens. The host now gives each chat it shows the Lead a handle, from the project folder and the chat's model, or its agent when the desk does not know the model: `web-opus`, then `web-opus-2` for the next chat on the same base (`packages/lead/src/chat-handles.ts`).
+
+- **Shape.** `[a-z][a-z0-9-]{0,31}`, never `lead`. A base never ends in a number of its own, so `web-opus` numbered 2 and a base `web-opus-2` cannot both exist.
+- **Never moved, never given again.** A handle names one chat for good. One whose chat has ended or been archived is not reused, and neither is one the bounded map has dropped (512 entries): each base keeps the last number it gave, apart from the entries, so a later chat takes the next number. A handle that resolved to a different chat later would send the Lead's words to the wrong conversation, which is worse than an error. So a handle is never reissued, but it can lapse: once more than 512 chats have been named, a chat still running can drop out of the map, and the next `chat_list` names it again under a new number. The old handle is then refused as unknown, and the Lead is told to call `chat_list`.
+- **Kept in the journal.** Naming is a `chat-handles` journal event, carried across goals and checkpoints like the rest of the Lead's state, so a restart keeps every handle and replay refuses a record that breaks the rule (a number out of turn, a chat named twice). Naming is never a gate: a chat the map cannot name, or one named while the journal is closing, is shown by its id.
+- **Resolved before authorisation.** The host turns a handle into the chat's id in `LeadService`'s `resolveTool`, before any scope is derived, and hands the child the resolved call to send on. The journal's permission decision, its attempt record, `LeadChats`' project and cwd checks and the dispatch all see the id alone, so a handle reaches nothing its id could not; the supervisor treats a handle that reaches execution as a broken child. A handle nobody holds is refused by name (`lead-chat-unknown`), as a correctable tool error that says to call `chat_list`, not a refusal that parks the Lead.
+- **Where it shows.** `chat_list` items, `chat_read` and `chat_start` results and `lead/chat/changed` carry `handle` beside the id, and the work ledger's refusals and the take-over notice name a chat by both. Every `chat_*` tool takes either where it takes a chat (`id`, and `moveFrom` on a start). The Lead's own items (reminders, work items) keep host-given ids, so no name the model chooses can collide; numbering applies only to the handles the host derives.
+
+**Rule:** a chat handle is given by the host, once, to one chat, and turned into the id before anything decides; nothing that checks authority ever reads a handle.
+
 ## The Lead's own context: answered from the journal, summaries bounded in turns, wakes with a cause — 2026-11-12
 
 A sitting found the Lead retelling its settings in unrelated replies, summarising its conversation on nearly every exchange, a silent "desk change" under replies where it spoke, and a reset of 21 days 3 hours said as 22 days.
