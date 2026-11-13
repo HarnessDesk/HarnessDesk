@@ -115,7 +115,8 @@ const digestRef = (card: LeadWorkCard): LeadDigestRef => {
 const MODE_WORDS: Readonly<Record<LeadAutonomyMode, string>> = { off: 'Off', observe: 'Observe', act: 'Act' }
 /** A digest item id that fits the wire's 96 characters: the ref's own id when it does, so the same thing keeps one id. */
 const itemId = (prefix: string, id: string) => `${prefix}:${id}`.slice(0, 96)
-/** A setting change as the item that opens it, in the receipt's words; a deadline belongs to the goal, not to Settings. */
+/** A setting change as the item that opens it, in the receipt's words; a deadline belongs to the goal, not to Settings.
+ * The id moves with the setting's latest change, which is safe: a dismissal is kept by span and revision, never by id. */
 const settingItem = (change: LeadAutonomyChange): LeadDigestItem | null => {
   if (change.what === 'deadline') return null
   const [title, focus] = change.what === 'mode' ? [`${LEAD_AUTONOMY_LABELS[change.kind].title}, ${MODE_WORDS[change.to]}`, `autonomy:${change.kind}`]
@@ -127,11 +128,12 @@ const settingItem = (change: LeadAutonomyChange): LeadDigestItem | null => {
  * The settings the person applied since `since`, one item per setting at where it ended (#2188): the person needs where
  * each one stands, not every step it took. A mode that ended where it began in the window is left out; a section is
  * told at its latest version. Versions only go up, so a section edited and then restored to its earlier words is still
- * told: its words are not compared.
+ * told: its words are not compared. A change after `before` (the end of an absence the away note tells) is outside the
+ * window, so it neither ends a setting's story nor dates its row.
  */
-const settingItems = (changes: readonly LeadAutonomyChange[], since: number): LeadDigestItem[] => {
+const settingItems = (changes: readonly LeadAutonomyChange[], since: number, before = Infinity): LeadDigestItem[] => {
   const span = new Map<string, { first: LeadAutonomyChange; last: LeadAutonomyChange }>()
-  for (const change of [...changes].filter(one => one.at >= since && one.what !== 'deadline').sort((a, b) => a.at - b.at)) {
+  for (const change of [...changes].filter(one => one.at >= since && one.at <= before && one.what !== 'deadline').sort((a, b) => a.at - b.at)) {
     const key = change.what === 'mode' ? `autonomy:${change.kind}` : change.what === 'rules' ? `rules:${change.section}` : ''
     span.set(key, { first: span.get(key)?.first ?? change, last: change })
   }
@@ -407,8 +409,9 @@ export class LeadPresenceStore {
    * own Teams and chats that came to need the person or finished, unless the ledger already tells them; the reminders of
    * the person's that fired; the notes kept in memory; and the settings the person applied. The last three are what the
    * person or the Lead did rather than work that moved, so they come after it, and the desk's finished chats last of all.
+   * `before` ends the window for the settings, whose rows are judged over every change in it: the away note's absence.
    */
-  async #items(since: number, revision: number, until = Infinity): Promise<LeadDigestItem[]> {
+  async #items(since: number, revision: number, until = Infinity, before = Infinity): Promise<LeadDigestItem[]> {
     const [board, desk, notes, changes] = await Promise.all([this.ports.board().catch(() => null), this.ports.desk?.().catch(() => null) ?? null,
       this.ports.memory?.().catch(() => []) ?? [], this.ports.settings?.().catch(() => []) ?? []])
     const waiting: LeadDigestItem[] = [], stopped: LeadDigestItem[] = [], done: LeadDigestItem[] = []
@@ -448,7 +451,7 @@ export class LeadPresenceStore {
     const kept: LeadDigestItem[] = notes.filter(note => note.createdAt >= since && note.source.kind !== 'consolidation' && note.source.id !== 'migration')
       .sort((a, b) => a.createdAt - b.createdAt).map(note => ({ kind: 'done', about: 'memory', id: note.id, title: clip(note.text, LEAD_PRESENCE_LIMITS.titleChars) || 'A note',
         fact: 'Kept in memory', ref: { kind: 'memory', id: note.id }, at: note.createdAt }))
-    const applied = settingItems(changes, since)
+    const applied = settingItems(changes, since, before)
     return [...waiting, ...reminders, ...stopped, ...done, ...kept, ...applied, ...finished]
   }
 
@@ -657,7 +660,7 @@ export class LeadPresenceStore {
         .reduce<LeadDigest | undefined>((best, one) => !best || one.to > best.to ? one : best, undefined)
       const from = card?.from ?? away.from, to = card?.to ?? away.to
       // A ledger item is dated; a decision card is not, so it counts only when it waited by the revision at the return.
-      const found = card ? card.items : (await this.#items(away.from, away.revision, away.until ?? away.revision)).filter(entry => entry.at === undefined || entry.at <= away.to)
+      const found = card ? card.items : (await this.#items(away.from, away.revision, away.until ?? away.revision, away.to)).filter(entry => entry.at === undefined || entry.at <= away.to)
       const shown = found.slice(0, LEAD_PRESENCE_LIMITS.items), more = card ? card.more : found.length - shown.length
       const spent = card ? card.spentUsdMicros : this.#spentBetween(away.from, away.to), dollars = formatLeadDollars(spent)
       // A reminder is told below, with when it fired and the work item it is about; every other item by its group's name.

@@ -1240,6 +1240,23 @@ test('#2188: settings applied are one row per setting at its latest value; a mod
   assert.equal(note.match(/Settings applied: /g)?.length, 2, note)
 })
 
+test('#2188: with the card dismissed, the away note judges a setting by the absence alone, not by a change after the return', async t => {
+  let changes: LeadAutonomyChange[] = []
+  const r = await rig(t, { settings: async () => changes })
+  await r.store.read(desktop, { active: true })
+  const left = r.now()
+  r.tick(40 * MIN)
+  changes = [{ at: left + 5 * MIN, by: 'person', what: 'mode', kind: 'desk-change', from: 'observe', to: 'act' }] as LeadAutonomyChange[]
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  assert.deepEqual(digest.items.map(item => item.title), ['Desk-change reports, Act'])
+  await r.store.dismiss(desktop, digest.id)
+  // After the return, the person puts it back: that is not part of the absence.
+  r.tick(MIN)
+  changes = [...changes, { at: r.now(), by: 'person', what: 'mode', kind: 'desk-change', from: 'act', to: 'observe' }] as LeadAutonomyChange[]
+  const note = (await r.store.awayNote())!
+  assert.match(note, /Settings applied: "Desk-change reports, Act"/, 'the change inside the absence is still told, as it was applied')
+})
+
 test('#2188: the item cap goes to work, not to the steps one setting took', async t => {
   let changes: LeadAutonomyChange[] = [], items: LeadWorkCard[] = []
   const r = await rig(t, { settings: async () => changes, board: async () => ({ version: 1, items, more: 0 }) })

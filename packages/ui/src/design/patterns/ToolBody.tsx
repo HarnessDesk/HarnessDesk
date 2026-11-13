@@ -54,7 +54,8 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
   useEffect(() => {
     const node = card.current
     if (!fold || !node) return
-    const reveal = () => setOpen(true)
+    // Only a folded card answers; an open one has nothing to unfold, so the ask goes on unheard.
+    const reveal = (event: Event) => { if (!node.hasAttribute('data-folded')) return; event.preventDefault(); setOpen(true) }
     node.addEventListener(REVEAL_FOLDED_EVENT, reveal)
     return () => node.removeEventListener(REVEAL_FOLDED_EVENT, reveal)
   }, [fold])

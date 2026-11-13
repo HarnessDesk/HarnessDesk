@@ -1,6 +1,8 @@
 /**
- * Asked of a folded card that holds a row a door wants to show: the event bubbles from the row, and a card that folds
- * (`ToolSection`) unfolds on hearing it. A row inside a `hidden` body cannot take focus, so the person would see nothing.
+ * Asked of a folded card that holds a row a door wants to show: the event bubbles from the row, and a folded card
+ * (`ToolSection`) unfolds on hearing it and cancels the event to say so. A row inside a `hidden` body cannot take focus,
+ * so the person would see nothing. Nothing that cancels it means the row is hidden for another reason (a page kept
+ * alive but not shown), and the look ends at once as it always did.
  */
 export const REVEAL_FOLDED_EVENT = 'hd-reveal-folded'
 export type FocusWhenDrawnOptions = {
@@ -26,7 +28,8 @@ export const focusWhenDrawn = (selector: string, shown: (element: HTMLElement) =
   const look = (final: boolean): boolean => {
     const found = document.querySelector<HTMLElement>(selector), folded = !!found?.closest('[hidden]')
     if (found && !folded) { show(found); return true }
-    if (found && !final) { found.dispatchEvent(new Event(REVEAL_FOLDED_EVENT, { bubbles: true })); return false }
+    // A folded card that heard the ask is unfolding: wait for it. Hidden for any other reason: done, as before.
+    if (found && !final) { if (!found.dispatchEvent(new Event(REVEAL_FOLDED_EVENT, { bubbles: true, cancelable: true }))) return false; show(found); return true }
     if (!found && !final && !gone?.()) return false
     const beside = landing()
     if (beside) { beside.scrollIntoView?.({ block: 'nearest' }); beside.focus({ preventScroll: true }) }
