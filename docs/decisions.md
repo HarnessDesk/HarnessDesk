@@ -1221,9 +1221,13 @@ repository configuration, then passed explicitly to the isolated parser.
 `trailer.*` settings can run commands, so the parser runs with
 `--git-dir=/dev/null` and system and global configuration off. Git 2.32 or newer
 is required; an older or unrecognized version is refused before staging.
-The text lives in one constant in `card-commit.ts`; a Seat never has to type it,
-and a person's hand commit is untouched. Settings for the trailer's wording
-are left for a later decision.
+A Seat never has to type it, and a person's hand commit is untouched. The
+line is the Git plugin's Commit co-author setting, defaulting to the line
+above; blank adds no desk line, and any other value must be one
+`Co-authored-by: Name <email>` line. Settings refuses a malformed value, and
+one that reaches the host anyway is never written: the default stands in,
+because a typo should not silently take credit away when blank turns it off
+on purpose. The agent's own native credit is added either way.
 (#1277)
 
 Rule: an agent's sandbox is never widened to a git directory; a commit it

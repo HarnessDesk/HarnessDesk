@@ -818,8 +818,14 @@ such as `High-5` keep their letters. Role ids use the same short-reference
 cleanup after their ASCII character rule is applied.
 Comments mark their opening signature line with the same signature mark.
 
-Card commits retain the desk's co-author and add the native commit credit
-supplied by the running adapter in `RuntimeInfo.presentation.coAuthor`
+Card commits add the desk's co-author line, the Git plugin's
+`commitCoAuthor` setting (Settings › Extensions › Git › Commit co-author),
+whose default is `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>`.
+A blank value adds no desk line. Any other value must be one line shaped
+`Co-authored-by: Name <email>`: Settings refuses to save anything else, and a
+malformed value that reaches the host anyway is never written — the default
+line stands in. Beside it, whatever the setting, they add the native commit
+credit supplied by the running adapter in `RuntimeInfo.presentation.coAuthor`
 (`{name, email}`), when present. An absent or null credit adds no runtime
 trailer; the host never infers one from a runtime id. Git's `addIfDifferent`
 trailer rule handles placement and duplicates.

@@ -655,6 +655,12 @@ export interface HostContext {
     applyTeam(): void
     /** Stored browser preferences into the extension host. */
     applyBrowser(): void
+    /**
+     * Why a plugin's settings may not be saved, in one sentence, or null.
+     * Only the host's own readers of a plugin's settings refuse anything:
+     * the Git plugin's Commit co-author, which the host writes into commits.
+     */
+    pluginConfigProblem(pluginId: string, config: Readonly<Record<string, unknown>>): string | null
   }
 }
 

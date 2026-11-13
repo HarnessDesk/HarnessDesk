@@ -38,6 +38,10 @@ export const pluginMethods = {
   },
 
   'plugin/configure': async (ctx, params) => {
+    // A value the host would refuse to use is refused here, before anything
+    // takes it, so Settings says why rather than a later commit quietly not.
+    const problem = ctx.settings.pluginConfigProblem(params.pluginId, params.config)
+    if (problem) throw new Error(problem)
     await ctx.extensions().reconfigure(params.pluginId, params.config)
     // Written to preferences for every plugin, not only team's: the kernel's
     // copy dies with the process, so a setting that is only there is a

@@ -30,7 +30,7 @@ import { testsPlugin } from './tests.js'
 
 export { checkpointPlugin, recoveryHint, type Checkpoint } from './checkpoint.js'
 export { filesPlugin } from './files.js'
-export { createPullRequest, type PullRequestCreatePort, type PullRequestCreateArgs, type GhPullRequest, DEFAULT_COMMENT_SIGNATURE, signDescription, DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, SIGNATURE_MARK, deskMarked, gitPlugin, previousSignature, renderSignature, signBody, unmarked } from './git.js'
+export { createPullRequest, type PullRequestCreatePort, type PullRequestCreateArgs, type GhPullRequest, COMMIT_COAUTHOR_PROBLEM, commitCoAuthorOf, DEFAULT_COMMENT_SIGNATURE, DEFAULT_COMMIT_COAUTHOR, signDescription, DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, SIGNATURE_MARK, deskMarked, gitPlugin, previousSignature, renderSignature, signBody, unmarked } from './git.js'
 export { callSignature, guardrailsPlugin } from './guardrails.js'
 export { searchPlugin } from './search.js'
 export { renderTodos, todoPlugin, type TodoItem, type TodoStatus } from './todo.js'
