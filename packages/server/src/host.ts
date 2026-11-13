@@ -201,7 +201,7 @@ import { AuthoringPlane } from './authoring/plane.js'
 import { factsKey, hostContextPort, previewStart, resolveContext, type ContextPort } from './authoring/start.js'
 import { previewAgent } from './methods/agents.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
-import { DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
+import { commitCoAuthorOf, DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
 import { GatedRegistry, CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
@@ -1954,7 +1954,10 @@ export class Host {
           : { at: null, dirty: false, dirtyFiles: null, dirtyPaths: null }
       },
       // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
-      commitWork: (cwd, before, message, seat) => commitCardWork(cwd, before, message, this.#runtimes.get(seat.session.runtime)?.info.presentation.coAuthor ?? null),
+      // The agent's native credit always; the desk's own line as Settings › Extensions › Git sets it.
+      commitWork: (cwd, before, message, seat) => commitCardWork(
+        cwd, before, message, this.#runtimes.get(seat.session.runtime)?.info.presentation.coAuthor ?? null, this.#commitCoAuthor(),
+      ),
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
       assertCheckCleanup: (goal, card) => this.#evidence.assertFlowCheckCleanup(goal, card),
       // A fresh detached checkout for one `run_check`, git hardened, removed after (#1082).
@@ -2781,6 +2784,23 @@ export class Host {
   #reviewSignature(): string {
     const stored = this.#storedPluginSettings('git')?.['reviewSignature']
     return typeof stored === 'string' ? stored : DEFAULT_REVIEW_SIGNATURE
+  }
+
+  /**
+   * The desk's co-author line for `commit_work`, as the Git plugin's stored
+   * settings hold it: the shipped line when untouched, null when blanked. A
+   * malformed stored value — only a hand-edited file can hold one, since
+   * Settings refuses it — is never written; the shipped line stands in.
+   */
+  #commitCoAuthor(): string | null {
+    const read = commitCoAuthorOf(this.#storedPluginSettings('git')?.['commitCoAuthor'])
+    if (read.problem) this.#logger.warn('the Commit co-author setting is malformed, so the default line is used', { problem: read.problem })
+    return read.line
+  }
+
+  /** What a plugin's settings may not be saved with, in one sentence, or null. */
+  #pluginConfigProblem(id: string, config: Readonly<Record<string, unknown>>): string | null {
+    return id === 'git' ? commitCoAuthorOf(config['commitCoAuthor']).problem : null
   }
 
   #storedPluginSettings(id: string): Record<string, unknown> | null {
@@ -6877,6 +6897,7 @@ export class Host {
       diagnostics: () => this.#diagnostics(),
       settings: {
         applyTeam: () => this.#applyTeamSettings(),
+        pluginConfigProblem: (id, config) => this.#pluginConfigProblem(id, config),
         applyBrowser: () => this.#applyBrowserSettings(),
       },
     }

@@ -894,6 +894,11 @@ the opening of the description as GitHub holds it, which is where the signature
 the desk wrote is read. Pressing it opens the page. Customize › Plugins › Git
 has Description, Review and Comment signature templates. Their placeholders
 are listed once above the settings rows; a blank value turns that kind off.
+An untouched field shows its default as its own text, so emptying it is a
+change Apply saves.
+Its Commit co-author row is the line the desk adds to each commit it makes for
+an agent; blank adds none, and a value that is not one
+`Co-authored-by: Name <email>` line is refused when saved.
 The default signature names the Team role and the agent's own model and effort
 labels. The first review round in a Run is 1; later reviews count only earlier
 review rounds in that Run, and the signature omits round 1. Outside a Team the

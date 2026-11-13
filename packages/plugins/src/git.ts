@@ -44,6 +44,38 @@ export const DEFAULT_REVIEW_SIGNATURE = '**{role} · {round}** · {seat} · via 
 export const DEFAULT_COMMENT_SIGNATURE = '**{role} · {seat}** · via HarnessDesk'
 
 /**
+ * The co-author line the desk adds to each commit it makes for an agent
+ * (`commit_work`), unless the person wrote their own or blanked it. The
+ * agent's own native credit is added beside it either way; this is only the
+ * desk's line.
+ */
+export const DEFAULT_COMMIT_COAUTHOR = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
+
+/** The one shape the Commit co-author setting takes, said once for Settings and the host's log alike. */
+export const COMMIT_COAUTHOR_PROBLEM = 'Commit co-author must be one line shaped “Co-authored-by: Name <email>”, or blank for none.'
+
+/** `Co-authored-by: Name <email>`: a name with no angle brackets or control characters, and an address with one `@`. */
+const COMMIT_COAUTHOR_SHAPE = /^co-authored-by:[ \t]*([^<>\x00-\x1f\x7f]*[^<>\s\x00-\x1f\x7f])[ \t]*<([^<>@\s\x00-\x1f\x7f]+@[^<>@\s\x00-\x1f\x7f]+)>$/i
+
+/**
+ * The Commit co-author setting as the desk writes it: the line, spelled the
+ * way git spells the key, or null for none. Untouched means the default and
+ * blank means none. Anything else that is not one well-formed line is never
+ * written: the default is used instead, with `problem` saying why, because a
+ * typo should not silently take credit away when blank is there to turn it
+ * off on purpose.
+ */
+export const commitCoAuthorOf = (value: unknown): { readonly line: string | null; readonly problem: string | null } => {
+  if (value === undefined || value === null) return { line: DEFAULT_COMMIT_COAUTHOR, problem: null }
+  if (typeof value !== 'string') return { line: DEFAULT_COMMIT_COAUTHOR, problem: COMMIT_COAUTHOR_PROBLEM }
+  const trimmed = value.trim()
+  if (trimmed === '') return { line: null, problem: null }
+  const shaped = COMMIT_COAUTHOR_SHAPE.exec(trimmed)
+  if (!shaped) return { line: DEFAULT_COMMIT_COAUTHOR, problem: COMMIT_COAUTHOR_PROBLEM }
+  return { line: `Co-authored-by: ${shaped[1]} <${shaped[2]}>`, problem: null }
+}
+
+/**
  * The mark the desk leaves on the line it wrote, so that what it replaces
  * on the next update is exactly that line and never the author's. An HTML
  * comment: GitHub renders it as nothing, and the visible text is only the
@@ -232,6 +264,8 @@ interface GitConfig {
   signature?: string
   commentSignature?: string
   reviewSignature?: string
+  /** Read by the host, which makes the commit (`commitCoAuthorOf`); the plugin only declares it. */
+  commitCoAuthor?: string
 }
 
 /** Keep role words identical across descriptions, reviews and comments. */
@@ -871,6 +905,12 @@ export const gitPlugin: HarnessPlugin = {
           title: 'Comment signature',
           description: 'Opens each pull request or issue comment.',
           default: DEFAULT_COMMENT_SIGNATURE,
+        },
+        commitCoAuthor: {
+          type: 'string',
+          title: 'Commit co-author',
+          description: 'Added to each commit the desk makes for an agent. Blank adds none.',
+          default: DEFAULT_COMMIT_COAUTHOR,
         },
       },
     },

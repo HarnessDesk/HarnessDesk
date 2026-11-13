@@ -11,7 +11,7 @@ test('native commit credit docs name the adapter and retain provenance', () => {
   const interfaceDoc = readFileSync(join(root, 'docs/interface.md'), 'utf8')
 
   assert.match(runtime, /Native commit credit supplied by the adapter/)
-  assert.match(extending, /Card commits retain the desk's co-author and add the native commit credit\s+supplied by the running adapter/)
+  assert.match(extending, /Card commits add the desk's co-author line[\s\S]*?whatever the setting, they add the native commit\s+credit supplied by the running adapter/)
   assert.match(decisions, /native commit credit supplied by the running adapter through its\s+presentation/)
   assert.match(decisions, /Credits come from local observations or cited sources; an unknown address is null,/)
   const pins: readonly [string, string][] = [
