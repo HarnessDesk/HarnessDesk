@@ -7,7 +7,7 @@ import { b64u, fromB64u, idFromPub, relayDeskProofMessage, verifyEd25519, webDes
 import { Client, start, stop } from './fixtures/harness.js'
 import { StateStore } from '../src/state.js'
 import { RelayUnavailableError } from '@harnessdesk/phone-link'
-import { HarnessDeskAccount, relayOrigin } from '../src/harnessdesk-account.js'
+import { HarnessDeskAccount, accountRefusalStatus, relayOrigin } from '../src/harnessdesk-account.js'
 
 const directories: string[] = []
 after(async () => { for (const dir of directories) await rm(dir, { recursive: true, force: true }) })
@@ -69,6 +69,7 @@ async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: bo
     if (refuse) return Response.json({ error: { code: 'unauthorized' } }, { status: 401 })
     if (url.pathname === '/v1/desk/account') return Response.json({ account: { ...account, pictureUrl: options.pictureUrl ?? null }, desk: { deskId, name }, phones: revoked ? [] : [{ deviceId, name: 'Phone', lastSeenAt: null }] })
     if (url.pathname === '/v1/invites') return Response.json({ inviteId: 'invite-id', token: 'i'.repeat(43), expiresAt: 99999 })
+    if (url.pathname === '/v1/push/send') return Response.json({ status: 'sent', apnsId: 'apns-1' })
     if (url.pathname === '/v1/desk/rename') { name = body.name!; return Response.json({ deskId, name }) }
     if (url.pathname === '/v1/links/revoke') {
       assert.equal(body.deskId, deskId)
@@ -146,6 +147,25 @@ test('rename, reachable preference, unlink, and sign out use this desk scope', a
   assert.equal((await r.service.signOut()).status, 'signedOut')
   assert.ok(r.calls.some(c => c.path === '/v1/desks/revoke')); r.service.close()
 })
+test('a sealed push goes to the account with the desk token only while signed in and reachable', async () => {
+  const r = await rig(); await r.service.signIn(); r.approve(); await r.timers.shift()!()
+  const push = { deviceId, kid: 1, nonce: 'n'.repeat(16), ciphertext: 'c'.repeat(64), priority: 'high' as const, collapse: 'abc_-1' }
+  await assert.rejects(r.service.sendPush(push), /Reachable from your phone is off/)
+  assert.equal(r.calls.some(c => c.path === '/v1/push/send'), false)
+  await r.service.setReachable(true)
+  assert.equal(await r.service.sendPush(push), 'sent')
+  assert.deepEqual(r.calls.filter(c => c.path === '/v1/push/send').map(c => c.body), [push])
+  // A malformed push never leaves the desk.
+  await assert.rejects(r.service.sendPush({ ...push, collapse: 'not allowed!' }))
+  assert.equal(r.calls.filter(c => c.path === '/v1/push/send').length, 1)
+  r.fault('/push/send', 403)
+  const refused = await r.service.sendPush(push).catch((error: unknown) => error)
+  assert.equal(accountRefusalStatus(refused), 403)
+  r.fault('/push/send', 'offline')
+  assert.equal(accountRefusalStatus(await r.service.sendPush(push).catch((error: unknown) => error)), undefined)
+  r.service.close()
+})
+
 test('denied approval returns signed out without a desk session', async () => {
   const r = await rig(); await r.service.signIn(); r.deny(); await r.timers.shift()!()
   assert.equal((await r.service.status()).status, 'signedOut'); assert.equal(r.calls.some(c => c.path === '/v1/desk/session'), false); r.service.close()

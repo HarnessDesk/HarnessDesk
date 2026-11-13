@@ -5,7 +5,7 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 import {
   CreateInviteResponse, DeskAccountResponse, DeskChallengeResponse, DeskSessionResponse, DeviceId, Name, Ok,
-  PollDeskLinkResponse, RenameDeskResponse, StartDeskLinkResponse,
+  PollDeskLinkResponse, RenameDeskResponse, SendPushRequest, SendPushResponse, StartDeskLinkResponse,
 } from '@harnessdesk/contract'
 import {
   b64u, fromB64u, generateSigningIdentity, idFromPub, relayDeskProofMessage, signingIdentityFromPkcs8,
@@ -80,6 +80,20 @@ class CloudError extends Error {
       : 'HarnessDesk could not reach your account. Try again.')
   }
 }
+/** The HTTP status the account service refused a request with, or undefined when it was not reached or not refused. */
+export const accountRefusalStatus = (error: unknown): number | undefined => error instanceof CloudError ? error.status : undefined
+
+/** One sealed push for a phone the account linked to this desk: the service passes it on and can read none of it. */
+export interface SealedPhonePush {
+  readonly deviceId: string
+  readonly kid: number
+  readonly nonce: string
+  readonly ciphertext: string
+  readonly priority: 'high' | 'low'
+  readonly collapse?: string
+}
+/** What the account service did with a push: handed to the phone's push service, no token for the phone, held back or refused. */
+export type PhonePushStatus = 'sent' | 'unregistered' | 'throttled' | 'rejected'
 
 /** Host-only account lifecycle. Nothing here depends on a runtime or gives a secret to a renderer. */
 export class HarnessDeskAccount {
@@ -539,6 +553,22 @@ export class HarnessDeskAccount {
     }
     if (session !== this.#secrets.session && this.#secrets) { this.#secrets = { ...this.#secrets, session }; await this.#persist() }
     return session as Session & { relayUrl: string; relayToken: string }
+  }
+
+  /**
+   * Hands one sealed push to the account for a phone it linked to this desk, while signed in with Reachable from your
+   * phone on. It does not wait behind sign-in changes unless the saved session needs renewing first; the account
+   * service checks the link and its own limits, and a refusal comes back as `accountRefusalStatus`.
+   */
+  async sendPush(push: SealedPhonePush): Promise<PhonePushStatus> {
+    if (this.#snapshot.status !== 'signedIn' || !this.#secrets?.session) throw new Error('Sign in to HarnessDesk first.')
+    if (!this.#desk().reachable) throw new Error('Reachable from your phone is off.')
+    const body = SendPushRequest.parse(push)
+    const generation = this.#generation
+    const saved = this.#secrets.session
+    const session = saved.expiresAt > this.#now() + 60 ? saved : await this.#serialize(() => this.#session(generation), false)
+    if (!session || !this.#current(generation)) throw new Error('This desk signed out.')
+    return this.#parse(SendPushResponse, await this.#request('/push/send', body, session.token)).status
   }
 
   unlinkPhone(deviceId: string) { return this.#serialize(async () => {

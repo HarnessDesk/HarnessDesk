@@ -145,7 +145,8 @@ export class PhoneEndpoint {
       if (this.closed) return
       this.#device = registry.get(id)
       this.#signedIn()
-      await this.#send({ t: 'auth.ok', epoch: ring.epoch, seq: ring.seq })
+      // The push key rides every sign-in too, so a phone paired before it kept one, or one that lost it, has it again.
+      await this.#send({ t: 'auth.ok', pushKey: device.pushKey, kid: device.kid, epoch: ring.epoch, seq: ring.seq })
       return
     }
     const devicePub = fromB64u(parsed.data.devicePub)
