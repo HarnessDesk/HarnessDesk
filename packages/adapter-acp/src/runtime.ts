@@ -5882,7 +5882,10 @@ class AcpSession implements AgentSession {
       turn.tools?.set(id, { ...state, item })
       this.#emit({ type: 'item/completed', sessionId: this.id, turnId: turn.id, item })
     }
-    // Only cancellation is known to leave tool-derived children alive.
+    // Only cancellation is known to leave tool-derived children alive. After
+    // any other ending (a limit, a refusal, an error) the tool calls cannot say
+    // whether children survived, so Stop is withdrawn rather than offered for
+    // ever over children it may not reach.
     // A later non-cancelled turn also clears children of a prior cancellation.
     if (reason !== 'cancelled') this.#clearToolDelegations()
   }
