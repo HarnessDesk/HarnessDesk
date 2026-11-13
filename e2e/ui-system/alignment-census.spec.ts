@@ -196,13 +196,14 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     // is painted by an overlay ancestor, so parts can mark that geometry.
     return element.hasAttribute('data-surface') || (rect.width >= 120 && (painted || bordered || shadowed))
   }
-  // A button's words sit inside its own inset, so they are not the body's
-  // column. A button with no inset, such as a name that discloses what was
-  // asked, puts its words exactly where plain text would be: they are.
+  // A button's words usually sit inside its own inset or centred in its box,
+  // so they are not the body's column. A button whose words start on its own
+  // edge, such as a name that discloses what was asked, puts them exactly
+  // where plain text would be: they are.
   const insetButton = (button: Element | null) => {
     if (!button) return false
-    const style = getComputedStyle(button)
-    return parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth) > 0
+    const line = firstTextLine(button)
+    return !line || Math.abs(line.left - button.getBoundingClientRect().left) >= 1
   }
   const firstBodyColumn = (element: Element, iconTab: boolean) => {
     const candidates = [element, ...element.querySelectorAll('*')].filter(candidate =>
@@ -551,6 +552,9 @@ test('the words of a button with no inset are the body column, a padded button\'
   const read = () => measure(page, '#root', 'fixture', 'padless-button', 'Padless button')
   expect((await read()).findings['header-off-body']).toEqual([])
   await page.locator('button').evaluate(element => { (element as HTMLElement).style.margin = '0'; (element as HTMLElement).style.paddingLeft = '20px' })
+  expect((await read()).findings['header-off-body']).toHaveLength(1)
+  // A padless button that centres its words in a wider box is not a column either.
+  await page.locator('button').evaluate(element => { Object.assign((element as HTMLElement).style, { paddingLeft: '0', display: 'inline-flex', justifyContent: 'center', width: '200px' }) })
   expect((await read()).findings['header-off-body']).toHaveLength(1)
 })
 
