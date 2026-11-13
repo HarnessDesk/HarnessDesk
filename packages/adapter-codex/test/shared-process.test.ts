@@ -483,6 +483,28 @@ test('a conversation whose turn ended says so while a sub-agent it started is st
   await until(() => lastStatus(d.events, seat)?.type === 'idle' && !outlasting(d.events, seat), 'the sub-agent finished and the conversation is plainly idle')
 })
 
+test('a sub-agent Codex names only in its parent’s spawn item is counted, with no thread/started and no read of it', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  const before = (await d.calls()).length
+  await seat.send([{ type: 'text', text: 'spawn-outlive' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  const child = (await d.helpers()).find((helper) => helper.threadId.startsWith(`${seat.id}-sub-`))!.threadId
+  const calls = (await d.calls()).slice(before)
+  assert.ok(!calls.some((call) => call.method === 'thread/read' && call.threadId === child), 'the spawn item placed it; nothing had to read it')
+})
+
+test('a sub-agent Codex never names is placed by one thread/read of its parent, and counted', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  const before = (await d.calls()).length
+  await seat.send([{ type: 'text', text: 'spawn-outlive-unannounced' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  const child = (await d.helpers()).find((helper) => helper.threadId.startsWith(`${seat.id}-sub-`))!.threadId
+  const reads = (await d.calls()).slice(before).filter((call) => call.method === 'thread/read' && call.threadId === child)
+  assert.equal(reads.length, 1, 'its status and its turn asked one read between them')
+})
+
 test('Stop with the turn over stops the sub-agents still working and starts no turn on the conversation', async (t) => {
   const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' })
   const seat = await d.seat('seat')

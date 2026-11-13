@@ -2599,23 +2599,38 @@ rl.on('line', (line) => {
         return
       }
       // A child that outlives its parent's turn, announced the way Codex
-      // announces a spawned agent: the root's turn ends and goes idle while
-      // the child's own turn is still running. `spawn-outlive-done` lets the
-      // child finish on its own a moment later.
-      if (said === 'spawn-outlive' || said === 'spawn-outlive-done') {
+      // 0.167.1 announces a spawned agent: no `thread/started` for it. The
+      // parent's own `collabAgentToolCall` spawn item names it, and its status
+      // and turns reach this connection under its own thread id. The root's
+      // turn ends and goes idle while the child's own turn is still running.
+      // `spawn-outlive-done` lets the child finish on its own a moment later;
+      // `spawn-outlive-unannounced` leaves the spawn item out, so the child is
+      // known only by what it does and by a `thread/read` of its parent.
+      if (said === 'spawn-outlive' || said === 'spawn-outlive-done' || said === 'spawn-outlive-unannounced') {
         const root = THREAD
         const child = spawnChild(root)
-        notify('thread/started', { thread: thread({ id: child, parentThreadId: root, preview: 'A sub-agent.' }) })
         workingThreads.add(child)
         const childTurn = { id: `turn-${child}`, items: [], itemsView: 'full', status: 'inProgress', error: null }
+        const spawnItem = (status, receiverThreadIds) => ({
+          type: 'collabAgentToolCall', id: `spawn-${child}`, tool: 'spawnAgent', status, senderThreadId: root,
+          receiverThreadIds, prompt: 'Check one payment provider.', model: null, reasoningEffort: null, agentsStates: {},
+        })
         send(response)
         notify('turn/started', { threadId: root, turn: response.result.turn })
+        if (said !== 'spawn-outlive-unannounced') {
+          notify('item/started', { threadId: root, turnId: TURN, item: spawnItem('inProgress', []), startedAtMs: nowMs() })
+          notify('item/completed', { threadId: root, turnId: TURN, item: spawnItem('completed', [child]), completedAtMs: nowMs() })
+        }
+        notify('thread/status/changed', { threadId: child, status: { type: 'active', activeFlags: [] } })
         notify('turn/started', { threadId: child, turn: childTurn })
         setImmediate(() => {
           notify('turn/completed', { threadId: root, turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null } })
           notify('thread/status/changed', { threadId: root, status: { type: 'idle' } })
           if (said === 'spawn-outlive-done') {
-            setTimeout(() => notify('turn/completed', { threadId: child, turn: { ...childTurn, itemsView: 'summary', status: 'completed' } }), 50)
+            setTimeout(() => {
+              notify('turn/completed', { threadId: child, turn: { ...childTurn, itemsView: 'summary', status: 'completed' } })
+              notify('thread/status/changed', { threadId: child, status: { type: 'idle' } })
+            }, 50)
           }
         })
         return
