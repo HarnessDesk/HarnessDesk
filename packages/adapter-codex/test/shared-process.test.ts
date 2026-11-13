@@ -452,6 +452,23 @@ test('Stop interrupts every running turn below the conversation and unsubscribes
   assert.equal(runningTurn(seat), null)
 })
 
+test('A refused clean of a sub-agent’s shells does not hold up the Stop or the other sub-agents', async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1', FAKE_CODEX_CLEAN: 'fail' })
+  const seat = await d.seat('seat')
+  const { child, grandchild } = await tree(d, seat)
+  const before = (await d.calls()).length
+
+  await seat.interrupt()
+
+  const calls = (await d.calls()).slice(before)
+  const interrupted = calls.filter((call) => call.method === 'turn/interrupt').map((call) => call.threadId)
+  assert.deepEqual([...interrupted].sort(), [seat.id, child, grandchild].sort(), 'every running turn was still stopped')
+  const cleaned = calls.filter((call) => call.method === 'thread/backgroundTerminals/clean').map((call) => call.threadId)
+  assert.ok(cleaned.includes(child) && cleaned.includes(grandchild), 'each sub-agent was still asked, though the others refused')
+  await until(() => d.ended(seat), 'the root’s turn ended')
+  assert.equal(runningTurn(seat), null)
+})
+
 test('Stop also stops a descendant that is open as a conversation of its own', async (t) => {
   const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' })
   const seat = await d.seat('seat')

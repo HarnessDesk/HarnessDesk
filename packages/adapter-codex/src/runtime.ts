@@ -1992,7 +1992,7 @@ export class CodexRuntime implements AgentRuntime {
           // shells end with it; the root's own stay, for the Tasks panel.
           await this.#server.request('thread/backgroundTerminals/clean', { threadId: id }, { timeoutMs: 2_000 })
         } catch {
-          // Nothing left to clean, or a thread that is gone.
+          // A thread that is gone, or a clean refused or unanswered in time.
         }
       }))
     } catch {
