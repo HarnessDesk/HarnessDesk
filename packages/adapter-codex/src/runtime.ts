@@ -1607,6 +1607,7 @@ export class CodexRuntime implements AgentRuntime {
       interruptible: (threadId, turnId) => this.#reviewTurns.interruptible(threadId, turnId),
       stopDescendants: (threadId) => this.#stopDescendants(threadId),
       subagentsRunning: (threadId) => this.#subagentsRunning(threadId),
+      startSettled: () => this.#reconsiderSubagents(),
       ...(this.#settleMs !== undefined ? { settleMs: this.#settleMs } : {}),
       ...(this.#capabilities ? { capabilities: this.#capabilities } : {}),
       onReleasing: (id) => this.#releasing(id),
@@ -2158,14 +2159,20 @@ export class CodexRuntime implements AgentRuntime {
     this.#parentReads.set(threadId, read)
     void (async () => {
       let parent: string | null = null
+      let answered = true
       try {
         parent = (await this.#server.request('thread/read', { threadId, includeTurns: false }, { timeoutMs: 2_000 })).thread.parentThreadId
       } catch {
-        // Closed since, or not readable: nothing to count it under.
+        answered = false
       }
       if (this.#parentReads.get(threadId) !== read) return
       this.#parentReads.delete(threadId)
       if (this.#parents.has(threadId) || this.#sessions.has(threadId)) return
+      // A read that failed or timed out says nothing of the thread — a child
+      // not yet materialised fails it. What it was seen doing is kept, for a
+      // spawn item to place, or its next start of work to read again.
+      if (!answered) return
+      // Only an answer naming no parent makes it a thread of its own.
       if (parent === null || parent === threadId) {
         this.#unplaced.delete(threadId)
         this.#unrelated.add(threadId)
@@ -2224,17 +2231,19 @@ export class CodexRuntime implements AgentRuntime {
    * last called idle (or has not described) rests: one it called active has a
    * turn coming that `turn/started` has not yet named, and one it called
    * errored or not loaded is left as Codex said — an error drops the flag on
-   * purpose, since what the window must show then is the failure.
+   * purpose, since what the window must show then is the failure. Nor does
+   * one rest while a send is still starting its turn: it is said again once
+   * the start settles (`startSettled`), or by the turn's own statuses.
    */
   #reconsiderSubagents(): void {
     for (const [id, session] of this.#sessions) {
       const own = this.#ownStatus.get(id)
-      const resting = session.activeTurnId === null && (own === undefined || own === 'idle')
-      const outlasting = resting && this.#subagentsRunning(id)
+      const resting = session.activeTurnId === null && session.starting === 0 && (own === undefined || own === 'idle')
+      if (!resting) continue
+      const outlasting = this.#subagentsRunning(id)
       if (outlasting === this.#outlasting.has(id)) continue
       if (outlasting) this.#outlasting.add(id)
       else this.#outlasting.delete(id)
-      if (!resting) continue
       this.#emit({ type: 'session/status', sessionId: makeSessionId(id), status: outlasting ? { type: 'idle', subagentsRunning: true } : { type: 'idle' } })
     }
   }

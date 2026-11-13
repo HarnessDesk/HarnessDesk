@@ -1264,6 +1264,12 @@ const handlers = {
     // and the reopened one replay it while opening and once open: `d1` still
     // running, as an agent restoring its own record of it might.
     if (process.env.FAKE_ACP_DELEGATION_REPLAY) staleDelegations(params.sessionId)
+    // FAKE_ACP_CLOSE_ENDS_DELEGATIONS has the closing session say its last
+    // list with the child it ends marked stopped, as an agent might.
+    if (process.env.FAKE_ACP_CLOSE_ENDS_DELEGATIONS) notify('_harnessdesk/delegation/changed', {
+      sessionId: params.sessionId,
+      delegations: [{ id: 'd1', label: 'Explore', prompt: 'look around', models: ['fake-child'], startedAt: 1, endedAt: 2, calls: 1, state: 'stopped' }],
+    })
     if (process.env.FAKE_ACP_NO_CLOSE) return fail(id, 'close is unsupported')
     if (process.env.FAKE_ACP_CLOSE_SILENT) return
     if (process.env.FAKE_ACP_CLOSE_FAIL) return fail(id, 'close refused')
@@ -1652,6 +1658,9 @@ const handlers = {
       const texts = parts.filter((part) => typeof part === 'string')
       update(state.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `hearing: ${texts.join(' ')} done.` } })
     }
+    // FAKE_ACP_LOAD_DELEGATIONS replays a list from the stored history: `d1`
+    // as it was last recorded, running.
+    if (process.env.FAKE_ACP_LOAD_DELEGATIONS) staleDelegations(state.id)
     reply(id, {
       sessionId: state.id,
       ...(CONFIG_MODEL_ONLY || GROUPED_MODELS ? {} : { models: {

@@ -123,6 +123,8 @@ export interface CodexSessionDeps {
    * thread's own turn.
    */
   readonly subagentsRunning?: (threadId: string) => boolean
+  /** Every send on this conversation has had its `turn/start` answered or refused. */
+  readonly startSettled?: (threadId: string) => void
 }
 
 export class CodexSession implements AgentSession {
@@ -539,7 +541,13 @@ export class CodexSession implements AgentSession {
       return await this.#send(input, opts)
     } finally {
       this.#starting -= 1
+      if (this.#starting === 0) this.deps.startSettled?.(this.id)
     }
+  }
+
+  /** Sends still waiting on Codex to start their turn: no idle is said over one. */
+  get starting(): number {
+    return this.#starting
   }
 
   async #send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }): Promise<TurnId> {

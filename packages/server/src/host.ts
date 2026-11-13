@@ -901,6 +901,12 @@ export class Host {
   readonly #creatingTranscripts = new Map<RuntimeId, number>()
   /** Accounts a fold is in flight for; see `#foldDuplicateAccount`. */
   readonly #folding = new Set<string>()
+  /**
+   * Conversations, by runtime and id, whose turn has completed since the host
+   * last handled an idle status as a turn ending: the next idle is that
+   * turn's, whatever it says of sub-agents. See `subagentsOnly` in `#foldEvent`.
+   */
+  readonly #turnEndedSinceIdle = new Set<string>()
   readonly #broadcasters = new Set<Broadcast>()
   readonly #runtimeNoticeWrites = new Set<Promise<void>>()
   readonly #state: StateStore
@@ -10988,13 +10994,22 @@ export class Host {
       'sessionId' in event ? event.sessionId : undefined
     const priorRecord = eventSession ? this.registry.get(runtime, eventSession) : undefined
     // An idle status that differs from the idle before it only in
-    // `subagentsRunning` says a sub-agent started or stopped while the
-    // conversation rested. It is not a turn ending: nothing below treats it as
-    // one, or a child finishing would drain the queue, tell the Team its turn
-    // ended and hand a flow seat its order again — a turn nobody asked for.
+    // `subagentsRunning`, with no turn completed since the last idle the host
+    // handled, says a sub-agent started or stopped while the conversation
+    // rested. It is not a turn ending: nothing below treats it as one, or a
+    // child finishing would drain the queue, tell the Team its turn ended and
+    // hand a flow seat its order again — a turn nobody asked for. A turn seen
+    // only as `turn/started` and `turn/completed`, with no `active` status
+    // between, leaves the idle before it standing; the turn completing is
+    // what makes the idle after it that turn's.
     const priorStatus = priorRecord?.session.status
+    const turnKey = eventSession === undefined ? null : `${runtime}\u0000${String(eventSession)}`
+    if (turnKey !== null && event.type === 'turn/completed') this.#turnEndedSinceIdle.add(turnKey)
+    if (turnKey !== null && (event.type === 'session/closed' || event.type === 'session/detached')) this.#turnEndedSinceIdle.delete(turnKey)
     const subagentsOnly = event.type === 'session/status' && event.status.type === 'idle' && priorStatus?.type === 'idle' &&
-      (priorStatus.subagentsRunning === true) !== (event.status.subagentsRunning === true)
+      (priorStatus.subagentsRunning === true) !== (event.status.subagentsRunning === true) &&
+      (turnKey === null || !this.#turnEndedSinceIdle.has(turnKey))
+    if (turnKey !== null && event.type === 'session/status' && event.status.type === 'idle' && !subagentsOnly) this.#turnEndedSinceIdle.delete(turnKey)
     const temporarilyWatched: TurnId[] = []
     if (priorRecord && event.type === 'session/started') {
       const pending = this.#transcripts.pendingTurnIds(runtime, priorRecord.session.id, priorRecord.bodyGeneration, priorRecord.bodyAuthorityEpoch)

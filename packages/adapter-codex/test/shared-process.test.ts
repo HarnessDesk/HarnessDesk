@@ -505,6 +505,17 @@ test('a sub-agent Codex never names is placed by one thread/read of its parent, 
   assert.equal(reads.length, 1, 'its status and its turn asked one read between them')
 })
 
+test('a sub-agent whose parent could not be read yet is still counted once its spawn item names it', async (t) => {
+  const d = await account(t, { FAKE_CODEX_DELEGATE_READ_FAIL_ONCE: '1' })
+  const seat = await d.seat('seat')
+  const before = (await d.calls()).length
+  await seat.send([{ type: 'text', text: 'spawn-outlive-late' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  const child = (await d.helpers()).find((helper) => helper.threadId.startsWith(`${seat.id}-sub-`))!.threadId
+  const reads = (await d.calls()).slice(before).filter((call) => call.method === 'thread/read' && call.threadId === child)
+  assert.equal(reads.length, 1, 'the read that failed was the only one: the spawn item placed the child after it')
+})
+
 test('Stop with the turn over stops the sub-agents still working and starts no turn on the conversation', async (t) => {
   const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' })
   const seat = await d.seat('seat')
@@ -606,6 +617,22 @@ test('Stop while a new turn is still being started is refused, and stops nothing
 
   assert.ok(!(await d.calls()).slice(before).some((call) => call.method === 'turn/interrupt'),
     'a Stop that cannot reach the turn being started stops nothing, rather than only the sub-agents')
+  await d.release('start')
+  await sending
+  await until(() => runningTurn(seat) !== null, 'the new turn runs')
+})
+
+test('a sub-agent ending while a new turn is being started says nothing over the turn being started', async (t) => {
+  const d = await account(t, { FAKE_CODEX_CHILD_DONE_MS: '300' }, ['start'])
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive-done' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the root is idle over a working sub-agent')
+  const sending = seat.send([{ type: 'text', text: 'start-held' }])
+  await until(async () => (await d.calls()).filter((call) => call.method === 'turn/start' && call.threadId === seat.id).length === 2,
+    'the new turn was asked for')
+  const from = d.events.length
+  await new Promise((resolve) => setTimeout(resolve, 450))
+  assert.deepEqual(statusesAfter(d.events, seat, from), [], 'no idle is said while the turn is being started')
   await d.release('start')
   await sending
   await until(() => runningTurn(seat) !== null, 'the new turn runs')

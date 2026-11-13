@@ -4928,6 +4928,10 @@ class AcpSession implements AgentSession {
       })
     }
     this.#replaying = false
+    // History says what ran then, not what runs now: the live session's next
+    // list says that.
+    this.#runningDelegations = new Set()
+    this.#saidOutlasting = false
     this.#modes = loaded.modes ?? this.#modes
     this.#models = loaded.models ?? this.#models
     this.#configOptions = loaded.configOptions ? flatConfigOptions(loaded.configOptions) : this.#configOptions
@@ -5828,9 +5832,6 @@ class AcpSession implements AgentSession {
     delegations: readonly AcpDelegation[],
     delegated: AcpDelegationUsage | null,
   ): void {
-    // While a stop closes and reopens the session, a list is the dying
-    // session's last word or the reopened one's replay: neither says what runs.
-    if (this.#reopenPhase !== null) return
     const open = this.#currentTurn
     // A closed turn's items are `readonly` and were already handed out with
     // `turn/completed`, so each one touched is copied once here and the whole
@@ -5887,12 +5888,18 @@ class AcpSession implements AgentSession {
       const previous = this.#turns[turn]
       if (previous) this.#turns[turn] = { ...previous, items }
     }
+    // What runs now is said by a list the live session pushes, never by one
+    // replayed from history while the session loads, nor by one that arrives
+    // while a stop closes and reopens it (the dying session's last word or the
+    // reopened one's replay) — those still end the rows they name, above.
     // A child a stop's close ended stays ended, whatever a later list replays
     // of it; a delegation the agent starts afterwards is new work and counts.
-    this.#runningDelegations = new Set(delegations.flatMap((delegation) =>
-      typeof delegation?.id === 'string' && delegation.id.length > 0 && !this.#endedByClose.has(delegation.id) &&
-        (DELEGATION_STATUS[delegation.state ?? 'running'] ?? 'inProgress') === 'inProgress' ? [delegation.id] : []))
-    this.#sayOutlasting()
+    if (!this.#replaying && this.#reopenPhase === null) {
+      this.#runningDelegations = new Set(delegations.flatMap((delegation) =>
+        typeof delegation?.id === 'string' && delegation.id.length > 0 && !this.#endedByClose.has(delegation.id) &&
+          (DELEGATION_STATUS[delegation.state ?? 'running'] ?? 'inProgress') === 'inProgress' ? [delegation.id] : []))
+      this.#sayOutlasting()
+    }
     // A share of the session's total and never an addition to it — the
     // runtimes that attribute child spend have already folded it into their
     // own counts. Carried so the window can split a figure it must not
@@ -6191,7 +6198,7 @@ class AcpSession implements AgentSession {
   #sayOutlasting(): void {
     if (this.#currentTurn !== null) return
     if (this.#saidOutlasting === this.#outlasts()) return
-    this.#host.emit({ type: 'session/status', sessionId: this.id, status: this.#idleStatus() })
+    this.#emit({ type: 'session/status', sessionId: this.id, status: this.#idleStatus() })
   }
 
   #failTurn(turn: MutableTurn, message: string, code: AgentError['code']): void {

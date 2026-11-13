@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentEvent } from '@harnessdesk/protocol'
+import type { AgentEvent, AgentItem } from '@harnessdesk/protocol'
 
 import { AcpRuntime, type AcpAgentConfig } from '../src/index.js'
 
@@ -396,6 +396,41 @@ test('a list the closing session or the reopened one replays does not say the st
   await session.send([{ type: 'text', text: 'deleg again' }])
   await completedTimes(r, 3)
   await r.until(() => outlasting(r, id))
+})
+
+test('the closing session’s last list still ends the stopped sub-agent’s row, though it says nothing of what runs', async (t) => {
+  const r = await rig(t, { flag: true, resumeOnly: true, env: { FAKE_ACP_CLOSE_ENDS_DELEGATIONS: '1' } })
+  const session = await idleOverDelegation(r)
+  const id = String(session.id)
+  const eventsBefore = r.events.length
+
+  await session.interrupt()
+
+  const ended = r.events.slice(eventsBefore).find((event) => event.type === 'item/completed' && String(event.sessionId) === id &&
+    event.item.type === 'subagent' && String(event.item.id) === 'd1')
+  assert.ok(ended, 'the row of the child the close ended is marked ended')
+  const row = (ended as Extract<AgentEvent, { type: 'item/completed' }>).item
+  assert.equal(row.type === 'subagent' ? row.status : null, 'failed')
+  const rows = (await r.runtime.readSession(session.id)).turns.flatMap((turn) => turn.items).filter((item): item is Extract<AgentItem, { type: 'subagent' }> => item.type === 'subagent')
+  assert.deepEqual(rows.map((item) => item.status), ['failed'], 'one row, ended')
+  assert.equal(outlasting(r, id), false)
+})
+
+test('a list replayed from history while a conversation loads is not taken as sub-agents running now', async (t) => {
+  const r = await rig(t, { flag: true, resumeOnly: false, env: { FAKE_ACP_LOAD_DELEGATIONS: '1' } })
+  const first = await r.runtime.createSession({ cwd: r.dir })
+  await first.send([{ type: 'text', text: 'hello' }])
+  await completedTimes(r, 1)
+  const id = String(first.id)
+  await first.close()
+  const eventsBefore = r.events.length
+
+  const loaded = await r.runtime.resumeSession(first.id, { cwd: r.dir })
+  await loaded.send([{ type: 'text', text: 'hello again' }])
+  await r.until(() => completions(r.events.slice(eventsBefore)).length >= 1)
+  await pause(50)
+  assert.equal(everOutlasting(r, id, eventsBefore), false, 'the loaded conversation never says a sub-agent still works')
+  assert.equal(statuses(r, id).at(-1)?.type, 'idle')
 })
 
 test('Stop with the turn over and nothing below it neither closes nor reopens', async (t) => {
