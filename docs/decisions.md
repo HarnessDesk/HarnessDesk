@@ -6141,16 +6141,19 @@ ACP reports no child session id here. The member's `sessionId` is a handle:
 the non-empty `name` argument, otherwise the name in “started subagent X”,
 otherwise the spawn call id. It is always non-openable. Its label is the
 description, otherwise the name, and its prompt is the spawn prompt. Sends,
-waits and interrupts naming a known member fold into that row without
-replacing its original prompt; a follow-up whose spawn is unknown stays a
-tool row naming the member. No per-child usage is exposed, so both item and
-member usage stay absent: an absent reading does not mean zero spend.
+waits and interrupts remain tool rows naming the member, with their own
+progress, failures and approval targets, whether or not its spawn is known.
+No per-child usage is exposed, so both item and member usage stay absent: an absent reading does not mean zero spend.
 
 The spawn tool returns immediately while its child keeps working. The root
 prompt settles only when the whole tree is done, so `end_turn` completes the
 projected children. `cancelled` marks their rows stopped, matching Stop's
 close/reopen lifecycle, while retaining their call ids in the existing
-running-delegation set until that close/reopen succeeds. This also feeds idle
+running-delegation tracking only until a Stop attempt or a later
+non-cancelled turn. Every non-cancelled ending, including a failed prompt or a
+refusal, clears only tool-derived entries; list-derived entries keep following
+the agent's list. A Stop attempt clears tool-derived entries even if reopening
+is unavailable or fails, then updates the idle status. This also feeds idle
 `subagentsRunning` when a root is cancelled without a desk Stop; a later Stop
 then closes and reopens without starting another prompt. Replayed tools are
 history, never evidence of children running now. Names and prompts use the

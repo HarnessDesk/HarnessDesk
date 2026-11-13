@@ -4818,10 +4818,11 @@ class AcpSession implements AgentSession {
   #turnCompletion: Promise<void> | null = null
   /**
    * The delegations the agent's last list called running, or whose declared
-   * spawn tools started them. Lists replace the set; tool-derived children
-   * stay until a successful root prompt or Stop's close/reopen ends them.
+   * spawn tools started them. Keep the source in this one collection: lists
+   * replace their own entries, while tool-derived entries survive only a
+   * cancelled root prompt and are cleared after any Stop attempt.
    */
-  #runningDelegations: ReadonlySet<string> = new Set()
+  #runningDelegations: ReadonlyMap<string, 'tool' | 'list'> = new Map()
   /** Delegations a stop's close ended; a later list naming one running is a replay, not work. */
   readonly #endedByClose = new Set<string>()
   /** Whether the conversation was last said to be idle over running delegations. */
@@ -4925,6 +4926,7 @@ class AcpSession implements AgentSession {
     // Close the trailing history turn, then adopt whatever the load declared.
     const open = this.#currentTurn
     if (open) {
+      // History keeps no stop reason, so replayed children read as completed.
       this.#finishToolDelegations(open, 'end_turn')
       this.#currentTurn = null
       this.#turns.push({
@@ -4938,7 +4940,7 @@ class AcpSession implements AgentSession {
     // History says what ran then, not what runs now: the live session's next
     // list says that (one that arrived before this point was dropped with
     // the replay, and the next list or turn end corrects it).
-    this.#runningDelegations = new Set()
+    this.#runningDelegations = new Map()
     this.#saidOutlasting = false
     this.#modes = loaded.modes ?? this.#modes
     this.#models = loaded.models ?? this.#models
@@ -5385,10 +5387,15 @@ class AcpSession implements AgentSession {
         // taken as running again from a list the reopened session replays,
         // and a stop that could not close leaves the agent's own list to say.
         if (reopened) {
-          for (const id of this.#runningDelegations) this.#endedByClose.add(id)
-          this.#runningDelegations = new Set()
-          this.#sayOutlasting()
+          for (const id of this.#runningDelegations.keys()) this.#endedByClose.add(id)
+          this.#runningDelegations = new Map()
+        } else {
+          // Tool calls cannot tell us whether a failed Stop left children
+          // alive. Do not keep offering an idle Stop that cannot reach them;
+          // list-derived children still follow the agent's next list.
+          this.#clearToolDelegations()
         }
+        this.#sayOutlasting()
       }
       return reopened
     })()
@@ -5532,6 +5539,7 @@ class AcpSession implements AgentSession {
       }
       // Each stored user message opens the next history turn.
       if (open) {
+        // History keeps no stop reason, so replayed children read as completed.
         this.#finishToolDelegations(open, 'end_turn')
         this.#currentTurn = null
         this.#turns.push({
@@ -5628,7 +5636,6 @@ class AcpSession implements AgentSession {
               startedAt: Date.now(),
             }
         const item = this.#projectTool(turn, update, call)
-        if (!item) return
         if (index !== -1) turn.items[index] = item
         else turn.items.push(item)
         this.#emit({ type: 'item/started', sessionId: this.id, turnId: turn.id, item })
@@ -5703,7 +5710,6 @@ class AcpSession implements AgentSession {
           ...(status !== 'inProgress' ? { completedAt: Date.now() } : {}),
         }
         const next = this.#projectTool(turn, update, call)
-        if (!next) return
         if (index === -1) {
           turn.items.push(next)
           this.#emit({ type: 'item/started', sessionId: this.id, turnId: turn.id, item: next })
@@ -5814,7 +5820,7 @@ class AcpSession implements AgentSession {
     }
   }
 
-  #projectTool(turn: MutableTurn, update: AcpToolCallUpdate, call: Extract<AgentItem, { type: 'toolCall' }>): ToolItemState['item'] | null {
+  #projectTool(turn: MutableTurn, update: AcpToolCallUpdate, call: Extract<AgentItem, { type: 'toolCall' }>): ToolItemState['item'] {
     turn.tools ??= new Map()
     const state = projectToolItem(call, update, turn.tools.get(update.toolCallId), this.#cwd)
     turn.tools.set(update.toolCallId, state)
@@ -5837,10 +5843,11 @@ class AcpSession implements AgentSession {
       turn.tools.set(update.toolCallId, { ...state, item })
       if (!this.#replaying && this.#reopenPhase === null) {
         // The call returns at once; the root prompt waits for the tree. Use
-        // the same running set as extension lists, keyed by the spawn call.
-        const running = new Set(this.#runningDelegations)
-        if (item.status === 'inProgress') running.add(call.id)
-        else running.delete(call.id)
+        // the same running collection as lists, keyed by the spawn call.
+        const running = new Map(this.#runningDelegations)
+        if (item.status === 'inProgress') {
+          if (!running.has(call.id)) running.set(call.id, 'tool')
+        } else if (running.get(call.id) === 'tool') running.delete(call.id)
         this.#runningDelegations = running
       }
       return item
@@ -5848,13 +5855,8 @@ class AcpSession implements AgentSession {
     if ([...tools.send, ...tools.wait, ...tools.cancel].includes(call.tool)) {
       const name = text(args['agent']) ?? text(args['name'])
       if (name) {
-        const known = [...turn.items, ...this.#turns.flatMap(one => one.items)].some(item =>
-          item.type === 'subagent' && item.members.some(member => member.sessionId === name))
-        // The child has one lifetime row. A send/wait/cancel's return says
-        // nothing about its lifetime; keep the original prompt and state.
-        // If a row was already emitted before its args arrived, keep that
-        // row (the wire has no item-removal event) and name the member.
-        if (known && !turn.items.some(item => item.id === call.id)) return null
+        // Each interaction keeps its own progress, failure and approval
+        // target. Naming a known child never suppresses the call's row.
         const item = { ...call, tool: `${call.tool}: ${name}` }
         turn.tools.set(update.toolCallId, { ...state, item })
         return item
@@ -5880,9 +5882,13 @@ class AcpSession implements AgentSession {
       turn.tools?.set(id, { ...state, item })
       this.#emit({ type: 'item/completed', sessionId: this.id, turnId: turn.id, item })
     }
-    // On these peers the successful prompt waits for the whole tree. A
-    // cancelled one may leave children alive until Stop's close/reopen runs.
-    if (reason === 'end_turn' && this.#host.delegationTools) this.#runningDelegations = new Set()
+    // Only cancellation is known to leave tool-derived children alive.
+    // A later non-cancelled turn also clears children of a prior cancellation.
+    if (reason !== 'cancelled') this.#clearToolDelegations()
+  }
+
+  #clearToolDelegations(): void {
+    this.#runningDelegations = new Map([...this.#runningDelegations].filter(([, source]) => source !== 'tool'))
   }
 
   /**
@@ -5973,9 +5979,12 @@ class AcpSession implements AgentSession {
     // replayed ones, by design: the agent's next list, or the next turn's
     // end, says what runs.
     if (!this.#replaying && this.#reopenPhase === null) {
-      this.#runningDelegations = new Set(delegations.flatMap((delegation) =>
-        typeof delegation?.id === 'string' && delegation.id.length > 0 && !this.#endedByClose.has(delegation.id) &&
-          (DELEGATION_STATUS[delegation.state ?? 'running'] ?? 'inProgress') === 'inProgress' ? [delegation.id] : []))
+      const running = new Map([...this.#runningDelegations].filter(([, source]) => source === 'tool'))
+      for (const delegation of delegations) {
+        if (typeof delegation?.id === 'string' && delegation.id.length > 0 && !this.#endedByClose.has(delegation.id) &&
+          (DELEGATION_STATUS[delegation.state ?? 'running'] ?? 'inProgress') === 'inProgress') running.set(delegation.id, 'list')
+      }
+      this.#runningDelegations = running
       this.#sayOutlasting()
     }
     // A share of the session's total and never an addition to it — the
@@ -6153,14 +6162,14 @@ class AcpSession implements AgentSession {
 
   agentDied(): void {
     // Its children went with it, or are no longer this handle's to stop.
-    this.#runningDelegations = new Set()
+    this.#runningDelegations = new Map()
     const turn = this.#currentTurn
     if (turn) this.#failTurn(turn, `${this.#host.agentName} exited mid-turn.`, 'runtimeUnavailable')
     this.#abandonPermissions('The agent exited.')
   }
 
   released(): void {
-    this.#runningDelegations = new Set()
+    this.#runningDelegations = new Map()
     const turn = this.#currentTurn
     if (turn && !this.#replaying) this.#finishTurn(turn, 'cancelled')
     this.#abandonPermissions('The conversation closed.')
