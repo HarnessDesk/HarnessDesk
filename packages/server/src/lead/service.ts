@@ -1,6 +1,6 @@
 import { LEAD_LIMITS, LEAD_STEP_REPLYING, LEAD_STEP_THINKING, leadStepWords, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type LeadControlRefusal, type LeadPresence } from '@harnessdesk/protocol'
 import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse, LeadWithheldPiece } from '@harnessdesk/lead'
-import { LEAD_MESSAGES_DEFAULTS, leadRememberLines, parseLeadMessagesBody } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, leadRememberLines, parseLeadMessagesBody, resolveLeadChatCall } from '@harnessdesk/lead'
 import { LeadSupervisor, chooseLeadRuntime, hostLeadRuntime, type LeadRuntime, type LeadRuntimeProber, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
 import type { CredentialBroker } from '../credentials.js'
 import type { ClientDoor } from '../client-door.js'
@@ -294,11 +294,16 @@ export class LeadService {
         const desk = options.journal.state.policy
         if (!desk) throw new Error('lead-policy-unavailable')
         this.#policy = await loadLeadProjectPolicy(options.project.path, desk)
-        const resolved = await options.resolveTool(call)
+        // A chat the Lead named by its handle becomes its id here, before any scope or permission is derived, so
+        // everything that decides sees the id alone and a handle reaches nothing its id could not. A handle nobody
+        // holds is refused by name.
+        const named = resolveLeadChatCall(call, options.journal.state.chatHandles)
+        const resolved = await options.resolveTool(named)
         this.#assertOpen()
         if (generation !== this.#generation || this.#changingKeys) throw new Error('lead-lifecycle-changed')
         return { ...resolved, project: options.project,
-          context: { ...resolved.context, desk, project: options.project, projectPolicy: this.#policy } }
+          context: { ...resolved.context, desk, project: options.project, projectPolicy: this.#policy },
+          ...(named !== call ? { call: named } : {}) }
       },
       freezePlan: options.freezePlan, readEvidence: options.readEvidence,
       ...(options.recordContext ? { recordContext: async record => { this.#assertOpen(); await options.recordContext!(record) } } : {}),

@@ -10,6 +10,7 @@ import type { LeadPersistencePort } from './ports.js'
 import { isLeadPlanRenewal, hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, fenceLeadWorkerDispatch, hasPendingLeadPlan, leadRequestFenced, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, leadGoalSpendCap, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 import { parseLeadMemoryCore, type LeadMemoryCore } from './memory.js'
+import { leadChatNamings, leadChatHandleOf, leadChatHandleText, leadChatBaseValid, leadChatIdShaped, LEAD_CHAT_HANDLES, type LeadChatNaming } from './chat-handles.js'
 
 const boolean = (value: unknown): boolean => { if (typeof value !== 'boolean') throw new Error('lead-journal-boolean'); return value }
 
@@ -139,6 +140,9 @@ export type LeadJournalEvent =
    * for byte. `goal` is the logical goal id, empty between goals. `rules` are the person's sections those instructions
    * hold, which the settings note compares against; absent in a record written before they were kept (#2165). */
   | { readonly type: 'memory-epoch'; readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore; readonly rules?: LeadAutonomyRecord['rules'] }
+  /** Host only. Handles for chats the Lead is about to see: each takes its base's next number, so a handle is given
+   * once and never again, even after the bounded map drops it. Observation only: no decision rests on it. */
+  | { readonly type: 'chat-handles'; readonly namings: readonly LeadChatNaming[] }
 /** A receipt is one line the host wrote, at most 600 characters. Line breaks and tabs in what was kept fold to single
  * spaces first, so a kept memory written over two lines still gets its receipt; any other control character refuses. */
 export const leadReceiptText = (value: unknown): string => {
@@ -240,6 +244,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'memory-core': ['memory'],
     receipt: ['text'],
     'memory-epoch': ['goal', 'epoch', 'memory', ...(Object.hasOwn(source, 'rules') ? ['rules'] : [])],
+    'chat-handles': ['namings'],
   }
   const type = choice(source.type, Object.keys(keys))
   object(source, ['version', 'seq', 'type', ...keys[type]!])
@@ -335,6 +340,15 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'receipt': event = { type, text: leadReceiptText(source.text) }; break
     case 'memory-epoch': event = { type, goal: leadMemoryEpochGoal(source.goal), epoch: integer(source.epoch), memory: parseLeadMemoryCore(source.memory),
       ...(Object.hasOwn(source, 'rules') ? { rules: parseLeadAutonomyRules(source.rules) } : {}) }; break
+    case 'chat-handles': {
+      if (!Array.isArray(source.namings) || source.namings.length < 1 || source.namings.length > LEAD_CHAT_HANDLES.perRecord) throw new Error('lead-journal-record')
+      event = { type, namings: source.namings.map(value => {
+        const naming = object(value, ['id', 'base', 'n'])
+        if (typeof naming.id !== 'string' || naming.id.length > 300 || !leadChatIdShaped(naming.id) || !leadChatBaseValid(naming.base)) throw new Error('lead-journal-record')
+        return { id: naming.id, base: naming.base, n: integer(naming.n, 1) }
+      }) }
+      break
+    }
     default: throw new Error('lead-journal-type')
   }
   const record = { version: 1 as const, seq, ...event }
@@ -550,6 +564,18 @@ export class LeadJournal {
     const held = this.#state.memoryEpoch
     if (held && held.goal === at.goal && held.epoch === at.epoch) return
     return this.#append({ type: 'memory-epoch', ...at })
+  }) }
+  /**
+   * Host only. The handle of each chat, naming the ones not yet named in one record. A chat keeps the handle it was
+   * given; a chat the map cannot name (a full base, too many bases) is left out and goes by its id.
+   */
+  nameChats(wanted: readonly { readonly id: string; readonly base: string }[]): Promise<ReadonlyMap<string, string>> { return this.#queue(async () => {
+    const namings = leadChatNamings(this.#state.chatHandles, wanted)
+    const named = new Map(namings.map(naming => [naming.id, leadChatHandleText(naming.base, naming.n)]))
+    if (namings.length) await this.#append({ type: 'chat-handles', namings })
+    const out = new Map<string, string>()
+    for (const { id } of wanted) { const handle = named.get(id) ?? leadChatHandleOf(this.#state.chatHandles, id); if (handle) out.set(id, handle) }
+    return out
   }) }
   /**
    * Gives every reader a fresh revision. `what` says which kind of change it was, never its content: the name, the follow
