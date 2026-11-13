@@ -1,4 +1,5 @@
-import { createContext, useContext, useId, useState, type ReactNode, type HTMLAttributes } from 'react'
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode, type HTMLAttributes } from 'react'
+import { REVEAL_FOLDED_EVENT } from '../../lib/focus-when-drawn'
 import { SectionHead, Text } from './Settings'
 import { GroupLabel } from '../ui/group-label'
 import { ToolPaneBody } from '../ui/tool-pane'
@@ -47,12 +48,20 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
   pinHead?: boolean
 }) => {
   const [open, setOpen] = useState(defaultOpen)
-  const bodyId = useId()
+  const bodyId = useId(), card = useRef<HTMLElement>(null)
   const shown = !fold || open
+  // A door to a row inside the folded card unfolds it, so the row can be shown and focused (`focusWhenDrawn`).
+  useEffect(() => {
+    const node = card.current
+    if (!fold || !node) return
+    const reveal = () => setOpen(true)
+    node.addEventListener(REVEAL_FOLDED_EVENT, reveal)
+    return () => node.removeEventListener(REVEAL_FOLDED_EVENT, reveal)
+  }, [fold])
   const summary = value !== undefined && value !== null
     ? <span id={`${bodyId}-summary`} data-slot="tool-section-value" title={typeof value === 'string' ? value : undefined}
       className="ms-auto min-w-0 max-w-1/2 shrink-0 truncate tabular-nums"><Text role="muted" ink="secondary" truncate className="block"><ChipLook.Provider value="quiet">{value}</ChipLook.Provider></Text></span> : null
-  return <section data-slot="tool-section" data-folded={shown ? undefined : ''} aria-label={label}
+  return <section ref={card} data-slot="tool-section" data-folded={shown ? undefined : ''} aria-label={label}
     className="min-w-0 rounded-(--hd-panel-card-radius) border border-(--hd-panel-card-border) bg-(--hd-panel-card-fill) py-(--hd-panel-card-pad-y) [[data-slot=tool-section]+&]:shadow-[inset_0_1px_0_var(--hd-panel-card-rule)]">
     <GroupLabel as="div" surface="tool" data-pinned={pinHead ? '' : undefined} className={pinHead ? 'sticky top-[var(--tool-pin-top,0)] z-(--hd-z-sticky) bg-(--hd-panel-card-fill)' : undefined}>
       {fold ? <Button variant="ghost" size="content-min" bordered={false} data-slot="tool-section-fold" aria-label={label} aria-describedby={summary ? `${bodyId}-summary` : undefined} aria-expanded={open} aria-controls={bodyId}

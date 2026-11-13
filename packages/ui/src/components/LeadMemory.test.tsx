@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it } from 'vitest'
 import type { LeadMemoryCandidate, LeadMessage } from '@harnessdesk/protocol'
@@ -154,6 +154,27 @@ it('a door from the away card brings the kept note into view and focus in Settin
   // A note the person kept says nothing about who kept it; only the Lead's own notes carry the Lead's name (#2181).
   expect(row!.textContent).not.toMatch(/'s note/)
   expect(box.querySelector('[data-lead-settings-focus="memory:m5"]')!.textContent).toMatch(/'s note/)
+})
+
+it('a Settings door clicked again on the same row while Settings is open focuses it again (#2187)', async () => {
+  let click: (nonce: number) => void = () => {}
+  const Door = () => { const [nonce, setNonce] = useState(1); click = setNonce; return <DestinationPageScope owner="settings" active><LeadSettingsSection focus="memory:m2" nonce={nonce} /></DestinationPageScope> }
+  const { box } = await mount(() => <Door />)
+  await settle(); await settle()
+  const row = () => box.querySelector<HTMLElement>('[data-lead-settings-focus="memory:m2"]')
+  expect(document.activeElement).toBe(row())
+  await act(async () => { row()!.blur() })
+  expect(document.activeElement).not.toBe(row())
+  await act(async () => click(1)); await settle()
+  expect(document.activeElement, 'the same click is not heard twice').not.toBe(row())
+  await act(async () => click(2)); await settle()
+  expect(document.activeElement, 'a second click focuses the row again').toBe(row())
+})
+
+it('a Settings focus with no section before a colon opens no row and no section (#2187)', async () => {
+  const { box } = await mount(() => <DestinationPageScope owner="settings" active><LeadSettingsSection focus="memory" /></DestinationPageScope>)
+  await settle(); await settle()
+  expect(box.contains(document.activeElement)).toBe(false)
 })
 
 it('a door to a note forgotten since lands on the Memory section, not nowhere (#2147)', async () => {
