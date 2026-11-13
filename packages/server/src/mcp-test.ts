@@ -217,7 +217,7 @@ const settleReply = (method: string, message: Record<string, unknown>): unknown 
 
 // -- stdio ------------------------------------------------------------------
 
-const groupKill = (child: ChildProcess, signal: NodeJS.Signals): void => {
+export const groupKill = (child: ChildProcess, signal: NodeJS.Signals): void => {
   if (child.pid === undefined) return
   try {
     // A negative pid is the group: the server and everything it started that stayed in it.
