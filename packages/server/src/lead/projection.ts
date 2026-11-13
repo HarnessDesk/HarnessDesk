@@ -1,4 +1,4 @@
-import { leadStage, type LeadStageFacts, type LeadThread, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { leadStage, leadTriggerLine, type LeadStageFacts, type LeadThread, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { LEAD_LIMITS, parseLeadSettingsProjection, windowLeadThread, type LeadAction, type LeadCard, type LeadMessage, type LeadProgress, type LeadProject, type LeadSettingsProjection } from '@harnessdesk/protocol'
 import { leadBudgetProjection, leadPlanRuns, splitLeadOutput, stripLeadToolMarkup, type LeadState } from '@harnessdesk/lead'
 
@@ -6,11 +6,15 @@ import { leadBudgetProjection, leadPlanRuns, splitLeadOutput, stripLeadToolMarku
  * A message as a thread shows it. A desk wake (a reminder that came due) is the model's user turn in the journal, but
  * never the person's message: the window and the phone draw it as a `system` line in the reminder's own words, and an
  * older phone that knows nothing of `wake` still reads a system line, not a bubble from the person. A wake an older desk
- * stored as the person's message, before wakes had a kind, is drawn the same way (#2144).
+ * stored as the person's message, before wakes had a kind, is drawn the same way (#2144). A goal a trigger opened is drawn
+ * from its `trigger`, never from the prompt the model read; one stored before triggers were kept stays as it was (#2183).
  */
 export const leadShownMessage = (message: LeadMessage): LeadMessage => {
   if (message.role === 'assistant') return oldReply(message)
   if (message.role !== 'user') return message
+  // A goal a trigger opened (#2183): the model's fenced prompt stays in the journal, and both surfaces draw the event
+  // instead — a `system` line saying what it was and where, which an older phone that knows nothing of `trigger` draws too.
+  if (message.trigger) { const { source: _source, ...rest } = message; return { ...rest, role: 'system', text: leadTriggerLine(message.trigger) } }
   const words = message.wake?.text ?? oldWake(message.text)
   // Which surface sent a message is the Lead's to read (#2166); the thread both surfaces draw stays as it was.
   if (words === null) { if (message.surface === undefined) return message; const { surface: _surface, ...shown } = message; return shown }
