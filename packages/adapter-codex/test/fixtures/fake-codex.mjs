@@ -2598,6 +2598,28 @@ rl.on('line', (line) => {
         setImmediate(() => notify('turn/completed', { threadId: THREAD, turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null } }))
         return
       }
+      // A child that outlives its parent's turn, announced the way Codex
+      // announces a spawned agent: the root's turn ends and goes idle while
+      // the child's own turn is still running. `spawn-outlive-done` lets the
+      // child finish on its own a moment later.
+      if (said === 'spawn-outlive' || said === 'spawn-outlive-done') {
+        const root = THREAD
+        const child = spawnChild(root)
+        notify('thread/started', { thread: thread({ id: child, parentThreadId: root, preview: 'A sub-agent.' }) })
+        workingThreads.add(child)
+        const childTurn = { id: `turn-${child}`, items: [], itemsView: 'full', status: 'inProgress', error: null }
+        send(response)
+        notify('turn/started', { threadId: root, turn: response.result.turn })
+        notify('turn/started', { threadId: child, turn: childTurn })
+        setImmediate(() => {
+          notify('turn/completed', { threadId: root, turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null } })
+          notify('thread/status/changed', { threadId: root, status: { type: 'idle' } })
+          if (said === 'spawn-outlive-done') {
+            setTimeout(() => notify('turn/completed', { threadId: child, turn: { ...childTurn, itemsView: 'summary', status: 'completed' } }), 50)
+          }
+        })
+        return
+      }
       // A root whose turn keeps running over a tree of sub-agents, each a
       // thread of its own: a working child, that child's working grandchild,
       // and a second child whose only turn has already finished. Spawned in

@@ -117,6 +117,12 @@ export interface CodexSessionDeps {
    * and so on — leaving each subscribed. Never rejects; bounded by the runtime.
    */
   readonly stopDescendants?: (threadId: string) => Promise<void>
+  /**
+   * Whether a sub-agent below this thread still has a turn running, by what
+   * Codex has announced. Lets Stop reach sub-agents that outlast this
+   * thread's own turn.
+   */
+  readonly subagentsRunning?: (threadId: string) => boolean
 }
 
 export class CodexSession implements AgentSession {
@@ -656,16 +662,29 @@ export class CodexSession implements AgentSession {
    * cannot hold a Stop for the sum of its per-request bounds; the sweep goes
    * on in the background. Only this thread's own answer can make it fail.
    * Nothing is unsubscribed: the conversation stays open.
+   *
+   * With this thread's own turn over and sub-agents below it still working
+   * (`subagentsRunning`), Stop asks only the tree: there is no turn here to
+   * stop, and nothing is started on this thread. With neither, it is refused
+   * as before.
    */
   async interrupt(): Promise<void> {
+    if (this.#currentTurnId === null && this.deps.subagentsRunning?.(this.id)) {
+      await this.#stopTree()
+      return
+    }
     this.#requireActiveTurn('interrupt')
     const own = this.interruptTurn()
+    const [result] = await Promise.allSettled([own, this.#stopTree()])
+    if (result.status === 'rejected') throw result.reason
+  }
+
+  /** Asks every sub-agent turn below this thread to stop; settles within `TREE_WAIT_MS` and never rejects. */
+  #stopTree(): Promise<void> {
     const tree = this.deps.stopDescendants?.(this.id) ?? Promise.resolve()
     let timer: ReturnType<typeof setTimeout> | undefined
-    const capped = Promise.race([tree, new Promise<void>(resolve => { timer = setTimeout(resolve, TREE_WAIT_MS) })])
+    return Promise.race([tree, new Promise<void>(resolve => { timer = setTimeout(resolve, TREE_WAIT_MS) })])
       .finally(() => clearTimeout(timer))
-    const [result] = await Promise.allSettled([own, capped])
-    if (result.status === 'rejected') throw result.reason
   }
 
   /**

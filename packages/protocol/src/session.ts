@@ -206,7 +206,16 @@ export const sessionModel = (session: {
 export type SessionStatus =
   /** Known to exist but not loaded into memory — the usual state for history rows. */
   | { readonly type: 'notLoaded' }
-  | { readonly type: 'idle' }
+  | {
+      readonly type: 'idle'
+      /**
+       * Sub-agents this conversation started are still working although its
+       * own turn has ended, so Stop still has something to stop. Said by the
+       * adapter from what it observes of the children (Codex's child threads,
+       * an ACP agent's delegation list); absent means none is known to run.
+       */
+      readonly subagentsRunning?: boolean
+    }
   | { readonly type: 'active' }
   | { readonly type: 'error'; readonly message?: string }
 

@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from 'react'
 
-import { currentTurn, isBusy, sessionKey, type ContextChipIcon, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
+import { currentTurn, isBusy, isStoppable, sessionKey, type ContextChipIcon, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
 
 import {
   Attachment as AttachmentTile,
@@ -281,6 +281,10 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
   const [active, setActive] = useState(0)
 
   const busy = session ? isBusy(session) : false
+  /* Stop outlives the turn when sub-agents it started are still working: the
+     host says so on the session's own status, and only Stop follows it —
+     sending, queueing and the placeholder still read the turn as over. */
+  const stoppable = session ? isStoppable(session) : false
   // Messages already waiting change what Enter means even when nothing is
   // running: they go first, so this one joins the back of the line rather
   // than starting a turn. Saying so beats a keystroke that appears to do
@@ -1380,7 +1384,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
               second, so beside a running turn the refused send would hide
               the Stop that works; the placeholder already says why nothing
               can be sent. */}
-          {(!busy || canSend) && (
+          {(!stoppable || canSend) && (
             <ComposerSend
               type="button"
               data-when={!canSend ? 'nothing' : deferred ? 'later' : 'now'}
@@ -1396,13 +1400,14 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
               wrapped Team's conversation, and the host leaves
               `turn/interrupt` open for it, so Stop stays enabled whenever a
               turn is running; only what would add to the conversation is
-              turned off — and it is not drawn beside Stop. */}
-          {busy && (
+              turned off — and it is not drawn beside Stop. Sub-agents
+              still working after the turn ended are stopped the same way. */}
+          {stoppable && (
             <ComposerSend
               type="button"
               onClick={() => void store.interrupt(key)}
               aria-label="Stop"
-              title="Stop this turn"
+              title={busy ? 'Stop this turn' : 'Stop the sub-agents still working'}
             >
               <StopIcon size={12} />
             </ComposerSend>

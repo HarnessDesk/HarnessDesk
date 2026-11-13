@@ -287,3 +287,85 @@ test('releasing a running conversation on a shared process with no close cancels
   await pause(100)
   assert.deepEqual((await lines(r.files.sequence)).filter((line) => !line.startsWith('session/cancel ')), [`session/new ${id}`])
 })
+
+/**
+ * Sub-agents that outlast the turn. An agent's delegation list can still name
+ * a child as running after the prompt that started it has ended; the
+ * conversation then says so, and Stop ends the children without a turn.
+ */
+const statuses = (r: Rig, id: string) =>
+  r.events.filter((event): event is Extract<AgentEvent, { type: 'session/status' }> =>
+    event.type === 'session/status' && String(event.sessionId) === id).map((event) => event.status)
+const outlasting = (r: Rig, id: string): boolean => {
+  const status = statuses(r, id).at(-1)
+  return status?.type === 'idle' && status.subagentsRunning === true
+}
+
+async function idleOverDelegation(r: Rig) {
+  const session = await r.runtime.createSession({ cwd: r.dir })
+  // A first exchange the agent keeps, so the conversation can be reopened.
+  await session.send([{ type: 'text', text: 'hello' }])
+  await completedTimes(r, 1)
+  await session.send([{ type: 'text', text: 'deleg spawn' }])
+  await completedTimes(r, 2)
+  await r.until(() => outlasting(r, String(session.id)))
+  return session
+}
+
+test('an idle conversation over a running delegation says its sub-agents still work, and stops saying it when the list says they ended', async (t) => {
+  const r = await rig(t, { flag: true, resumeOnly: true })
+  const session = await idleOverDelegation(r)
+  await session.send([{ type: 'text', text: 'deleg finish' }])
+  await completedTimes(r, 3)
+  await r.until(() => !outlasting(r, String(session.id)) && statuses(r, String(session.id)).at(-1)?.type === 'idle')
+})
+
+test('Stop with the turn over closes and reopens the session to end its sub-agents, and starts no turn', async (t) => {
+  const r = await rig(t, { flag: true, resumeOnly: true })
+  const session = await idleOverDelegation(r)
+  const id = String(session.id)
+  const turnsBefore = r.events.filter((event) => event.type === 'turn/started').length
+  const sequenceBefore = (await lines(r.files.sequence)).length
+
+  await session.interrupt()
+
+  assert.deepEqual((await lines(r.files.sequence)).slice(sequenceBefore), [`session/close ${id}`, `session/resume ${id}`],
+    'no prompt to cancel: the close and the reopen, and nothing else')
+  assert.equal(outlasting(r, id), false, 'the conversation no longer says a sub-agent works')
+  assert.equal(statuses(r, id).at(-1)?.type, 'idle')
+  await pause(150)
+  assert.equal(r.events.filter((event) => event.type === 'turn/started').length, turnsBefore, 'no turn was started')
+  assert.equal(completions(r.events).length, 2, 'and none was ended')
+  assert.equal(r.events.some((event) => event.type === 'error'), false)
+
+  // The conversation carries on through the same handle.
+  await session.send([{ type: 'text', text: 'hello again' }])
+  await completedTimes(r, 3)
+  assert.equal(completions(r.events)[2]?.turn.status, 'completed')
+})
+
+test('without the declaration, Stop with the turn over sends the agent its cancel and nothing else', async (t) => {
+  const r = await rig(t, { flag: false, resumeOnly: true })
+  const session = await idleOverDelegation(r)
+  const id = String(session.id)
+  const sequenceBefore = (await lines(r.files.sequence)).length
+  await session.interrupt()
+  // The cancel is a notification: nothing answers it, so wait for the agent to have read it.
+  const deadline = Date.now() + 2_000
+  while ((await lines(r.files.sequence)).length === sequenceBefore && Date.now() < deadline) await pause(20)
+  await pause(100)
+  assert.deepEqual((await lines(r.files.sequence)).slice(sequenceBefore), [`session/cancel ${id}`])
+})
+
+test('Stop with the turn over and nothing below it neither closes nor reopens', async (t) => {
+  const r = await rig(t, { flag: true, resumeOnly: true })
+  const session = await r.runtime.createSession({ cwd: r.dir })
+  await session.send([{ type: 'text', text: 'hello' }])
+  await completedTimes(r, 1)
+  const id = String(session.id)
+  assert.equal(outlasting(r, id), false)
+  const sequenceBefore = (await lines(r.files.sequence)).length
+  await session.interrupt()
+  assert.deepEqual((await lines(r.files.sequence)).slice(sequenceBefore).filter((line) => !line.startsWith('session/cancel ')), [])
+  assert.equal(r.events.filter((event) => event.type === 'turn/started').length, 1)
+})

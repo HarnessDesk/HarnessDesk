@@ -53,6 +53,7 @@ import {
   type SessionOptions,
   type SessionSettings,
   type SessionDeletion,
+  type SessionStatus,
   type SessionSummary,
   type SessionUsage,
   type SkillInfo,
@@ -4787,6 +4788,14 @@ class AcpSession implements AgentSession {
   #turns: Turn[] = []
   #currentTurn: MutableTurn | null = null
   #turnCompletion: Promise<void> | null = null
+  /**
+   * The delegations the agent's last list called running. The list is pushed
+   * whole, so each push replaces this; a child can stay in it after the
+   * prompt that started it has ended.
+   */
+  #runningDelegations: ReadonlySet<string> = new Set()
+  /** Whether the conversation was last said to be idle over running delegations. */
+  #saidOutlasting = false
   #goal: SessionGoal | null = null
   #forkedFrom: SessionId | null = null
   #openingProblem: string | null = null
@@ -5291,6 +5300,12 @@ class AcpSession implements AgentSession {
     // A second stop while the first still closes and reopens: that one is the answer.
     if (this.#reopening) return this.#reopening
     const turn = this.busy ? this.#currentTurn : null
+    // The turn is over and its sub-agents are not: there is no prompt to
+    // cancel, and only the close ends them on an agent whose cancel leaves them.
+    if (!turn && this.#runningDelegations.size > 0 && this.#host.cancelLeavesSubagents) {
+      await this.#reopenAfterCancel(null)
+      return
+    }
     this.cancelOnly()
     if (turn && this.#host.cancelLeavesSubagents) await this.#reopenAfterCancel(turn)
   }
@@ -5306,12 +5321,13 @@ class AcpSession implements AgentSession {
    * prompt has settled, and the session is opened again in its place. See
    * `AcpAgentConfig.cancelLeavesSubagents`.
    */
-  async #reopenAfterCancel(turn: MutableTurn): Promise<void> {
+  async #reopenAfterCancel(turn: MutableTurn | null): Promise<void> {
     const settled = this.#turnCompletion
     const reopening = (async () => {
       // A prompt the agent never settles is ended by the close all the same.
+      // With no turn (sub-agents outlasting it) there is nothing to wait for.
       let timer: NodeJS.Timeout | undefined
-      await Promise.race([
+      if (turn) await Promise.race([
         settled?.catch(() => {}),
         new Promise<void>((resolve) => { timer = setTimeout(resolve, this.#host.cancelSettleMs) }),
       ])
@@ -5321,11 +5337,15 @@ class AcpSession implements AgentSession {
       // is the stopped turn — ended here, before the close could fail it.
       this.#reopenPhase = 'closing'
       this.#abandonPermissions('The conversation was stopped.')
-      if (this.#currentTurn === turn) this.#finishTurn(turn, 'cancelled')
+      if (turn && this.#currentTurn === turn) this.#finishTurn(turn, 'cancelled')
       try {
         await this.#host.reopenAfterCancel(this)
       } finally {
         this.#reopenPhase = null
+        // The close ended every child the closed session had; a list the
+        // reopened one pushes says otherwise if it must.
+        this.#runningDelegations = new Set()
+        this.#sayOutlasting()
       }
     })()
     this.#reopening = reopening
@@ -5832,6 +5852,10 @@ class AcpSession implements AgentSession {
       const previous = this.#turns[turn]
       if (previous) this.#turns[turn] = { ...previous, items }
     }
+    this.#runningDelegations = new Set(delegations.flatMap((delegation) =>
+      typeof delegation?.id === 'string' && delegation.id.length > 0 &&
+        (DELEGATION_STATUS[delegation.state ?? 'running'] ?? 'inProgress') === 'inProgress' ? [delegation.id] : []))
+    this.#sayOutlasting()
     // A share of the session's total and never an addition to it — the
     // runtimes that attribute child spend have already folded it into their
     // own counts. Carried so the window can split a figure it must not
@@ -6104,7 +6128,20 @@ class AcpSession implements AgentSession {
     this.#currentTurn = null
     this.#turns.push(finished)
     this.#host.emit({ type: 'turn/completed', sessionId: this.id, turn: finished })
-    this.#host.emit({ type: 'session/status', sessionId: this.id, status: { type: 'idle' } })
+    this.#host.emit({ type: 'session/status', sessionId: this.id, status: this.#idleStatus() })
+  }
+
+  /** Idle, and whether sub-agents the agent still lists as running outlast the turn. */
+  #idleStatus(): SessionStatus {
+    this.#saidOutlasting = this.#runningDelegations.size > 0
+    return this.#saidOutlasting ? { type: 'idle', subagentsRunning: true } : { type: 'idle' }
+  }
+
+  /** Says the idle status again when what outlasts the turn changed while no turn ran. */
+  #sayOutlasting(): void {
+    if (this.#currentTurn !== null) return
+    if (this.#saidOutlasting === this.#runningDelegations.size > 0) return
+    this.#host.emit({ type: 'session/status', sessionId: this.id, status: this.#idleStatus() })
   }
 
   #failTurn(turn: MutableTurn, message: string, code: AgentError['code']): void {
@@ -6124,7 +6161,7 @@ class AcpSession implements AgentSession {
     }
     this.#turns.push(finished)
     this.#host.emit({ type: 'turn/completed', sessionId: this.id, turn: finished })
-    this.#host.emit({ type: 'session/status', sessionId: this.id, status: { type: 'idle' } })
+    this.#host.emit({ type: 'session/status', sessionId: this.id, status: this.#idleStatus() })
     this.#host.emit({
       type: 'error',
       sessionId: this.id,
