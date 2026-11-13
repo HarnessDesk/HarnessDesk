@@ -930,6 +930,13 @@ test.describe('preview coverage', () => {
     await expect(frame.getByRole('article', { name: 'Desk', exact: true })).toHaveText('Allowed under your rule for this goal: /workspace/demo/src/panel.tsx · 3 times')
   })
 
+  test('preview shows a trigger-opened goal as the event and quotes the words as plain text', async ({ page }) => {
+    await page.goto('/preview.html?lead-chat=lead')
+    const notice = page.locator('[data-frame-id="lead-trigger-notice"] [data-slot="lead-trigger"]')
+    await expect(notice.getByRole('button', { name: 'Request on pull request #12 from a collaborator (write access)' })).toBeVisible()
+    await expect(notice.locator('[data-lead-trigger-words]')).toHaveText('\u201cCan the Lead look at the failing checkout test?\u201d')
+  })
+
   test('preview shows the three board-tool permission card states and keeps grants quiet', async ({ page }) => {
     await page.goto('/preview.html?board-tool-approvals')
     const session = page.locator('[data-frame-id="board-tool-approval-always"] [data-slot="approval-card"]')
