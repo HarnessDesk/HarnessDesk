@@ -146,6 +146,8 @@ describe('childrenOfSession', () => {
     expect(first.map(row => row.phase)).toEqual(['ended'])
     const again = childrenOfSession(session([earlier, { id: turnId('t2'), status: 'inProgress', items: [reply, { ...reply, id: itemId('r2') } as AgentItem] }]))
     expect(again).toBe(first)
+    const same = session([earlier])
+    expect(childrenOfSession(same)).toBe(childrenOfSession(same))
     expect(childrenOfSession(session([{ id: turnId('t1'), status: 'inProgress', items: [spawn] }])).map(row => row.phase)).toEqual(['working'])
   })
 

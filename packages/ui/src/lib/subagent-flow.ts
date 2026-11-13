@@ -216,7 +216,22 @@ const CACHED_SESSIONS = 64
  * replaces only the items that moved), so a streaming reply does not refold
  * and resanitize every child on each delta.
  */
+/**
+ * In front of the fold's own cache: a conversation nothing moved in keeps its
+ * identity, so a delta streaming into another one costs this one a lookup,
+ * not a walk of its items. The sidebar reads every visible row on each change.
+ */
+const bySession = new WeakMap<Session, ChildRow[]>()
+
 export const childrenOfSession = (session: Session): ChildRow[] => {
+  const known = bySession.get(session)
+  if (known) return known
+  const rows = foldSession(session)
+  bySession.set(session, rows)
+  return rows
+}
+
+const foldSession = (session: Session): ChildRow[] => {
   const subs: SubagentItem[] = []
   let liveFrom = 0
   const outlast = subagentsOutlastTurn(session)

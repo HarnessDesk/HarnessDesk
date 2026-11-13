@@ -4936,10 +4936,14 @@ class AcpSession implements AgentSession {
         startedAt: open.startedAt,
       })
     }
-    this.#replaying = false
     // History says what ran then, not what runs now: the live session's next
     // list says that (one that arrived before this point was dropped with
-    // the replay, and the next list or turn end corrects it).
+    // the replay, and the next list or turn end corrects it). A child the
+    // history left running is closed with an end nobody can name, still
+    // inside the replay so only the snapshot below carries it; the next list
+    // reopens it if it does still run.
+    this.#strandDelegations()
+    this.#replaying = false
     this.#runningDelegations = new Map()
     this.#saidOutlasting = false
     this.#modes = loaded.modes ?? this.#modes
@@ -6066,6 +6070,31 @@ class AcpSession implements AgentSession {
     this.#emit({ type: 'usage/updated', sessionId: this.id, usage: this.#usage })
   }
 
+  /**
+   * Closes every finished turn's row of a child still said to be running,
+   * once nothing is left that could say how it ended: the agent exited, this
+   * handle was released, or history was replayed into a fresh one. A
+   * background child's row is the agent's live record of it and outlives its
+   * turn; with the agent's word gone, a row left open would read as working
+   * for ever. `notFound` is an end nobody can name.
+   */
+  #strandDelegations(): void {
+    this.#turns = this.#turns.map((turn) => {
+      if (!turn.items.some((item) => item.type === 'subagent' && item.status === 'inProgress')) return turn
+      const items = turn.items.map((item): AgentItem => {
+        if (item.type !== 'subagent' || item.status !== 'inProgress') return item
+        const closed: AgentItem = {
+          ...item,
+          status: 'completed',
+          members: item.members.map((member) => (member.state === 'running' || !member.state ? { ...member, state: 'notFound' } : member)),
+        }
+        this.#emit({ type: 'item/completed', sessionId: this.id, turnId: turn.id, item: closed })
+        return closed
+      })
+      return { ...turn, items }
+    })
+  }
+
   /** Emits unless this session is replaying stored history. */
   #emit(event: Parameters<AcpRuntime['emit']>[0]): void {
     if (!this.#replaying) this.#host.emit(event)
@@ -6166,6 +6195,7 @@ class AcpSession implements AgentSession {
   agentDied(): void {
     // Its children went with it, or are no longer this handle's to stop.
     this.#runningDelegations = new Map()
+    this.#strandDelegations()
     const turn = this.#currentTurn
     if (turn) this.#failTurn(turn, `${this.#host.agentName} exited mid-turn.`, 'runtimeUnavailable')
     this.#abandonPermissions('The agent exited.')
@@ -6173,6 +6203,7 @@ class AcpSession implements AgentSession {
 
   released(): void {
     this.#runningDelegations = new Map()
+    this.#strandDelegations()
     const turn = this.#currentTurn
     if (turn && !this.#replaying) this.#finishTurn(turn, 'cancelled')
     this.#abandonPermissions('The conversation closed.')

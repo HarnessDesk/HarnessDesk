@@ -117,6 +117,28 @@ test('a child that outlives its turn is updated where it started, not appended t
   }
 })
 
+test('a child still running when the handle is released is closed with an end nobody can name', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    const started = subagents(await ask(runtime, session, 'deleg spawn', reported))
+    assert.equal(started[0]?.item.status, 'inProgress', 'the child outlives its turn')
+    const closed: SubagentItem[] = []
+    runtime.subscribe((event) => {
+      if (event.type === 'item/completed' && event.item.type === 'subagent') closed.push(event.item)
+    })
+    // Released, nothing can say how the child ended; left open it would read
+    // as working for ever.
+    await session.close()
+    assert.equal(closed.length, 1)
+    assert.equal(closed[0]?.status, 'completed')
+    assert.deepEqual(closed[0]?.members.map((member) => member.state), ['notFound'])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('an output count that is still a floor stays a floor across the boundary', async () => {
   const runtime = make()
   await runtime.start()
