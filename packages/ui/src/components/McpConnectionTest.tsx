@@ -21,6 +21,17 @@ const FAILURE_WORD: Record<Exclude<Failure['reason'], 'confirm'> | 'error', stri
   error: 'Not tested',
 }
 
+/** The same result word and tone in a list row, detail, and reading sheet. */
+export const McpTestResultChip = ({ answer, compact = false }: { answer: Answer | null; compact?: boolean }) => {
+  if (!answer || (!answer.ok && answer.reason === 'confirm')) return null
+  if (answer.ok) return <Chip tone="success" size="sm"
+    title={`${answer.tools} ${answer.tools === 1 ? 'tool' : 'tools'} · ` + [answer.serverName, answer.serverVersion].filter(Boolean).join(' ') + ` · answered in ${answer.ms} ms`}>
+    {compact ? 'Connected' : `Connected · ${answer.tools} ${answer.tools === 1 ? 'tool' : 'tools'}`}
+  </Chip>
+  return <Chip tone={answer.reason === 'busy' ? 'neutral' : answer.reason === 'needsSignIn' ? 'warning' : 'danger'} size="sm"
+    title={sanitizeText(answer.detail)}>{FAILURE_WORD[answer.reason]}</Chip>
+}
+
 /** A command line as a person would type it: arguments with spaces or quotes are quoted. */
 export const commandLine = (command: string, args: readonly string[]): string =>
   [command, ...args].map(part => /^[\w@%+=:,./-]+$/.test(part) ? part : `'${part.replace(/'/g, `'\\''`)}'`).join(' ')
@@ -83,7 +94,9 @@ const shownTarget = (target: McpTestTarget, cwd: string, home: string | undefine
  * result stays on the row as a chip; a failure adds its reason, the one line
  * that varies, and the server's own output folds away beneath it.
  */
-export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
+export const McpConnectionTest = ({ name, path, cwd, readBy, home, compact = false }: {
+  /** List action: result on the same line, detail on hover, no second line. */
+  compact?: boolean
   name: string
   path: string
   cwd: string | undefined
@@ -96,6 +109,7 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
   const [running, setRunning] = useState(false)
   const [answer, setAnswer] = useState<Answer | null>(null)
   const [asking, setAsking] = useState<{ target: McpTestTarget; digest: string } | null>(null)
+  const inFlight = useRef(false)
   const live = useRef(true)
   // Re-armed on every mount: StrictMode mounts, cleans up and mounts again.
   useEffect(() => {
@@ -104,6 +118,8 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
   }, [])
 
   const run = async (confirmed?: string) => {
+    if (inFlight.current) return
+    inFlight.current = true
     setRunning(true); setAsking(null)
     try {
       const result = await store.transport.request('library/mcp/test', {
@@ -115,6 +131,7 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
     } catch (error) {
       if (live.current) setAnswer({ ok: false, reason: 'error', detail: error instanceof Error ? error.message : String(error), ms: 0 })
     } finally {
+      inFlight.current = false
       if (live.current) setRunning(false)
     }
   }
@@ -126,32 +143,26 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
   const stderr = failure && 'stderr' in failure && failure.stderr ? sanitizeText(failure.stderr) : null
   const shown = asking ? shownTarget(asking.target, asking.target.transport === 'stdio' ? asking.target.cwd : '', home) : null
 
-  return <DescLines>
-    <InlineParts data-slot="mcp-test">
-      <Button variant="outline" size="xs" disabled={running} onClick={() => void run()}
-        title="Start this server from its declaration, ask it for its tools, then stop it">
-        {running ? 'Testing…' : 'Test connection'}
+  const content = <>
+    <InlineParts data-mcp-test="" onClick={event => event.stopPropagation()}>
+      <Button variant={compact ? "ghost" : "outline"} size="xs" disabled={running} onClick={() => void run()}
+        title={`${compact ? `${sanitizeText(shortPath(path, home))}: ` : ''}Start this server from its declaration, ask it for its tools, then stop it`}>
+        {running ? 'Testing…' : compact ? 'Test' : 'Test connection'}
       </Button>
-      {answer?.ok && <Chip tone="success" size="sm"
-        title={[answer.serverName, answer.serverVersion].filter(Boolean).join(' ') + ` · answered in ${answer.ms} ms`}>
-        {`Connected · ${answer.tools} ${answer.tools === 1 ? 'tool' : 'tools'}`}
-      </Chip>}
-      {failure && <Chip tone={failure.reason === 'busy' ? 'neutral' : failure.reason === 'needsSignIn' ? 'warning' : 'danger'} size="sm">
-        {FAILURE_WORD[failure.reason]}
-      </Chip>}
-      {failure?.reason === 'needsSignIn' && signIn.map(runtime => <Button key={runtime.id} variant="ghost" size="xs"
+      <McpTestResultChip answer={answer} compact={compact} />
+      {!compact && failure?.reason === 'needsSignIn' && signIn.map(runtime => <Button key={runtime.id} variant="ghost" size="xs"
         title={`Sign in through ${runtime.presentation.name}`} onClick={() => void store.mcpLogin(name, runtime.id)}>
         {signIn.length === 1 ? 'Sign in' : `Sign in · ${runtime.presentation.name}`}
       </Button>)}
     </InlineParts>
-    {detail && <Text role="meta" tone={failure?.reason === 'needsSignIn' ? 'warning' : undefined}>
+    {!compact && detail && <Text role="meta" tone={failure?.reason === 'needsSignIn' ? 'warning' : undefined}>
       {failure?.reason === 'needsSignIn' && signIn.length === 0 ? `${detail} Its agent signs in to it, not this page.` : detail}
     </Text>}
-    {stderr && <details>
+    {!compact && stderr && <details>
       <Text as="summary" role="meta">Server output</Text>
       <CodeText as="pre" block ground="muted" wrap>{stderr}</CodeText>
     </details>}
-    {asking && shown && <ConfirmDialog
+    {asking && shown && <span onClick={event => event.stopPropagation()}><ConfirmDialog
       title={asking.target.transport === 'stdio' ? 'Run this project’s server?' : 'Connect to this project’s server?'}
       confirmLabel={asking.target.transport === 'stdio' ? 'Run test' : 'Connect'}
       cancelLabel="Cancel"
@@ -170,6 +181,7 @@ export const McpConnectionTest = ({ name, path, cwd, readBy, home }: {
         {shown.names}
       </Text>}
       {shown.notes && <Text as="p" role="meta" tone="warning">{shown.notes}</Text>}
-    </ConfirmDialog>}
-  </DescLines>
+    </ConfirmDialog></span>}
+  </>
+  return compact ? content : <DescLines>{content}</DescLines>
 }

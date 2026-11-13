@@ -1,10 +1,10 @@
 import { inlineMarkdown } from '../lib/markdown-inline'
-import { createContext, useContext, useMemo } from 'react'
+import { createContext, useContext, useMemo, type ReactNode } from 'react'
 
 import type { LibraryEntry } from '@harnessdesk/protocol'
 
 import { RuntimeMark } from './BrandIcons'
-import { Button, Chip, CodeText, AvatarStack, ListRow, ListRows, Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
+import { Button, Chip, CodeText, AvatarStack, InlineParts, ListRow, ListRows, Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
 import { useNarrowLayout } from '../lib/use-narrow-layout'
 import { runtimeTint } from '../lib/accounts'
 import { libraryUpdateFor } from '../lib/library-updates'
@@ -112,10 +112,12 @@ export const chipFor = (entry: LibraryEntry, columns: readonly LibraryColumn[]):
 }
 
 /** Three labelled facts, with the whole row opening the definition. */
-export const SkillRow = ({ entry, columns, onOpen }: {
+export const SkillRow = ({ entry, columns, onOpen, actions }: {
   entry: LibraryEntry
   columns: readonly LibraryColumn[]
   onOpen: () => void
+  /** Independent actions stay beside the row’s state, never inside its open button. */
+  actions?: ReactNode
 }) => {
   const narrow = useContext(NarrowList)
   const finding = useMemo(() => findingFor(entry, columns), [entry, columns])
@@ -144,15 +146,16 @@ export const SkillRow = ({ entry, columns, onOpen }: {
     members={members}
   /> : <span>{narrow && <span className="sr-only">Loaded by </span>}<Text role="muted" ink="muted" title={narrow ? 'Loaded by none' : undefined}>None</Text></span>
   if (narrow) return <ListRow
-    as="button"
+    as={actions ? "div" : "button"}
     interactive
     data-slot="skill-row"
     onClick={onOpen}
-    title={<>{title}{!finding && <span className="sr-only"> Ready</span>}</>}
+    title={<>{actions ? <Button variant="ghost" size="content" hoverFill={false}
+      onClick={event => { event.stopPropagation(); onOpen() }} className={styles.name}>{title}</Button> : title}{!finding && <span className="sr-only"> Ready</span>}</>}
     subtitle={description}
     wrapSubtitle
     meta={finding ? <Chip tone={finding.tone === 'warn' ? 'warning' : 'neutral'} size="sm" title={finding.title}>{finding.text}</Chip> : undefined}
-    trail={<>{faces}<ChevronIcon size={15} /></>}
+    trail={<>{actions}{faces}<ChevronIcon size={15} /></>}
   />
   return (
     <TableRow
@@ -174,9 +177,10 @@ export const SkillRow = ({ entry, columns, onOpen }: {
         </Button>
       </TableCell>
       <TableCell className="w-px whitespace-nowrap">
+        <InlineParts>{actions}
         {finding?.tone === 'warn'
           ? <Chip tone="warning" size="sm">{finding.text}</Chip>
-          : <Text role="muted" ink="muted" title={finding?.title}>{finding?.text ?? 'Ready'}</Text>}
+          : <Text role="muted" ink="muted" title={finding?.title}>{finding?.text ?? 'Ready'}</Text>}</InlineParts>
       </TableCell>
       <TableCell className="w-px whitespace-nowrap">
         <span className="flex items-center justify-between gap-3">

@@ -787,6 +787,10 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
               entry={entry}
               columns={columns}
               onOpen={() => openEntry(entry)}
+              actions={(() => {
+                const copy = entry.copies.find(copy => !copy.hollow)
+                return copy ? <McpConnectionTest compact name={entry.name} path={copy.path} cwd={cwd} readBy={copy.readBy} home={library?.home} /> : undefined
+              })()}
             />
           ))}
         </SkillList>

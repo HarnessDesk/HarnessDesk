@@ -1346,9 +1346,18 @@ Empty-directory cleanup and runtime catalogue banners appear only under Needs at
 
 MCP servers retain List and Matrix, their PageOptions and their existing
 filters. An empty MCP region says No MCP servers yet with no description.
-Each copy of a server on disk has Test connection, whose answer stays on the
-row as one chip; a copy the project's own file declares shows its command or
-address before it runs.
+Each usable copy of a server on disk has Test connection. The List also offers
+Test for the first nonempty copy (its path is on hover), with the result as a
+chip on the same line and failure detail on hover. Empty copies have no test
+action. Detail and reading sheets keep the full reason, folded server output,
+and Needs sign-in action through an agent that reads the copy; without that
+agent's sign-in support they explain that its agent signs in to it.
+A copy the project's own file declares asks before running. The host resolves
+references using the reading agent's format before calculating the confirmation
+digest: a changed environment asks again. The dialog shows reference names,
+never their resolved values. An unset reference without a default refuses the
+test by variable name. Nothing tests on open; each copy permits one test at a
+time, with at most four across the desk.
 The List compares Server, State and Loaded by in three labelled columns.
 Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
 the generic plugin glyph is omitted only when the list has no mapped glyphs.

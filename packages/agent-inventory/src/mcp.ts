@@ -20,6 +20,8 @@ export interface McpServerSpec {
   readonly command?: string
   readonly args?: readonly string[]
   readonly env?: Readonly<Record<string, string>>
+  /** Additional environment names forwarded by the reading agent (Codex env_vars). */
+  readonly envVars?: readonly string[]
   readonly url?: string
   readonly headers?: Readonly<Record<string, string>>
 }
@@ -43,6 +45,7 @@ export const canonicalMcp = (spec: McpServerSpec): string => {
     args: spec.args ?? [],
     env: sorted(spec.env),
     headers: sorted(spec.headers),
+    ...(spec.envVars?.length ? { envVars: [...spec.envVars].sort() } : {}),
   })
 }
 
@@ -172,7 +175,7 @@ const decodeTomlEntry = (name: string, body: string): McpServerSpec | null => {
     }
 
     const env: Record<string, string> = {}
-    const envRaw = /^\s*env\s*=\s*\{([^}]*)\}/m.exec(body)?.[1]
+    const envRaw = /^\s*env\s*=\s*\{(.*)\}/m.exec(body)?.[1]
     if (envRaw !== undefined) {
       for (const pair of envRaw.split(',').map((one) => one.trim()).filter(Boolean)) {
         const match = /^([A-Za-z0-9_]+)\s*=\s*"([^"]*)"$/.exec(pair)
@@ -185,12 +188,23 @@ const decodeTomlEntry = (name: string, body: string): McpServerSpec | null => {
       return null
     }
 
+    let envVars: string[] | undefined
+    const envVarsRaw = /^\s*env_vars\s*=\s*(\[[^\]]*\])/m.exec(body)?.[1]
+    if (envVarsRaw !== undefined) {
+      try {
+        const parsed = stringArray(JSON.parse(envVarsRaw))
+        if (parsed === LOSSY) return null
+        envVars = parsed
+      } catch { return null }
+    } else if (/^\s*env_vars\s*=/m.test(body)) return null
+
     return {
       name,
       transport: 'stdio',
       command,
       ...(args ? { args } : {}),
       ...(Object.keys(env).length > 0 ? { env } : {}),
+      ...(envVars ? { envVars } : {}),
     }
   }
   const url = string('url')
@@ -210,6 +224,9 @@ export const canHostMcp = (
 ): { readonly ok: true } | { readonly ok: false; readonly reason: string } => {
   if (dialect === null) {
     return { ok: false, reason: 'No configuration location is known for this agent, so nothing can be written for it.' }
+  }
+  if (spec.envVars?.length && dialect !== 'codex') {
+    return { ok: false, reason: 'This agent’s format cannot carry a list of environment variable names to pass through.' }
   }
   if (dialect === 'codex') {
     if (spec.transport === 'sse') {
@@ -272,6 +289,7 @@ export const encodeTomlBlock = (spec: McpServerSpec, key: string): string => {
     if (spec.args && spec.args.length > 0) {
       lines.push(`args = [${spec.args.map((one) => JSON.stringify(one)).join(', ')}]`)
     }
+    if (spec.envVars?.length) lines.push(`env_vars = ${JSON.stringify(spec.envVars)}`)
     if (spec.env && Object.keys(spec.env).length > 0) {
       const pairs = Object.entries(spec.env).map(([k, v]) => `${k} = ${JSON.stringify(v)}`)
       lines.push(`env = { ${pairs.join(', ')} }`)

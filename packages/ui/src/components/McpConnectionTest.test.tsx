@@ -25,7 +25,7 @@ afterEach(() => {
 const one = runtimeId('one')
 const signInRuntime = { id: one, name: 'one', capabilities: { mcp: true }, presentation: { name: 'Runtime 1' } } as unknown as RuntimeInfo
 
-const mount = (answers: McpTestResult[], props: { path?: string; cwd?: string } = {}) => {
+const mount = (answers: McpTestResult[], props: { path?: string; cwd?: string; compact?: boolean; readBy?: readonly RuntimeInfo['id'][] } = {}) => {
   const snapshot = { ...emptySnapshot(), status: 'open', runtimes: [signInRuntime] } as AppSnapshot
   const queue = [...answers]
   const request = vi.fn(async () => queue.shift())
@@ -33,7 +33,7 @@ const mount = (answers: McpTestResult[], props: { path?: string; cwd?: string } 
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, transport: { request }, mcpLogin } as unknown as AppStore
   act(() => {
     root.render(<StoreProvider store={store}>
-      <McpConnectionTest name="tools" path={props.path ?? '/home/jane/.one.json'} cwd={props.cwd} readBy={[one]} home="/home/jane" />
+      <McpConnectionTest compact={props.compact} name="tools" path={props.path ?? '/home/jane/.one.json'} cwd={props.cwd} readBy={props.readBy ?? [one]} home="/home/jane" />
     </StoreProvider>)
   })
   return { request, mcpLogin }
@@ -162,4 +162,36 @@ it('needs sign-in points to the agent’s own sign-in', async () => {
 
 it('quotes a command line the way it would be typed', () => {
   expect(commandLine('node', ['server.js', '--name', "it's here"])).toBe(`node server.js --name 'it'\\''s here'`)
+})
+
+it('list action keeps the result on one line, with failure detail on hover', async () => {
+  const { request } = mount([{ ok: false, reason: 'spawnFailed', detail: 'Missing executable.', ms: 0, stderr: 'output' }], { compact: true })
+  await act(async () => button('Test')!.click())
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(container.textContent).toContain('Did not start')
+  expect(container.textContent).not.toContain('Missing executable.')
+  expect(container.querySelector('[title="Missing executable."]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="desc-lines"]')).toBeNull()
+  expect(container.querySelector('details')).toBeNull()
+})
+
+it('rapid clicks start only one request, and leave Test disabled until it finishes', async () => {
+  const snapshot = { ...emptySnapshot(), status: 'open', runtimes: [] } as AppSnapshot
+  let finish!: (answer: McpTestResult) => void
+  const request = vi.fn(() => new Promise<McpTestResult>(resolve => { finish = resolve }))
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, transport: { request } } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><McpConnectionTest compact name="tools" path="/home/jane/.one.json" cwd={undefined} readBy={[]} home="/home/jane" /></StoreProvider>))
+  await act(async () => { button('Test')!.click(); button('Test')!.click() })
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(button('Testing…')!.disabled).toBe(true)
+  await act(async () => finish({ ok: true, tools: 1, ms: 8 }))
+  expect(button('Test')!.disabled).toBe(false)
+})
+
+it('needs sign-in explains ownership when no reading agent offers its own sign-in', async () => {
+  mount([{ ok: false, reason: 'needsSignIn', detail: 'It asks for sign-in.', ms: 3 }], { readBy: [] })
+  await act(async () => button('Test connection')!.click())
+  expect(container.textContent).toContain('Needs sign-in')
+  expect(container.textContent).toContain('Its agent signs in to it, not this page.')
+  expect(button('Sign in')).toBeUndefined()
 })

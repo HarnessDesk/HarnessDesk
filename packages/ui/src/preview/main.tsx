@@ -1,3 +1,4 @@
+import { McpTestFrames, McpTestPreview } from './frames-mcp-test'
 import { GitGatewayFrames } from './frames-git-gateway'
 import { LeadFrames } from './harness'
 import './update-bridge'
@@ -1218,6 +1219,7 @@ const Preview = () => {
 
       <Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame>
       <SettingsFrames />
+      <McpTestFrames />
       {new URLSearchParams(window.location.search).has('runtime-start') && <RuntimeStartFrames />}
       <Frame id="typography-cjk" title="CJK — reading text and controls">
         <CjkSpecimen />
@@ -1361,6 +1363,8 @@ createRoot(container).render(
           ? <ConversationDefaultsPreview />
           : new URLSearchParams(window.location.search).has('git-gateway')
           ? <GitGatewayFrames selected={new URLSearchParams(window.location.search).get('git-gateway')} />
+          : new URLSearchParams(window.location.search).has('mcp-test')
+          ? <McpTestPreview />
           : new URLSearchParams(window.location.search).has('library-updates')
           ? <LibraryUpdateFrames />
           : new URLSearchParams(window.location.search).has('library-github')

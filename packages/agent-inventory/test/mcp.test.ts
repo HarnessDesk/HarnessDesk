@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import {
   applyMcpEdit,
   canonicalMcp,
+  canHostMcp,
   decodeMcpEntry,
   decodeRawMcpEntry,
   readRawMcpEntry,
@@ -92,4 +93,24 @@ test('the same server spelled in two dialects has one canonical form', () => {
   const codex = decodeRawMcpEntry('command = "npx"\nargs = ["-y", "srv"]\nenv = { B = "2", A = "1" }', 'toml', 'srv', 'codex')
   assert.ok(claude && codex)
   assert.equal(canonicalMcp(claude), canonicalMcp(codex))
+})
+
+test('TOML pass-through names round-trip, affect identity, and cannot be silently moved to JSON', () => {
+  const spec = decodeRawMcpEntry('command = "node"\nargs = ["demo.js"]\nenv_vars = ["TOKEN", "REGION"]\nenv = { LITERAL = "${UNCHANGED}" }', 'toml', 'probe', 'codex')
+  assert.ok(spec)
+  assert.deepEqual(spec.envVars, ['TOKEN', 'REGION'])
+  assert.deepEqual(spec.env, { LITERAL: '${UNCHANGED}' })
+  const written = applyMcpEdit(null, 'toml', 'mcp_servers', 'probe', spec, 'codex')
+  assert.deepEqual(decodeMcpEntry(written, 'toml', 'mcp_servers', 'probe', 'codex'), spec)
+  assert.notEqual(canonicalMcp(spec), canonicalMcp({ ...spec, envVars: ['OTHER'] }))
+  assert.equal(canonicalMcp(spec), canonicalMcp({ ...spec, envVars: ['REGION', 'TOKEN'] }))
+  assert.equal(canHostMcp('claude', spec).ok, false)
+  assert.equal(canHostMcp('cursor', spec).ok, false)
+  assert.equal(canHostMcp('gemini', spec).ok, false)
+})
+
+test('malformed TOML env_vars refuse rather than silently dropping pass-through names', () => {
+  for (const value of ['["TOKEN", 12]', '["TOKEN"', '[{ name = "TOKEN", source = "remote" }]']) {
+    assert.equal(decodeRawMcpEntry(`command = "node"\nenv_vars = ${value}`, 'toml', 'probe', 'codex'), null)
+  }
 })

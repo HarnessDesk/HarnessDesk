@@ -369,6 +369,21 @@
       "selector": "[data-frame-id=\"git-gateway-rewrite\"] > div",
       "id": "git-gateway-rewrite",
       "title": "Git gateway \u00b7 rewrite"
+    },
+    {
+      "selector": "[data-frame-id=\"mcp-test-list-result\"] > div",
+      "id": "mcp-test-list-result",
+      "title": "MCP test \u2014 a result in the list"
+    },
+    {
+      "selector": "[data-frame-id=\"mcp-test-needs-sign-in\"] > div",
+      "id": "mcp-test-needs-sign-in",
+      "title": "MCP test \u2014 sign in through its agent"
+    },
+    {
+      "selector": "[data-frame-id=\"mcp-test-agent-sign-in\"] > div",
+      "id": "mcp-test-agent-sign-in",
+      "title": "MCP test \u2014 its agent owns sign-in"
     }
   ],
   "boards": [
