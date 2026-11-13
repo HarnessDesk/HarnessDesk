@@ -577,6 +577,37 @@ keeps showing the proactive question line. For an ordinary reply it shows the
 existing prose, including the question when it also appears in `text`.
 
 
+## What opened a goal
+
+A goal a trigger opened (a `@harnessdesk` request, or any other trigger event
+armed with `opens: { lead: true }`) arrives in `lead/thread/read` and
+`lead/changed` as a `system` message, never as the person's: its `text` is the
+desk's own line, and it carries `trigger`, the event's facts as the host
+recorded them:
+
+```json
+{"version": 1, "id": "message-1", "revision": 1, "role": "system", "text": "Request on pull request #12 from you",
+ "trigger": {"source": "pull-request", "event": "mentioned", "subject": "acme/widgets#12", "from": "you",
+  "words": "Make the empty state keyboard accessible", "url": "https://github.com/acme/widgets/pull/12#issuecomment-9001"}}
+```
+
+- `source` is `pull-request`, `issue` or `schedule`; `event` is the trigger's
+  event word (`mentioned` for a request); `subject` reads as the thread
+  `origin`'s.
+- `from` is set on a request only: `you`, `collaborator`, `outside` or
+  `unconfirmed`, decided from the forge's facts, never from the comment.
+- `words` is untrusted: the asker's words for a request, the issue or pull
+  request's title for any other event, folded to one line and at most 280
+  characters. It is absent when the desk withheld them from the Lead.
+- `url` is the comment a request was asked in, else the event's page, or null.
+
+Draw it as a desk line, not a bubble: `text` linked to `url` (open only an
+`https` address), then `words`, if any, in quotation marks as plain text,
+never rendered Markdown. An older phone that ignores `trigger` already draws
+`text` as the grey `system` line. A goal opened before this field existed stays
+a `user` message with the raw request text; draw it as before and do not parse
+it.
+
 ## Links a reply names
 
 An assistant `LeadMessage` may also carry `refs`, one to eight pointers to what

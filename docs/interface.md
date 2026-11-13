@@ -2054,7 +2054,11 @@ with "you or a collaborator write" or "anyone writes" for the wider `from`, and
 the review's **Who may ask** row says that only a first line starting with
 @harnessdesk asks, and that an edit, a bot or the desk's own post never does.
 A request reaches the Lead as its plan card, with *From: a request on …* on
-the item.
+the item. In the thread, the turn that opened the goal is a desk line rather
+than a message of yours: *Request on pull request #12 from you*, linked to the
+comment, with the asker's words quoted beneath it as plain text, never the
+prompt the Lead was given. A goal any other trigger opened reads the same way
+(*Checks failed on pull request #12*, the title quoted).
 
 ### The Teams page
 

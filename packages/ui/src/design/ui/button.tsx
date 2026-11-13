@@ -216,8 +216,10 @@ const boxedVariants = cva(
            `<button>` never gets WCAG 2.5.8's inline-text exemption an anchor
            does, so this pads its hit target to the floor and pulls the same
            amount back with a negative margin, the way any hit-slop trick
-           does, so the sentence around it never reflows. */
-        'inline-link': 'h-auto whitespace-normal px-0 py-(--hd-space-2) -my-(--hd-space-2)',
+           does, so the sentence around it never reflows. No border either:
+           the base's transparent one would set its words a pixel in from the
+           text it sits beside. */
+        'inline-link': 'h-auto whitespace-normal border-0 px-0 py-(--hd-space-2) -my-(--hd-space-2)',
         /* A row of a hand-windowed table: fixed to the pitch the list's own
            arithmetic assumes (`--hd-table-row-h`), with only the right inset
            a table row keeps clear of its own scrollbar. Distinct from `row`
