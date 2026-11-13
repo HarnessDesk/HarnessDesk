@@ -220,15 +220,48 @@ export const expandMcpTestSpec = (
 const PROXY_VARIABLE = /^(?:http|https|all)_proxy$/i
 
 /**
- * The child's environment: the small set of names a check gets from the desk
- * (`checkEnvironment` — where tools are, whose account, locale, proxy), then
- * the server's own configured variables on top. Nothing else of the desk's —
- * no `HARNESSDESK_*`, no `HD_*`, no token — reaches it. A proxy the desk
- * passes on goes without the user name and password in its URL; a proxy the
+ * Names an MCP server needs beyond a check's: where a certificate authority
+ * the person trusts is found, and on Windows where the system is. Never a
+ * credential, a token, an agent socket or a key.
+ */
+const MCP_EXTRA_NAMES = [
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'REQUESTS_CA_BUNDLE',
+  'CURL_CA_BUNDLE',
+  'NO_PROXY',
+  'no_proxy',
+  'SystemRoot',
+  'windir',
+  'ComSpec',
+  'PATHEXT',
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'ProgramData',
+  'TEMP',
+  'TMP',
+] as const
+const MCP_EXTRA = new Set(MCP_EXTRA_NAMES.map((name) => name.toUpperCase()))
+const MCP_FAMILY = /^(?:LC_|XDG_)/
+
+/**
+ * The child's environment, for a connection test and for a real exchange
+ * alike: the small set of names a check gets from the desk
+ * (`checkEnvironment` — where tools are, whose account, locale, proxy), the
+ * names in `MCP_EXTRA_NAMES`, every `LC_*` and `XDG_*`, then the server's own
+ * configured variables on top. Nothing else of the desk's — no
+ * `HARNESSDESK_*`, no `HD_*`, no token — reaches it. A proxy the desk passes
+ * on goes without the user name and password in its URL; a proxy the
  * declaration sets itself is its own and is passed as written.
  */
 export const mcpTestEnvironment = (spec: McpServerSpec, from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => {
   const inherited = checkEnvironment(from)
+  for (const [name, value] of Object.entries(from)) {
+    if (value === undefined || name in inherited) continue
+    if (MCP_FAMILY.test(name) || MCP_EXTRA.has(name.toUpperCase())) inherited[name] = value
+  }
   for (const [name, value] of Object.entries(inherited)) {
     if (value !== undefined && PROXY_VARIABLE.test(name)) inherited[name] = withoutUserinfo(value)
   }
@@ -294,7 +327,7 @@ const settleReply = (method: string, message: Record<string, unknown>, mask: (te
 
 // -- stdio ------------------------------------------------------------------
 
-const groupKill = (child: ChildProcess, signal: NodeJS.Signals): void => {
+export const groupKill = (child: ChildProcess, signal: NodeJS.Signals): void => {
   if (child.pid === undefined) return
   try {
     // A negative pid is the group: the server and everything it started that stayed in it.
@@ -303,6 +336,63 @@ const groupKill = (child: ChildProcess, signal: NodeJS.Signals): void => {
   } catch {
     // Already gone.
   }
+}
+
+/** True when no process is left in the child's group (or it never had one). */
+export const groupGone = (child: ChildProcess): boolean => {
+  if (child.pid === undefined) return true
+  if (process.platform === 'win32') return child.exitCode !== null || child.signalCode !== null
+  try {
+    process.kill(-child.pid, 0)
+    return false
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ESRCH'
+  }
+}
+
+/** Groups that were sent SIGTERM and wait for their SIGKILL, by group id. */
+const awaitingKill = new Set<number>()
+let awaitingHooked = false
+
+/** Kills outright every group still waiting for its SIGKILL: what the process's own `exit` runs. */
+export const killAwaitingGroups = (): void => {
+  for (const pid of awaitingKill) {
+    try {
+      process.kill(-pid, 'SIGKILL')
+    } catch {
+      // Already gone.
+    }
+  }
+  awaitingKill.clear()
+}
+
+/**
+ * Stops a child's whole group: SIGTERM now, SIGKILL after `graceMs`. The group
+ * is signalled even when its leader has already gone, and the delayed kill
+ * first probes the group — an empty one is dropped and nothing is sent, so a
+ * group id the system has since reused is never signalled. The group stays on
+ * a list the process's own `exit` kills outright, so a quit inside the grace
+ * period leaves nothing behind. The timer never keeps the process alive.
+ */
+export const stopGroup = (child: ChildProcess, graceMs: number): void => {
+  if (child.pid === undefined) return
+  if (process.platform === 'win32') {
+    child.kill('SIGTERM')
+    setTimeout(() => child.kill('SIGKILL'), graceMs).unref()
+    return
+  }
+  const pid = child.pid
+  if (groupGone(child)) return
+  groupKill(child, 'SIGTERM')
+  awaitingKill.add(pid)
+  if (!awaitingHooked) {
+    awaitingHooked = true
+    process.once('exit', killAwaitingGroups)
+  }
+  setTimeout(() => {
+    if (!awaitingKill.delete(pid)) return
+    if (!groupGone(child)) groupKill(child, 'SIGKILL')
+  }, graceMs).unref()
 }
 
 const exited = (child: ChildProcess): Promise<void> =>
@@ -440,8 +530,9 @@ const runStdio = async (
       groupKill(child, 'SIGTERM')
       await Promise.race([exited(child), new Promise((resolve) => setTimeout(resolve, KILL_GRACE_MS))])
       // Always, not only when the leader lingers: a grandchild that shrugged
-      // off SIGTERM is still in the group after its parent has gone.
-      groupKill(child, 'SIGKILL')
+      // off SIGTERM is still in the group after its parent has gone. An empty
+      // group is left alone: its id may belong to someone else by now.
+      if (!groupGone(child)) groupKill(child, 'SIGKILL')
       await Promise.race([exited(child), new Promise((resolve) => setTimeout(resolve, 1_000))])
     }
     untrack?.()

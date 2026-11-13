@@ -186,6 +186,11 @@
       "title": "The / and @ menu"
     },
     {
+      "selector": "[data-frame-id=\"transcript-ask-agent\"] > div",
+      "id": "transcript-ask-agent",
+      "title": "A seat asking another agent"
+    },
+    {
       "selector": "[data-frame-id=\"transcript-folded-steps\"] > div",
       "id": "transcript-folded-steps",
       "title": "A folded burst of steps"
@@ -234,6 +239,11 @@
       "selector": "[data-frame-id=\"room-channel-grouping\"] > div",
       "id": "room-channel-grouping",
       "title": "Room \u2014 the channel's own grouping"
+    },
+    {
+      "selector": "[data-frame-id=\"room-channel-carry-on\"] > div",
+      "id": "room-channel-carry-on",
+      "title": "Team \u2014 a seat's usage limit asks what to do"
     },
     {
       "selector": "[data-frame-id=\"tasks-session-plan\"] > div",
