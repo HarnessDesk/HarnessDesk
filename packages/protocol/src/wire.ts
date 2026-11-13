@@ -845,13 +845,15 @@ export interface HostMethods {
     params: { readonly limit?: number }
     result: import('./lead.js').LeadDeskSummary
   }
-  /** Ordinary sessions in the host-selected Lead project. Transcripts are untrusted observations. */
+  /** Ordinary sessions in the host-selected Lead project. Transcripts are untrusted observations. A chat's `handle` is
+   * the short name the host gave it for the Lead (`web-opus-2`): unique on the desk, never moved, never given again. Every
+   * `lead/chat/*` call takes it where it takes the id; the host turns it into the id before anything is decided. */
   'lead/chat/list': {
     params: { readonly cursor?: string; readonly limit?: number }
-    result: { readonly items: readonly { readonly id: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly updatedAt: number }[]; readonly nextCursor: string | null }
+    result: { readonly items: readonly { readonly id: string; readonly handle?: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly updatedAt: number }[]; readonly nextCursor: string | null }
   }
-  'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
-  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly effectId?: string; readonly cause?: 'person' | 'automatic'; readonly agent?: string; readonly moveFrom?: string; readonly ledgerItem?: string }; result: { readonly id: string; readonly problem?: string; readonly ledgerItem?: string; readonly account?: string } }
+  'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly handle?: string; readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
+  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly effectId?: string; readonly cause?: 'person' | 'automatic'; readonly agent?: string; readonly moveFrom?: string; readonly ledgerItem?: string }; result: { readonly id: string; readonly handle?: string; readonly problem?: string; readonly ledgerItem?: string; readonly account?: string } }
   'lead/chat/send': { params: { readonly id: string; readonly text: string; readonly effectId?: string; readonly cause?: 'person' | 'automatic'; readonly retryAt?: 'reset' }; result: { readonly queued?: boolean } }
   /** Window only. Which Lead-touched chats the person holds, and the keys of what the Lead sent. */
   'lead/chats/resetControl': { params: Record<string, never>; result: LeadChatControlList }
@@ -1302,7 +1304,8 @@ export interface HostMethods {
    * against the location table), never a command: the host reads the
    * command, variables, URL and headers from that file itself. A server
    * declared in a project's own file answers `confirm` until `confirmed`
-   * carries the digest of the target the person was shown.
+   * carries the keyed digest of the target and every desk environment name
+   * the person was shown. Reference values stay in the host.
    */
   'library/mcp/test': {
     params: { readonly name: string; readonly path: string; readonly cwd?: string; readonly confirmed?: string }
@@ -3091,7 +3094,7 @@ export type WireNotification =
   | {
       /** A tracked ordinary chat changed state; transcript content stays behind read. */
       readonly method: 'lead/chat/changed'
-      readonly params: { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly incident?: import('./lead.js').LeadChatIncidentObservation }
+      readonly params: { readonly id: string; readonly handle?: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly incident?: import('./lead.js').LeadChatIncidentObservation }
     }
   | { readonly method: 'account/changed'; readonly params: { readonly status: HarnessDeskAccountStatus } }
   | { readonly method: 'phone/changed'; readonly params: PhoneLinkState }

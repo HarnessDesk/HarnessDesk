@@ -461,6 +461,9 @@ export class LeadSupervisor {
           const request = ipcObject(input.request)
           const call = callFrom({ method: request.method, params: request.params })
           const scope = await this.options.resolveTool(call)
+          // The child sends the call its resolution returned, so a handle never reaches execution: one that does is a
+          // child that skipped the host's resolution.
+          if (scope.call !== undefined) throw error('protocol')
           if (running.exited || running.poisoned || this.#stopping) throw error('stopping')
           // All authority is derived again in the host. The child's project,
           // context, approved start and step claims confer no authority.
@@ -569,7 +572,9 @@ export class LeadSupervisor {
       // Expected admission refusals come back as codes; every other failure breaks the protocol.
       const code = (failure as { wireCode?: unknown })?.wireCode
       const coded = operation === 'offerCard' && (code === 'lead-card-too-large' || code === 'lead-card-stale') ? code
-        : operation === 'freezePlan' && (code === 'lead-plan-unseatable' || code === 'lead-plan-not-independent') ? code : null
+        : operation === 'freezePlan' && (code === 'lead-plan-unseatable' || code === 'lead-plan-not-independent') ? code
+        // A handle the desk does not hold is the model's mistake, told back to it, never a broken child.
+        : operation === 'resolveTool' && code === 'lead-chat-unknown' ? code : null
       if (coded) {
         if (!running.exited) write(running, { type: 'reply', id, ok: false, value: coded, state: journal.state })
         return

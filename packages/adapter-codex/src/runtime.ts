@@ -52,6 +52,7 @@ import {
   type InstallationCheck,
   type Session,
   type SessionId,
+  type SessionStatus,
   type SessionOptions,
   type SessionSummary,
   type SkillInfo,
@@ -76,6 +77,7 @@ import {
 import { CodexTasks } from './tasks.js'
 import { loginParamsFor, mapAccount, mapLoginStart, signInMethods } from './mapping/account.js'
 import { mapThrown } from './mapping/errors.js'
+import { threadIdsOf } from './mapping/items.js'
 import { mapNotification, mapRateLimits } from './mapping/notifications.js'
 import { mapAccountActivity } from './mapping/account-usage.js'
 import {
@@ -296,6 +298,25 @@ export class CodexRuntime implements AgentRuntime {
   readonly #parents = new Map<string, string>()
   /** A bounded thread association was lost, so an otherwise unknown child is unsafe. */
   #delegationUncertain = false
+  /** Placed sub-agent threads with a turn running, by what Codex has said of them. */
+  readonly #workingChildren = new Set<string>()
+  /** The last status kind Codex gave each open conversation's own thread. */
+  readonly #ownStatus = new Map<string, SessionStatus['type']>()
+  /** Open conversations last said to be idle over sub-agents still working. */
+  readonly #outlasting = new Set<string>()
+  /**
+   * Threads seen working before anything placed them: whether each was last
+   * said to be running, held until its parent is known. Codex announces a
+   * spawned agent with no `thread/started`; its parent's spawn item or a
+   * `thread/read` places it.
+   */
+  readonly #unplaced = new Map<string, boolean>()
+  /** A `thread/read` asking an unplaced thread's parent, one at a time per thread: its ticket. */
+  readonly #parentReads = new Map<string, object>()
+  /** Threads read and found to belong to no conversation here, so they are not read again. */
+  readonly #unrelated = new Set<string>()
+  /** Threads whose parent is known but not yet placed itself: child to parent. */
+  readonly #orphans = new Map<string, string>()
   /** Codex's inline reviews, made to open and close their turns; see `ReviewTurns`. */
   readonly #reviewTurns = new ReviewTurns()
   readonly #eventListeners = new Set<(event: AgentEvent) => void>()
@@ -390,7 +411,9 @@ export class CodexRuntime implements AgentRuntime {
         // it; see `ReviewTurns`.
         for (const seen of this.#reviewTurns.see(notification)) {
           this.#track(seen)
-          for (const event of mapNotification(seen, this.#id)) this.#emit(this.#deSpeak(event))
+          const childrenMoved = this.#noteChildWork(seen)
+          for (const event of mapNotification(seen, this.#id)) this.#emit(this.#withSubagents(this.#deSpeak(event)))
+          if (childrenMoved || (seen.method === 'turn/completed' && this.#sessions.has(seen.params.threadId))) this.#reconsiderSubagents()
         }
       }),
       this.#server.onServerRequest((request, responder) =>
@@ -1583,6 +1606,8 @@ export class CodexRuntime implements AgentRuntime {
       startBeside: (like) => this.#opened(() => this.#startBeside(like)),
       interruptible: (threadId, turnId) => this.#reviewTurns.interruptible(threadId, turnId),
       stopDescendants: (threadId) => this.#stopDescendants(threadId),
+      subagentsRunning: (threadId) => this.#subagentsRunning(threadId),
+      startSettled: () => this.#reconsiderSubagents(),
       ...(this.#settleMs !== undefined ? { settleMs: this.#settleMs } : {}),
       ...(this.#capabilities ? { capabilities: this.#capabilities } : {}),
       onReleasing: (id) => this.#releasing(id),
@@ -1602,6 +1627,8 @@ export class CodexRuntime implements AgentRuntime {
           this.#forgetDelegates(id)
           this.#approvals.abandonSession(makeSessionId(id), 'The conversation was closed.')
           this.#sessions.delete(id)
+          this.#ownStatus.delete(id)
+          this.#outlasting.delete(id)
           this.#reviewTurns.forget(id)
           this.tasks.forget(id)
         }, forgetClosing)
@@ -1611,6 +1638,8 @@ export class CodexRuntime implements AgentRuntime {
     if (opened.runtimeServers !== undefined) this.#runtimeServers.set(thread.id, [...opened.runtimeServers])
     if (opened.environment) this.#environments.set(thread.id, laneEnvironmentOf(opened.environment))
     this.#sessions.set(thread.id, session)
+    this.#ownStatus.delete(thread.id)
+    this.#outlasting.delete(thread.id)
     this.#knownCwds.add(state.cwd)
     this.#emit({
       type: 'session/started',
@@ -1720,14 +1749,7 @@ export class CodexRuntime implements AgentRuntime {
         if (parentThreadId && parentThreadId !== id) {
           const root = this.#rootOf(parentThreadId)
           if (root === null) this.#delegationUncertain = true
-          else this.#parents.set(id, root)
-          if (this.#parents.size > 2000) {
-            const oldest = this.#parents.keys().next().value
-            if (oldest !== undefined) {
-              this.#parents.delete(oldest)
-              this.#delegationUncertain = true
-            }
-          }
+          else this.#adopt(id, root)
         }
         return
       }
@@ -1781,6 +1803,17 @@ export class CodexRuntime implements AgentRuntime {
         }
         if (item.type === 'commandExecution') {
           this.#sessions.get(notification.params.threadId)?.recordCommand(item.id, item.command)
+        }
+        // How Codex links a spawned agent to its parent: the parent's own
+        // spawn item names the new thread. Only a parent already placed here
+        // places its children.
+        if (item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent' && this.#placed(notification.params.threadId)) {
+          const root = this.#rootOf(notification.params.threadId)
+          if (root !== null) {
+            for (const child of threadIdsOf(item.receiverThreadIds)) {
+              if (child !== notification.params.threadId) this.#adopt(child, root)
+            }
+          }
         }
         this.tasks.noteItem(
           notification.params.threadId,
@@ -2031,11 +2064,188 @@ export class CodexRuntime implements AgentRuntime {
     for (const [child, parent] of this.#parents) {
       if (parent !== root) continue
       this.#parents.delete(child)
+      this.#workingChildren.delete(child)
       this.#reviewTurns.forget(child)
       this.tasks.forget(child)
       this.#approvals.abandonSession(makeSessionId(child), 'The conversation was closed.')
     }
     this.#delegationUncertain = true
+  }
+
+  /**
+   * Keeps `#workingChildren`: which placed sub-agent threads have a turn
+   * running. Codex subscribes the parent's connection to every thread it
+   * spawns, so a child's turns and status reach this process like a root's;
+   * a thread placed under a conversation (`#parents`) is counted, and one not
+   * yet placed is kept until it is (`#notePlaceless`). True when the set
+   * changed.
+   */
+  #noteChildWork(notification: CodexProtocol.ServerNotification): boolean {
+    const working = (threadId: string, running: boolean): boolean => {
+      if (!this.#parents.has(threadId)) {
+        this.#notePlaceless(threadId, running)
+        return false
+      }
+      if (running === this.#workingChildren.has(threadId)) return false
+      if (running) this.#workingChildren.add(threadId)
+      else this.#workingChildren.delete(threadId)
+      return true
+    }
+    switch (notification.method) {
+      case 'turn/started': return working(notification.params.threadId, true)
+      case 'turn/completed': return working(notification.params.threadId, false)
+      case 'thread/status/changed': return working(notification.params.threadId, notification.params.status.type === 'active')
+      case 'thread/closed': return working(notification.params.threadId, false)
+      default: return false
+    }
+  }
+
+  /** A thread this runtime has placed: an open conversation, or a child of one. */
+  #placed(threadId: string): boolean {
+    return this.#sessions.has(threadId) || this.#parents.has(threadId)
+  }
+
+  /**
+   * Places `child` under the open conversation `root`, and with it every
+   * thread already known to hang from `child`. What the child was last seen
+   * doing before it was placed counts from now. Bounded: past 2000 the oldest
+   * link goes, with what it was doing, and an unknown thread is no longer
+   * taken for a root of its own (`#delegationUncertain`).
+   */
+  #adopt(child: string, root: string): void {
+    if (child === root || this.#sessions.has(child)) return
+    this.#parents.set(child, root)
+    this.#unrelated.delete(child)
+    let moved = false
+    const seen = this.#unplaced.get(child)
+    if (seen !== undefined) {
+      this.#unplaced.delete(child)
+      if (seen) { this.#workingChildren.add(child); moved = true }
+    }
+    if (this.#parents.size > 2000) {
+      const oldest = this.#parents.keys().next().value
+      if (oldest !== undefined) {
+        this.#parents.delete(oldest)
+        if (this.#workingChildren.delete(oldest)) moved = true
+        this.#delegationUncertain = true
+      }
+    }
+    for (const [orphan, parent] of [...this.#orphans]) {
+      if (parent !== child) continue
+      this.#orphans.delete(orphan)
+      this.#adopt(orphan, root)
+    }
+    if (moved) this.#reconsiderSubagents()
+  }
+
+  /**
+   * A thread nothing has placed was seen starting or ending work. Codex's
+   * spawned agents arrive this way: their status and turns reach this
+   * connection with no `thread/started`, and the parent's spawn item may come
+   * after them or not at all. What it is doing is kept, and once it starts
+   * work its parent is asked with one `thread/read` — the read Stop's own
+   * sweep makes — so it can be counted.
+   */
+  #notePlaceless(threadId: string, running: boolean): void {
+    if (this.#sessions.has(threadId) || this.#unrelated.has(threadId) || this.#releases.closed(threadId)) return
+    if (!running && !this.#unplaced.has(threadId)) return
+    this.#unplaced.set(threadId, running)
+    if (this.#unplaced.size > 2000) {
+      const oldest = this.#unplaced.keys().next().value
+      if (oldest !== undefined && oldest !== threadId) this.#unplaced.delete(oldest)
+    }
+    if (!running || this.#parentReads.has(threadId) || this.#orphans.has(threadId)) return
+    const read = {}
+    this.#parentReads.set(threadId, read)
+    void (async () => {
+      let parent: string | null = null
+      let answered = true
+      try {
+        parent = (await this.#server.request('thread/read', { threadId, includeTurns: false }, { timeoutMs: 2_000 })).thread.parentThreadId
+      } catch {
+        answered = false
+      }
+      if (this.#parentReads.get(threadId) !== read) return
+      this.#parentReads.delete(threadId)
+      if (this.#parents.has(threadId) || this.#sessions.has(threadId)) return
+      // A read that failed or timed out says nothing of the thread — a child
+      // not yet materialised fails it. What it was seen doing is kept, for a
+      // spawn item to place, or its next start of work to read again.
+      if (!answered) return
+      // Only an answer naming no parent makes it a thread of its own.
+      if (parent === null || parent === threadId) {
+        this.#unplaced.delete(threadId)
+        this.#unrelated.add(threadId)
+        if (this.#unrelated.size > 2000) {
+          const oldest = this.#unrelated.values().next().value
+          if (oldest !== undefined) this.#unrelated.delete(oldest)
+        }
+        return
+      }
+      if (this.#placed(parent)) {
+        const root = this.#rootOf(parent)
+        if (root !== null) this.#adopt(threadId, root)
+        return
+      }
+      // A grandchild heard of before its parent: placed when the parent is.
+      this.#orphans.set(threadId, parent)
+      if (this.#orphans.size > 2000) {
+        const oldest = this.#orphans.keys().next().value
+        if (oldest !== undefined) this.#orphans.delete(oldest)
+      }
+    })()
+  }
+
+  /** Whether a sub-agent below this open conversation, at any depth, has a turn running. */
+  #subagentsRunning(root: string): boolean {
+    for (const child of this.#workingChildren) {
+      let at: string | undefined = child
+      for (let depth = 0; depth < 8 && at !== undefined; depth += 1) {
+        at = this.#parents.get(at)
+        if (at === root) return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * An open conversation's own status, said with whether its sub-agents still
+   * work. Codex's status is the thread's own: idle once its turn ends, however
+   * many children it left running. The window offers Stop by this flag.
+   */
+  #withSubagents(event: AgentEvent): AgentEvent {
+    if (event.type !== 'session/status' || !this.#sessions.has(event.sessionId)) return event
+    this.#ownStatus.set(event.sessionId, event.status.type)
+    if (event.status.type !== 'idle' || !this.#subagentsRunning(event.sessionId)) {
+      this.#outlasting.delete(event.sessionId)
+      return event
+    }
+    this.#outlasting.add(event.sessionId)
+    return { ...event, status: { type: 'idle', subagentsRunning: true } }
+  }
+
+  /**
+   * Says it again for every open conversation whose turn is over and whose
+   * answer changed: a sub-agent started or ended while it rested, or its own
+   * turn just ended over children still working. Only a conversation Codex
+   * last called idle (or has not described) rests: one it called active has a
+   * turn coming that `turn/started` has not yet named, and one it called
+   * errored or not loaded is left as Codex said — an error drops the flag on
+   * purpose, since what the window must show then is the failure. Nor does
+   * one rest while a send is still starting its turn: it is said again once
+   * the start settles (`startSettled`), or by the turn's own statuses.
+   */
+  #reconsiderSubagents(): void {
+    for (const [id, session] of this.#sessions) {
+      const own = this.#ownStatus.get(id)
+      const resting = session.activeTurnId === null && session.starting === 0 && (own === undefined || own === 'idle')
+      if (!resting) continue
+      const outlasting = this.#subagentsRunning(id)
+      if (outlasting === this.#outlasting.has(id)) continue
+      if (outlasting) this.#outlasting.add(id)
+      else this.#outlasting.delete(id)
+      this.#emit({ type: 'session/status', sessionId: makeSessionId(id), status: outlasting ? { type: 'idle', subagentsRunning: true } : { type: 'idle' } })
+    }
   }
 
   /** Walk an announced child thread to the conversation the desk opened. */
@@ -2180,6 +2390,13 @@ export class CodexRuntime implements AgentRuntime {
       // the old process, so it is not evidence that this epoch delegated it.
       this.#parents.clear()
       this.#delegationUncertain = true
+      this.#workingChildren.clear()
+      this.#ownStatus.clear()
+      this.#outlasting.clear()
+      this.#unplaced.clear()
+      this.#parentReads.clear()
+      this.#unrelated.clear()
+      this.#orphans.clear()
       this.#reviewTurns.clear()
       this.tasks.dispose()
       this.#approvals.abandonAll('The Codex runtime restarted.')

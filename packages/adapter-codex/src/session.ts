@@ -117,6 +117,14 @@ export interface CodexSessionDeps {
    * and so on — leaving each subscribed. Never rejects; bounded by the runtime.
    */
   readonly stopDescendants?: (threadId: string) => Promise<void>
+  /**
+   * Whether a sub-agent below this thread still has a turn running, by what
+   * Codex has announced. Lets Stop reach sub-agents that outlast this
+   * thread's own turn.
+   */
+  readonly subagentsRunning?: (threadId: string) => boolean
+  /** Every send on this conversation has had its `turn/start` answered or refused. */
+  readonly startSettled?: (threadId: string) => void
 }
 
 export class CodexSession implements AgentSession {
@@ -138,6 +146,8 @@ export class CodexSession implements AgentSession {
    * `turn/interrupt`, so the session has to know which turn is live.
    */
   #currentTurnId: string | null = null
+  /** Sends still starting a turn here: asked for, not yet answered with the turn they started. */
+  #starting = 0
   #turnRevision = 0
   readonly #interruptions = new Map<string, Promise<void>>()
   readonly #turnEndWaiters = new Set<() => void>()
@@ -526,6 +536,25 @@ export class CodexSession implements AgentSession {
   }
 
   async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }): Promise<TurnId> {
+    this.#starting += 1
+    try {
+      return await this.#send(input, opts)
+    } finally {
+      this.#starting -= 1
+      // Said after the send's own outcome, never in place of it: a throw here
+      // must not replace the rejection the caller is waiting on.
+      if (this.#starting === 0) {
+        try { this.deps.startSettled?.(this.id) } catch { /* the next status says it */ }
+      }
+    }
+  }
+
+  /** Sends still waiting on Codex to start their turn: no idle is said over one. */
+  get starting(): number {
+    return this.#starting
+  }
+
+  async #send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }): Promise<TurnId> {
     const signal = opts?.signal
     if (signal?.aborted) throw signal.reason
     const overrides = this.#pendingOverrides
@@ -656,16 +685,32 @@ export class CodexSession implements AgentSession {
    * cannot hold a Stop for the sum of its per-request bounds; the sweep goes
    * on in the background. Only this thread's own answer can make it fail.
    * Nothing is unsubscribed: the conversation stays open.
+   *
+   * With this thread's own turn over and sub-agents below it still working
+   * (`subagentsRunning`), Stop asks only the tree: there is no turn here to
+   * stop, and nothing is started on this thread. With neither, it is refused
+   * as before. So is a Stop that lands while a send is still starting a turn
+   * here (`#starting`): stopping only the tree would leave the turn being
+   * started to run as if Stop had covered it, so nothing is stopped and the
+   * refusal says no turn is running yet; the next Stop finds it running.
    */
   async interrupt(): Promise<void> {
+    if (this.#currentTurnId === null && this.#starting === 0 && this.deps.subagentsRunning?.(this.id)) {
+      await this.#stopTree()
+      return
+    }
     this.#requireActiveTurn('interrupt')
     const own = this.interruptTurn()
+    const [result] = await Promise.allSettled([own, this.#stopTree()])
+    if (result.status === 'rejected') throw result.reason
+  }
+
+  /** Asks every sub-agent turn below this thread to stop; settles within `TREE_WAIT_MS` and never rejects. */
+  #stopTree(): Promise<void> {
     const tree = this.deps.stopDescendants?.(this.id) ?? Promise.resolve()
     let timer: ReturnType<typeof setTimeout> | undefined
-    const capped = Promise.race([tree, new Promise<void>(resolve => { timer = setTimeout(resolve, TREE_WAIT_MS) })])
+    return Promise.race([tree, new Promise<void>(resolve => { timer = setTimeout(resolve, TREE_WAIT_MS) })])
       .finally(() => clearTimeout(timer))
-    const [result] = await Promise.allSettled([own, capped])
-    if (result.status === 'rejected') throw result.reason
   }
 
   /**

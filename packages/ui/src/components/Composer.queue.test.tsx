@@ -55,12 +55,12 @@ const runtime = (steer: boolean): RuntimeInfo =>
     presentation: { name: 'Alpha Agent' },
   }) as RuntimeInfo
 
-const session = (busy: boolean, items: readonly unknown[] = [], id = 's1'): Session =>
+const session = (busy: boolean, items: readonly unknown[] = [], id = 's1', outlasting = false): Session =>
   ({
     id,
     runtime: 'alpha',
     cwd: '/w',
-    status: { type: busy ? 'active' : 'idle' },
+    status: busy ? { type: 'active' } : outlasting ? { type: 'idle', subagentsRunning: true } : { type: 'idle' },
     createdAt: 0,
     updatedAt: 0,
     turns: [
@@ -138,8 +138,11 @@ const mount = ({
   queue = null,
   key = KEY,
   items = [],
+  outlasting = false,
 }: {
   busy: boolean
+  /** The turn is over and sub-agents it started are still working. */
+  outlasting?: boolean
   steer?: boolean
   queue?: SessionQueue | null
   key?: ReturnType<typeof sessionKey> | null
@@ -152,7 +155,7 @@ const mount = ({
     activeRuntime: runtime(steer).id,
     health: { state: 'ready' } as AppSnapshot['health'],
     workspace: { path: '/w', name: 'w' } as AppSnapshot['workspace'],
-    sessions: key ? new Map([[key, session(busy, items, key.split(':').slice(1).join(':'))]]) : new Map(),
+    sessions: key ? new Map([[key, session(busy, items, key.split(':').slice(1).join(':'), outlasting)]]) : new Map(),
     activeSessionKey: key,
     queues: queue && key ? new Map([[key, queue]]) : new Map(),
     recoverableDrafts: mockRecoveries,
@@ -622,6 +625,33 @@ describe('the composer while a turn is running', () => {
     })
     expect(textarea().value).toBe('')
     expect(container.textContent).not.toContain('Message not sent')
+  })
+})
+
+describe('the composer when the turn is over and its sub-agents are not', () => {
+  it('offers Stop for the sub-agents, and pressing it asks the host to stop without sending anything', () => {
+    mount({ busy: false, outlasting: true })
+    const button = container.querySelector<HTMLButtonElement>('[aria-label="Stop"]')
+    expect(button).not.toBeNull()
+    expect(button!.disabled).toBe(false)
+    expect(button!.title).toBe('Stop the sub-agents still working')
+    // Nothing typed: the corner is Stop's alone, as beside a running turn.
+    expect(container.querySelector('[aria-label="Send"]')).toBeNull()
+    act(() => button!.click())
+    expect(calls.interrupt).toHaveBeenCalledWith(KEY)
+    expect(calls.send).not.toHaveBeenCalled()
+    expect(calls.queue).not.toHaveBeenCalled()
+  })
+
+  it('still sends now, not later, with Stop kept in the corner', () => {
+    mount({ busy: false, outlasting: true })
+    expect(textarea().placeholder).not.toMatch(/sent when this turn ends/)
+    type('meanwhile')
+    const send = container.querySelector<HTMLButtonElement>('[aria-label="Send"]')
+    expect(send).not.toBeNull()
+    expect(send!.dataset.when).toBe('now')
+    const corner = container.querySelector('[data-composer-track="send"]')
+    expect(corner?.lastElementChild).toBe(container.querySelector('[aria-label="Stop"]'))
   })
 })
 

@@ -25,6 +25,7 @@ import { LeadChatWatches } from './lead/chat-watches.js'
 import { leadChatCandidates, readLeadChatLimits } from './lead/chat-candidates.js'
 import type { RateLimits, WrapChoices } from '@harnessdesk/protocol'
 import { LeadChats, LeadChatBusyError } from './lead/chats.js'
+import { leadChatHandlesPort } from './lead/chat-handles.js'
 import { LeadReminderTimer, LeadWorkLedger, settleLeadReminders, wakeForLeadWork } from './lead/work.js'
 import { LeadAutonomyStore } from './lead/autonomy.js'
 import { LeadSlots } from './lead/slots.js'
@@ -901,6 +902,12 @@ export class Host {
   readonly #creatingTranscripts = new Map<RuntimeId, number>()
   /** Accounts a fold is in flight for; see `#foldDuplicateAccount`. */
   readonly #folding = new Set<string>()
+  /**
+   * Conversations, by runtime and id, with a turn started since the host last
+   * handled an idle status as a turn ending: the next idle is that turn's,
+   * whatever it says of sub-agents. See `subagentsOnly` in `#foldEvent`.
+   */
+  readonly #turnSinceIdle = new Set<string>()
   readonly #broadcasters = new Set<Broadcast>()
   readonly #runtimeNoticeWrites = new Set<Promise<void>>()
   readonly #state: StateStore
@@ -4053,10 +4060,16 @@ export class Host {
     }
     // One timer for the soonest reminder, armed once the minute tick exists below; every ledger change re-arms it.
     let reminderTimer: LeadReminderTimer | null = null
+    // The short names the Lead knows chats by, kept in its journal (`lead/chat-handles.ts`).
+    const handles = leadChatHandlesPort({ journal, project: () => project.path, model: id => {
+      const at = id.indexOf(':'), held = at > 0 ? this.registry.get(runtimeId(id.slice(0, at)), makeSessionId(id.slice(at + 1))) : undefined
+      return held ? sessionModel(held.session) : null
+    } })
     // The work ledger: one record per piece of work, its stages read from the same desk state the phone shows.
     const work = new LeadWorkLedger({ file: join(this.#state.directory, 'lead', 'work.json'), now: () => Date.now(),
       project: () => folderName(project.path),
       chat: id => this.#leadChats?.workState(id) ?? null,
+      handle: id => handles.of(id),
       teams: async () => new Map((await this.#goals.list()).map(view => {
         const latest = this.#flows.executionSummaries({ team: view.goal.id, active: false })[0]
         const { stage, reason } = view.stage === undefined ? teamLeadStage(view, latest ? { state: latest.state } : null) : { stage: view.stage, reason: view.stageReason ?? 'idle' }
@@ -4150,7 +4163,7 @@ export class Host {
       if (notification.method === 'goal/changed' || notification.method === 'session/indexChanged' || notification.method === 'session/removed' ||
         (notification.method === 'event' && WORK_EVENTS.has(notification.params.event.type))) pokeWork()
     }))
-    this.#leadChatCancellation = async (id, count) => { await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${id}.`) }
+    this.#leadChatCancellation = async (id, count) => { const handle = handles.of(id); await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${handle ? `${handle} (${id})` : id}.`) }
     const pacing = pacingPort({
         startableAgents: () => this.#phoneWorkView().startableAgents().map(String),
         infoOf: id => { const known = this.#runtimes.get(runtimeId(id)); return known ? this.#infoOf(known) : undefined },
@@ -4244,6 +4257,7 @@ export class Host {
       },
       watches: new LeadChatWatches(join(this.#state.directory, 'lead', 'chats.json')),
       publish: params => { this.#push({ method: 'lead/chat/changed', params }); pokeWork() },
+      handles,
       ledger: work,
     })
     this.#leadChatsRestored = false
@@ -4631,7 +4645,7 @@ export class Host {
       stopEffects: () => stopOwned('lead-budget-stopped'),
     })
     this.onDispose(() => this.#leadControls?.close())
-    const automatic = new LeadAutomaticGoals({ journal, send: (input, origin, root) => this.#leadControls!.send(input, origin, root),
+    const automatic = new LeadAutomaticGoals({ journal, send: (input, origin, root, trigger) => this.#leadControls!.send(input, origin, root, trigger),
       enabled: () => this.options.leadEnabled === true && !this.#disposed,
       quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
       gateMention: () => autonomy.gate('mention'),
@@ -9888,6 +9902,7 @@ export class Host {
       const asked = owner ? await this.#askToDelete(owner, id) : null
       // Then out of the host's records and every window, before any file is touched.
       this.registry.delete(runtime, id)
+      this.#turnSinceIdle.delete(`${runtime}\u0000${String(id)}`)
       this.#push({ method: 'session/removed', params: { runtime, sessionId: id, deleted: asked === 'deleted' } })
       const left: SeatLeft | null = owner && asked ? await this.#leftAs(owner, id, asked) : { kind: 'unasked' }
       await this.#forgetSeat(runtime, id, left)
@@ -10987,6 +11002,26 @@ export class Host {
     const eventSession = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId :
       'sessionId' in event ? event.sessionId : undefined
     const priorRecord = eventSession ? this.registry.get(runtime, eventSession) : undefined
+    // An idle status that differs from the idle before it only in
+    // `subagentsRunning`, with no turn started since the last idle the host
+    // handled as a turn ending, says a sub-agent started or stopped while the
+    // conversation rested. It is not a turn ending: nothing below treats it as
+    // one, or a child finishing would drain the queue, tell the Team its turn
+    // ended and hand a flow seat its order again — a turn nobody asked for.
+    // A turn seen only as `turn/started` and `turn/completed`, with no
+    // `active` status between, leaves the idle before it standing; the turn
+    // starting is what makes the idle after it that turn's. The mark is set
+    // at the start, not the completion, because Codex can say idle before
+    // `turn/completed` (a review turn, an interrupt): that idle ends the turn,
+    // and a completion after it must not mark the next flag-only idle.
+    const priorStatus = priorRecord?.session.status
+    const turnKey = eventSession === undefined ? null : `${runtime}\u0000${String(eventSession)}`
+    if (turnKey !== null && event.type === 'turn/started') this.#turnSinceIdle.add(turnKey)
+    if (turnKey !== null && (event.type === 'session/closed' || event.type === 'session/detached')) this.#turnSinceIdle.delete(turnKey)
+    const subagentsOnly = event.type === 'session/status' && event.status.type === 'idle' && priorStatus?.type === 'idle' &&
+      (priorStatus.subagentsRunning === true) !== (event.status.subagentsRunning === true) &&
+      (turnKey === null || !this.#turnSinceIdle.has(turnKey))
+    if (turnKey !== null && event.type === 'session/status' && event.status.type === 'idle' && !subagentsOnly) this.#turnSinceIdle.delete(turnKey)
     const temporarilyWatched: TurnId[] = []
     if (priorRecord && event.type === 'session/started') {
       const pending = this.#transcripts.pendingTurnIds(runtime, priorRecord.session.id, priorRecord.bodyGeneration, priorRecord.bodyAuthorityEpoch)
@@ -11121,7 +11156,7 @@ export class Host {
     // Cancellation cleanup may still have seen the completed turn's active
     // status. Its trailing idle notification resumes the surviving queue, but
     // cannot deliver into a newer running turn or a send awaiting acceptance.
-    if (event.type === 'session/status' && event.status.type === 'idle' && record && !this.#queueBusy(record)) {
+    if (event.type === 'session/status' && event.status.type === 'idle' && !subagentsOnly && record && !this.#queueBusy(record)) {
       void this.#drain(record)
     }
     // Messages other agents left for this conversation go after the user's
@@ -11132,7 +11167,7 @@ export class Host {
     // is the nudge that actually lands most deliveries.
     if (
       event.type === 'turn/completed' ||
-      (event.type === 'session/status' && event.status.type === 'idle')
+      (event.type === 'session/status' && event.status.type === 'idle' && !subagentsOnly)
     ) {
       // The turn's own last word goes with the signal: if this turn was
       // started by a teammate's message, the room shows that answer. It is

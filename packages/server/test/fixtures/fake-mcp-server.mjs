@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process'
 import { appendFileSync, writeFileSync } from 'node:fs'
 
 /**
@@ -37,6 +38,10 @@ const toolCount = process.env['FAKE_MCP_TOOL_COUNT'] ? Number(process.env['FAKE_
  *  - FAKE_MCP_IGNORE_TERM=1: shrugs off SIGTERM and a closed stdin; only SIGKILL ends it.
  *  - FAKE_MCP_PID_FILE=<path>: writes its pid there on start.
  *  - FAKE_MCP_CWD_FILE=<path>: writes the folder it runs in there on start.
+ *  - FAKE_MCP_ENV_FILE=<path>: writes its environment there, as JSON, on start.
+ *  - FAKE_MCP_GRANDCHILD_PID_FILE=<path>: starts a process that stays in its group and writes that process's pid there.
+ *  - FAKE_MCP_GRANDCHILD_IGNORE_TERM=1: that process shrugs off SIGTERM.
+ *  - FAKE_MCP_LEADER_EXITS=1: this server exits right after starting that process, which stays running.
  *  - FAKE_MCP_HANG_CALL=1: `tools/call` is never answered (with FAKE_MCP_MARKER, `held` is appended once it arrives).
  */
 const emptyPages = process.env['FAKE_MCP_EMPTY_PAGES'] === '1'
@@ -50,6 +55,14 @@ if (process.env['FAKE_MCP_IGNORE_TERM'] === '1') {
 }
 // Written once SIGTERM is already ignored, so a test that waits for the pid is past that point.
 if (process.env['FAKE_MCP_PID_FILE']) writeFileSync(process.env['FAKE_MCP_PID_FILE'], String(process.pid))
+if (process.env['FAKE_MCP_ENV_FILE']) writeFileSync(process.env['FAKE_MCP_ENV_FILE'], JSON.stringify(process.env))
+if (process.env['FAKE_MCP_GRANDCHILD_PID_FILE']) {
+  const ignore = process.env['FAKE_MCP_GRANDCHILD_IGNORE_TERM'] === '1' ? "process.on('SIGTERM', () => {});" : ''
+  const grandchild = spawn(process.execPath, ['-e', `${ignore}setInterval(() => {}, 1000)`], { stdio: 'ignore' })
+  grandchild.unref()
+  writeFileSync(process.env['FAKE_MCP_GRANDCHILD_PID_FILE'], String(grandchild.pid))
+  if (process.env['FAKE_MCP_LEADER_EXITS'] === '1') setTimeout(() => process.exit(0), 300)
+}
 if (process.env['FAKE_MCP_CWD_FILE']) writeFileSync(process.env['FAKE_MCP_CWD_FILE'], process.cwd())
 if (process.env['FAKE_MCP_STDERR_BYTES']) {
   const total = Number(process.env['FAKE_MCP_STDERR_BYTES'])

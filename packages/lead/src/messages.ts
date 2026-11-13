@@ -1,5 +1,6 @@
 import { WireCallError } from '@harnessdesk/client'
 import { leadToolDefinitions, parseLeadToolCall, LeadToolFencedError, LeadToolRefusedError } from './tools.js'
+import { LeadChatUnknownError, leadChatUnknownText } from './chat-handles.js'
 import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
   type LeadAsk, type LeadProactive, type LeadMessageRef, LEAD_MESSAGE_REFS_MAX, parseLeadMessageRef, parseLeadAsk, parseLeadProactiveOutput, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
 import type { LeadMessageSurface } from '@harnessdesk/protocol'
@@ -543,7 +544,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     const terminalRefusal = (index: number, reason: string) => `Tool was not permitted: step ${index + 1} cannot start: step ${index}'s result ${reason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`
     // The placeholder already pays for most diagnostics. Reserve only the extra serialized bytes.
     const extraSpace = (texts: readonly string[]) => Math.max(0, ...texts.map(text => bytes(json(text)) - bytes(json(TOOL_ERROR.refused))))
-    const errorSpace = extraSpace([...Object.values(TOOL_ERROR), policyRefusal('desk'), policyRefusal('project')])
+    const errorSpace = extraSpace([...Object.values(TOOL_ERROR), policyRefusal('desk'), policyRefusal('project'), leadChatUnknownText('x'.repeat(32))])
     const refusalSpace = extraSpace([predecessorRefusal(LEAD_LIMITS.steps), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unavailable'), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unverifiable')])
     const reserved = uses.map(({ use }) => Math.max(errorSpace, use.name === 'flow_start_goal' ? refusalSpace : 0))
     let available: number
@@ -559,9 +560,11 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       available += reserved[position]!
       if (!signal.aborted && parsed.stop_reason !== 'max_tokens') {
         try {
-          const call = parseLeadToolCall(use)
-          safeJson(call, LIMIT.text)
-          const scope = await cancellable(() => resolveTool(structuredClone(call)), signal)
+          const asked = parseLeadToolCall(use)
+          safeJson(asked, LIMIT.text)
+          const scope = await cancellable(() => resolveTool(structuredClone(asked)), signal)
+          // A chat named by its handle comes back as the same call with the chat's id: the only call decided and sent.
+          const call = scope.call ?? asked
           if (signal.aborted) fail()
           let dispatchError: unknown
           const executed = await journal.execute({ id: `${requestId}/tool/${index}`, request: { method: call.method, params: call.params,
@@ -640,10 +643,14 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
             }
           }
         } catch (error) {
-          if (error instanceof LeadToolFencedError) transientTools.push(use.id)
+          // A handle the desk does not hold is the model's to correct with chat_list, never a reason to park the Lead.
+          if (error instanceof LeadToolFencedError || error instanceof LeadChatUnknownError) transientTools.push(use.id)
+          const input = use.input as Record<string, unknown> | null
           const result = { ...results[position]!, content: error instanceof LeadToolRefusedError
             ? TOOL_ERROR.refused
-            : TOOL_ERROR.failed }
+            : error instanceof LeadChatUnknownError
+              ? leadChatUnknownText(input?.id ?? input?.moveFrom)
+              : TOOL_ERROR.failed }
           available -= bytes(json(result)) - bytes(json(results[position]))
           results[position] = result
           // No raw exception, argument or credential is echoed.

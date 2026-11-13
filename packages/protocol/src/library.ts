@@ -710,7 +710,10 @@ export const shortPath = (path: string, home: string | undefined | null): string
  * server's own declaration. Variables and headers travel by name only: their
  * values are secrets more often than not, and they never leave the host.
  */
-export type McpTestTarget =
+export type McpTestTarget = {
+  /** Desk environment names inspected by this declaration; values stay in the host. */
+  readonly readEnvNames?: readonly string[]
+} & (
   | {
       readonly transport: 'stdio'
       readonly scope: 'user' | 'project'
@@ -733,6 +736,7 @@ export type McpTestTarget =
       readonly url: string
       readonly headerNames: readonly string[]
     }
+)
 
 /**
  * Why a connection test did not connect.

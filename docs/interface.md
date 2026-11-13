@@ -1133,7 +1133,10 @@ they were typed. ⌘↵ steers the running turn for runtimes that support mid-tu
 steering — the others state that they cannot, so the shortcut is offered by
 capability rather than tried and apologised for. Stop and the queue button sit
 side by side while a turn runs, so the primary position never changes meaning
-under a pointer already moving toward it.
+under a pointer already moving toward it. Stop stays after the turn ends while
+sub-agents it started are still working (the host marks the idle status with
+`subagentsRunning`): it then stops those sub-agents and starts no turn, and a
+message typed meanwhile is sent at once, with Send beside Stop.
 
 If adding a message to the running turn fails — the turn ended, the connection
 was lost, or the runtime timed out — its words and chips stay in that
@@ -1346,9 +1349,27 @@ Empty-directory cleanup and runtime catalogue banners appear only under Needs at
 
 MCP servers retain List and Matrix, their PageOptions and their existing
 filters. An empty MCP region says No MCP servers yet with no description.
-Each copy of a server on disk has Test connection, whose answer stays on the
-row as one chip; a copy the project's own file declares shows its command or
-address before it runs.
+Each usable copy of a server on disk has Test connection. The List also offers
+Test for the first nonempty copy (its path is on hover), with the result as a
+chip on the same line. A failure chip opens a dialog with the full reason and
+server output, available by touch and keyboard. Missing variables say Variable
+not set. Empty copies have no test action. Detail and reading sheets keep the full reason, folded server output,
+and Needs sign-in action through an agent that reads the copy; without that
+agent's sign-in support they explain that its agent signs in to it.
+A copy the project's own file declares asks before running. The host expands references in
+the fields the inventory carries: command, args, env, URL and headers. JSON
+braced references and defaults use the desk's environment; the Cursor format
+uses its env:NAME syntax and home/project/path placeholders, and Gemini also
+supports bare variable names (and percent syntax on Windows). Codex strings
+stay literal; env_vars forwards only set names. Nested defaults remain literal,
+and no replacement is recursively expanded. A missing JSON reference without a
+default refuses the test by variable name, even where an agent would keep the
+placeholder. Claude's empty-but-set variables suppress defaults.
+Before running a project's server, Reads from this desk lists every environment
+name inspected, including names inside headers and unset names with defaults.
+Values stay private. A process-keyed confirmation digest binds both the resolved
+declaration and those names; changed values or names ask again. Nothing tests on
+open; each copy permits one test at a time, with at most four across the desk.
 The List compares Server, State and Loaded by in three labelled columns.
 Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
 the generic plugin glyph is omitted only when the list has no mapped glyphs.
@@ -2051,7 +2072,11 @@ with "you or a collaborator write" or "anyone writes" for the wider `from`, and
 the review's **Who may ask** row says that only a first line starting with
 @harnessdesk asks, and that an edit, a bot or the desk's own post never does.
 A request reaches the Lead as its plan card, with *From: a request on …* on
-the item.
+the item. In the thread, the turn that opened the goal is a desk line rather
+than a message of yours: *Request on pull request #12 from you*, linked to the
+comment, with the asker's words quoted beneath it as plain text, never the
+prompt the Lead was given. A goal any other trigger opened reads the same way
+(*Checks failed on pull request #12*, the title quoted).
 
 ### The Teams page
 

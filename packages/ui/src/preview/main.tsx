@@ -1,3 +1,4 @@
+import { McpTestFrames, McpTestPreview } from './frames-mcp-test'
 import { GitGatewayFrames } from './frames-git-gateway'
 import { LeadFrames } from './harness'
 import './update-bridge'
@@ -148,6 +149,7 @@ import { HeaderStatusFrames } from './frames-header-status'
 import { LeadChatFrames } from './frames-lead-chat'
 import { ReadCeilingFrames } from './frames-read-ceiling'
 import { CarryOnFrames } from './frames-carry-on'
+import { IdleStopFrames } from './frames-idle-stop'
 import { TurnErrorFrames } from './frames-turn-errors'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
@@ -1218,6 +1220,7 @@ const Preview = () => {
 
       <Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame>
       <SettingsFrames />
+      <McpTestFrames />
       {new URLSearchParams(window.location.search).has('runtime-start') && <RuntimeStartFrames />}
       <Frame id="typography-cjk" title="CJK — reading text and controls">
         <CjkSpecimen />
@@ -1361,6 +1364,8 @@ createRoot(container).render(
           ? <ConversationDefaultsPreview />
           : new URLSearchParams(window.location.search).has('git-gateway')
           ? <GitGatewayFrames selected={new URLSearchParams(window.location.search).get('git-gateway')} />
+          : new URLSearchParams(window.location.search).has('mcp-test')
+          ? <McpTestPreview />
           : new URLSearchParams(window.location.search).has('library-updates')
           ? <LibraryUpdateFrames />
           : new URLSearchParams(window.location.search).has('library-github')
@@ -1403,6 +1408,8 @@ createRoot(container).render(
           ? <CarryOnFrames />
           : new URLSearchParams(window.location.search).has('turn-errors')
           ? <TurnErrorFrames />
+          : new URLSearchParams(window.location.search).has('idle-stop')
+          ? <IdleStopFrames />
           : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('runtime-start-only')

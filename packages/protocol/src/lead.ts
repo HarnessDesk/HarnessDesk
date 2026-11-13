@@ -290,6 +290,57 @@ export interface LeadMessage {
    * in the journal; the thread projection leaves it out.
    */
   readonly surface?: LeadMessageSurface
+  /**
+   * A goal a trigger opened (#2183): what the host knew about the event that opened it, from the trigger's validated
+   * facts only. The journal keeps the model's fenced prompt as the user turn; a thread projection draws this instead,
+   * as a `system` line whose `text` is {@link leadTriggerLine}, never as the person's message.
+   */
+  readonly trigger?: LeadMessageTrigger
+}
+/** Who asked, for a request (`mentioned`), as the host decided it from the forge's facts; never from the comment. */
+export const LEAD_REQUEST_FROM = ['you', 'collaborator', 'outside', 'unconfirmed'] as const
+export type LeadRequestFrom = typeof LEAD_REQUEST_FROM[number]
+/** At most this many characters of the asker's words ride a trigger, after the host folds them to one line. */
+export const LEAD_TRIGGER_WORDS_MAX = 280
+/**
+ * The event that opened a goal, as the host recorded it. `source`, `event` and `subject` read as {@link LeadOrigin}'s;
+ * `from` is set on a request only. `words` is untrusted: the asker's words for a request, the issue or pull request's
+ * title for any other event, folded to one line and cut, and absent when the host withheld them from the model. `url`
+ * is the comment a request was asked in, else the event's own page.
+ */
+export interface LeadMessageTrigger {
+  readonly source: 'pull-request' | 'issue' | 'schedule'
+  readonly event: string
+  readonly subject: string
+  readonly from?: LeadRequestFrom
+  readonly words?: string
+  readonly url: string | null
+}
+const LEAD_REQUEST_FROM_WORDS: Readonly<Record<LeadRequestFrom, string>> = {
+  you: 'you', collaborator: 'a collaborator (write access)', outside: 'someone outside the repository', unconfirmed: 'someone whose write access was not confirmed',
+}
+/** The event an ordinary trigger fired on, as a thread says it; `where` is "pull request #12" or "issue #7". */
+const LEAD_TRIGGER_EVENT_LINES: Readonly<Record<string, (where: string) => string>> = {
+  opened: where => `Opened: ${where}`,
+  pushed: where => `New commits on ${where}`,
+  'checks-failed': where => `Checks failed on ${where}`,
+  'review-commented': where => `Review comment on ${where}`,
+  labelled: where => `Label added on ${where}`,
+  closed: where => `Closed: ${where}`,
+  commented: where => `Comment on ${where}`,
+}
+/** "pull request #12" or "issue #7": a subject's number, never its repository's name. */
+export const leadTriggerWhere = (source: 'pull-request' | 'issue', subject: string): string =>
+  `${source === 'pull-request' ? 'pull request' : 'issue'} #${/(\d+)$/.exec(subject)?.[1] ?? subject}`
+/** A request's first line, the one the model reads and the one the thread draws: where it was asked and who asked. */
+export const leadRequestLine = (where: string, from: LeadRequestFrom): string => `Request on ${where} from ${LEAD_REQUEST_FROM_WORDS[from]}`
+/** What a trigger-opened goal's line says, for both surfaces and for a phone that draws only `text`. */
+export const leadTriggerLine = (trigger: LeadMessageTrigger): string => {
+  if (trigger.source === 'schedule') return 'Scheduled run'
+  const where = leadTriggerWhere(trigger.source, trigger.subject)
+  if (trigger.event === 'mentioned') return leadRequestLine(where, trigger.from ?? 'unconfirmed')
+  return Object.hasOwn(LEAD_TRIGGER_EVENT_LINES, trigger.event) ? LEAD_TRIGGER_EVENT_LINES[trigger.event]!(where)
+    : `${trigger.event.replace(/-/g, ' ').replace(/^./, first => first.toUpperCase())} on ${where}`
 }
 export const LEAD_MESSAGE_SURFACES = ['phone', 'desktop'] as const
 export type LeadMessageSurface = typeof LEAD_MESSAGE_SURFACES[number]
@@ -836,7 +887,20 @@ export const parseLeadMessageRef: Validator<LeadMessageRef> = omitUnset(object<L
 /** The refs a reply carries, at most `LEAD_MESSAGE_REFS_MAX`, one per kind and id. */
 export const parseLeadMessageRefs: Validator<readonly LeadMessageRef[]> = list(parseLeadMessageRef, LEAD_MESSAGE_REFS_MAX, 1, ref => `${ref.kind}:${ref.id}`)
 const parseLeadMessageWake: Validator<LeadMessageWake> = object<LeadMessageWake>({ kind: literalUnion('reminder'), reminder: id, text: text(200) })
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs), wake: optional(parseLeadMessageWake), reminded: optional(id), surface: optional(literalUnion(...LEAD_MESSAGE_SURFACES)) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs', 'wake', 'reminded', 'surface'])
+/** A trigger's link: an absolute https address with no space or control in it, or null. */
+const triggerUrl: Validator<string> = (value, path = '') => {
+  const parsed = text(LEAD_LIMITS.textChars)(value, path)
+  return /^https:\/\/[^\s/]+\/\S*$/.test(parsed) && parsed.length <= 2048 ? parsed : fail(path, 'expected an https link')
+}
+const triggerShape = omitUnset(object<LeadMessageTrigger>({ source: literalUnion('pull-request', 'issue', 'schedule'), event: id, subject: opaque,
+  from: optional(literalUnion(...LEAD_REQUEST_FROM)), words: optional(text(LEAD_TRIGGER_WORDS_MAX)), url: nullable(triggerUrl) }), ['from', 'words'])
+/** The event that opened a goal: `from` belongs to a request alone. */
+export const parseLeadMessageTrigger: Validator<LeadMessageTrigger> = (value, path = '') => {
+  const trigger = triggerShape(value, path)
+  if (trigger.from !== undefined && trigger.event !== 'mentioned') fail(`${path}.from`, 'who asked belongs to a request')
+  return trigger
+}
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs), wake: optional(parseLeadMessageWake), reminded: optional(id), surface: optional(literalUnion(...LEAD_MESSAGE_SURFACES)), trigger: optional(parseLeadMessageTrigger) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs', 'wake', 'reminded', 'surface', 'trigger'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
@@ -847,6 +911,9 @@ export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   if (message.wake && message.role !== 'user' && message.role !== 'system') fail(path, 'a wake is a desk turn')
   if (message.reminded !== undefined && (message.role !== 'assistant' || message.ask || message.proactive)) fail(path, 'a reminder line is a plain reply')
   if (message.surface !== undefined && (message.role !== 'user' || message.wake)) fail(path, 'a surface belongs to the person\'s own message')
+  // The journal keeps a trigger on the automatic user turn; a thread projection carries it on the system line it draws.
+  if (message.trigger && (message.role === 'user' ? message.source !== 'automatic' && message.source !== 'schedule' : message.role !== 'system' || message.source !== undefined)
+    || message.trigger && (message.wake || message.surface !== undefined)) fail(path, 'a trigger belongs to the turn a trigger opened')
   return message
 }
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {

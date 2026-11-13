@@ -2,7 +2,7 @@ import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { runtimeId, type McpTestResult, type RuntimeInfo } from '@harnessdesk/protocol'
+import { runtimeId, type McpTestResult, type McpTestTarget, type RuntimeInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -25,7 +25,7 @@ afterEach(() => {
 const one = runtimeId('one')
 const signInRuntime = { id: one, name: 'one', capabilities: { mcp: true }, presentation: { name: 'Runtime 1' } } as unknown as RuntimeInfo
 
-const mount = (answers: McpTestResult[], props: { path?: string; cwd?: string } = {}) => {
+const mount = (answers: McpTestResult[], props: { path?: string; cwd?: string; compact?: boolean; readBy?: readonly RuntimeInfo['id'][] } = {}) => {
   const snapshot = { ...emptySnapshot(), status: 'open', runtimes: [signInRuntime] } as AppSnapshot
   const queue = [...answers]
   const request = vi.fn(async () => queue.shift())
@@ -33,7 +33,7 @@ const mount = (answers: McpTestResult[], props: { path?: string; cwd?: string } 
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, transport: { request }, mcpLogin } as unknown as AppStore
   act(() => {
     root.render(<StoreProvider store={store}>
-      <McpConnectionTest name="tools" path={props.path ?? '/home/jane/.one.json'} cwd={props.cwd} readBy={[one]} home="/home/jane" />
+      <McpConnectionTest compact={props.compact} name="tools" path={props.path ?? '/home/jane/.one.json'} cwd={props.cwd} readBy={props.readBy ?? [one]} home="/home/jane" />
     </StoreProvider>)
   })
   return { request, mcpLogin }
@@ -162,4 +162,77 @@ it('needs sign-in points to the agent’s own sign-in', async () => {
 
 it('quotes a command line the way it would be typed', () => {
   expect(commandLine('node', ['server.js', '--name', "it's here"])).toBe(`node server.js --name 'it'\\''s here'`)
+})
+
+it('list action keeps the result on one line, with failure detail on hover', async () => {
+  const { request } = mount([{ ok: false, reason: 'spawnFailed', detail: 'Missing executable.', ms: 0, stderr: 'output' }], { compact: true })
+  await act(async () => button('Test')!.click())
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(container.textContent).toContain('Did not start')
+  expect(container.textContent).not.toContain('Missing executable.')
+  expect(container.querySelector('[title="Missing executable."]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="desc-lines"]')).toBeNull()
+  expect(container.querySelector('details')).toBeNull()
+})
+
+it('rapid clicks start only one request, and leave Test disabled until it finishes', async () => {
+  const snapshot = { ...emptySnapshot(), status: 'open', runtimes: [] } as AppSnapshot
+  let finish!: (answer: McpTestResult) => void
+  const request = vi.fn(() => new Promise<McpTestResult>(resolve => { finish = resolve }))
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, transport: { request } } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><McpConnectionTest compact name="tools" path="/home/jane/.one.json" cwd={undefined} readBy={[]} home="/home/jane" /></StoreProvider>))
+  await act(async () => { button('Test')!.click(); button('Test')!.click() })
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(button('Testing…')!.disabled).toBe(true)
+  await act(async () => finish({ ok: true, tools: 1, ms: 8 }))
+  expect(button('Test')!.disabled).toBe(false)
+})
+
+it('needs sign-in explains ownership when no reading agent offers its own sign-in', async () => {
+  mount([{ ok: false, reason: 'needsSignIn', detail: 'It asks for sign-in.', ms: 3 }], { readBy: [] })
+  await act(async () => button('Test connection')!.click())
+  expect(container.textContent).toContain('Needs sign-in')
+  expect(container.textContent).toContain('Its agent signs in to it, not this page.')
+  expect(button('Sign in')).toBeUndefined()
+})
+
+
+it('confirmation names every desk variable without exposing values', async () => {
+  mount([{ ok: false, reason: 'confirm', detail: 'Check it.', digest: 'd', ms: 0,
+    target: { transport: 'http', scope: 'project', url: 'https://mcp.acme.dev/mcp', headerNames: ['Authorization'], readEnvNames: ['AWS_SECRET_ACCESS_KEY', 'GITHUB_TOKEN'] } as McpTestTarget,
+  }])
+  await act(async () => button('Test connection')!.click())
+  expect(document.querySelector('[role="alertdialog"]')!.textContent).toContain('Reads from this desk: AWS_SECRET_ACCESS_KEY, GITHUB_TOKEN')
+})
+
+it('confirmation omits the desk-variable line when none are read', async () => {
+  mount([{ ok: false, reason: 'confirm', detail: 'Check it.', digest: 'd', ms: 0,
+    target: { transport: 'http', scope: 'project', url: 'https://mcp.acme.dev/mcp', headerNames: [], readEnvNames: [] } as McpTestTarget,
+  }])
+  await act(async () => button('Test connection')!.click())
+  expect(document.querySelector('[role="alertdialog"]')!.textContent).not.toContain('Reads from this desk:')
+})
+
+it('a failed list chip opens a keyboard-accessible reason and server output', async () => {
+  mount([{ ok: false, reason: 'spawnFailed', detail: 'Missing executable.', stderr: 'Server stopped.', ms: 0 }], { compact: true })
+  await act(async () => button('Test')!.click())
+  const failed = button('Did not start')
+  expect(failed).toBeDefined()
+  await act(async () => failed!.click())
+  const dialog = document.querySelector('[role="dialog"]')!
+  expect(dialog.textContent).toContain('Missing executable.')
+  expect(dialog.textContent).toContain('Server stopped.')
+})
+
+it('a missing variable has its own chip wording without changing the wire reason', async () => {
+  mount([{ ok: false, reason: 'notFound', detail: 'Environment variable API_KEY is not set. Set it before testing this server.', ms: 0 }])
+  await act(async () => button('Test connection')!.click())
+  expect(container.textContent).toContain('Variable not set')
+  expect(container.textContent).not.toContain('Not found')
+})
+
+it('success without a server name has no empty segment in its title', async () => {
+  mount([{ ok: true, tools: 12, ms: 40 }])
+  await act(async () => button('Test connection')!.click())
+  expect(container.querySelector('[title="12 tools · answered in 40 ms"]')).not.toBeNull()
 })

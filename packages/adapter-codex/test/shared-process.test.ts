@@ -40,7 +40,7 @@ const environment = (start: number) => ({
 const account = async (
   t: TestContext,
   env: Readonly<Record<string, string>> = {},
-  gates: readonly ('unload' | 'close' | 'delegate-list' | 'delegate-read' | 'interrupt')[] = [],
+  gates: readonly ('unload' | 'close' | 'delegate-list' | 'delegate-read' | 'interrupt' | 'start')[] = [],
 ) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-codex-shared-'))
   const helpers = join(dir, 'helpers.ndjson')
@@ -79,7 +79,7 @@ const account = async (
     },
     ended: (session: AgentSession) =>
       events.some((event) => event.type === 'turn/completed' && event.sessionId === session.id),
-    release: (name: 'unload' | 'close' | 'delegate-list' | 'delegate-read' | 'interrupt') => rm(gateFile(name), { force: true }),
+    release: (name: 'unload' | 'close' | 'delegate-list' | 'delegate-read' | 'interrupt' | 'start') => rm(gateFile(name), { force: true }),
   }
 }
 
@@ -463,6 +463,191 @@ test('Stop also stops a descendant that is open as a conversation of its own', a
   assert.ok(!calls.some((call) => call.method === 'thread/unsubscribe'))
   await until(() => runningTurn(opened) === null, 'the open child’s turn ended')
   assert.equal(d.runtime.session(opened.id), opened, 'the child’s conversation stays open')
+})
+
+/** The last status the conversation was given, as a window folds it. */
+const lastStatus = (events: readonly AgentEvent[], session: AgentSession) =>
+  events.filter((event): event is Extract<AgentEvent, { type: 'session/status' }> =>
+    event.type === 'session/status' && event.sessionId === session.id).at(-1)?.status
+const outlasting = (events: readonly AgentEvent[], session: AgentSession): boolean => {
+  const status = lastStatus(events, session)
+  return status?.type === 'idle' && status.subagentsRunning === true
+}
+
+test('a conversation whose turn ended says so while a sub-agent it started is still working, and stops saying it when the sub-agent ends', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive-done' }])
+  await until(() => d.ended(seat), 'the root turn ended')
+  await until(() => outlasting(d.events, seat), 'the idle conversation says a sub-agent still works')
+  await until(() => lastStatus(d.events, seat)?.type === 'idle' && !outlasting(d.events, seat), 'the sub-agent finished and the conversation is plainly idle')
+})
+
+test('a sub-agent Codex names only in its parent’s spawn item is counted, with no thread/started and no read of it', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  const before = (await d.calls()).length
+  await seat.send([{ type: 'text', text: 'spawn-outlive' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  const child = (await d.helpers()).find((helper) => helper.threadId.startsWith(`${seat.id}-sub-`))!.threadId
+  const calls = (await d.calls()).slice(before)
+  assert.ok(!calls.some((call) => call.method === 'thread/read' && call.threadId === child), 'the spawn item placed it; nothing had to read it')
+})
+
+test('a sub-agent Codex never names is placed by one thread/read of its parent, and counted', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  const before = (await d.calls()).length
+  await seat.send([{ type: 'text', text: 'spawn-outlive-unannounced' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  const child = (await d.helpers()).find((helper) => helper.threadId.startsWith(`${seat.id}-sub-`))!.threadId
+  const reads = (await d.calls()).slice(before).filter((call) => call.method === 'thread/read' && call.threadId === child)
+  assert.equal(reads.length, 1, 'its status and its turn asked one read between them')
+})
+
+test('a sub-agent whose parent could not be read yet is still counted once its spawn item names it', async (t) => {
+  const d = await account(t, { FAKE_CODEX_DELEGATE_READ_FAIL_ONCE: '1' })
+  const seat = await d.seat('seat')
+  const before = (await d.calls()).length
+  await seat.send([{ type: 'text', text: 'spawn-outlive-late' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  const child = (await d.helpers()).find((helper) => helper.threadId.startsWith(`${seat.id}-sub-`))!.threadId
+  const reads = (await d.calls()).slice(before).filter((call) => call.method === 'thread/read' && call.threadId === child)
+  assert.equal(reads.length, 1, 'the read that failed was the only one: the spawn item placed the child after it')
+})
+
+test('Stop with the turn over stops the sub-agents still working and starts no turn on the conversation', async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' })
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the root is idle over a working sub-agent')
+  const child = (await d.helpers()).find((helper) => helper.threadId.startsWith(`${seat.id}-sub-`))!.threadId
+  const before = (await d.calls()).length
+  const turnsBefore = d.events.filter((event) => event.type === 'turn/started' && event.sessionId === seat.id).length
+
+  await seat.interrupt()
+
+  const calls = (await d.calls()).slice(before)
+  assert.deepEqual(calls.filter((call) => call.method === 'turn/interrupt').map((call) => call.threadId), [child],
+    'only the sub-agent was stopped; the idle root was not asked')
+  await until(() => !outlasting(d.events, seat), 'the conversation no longer says a sub-agent works')
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  const after = (await d.calls()).slice(before)
+  assert.ok(!after.some((call) => call.method === 'turn/start'), 'nothing started a turn')
+  assert.equal(d.events.filter((event) => event.type === 'turn/started' && event.sessionId === seat.id).length, turnsBefore,
+    'the root saw no new turn')
+  assert.equal(runningTurn(seat), null)
+  assert.ok(!after.some((call) => call.method === 'thread/unsubscribe'), 'Stop keeps every thread subscribed')
+})
+
+const statusesAfter = (events: readonly AgentEvent[], session: AgentSession, from: number) =>
+  events.slice(from).filter((event): event is Extract<AgentEvent, { type: 'session/status' }> =>
+    event.type === 'session/status' && event.sessionId === session.id).map((event) => event.status)
+
+test('a sub-agent whose thread closes without finishing its turn no longer keeps Stop', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive-closed' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  await until(() => lastStatus(d.events, seat)?.type === 'idle' && !outlasting(d.events, seat), 'the closed sub-agent no longer counts')
+})
+
+test('a conversation that fails while its sub-agents work drops the flag and is not said idle again when they end', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive-error' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  await until(() => lastStatus(d.events, seat)?.type === 'error', 'the conversation failed')
+  const from = d.events.length
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  assert.deepEqual(statusesAfter(d.events, seat, from), [], 'the sub-agent ending says nothing over the failure')
+  assert.equal(lastStatus(d.events, seat)?.type, 'error')
+})
+
+test('a conversation Codex has said is active is not said idle when one of its sub-agents ends before its turn starts', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive-busy' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  await until(() => lastStatus(d.events, seat)?.type === 'active', 'Codex said the conversation is active again')
+  const from = d.events.length
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  assert.deepEqual(statusesAfter(d.events, seat, from), [], 'no idle is said over the active conversation')
+  assert.equal(lastStatus(d.events, seat)?.type, 'active')
+})
+
+test('a conversation closed while its sub-agents work hears nothing more of them', async (t) => {
+  const d = await account(t)
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive-done' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the idle conversation says its sub-agent still works')
+  await seat.close()
+  const from = d.events.length
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  assert.deepEqual(statusesAfter(d.events, seat, from), [], 'the sub-agent ending is not said of a closed conversation')
+})
+
+test('Stop after a new turn started over the sub-agents stops that turn as well as the sub-agents', async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' })
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the root is idle over a working sub-agent')
+  const child = (await d.helpers()).find((helper) => helper.threadId.startsWith(`${seat.id}-sub-`))!.threadId
+  await seat.send([{ type: 'text', text: 'Keep working' }])
+  await until(() => runningTurn(seat) !== null, 'the new turn is running')
+  const before = (await d.calls()).length
+
+  await seat.interrupt()
+
+  const interrupted = (await d.calls()).slice(before).filter((call) => call.method === 'turn/interrupt').map((call) => call.threadId)
+  assert.deepEqual([...interrupted].sort(), [seat.id, child].sort(), 'the new turn and the sub-agent were each stopped')
+})
+
+test('Stop while a new turn is still being started is refused, and stops nothing', async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' }, ['start'])
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the root is idle over a working sub-agent')
+  const sending = seat.send([{ type: 'text', text: 'start-held' }])
+  await until(async () => (await d.calls()).filter((call) => call.method === 'turn/start' && call.threadId === seat.id).length === 2,
+    'the new turn was asked for')
+  const before = (await d.calls()).length
+
+  await assert.rejects(() => seat.interrupt(), /no turn is currently running/)
+
+  assert.ok(!(await d.calls()).slice(before).some((call) => call.method === 'turn/interrupt'),
+    'a Stop that cannot reach the turn being started stops nothing, rather than only the sub-agents')
+  await d.release('start')
+  await sending
+  await until(() => runningTurn(seat) !== null, 'the new turn runs')
+})
+
+test('a sub-agent ending while a new turn is being started says nothing over the turn being started', async (t) => {
+  const d = await account(t, { FAKE_CODEX_CHILD_DONE_MS: '300' }, ['start'])
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn-outlive-done' }])
+  await until(() => d.ended(seat) && outlasting(d.events, seat), 'the root is idle over a working sub-agent')
+  const sending = seat.send([{ type: 'text', text: 'start-held' }])
+  await until(async () => (await d.calls()).filter((call) => call.method === 'turn/start' && call.threadId === seat.id).length === 2,
+    'the new turn was asked for')
+  const from = d.events.length
+  await new Promise((resolve) => setTimeout(resolve, 450))
+  assert.deepEqual(statusesAfter(d.events, seat, from), [], 'no idle is said while the turn is being started')
+  await d.release('start')
+  await sending
+  await until(() => runningTurn(seat) !== null, 'the new turn runs')
+})
+
+test('Stop with the turn over and nothing below it is refused as before, and asks Codex nothing', async (t) => {
+  const d = await account(t, { FAKE_CODEX_STRICT_INTERRUPTS: '1' })
+  const seat = await d.seat('seat')
+  await seat.send([{ type: 'text', text: 'spawn' }])
+  await until(() => d.ended(seat), 'the root turn ended')
+  assert.ok(!outlasting(d.events, seat), 'a child with no turn running is not said to work')
+  const before = (await d.calls()).length
+  await assert.rejects(() => seat.interrupt(), /no turn is currently running/)
+  const calls = (await d.calls()).slice(before)
+  assert.ok(!calls.some((call) => call.method === 'turn/interrupt' || call.method === 'thread/loaded/list'))
 })
 
 test('a close the desk asked for is not announced back when Codex makes it in the same read as its answer', async (t) => {

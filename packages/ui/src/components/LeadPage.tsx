@@ -233,6 +233,8 @@ export const LeadPage = ({ initialGoal = '', focus = null, nonce }: { readonly i
   const working = !state.error && requestPending && state.wayOut !== 'decide-plan' &&
     !replyArrived && <LeadMessage key={firstReply ? 'pending' : replyKey} role="assistant" name={label} lead={name} face
       text="" working={<LeadWorking label={state.activity?.step ?? leadActivityLabel(state.activity?.method)} since={state.activity?.since} stopping={stopping} onStop={() => { if (goalActive) setConfirmStop(true); else void stop() }} />} />
+  // A goal a trigger opened says where it came from on its own line in the thread (#2183); the origin line would repeat it.
+  const originShown = !!origin && (state.thread?.messages ?? []).some(message => message.trigger?.source === origin.source && message.trigger.event === origin.event && message.trigger.subject === origin.subject)
   const openingJobs = !state.error && state.thread && !state.thread.messages.length && !state.thread.olderMessages && !state.thread.cards.length ? leadOpeningJobs(snapshot, state.thread.project?.path ?? null, pr) : []
   const entries = [...(state.thread?.messages ?? []).map(message => ({ revision: message.revision, kind: 'message' as const, message })),
     ...cards.map(card => ({ revision: state.thread?.cardPositions?.[card.id] ?? card.revision, kind: 'card' as const, card })),
@@ -312,7 +314,7 @@ export const LeadPage = ({ initialGoal = '', focus = null, nonce }: { readonly i
         }} />}
         <LeadOpening jobs={openingJobs} pending={unavailable || requestPending || state.revision < 0} onStart={text => void send(text)} />
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
-        {origin && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{leadOriginText(origin)}</Button> : leadOriginText(origin)}</Text>}
+        {origin && !originShown && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{leadOriginText(origin)}</Button> : leadOriginText(origin)}</Text>}
         {entries.map(entry => entry.kind === 'message'
           ? entry.message.role === 'notice' || entry.message.role === 'system' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={entry.message.id === firstReply?.id ? replyKey : `message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             ask={entry.message.ask} settled={asks.get(entry.message.id)} proactive={entry.message.proactive} disabled={sendDisabled} picked={answers.get(entry.message.id)}

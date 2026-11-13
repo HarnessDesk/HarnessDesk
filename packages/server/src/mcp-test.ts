@@ -1,9 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createHmac, randomBytes } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { basename, sep } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 
-import { canonicalMcp, digestOf, findMcpDeclaration, type McpServerSpec } from '@harnessdesk/agent-inventory'
+import { canonicalMcp, findMcpDeclaration, type McpDialect, type McpServerSpec } from '@harnessdesk/agent-inventory'
 import type { McpTestFailure, McpTestResult, McpTestTarget } from '@harnessdesk/protocol'
 
 import { checkEnvironment } from './evidence/run.js'
@@ -121,14 +123,15 @@ export const isLaunchVariable = (name: string): boolean => LAUNCH_VARIABLE.test(
  * variables that change what starts, with their values; every other variable
  * and every header by name only.
  */
-export const mcpTestTarget = (spec: McpServerSpec, scope: 'user' | 'project', cwd: string): McpTestTarget => {
+export const mcpTestTarget = (spec: McpServerSpec, scope: 'user' | 'project', cwd: string, readEnvNames: readonly string[] = []): McpTestTarget => {
   if (spec.transport !== 'stdio') {
-    return { transport: spec.transport, scope, url: spec.url ?? '', headerNames: Object.keys(spec.headers ?? {}).sort() }
+    return { transport: spec.transport, scope, readEnvNames, url: spec.url ?? '', headerNames: Object.keys(spec.headers ?? {}).sort() }
   }
   const names = Object.keys(spec.env ?? {}).sort()
   return {
     transport: 'stdio',
     scope,
+    readEnvNames,
     command: spec.command ?? '',
     args: [...(spec.args ?? [])],
     cwd,
@@ -137,21 +140,147 @@ export const mcpTestTarget = (spec: McpServerSpec, scope: 'user' | 'project', cw
   }
 }
 
-/** What a confirmation vouches for: the whole declaration and where it runs, values included, digested. */
-const targetDigest = (spec: McpServerSpec, cwd: string): string => digestOf(`${canonicalMcp(spec)}\n${cwd}`)
+/** A renderer-visible digest must not be an offline oracle for short credentials. */
+const CONFIRMATION_KEY = randomBytes(32)
+const targetDigest = (spec: McpServerSpec, cwd: string, names: readonly string[]): string =>
+  createHmac('sha256', CONFIRMATION_KEY).update(JSON.stringify([canonicalMcp(spec), cwd, [...names].sort()])).digest('hex').slice(0, 16)
+
+/**
+ * The location table identifies the reader; JSON alone does not identify a dialect.
+ * Braced references and defaults expand in the JSON fields the inventory carries.
+ * The cursor dialect uses env:NAME and its home/project/path placeholders;
+ * the gemini dialect also supports bare $NAME and Windows percent references.
+ * The codex dialect keeps strings literal and forwards env_vars that are set.
+ *
+ * No shell, recursive substitution, or nested defaults. Missing JSON names
+ * refuse the probe even where an agent would warn and keep the placeholder.
+ */
+export const expandMcpTestSpec = (
+  declaration: McpServerSpec,
+  dialect: McpDialect,
+  from: NodeJS.ProcessEnv = process.env,
+  context: { readonly home?: string; readonly cwd?: string } = {},
+): { spec: McpServerSpec; names: readonly string[]; secrets: readonly string[] } => {
+  const names = new Set<string>()
+  const secrets = new Set<string>()
+  const read = (name: string, fallback?: string): string => {
+    names.add(name)
+    const value = Object.hasOwn(from, name) ? from[name] : undefined
+    if (value === undefined && fallback === undefined) throw new TestFailure('notFound', `Environment variable ${name} is not set. Set it before testing this server.`)
+    // Claude's MCP documentation explicitly says empty-but-set counts as set:
+    // a braced default is used only when the variable is absent, not empty.
+    const resolved = value ?? fallback ?? ''
+    if (value !== undefined && value.length >= 4) secrets.add(value)
+    return resolved
+  }
+  const expand = (text: string): string => {
+    if (dialect === 'codex') return text
+    // Consume whole balanced expressions so an inner ${NAME} in nested braces
+    // cannot be expanded accidentally. A value is substituted exactly once.
+    let out = ''
+    for (let i = 0; i < text.length;) {
+      if (text.startsWith('${', i)) {
+        let depth = 1
+        let end = i + 2
+        let nested = false
+        for (; end < text.length && depth > 0; end++) {
+          if (text[end] === '{') { depth++; nested = true }
+          else if (text[end] === '}') depth--
+        }
+        const whole = text.slice(i, end)
+        const body = text.slice(i + 2, end - 1)
+        const match = !nested && depth === 0
+          ? dialect === 'cursor' ? /^env:([A-Za-z_][A-Za-z0-9_]*)$/.exec(body) : /^([A-Za-z_][A-Za-z0-9_]*)(?::-([^{}]*))?$/.exec(body)
+          : null
+        let replacement: string | undefined
+        if (!nested && depth === 0 && dialect === 'cursor') {
+          if (body === 'userHome') replacement = context.home ?? homedir()
+          else if (body === 'pathSeparator' || body === '/') replacement = sep
+          else if ((body === 'workspaceFolder' || body === 'workspaceFolderBasename') && context.cwd !== undefined) {
+            replacement = body === 'workspaceFolder' ? context.cwd : basename(context.cwd)
+          }
+        }
+        out += replacement ?? (match?.[1] ? read(match[1], match[2]) : whole)
+        i = end
+      } else if (dialect === 'gemini' && text[i] === '$') {
+        const match = /^\$([A-Za-z_][A-Za-z0-9_]*)/.exec(text.slice(i))
+        if (match?.[1]) { out += read(match[1]); i += match[0].length }
+        else { out += text[i]; i++ }
+      } else if (dialect === 'gemini' && process.platform === 'win32' && text[i] === '%') {
+        const match = /^%([A-Za-z_][A-Za-z0-9_]*)%/.exec(text.slice(i))
+        if (match?.[1]) { out += read(match[1]); i += match[0].length }
+        else { out += text[i]; i++ }
+      } else { out += text[i]; i++ }
+    }
+    return out
+  }
+  const record = (values: Readonly<Record<string, string>>): Record<string, string> =>
+    Object.fromEntries(Object.entries(values).map(([name, value]) => [name, expand(value)]))
+  const forwarded: Record<string, string> = {}
+  for (const name of declaration.envVars ?? []) {
+    names.add(name)
+    if (Object.hasOwn(from, name) && from[name] !== undefined) forwarded[name] = read(name)
+  }
+  return {
+    spec: {
+      ...declaration,
+      ...(declaration.command !== undefined ? { command: expand(declaration.command) } : {}),
+      ...(declaration.args !== undefined ? { args: declaration.args.map(expand) } : {}),
+      ...(declaration.url !== undefined ? { url: expand(declaration.url) } : {}),
+      ...(declaration.headers !== undefined ? { headers: record(declaration.headers) } : {}),
+      ...(declaration.env !== undefined || declaration.envVars?.length ? { env: { ...forwarded, ...record(declaration.env ?? {}) } } : {}),
+    },
+    names: [...names].sort(),
+    secrets: [...secrets],
+  }
+}
 
 const PROXY_VARIABLE = /^(?:http|https|all)_proxy$/i
 
 /**
- * The child's environment: the small set of names a check gets from the desk
- * (`checkEnvironment` — where tools are, whose account, locale, proxy), then
- * the server's own configured variables on top. Nothing else of the desk's —
- * no `HARNESSDESK_*`, no `HD_*`, no token — reaches it. A proxy the desk
- * passes on goes without the user name and password in its URL; a proxy the
+ * Names an MCP server needs beyond a check's: where a certificate authority
+ * the person trusts is found, and on Windows where the system is. Never a
+ * credential, a token, an agent socket or a key.
+ */
+const MCP_EXTRA_NAMES = [
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'REQUESTS_CA_BUNDLE',
+  'CURL_CA_BUNDLE',
+  'NO_PROXY',
+  'no_proxy',
+  'SystemRoot',
+  'windir',
+  'ComSpec',
+  'PATHEXT',
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'ProgramData',
+  'TEMP',
+  'TMP',
+] as const
+const MCP_EXTRA = new Set(MCP_EXTRA_NAMES.map((name) => name.toUpperCase()))
+const MCP_FAMILY = /^(?:LC_|XDG_)/
+
+/**
+ * The child's environment, for a connection test and for a real exchange
+ * alike: the small set of names a check gets from the desk
+ * (`checkEnvironment` — where tools are, whose account, locale, proxy), the
+ * names in `MCP_EXTRA_NAMES`, every `LC_*` and `XDG_*`, then the server's own
+ * configured variables on top, including explicit environment references. No
+ * other desk variable is implicitly inherited; a declaration may explicitly
+ * read a credential or token. A proxy the desk passes
+ * on goes without the user name and password in its URL; a proxy the
  * declaration sets itself is its own and is passed as written.
  */
 export const mcpTestEnvironment = (spec: McpServerSpec, from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => {
   const inherited = checkEnvironment(from)
+  for (const [name, value] of Object.entries(from)) {
+    if (value === undefined || name in inherited) continue
+    if (MCP_FAMILY.test(name) || MCP_EXTRA.has(name.toUpperCase())) inherited[name] = value
+  }
   for (const [name, value] of Object.entries(inherited)) {
     if (value !== undefined && PROXY_VARIABLE.test(name)) inherited[name] = withoutUserinfo(value)
   }
@@ -171,7 +300,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** `initialize`, `notifications/initialized`, then every page of `tools/list`. */
-const converse = async (request: Request, notify: Notify, phase: { current: string }): Promise<Handshake & { tools: number }> => {
+const converse = async (request: Request, notify: Notify, phase: { current: string }, mask: (text: string) => string): Promise<Handshake & { tools: number }> => {
   phase.current = 'initialize'
   const init = await request('initialize', {
     protocolVersion: PROTOCOL_VERSION,
@@ -184,8 +313,8 @@ const converse = async (request: Request, notify: Notify, phase: { current: stri
   const info = isRecord(init['serverInfo']) ? init['serverInfo'] : {}
   const handshake: Handshake = {
     protocolVersion: init['protocolVersion'],
-    ...(typeof info['name'] === 'string' ? { serverName: info['name'].slice(0, 200) } : {}),
-    ...(typeof info['version'] === 'string' ? { serverVersion: info['version'].slice(0, 100) } : {}),
+    ...(typeof info['name'] === 'string' ? { serverName: mask(info['name']).slice(0, 200) } : {}),
+    ...(typeof info['version'] === 'string' ? { serverVersion: mask(info['version']).slice(0, 100) } : {}),
   }
   phase.current = 'notifications/initialized'
   await notify('notifications/initialized', {})
@@ -207,17 +336,17 @@ const converse = async (request: Request, notify: Notify, phase: { current: stri
 }
 
 /** A JSON-RPC reply to one of our requests, or the failure it carries. */
-const settleReply = (method: string, message: Record<string, unknown>): unknown => {
+const settleReply = (method: string, message: Record<string, unknown>, mask: (text: string) => string): unknown => {
   if (isRecord(message['error'])) {
-    const said = typeof message['error']['message'] === 'string' ? message['error']['message'] : 'an error'
-    throw new TestFailure('protocol', `It answered ${method} with an error: ${said.slice(0, 300)}`)
+    const said = typeof message['error']['message'] === 'string' ? mask(message['error']['message']).slice(0, 300) : 'an error'
+    throw new TestFailure('protocol', `It answered ${method} with an error: ${said}`)
   }
   return message['result']
 }
 
 // -- stdio ------------------------------------------------------------------
 
-const groupKill = (child: ChildProcess, signal: NodeJS.Signals): void => {
+export const groupKill = (child: ChildProcess, signal: NodeJS.Signals): void => {
   if (child.pid === undefined) return
   try {
     // A negative pid is the group: the server and everything it started that stayed in it.
@@ -226,6 +355,63 @@ const groupKill = (child: ChildProcess, signal: NodeJS.Signals): void => {
   } catch {
     // Already gone.
   }
+}
+
+/** True when no process is left in the child's group (or it never had one). */
+export const groupGone = (child: ChildProcess): boolean => {
+  if (child.pid === undefined) return true
+  if (process.platform === 'win32') return child.exitCode !== null || child.signalCode !== null
+  try {
+    process.kill(-child.pid, 0)
+    return false
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ESRCH'
+  }
+}
+
+/** Groups that were sent SIGTERM and wait for their SIGKILL, by group id. */
+const awaitingKill = new Set<number>()
+let awaitingHooked = false
+
+/** Kills outright every group still waiting for its SIGKILL: what the process's own `exit` runs. */
+export const killAwaitingGroups = (): void => {
+  for (const pid of awaitingKill) {
+    try {
+      process.kill(-pid, 'SIGKILL')
+    } catch {
+      // Already gone.
+    }
+  }
+  awaitingKill.clear()
+}
+
+/**
+ * Stops a child's whole group: SIGTERM now, SIGKILL after `graceMs`. The group
+ * is signalled even when its leader has already gone, and the delayed kill
+ * first probes the group — an empty one is dropped and nothing is sent, so a
+ * group id the system has since reused is never signalled. The group stays on
+ * a list the process's own `exit` kills outright, so a quit inside the grace
+ * period leaves nothing behind. The timer never keeps the process alive.
+ */
+export const stopGroup = (child: ChildProcess, graceMs: number): void => {
+  if (child.pid === undefined) return
+  if (process.platform === 'win32') {
+    child.kill('SIGTERM')
+    setTimeout(() => child.kill('SIGKILL'), graceMs).unref()
+    return
+  }
+  const pid = child.pid
+  if (groupGone(child)) return
+  groupKill(child, 'SIGTERM')
+  awaitingKill.add(pid)
+  if (!awaitingHooked) {
+    awaitingHooked = true
+    process.once('exit', killAwaitingGroups)
+  }
+  setTimeout(() => {
+    if (!awaitingKill.delete(pid)) return
+    if (!groupGone(child)) groupKill(child, 'SIGKILL')
+  }, graceMs).unref()
 }
 
 const exited = (child: ChildProcess): Promise<void> =>
@@ -240,6 +426,8 @@ const runStdio = async (
   deadline: AbortSignal,
   stderr: { text: string },
   track: ((child: ChildProcess) => () => void) | undefined,
+  mask: (text: string) => string,
+  stderrLimit: number,
 ): Promise<Handshake & { tools: number }> => {
   const command = spec.command
   if (!command) throw new TestFailure('notFound', 'This declaration names no command.')
@@ -271,14 +459,14 @@ const runStdio = async (
 
   const phase = { current: 'initialize' }
   child.on('error', (error: NodeJS.ErrnoException) =>
-    fail(new TestFailure('spawnFailed', error.code === 'ENOENT' ? `Could not start ${command}: no such command.` : `Could not start ${command}: ${error.code ?? error.message}.`)),
+    fail(new TestFailure('spawnFailed', error.code === 'ENOENT' ? `Could not start ${mask(command)}: no such command.` : `Could not start ${mask(command)}: ${mask(error.code ?? error.message)}.`)),
   )
   child.on('exit', (code, signal) => {
     fail(new TestFailure('spawnFailed', `It exited (${signal ?? `code ${code ?? 'unknown'}`}) before it answered ${phase.current}.`))
   })
   child.stdin.on('error', () => {})
   child.stderr.on('data', (chunk: Buffer) => {
-    stderr.text = (stderr.text + chunk.toString('utf8')).slice(-STDERR_LIMIT)
+    stderr.text = (stderr.text + chunk.toString('utf8')).slice(-stderrLimit)
   })
   let buffer = ''
   child.stdout.on('data', (chunk: Buffer) => {
@@ -297,7 +485,7 @@ const runStdio = async (
       try {
         message = JSON.parse(line)
       } catch {
-        fail(new TestFailure('protocol', `It wrote something on stdout that is not JSON-RPC: ${plain(line).slice(0, 120)}`))
+        fail(new TestFailure('protocol', `It wrote something on stdout that is not JSON-RPC: ${plain(mask(line)).slice(0, 120)}`))
         return
       }
       if (!isRecord(message)) {
@@ -320,7 +508,7 @@ const runStdio = async (
       if (!waiter) continue
       pending.delete(message['id'])
       try {
-        waiter.resolve(settleReply(waiter.method, message))
+        waiter.resolve(settleReply(waiter.method, message, mask))
       } catch (error) {
         waiter.reject(error as Error)
       }
@@ -349,7 +537,7 @@ const runStdio = async (
   }
 
   try {
-    return await converse(request, notify, phase)
+    return await converse(request, notify, phase, mask)
   } finally {
     deadline.removeEventListener('abort', onDeadline)
     // Late replies and a late exit change nothing now.
@@ -361,8 +549,9 @@ const runStdio = async (
       groupKill(child, 'SIGTERM')
       await Promise.race([exited(child), new Promise((resolve) => setTimeout(resolve, KILL_GRACE_MS))])
       // Always, not only when the leader lingers: a grandchild that shrugged
-      // off SIGTERM is still in the group after its parent has gone.
-      groupKill(child, 'SIGKILL')
+      // off SIGTERM is still in the group after its parent has gone. An empty
+      // group is left alone: its id may belong to someone else by now.
+      if (!groupGone(child)) groupKill(child, 'SIGKILL')
       await Promise.race([exited(child), new Promise((resolve) => setTimeout(resolve, 1_000))])
     }
     untrack?.()
@@ -440,7 +629,7 @@ const statusFailure = (response: Response, mask: (text: string) => string): Test
     return new TestFailure('httpError', `It answered HTTP ${response.status}, a redirect; a test does not follow one.`)
   }
   if (!response.ok) {
-    return new TestFailure('httpError', mask(`It answered HTTP ${response.status}${response.statusText ? ` ${plain(response.statusText).slice(0, 80)}` : ''}.`))
+    return new TestFailure('httpError', `It answered HTTP ${response.status}${response.statusText ? ` ${plain(mask(response.statusText)).slice(0, 80)}` : ''}.`)
   }
   return null
 }
@@ -501,7 +690,7 @@ const runHttp = async (
         const message = parseJson(event.data, method)
         const replies = Array.isArray(message) ? message : [message]
         for (const one of replies) {
-          if (isRecord(one) && one['id'] === id && one['method'] === undefined) return settleReply(method, one)
+          if (isRecord(one) && one['id'] === id && one['method'] === undefined) return settleReply(method, one, mask)
         }
       }
       throw new TestFailure('protocol', `Its event stream ended before it answered ${method}.`)
@@ -510,7 +699,7 @@ const runHttp = async (
     const replies = Array.isArray(message) ? message : [message]
     const reply = replies.find((one) => isRecord(one) && one['id'] === id)
     if (!isRecord(reply)) throw new TestFailure('protocol', `It did not answer ${method}.`)
-    return settleReply(method, reply)
+    return settleReply(method, reply, mask)
   }
   const notify: Notify = async (method, params) => {
     const response = await post({ jsonrpc: '2.0', method, params })
@@ -526,6 +715,7 @@ const runHttp = async (
       },
       notify,
       phase,
+      mask,
     )
     return result
   } catch (error) {
@@ -595,7 +785,7 @@ const runSse = async (
             if (!waiter) continue
             waiting.delete(message['id'])
             try {
-              waiter.resolve(settleReply(waiter.method, message))
+              waiter.resolve(settleReply(waiter.method, message, mask))
             } catch (error) {
               waiter.reject(error as Error)
             }
@@ -637,7 +827,7 @@ const runSse = async (
           reject(error)
         })
       })
-    return await converse(request, (method, params) => send({ jsonrpc: '2.0', method, params }), phase)
+    return await converse(request, (method, params) => send({ jsonrpc: '2.0', method, params }), phase, mask)
   } catch (error) {
     if (deadline.aborted) throw new TestFailure('timeout', `It did not answer ${phase.current} within ${Math.round(MCP_TEST_TIMEOUT_MS / 1000)} s.`)
     throw error
@@ -655,6 +845,10 @@ export interface McpTestRunOptions {
   readonly timeoutMs?: number
   /** Where the minimal environment's names are read from; the desk's own by default. */
   readonly baseEnv?: NodeJS.ProcessEnv
+  /** Only real desk values of at least four characters enter this mask. */
+  readonly secrets?: readonly string[]
+  /** Original configured secrets, before expansion, so defaults are not treated as desk secrets. */
+  readonly declaration?: McpServerSpec
   readonly fetch?: typeof fetch
   /** Ends the test early, as its deadline would. */
   readonly signal?: AbortSignal
@@ -665,7 +859,12 @@ export interface McpTestRunOptions {
 /** Run one test against one declaration. Never throws; every failure is an answer. */
 export const runMcpTest = async (spec: McpServerSpec, options: McpTestRunOptions): Promise<McpTestResult> => {
   const started = Date.now()
-  const mask = mcpSecretMask(spec)
+  const configuredMask = mcpSecretMask(options.declaration ?? spec)
+  const secrets = [...(options.secrets ?? [])].filter(value => value.length >= 4).sort((a, b) => b.length - a.length)
+  const mask = (text: string): string => configuredMask(secrets.reduce((out, value) => out.split(value).join('•••'), text))
+  // Keep one whole reference value before the visible tail, so truncating
+  // stderr cannot cut a long value before it has had a chance to be masked.
+  const stderrLimit = STDERR_LIMIT + secrets.reduce((longest, value) => Math.max(longest, value.length), 0)
   const timeout = AbortSignal.timeout(options.timeoutMs ?? MCP_TEST_TIMEOUT_MS)
   const deadline = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout
   const stderr = { text: '' }
@@ -673,7 +872,7 @@ export const runMcpTest = async (spec: McpServerSpec, options: McpTestRunOptions
   try {
     const result =
       spec.transport === 'stdio'
-        ? await runStdio(spec, options.cwd, mcpTestEnvironment(spec, options.baseEnv), deadline, stderr, options.track)
+        ? await runStdio(spec, options.cwd, mcpTestEnvironment(spec, options.baseEnv), deadline, stderr, options.track, mask, stderrLimit)
         : spec.transport === 'http'
           ? await runHttp(spec, deadline, mask, fetcher)
           : await runSse(spec, deadline, mask, fetcher)
@@ -691,11 +890,11 @@ export const runMcpTest = async (spec: McpServerSpec, options: McpTestRunOptions
         : deadline.aborted
           ? new TestFailure('timeout', `It did not answer within ${Math.round((options.timeoutMs ?? MCP_TEST_TIMEOUT_MS) / 1000)} s.`)
           : new TestFailure(spec.transport === 'stdio' ? 'spawnFailed' : 'httpError', `Could not reach it: ${describeNetwork(error)}`)
-    const tail = mask(plain(stderr.text)).trim()
+    const tail = mask(plain(mask(stderr.text))).trim().slice(-STDERR_LIMIT)
     return {
       ok: false,
       reason: failure.reason,
-      detail: mask(plain(failure.message)),
+      detail: plain(failure.message),
       ms: Date.now() - started,
       ...(tail !== '' ? { stderr: tail } : {}),
     }
@@ -739,14 +938,25 @@ export class McpConnectionTests {
     if (!found.found) return { ok: false, reason: 'notFound', detail: found.detail, ms: 0 }
     // A project's server runs in the project; a person's own runs where they are working, or at home.
     const cwd = params.cwd ?? this.#home
-    const digest = targetDigest(found.spec, cwd)
+    let resolved: ReturnType<typeof expandMcpTestSpec>
+    try {
+      resolved = expandMcpTestSpec(found.spec, found.dialect, this.#baseEnv, { home: this.#home, ...(params.cwd !== undefined ? { cwd: params.cwd } : {}) })
+    } catch (error) {
+      return { ok: false, reason: 'notFound', detail: error instanceof TestFailure ? error.message : 'The environment references could not be read.', ms: 0 }
+    }
+    const digest = targetDigest(resolved.spec, cwd, resolved.names)
     if (found.scope === 'project' && params.confirmed !== digest) {
       return {
         ok: false,
         reason: 'confirm',
         detail: 'This server is declared in the project’s own file. Check what it runs before testing it.',
         ms: 0,
-        target: mcpTestTarget(found.spec, found.scope, cwd),
+        // Show the declaration's references, never their resolved values. The
+        // digest above still binds exactly what runs, including environment changes.
+        target: mcpTestTarget({ ...found.spec, env: {
+          ...Object.fromEntries((found.spec.envVars ?? []).map(name => [name, `\${${name}}`])),
+          ...found.spec.env,
+        } }, found.scope, cwd, resolved.names),
         digest,
       }
     }
@@ -765,8 +975,10 @@ export class McpConnectionTests {
     }
     this.#running.add(key)
     try {
-      return await runMcpTest(found.spec, {
+      return await runMcpTest(resolved.spec, {
         cwd,
+        secrets: resolved.secrets,
+        declaration: found.spec,
         signal: this.#stop.signal,
         track: (child) => {
           this.#children.add(child)

@@ -1,6 +1,6 @@
 import { parseLeadApprovalAudit, parseLeadAutonomyChange, parseLeadAutonomyRules, parseLeadMessageRefs, type LeadMessageRef, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyChange, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import {
-  parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
+  parseLeadOrigin, parseLeadMessageTrigger, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_LIMITS, LEAD_MANAGEMENT_REASONS, leadNoSpendLimit, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy, type LeadBudgetEvent, type LeadBudgetState, type LeadCaps,
 } from '@harnessdesk/protocol'
@@ -10,6 +10,7 @@ import type { LeadPersistencePort } from './ports.js'
 import { isLeadPlanRenewal, hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, fenceLeadWorkerDispatch, hasPendingLeadPlan, leadRequestFenced, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, leadGoalSpendCap, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 import { parseLeadMemoryCore, type LeadMemoryCore } from './memory.js'
+import { leadChatNamings, leadChatHandleOf, leadChatHandleText, leadChatBaseValid, leadChatIdShaped, LEAD_CHAT_HANDLES, type LeadChatNaming } from './chat-handles.js'
 
 const boolean = (value: unknown): boolean => { if (typeof value !== 'boolean') throw new Error('lead-journal-boolean'); return value }
 
@@ -139,6 +140,9 @@ export type LeadJournalEvent =
    * for byte. `goal` is the logical goal id, empty between goals. `rules` are the person's sections those instructions
    * hold, which the settings note compares against; absent in a record written before they were kept (#2165). */
   | { readonly type: 'memory-epoch'; readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore; readonly rules?: LeadAutonomyRecord['rules'] }
+  /** Host only. Handles for chats the Lead is about to see: each takes its base's next number, so a handle is given
+   * once and never again, even after the bounded map drops it. Observation only: no decision rests on it. */
+  | { readonly type: 'chat-handles'; readonly namings: readonly LeadChatNaming[] }
 /** A receipt is one line the host wrote, at most 600 characters. Line breaks and tabs in what was kept fold to single
  * spaces first, so a kept memory written over two lines still gets its receipt; any other control character refuses. */
 export const leadReceiptText = (value: unknown): string => {
@@ -240,6 +244,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'memory-core': ['memory'],
     receipt: ['text'],
     'memory-epoch': ['goal', 'epoch', 'memory', ...(Object.hasOwn(source, 'rules') ? ['rules'] : [])],
+    'chat-handles': ['namings'],
   }
   const type = choice(source.type, Object.keys(keys))
   object(source, ['version', 'seq', 'type', ...keys[type]!])
@@ -335,6 +340,15 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'receipt': event = { type, text: leadReceiptText(source.text) }; break
     case 'memory-epoch': event = { type, goal: leadMemoryEpochGoal(source.goal), epoch: integer(source.epoch), memory: parseLeadMemoryCore(source.memory),
       ...(Object.hasOwn(source, 'rules') ? { rules: parseLeadAutonomyRules(source.rules) } : {}) }; break
+    case 'chat-handles': {
+      if (!Array.isArray(source.namings) || source.namings.length < 1 || source.namings.length > LEAD_CHAT_HANDLES.perRecord) throw new Error('lead-journal-record')
+      event = { type, namings: source.namings.map(value => {
+        const naming = object(value, ['id', 'base', 'n'])
+        if (typeof naming.id !== 'string' || naming.id.length > 300 || !leadChatIdShaped(naming.id) || !leadChatBaseValid(naming.base)) throw new Error('lead-journal-record')
+        return { id: naming.id, base: naming.base, n: integer(naming.n, 1) }
+      }) }
+      break
+    }
     default: throw new Error('lead-journal-type')
   }
   const record = { version: 1 as const, seq, ...event }
@@ -552,6 +566,18 @@ export class LeadJournal {
     return this.#append({ type: 'memory-epoch', ...at })
   }) }
   /**
+   * Host only. The handle of each chat, naming the ones not yet named in one record. A chat keeps the handle it was
+   * given; a chat the map cannot name (a full base, too many bases) is left out and goes by its id.
+   */
+  nameChats(wanted: readonly { readonly id: string; readonly base: string }[]): Promise<ReadonlyMap<string, string>> { return this.#queue(async () => {
+    const namings = leadChatNamings(this.#state.chatHandles, wanted)
+    const named = new Map(namings.map(naming => [naming.id, leadChatHandleText(naming.base, naming.n)]))
+    if (namings.length) await this.#append({ type: 'chat-handles', namings })
+    const out = new Map<string, string>()
+    for (const { id } of wanted) { const handle = named.get(id) ?? leadChatHandleOf(this.#state.chatHandles, id); if (handle) out.set(id, handle) }
+    return out
+  }) }
+  /**
    * Gives every reader a fresh revision. `what` says which kind of change it was, never its content: the name, the follow
    * preferences, the key, or (with nothing named) the Lead's own activity, which is what a send's ticks are.
    */
@@ -577,8 +603,9 @@ export class LeadJournal {
   ownedPush(operation: LeadOwnedPush): Promise<void> { return this.#queue(() => this.#append({ type: 'owned-push', operation })) }
   observePr(pr: LeadPullRequest): Promise<void> { return this.#queue(() => this.#append({ type: 'pr-observed', pr })) }
   /** `wake` marks a desk wake (a reminder that came due): the model's user turn, never the person's message. `surface` is
-   * the device that sent a person's message (#2166), kept with it so every later request reads where it came from. */
-  appendMessage(idempotencyKey: string, text: string, source: NonNullable<LeadMessage['source']>, committed?: () => void, wake?: LeadMessage['wake'], surface?: LeadMessage['surface']): Promise<LeadSendReceipt> {
+   * the device that sent a person's message (#2166), kept with it so every later request reads where it came from.
+   * `trigger` is the event an automatic goal opened on (#2183), what a thread draws in place of the model's text. */
+  appendMessage(idempotencyKey: string, text: string, source: NonNullable<LeadMessage['source']>, committed?: () => void, wake?: LeadMessage['wake'], surface?: LeadMessage['surface'], trigger?: LeadMessage['trigger']): Promise<LeadSendReceipt> {
     if (!['person', 'automatic', 'schedule'].includes(source)) return Promise.reject(new Error('Lead message source is required.'))
     const input = parseLeadThreadSend({ idempotencyKey, text })
     return this.#queue(async () => {
@@ -586,7 +613,8 @@ export class LeadJournal {
       if (previous) return { messageId: previous.messageId, revision: previous.revision }
       const revision = this.#state.seq + 1, messageId = `message-${revision}`
       await this.#append({ type: 'message', idempotencyKey: input.idempotencyKey,
-        message: { version: 1, id: messageId, revision, role: 'user', text: input.text, source, ...(wake ? { wake } : {}), ...(surface && source === 'person' && !wake ? { surface } : {}) } }, committed)
+        message: { version: 1, id: messageId, revision, role: 'user', text: input.text, source, ...(wake ? { wake } : {}), ...(surface && source === 'person' && !wake ? { surface } : {}),
+          ...(trigger && source !== 'person' && !wake ? { trigger: parseLeadMessageTrigger(trigger) } : {}) } }, committed)
       return { messageId, revision }
     })
   }

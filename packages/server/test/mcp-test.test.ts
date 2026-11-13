@@ -70,6 +70,7 @@ test('a project server is shown before it runs, and runs in the project once con
   assert.deepEqual(asked.target, {
     transport: 'stdio',
     scope: 'project',
+    readEnvNames: [],
     command: process.execPath,
     args: [PROBE],
     cwd: f.project,
