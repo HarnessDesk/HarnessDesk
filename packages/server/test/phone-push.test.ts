@@ -205,6 +205,25 @@ test('a phone link that stops mid-round sends nothing more', async () => {
   assert.equal(account.sent.length, 1)
 })
 
+test('a phone removed while another phone is being pushed to gets nothing', async () => {
+  const first = device('First phone')
+  const second = device('Second phone')
+  const paired = [first, second]
+  const { account, round } = rig(paired, [first, second])
+  await round(inboxOf())
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  account.answer = async () => { await held; return 'sent' }
+  const pending = round(inboxOf(waiting('team:g1', 'team', 'Ship the release')))
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(account.sent.length, 1)
+  // Removed here while the first phone's send waits; the account's unlink has not gone through yet.
+  paired.splice(paired.findIndex(one => one.id !== account.sent[0]!.push.deviceId), 1)
+  release()
+  await pending
+  assert.equal(account.sent.length, 1)
+})
+
 test('the Lead waiting on several things says how many', async () => {
   const linked = device('Linked phone')
   const { account, round } = rig([linked], [linked])

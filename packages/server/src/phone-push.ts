@@ -187,6 +187,12 @@ export class PhonePushSender {
   }
 
   /** Phones that can get a push now: paired here with a push key and allowed to read, and linked by the account. */
+  /** Still paired here with this push key and allowed to read: a phone removed or narrowed mid-round gets nothing more. */
+  #stillPaired(device: Device): boolean {
+    return this.#options.devices().some(one => one.id === device.id && one.pushKey === device.pushKey && one.kid === device.kid
+      && one.tiers.includes('read'))
+  }
+
   async #targets(): Promise<Device[]> {
     let status: HarnessDeskAccountStatus
     try { status = await this.#options.account.status() } catch { return [] }
@@ -250,14 +256,14 @@ export class PhonePushSender {
   }
 
   async #send(device: Device, body: PhonePushBody, collapse: string): Promise<void> {
-    if (this.#disposed) return
+    if (this.#disposed || !this.#stillPaired(device)) return
     const now = this.#now()
     if (now < this.#pausedUntil || (this.#skip.get(device.id) ?? 0) > now) return
     if (!this.#allow(device.id, now)) { this.#options.log('phone push held back: too many this minute', { device: device.id }); return }
     try {
       const sealed = await sealPushJson(fromB64u(device.pushKey), device.kid, device.id, body)
-      // The phone link may have stopped while this was sealed.
-      if (this.#disposed) return
+      // The phone link may have stopped, or the phone been removed, while this was sealed.
+      if (this.#disposed || !this.#stillPaired(device)) return
       const status = await this.#options.account.sendPush({
         deviceId: device.id, kid: sealed.kid, nonce: sealed.nonce, ciphertext: sealed.ciphertext, priority: 'high', collapse,
       })
