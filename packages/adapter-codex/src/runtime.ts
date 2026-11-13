@@ -1962,8 +1962,10 @@ export class CodexRuntime implements AgentRuntime {
    * conversation of its own is still part of this tree and is stopped too,
    * through its own handle so a second stop reuses the first; its own
    * descendants are walked through it. Nothing is unsubscribed — the
-   * conversation stays open. Each read and stop is bounded to two seconds and
-   * a failure is ignored, as when a closed seat's delegates are given back.
+   * conversation stays open. Every descendant's background terminals are
+   * cleaned too, finished turn or not: an interrupt does not end them. Each
+   * read, stop and clean is bounded to two seconds and a failure is ignored,
+   * as when a closed seat's delegates are given back.
    */
   async #stopDescendants(root: string): Promise<void> {
     try {
@@ -1974,15 +1976,23 @@ export class CodexRuntime implements AgentRuntime {
           const held = this.#sessions.get(id)
           if (held) {
             if (held.activeTurnId !== null) await held.interruptTurn()
-            return
+          } else {
+            const turns = await this.#server.request('thread/turns/list',
+              { threadId: id, limit: 1, sortDirection: 'desc', itemsView: 'notLoaded' }, { timeoutMs: 2_000 })
+            const active = turns.data.find(turn => turn.status === 'inProgress')
+            if (active) await this.#server.request('turn/interrupt', { threadId: id, turnId: active.id }, { timeoutMs: 2_000 })
           }
-          const turns = await this.#server.request('thread/turns/list',
-            { threadId: id, limit: 1, sortDirection: 'desc', itemsView: 'notLoaded' }, { timeoutMs: 2_000 })
-          const active = turns.data.find(turn => turn.status === 'inProgress')
-          if (active) await this.#server.request('turn/interrupt', { threadId: id, turnId: active.id }, { timeoutMs: 2_000 })
         } catch {
           // Ended, closed or unreadable since the listing; an unanswered stop
           // must not hold up the others.
+        }
+        try {
+          // An interrupt leaves a thread's background terminals running, so a
+          // sub-agent's `sleep` or dev server would outlive the Stop. Its
+          // shells end with it; the root's own stay, for the Tasks panel.
+          await this.#server.request('thread/backgroundTerminals/clean', { threadId: id }, { timeoutMs: 2_000 })
+        } catch {
+          // Nothing left to clean, or a thread that is gone.
         }
       }))
     } catch {
