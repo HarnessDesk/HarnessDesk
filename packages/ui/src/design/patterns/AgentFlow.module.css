@@ -23,14 +23,27 @@
   white-space: nowrap;
 }
 
-/* The spine: children hang off one rule under the head's light. */
+/* One mark column holds every light: the head's, each child's and the wait's.
+   Its width is what the words after it share, so a child's name lands under
+   the head's title. */
+.mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--hd-space-3);
+}
+
+/* The spine: one rule down the middle of the mark column, with each child's
+   light on it. A child starts back on the column's edge, so its light paints
+   over the rule and its name shares the title's x. */
 .spine {
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-0-5);
   margin: 0;
-  margin-inline-start: calc(var(--hd-space-1) - var(--hd-border-width) / 2);
-  padding: 0 0 0 var(--hd-space-3);
+  margin-inline-start: calc(var(--hd-space-3) / 2 - var(--hd-border-width) / 2); /* desk: the rule moves to the mark column's middle */
+  padding: 0; /* desk: children start on the mark column's edge */
   list-style: none;
   border-inline-start: var(--hd-border-width) solid var(--hd-border);
 }
@@ -39,6 +52,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  margin-inline-start: calc(-1 * (var(--hd-space-3) / 2 + var(--hd-border-width) / 2));
 }
 
 .childLine {
@@ -62,7 +76,7 @@
 
 .prompt {
   margin: 0;
-  padding: var(--hd-space-1) 0 var(--hd-space-2) var(--hd-space-4);
+  padding: var(--hd-space-1) 0 var(--hd-space-2) calc(var(--hd-space-3) + var(--hd-space-1-5)); /* desk: 16 → 18, under the child's name */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

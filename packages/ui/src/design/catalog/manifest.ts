@@ -624,7 +624,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   FlowCanvasWorkspace: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FlowCanvas: 'packages/ui/src/preview/frames-flow-canvas.tsx',
   FlowStepRow: 'packages/ui/src/design/explorer/boards-compositions.tsx',
-  AgentFlow: 'packages/ui/src/preview/frames-subagent-flow.tsx',
+  AgentFlow: 'packages/ui/src/preview/agent-flow-board.tsx',
   DialogForm: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
   Popover: 'packages/ui/src/design/explorer/boards.tsx',

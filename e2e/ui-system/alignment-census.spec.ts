@@ -196,11 +196,19 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     // is painted by an overlay ancestor, so parts can mark that geometry.
     return element.hasAttribute('data-surface') || (rect.width >= 120 && (painted || bordered || shadowed))
   }
+  // A button's words sit inside its own inset, so they are not the body's
+  // column. A button with no inset, such as a name that discloses what was
+  // asked, puts its words exactly where plain text would be: they are.
+  const insetButton = (button: Element | null) => {
+    if (!button) return false
+    const style = getComputedStyle(button)
+    return parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth) > 0
+  }
   const firstBodyColumn = (element: Element, iconTab: boolean) => {
     const candidates = [element, ...element.querySelectorAll('*')].filter(candidate =>
       !candidate.closest('[data-slot="alert"]') && (
         candidate.matches('[data-slot="search"] input, [data-slot="list-row-title"], [data-slot="tabs-trigger"], [data-slot="approval-code"]') ||
-        (hasText(candidate) && !candidate.closest('button') && !candidate.querySelector('button, [data-slot="alert"], [data-slot="approval-code"], [data-slot="search"] input'))
+        (hasText(candidate) && !insetButton(candidate.closest('button')) && !candidate.querySelector('button, [data-slot="alert"], [data-slot="approval-code"], [data-slot="search"] input'))
       ))
     for (const candidate of candidates) {
       if (hidden(candidate)) continue
@@ -532,6 +540,17 @@ test('a frame title uses its bar edge and still detects a translated title', asy
   const read = () => measure(page, '#root', 'fixture', 'frame-title', 'Frame title')
   expect((await read()).findings['header-off-body']).toEqual([])
   await page.locator('[data-topbar-title]').evaluate(element => { (element as HTMLElement).style.transform = 'translateX(4px)' })
+  expect((await read()).findings['header-off-body']).toHaveLength(1)
+})
+
+test('the words of a button with no inset are the body column, a padded button\'s are not', async ({ page }) => {
+  await page.setContent(`<main id="root"><section data-surface style="width:400px">
+    <header style="display:flex"><h2 style="margin:0 0 0 20px">Started 2</h2></header>
+    <ul style="margin:0;padding:0;list-style:none"><li style="display:flex"><button style="all:unset;margin-left:20px">Trace the retry</button><span style="margin-left:auto">1m 52s</span></li></ul>
+  </section></main>`)
+  const read = () => measure(page, '#root', 'fixture', 'padless-button', 'Padless button')
+  expect((await read()).findings['header-off-body']).toEqual([])
+  await page.locator('button').evaluate(element => { (element as HTMLElement).style.margin = '0'; (element as HTMLElement).style.paddingLeft = '20px' })
   expect((await read()).findings['header-off-body']).toHaveLength(1)
 })
 

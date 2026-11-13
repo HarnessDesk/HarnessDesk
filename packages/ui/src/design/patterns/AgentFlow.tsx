@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { useState, type CSSProperties, type ReactNode } from 'react'
 
 import { Button } from '../ui/button'
 import type { Tone } from '../ui/tone'
@@ -44,8 +44,11 @@ export interface AgentFlowChild {
   readonly openTitle?: string | undefined
 }
 
+/** A light in the card's one mark column: the head's, each child's on the spine, the wait's. */
+const Mark = ({ children }: { children: ReactNode }) => <span className={styles.mark}>{children}</span>
+
 const ChildLight = ({ phase, word }: { phase: AgentFlowPhase; word: string }) => (
-  <Dot tone={AGENT_FLOW_TONE[phase]} pulse={phase === 'working'} role="img" aria-label={word} />
+  <Mark><Dot tone={AGENT_FLOW_TONE[phase]} pulse={phase === 'working'} role="img" aria-label={word} /></Mark>
 )
 
 const ChildRow = ({ child }: { child: AgentFlowChild }) => {
@@ -102,7 +105,7 @@ export const AgentFlowCard = ({ title, summary, facts, working, trouble, waiting
 }) => (
   <section className={styles.card} data-slot="agent-flow-card" {...(working ? { 'data-working': '' } : {})}>
     <header className={styles.head}>
-      <Dot tone={working ? 'info' : trouble ? 'danger' : 'success'} pulse={working} role="img" aria-label={working ? 'Working' : trouble ? 'Some failed' : 'Finished'} />
+      <Mark><Dot tone={working ? 'info' : trouble ? 'danger' : 'success'} pulse={working} role="img" aria-label={working ? 'Working' : trouble ? 'Some failed' : 'Finished'} /></Mark>
       <Text role="row" weight="medium">{title}</Text>
       {summary.map(part => (
         <Text key={part} role="meta" ink="secondary" {...(part.endsWith(' failed') ? { tone: 'danger' as const } : {})}>· {part}</Text>
@@ -114,7 +117,7 @@ export const AgentFlowCard = ({ title, summary, facts, working, trouble, waiting
     </ul>
     {waiting && (
       <div className={styles.waiting} data-slot="agent-flow-waiting" role="status">
-        <Dot pulse role="img" aria-label="Waiting" />
+        <Mark><Dot pulse role="img" aria-label="Waiting" /></Mark>
         <Text role="meta" ink="secondary">{waiting}</Text>
       </div>
     )}
