@@ -159,6 +159,18 @@ test('a child launched into the background runs until its notification ends it, 
   assert.equal(registry.observe({ type: 'system', subtype: 'task_notification', task_id: 'b983kyw3b', status: 'completed' }), false)
 })
 
+test('a second notification for an ended task changes nothing', () => {
+  let now = 5
+  const registry = new DelegationRegistry(() => now)
+  registry.observe(spawn('toolu_a', 'Explore', 'look'))
+  registry.observe(launched('toolu_a', 'agent-1', 'sdk'))
+  assert.equal(registry.observe({ type: 'system', subtype: 'task_notification', task_id: 'agent-1', status: 'completed' }), true)
+  const ended = registry.list()
+  now = 10
+  assert.equal(registry.observe({ type: 'system', subtype: 'task_notification', task_id: 'agent-1', tool_use_id: 'toolu_a', status: 'failed' }), false)
+  assert.deepEqual(registry.list(), ended)
+})
+
 test('a stopped background child reads as stopped', () => {
   const registry = new DelegationRegistry(() => 5)
   registry.observe(spawn('toolu_a', 'Explore', 'look'))

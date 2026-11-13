@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { itemId, turnId, type AgentItem, type Session, type SubagentItem } from '@harnessdesk/protocol'
 
-import { actionOf, addressedIn, childrenOf, childrenOfSession, openWait, phaseOf, rollupOf, rollupWords, spawnedIn } from './subagent-flow'
+import { actionOf, addressedIn, childrenOf, childrenOfSession, openWait, phaseOf, rollupOf, rollupWords, spawnedIn, subagentItemIdsOf } from './subagent-flow'
 
 const call = (id: string, action: string, status: SubagentItem['status'], members: SubagentItem['members'], extra: Partial<SubagentItem> = {}): SubagentItem =>
   ({ id: itemId(id), type: 'subagent', action, status, members, ...extra })
@@ -59,6 +59,15 @@ describe('childrenOf', () => {
     const rows = childrenOf(codex, { settled: true })
     expect(rows.map(row => row.phase)).toEqual(['done', 'ended'])
     expect(rows[1]?.lastSeenAt).toBe(9_000)
+  })
+
+  it('settles an open wait that addressed a child an earlier item started', () => {
+    const items = [
+      call('s', 'spawnAgent', 'completed', [{ sessionId: 'a', state: 'running' }]),
+      call('w', 'wait', 'inProgress', [{ sessionId: 'a', state: 'running' }]),
+    ]
+    expect(childrenOf(items, { settled: true })[0]?.phase).toBe('ended')
+    expect(childrenOf(items, { liveFrom: 2 })[0]?.phase).toBe('ended')
   })
 
   it('leaves a child whose own item is still open to that item, settled or not', () => {
@@ -135,6 +144,17 @@ describe('childrenOfSession', () => {
     ({ id: 'root', runtime: 'codex', status, turns } as unknown as Session)
   const spawn = call('s', 'spawnAgent', 'completed', [{ sessionId: 'a', nickname: 'explorer', state: 'running' }], { startedAt: 1_000 })
   const reply = { id: itemId('r'), type: 'assistantMessage', text: 'ok' } as unknown as AgentItem
+
+  it('caches only sub-agent item ids by session identity across turns', () => {
+    const wait = call('w', 'wait', 'completed', [{ sessionId: 'a', state: 'completed' }])
+    const same = session([
+      { id: turnId('t1'), status: 'completed', items: [reply, spawn] },
+      { id: turnId('t2'), status: 'completed', items: [wait] },
+    ])
+    const ids = subagentItemIdsOf(same)
+    expect([...ids]).toEqual(['s', 'w'])
+    expect(subagentItemIdsOf(same)).toBe(ids)
+  })
 
   it('reads nothing from a conversation with no sub-agent calls', () => {
     expect(childrenOfSession(session([{ id: turnId('t'), status: 'inProgress', items: [reply] }]))).toEqual([])

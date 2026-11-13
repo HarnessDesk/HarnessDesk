@@ -1,6 +1,6 @@
 import { useContext, useEffect, useMemo, useState } from 'react'
 
-import { allItems, type AgentItem, type Session, type SessionId } from '@harnessdesk/protocol'
+import { type AgentItem, type Session, type SessionId } from '@harnessdesk/protocol'
 
 import { formatTokens, formatTokensWithFloor } from '../lib/context-usage'
 import {
@@ -12,6 +12,7 @@ import {
   rollupOf,
   rollupWords,
   spawnedIn,
+  subagentItemIdsOf,
   type ChildRow,
 } from '../lib/subagent-flow'
 import { formatElapsed } from '../lib/turn-view'
@@ -67,7 +68,7 @@ export const SubagentCard = ({ items }: { items: readonly AgentItem[] }) => {
   const session = useActiveSession()
   // The card may be drawn outside its own conversation (a read-only copy);
   // then the calls it was handed are all there is to read.
-  const own = Boolean(session && items[0] && allItems(session).some(item => item.id === items[0]?.id))
+  const own = Boolean(session && items[0] && subagentItemIdsOf(session).has(String(items[0].id)))
   const everyone = useChildren(own ? session : null)
   const rows = useMemo(() => {
     const ids = addressedIn(items)
