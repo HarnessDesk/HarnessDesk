@@ -4639,7 +4639,7 @@ export class Host {
       stopEffects: () => stopOwned('lead-budget-stopped'),
     })
     this.onDispose(() => this.#leadControls?.close())
-    const automatic = new LeadAutomaticGoals({ journal, send: (input, origin, root) => this.#leadControls!.send(input, origin, root),
+    const automatic = new LeadAutomaticGoals({ journal, send: (input, origin, root, trigger) => this.#leadControls!.send(input, origin, root, trigger),
       enabled: () => this.options.leadEnabled === true && !this.#disposed,
       quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
       gateMention: () => autonomy.gate('mention'),

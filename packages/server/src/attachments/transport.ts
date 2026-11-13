@@ -2,6 +2,8 @@ import { spawn, type ChildProcess } from 'node:child_process'
 
 import type { McpServerSpec } from '@harnessdesk/agent-inventory'
 
+import { groupKill, killAwaitingGroups, mcpTestEnvironment, stopGroup } from '../mcp-test.js'
+
 /**
  * The one real road out of the gateway: a single bounded MCP exchange over
  * stdio, spawned fresh and torn down after — never a standing process shared
@@ -116,12 +118,10 @@ const tracked = (child: ChildProcess): void => {
 
 /** Kills every server child still running, outright, on the process's own `exit`. */
 function killRunningMcpServers(): void {
+  killAwaitingGroups()
   for (const child of unexited) {
-    try {
-      child.kill('SIGKILL')
-    } catch {
-      // Already gone.
-    }
+    // The server and everything it started that stayed in its group.
+    groupKill(child, 'SIGKILL')
   }
 }
 
@@ -146,7 +146,10 @@ async function withStdioMcpServer<T>(
   // An exchange asked for after the desk began to quit starts nothing at all.
   if (options.signal?.aborted) throw new McpTransportError(`${spec.name} was aborted.`)
   const child = spawn(spec.command, [...(spec.args ?? [])], {
-    env: { ...process.env, ...(spec.env ?? {}) },
+    // Only the small environment a server needs, then its own configured variables.
+    env: mcpTestEnvironment(spec),
+    // Its own process group, so closing it reaches what it started too.
+    detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
     ...(options.cwd ? { cwd: options.cwd } : {}),
     // No shell: argument arrays reach the executable exactly as given, the
@@ -167,14 +170,9 @@ async function withStdioMcpServer<T>(
     child.stdout.removeAllListeners('data')
     child.stderr.removeAllListeners('data')
     child.stdin.destroy()
-    if (!running()) return
-    child.kill('SIGTERM')
-    // A server that shrugs off SIGTERM is killed outright: an exchange never
-    // leaves a process behind it, however the server was written.
-    const escalate = setTimeout(() => {
-      if (running()) child.kill('SIGKILL')
-    }, KILL_GRACE_MS)
-    child.once('exit', () => clearTimeout(escalate))
+    // The group is stopped even when its leader has already gone: whatever
+    // it started and left running is still in it.
+    stopGroup(child, KILL_GRACE_MS)
   }
 
   const failAll = (error: Error): void => {

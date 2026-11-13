@@ -2,7 +2,7 @@ import { leadThreadStage } from './projection.js'
 import { LEAD_STEP_THINKING, boundLeadApprovalHistory, leadSurfaceOf, leadDisplayName, leadRequestFailure, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
 import {
   parseLeadApprovalRevoke, parseLeadMessage, parseLeadAsk, parseLeadProactiveOutput, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
-  parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
+  parseLeadOrigin, type LeadOrigin, type LeadMessageTrigger, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
   parseLeadBudgetRaise, parseLeadSpendLimitSet, leadNoSpendLimit, type LeadBudgetRaise, type LeadSpendLimitSet, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
@@ -10,6 +10,7 @@ import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatc
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
+import { fitLeadTrigger } from './automatic-goals.js'
 import { leadMemoryScan, leadRememberRequest } from './memory-scan.js'
 import type { LeadContextStore } from './context-store.js'
 import type { LeadContextFacts } from '@harnessdesk/protocol'
@@ -323,8 +324,11 @@ export class LeadControls {
     void this.#notify(true)
     return this.#projection()
   }) }
-  send(value: LeadThreadSend, automaticOrigin?: LeadOrigin, automaticProject?: string) { return this.#queue(async () => {
+  /** `automaticTrigger` describes the event an automatic goal opened on; the journal keeps it with the model's text (#2183). */
+  send(value: LeadThreadSend, automaticOrigin?: LeadOrigin, automaticProject?: string, automaticTrigger?: LeadMessageTrigger) { return this.#queue(async () => {
     const input = parseLeadThreadSend(value), { journal, service } = this.options
+    // The trigger only describes the turn: what fails it is dropped, never a reason to refuse the send (#2183).
+    const trigger = automaticOrigin ? fitLeadTrigger(automaticTrigger) : undefined
     if (leadContainsSecret(input)) throw leadRefusal('lead-secret-refused')
     // A request to keep words aimed at an agent is refused here, before the model reads it: memory is read on every
     // later turn, so the scan every proposal passes runs on the person's request too (docs/decisions.md).
@@ -376,7 +380,7 @@ export class LeadControls {
     return this.#commitRequest(async committed => {
       // The surface stays with the person's message (#2166): a tool continuation and every later turn read it there.
       const receipt = await journal.appendMessage(input.idempotencyKey, input.text, origin ? origin.source === 'schedule' ? 'schedule' : 'automatic' : 'person', committed,
-        undefined, !origin && input.device ? leadSurfaceOf(input.device) : undefined)
+        undefined, !origin && input.device ? leadSurfaceOf(input.device) : undefined, trigger)
       if (resume) await journal.resume(undefined, true, committed)
       return receipt
     }, !!origin)
