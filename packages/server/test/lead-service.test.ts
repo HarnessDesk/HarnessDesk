@@ -330,6 +330,22 @@ for (const operation of ['close', 'disable', 'replace', 'withdraw']) {
   })
 }
 
+test('the host turns a chat handle into its id before it derives any scope, and refuses a handle nobody holds', async t => {
+  const seen: any[] = []
+  const s = await rig(t, { resolveTool: (async (call: any) => { seen.push(structuredClone(call)); return { project: null, runId: null, start: null, context: {} } }) as any })
+  await s.journal.nameChats([{ id: 'codex:session-a', base: 'demo-codex' }])
+  await s.service.setEnabled(true); await s.service.send(input)
+  const byHandle = await s.options().resolveTool({ method: 'lead/chat/send', params: { id: 'demo-codex', text: 'Keep going' } })
+  assert.deepEqual(seen.at(-1), { method: 'lead/chat/send', params: { id: 'codex:session-a', text: 'Keep going' } }, 'scope was derived from the id')
+  assert.deepEqual(byHandle.call, { method: 'lead/chat/send', params: { id: 'codex:session-a', text: 'Keep going' } }, 'the child is handed the resolved call to send on')
+  const byId = await s.options().resolveTool({ method: 'lead/chat/stop', params: { id: 'codex:session-a' } })
+  assert.equal(byId.call, undefined, 'an id needs no resolution')
+  assert.equal(seen.at(-1).params.id, 'codex:session-a')
+  const before = seen.length
+  await assert.rejects(s.options().resolveTool({ method: 'lead/chat/read', params: { id: 'demo-codex-2' } }), (error: any) => error.wireCode === 'lead-chat-unknown')
+  assert.equal(seen.length, before, 'an unknown handle reaches no scope check')
+})
+
 test('a widening repository policy blocks management before any child or door starts', async t => {
   const s = await rig(t)
   await s.journal.setPolicy({ version: 1, revision: 2, mode: 'plan', rules: [] })

@@ -1827,15 +1827,21 @@ const incidentObservation: Validator<import('./lead.js').LeadChatIncidentObserva
     if (list.length > 8) throw new ValidationError(p ?? '', 'too many recovery candidates')
     return list },
 })
+/** A chat's handle for the Lead: a short lowercase name, never `lead`. */
+const leadChatHandle: Validator<string> = (v, p) => {
+  const text = isString(v, p)
+  if (!/^[a-z][a-z0-9-]{0,31}$/.test(text) || text === 'lead') throw new ValidationError(p ?? '', 'expected a chat handle')
+  return text
+}
 const leadChatChangedParamsValidator: Validator<Extract<WireNotification, { method: 'lead/chat/changed' }>['params']> =
-  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), stage: optional(literalUnion(...LEAD_STAGES)), incident: optional(incidentObservation) })
+  shape({ id: atMost(300, isFilled), handle: optional(leadChatHandle), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), stage: optional(literalUnion(...LEAD_STAGES)), incident: optional(incidentObservation) })
 
 /** State-only wake signal; never accepts transcript content as an event. */
 export const parseLeadChatChangedParams = (
   raw: unknown,
 ): Extract<WireNotification, { method: 'lead/chat/changed' }>['params'] => {
-  const { id, project, state, stage, incident } = leadChatChangedParamsValidator(raw, 'notification.params')
-  return { id, project, state, stage, ...(incident ? { incident } : {}) }
+  const { id, handle, project, state, stage, incident } = leadChatChangedParamsValidator(raw, 'notification.params')
+  return { id, ...(handle ? { handle } : {}), project, state, stage, ...(incident ? { incident } : {}) }
 }
 
 const sessionRemovedParamsValidator: Validator<Extract<WireNotification, { method: 'session/removed' }>['params']> =

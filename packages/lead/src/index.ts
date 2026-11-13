@@ -48,3 +48,6 @@ export { leadRulesAddendum, leadEpochState, type LeadEpochHeld, LEAD_RULES_OPEN,
 export { LEAD_SETTINGS_STATUS_OPEN, LEAD_SETTINGS_STATUS_CLOSE, LEAD_SETTINGS_STATUS_BYTES, leadSettingsStatus, leadRulesHeld, type LeadRulesHeld } from './settings.js'
 export { LEAD_CLOCK_PREFIX, leadClockLine } from './clock.js'
 export { LEAD_WAKE_OPEN, LEAD_WAKE_REFERENCE, LEAD_SURFACE_LINES } from './messages.js'
+export { LEAD_CHAT_HANDLE, LEAD_CHAT_HANDLES, LeadChatUnknownError, initialLeadChatHandles, leadChatHandleBase, leadChatHandleOf, leadChatHandleText, leadChatHandleValid, leadChatIdFor, leadChatIdShaped,
+  leadChatNamings, leadChatHandlesAfter, parseLeadChatHandles, resolveLeadChatCall, leadChatUnknownText } from './chat-handles.js'
+export type { LeadChatHandles, LeadChatHandleEntry, LeadChatNaming } from './chat-handles.js'

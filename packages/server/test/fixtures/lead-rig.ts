@@ -47,6 +47,9 @@ export interface LeadRigOptions {
   /** Ordinary session tools, with one runtime and no reviewed plan. */
   readonly ordinaryChats?: boolean
   readonly holdOrdinaryContinuation?: boolean
+  /** With `ordinaryChats`: the Lead names each chat by the handle the host gave it, lists them, reaches the other
+   * project's chat through a handle the journal holds for it, and tries a handle nobody holds. */
+  readonly ordinaryHandles?: boolean
   /** Offline host-publication fixture: one run, pinned demo repository and distinct repair commits. */
   readonly publication?: boolean
   /** Full offline forge walks: only explicit person creation and reviewed owned pushes. */
@@ -278,10 +281,15 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         let started: any
         try { started = JSON.parse(result('ordinary-start').content) } catch { return [text('Ordinary start failed')] }
         if (!started?.id) return [text('Ordinary start failed')]
-        if (!result('ordinary-read')) return [{ type: 'tool_use', id: 'ordinary-read', name: 'chat_read', input: { id: started.id } }]
-        if (!result('ordinary-send')) return [{ type: 'tool_use', id: 'ordinary-send', name: 'chat_send', input: { id: started.id, text: 'Keep the task bounded' } }]
-        if (!result('ordinary-stop')) return [{ type: 'tool_use', id: 'ordinary-stop', name: 'chat_stop', input: { id: started.id } }]
-        if (!result('ordinary-foreign')) return [{ type: 'tool_use', id: 'ordinary-foreign', name: 'chat_read', input: { id: ordinaryForeign } }]
+        const chat = options.ordinaryHandles ? started.handle : started.id
+        if (options.ordinaryHandles && !result('ordinary-list')) return [{ type: 'tool_use', id: 'ordinary-list', name: 'chat_list', input: {} }]
+        if (!result('ordinary-read')) return [{ type: 'tool_use', id: 'ordinary-read', name: 'chat_read', input: { id: chat } }]
+        if (!result('ordinary-send')) return [{ type: 'tool_use', id: 'ordinary-send', name: 'chat_send', input: { id: chat, text: 'Keep the task bounded' } }]
+        if (!result('ordinary-stop')) return [{ type: 'tool_use', id: 'ordinary-stop', name: 'chat_stop', input: { id: chat } }]
+        if (options.ordinaryHandles && !result('ordinary-unknown')) return [{ type: 'tool_use', id: 'ordinary-unknown', name: 'chat_send', input: { id: 'nobody-here', text: 'Hello' } }]
+        // With handles, the other project's chat is read by its id and by its handle in one turn, to compare the refusals.
+        if (!result('ordinary-foreign')) return [...options.ordinaryHandles ? [{ type: 'tool_use', id: 'ordinary-foreign-id', name: 'chat_read', input: { id: ordinaryForeign } }] : [],
+          { type: 'tool_use', id: 'ordinary-foreign', name: 'chat_read', input: { id: options.ordinaryHandles ? 'other-writer' : ordinaryForeign } }]
         return [text('The ordinary session is stopped; the other project stayed outside this conversation.')]
       }
       if (!state.contract || !state.consent) {
@@ -405,6 +413,8 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       }
       storage = await LeadFileJournal.open(home, 'synthetic-thread', { canaries: [LEAD_RIG_KEY] })
       journal = await createLeadJournal(storage)
+      // A handle for the other project's chat, as if the desk had named it there: resolving it must grant nothing.
+      if (options.ordinaryHandles && ordinaryForeign) await journal.nameChats([{ id: ordinaryForeign, base: 'other-writer' }])
       if (!journal.state.policy) {
         await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
         await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'synthetic-goal', caps: proposal.caps, freshnessMs: options.freshnessMs ?? 60_000 })
