@@ -24,9 +24,12 @@ interface Property {
   readonly options?: readonly string[]
   readonly required: boolean
   /**
-   * What the plugin uses when the field is left alone, shown as the field's
-   * placeholder — so an untouched setting reads as what it is rather than as
-   * empty, and clearing it is visibly a different act from never touching it.
+   * What the plugin uses when the field is left alone. A text field shows it
+   * as its own editable text, so an untouched setting reads as what it is and
+   * emptying it is a change Apply can save (blank, where the plugin reads
+   * blank as none); it stays out of the saved settings until it is edited. A
+   * number field shows it as the placeholder, since emptying one means the
+   * default again.
    */
   readonly fallback?: string
   /** A switch's resting position, for a boolean the plugin defaults on: shown as on until it is touched. */
@@ -137,8 +140,7 @@ export const SchemaForm = ({
                      would not fit the ordinary width is given room to read it. */
                   variant="filled" measure={(property.fallback?.length ?? 0) > 32 ? "path" : "name"}
                   aria-label={property.title}
-                  {...(property.fallback !== undefined ? { placeholder: property.fallback } : {})}
-                  value={String(draft[property.key] ?? '')}
+                  value={String(draft[property.key] ?? property.fallback ?? '')}
                   onChange={(event) => set(property.key, event.target.value)}
                 />
               ) : property.type === 'number' ? (

@@ -894,6 +894,8 @@ the opening of the description as GitHub holds it, which is where the signature
 the desk wrote is read. Pressing it opens the page. Customize › Plugins › Git
 has Description, Review and Comment signature templates. Their placeholders
 are listed once above the settings rows; a blank value turns that kind off.
+An untouched field shows its default as its own text, so emptying it is a
+change Apply saves.
 Its Commit co-author row is the line the desk adds to each commit it makes for
 an agent; blank adds none, and a value that is not one
 `Co-authored-by: Name <email>` line is refused when saved.
