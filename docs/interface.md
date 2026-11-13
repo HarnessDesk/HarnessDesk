@@ -1615,6 +1615,28 @@ started in, its board, and when it opened and closed. A Seat restored from a
 backup says so. It is read-only, because the record is: written once when the
 seat was kept, and closed once. A conversation never seated shows none of it.
 
+**Sub-agents a conversation started.** One child reads the same on four
+surfaces. In the transcript, a run of calls to sub-agents folds into one card
+where the first of them happened, and a reply from the agent between calls
+starts the next card, so a second batch is not hidden in the first: a head with how many it started and
+only the states that are news (2 working, 1 failed), the span and the tokens,
+then a row per child with its light, name, role, its phase once it is no longer
+working, and its model, time and tokens. Pressing a name shows what the child
+was asked; Open opens a child that has a conversation of its own. While the
+agent waits on its children, a last line says so. Over the composer, a strip
+names the children still working, for when the card has scrolled away or the
+turn is over and they are not; Show opens the Agents panel. In the sidebar, the
+conversation carries a nested row for each child still working, up to three
+and then a count; the rows go when the children stop. The Agents panel groups
+its children into Working, Failed and Finished and, with two or more timed,
+draws a lane each on one clock from the first start, so who ran when, and
+alongside whom, is one look. A child still called working once its conversation
+has settled — the turn is over and the agent has not said one outlived it —
+reads as Ended, since nothing will say more about it; so does a child last
+named in an earlier turn while a later one runs. A child whose own record the
+agent still holds open — one running in the background — stays Working past
+its turn until that record says it ended.
+
 **A project's checks.** Workspaces › a project lists the checks the project
 names, as committed, each command verbatim with whether this Mac has approved
 it for this version of the file, says when your working copy of the file is

@@ -113,6 +113,60 @@ test('a delegation ends the way its tool result did', () => {
   assert.equal(states.get('bad')?.state, 'failed')
 })
 
+// Measured 2026-11-12 on the real wire: a background child's launch result,
+// then a notification that it waits on its own work, then the one that ends it.
+const launched = (id: string, agentId: string, form: 'sdk' | 'text') => ({
+  type: 'user',
+  parent_tool_use_id: null,
+  ...(form === 'sdk' ? { tool_use_result: { isAsync: true, status: 'async_launched', agentId } } : {}),
+  message: {
+    content: [{
+      type: 'tool_result',
+      tool_use_id: id,
+      content: [{ type: 'text', text: `Async agent launched successfully. (This tool result is internal metadata.)\nagentId: ${agentId} (internal ID)` }],
+    }],
+  },
+})
+const notification = (agentId: string, status: string, summary: string, toolUseId?: string) =>
+  `<task-notification>\n<task-id>${agentId}</task-id>\n${toolUseId ? `<tool-use-id>${toolUseId}</tool-use-id>\n` : ''}<output-file>/tmp/x.output</output-file>\n<status>${status}</status>\n<summary>${summary}</summary>\n</task-notification>`
+
+test('a child launched into the background runs until its notification ends it, not its launch result', () => {
+  let now = 1_000
+  const registry = new DelegationRegistry(() => now)
+  registry.observe(spawn('toolu_a', 'general-purpose', 'sleep then reply alpha'))
+  registry.observe(spawn('toolu_b', 'general-purpose', 'sleep then reply beta'))
+  now = 2_000
+  assert.equal(registry.observe(launched('toolu_a', 'aa7f0046', 'sdk')), false)
+  assert.equal(registry.observe(launched('toolu_b', 'a6c16155', 'text')), false)
+  assert.deepEqual(registry.list().map((entry) => entry.state), ['running', 'running'])
+
+  // "completed" that says it still waits on work of its own is not the end.
+  now = 10_000
+  const waiting = { type: 'user', parent_tool_use_id: null, message: { content: notification('aa7f0046', 'completed', 'Agent "Sleep then reply alpha" is waiting on its own background work', 'toolu_a') } }
+  assert.equal(registry.observe(waiting), false)
+  assert.equal(registry.list()[0]?.state, 'running')
+
+  // The text form, by task id alone.
+  now = 30_000
+  const done = { type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'text', text: notification('aa7f0046', 'completed', 'Agent "Sleep then reply alpha" finished') }] } }
+  assert.equal(registry.observe(done), true)
+  // The SDK's system record form, failed.
+  now = 31_000
+  assert.equal(registry.observe({ type: 'system', subtype: 'task_notification', task_id: 'a6c16155', status: 'failed', summary: 'Agent failed' }), true)
+  assert.deepEqual(registry.list().map((entry) => [entry.state, entry.endedAt]), [['completed', 30_000], ['failed', 31_000]])
+
+  // A notification for a task no delegation launched is someone else's (a background command).
+  assert.equal(registry.observe({ type: 'system', subtype: 'task_notification', task_id: 'b983kyw3b', status: 'completed' }), false)
+})
+
+test('a stopped background child reads as stopped', () => {
+  const registry = new DelegationRegistry(() => 5)
+  registry.observe(spawn('toolu_a', 'Explore', 'look'))
+  registry.observe(launched('toolu_a', 'agent-1', 'sdk'))
+  registry.observe({ type: 'system', subtype: 'task_notification', task_id: 'agent-1', status: 'killed' })
+  assert.equal(registry.list()[0]?.state, 'stopped')
+})
+
 test("a child's calls that outrun its spawn are still counted against it", () => {
   // Two messages on one stream race. A spawn arriving second must fill in
   // the placeholder the calls created, not replace it and drop the tokens.

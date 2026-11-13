@@ -154,6 +154,7 @@ export { FlowCard, FlowMiniGraph, FlowCardGrid, SelectedFlow, type FlowCardProps
 export { FlowCanvasToolbar } from './patterns/FlowCanvasToolbar'
 export { FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent } from './patterns/FlowCanvasWorkspace'
 export { FlowStepRow, RunStateChip } from './patterns/FlowStepRow'
+export { AgentFlowCard, AgentLanes, AGENT_FLOW_TONE, type AgentFlowChild, type AgentFlowPhase, type AgentLane } from './patterns/AgentFlow'
 export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
 export * from './patterns/InspectorPanel'

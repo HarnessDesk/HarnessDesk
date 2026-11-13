@@ -2621,9 +2621,11 @@ rl.on('line', (line) => {
       // - `-unannounced`: no spawn item at all, so the child is known only by
       //   what it does and by a `thread/read` of its parent;
       // - `-late`: the child's status and turn come first and the spawn item
-      //   naming it 50 ms after, before the root's turn ends.
+      //   naming it 50 ms after, before the root's turn ends;
+      // - `-activity`: announced the way Codex 0.160 does, by a
+      //   `subAgentActivity` item of kind `started` rather than a spawn call.
       // FAKE_CODEX_CHILD_DONE_MS sets how long `-done` waits (50 ms).
-      const outlive = /^spawn-outlive(?:-(done|closed|error|busy|unannounced|late))?$/.exec(said)
+      const outlive = /^spawn-outlive(?:-(done|closed|error|busy|unannounced|late|activity))?$/.exec(said)
       if (outlive) {
         const then = outlive[1] ?? null
         const root = THREAD
@@ -2640,6 +2642,12 @@ rl.on('line', (line) => {
           notify('thread/status/changed', { threadId: child, status: { type: 'idle' } })
         }
         const announce = () => {
+          if (then === 'activity') {
+            const activity = { type: 'subAgentActivity', id: `activity-${child}`, kind: 'started', agentThreadId: child, agentPath: '/root/provider', model: null, reasoningEffort: null }
+            notify('item/started', { threadId: root, turnId: TURN, item: activity, startedAtMs: nowMs() })
+            notify('item/completed', { threadId: root, turnId: TURN, item: activity, completedAtMs: nowMs() })
+            return
+          }
           notify('item/started', { threadId: root, turnId: TURN, item: spawnItem('inProgress', []), startedAtMs: nowMs() })
           notify('item/completed', { threadId: root, turnId: TURN, item: spawnItem('completed', [child]), completedAtMs: nowMs() })
         }

@@ -18,6 +18,7 @@ import { planOf, turnPlan } from '../lib/todos'
 import { describeTurnWork, liveActivity } from '../lib/turn-view'
 import { ItemView, PlanSteps, StepNameScope } from './Items'
 import { StepGroup } from './StepGroup'
+import { SubagentCard } from './SubagentFlow'
 import styles from './TurnWork.module.css'
 
 /**
@@ -149,6 +150,8 @@ export const TurnWork = ({
             {groupItems(shown).map((node) =>
               node.kind === 'group' ? (
                 <StepGroup key={node.id} items={node.items} running={node.running} root={root} register="light" />
+              ) : node.kind === 'agents' ? (
+                <SubagentCard key={node.id} items={node.items} />
               ) : (
                 <ItemView
                   key={node.item.id}

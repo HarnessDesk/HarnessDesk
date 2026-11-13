@@ -1218,6 +1218,29 @@ One role, its purpose, and its actual seating result, each with a distinct place
 
 Sources and lower-precedence copies stay available without repeating source paragraphs between role cards.
 
+### `AGENT_FLOW_TONE`
+
+`packages/ui/src/design/patterns/AgentFlow.tsx`
+
+A light judges how a child ended; working is the one that moves.
+
+### `AgentFlowCard`
+
+`packages/ui/src/design/patterns/AgentFlow.tsx`
+
+The transcript's card: one head that says how many and how they are doing,
+then each child on a spine. `waiting` is the fan-in line — the parent is
+waiting on its children — and goes once the wait is over.
+
+### `AgentLanes`
+
+`packages/ui/src/design/patterns/AgentFlow.tsx`
+
+Who ran when: one lane per child against a shared clock from the first
+start to now (or the last end). A working bar reaches the right edge and
+breathes; a finished one is its outcome's colour. Lanes are data geometry —
+their offsets are the measured times, not a layout.
+
 ### `ApprovalReason`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`

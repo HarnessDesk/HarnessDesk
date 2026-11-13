@@ -353,6 +353,14 @@ const mapFunctionCallOutput = (output: unknown): ToolResultContent[] => {
  * model it ran on and the status of the call all untouched beside it. One id
  * that came unwrapped is still a usable handle, so that one is kept (#272).
  */
+/** An activity's kind, as the call verb and child state the sub-agent view reads. */
+const SUB_AGENT_ACTIVITY: Readonly<Record<string, readonly [string, string]>> = {
+  started: ['spawnAgent', 'running'],
+  interacted: ['sendInput', 'running'],
+  interrupted: ['interruptAgent', 'interrupted'],
+  completed: ['agentCompleted', 'completed'],
+}
+
 export const threadIdsOf = (ids: unknown): string[] => {
   if (typeof ids === 'string') return ids === '' ? [] : [ids]
   if (!Array.isArray(ids)) return []
@@ -570,6 +578,32 @@ export const mapItem = (item: ThreadItem): AgentItem => {
           }
         }),
       }
+
+    case 'subAgentActivity': {
+      /* Codex 0.160: a spawned agent is announced by activity items rather than
+         a spawn call — started, interacted, interrupted, completed — each
+         naming the child's thread and its path (`/root/alpha`), whose last
+         segment is the name the agent gave it. Its waits name no children.
+         Read as one sub-agent call per activity, the child's state the
+         activity's own word, they fold into the same children as the calls. */
+      const path = String(item.agentPath ?? '')
+      const name = path.split('/').filter(Boolean).at(-1) ?? null
+      const [action, state] = SUB_AGENT_ACTIVITY[String(item.kind)] ?? ['subAgentActivity', null]
+      return {
+        id,
+        type: 'subagent',
+        action,
+        status: 'completed',
+        prompt: null,
+        model: item.model ?? null,
+        members: threadIdsOf(item.agentThreadId).map((threadId) => ({
+          sessionId: threadId,
+          nickname: name,
+          role: null,
+          state,
+        })),
+      }
+    }
 
     case 'hookPrompt':
       return {

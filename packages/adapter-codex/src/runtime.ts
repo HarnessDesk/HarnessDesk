@@ -1807,10 +1807,14 @@ export class CodexRuntime implements AgentRuntime {
         // How Codex links a spawned agent to its parent: the parent's own
         // spawn item names the new thread. Only a parent already placed here
         // places its children.
-        if (item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent' && this.#placed(notification.params.threadId)) {
+        // Codex 0.160 announces it with a `subAgentActivity` item instead.
+        const spawned = item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent'
+          ? threadIdsOf(item.receiverThreadIds)
+          : item.type === 'subAgentActivity' && item.kind === 'started' ? threadIdsOf(item.agentThreadId) : []
+        if (spawned.length > 0 && this.#placed(notification.params.threadId)) {
           const root = this.#rootOf(notification.params.threadId)
           if (root !== null) {
-            for (const child of threadIdsOf(item.receiverThreadIds)) {
+            for (const child of spawned) {
               if (child !== notification.params.threadId) this.#adopt(child, root)
             }
           }
