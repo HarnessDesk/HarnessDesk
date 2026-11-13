@@ -568,6 +568,8 @@ export class HarnessDeskAccount {
     const saved = this.#secrets.session
     const session = saved.expiresAt > this.#now() + 60 ? saved : await this.#serialize(() => this.#session(generation), false)
     if (!session || !this.#current(generation)) throw new Error('This desk signed out.')
+    // Renewal waits behind other account changes; Reachable may have been turned off meanwhile.
+    if (!this.#desk().reachable) throw new Error('Reachable from your phone is off.')
     return this.#parse(SendPushResponse, await this.#request('/push/send', body, session.token)).status
   }
 

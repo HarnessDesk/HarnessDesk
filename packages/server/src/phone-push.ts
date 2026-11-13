@@ -250,11 +250,14 @@ export class PhonePushSender {
   }
 
   async #send(device: Device, body: PhonePushBody, collapse: string): Promise<void> {
+    if (this.#disposed) return
     const now = this.#now()
     if (now < this.#pausedUntil || (this.#skip.get(device.id) ?? 0) > now) return
     if (!this.#allow(device.id, now)) { this.#options.log('phone push held back: too many this minute', { device: device.id }); return }
     try {
       const sealed = await sealPushJson(fromB64u(device.pushKey), device.kid, device.id, body)
+      // The phone link may have stopped while this was sealed.
+      if (this.#disposed) return
       const status = await this.#options.account.sendPush({
         deviceId: device.id, kid: sealed.kid, nonce: sealed.nonce, ciphertext: sealed.ciphertext, priority: 'high', collapse,
       })

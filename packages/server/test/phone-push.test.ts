@@ -182,6 +182,29 @@ test('a 403 leaves that phone alone until the account changes, and a 429 holds e
   sender.dispose()
 })
 
+test('a phone link that stops mid-round sends nothing more', async () => {
+  const first = device('First phone')
+  const second = device('Second phone')
+  const { account, sender } = rig([first, second], [first, second])
+  let inbox = inboxOf()
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  account.answer = async () => { await held; return 'sent' }
+  const stopping = new PhonePushSender({
+    account, devices: () => [first, second], inbox: async () => inbox, leadName: async () => 'Dex', log: () => {}, delayMs: 1,
+  })
+  sender.dispose()
+  stopping.poke(); await new Promise(resolve => setTimeout(resolve, 10)); await stopping.settled()
+  inbox = inboxOf(waiting('team:g1', 'team', 'Ship the release'))
+  stopping.poke(); await new Promise(resolve => setTimeout(resolve, 10))
+  // The first phone's send is under way; the link stops before the second phone's.
+  assert.equal(account.sent.length, 1)
+  stopping.dispose()
+  release()
+  await stopping.settled()
+  assert.equal(account.sent.length, 1)
+})
+
 test('the Lead waiting on several things says how many', async () => {
   const linked = device('Linked phone')
   const { account, round } = rig([linked], [linked])
