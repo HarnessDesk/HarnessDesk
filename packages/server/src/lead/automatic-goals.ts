@@ -23,11 +23,39 @@ export const requestFrom = (fact: Pick<TriggerFact, 'author' | 'authorWrites'>, 
 export const requestLine = (fact: Pick<TriggerFact, 'source' | 'subject' | 'author' | 'authorWrites'>, account: string | undefined): string =>
   leadRequestLine(leadTriggerWhere(fact.source === 'pull-request' ? 'pull-request' : 'issue', fact.subject), requestFrom(fact, account))
 
-/** Untrusted words as a thread quotes them: controls gone, folded to one line, cut on a code point. */
+/** Halves of a surrogate pair standing alone: the protocol refuses a string that is not well formed. */
+const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+
+/**
+ * Untrusted words as a thread quotes them: controls and lone surrogates gone, folded to one line, and cut on a code
+ * point to at most `LEAD_TRIGGER_WORDS_MAX` UTF-16 units — the unit the protocol counts — so an astral-heavy request
+ * fits the field rather than failing it.
+ */
 const quotedWords = (value: string): string | undefined => {
-  const folded = Array.from(contextText(value, Number.MAX_SAFE_INTEGER).replace(/\s+/g, ' ').trim())
-  if (!folded.length) return undefined
-  return folded.length > LEAD_TRIGGER_WORDS_MAX ? `${folded.slice(0, LEAD_TRIGGER_WORDS_MAX - 1).join('').trimEnd()}…` : folded.join('')
+  const folded = contextText(value.replace(loneSurrogate, ''), Number.MAX_SAFE_INTEGER).replace(/\s+/g, ' ').trim()
+  if (!folded) return undefined
+  if (folded.length <= LEAD_TRIGGER_WORDS_MAX) return folded
+  let cut = ''
+  for (const char of folded) { if (cut.length + char.length > LEAD_TRIGGER_WORDS_MAX - 1) break; cut += char }
+  return `${cut.trimEnd()}…`
+}
+
+/**
+ * A trigger describes a firing and never decides it (#2183). What the protocol refuses, or what carries a secret,
+ * is dropped — the link, then the words, then the whole trigger — and the send goes ahead as it would have without
+ * one, so a deliverable firing is never turned into a refusal by its description.
+ */
+export const fitLeadTrigger = (candidate: LeadMessageTrigger | undefined): LeadMessageTrigger | undefined => {
+  if (!candidate) return undefined
+  const { words, ...wordless } = candidate
+  const attempts = [candidate, { ...candidate, url: null }, ...words === undefined ? [] : [wordless, { ...wordless, url: null }]]
+  for (const attempt of attempts) {
+    try {
+      const trigger = parseLeadMessageTrigger(attempt)
+      if (!leadContainsSecret(trigger)) return trigger
+    } catch { /* the next, smaller attempt */ }
+  }
+  return undefined
 }
 
 const optionalWords = (value: string): { readonly words?: string } => { const words = quotedWords(value); return words === undefined ? {} : { words } }
@@ -95,10 +123,11 @@ export class LeadAutomaticGoals {
         return { delivered: false, reason: 'Lead is busy; this firing waits for the active goal.' }
       for (const [index, text] of [input.text, ...(input.fallbackTexts ?? [])].entries()) {
         let send: LeadThreadSend, trigger: LeadMessageTrigger | undefined
-        try { send = parseLeadThreadSend({ idempotencyKey: input.key, text }); trigger = input.triggers?.[index] && parseLeadMessageTrigger(input.triggers[index]) }
+        try { send = parseLeadThreadSend({ idempotencyKey: input.key, text }) }
         catch { return { delivered: false, final: true, reason: 'Lead refused the firing: invalid plan input.' } }
+        trigger = fitLeadTrigger(input.triggers?.[index])
         try {
-          if (leadContainsSecret(send) || trigger && leadContainsSecret(trigger)) throw Object.assign(new Error('lead-secret-refused'), { wireCode: 'lead-secret-refused' })
+          if (leadContainsSecret(send)) throw Object.assign(new Error('lead-secret-refused'), { wireCode: 'lead-secret-refused' })
           await this.port.send(send, origin, input.project, trigger)
           return { delivered: true }
         } catch (error) {

@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createLeadJournal, leadCheckpoint, parseLeadCheckpoint } from '@harnessdesk/lead'
-import { parseClientMessage } from '@harnessdesk/protocol'
+import { parseClientMessage, parseLeadMessageTrigger, LEAD_TRIGGER_WORDS_MAX } from '@harnessdesk/protocol'
 import { parseTriggers } from '../src/intake/definition.js'
 import { definitionOf } from '../src/intake/store.js'
 import { TriggerClosures } from '../src/intake/consent.js'
 import { writeTriggers, draftTrigger } from '../src/authoring/model.js'
 import { IntakeEffects } from '../src/intake/apply.js'
 import { LeadControls } from '../src/lead/controls.js'
+import { fitLeadTrigger } from '../src/lead/automatic-goals.js'
 import { leadShownMessage } from '../src/lead/projection.js'
 import { rig } from './fixtures/intake-consent.js'
 import { leadRig } from './fixtures/lead.js'
@@ -377,4 +378,44 @@ test('#2183: an ordinary trigger event carries its title as the words, and words
   await long.controls.idle()
   const cut = long.journal.state.messages.find(one => one.source === 'automatic')!.trigger!
   assert.equal(Array.from(cut.words!).length, 280); assert.ok(cut.words!.endsWith('…'))
+})
+
+test('#2183: a trigger shrinks rather than refuses — the link, then the words, then the whole of it', () => {
+  const base = { source: 'pull-request' as const, event: 'mentioned', subject: 'acme/widgets#12', from: 'you' as const, words: 'Make it keyboard accessible', url: 'https://github.com/acme/widgets/pull/12' }
+  assert.deepEqual(fitLeadTrigger(base), base)
+  assert.deepEqual(fitLeadTrigger({ ...base, url: 'http://github.com/acme/widgets/pull/12' }), { ...base, url: null })
+  const { words: _, ...wordless } = base
+  assert.deepEqual(fitLeadTrigger({ ...base, words: 'x'.repeat(LEAD_TRIGGER_WORDS_MAX + 1) }), wordless)
+  const secret = 'sk-ant-' + 'fixture-only-trigger-words'
+  assert.deepEqual(fitLeadTrigger({ ...base, words: `use ${secret}` }), wordless)
+  assert.equal(fitLeadTrigger({ ...base, event: 'checks failed!' }), undefined)
+  assert.equal(fitLeadTrigger(undefined), undefined)
+})
+
+test('#2183: a trigger never refuses a firing — words of astral characters fit the field in UTF-16 units', async t => {
+  // 200 astral characters are 200 code points but 400 UTF-16 units, and the protocol counts units.
+  const astral = await automatic(t)
+  const wide = await astral.owner.offerTrigger({ key: 'request-astral', project: astral.project.path, sentence: 'unused', fact: { ...request, body: '😀'.repeat(200), author: null, authorWrites: true } })
+  await astral.controls.idle()
+  assert.deepEqual(wide, { delivered: true })
+  const words = astral.journal.state.messages.find(one => one.source === 'automatic')!.trigger!.words!
+  assert.ok(words.length <= LEAD_TRIGGER_WORDS_MAX, `${words.length} units`)
+  assert.ok(words.endsWith('…') && words.startsWith('😀'))
+  assert.equal(parseLeadMessageTrigger({ source: 'pull-request', event: 'mentioned', subject: 'acme/widgets#12', words, url: null }).words, words)
+  // A lone surrogate is not well formed; it is dropped from the words rather than failing them.
+  const lone = await automatic(t)
+  assert.deepEqual(await lone.owner.offerTrigger({ key: 'request-lone', project: lone.project.path, sentence: 'unused', fact: { ...request, body: 'fix \uD83D this', author: null, authorWrites: true } }), { delivered: true })
+  await lone.controls.idle()
+  assert.equal(lone.journal.state.messages.find(one => one.source === 'automatic')!.trigger!.words, 'fix this')
+})
+
+test('#2183: a trigger never refuses a firing — a link the field refuses is dropped and the request still reaches the Lead, its prompt unchanged', async t => {
+  const plain = await automatic(t)
+  const insecure = 'http://github.com/acme/widgets/pull/12#issuecomment-21'
+  assert.deepEqual(await plain.owner.offerTrigger({ key: 'request-http', project: plain.project.path, sentence: 'unused', fact: { ...request, url: insecure, body: 'Make it keyboard accessible', author: null, authorWrites: true } }), { delivered: true })
+  await plain.controls.idle()
+  const sent = plain.journal.state.messages.find(one => one.source === 'automatic')!
+  assert.ok(sent.text.includes(insecure))
+  // The origin reads the repository from an https link only, so the subject stays the bare number here.
+  assert.deepEqual(sent.trigger, { source: 'pull-request', event: 'mentioned', subject: '12', from: 'collaborator', words: 'Make it keyboard accessible', url: null })
 })
