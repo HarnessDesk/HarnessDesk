@@ -113,3 +113,4 @@ const shutdown = async (signal: string): Promise<void> => {
 
 process.on('SIGINT', () => void shutdown('SIGINT'))
 process.on('SIGTERM', () => void shutdown('SIGTERM'))
+process.on('SIGHUP', () => void shutdown('SIGHUP'))

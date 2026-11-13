@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 
 import type { McpServerSpec } from '@harnessdesk/agent-inventory'
 
-import { groupKill, mcpTestEnvironment } from '../mcp-test.js'
+import { groupKill, killAwaitingGroups, mcpTestEnvironment, stopGroup } from '../mcp-test.js'
 
 /**
  * The one real road out of the gateway: a single bounded MCP exchange over
@@ -118,6 +118,7 @@ const tracked = (child: ChildProcess): void => {
 
 /** Kills every server child still running, outright, on the process's own `exit`. */
 function killRunningMcpServers(): void {
+  killAwaitingGroups()
   for (const child of unexited) {
     // The server and everything it started that stayed in its group.
     groupKill(child, 'SIGKILL')
@@ -169,13 +170,9 @@ async function withStdioMcpServer<T>(
     child.stdout.removeAllListeners('data')
     child.stderr.removeAllListeners('data')
     child.stdin.destroy()
-    if (!running()) return
-    groupKill(child, 'SIGTERM')
-    // A server that shrugs off SIGTERM is killed outright: an exchange never
-    // leaves a process behind it, however the server was written. The group is
-    // killed even when its leader has gone, for a process that outlived it.
-    const escalate = setTimeout(() => groupKill(child, 'SIGKILL'), KILL_GRACE_MS)
-    escalate.unref()
+    // The group is stopped even when its leader has already gone: whatever
+    // it started and left running is still in it.
+    stopGroup(child, KILL_GRACE_MS)
   }
 
   const failAll = (error: Error): void => {

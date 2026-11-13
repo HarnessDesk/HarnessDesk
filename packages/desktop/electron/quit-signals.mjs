@@ -11,4 +11,5 @@ export const attachQuitSignals = (app, signals = process) => {
   }
   signals.on('SIGTERM', quit)
   signals.on('SIGINT', quit)
+  signals.on('SIGHUP', quit)
 }
