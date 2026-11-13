@@ -1550,7 +1550,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
   const store = useStore(), runtime = useRuntime(), snapshot = useSnapshot()
   const { active } = useDestinationPage()
   const section: SettingsSection = route.kind === 'section' ? route.section === 'lead' && !snapshot.leadAvailable ? 'runtimes' : route.section : route.kind === 'project' ? 'workspaces' : route.kind === 'skill' ? 'skills' : 'runtimes'
-  const focus = route.kind === 'section' ? route.focus : null
+  const focus = route.kind === 'section' ? route.focus : null, nonce = route.kind === 'section' ? route.nonce : undefined
   const sectionRoute = (next: SettingsSection, nextFocus: string | null = null): void => onRoute({ kind: 'section', section: next, focus: nextFocus })
   const hasExtensions = runtime.capabilities.extensionStore || runtime.capabilities.mcp
   useEffect(() => {
@@ -1601,7 +1601,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
       onUse={() => store.returnToWork()} />}
     {section === 'permissions' && <PermissionsSection focus={focus} />}
     {section === 'browser' && <BrowserSection />}
-    {section === 'lead' && snapshot.leadAvailable && <LeadSettingsSection focus={focus} />}
+    {section === 'lead' && snapshot.leadAvailable && <LeadSettingsSection focus={focus} nonce={nonce} />}
     {section === 'phone' && <PhoneSettingsSection />}
   </Page>
 }

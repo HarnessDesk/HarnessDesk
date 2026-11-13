@@ -155,7 +155,7 @@ export const openLeadRefTarget = (store: Pick<AppStore, 'openSession' | 'openTea
   else if (target.kind === 'team') store.openTeamRoom(target.id)
   else if (target.kind === 'goal') store.openGoal(target.id)
   else if (target.kind === 'card' || target.kind === 'reminder') store.openDestination({ kind: 'lead', focus: target.id, nonce: ++doorClicks })
-  else if (target.kind === 'settings') store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: target.focus } })
+  else if (target.kind === 'settings') store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: target.focus, nonce: ++doorClicks } })
   else openExternal(`https://github.com/${target.repository}/pull/${target.number}`)
 }
 

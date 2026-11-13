@@ -115,7 +115,8 @@ const digestRef = (card: LeadWorkCard): LeadDigestRef => {
 const MODE_WORDS: Readonly<Record<LeadAutonomyMode, string>> = { off: 'Off', observe: 'Observe', act: 'Act' }
 /** A digest item id that fits the wire's 96 characters: the ref's own id when it does, so the same thing keeps one id. */
 const itemId = (prefix: string, id: string) => `${prefix}:${id}`.slice(0, 96)
-/** A setting change as the item that opens it, in the receipt's words; a deadline belongs to the goal, not to Settings. */
+/** A setting change as the item that opens it, in the receipt's words; a deadline belongs to the goal, not to Settings.
+ * The id moves with the setting's latest change, which is safe: a dismissal is kept by span and revision, never by id. */
 const settingItem = (change: LeadAutonomyChange): LeadDigestItem | null => {
   if (change.what === 'deadline') return null
   const [title, focus] = change.what === 'mode' ? [`${LEAD_AUTONOMY_LABELS[change.kind].title}, ${MODE_WORDS[change.to]}`, `autonomy:${change.kind}`]
@@ -123,12 +124,33 @@ const settingItem = (change: LeadAutonomyChange): LeadDigestItem | null => {
   return { kind: 'done', about: 'setting', id: itemId('setting', `${focus}:${change.at}`), title: clip(title, LEAD_PRESENCE_LIMITS.titleChars), fact: 'Applied in Settings',
     ref: { kind: 'setting', id: focus }, at: change.at }
 }
+/**
+ * The settings the person applied since `since`, one item per setting at where it ended (#2188): the person needs where
+ * each one stands, not every step it took. A mode that ended where it began in the window is left out; a section is
+ * told at its latest version. Versions only go up, so a section edited and then restored to its earlier words is still
+ * told: its words are not compared. A change after `before` (the end of an absence the away note tells) is outside the
+ * window, so it neither ends a setting's story nor dates its row.
+ */
+const settingItems = (changes: readonly LeadAutonomyChange[], since: number, before = Infinity): LeadDigestItem[] => {
+  const span = new Map<string, { first: LeadAutonomyChange; last: LeadAutonomyChange }>()
+  for (const change of [...changes].filter(one => one.at >= since && one.at <= before && one.what !== 'deadline').sort((a, b) => a.at - b.at)) {
+    const key = change.what === 'mode' ? `autonomy:${change.kind}` : change.what === 'rules' ? `rules:${change.section}` : ''
+    span.set(key, { first: span.get(key)?.first ?? change, last: change })
+  }
+  return [...span.values()].filter(({ first, last }) => !(first.what === 'mode' && last.what === 'mode' && last.to === first.from))
+    .sort((a, b) => a.last.at - b.last.at).flatMap(({ last }) => settingItem(last) ?? [])
+}
 /** An hour and minute in the desk's zone, as the away card titles its window: "09:27". */
 const hourMinute = (at: number) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
 /** What a named thing opens by: a Team, chat or work item by the kind and id a ref takes; a pull request or a decision
  * card, which no ref can link, by what it is and never by an id. */
 const awayRef = (ref: LeadDigestRef | undefined): string => !ref ? '' : ref.kind === 'pr' ? ' (a pull request)'
   : ref.kind === 'card' ? ' (a decision card in the conversation)' : ` (${ref.kind} ${ref.id})`
+/** What a fired reminder is about, by the ref its row opens: a work item, Team, chat or pull request. A reminder that
+ * opens itself is about nothing else. */
+const REMINDER_ABOUT: Partial<Record<LeadDigestRef['kind'], string>> = { work: 'a work item', team: 'a Team', chat: 'a chat' }
+const reminderAbout = (ref: LeadDigestRef | undefined): string => !ref ? '' : ref.kind === 'pr' ? ', about a pull request'
+  : REMINDER_ABOUT[ref.kind] ? `, about ${REMINDER_ABOUT[ref.kind]}${awayRef(ref)}` : ''
 /** The zone desk times are said in, by name when the host knows it. */
 const deskZone = (): string => { try { const zone = Intl.DateTimeFormat().resolvedOptions().timeZone; return zone ? ` (${zone})` : '' } catch { return '' } }
 const stored = (value: unknown): LeadDigest | undefined => { if (value === undefined) return undefined; try { return parseStoredLeadDigest(value) } catch { return undefined } }
@@ -387,8 +409,9 @@ export class LeadPresenceStore {
    * own Teams and chats that came to need the person or finished, unless the ledger already tells them; the reminders of
    * the person's that fired; the notes kept in memory; and the settings the person applied. The last three are what the
    * person or the Lead did rather than work that moved, so they come after it, and the desk's finished chats last of all.
+   * `before` ends the window for the settings, whose rows are judged over every change in it: the away note's absence.
    */
-  async #items(since: number, revision: number, until = Infinity): Promise<LeadDigestItem[]> {
+  async #items(since: number, revision: number, until = Infinity, before = Infinity): Promise<LeadDigestItem[]> {
     const [board, desk, notes, changes] = await Promise.all([this.ports.board().catch(() => null), this.ports.desk?.().catch(() => null) ?? null,
       this.ports.memory?.().catch(() => []) ?? [], this.ports.settings?.().catch(() => []) ?? []])
     const waiting: LeadDigestItem[] = [], stopped: LeadDigestItem[] = [], done: LeadDigestItem[] = []
@@ -428,7 +451,7 @@ export class LeadPresenceStore {
     const kept: LeadDigestItem[] = notes.filter(note => note.createdAt >= since && note.source.kind !== 'consolidation' && note.source.id !== 'migration')
       .sort((a, b) => a.createdAt - b.createdAt).map(note => ({ kind: 'done', about: 'memory', id: note.id, title: clip(note.text, LEAD_PRESENCE_LIMITS.titleChars) || 'A note',
         fact: 'Kept in memory', ref: { kind: 'memory', id: note.id }, at: note.createdAt }))
-    const applied = [...changes].filter(change => change.at >= since).sort((a, b) => a.at - b.at).flatMap(change => settingItem(change) ?? [])
+    const applied = settingItems(changes, since, before)
     return [...waiting, ...reminders, ...stopped, ...done, ...kept, ...applied, ...finished]
   }
 
@@ -637,24 +660,26 @@ export class LeadPresenceStore {
         .reduce<LeadDigest | undefined>((best, one) => !best || one.to > best.to ? one : best, undefined)
       const from = card?.from ?? away.from, to = card?.to ?? away.to
       // A ledger item is dated; a decision card is not, so it counts only when it waited by the revision at the return.
-      const found = card ? card.items : (await this.#items(away.from, away.revision, away.until ?? away.revision)).filter(entry => entry.at === undefined || entry.at <= away.to)
+      const found = card ? card.items : (await this.#items(away.from, away.revision, away.until ?? away.revision, away.to)).filter(entry => entry.at === undefined || entry.at <= away.to)
       const shown = found.slice(0, LEAD_PRESENCE_LIMITS.items), more = card ? card.more : found.length - shown.length
       const spent = card ? card.spentUsdMicros : this.#spentBetween(away.from, away.to), dollars = formatLeadDollars(spent)
       // A reminder is told below, with when it fired and the work item it is about; every other item by its group's name.
-      const ledger = shown.filter(entry => leadDigestGroup(entry) !== 'reminder')
+      // The reminders are the list's own reminder rows (#2187): the card's when there is one, so a reminder cleared from
+      // the board since, or a board that cannot be read now, never changes what the note says the card shows; one the
+      // card counted under "more" is counted there and not told again. Only with no card is the board read, for the list.
+      const ledger = shown.filter(entry => leadDigestGroup(entry) !== 'reminder'), reminders = shown.filter(entry => leadDigestGroup(entry) === 'reminder')
       const lines = ledger.map(entry => `- ${LEAD_DIGEST_GROUP_LABELS[leadDigestGroup(entry)]}: ${quoteLeadWorkText(entry.title, LEAD_PRESENCE_LIMITS.titleChars)}${awayRef(entry.ref)}`)
       if (more > 0) lines.push(`- and ${more} more`)
-      // The person's reminders that fired inside the window, with the work item each is about; the Lead's own are its business.
-      const board = await this.ports.board().catch(() => null)
-      const fired = (board?.reminders ?? []).filter(entry => entry.for === 'person' && entry.firedAt !== undefined && entry.firedAt >= from && entry.firedAt <= to).slice(0, LEAD_PRESENCE_LIMITS.items)
-        .map(entry => `- ${quoteLeadWorkText(entry.text, LEAD_PRESENCE_LIMITS.titleChars)} fired ${hourMinute(entry.firedAt!)}${entry.item ? `, about a work item${awayRef({ kind: 'work', id: entry.item })}` : ''}`)
+      // The person's reminders that fired inside the window, with what each is about; the Lead's own are its business.
+      const fired = reminders.map(entry => `- ${quoteLeadWorkText(entry.title, LEAD_PRESENCE_LIMITS.titleChars)}${entry.at === undefined ? '' : ` fired ${hourMinute(entry.at)}`}${reminderAbout(entry.ref)}`)
       const moved = lines.length ? `In that span:\n${lines.join('\n')}\n`
         : fired.length ? 'In that span nothing else finished, stopped or came to need them, nothing was kept in memory and no setting changed. '
         : 'In that span nothing finished, stopped or came to need them, no reminder fired, nothing was kept in memory and no setting changed. '
       const reminded = fired.length ? `Reminders that fired in that span:\n${fired.join('\n')}\n` : ''
       const said = card ? `${dollars} was spent in that span. That window, those items and that spend are what the person's away card shows: say them as given here. `
         : lines.length || fired.length || spent > 0 ? `${dollars} was spent in it. ` : 'Nothing was spent, so no away digest was shown. '
-      const linked = ledger.some(entry => entry.ref && entry.ref.kind !== 'pr' && entry.ref.kind !== 'card') || fired.some(line => line.includes('(work '))
+      const linked = ledger.some(entry => entry.ref && entry.ref.kind !== 'pr' && entry.ref.kind !== 'card')
+        || reminders.some(entry => entry.ref?.kind === 'work' || entry.ref?.kind === 'team' || entry.ref?.kind === 'chat')
       // The desk does not know a device's time zone: its times are the desk's, and named so.
       return `The person was away from ${deskTime(from)} to ${deskTime(to)}, desk time${deskZone()}: no window or phone of theirs was looked at in between. ${moved}${reminded}${said}` +
         (linked ? 'An id in parentheses after a kind, as in (team …), (chat …) or (work …), can be used as a ref: to link that item, add it to refs with that kind and id. ' : '') +

@@ -276,10 +276,6 @@ export const parseLeadPresenceView: Validator<LeadPresenceView> = (value, path =
   return { version: 1, digest: source.digest === null ? null : parseLeadDigest(source.digest, at(path, 'digest')), asks, brief: parseLeadBriefSettings(source.brief, at(path, 'brief')) }
 }
 /**
- * A short line for a push: what changed, in counts. Never model prose. A reminder is counted as one; a note kept or a
- * setting applied is the person's own doing and is not news for a push.
- */
-/**
  * What a push counts: what needs the person, reminders, work done and work stopped. Notes kept and settings applied are
  * told on the card, not pushed. Empty: the digest holds nothing a push would say, so the host sends none.
  */

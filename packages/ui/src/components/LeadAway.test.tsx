@@ -89,9 +89,9 @@ it('a note kept and a setting applied open their row in Settings; a reminder on 
   const openDestination = vi.spyOn(store, 'openDestination').mockImplementation(() => {})
   const card = box.querySelector<HTMLElement>('[data-slot="lead-away"]')!
   await act(async () => { card.querySelector<HTMLElement>('[data-digest-item="m2"]')!.click() })
-  expect(openDestination).toHaveBeenLastCalledWith({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: 'memory:m2' } })
+  expect(openDestination).toHaveBeenLastCalledWith({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: 'memory:m2', nonce: expect.any(Number) } })
   await act(async () => { card.querySelector<HTMLElement>('[data-digest-item^="setting:autonomy:brief:"]')!.click() })
-  expect(openDestination).toHaveBeenLastCalledWith({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: 'autonomy:brief' } })
+  expect(openDestination).toHaveBeenLastCalledWith({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: 'autonomy:brief', nonce: expect.any(Number) } })
   const desk = { chats: new Set<string>(), teams: new Set<string>(), goals: new Set<string>(), work: new Set<string>() } as never
   expect(leadDigestTarget({ kind: 'reminder', id: 'remind-9' }, desk)).toEqual({ target: { kind: 'reminder', id: 'remind-9' }, title: 'Show the reminder' })
   expect(leadDigestTarget({ kind: 'setting', id: 'rules:done' }, desk)).toEqual({ target: { kind: 'settings', focus: 'rules:done' }, title: 'Show the setting' })

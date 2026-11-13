@@ -1202,6 +1202,118 @@ test('the away card and "What happened?" tell one list: reminders, Teams and cha
   assert.equal(leadDigestPushText(digest, 'Dex').body, '1 needs you, 1 reminder, 1 done, 1 stopped')
 })
 
+// #2188: a sitting's What happened? listed seven "Settings applied" rows for two settings, every step each took, and
+// the 8-item card pushed five real items into "more". One row per setting now, at where it ended.
+test('#2188: settings applied are one row per setting at its latest value; a mode back where it began is no row', async t => {
+  let changes: LeadAutonomyChange[] = []
+  const r = await rig(t, { settings: async () => changes })
+  await r.store.read(desktop, { active: true })
+  const left = r.now(), at = (minutes: number) => left + minutes * MIN
+  r.tick(40 * MIN)
+  changes = [
+    { at: at(1), by: 'person', what: 'mode', kind: 'desk-change', from: 'observe', to: 'act' },
+    { at: at(2), by: 'person', what: 'rules', section: 'talk', version: 1, how: 'edit' },
+    { at: at(3), by: 'person', what: 'mode', kind: 'desk-change', from: 'act', to: 'observe' },
+    { at: at(4), by: 'person', what: 'rules', section: 'talk', version: 2, how: 'edit' },
+    { at: at(5), by: 'person', what: 'mode', kind: 'desk-change', from: 'observe', to: 'act' },
+    // Off, then on, then off again: it ended where it began, so nothing about it changed.
+    { at: at(6), by: 'person', what: 'mode', kind: 'stuck', from: 'off', to: 'observe' },
+    { at: at(7), by: 'person', what: 'rules', section: 'talk', version: 3, how: 'restore' },
+    { at: at(8), by: 'person', what: 'mode', kind: 'stuck', from: 'observe', to: 'off' },
+    // Before the person left: the window starts after it, so the brief's first change inside it is Observe → Act.
+    { at: left - 5 * MIN, by: 'person', what: 'mode', kind: 'brief', from: 'off', to: 'observe' },
+    { at: at(9), by: 'person', what: 'mode', kind: 'brief', from: 'observe', to: 'act' },
+    { at: at(10), by: 'person', what: 'mode', kind: 'brief', from: 'act', to: 'observe' },
+  ] as LeadAutonomyChange[]
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  assert.deepEqual(digest.items.map(item => [item.about, item.title, item.ref?.id, item.at]), [
+    ['setting', 'Desk-change reports, Act', 'autonomy:desk-change', at(5)],
+    ['setting', 'How to talk to me, version 3', 'rules:talk', at(7)],
+  ], 'one row each, at its latest value and when that was applied; Stuck nudges and the morning brief ended where they began')
+  assert.equal(digest.more, 0)
+  assert.equal(new Set(digest.items.map(item => item.id)).size, digest.items.length)
+  // What happened? and the away note read the same list.
+  const recap = (await r.store.read(desktop, { recap: true })).digest!
+  assert.deepEqual(recap.items.filter(item => item.about === 'setting').map(item => item.title), ['Desk-change reports, Act', 'How to talk to me, version 3', 'Morning brief, Observe'],
+    'the recap\'s day starts before the absence, where the brief was Off, so its ending at Observe is news there')
+  const note = (await r.store.awayNote())!
+  assert.equal(note.match(/Settings applied: /g)?.length, 2, note)
+})
+
+test('#2188: with the card dismissed, the away note judges a setting by the absence alone, not by a change after the return', async t => {
+  let changes: LeadAutonomyChange[] = []
+  const r = await rig(t, { settings: async () => changes })
+  await r.store.read(desktop, { active: true })
+  const left = r.now()
+  r.tick(40 * MIN)
+  changes = [{ at: left + 5 * MIN, by: 'person', what: 'mode', kind: 'desk-change', from: 'observe', to: 'act' }] as LeadAutonomyChange[]
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  assert.deepEqual(digest.items.map(item => item.title), ['Desk-change reports, Act'])
+  await r.store.dismiss(desktop, digest.id)
+  // After the return, the person puts it back: that is not part of the absence.
+  r.tick(MIN)
+  changes = [...changes, { at: r.now(), by: 'person', what: 'mode', kind: 'desk-change', from: 'act', to: 'observe' }] as LeadAutonomyChange[]
+  const note = (await r.store.awayNote())!
+  assert.match(note, /Settings applied: "Desk-change reports, Act"/, 'the change inside the absence is still told, as it was applied')
+})
+
+test('#2188: the item cap goes to work, not to the steps one setting took', async t => {
+  let changes: LeadAutonomyChange[] = [], items: LeadWorkCard[] = []
+  const r = await rig(t, { settings: async () => changes, board: async () => ({ version: 1, items, more: 0 }) })
+  await r.store.read(desktop, { active: true })
+  const left = r.now(), at = (minutes: number) => left + minutes * MIN
+  r.tick(40 * MIN)
+  changes = Array.from({ length: 6 }, (_, index) => ({ at: at(1 + index), by: 'person', what: 'mode', kind: 'desk-change',
+    from: index % 2 ? 'act' : 'observe', to: index % 2 ? 'observe' : 'act' })) as LeadAutonomyChange[]
+  changes.push(...[1, 2, 3].map(version => ({ at: at(10 + version), by: 'person', what: 'rules', section: 'talk', version, how: 'edit' }) as LeadAutonomyChange))
+  items = Array.from({ length: 7 }, (_, index) => work(`work-${index + 1}`, 'done', at(20 + index), { closedAt: at(20 + index), outcome: 'done' }))
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  assert.equal(digest.items.filter(item => item.about === undefined).length, 7, 'all seven pieces of work are listed')
+  assert.deepEqual(digest.items.filter(item => item.about === 'setting').map(item => item.title), ['How to talk to me, version 3'], 'the mode flipped back to Observe, where it began')
+  assert.equal(digest.more, 0)
+})
+
+// #2187: the away note took its reminders from the board, so a reminder cleared after the card was made dropped out of
+// it, a failed board read said none fired, and a reminder the card counted under "more" was told in full as well.
+test('#2187: the away note tells the reminders on the card, even when the board no longer has them or cannot be read', async t => {
+  let reminders: LeadReminder[] = [], fail = false
+  const r = await rig(t, { board: async () => { if (fail) throw new Error('board unreadable'); return { version: 1, items: [], more: 0, ...(reminders.length ? { reminders } : {}) } } })
+  await r.store.read(desktop, { active: true })
+  const left = r.now()
+  r.tick(40 * MIN)
+  reminders = [{ id: 'remind-2', text: 'Check the release notes', for: 'person', dueAt: left + 6 * MIN, createdAt: left - MIN, state: 'fired', firedAt: left + 6 * MIN }]
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  assert.deepEqual(digest.items.map(item => item.about), ['reminder'])
+  const fired = new RegExp(`Reminders that fired in that span:\n- "Check the release notes" fired ${new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(left + 6 * MIN)}\n`)
+  // The reminder is cleared from the board after the card was made: the card still shows it, so the note tells it.
+  reminders = []
+  const cleared = (await r.store.awayNote())!
+  assert.match(cleared, fired)
+  assert.ok(!/no reminder fired/.test(cleared), cleared)
+  assert.ok(!cleared.includes(', about'), 'a reminder that opens itself is about nothing else')
+  // The board cannot be read: the note still tells what the card shows.
+  fail = true
+  const unreadable = (await r.store.awayNote())!
+  assert.match(unreadable, fired)
+  assert.ok(!/no reminder fired/.test(unreadable), unreadable)
+})
+
+test('#2187: a reminder the card counted under "more" is counted in the away note, not told as well', async t => {
+  let reminders: LeadReminder[] = [], items: LeadWorkCard[] = []
+  const r = await rig(t, { board: async () => ({ version: 1, items, more: 0, ...(reminders.length ? { reminders } : {}) }) })
+  await r.store.read(desktop, { active: true })
+  const left = r.now(), at = (minutes: number) => left + minutes * MIN
+  r.tick(40 * MIN)
+  // Eight decisions come first, then the reminders: the card lists the eight and counts the two reminders.
+  items = Array.from({ length: LEAD_PRESENCE_LIMITS.items }, (_, index) => work(`work-${index + 1}`, 'needs-you', at(1 + index)))
+  reminders = [1, 2].map(index => ({ id: `remind-${index}`, text: `Reminder ${index}`, for: 'person', dueAt: at(20 + index), createdAt: left, state: 'fired', firedAt: at(20 + index) }) as LeadReminder)
+  const digest = (await r.store.read(desktop, { active: true })).digest!
+  assert.deepEqual([digest.items.length, digest.more, digest.items.some(item => item.about === 'reminder')], [LEAD_PRESENCE_LIMITS.items, 2, false])
+  const note = (await r.store.awayNote())!
+  assert.ok(note.includes('- and 2 more'), note)
+  assert.ok(!note.includes('Reminder 1') && !note.includes('Reminder 2') && !note.includes('Reminders that fired'), note)
+})
+
 test('a row whose note was forgotten, or whose reminder was cancelled, keeps its words and loses its door (#2147)', async t => {
   let notes: LeadMemoryEntry[] = [], reminders: LeadReminder[] = []
   const r = await rig(t, { board: async () => ({ version: 1, items: [], more: 0, ...(reminders.length ? { reminders } : {}) }), memory: async () => notes })
@@ -1312,7 +1424,8 @@ test('#2147: the away note gives the window and spend the card shows, the fired 
   assert.ok(!note.includes('While you were away') && !note.includes('spent while away'), 'never the card\'s own labels')
   assert.ok(note.includes('(team goal-game)'), `a Team names the id its link takes: ${note}`)
   assert.ok(note.includes('(chat fixture:s-7)'), note)
-  assert.match(note, /Reminders that fired in that span:\n- "Check the release notes" fired \d\d:\d\d, about a work item \(work work-2\)/)
+  // The reminder's row opens what its work item's row opens, the Team, and the note names it by that ref (#2187).
+  assert.match(note, /Reminders that fired in that span:\n- "Check the release notes" fired \d\d:\d\d, about a Team \(team goal-game\)/)
   assert.ok(!note.includes('remind-2'), 'a reminder id is no ref, so it is not printed')
   assert.ok(!note.includes('Earlier check'), 'a reminder that fired before they left is not in the window')
   assert.match(note, /An id in parentheses after a kind, as in \(team …\), \(chat …\) or \(work …\), can be used as a ref: to link that item, add it to refs with that kind and id/, 'the note says its ids are refs, in the parentheses it prints them in')

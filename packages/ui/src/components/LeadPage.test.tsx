@@ -1102,6 +1102,21 @@ it('#2147: a reminder door works on every click: closing the rail and clicking a
   expect(row()).not.toBeNull()
   expect(document.activeElement, 'and focuses the row again').toBe(row())
 })
+it('#2187: a reminder door into a folded Work card unfolds it and focuses the reminder', async () => {
+  const projection = leadProjection(), { store, box, request } = await mount(projection, false, true)
+  request.mockImplementation(async (method: string) => (method === 'lead/work/list' ? leadWorkFixture : projection) as never)
+  await act(async () => { await store.lead.readWork() })
+  if (!pageRailOpen(store.getSnapshot().workbench, 'lead')) await act(async () => store.togglePageRail('lead'))
+  const fold = () => box.querySelector<HTMLElement>('[data-testid="lead-rail"] section[aria-label="Work"] [data-slot="tool-section-fold"]')!
+  await act(async () => { fold().click() })
+  expect(fold().getAttribute('aria-expanded'), 'the person folded the Work card').toBe('false')
+  await act(async () => openLeadRefTarget(store, { kind: 'reminder', id: 'remind-1' }))
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  const row = box.querySelector<HTMLElement>('[data-testid="lead-rail"] [data-work-reminder="remind-1"]')!
+  expect(fold().getAttribute('aria-expanded'), 'the door unfolds it').toBe('true')
+  expect(row.closest('[hidden]')).toBeNull()
+  expect(document.activeElement).toBe(row)
+})
 it('#2147: a door to a reminder cancelled since lands on the Work card, not nowhere', async () => {
   const projection = leadProjection(), { store, box, request } = await mount(projection, false, true)
   request.mockImplementation(async (method: string) => (method === 'lead/work/list' ? leadWorkFixture : projection) as never)
