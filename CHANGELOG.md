@@ -5,7 +5,9 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.7.1 — 2026-11-13
+
+Your phone now hears when something needs you, sealed so the account service cannot read it. Sub-agents show as one flow, and Stop reaches them and what they left running. A conversation or a Team seat can carry on past a usage limit by a rule you set, an MCP server can be tested from the Library, the desk can be used from any MCP client, and a GitHub comment can ask the Lead. The Lead keeps a memory, rules and reminders you can read and correct, and tells you what changed while you were away. Codex 0.167 works.
 
 - **Your phone hears when something needs you.** While the desk is signed in with Reachable from your phone on, each phone the account linked to it gets a notification when something newly appears in the Inbox as needing you: the Lead's question, the Lead waiting on you, or a conversation or Team waiting on an approval or an answer. It names the conversation and says what it waits on, such as the command an approval asks to run. The desk seals it with that phone's own key, so the account service passes it on without being able to read it. Each item is pushed once, what already waited before is not pushed, and a phone paired only on this network gets none. A phone paired before this version receives its key the next time it connects.
 - **See sub-agents as they work.** When an agent starts sub-agents, its turn shows one card for them instead of a row per call: how many it started, which are working, done or failed, each child's model, time and tokens, what it was asked, and Open for a child with its own conversation, with a line while the agent waits on them. A strip over the composer names the children still working, the sidebar shows them as rows under their conversation, and the Agents panel groups them and draws who ran when on one clock. It reads the same for Codex, Claude Code and other agents that report sub-agents, including Codex 0.160, which announces its sub-agents in a new way. A Claude Code sub-agent that runs in the background no longer reads as done the moment it starts.
@@ -90,6 +92,7 @@ move is real work and is not news to a person weighing an upgrade.
 - **Review threads settle by outcome.** After a repair round, a thread the fix addressed is resolved without a reply, and a suggestion the agent declined gets one plain sentence, once, and stays open. A bot reviewer's threads on one pull request are settled in at most three repair rounds; a person's are not capped. Both show in the project's Git record.
 
 - **Idle conversations read back whole.** A conversation an agent replays from its own store, such as an OpenCode one, keeps its replies, its thinking and the turn times the desk recorded, on the desktop and the phone. It no longer says recent activity is still being saved when nothing is.
+- **Quitting, the conversation list and a following transcript stay steady.** A step that fails while the desk quits no longer leaves the next start thinking it crashed. Reading a conversation's history, as the phone does, no longer moves it in the list. A newly opened conversation keeps following the latest reply until you scroll, and a jump from the map stays where it landed. The built-in Agent files open from the running desk, and a file read that fails retries a few times instead of giving up.
 
 - **Manage conversations from your phone.** Rename, archive, unarchive and pin the desk's conversations; delete those whose agent moves them to the Trash. Pins follow you between the desk and phone.
 
