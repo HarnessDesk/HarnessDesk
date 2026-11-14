@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Keep earlier answered messages in order.** Earlier answered reminders and follow-up messages stay in order when a step’s saved record is missing.
+
 - **Keep reading while the Lead replies.** Holding a long scroll gesture no longer lets an arriving reply pull the conversation back to the bottom. A pending upward scroll is noticed before the new reply follows it.
 
 - **Continue after withheld earlier content.** Rejected text and tool content in the Lead's saved context are replaced with a durable placeholder, and the conversation shows one notice. Later requests stop re-sending that content.
