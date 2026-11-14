@@ -138,3 +138,19 @@ test('an unreadable repair marker still permits explicit repair without losing t
   assert.deepEqual(await controller.repair(), { lead: false, mobile: false })
   assert.ok((await readdir(home)).some(name => name.startsWith('features.json.repair.preserved-')))
 })
+
+
+test('portable choices are withheld during a serialized transition and return after acknowledgement', async t => {
+  const dir = tempDir('hd-feature-portable-')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  let entered!: () => void, release!: () => void
+  const waiting = new Promise<void>(resolve => { entered = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const features = new DeskFeatures(join(dir, 'features.json'), { lead: false, mobile: false }, async () => { entered(); await gate }, () => {})
+  assert.deepEqual(features.choices(), {})
+  const changing = features.set('mobile', true)
+  try { await waiting; assert.equal(features.choices(), null) }
+  finally { release(); await changing }
+  assert.deepEqual(features.choices(), { mobile: true })
+  await features.close()
+})

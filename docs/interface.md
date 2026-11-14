@@ -578,8 +578,8 @@ of this desk took the relay, or **Refused** when the account no longer lets the
 desk in. Its tooltip says what to do. **Linked phones** lists each phone
 and its last seen time; Unlink confirms before removing access. Sign in on a phone with the
 same account to add another. **Without an account** offers **Pair a phone with
-a code** through **Phone settings** when the host advertises LAN pairing. It
-stays disabled with **Not available in this build** when that capability is off.
+a code** through **Mobile settings**, including when Mobile is off so it can be
+enabled there.
 Account status comes from the host, independently of runtime accounts; credentials stay out of the renderer. Account pictures are bounded
 raster data supplied by the host; the renderer never loads the account’s
 remote picture URL, and the app’s image content policy stays unchanged.
@@ -593,8 +593,11 @@ the host's signed-out state after success. A failure stays in the confirmation;
 offline deletion says **Can't reach HarnessDesk. Try again when you're online.**
 and offers no local-only deletion.
 
-**Settings › Phone** appears when the host advertises local phone access
-(`HARNESSDESK_PHONE_LINK=1`). Show code displays a QR code that works once for
+**Settings › Mobile** is always in Access. **Enable Mobile** turns phone
+connections on or off immediately and keeps the explicit choice across launches.
+Off disconnects phones while retaining their pairings, and leaves the account
+signed in. Account relay access still needs **Reachable from your phone**.
+With Mobile on, Show code displays a QR code that works once for
 ten minutes; New code creates another. Scan it from a phone on the same network,
 or, while Reachable from your phone is on, from anywhere: the row says which.
 Then choose Allow or Not now on the desk. The global **Allow this phone?**
@@ -1195,6 +1198,18 @@ General, the runtime's New sessions section and Permissions › Approvals show
 the reason and keep the runtime's choices available for an explicit pick;
 a new conversation waits until its start values can be validated.
 
+General's backup includes explicit Lead and Mobile choices, including Off. A
+feature not yet chosen stays absent; an uncertain or changing feature snapshot
+is left out. Restore validates these choices before writing and applies them
+through the same live controls; a failure reports an error rather than a
+successful restore. Older backups preserve this desk's feature choices.
+
+Both enable controls show Starting or Stopping while a change is pending and
+On or Off only after the host acknowledges it. Damaged or interrupted feature
+settings show Needs repair and refuse changes. **Repair feature settings** asks
+first: it stops both features, keeps history and phone pairings, preserves the
+damaged files and acknowledges both as Off only after cleanup succeeds.
+
 Settings › General shows **Chats folder** with the host's current path, shortened
 in the middle when needed. **Change…** uses the existing folder picker and
 **Reset** restores `chats/` inside the host's data directory. The setting persists
@@ -1250,19 +1265,23 @@ Account slots stay with their runtime; the count is runtimes, not accounts.
 
 | Group | Pages |
 | --- | --- |
-| **Preferences** | Account · Lead (when enabled) · General · Appearance · Notifications · Keyboard shortcuts |
-| **Conversations** | Workspaces · History · Storage · Archive |
-| **Runtimes** | Runtimes · Models · Hooks · Extensions |
-| **Access** | Permissions · Phone (when available) · Browser |
+| **Preferences** | Account · General · Appearance · Notifications · Keyboard shortcuts |
+| **Agents** | Runtimes · Models · Lead · Hooks · Extensions |
+| **Conversations** | Workspaces · History · Archive · Storage |
+| **Access** | Mobile · Permissions · Browser |
 
 The order is the order a new window is read in: this app, how it looks, what
-it says; the work you have opened and put away; the runtimes and what each one
-brings; what any of them may do. What is shared across them — skills, MCP
+it says; the agents and what each one brings; the work you have opened and put
+away; how other devices and agents reach it and what they may do. What is shared
+across them — skills, MCP
 servers and plugins — is not a Settings page but the sidebar's **Customize**. Hooks and
 Extensions are the active runtime's own; their hover text names that runtime.
 The nav always offers Hooks and Extensions with the same labels and order,
 including before the runtime catalogue arrives. Capabilities govern the page's
 contents, never the presence or name of its navigation row.
+Lead and Mobile stay in the rail while off and open their own enable control;
+existing Lead and Phone links reach those pages too. Navigation glyphs use the
+shared hover/focus motion and remain still when reduced motion is requested.
 The Account page retains the older internal `profile` route. Presets are edited
 where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
@@ -2421,8 +2440,10 @@ After half an hour in which no window or phone was looked at, the next look show
 
 If a chat start or send loses its response after the effect may have begun, Lead waits with `lead-chat-effect-uncertain`. The notice says to inspect that chat on the desk and offers **Start new request**, using the existing person Stop action. Resume is unavailable. Sending before that acknowledgement returns specific feedback and leaves the draft intact. After successful Stop, the next separately typed person message starts a fresh logical goal; the original operation remains uncertain in the journal and is never replayed. Flow recovery, cleanup and allowance fences still apply.
 
-Lead is off by default; `HARNESSDESK_LEAD=1` enables it at startup. Its child
-needs a runtime whose permission model blocks the network; the desktop app
+Lead is off by default. Settings › Lead offers **Enable Lead**; the choice
+applies immediately and persists, overriding the launch default
+`HARNESSDESK_LEAD=1`. Turning it off stops Lead work and keeps history and
+settings. Its child needs a runtime whose permission model blocks the network; the desktop app
 carries one. Where no runtime passes the host's probe, Lead reports unavailable:
 a banner explains the requirement and gives the probe's reason, the composer and
 Send are disabled, and Restart is refused. Ordinary sessions and Settings
@@ -2562,7 +2583,7 @@ continues with those instructions. A revised plan proposed in the refused-start
 turn is retained for approval before the Lead parks.
 Reads back off to 30 seconds, read once more, then wait for changes.
 
-Settings › Lead exists only with the host capability. Its groups are Name,
+Settings › Lead always opens its enable control. Once enabled, its groups are Name,
 Provider key, Allowances, Permissions, Triggers and Memory. The chosen name saves immediately and changes
 no authority. The uncontrolled key input is emptied before its exclusive request,
 including refusal; removing a key asks for confirmation. Changed authority groups

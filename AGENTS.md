@@ -258,7 +258,14 @@ renderer. Every network request and its payload is documented in
 current. The Git plugin receives `ctx.forge`; publication uses the pinned host
 engine and records its outcome. Lead uses that same engine.
 
-Lead is enabled at startup with `HARNESSDESK_LEAD=1`. Its child runs on the
+Settings › Lead and Settings › Mobile always offer independent enablement
+controls. The host persists explicit choices in `features.json`; they override
+launch defaults (`HARNESSDESK_LEAD=1` and `HARNESSDESK_PHONE_LINK=1`) and apply
+without restarting. Feature changes run through one serialized host lifecycle;
+uncertain preferences require explicit repair, which preserves the damaged
+artifacts and stops both features before acknowledging Off. Backups carry only
+acknowledged partial choices, never launch defaults or transition/repair state.
+Lead's child runs on the
 first candidate runtime that passes a capability probe: the Lead's own flags,
 and a loopback connect the permission model must refuse. The desktop offers
 its Electron runtime, then a Node 26 LTS it bundles for the Lead alone; with
@@ -266,9 +273,10 @@ none passing, an enabled Lead reports unavailable, with the probe's reason, and
 refuses sends. CI runs the child and permission probes on Node 26; the package
 floor stays Node 22.19. Linux fixture
 jobs install zsh, which their scripted process and profile tests invoke.
-Local phone access is independently enabled with `HARNESSDESK_PHONE_LINK=1`.
-Settings › Phone pairs through a local code and desktop approval without an
-account link; it does not enable account relay transport.
+Mobile pairs through a local code and desktop approval without an account link.
+Turning Mobile off disconnects phones but retains pairings; turning Lead off
+stops its work but retains history. Neither changes the HarnessDesk account
+lifetime. Account relay transport still requires its separate Reachable choice.
 
 ## Writing plugins
 

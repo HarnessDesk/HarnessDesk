@@ -38,6 +38,7 @@ export class DeskFeatures {
   #problem: DeskFeatureProblem | undefined
   #tail: Promise<unknown> = Promise.resolve()
   #closed = false
+  #changing = false
   readonly #pending: string
   readonly #repairMarker: string
   constructor(private readonly file: string, defaults: Choices,
@@ -63,9 +64,14 @@ export class DeskFeatures {
   }
   read(): DeskFeatureState { return { ...this.#state, ...(this.#problem ? { problem: this.#problem } : {}) } }
   /** Portable explicit choices only. Unknown or transitional preferences never enter a backup. */
-  choices(): Partial<Choices> | null { return this.#problem ? null : { ...this.#choices } }
+  choices(): Partial<Choices> | null { return this.#problem || this.#changing ? null : { ...this.#choices } }
   #queue<T>(operation: () => Promise<T>): Promise<T> {
-    const next = this.#tail.then(() => { if (this.#closed) throw Error('The desk is closing.'); return operation() })
+    const next = this.#tail.then(async () => {
+      if (this.#closed) throw Error('The desk is closing.')
+      this.#changing = true
+      try { return await operation() }
+      finally { this.#changing = false }
+    })
     this.#tail = next.catch(() => {})
     return next
   }

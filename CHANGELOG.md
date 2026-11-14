@@ -5,6 +5,11 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **Turn Lead and Mobile on from Settings.** Both pages stay available while off, and their switches apply immediately and remember your choice. Turning Lead off stops its work and keeps history; turning Mobile off disconnects phones and keeps pairings. Account sign-in stays separate. Interrupted settings offer an explicit repair. Backups carry acknowledged choices, including Off, and a failed activation reports an error on restore.
+- **Settings follows the work.** Preferences, Agents, Conversations and Access group the pages in that order, with Lead under Agents and Mobile first in Access. Existing links still arrive, and every navigation glyph shares the app's hover and keyboard-focus motion, respecting reduced motion.
+
 ## 0.7.1 — 2026-11-13
 
 Your phone now hears when something needs you, sealed so the account service cannot read it. Sub-agents show as one flow, and Stop reaches them and what they left running. A conversation or a Team seat can carry on past a usage limit by a rule you set, an MCP server can be tested from the Library, the desk can be used from any MCP client, and a GitHub comment can ask the Lead. The Lead keeps a memory, rules and reminders you can read and correct, and tells you what changed while you were away. Codex 0.167 works.

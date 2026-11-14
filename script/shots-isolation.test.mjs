@@ -1016,3 +1016,41 @@ test('importing config.mjs for a fresh default-shaped home does not poison it fo
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+
+test('a fresh take clears feature choices, transition barriers and feature-owned Lead and phone state', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-features-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'home'), work = join(directory, 'work')
+  const seed = () => execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+    env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' }, stdio: 'pipe',
+  })
+  seed()
+  const files = ['features.json', 'features.json.pending', 'features.json.repair', 'features.json.preserved-fixture', 'features.json.pending.preserved-fixture', 'features.json.repair.preserved-fixture']
+  for (const file of files) writeFileSync(join(home, file), '{}')
+  for (const folder of ['lead', 'phone-link']) {
+    mkdirSync(join(home, folder), { recursive: true })
+    writeFileSync(join(home, folder, 'fixture.json'), '{}')
+  }
+  seed()
+  for (const name of [...files, 'lead', 'phone-link']) assert.equal(existsSync(join(home, name)), false, `${name} survived a seed`)
+})
+
+
+test('a symlinked feature recovery artifact refuses reseeding before any files are cleared', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-feature-link-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'home'), work = join(directory, 'work')
+  const seed = () => execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+    env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' }, stdio: 'pipe',
+  })
+  seed()
+  const before = readFileSync(join(home, 'agents.json'), 'utf8')
+  const elsewhere = join(directory, 'preserve.json')
+  writeFileSync(elsewhere, 'keep')
+  symlinkSync(elsewhere, join(home, 'features.json.repair.preserved-fixture'))
+  assert.throws(seed, /symlink/)
+  assert.equal(readFileSync(elsewhere, 'utf8'), 'keep')
+  assert.ok(lstatSync(join(home, 'features.json.repair.preserved-fixture')).isSymbolicLink())
+  assert.equal(readFileSync(join(home, 'agents.json'), 'utf8'), before)
+})

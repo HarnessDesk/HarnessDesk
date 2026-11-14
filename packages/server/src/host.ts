@@ -7346,7 +7346,7 @@ export class Host {
    */
   async #backupExport(): Promise<BackupFile> {
     await this.#goalStore.flush()
-    return {
+    const backup: BackupFile = {
       kind: 'harnessdesk-backup',
       version: 1,
       exportedAt: Date.now(),
@@ -7370,6 +7370,9 @@ export class Host {
       },
       memory: await exportMemory(this.#memoryBackupPort()),
     }
+    // Read the acknowledged snapshot last: other export stores may have awaited a live transition.
+    const choices = this.#features.choices()
+    return { ...backup, ...(choices === null ? {} : { features: { version: 1, choices } }) }
   }
 
   /**
@@ -7420,6 +7423,28 @@ export class Host {
       }
     }
 
+    // Like Goal preflight, reject the entire sidecar before any mutation. An absent key
+    // is not an explicit Off; older backups leave this desk's feature choices alone.
+    let featureChoices: NonNullable<BackupFile['features']>['choices'] = {}
+    if (file.features !== undefined) {
+      const payload: unknown = file.features
+      const record = (value: unknown): value is Record<string, unknown> =>
+        value !== null && typeof value === 'object' && !Array.isArray(value)
+      if (!record(payload) || payload['version'] !== 1 || !record(payload['choices']) ||
+        Object.keys(payload).some(key => key !== 'version' && key !== 'choices') ||
+        Object.entries(payload['choices']).some(([key, value]) => (key !== 'lead' && key !== 'mobile') || typeof value !== 'boolean')) {
+        throw new Error('The feature backup cannot be read.')
+      }
+      featureChoices = payload['choices']
+    }
+    for (const feature of ['lead', 'mobile'] as const) {
+      const enabled = featureChoices[feature]
+      if (enabled !== undefined) await this.#features.set(feature, enabled)
+    }
+    const acknowledged = this.#features.choices()
+    const featurePreferences = Object.entries(featureChoices).filter(([feature, enabled]) =>
+      acknowledged?.[feature as keyof typeof featureChoices] === enabled).length
+
     const agents = { restored: 0, skipped: 0 }
     const directory = this.options.agents
     const storedAgent = (id: string): boolean => directory?.entries().some(entry => entry['id'] === id) ?? false
@@ -7446,14 +7471,14 @@ export class Host {
       else agents.skipped += 1
     }
 
-    let preferences = 0
+    let preferences = featurePreferences
     const patch =
       typeof file.preferences === 'object' && file.preferences !== null ? file.preferences : {}
     if (Object.keys(patch).length > 0) {
       await this.#state.setPreferences(patch)
       if ('browserPrefs' in patch) this.#applyBrowserSettings()
       const applied = this.#state.state.preferences
-      preferences = Object.entries(patch).filter(
+      preferences += Object.entries(patch).filter(
         ([key, value]) => JSON.stringify(applied[key]) === JSON.stringify(value),
       ).length
     }
